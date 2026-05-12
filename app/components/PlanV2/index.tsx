@@ -240,6 +240,10 @@ export default function PlanV2() {
   // Mirrors the Year Planner's pattern: trial counts as paid.
   const [isPro, setIsPro] = useState<boolean>(false);
   const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
+  // Family name used as the print-sheet header label. Schema field is
+  // display_name (set during onboarding as "The {LastName} Family"); we
+  // fall back to "{first_name} Family" if display_name is unset.
+  const [familyName, setFamilyName] = useState<string>("Family Plan");
 
   useEffect(() => {
     if (!effectiveUserId) return;
@@ -247,17 +251,26 @@ export default function PlanV2() {
     (async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("school_days, is_pro, trial_started_at")
+        .select("school_days, is_pro, trial_started_at, display_name, first_name")
         .eq("id", effectiveUserId)
         .maybeSingle();
       if (cancelled) return;
       const row = data as
-        | { school_days?: string[] | null; is_pro?: boolean | null; trial_started_at?: string | null }
+        | {
+            school_days?: string[] | null;
+            is_pro?: boolean | null;
+            trial_started_at?: string | null;
+            display_name?: string | null;
+            first_name?: string | null;
+          }
         | null;
       const sd = row?.school_days;
       setSchoolDays(sd && sd.length > 0 ? sd : DEFAULT_SCHOOL_DAYS);
       setIsPro(!!row?.is_pro);
       setTrialStartedAt(row?.trial_started_at ?? null);
+      const dn = row?.display_name?.trim();
+      const fn = row?.first_name?.trim();
+      setFamilyName(dn && dn.length > 0 ? dn : fn && fn.length > 0 ? `${fn} Family` : "Family Plan");
     })();
     return () => { cancelled = true; };
   }, [effectiveUserId]);
@@ -2937,10 +2950,6 @@ export default function PlanV2() {
                 >
                   <FileText size={14} />
                 </button>
-                {/* Print button hidden per request — restore the button
-                    JSX below to re-enable. PlanPrintDialog mount,
-                    handlePickPrintMode, and the print sheets remain wired. */}
-                {/*
                 <button
                   type="button"
                   onClick={() => setPrintDialogOpen(true)}
@@ -2949,7 +2958,6 @@ export default function PlanV2() {
                 >
                   <Printer size={14} />
                 </button>
-                */}
               </div>
             </div>
 
@@ -3618,27 +3626,35 @@ export default function PlanV2() {
                 <DailyPrintSheet
                   date={todayDate}
                   childLabel={childLabel}
+                  familyName={familyName}
                   lessons={todayLessons}
                   appointments={todayAppts}
                   kids={filteredKids}
+                  curriculumGoals={curriculumGoals}
                 />
               ) : null}
               {activePrintMode === "weekly" ? (
                 <WeeklyPrintSheet
                   weekStart={weekStart}
                   childLabel={childLabel}
+                  familyName={familyName}
                   lessons={weekLessons}
                   appointments={weekAppts}
                   kids={filteredKids}
+                  curriculumGoals={curriculumGoals}
+                  schoolDays={schoolDays}
+                  vacationBlocks={vacationBlocks}
                 />
               ) : null}
               {activePrintMode === "monthly" ? (
                 <MonthlyPrintSheet
                   monthStart={monthStart}
                   childLabel={childLabel}
+                  familyName={familyName}
                   lessons={filteredLessons}
                   appointments={filteredAppointments}
                   vacationBlocks={vacationBlocks}
+                  curriculumGoals={curriculumGoals}
                   kids={filteredKids}
                 />
               ) : null}

@@ -1,55 +1,79 @@
 "use client";
 
 import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson } from "./types";
-import { CheckCircle, CornerLeaves, DateCircle, InlineLeaf, SectionDivider } from "./print-decorations";
+import { resolveChildColor } from "./colors";
 
-/* ============================================================================
- * DailyPrintSheet — single-day printable, portrait letter.
- *
- * Pure presentational. Hidden on screen, made visible only when the parent
- * sets `body.print-mode-daily`. The container's class `plan-print-sheet` is
+/* DailyPrintSheet. Single-day printable, portrait letter. Pure
+ * presentational. Hidden on screen, made visible only when the parent
+ * sets body.print-mode-daily. The container's class plan-print-sheet is
  * what the print-isolation CSS keys off; do not rename without updating
- * the rule in PlanV2/index.tsx.
- * ==========================================================================*/
+ * the rule in app/globals.css. */
 
-const PAPER_BG = "#FAF7F0";
-const INK = "#2d2926";
-const MUTED = "#7a6f65";
-const BRAND = "#3d5c42";
+const INK = "#1a2c22";
+const MUTED = "#555";
+const HAIRLINE = "#ede9e1";
+const RULE = "#d5d0c8";
+const SUMMARY_BG = "#f8f6f1";
+const SUMMARY_BORDER = "#e8e3d9";
+const NOTE_BG = "#f4faf4";
+const NOTE_BORDER = "#5c7f63";
+
+type Goal = { id: string; total_lessons: number | null };
 
 export interface DailyPrintSheetProps {
   date: Date;
-  childLabel: string;        // "Justin's Plan" or "All Kids"
+  childLabel: string;          // kept for backwards-compat; not rendered in the new design
+  familyName: string;
   lessons: PlanV2Lesson[];
   appointments: PlanV2Appointment[];
   kids: PlanV2Child[];
-  /** Optional — when provided + non-empty, a "My List" section renders
-   *  between Today's Lessons and Notes. Driven by the Today page's
-   *  DailyListCard. Plan-page printing leaves this undefined. */
+  curriculumGoals: Goal[];
+  /** Optional Today-page list — kept on the prop shape so the Today
+   *  integration doesn't break if it's revived later. Not rendered in
+   *  the new design. */
   dailyListItems?: { id: string; text: string; done: boolean }[];
 }
 
-function formatTime(t: string | null): string {
-  if (!t) return "";
-  const [h, m] = t.split(":").map(Number);
-  const h12 = ((h + 11) % 12) + 1;
-  const suf = h >= 12 ? "PM" : "AM";
-  return m === 0 ? `${h12} ${suf}` : `${h12}:${String(m).padStart(2, "0")} ${suf}`;
+function lessonSubject(l: PlanV2Lesson): string {
+  return l.subjects?.name ?? "Lesson";
 }
 
-function lessonTitle(l: PlanV2Lesson): string {
+function lessonTitleText(l: PlanV2Lesson): string {
   if (l.title && l.title.trim().length > 0) return l.title;
   if (l.lesson_number) return `Lesson ${l.lesson_number}`;
   return "Lesson";
 }
 
-export default function DailyPrintSheet(props: DailyPrintSheetProps) {
-  const { date, childLabel, lessons, appointments, kids, dailyListItems } = props;
-  const showDailyList = !!dailyListItems && dailyListItems.length > 0;
-  const childById = new Map(kids.map((k) => [k.id, k]));
+function todayPrintedLabel(): string {
+  return new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 
-  const dayName = date.toLocaleDateString("en-US", { weekday: "long" });
-  const monthYear = date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+export default function DailyPrintSheet(props: DailyPrintSheetProps) {
+  const { date, familyName, lessons, appointments, kids, curriculumGoals } = props;
+  const childIndex = new Map(kids.map((k, i) => [k.id, { child: k, index: i }]));
+  const goalById = new Map(curriculumGoals.map((g) => [g.id, g]));
+
+  const dateLabel = date.toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+  });
+
+  // Group lessons by child, in kids order (kids is sorted by created_at-ish via
+  // sort_order in the parent).
+  const lessonsByChild = new Map<string, PlanV2Lesson[]>();
+  const unassigned: PlanV2Lesson[] = [];
+  for (const l of lessons) {
+    if (l.child_id && childIndex.has(l.child_id)) {
+      const arr = lessonsByChild.get(l.child_id) ?? [];
+      arr.push(l);
+      lessonsByChild.set(l.child_id, arr);
+    } else {
+      unassigned.push(l);
+    }
+  }
+
+  const totalLessons = lessons.length;
+  const totalKids = kids.length;
+  const totalAppts = appointments.length;
 
   return (
     <div
@@ -58,217 +82,270 @@ export default function DailyPrintSheet(props: DailyPrintSheetProps) {
         position: "relative",
         width: "8.5in",
         minHeight: "11in",
-        background: PAPER_BG,
+        background: "#ffffff",
         color: INK,
-        padding: "0.55in 0.6in",
+        padding: "0.55in 0.6in 1in",
         boxSizing: "border-box",
-        fontFamily: "'Cormorant Garamond', Georgia, serif",
-        overflow: "hidden",
+        fontFamily: "Arial, Helvetica, sans-serif",
       }}
     >
-      <CornerLeaves position="top-right" />
-      <CornerLeaves position="bottom-left" />
+      <PrintHeader familyName={familyName} dateLabel={dateLabel} />
+      <PrintSummaryBar lessons={totalLessons} kids={totalKids} appts={totalAppts} />
 
-      {/* Date heading */}
-      <header style={{ display: "flex", alignItems: "center", gap: 18, marginBottom: 12 }}>
-        <DateCircle dateNumber={date.getDate()} size={92} />
-        <div>
-          <p
-            className="font-handwritten"
-            style={{ fontSize: 38, lineHeight: 1, color: BRAND, margin: 0 }}
-          >
-            {dayName}
-          </p>
-          <p
-            className="font-handwritten"
-            style={{ fontSize: 22, color: MUTED, margin: "4px 0 0", lineHeight: 1 }}
-          >
-            {monthYear}
-          </p>
-        </div>
-      </header>
-
-      <p
-        className="font-handwritten"
-        style={{ fontSize: 30, color: INK, margin: "10px 0 0", lineHeight: 1 }}
-      >
-        {childLabel}
-      </p>
-
-      <SectionDivider />
-
-      {/* Lessons */}
-      <section style={{ marginBottom: 16 }}>
-        <SectionLabel text="Today's Lessons" />
-        {lessons.length === 0 ? (
-          <p style={{ fontSize: 14, color: MUTED, fontStyle: "italic", margin: "6px 0 0" }}>
-            Free day — nothing scheduled.
-          </p>
-        ) : (
-          <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
-            {lessons.map((l) => {
-              const child = l.child_id ? childById.get(l.child_id) : undefined;
-              const subject = l.subjects?.name;
-              return (
-                <li
+      {/* Per-kid sections */}
+      <div style={{ marginTop: 18 }}>
+        {kids.map((k, i) => {
+          const items = lessonsByChild.get(k.id) ?? [];
+          if (items.length === 0) return (
+            <KidSection
+              key={k.id}
+              kid={k}
+              color={resolveChildColor(k, i)}
+              empty
+            />
+          );
+          return (
+            <KidSection key={k.id} kid={k} color={resolveChildColor(k, i)}>
+              {items.map((l) => (
+                <LessonRow
                   key={l.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 0",
-                    borderBottom: `0.5px dashed ${MUTED}`,
-                  }}
-                >
-                  <CheckCircle filled={l.completed} size={20} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p
-                      style={{
-                        margin: 0,
-                        fontSize: 17,
-                        color: INK,
-                        textDecoration: l.completed ? "line-through" : "none",
-                      }}
-                    >
-                      {lessonTitle(l)}
-                    </p>
-                    <p style={{ margin: "1px 0 0", fontSize: 12, color: MUTED }}>
-                      {subject ? <span>{subject} · </span> : null}
-                      {child ? child.name : null}
-                    </p>
-                  </div>
-                  {l.minutes_spent != null ? (
-                    <span style={{ fontSize: 12, color: MUTED, fontVariantNumeric: "tabular-nums" }}>
-                      {l.minutes_spent}m
-                    </span>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+                  lesson={l}
+                  color={resolveChildColor(k, i)}
+                  totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
+                />
+              ))}
+            </KidSection>
+          );
+        })}
+        {unassigned.length > 0 ? (
+          <KidSection kid={{ id: "__unassigned", name: "Unassigned", color: null, sort_order: null } as PlanV2Child} color="#7a6f65">
+            {unassigned.map((l) => (
+              <LessonRow
+                key={l.id}
+                lesson={l}
+                color="#7a6f65"
+                totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
+              />
+            ))}
+          </KidSection>
+        ) : null}
+      </div>
 
-      {/* Appointments */}
+      {/* Appointments — short list under the per-kid sections, only if any */}
       {appointments.length > 0 ? (
-        <section style={{ marginBottom: 16 }}>
-          <SectionLabel text="Appointments" />
-          <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
+        <div style={{ marginTop: 18 }}>
+          <p style={{ margin: 0, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: NOTE_BORDER }}>
+            Appointments
+          </p>
+          <ul style={{ listStyle: "none", padding: 0, margin: "6px 0 0" }}>
             {appointments.map((a) => (
-              <li
-                key={`${a.id}-${a.instance_date}`}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "8px 0",
-                  borderBottom: `0.5px dashed ${MUTED}`,
-                }}
-              >
-                <span style={{ fontSize: 18 }}>{a.emoji ?? "📍"}</span>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ margin: 0, fontSize: 16, color: INK }}>{a.title}</p>
-                  {a.location ? (
-                    <p style={{ margin: "1px 0 0", fontSize: 12, color: MUTED }}>{a.location}</p>
-                  ) : null}
-                </div>
-                <span
-                  className="font-handwritten"
-                  style={{ fontSize: 18, color: BRAND }}
-                >
-                  {a.time ? formatTime(a.time) : "All day"}
+              <li key={`${a.id}-${a.instance_date}`} style={{ display: "flex", alignItems: "baseline", gap: 8, padding: "4px 0", borderBottom: `0.5px solid ${HAIRLINE}` }}>
+                <span style={{ fontSize: 12, color: INK }}>{a.emoji ?? "📍"}</span>
+                <span style={{ flex: 1, fontSize: 12, color: INK }}>{a.title}</span>
+                <span style={{ fontSize: 11, color: MUTED, fontVariantNumeric: "tabular-nums" }}>
+                  {a.time ?? "All day"}{a.location ? ` · ${a.location}` : ""}
                 </span>
               </li>
             ))}
           </ul>
-        </section>
-      ) : null}
-
-      {/* My List — only renders if the parent supplied items */}
-      {showDailyList ? (
-        <section style={{ marginBottom: 16 }}>
-          <SectionLabel text="My List" />
-          <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0" }}>
-            {dailyListItems!.map((item) => (
-              <li
-                key={item.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "7px 0",
-                  borderBottom: `0.5px dashed ${MUTED}`,
-                }}
-              >
-                <CheckCircle filled={item.done} size={20} />
-                <p
-                  style={{
-                    margin: 0,
-                    flex: 1,
-                    fontSize: 16,
-                    color: INK,
-                    textDecoration: item.done ? "line-through" : "none",
-                  }}
-                >
-                  {item.text}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {/* Notes */}
-      <section>
-        <SectionLabel text="Notes" />
-        <div style={{ marginTop: 10 }}>
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div
-              key={i}
-              style={{
-                borderBottom: `0.5px solid ${MUTED}40`,
-                height: 26,
-              }}
-            />
-          ))}
         </div>
-      </section>
+      ) : null}
 
-      {/* Footer */}
-      <footer
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: "0.35in",
-          textAlign: "center",
-          fontSize: 9,
-          color: MUTED,
-          letterSpacing: "0.12em",
-          textTransform: "lowercase",
-        }}
-      >
-        rooted.
-      </footer>
+      <NotesSection
+        sublabel="For whoever is teaching today"
+        lineCount={4}
+      />
+      <PrintFooter />
     </div>
   );
 }
 
-function SectionLabel({ text }: { text: string }) {
+// ── Shared print primitives (inlined per sheet) ─────────────────────────────
+
+function PrintHeader({ familyName, dateLabel }: { familyName: string; dateLabel: string }) {
   return (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-      <InlineLeaf size={16} />
-      <p
-        className="font-handwritten"
+    <header
+      style={{
+        display: "flex",
+        alignItems: "flex-end",
+        justifyContent: "space-between",
+        gap: 16,
+        paddingBottom: 10,
+        borderBottom: `1.5px solid ${INK}`,
+      }}
+    >
+      <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: 28, width: "auto" }} />
+      <div style={{ textAlign: "right" }}>
+        <p style={{ margin: 0, fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED }}>
+          {familyName}
+        </p>
+        <p style={{ margin: "2px 0 0", fontSize: 13, fontWeight: 600, color: INK }}>
+          {dateLabel}
+        </p>
+      </div>
+    </header>
+  );
+}
+
+function PrintSummaryBar({ lessons, kids, appts }: { lessons: number; kids: number; appts: number }) {
+  return (
+    <div
+      style={{
+        marginTop: 12,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 14,
+        background: SUMMARY_BG,
+        border: `1px solid ${SUMMARY_BORDER}`,
+        borderRadius: 999,
+        padding: "5px 14px",
+        fontSize: 11,
+        color: MUTED,
+        fontFamily: "Arial, Helvetica, sans-serif",
+      }}
+    >
+      <SummaryItem n={lessons} label={lessons === 1 ? "lesson" : "lessons"} />
+      <span aria-hidden style={{ color: "#cfc9c0" }}>·</span>
+      <SummaryItem n={kids} label={kids === 1 ? "kid" : "kids"} />
+      {appts > 0 ? (
+        <>
+          <span aria-hidden style={{ color: "#cfc9c0" }}>·</span>
+          <SummaryItem n={appts} label={appts === 1 ? "appointment" : "appointments"} />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function SummaryItem({ n, label }: { n: number; label: string }) {
+  return (
+    <span>
+      <strong style={{ color: INK, fontWeight: 700 }}>{n}</strong>{" "}
+      {label}
+    </span>
+  );
+}
+
+function KidSection({
+  kid, color, empty, children,
+}: {
+  kid: PlanV2Child;
+  color: string;
+  empty?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <section style={{ marginBottom: 14 }}>
+      <header
         style={{
-          margin: 0,
-          fontSize: 26,
-          color: BRAND,
-          lineHeight: 1,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          paddingBottom: 4,
+          borderBottom: `1.5px solid ${color}`,
         }}
       >
-        {text}
-      </p>
+        <span aria-hidden style={{ width: 10, height: 10, borderRadius: "50%", background: color }} />
+        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color }}>
+          {kid.name}
+        </span>
+      </header>
+      <div style={{ paddingLeft: 18, paddingTop: 6 }}>
+        {empty ? (
+          <p style={{ margin: 0, fontSize: 11, fontStyle: "italic", color: "#aaa" }}>
+            Nothing scheduled
+          </p>
+        ) : children}
+      </div>
+    </section>
+  );
+}
+
+function LessonRow({
+  lesson, color, totalLessons,
+}: {
+  lesson: PlanV2Lesson;
+  color: string;
+  totalLessons: number | null;
+}) {
+  const subject = lessonSubject(lesson);
+  const title = lessonTitleText(lesson);
+  const showProgress = lesson.lesson_number != null && totalLessons != null && totalLessons > 0;
+  return (
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "4px 0", borderBottom: `0.5px solid ${HAIRLINE}` }}>
+      <span
+        aria-hidden
+        style={{
+          width: 13,
+          height: 13,
+          border: `1.5px solid ${color}`,
+          borderRadius: 3,
+          flexShrink: 0,
+          marginTop: 2,
+        }}
+      />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: INK }}>{subject}</p>
+        <p style={{ margin: "1px 0 0", fontSize: 11, color: MUTED }}>{title}</p>
+        {showProgress ? (
+          <p style={{ margin: "1px 0 0", fontSize: 10, color: "#aaa" }}>
+            Lesson {lesson.lesson_number} of {totalLessons}
+          </p>
+        ) : null}
+        {lesson.notes ? (
+          <p
+            style={{
+              margin: "4px 0 2px",
+              padding: "4px 8px",
+              fontSize: 11,
+              fontStyle: "italic",
+              fontFamily: "Georgia, serif",
+              color: NOTE_BORDER,
+              background: NOTE_BG,
+              borderLeft: `2px solid ${NOTE_BORDER}`,
+            }}
+          >
+            {lesson.notes}
+          </p>
+        ) : null}
+      </div>
     </div>
+  );
+}
+
+function NotesSection({ sublabel, lineCount }: { sublabel: string; lineCount: number }) {
+  return (
+    <section style={{ marginTop: 22, paddingTop: 10, borderTop: `1px solid ${HAIRLINE}` }}>
+      <p style={{ margin: 0, fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: NOTE_BORDER }}>
+        Notes
+      </p>
+      <p style={{ margin: "2px 0 0", fontSize: 10, fontStyle: "italic", color: "#aaa" }}>
+        {sublabel}
+      </p>
+      <div style={{ marginTop: 10 }}>
+        {Array.from({ length: lineCount }).map((_, i) => (
+          <div key={i} style={{ borderBottom: `0.5px solid ${RULE}`, height: 22 }} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PrintFooter() {
+  return (
+    <footer
+      style={{
+        position: "absolute",
+        left: 0,
+        right: 0,
+        bottom: "0.4in",
+        textAlign: "center",
+        fontSize: 10,
+        color: "#aaa",
+        fontFamily: "Arial, Helvetica, sans-serif",
+      }}
+    >
+      rootedhomeschoolapp.com · printed {todayPrintedLabel()}
+    </footer>
   );
 }
