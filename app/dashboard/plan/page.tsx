@@ -23,6 +23,7 @@ import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { useFeatureFlag } from "@/app/lib/feature-flags";
+import { logPlanEvent } from "@/lib/audit-log";
 import PlanV2 from "@/app/components/PlanV2";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -931,6 +932,15 @@ function PlanV1() {
     if (group.goalId) {
       await supabase.from("curriculum_goals").delete().eq("id", group.goalId);
       setCurriculumGoals((p) => p.filter((g) => g.id !== group.goalId));
+      void logPlanEvent({
+        userId: effectiveUserId,
+        type: "curriculum_goal.deleted",
+        payload: {
+          goal_id: group.goalId,
+          curriculum_name: group.curricName,
+          child_id: group.childId,
+        },
+      });
     }
     setAllLessons((p) => p.filter((l) => !ids.includes(l.id)));
     setLessons((p) => p.filter((l) => !ids.includes(l.id)));

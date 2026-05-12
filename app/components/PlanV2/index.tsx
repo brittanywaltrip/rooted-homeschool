@@ -872,6 +872,7 @@ export default function PlanV2() {
     recordEvent("curriculum_goal.deleted", {
       goal_id: goal.id,
       curriculum_name: goal.curriculum_name,
+      child_id: goal.child_id,
     });
     setOpenBackfillGoalId((id) => (id === goal.id ? null : id));
     reloadGoals();
