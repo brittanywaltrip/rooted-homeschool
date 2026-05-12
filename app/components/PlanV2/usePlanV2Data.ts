@@ -108,7 +108,8 @@ export function usePlanV2Data(opts: {
       .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color)")
       .eq("user_id", effectiveUserId)
       .gte("scheduled_date", startStr)
-      .lte("scheduled_date", endStr);
+      .lte("scheduled_date", endStr)
+      .order("lesson_number", { ascending: true });
 
     const apptReq = token
       ? fetch(`/api/appointments?date=${startStr}&end=${endStr}`, {

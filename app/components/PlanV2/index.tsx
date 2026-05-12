@@ -580,6 +580,7 @@ export default function PlanV2() {
           from_date: from,
           actor: "user",
         });
+        flashNotice("Lesson skipped");
       }
     },
     [skipLesson, recordEvent],
@@ -2890,7 +2891,7 @@ export default function PlanV2() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => flashNotice("Adding an appointment from Plan lands in a later phase. Use the old Plan page to add one for now.")}
+                  onClick={() => handleMenuAddAppointment(todayStr)}
                   className="pencil-btn"
                 >
                   <Plus size={13} /> Appt
