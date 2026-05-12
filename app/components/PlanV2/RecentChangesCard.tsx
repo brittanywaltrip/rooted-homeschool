@@ -74,7 +74,7 @@ export default function RecentChangesCard(props: RecentChangesCardProps) {
     initialPageSize = DEFAULT_PAGE_SIZE,
   } = props;
 
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(true);
   const [visibleCount, setVisibleCount] = useState(initialPageSize);
 
   const last7d = useMemo(() => countEventsInLastDays(events, 7), [events]);

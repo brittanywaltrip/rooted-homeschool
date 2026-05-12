@@ -1,17 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, GripVertical, X } from "lucide-react";
+import { Calendar, Check, ChevronLeft, ChevronRight, GripVertical, Pencil, X } from "lucide-react";
 import { resolveChildColor } from "./colors";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
+import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
 
-/* WeekListView. Renders all 7 days of the current week (Mon–Sun) expanded
- * vertically. Replaces WeekStrip in week mode. Edit mode swaps a per-card
- * drag handle in; tapping it opens a bottom-sheet day picker for moving
- * the lesson to another day in the same week. Native dnd-kit drag wiring
- * elsewhere in PlanV2 is intentionally untouched and remains inert here
- * until a follow-up consolidates the two move flows. */
+/* WeekListView. Renders all 7 days of the current week (Mon..Sun) expanded
+ * vertically. Card visual style matches V1 (light child-color tint, full
+ * lesson title, inline action buttons). Edit-week mode swaps the card click
+ * to the day-picker bottom sheet for moving a lesson. Native dnd-kit drag
+ * wiring elsewhere in PlanV2 is intentionally untouched and remains inert
+ * inside this component until a follow-up consolidates the two move flows. */
 
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -26,13 +27,14 @@ function mondayOf(d: Date): Date {
   return x;
 }
 
-const DAY_NAMES = ["MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY"];
+const DAY_NAMES_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 type Goal = {
   id: string;
   curriculum_name: string | null;
   subject_label: string | null;
   child_id: string | null;
+  icon_emoji: string | null;
 };
 
 type Props = {
@@ -44,25 +46,35 @@ type Props = {
   vacationBlocks: PlanV2Vacation[];
   curriculumGoals: Goal[];
   loading: boolean;
+  isPartner: boolean;
   editMode: boolean;
   onToggleEdit: () => void;
   onPrevWeek: () => void;
   onNextWeek: () => void;
   weekRangeLabel: string;
   onMoveLesson: (lessonId: string, targetDate: string) => void | Promise<void>;
-  /** Tap on a lesson card in non-edit mode. Caller opens the day-detail
-   *  panel for the lesson's date. */
+  /** Tap a lesson card in non-edit mode. Caller opens DayDetailPanel. */
   onLessonClick: (lesson: PlanV2Lesson) => void;
-  /** Tap on an appointment card. Caller opens the day-detail panel for
-   *  the appointment's instance_date. */
+  /** Tap an appointment card. Caller opens DayDetailPanel. */
   onAppointmentClick: (appt: PlanV2Appointment) => void;
+  /** Inline action wiring (V2 equivalents of V1's per-card actions). */
+  onSkipLesson: (lesson: PlanV2Lesson) => void;
+  onRescheduleLesson: (lesson: PlanV2Lesson) => void;
+  onEditLesson: (lesson: PlanV2Lesson) => void;
+  onToggleLessonDone: (lesson: PlanV2Lesson) => void;
+  /** "+ Add lesson" link below the day section. */
+  onAddLessonForDay: (dateStr: string) => void;
+  /** "Mark as break →" header link. */
+  onMarkBreakForDay: (dateStr: string) => void;
 };
 
 export default function WeekListView(props: Props) {
   const {
     weekStart, todayStr, kids, lessons, appointments, vacationBlocks,
-    curriculumGoals, loading, editMode, onToggleEdit, onPrevWeek, onNextWeek,
-    weekRangeLabel, onMoveLesson, onLessonClick, onAppointmentClick,
+    curriculumGoals, loading, isPartner, editMode, onToggleEdit, onPrevWeek,
+    onNextWeek, weekRangeLabel, onMoveLesson, onLessonClick, onAppointmentClick,
+    onSkipLesson, onRescheduleLesson, onEditLesson, onToggleLessonDone,
+    onAddLessonForDay, onMarkBreakForDay,
   } = props;
 
   const days = useMemo(() => {
@@ -121,11 +133,6 @@ export default function WeekListView(props: Props) {
 
   return (
     <div className="px-4 pb-4">
-      {/* Page context — one line above the week header. */}
-      <p className="text-[12px] text-[#7a6f65] mb-3">
-        Plan page, your week at a glance. Tap Edit to move things around.
-      </p>
-
       {/* Header row: prev/next + range + Edit week. */}
       <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2">
@@ -156,15 +163,15 @@ export default function WeekListView(props: Props) {
           className={`text-[13px] font-semibold px-4 py-2 rounded-full transition-colors ${
             editMode
               ? "bg-[#2D5A3D] text-white hover:bg-[#244830]"
-              : "bg-[#2D5A3D] text-white hover:bg-[#244830]"
+              : "bg-white text-[#2D5A3D] border border-[#2D5A3D] hover:bg-[#f0f7f1]"
           }`}
         >
           {editMode ? "Done" : "Edit week"}
         </button>
       </div>
 
-      {/* 7-day vertical list. */}
-      <div className="space-y-0">
+      {/* 7 day sections, each its own distinct card. */}
+      <div className="space-y-3">
         {days.map((day, idx) => {
           const key = ymd(day);
           const isToday = key === todayStr;
@@ -172,122 +179,232 @@ export default function WeekListView(props: Props) {
           const dayAppts = apptsByDay.get(key) ?? [];
           const vac = isVacationDay(key);
           const dateLabel = day.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-          const dayHeaderColor = isToday ? "#2D5A3D" : "#7a6f65";
+          const headerColor = isToday ? "#2D5A3D" : "#8B7E74";
+          const headerLabel = `${DAY_NAMES_FULL[idx].toUpperCase()}, ${dateLabel.toUpperCase()}`;
 
           return (
             <div
               key={key}
-              className={`py-3 ${idx > 0 ? "border-t border-[#f0ede8]" : ""}`}
+              className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3"
             >
               {/* Day header */}
-              <div className="flex items-center justify-between mb-2">
-                <span
-                  className="text-[12px] font-bold uppercase tracking-wider"
-                  style={{ color: dayHeaderColor }}
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p
+                  className="text-[11px] font-semibold uppercase tracking-wide"
+                  style={{ color: headerColor }}
                 >
-                  {DAY_NAMES[idx]}
-                </span>
-                <span
-                  className="text-[12px] font-medium"
-                  style={{ color: dayHeaderColor }}
-                >
-                  {dateLabel}
-                </span>
+                  {headerLabel}
+                </p>
+                {!isPartner && !vac.vacation ? (
+                  <button
+                    type="button"
+                    onClick={() => onMarkBreakForDay(key)}
+                    className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors min-h-[32px] px-1"
+                  >
+                    Mark as break →
+                  </button>
+                ) : null}
               </div>
 
-              {/* Vacation note */}
               {vac.vacation ? (
-                <p className="text-[12px] text-[#7a5000] italic mb-1">
-                  🌴 {vac.name ?? "Break"}
-                </p>
+                <p className="text-[12px] text-[#7a5000] italic mb-2 pl-1">🌴 {vac.name ?? "Break"}</p>
               ) : null}
 
-              {/* Lesson + appointment cards or empty state */}
+              {/* Lessons + appointments, or empty state */}
               {!loading && dayLessons.length === 0 && dayAppts.length === 0 ? (
-                <p className="text-[12px] text-[#9a8f86] italic">Nothing scheduled</p>
+                <div className="rounded-xl text-center" style={{ background: "#F8F7F4", border: "1px solid #e5e0d8", padding: 18 }}>
+                  {vac.vacation ? (
+                    <p className="text-sm text-[#7a5000]">🌴 {vac.name ?? "Break"}, enjoy the time off!</p>
+                  ) : (
+                    <p className="text-sm text-[#5C5346]">☀️ Nothing scheduled, enjoy the day!</p>
+                  )}
+                </div>
               ) : (
                 <div className="space-y-2">
                   {dayLessons.map((l) => {
                     const childCtx = l.child_id ? childById.get(l.child_id) : undefined;
-                    const color = resolveChildColor(childCtx?.child ?? null, childCtx?.index ?? 0);
+                    const kidColor = resolveChildColor(childCtx?.child ?? null, childCtx?.index ?? 0);
                     const goal = l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id) : undefined;
                     const subject =
                       resolveLessonSubject(l.subjects?.name, goal?.subject_label ?? null) ??
                       goal?.curriculum_name ??
                       "Lesson";
-                    const lessonNum = l.lesson_number;
-                    const titleText = lessonNum != null ? `${subject} · L${lessonNum}` : subject;
+                    const childName = childCtx?.child.name ?? null;
+                    const titleText = l.title && l.title.trim().length > 0
+                      ? l.title
+                      : goal?.curriculum_name ?? "Lesson";
+                    const kidBg = tintFromHex(kidColor, 0.25);
+                    const kidTitle = darkenHex(kidColor, 0.45);
+                    const kidSubtle = darkenHex(kidColor, 0.30);
+                    const kidPillBg = tintFromHex(kidColor, 0.35);
+                    const kidPillText = darkenHex(kidColor, 0.55);
+                    const icon = goal?.icon_emoji ?? "📚";
+
+                    const editStyleExtras = editMode
+                      ? "ring-2 ring-dashed ring-[#5c7f63]/60 ring-offset-2 ring-offset-white shadow-md"
+                      : "";
+
+                    const subtitleText = subject
+                      ? `${subject}${childName ? ` · ${childName}` : ""}`
+                      : null;
+
                     return (
-                      <button
+                      <div
                         key={l.id}
-                        type="button"
-                        onClick={() => {
-                          if (editMode) {
-                            setMoveTarget({ lessonId: l.id, fromDate: key });
-                          } else {
-                            onLessonClick(l);
-                          }
-                        }}
-                        aria-label={
-                          editMode
-                            ? `Move ${titleText} to a different day`
-                            : `Open ${titleText} details`
-                        }
-                        className={`relative w-full text-left rounded-xl overflow-hidden transition-transform active:scale-[0.99] ${l.completed ? "opacity-60" : ""}`}
-                        style={{ background: "#1f2a26" }}
+                        className={`rounded-xl ${l.completed ? "opacity-60" : ""} ${editStyleExtras}`}
+                        style={{ background: kidBg }}
                       >
-                        <div
-                          aria-hidden="true"
-                          className="absolute left-0 top-0 bottom-0 w-1.5"
-                          style={{ background: color }}
-                        />
-                        <div className="flex items-center gap-3 pl-4 pr-3 py-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (editMode) {
+                              setMoveTarget({ lessonId: l.id, fromDate: key });
+                            } else {
+                              onLessonClick(l);
+                            }
+                          }}
+                          aria-label={
+                            editMode
+                              ? `Move ${titleText} to a different day`
+                              : `Open ${titleText} details`
+                          }
+                          className="w-full text-left flex items-center gap-3 px-4 py-2.5"
+                        >
+                          <span className="text-xl shrink-0">{icon}</span>
                           <div className="flex-1 min-w-0">
-                            <p
-                              className={`text-[14px] font-semibold truncate ${l.completed ? "line-through" : ""}`}
-                              style={{ color: "#f5efe6" }}
-                            >
-                              {titleText}
-                            </p>
-                            <p className="text-[11px] mt-0.5" style={{ color: "#a8a094" }}>
-                              {subject}
-                            </p>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`text-[14px] font-medium truncate ${l.completed ? "line-through" : ""}`}
+                                style={{ color: l.completed ? "#b5aca4" : kidTitle }}
+                              >
+                                {titleText}
+                              </span>
+                              {l.completed ? (
+                                <span
+                                  className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
+                                  style={{ background: kidTitle, color: "white" }}
+                                >
+                                  ✓ Done
+                                </span>
+                              ) : (
+                                <span
+                                  className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
+                                  style={{ background: kidPillBg, color: kidPillText }}
+                                >
+                                  Lesson
+                                </span>
+                              )}
+                            </div>
+                            {subtitleText ? (
+                              <p className="text-xs mt-0.5" style={{ color: kidSubtle }}>
+                                {subtitleText}
+                              </p>
+                            ) : null}
+                            {l.notes ? (
+                              <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{l.notes}</p>
+                            ) : null}
                           </div>
                           {editMode ? (
                             <span
                               aria-hidden="true"
-                              className="flex items-center justify-center w-9 h-9 rounded-lg text-[#a8a094]"
+                              className="flex items-center justify-center w-8 h-8 rounded-lg text-[#5c7f63]"
                             >
                               <GripVertical size={18} />
                             </span>
                           ) : null}
-                        </div>
-                      </button>
+                        </button>
+
+                        {/* Action row (hidden in edit mode to keep the move target unambiguous) */}
+                        {!isPartner && !editMode ? (
+                          <div className="px-4 pb-2.5">
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onLessonClick(l); }}
+                                aria-label={l.notes ? "Edit note" : "Add a note"}
+                                className="inline-flex items-center min-h-[40px] -ml-1 px-2 text-[13px] font-medium hover:text-[var(--g-deep)] transition-colors"
+                                style={{ color: l.notes ? "#2D5A3D" : "#5c7f63" }}
+                              >
+                                <Pencil size={14} className="mr-1.5" />
+                                {l.notes ? "Edit note" : "+ Add a note"}
+                              </button>
+                              <span aria-hidden="true" className="text-[#cfc9c0] select-none">·</span>
+                              {l.completed ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onToggleLessonDone(l); }}
+                                  aria-label="Mark not done"
+                                  className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
+                                >
+                                  <X size={14} /> Mark not done
+                                </button>
+                              ) : (
+                                <>
+                                  {key < todayStr ? (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); onToggleLessonDone(l); }}
+                                      aria-label={`Mark complete on ${key}`}
+                                      className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                                    >
+                                      <Check size={14} /> Mark complete
+                                    </button>
+                                  ) : null}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); onSkipLesson(l); }}
+                                    aria-label="Skip this lesson"
+                                    className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
+                                  >
+                                    <X size={14} /> Skip
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); onRescheduleLesson(l); }}
+                                    aria-label="Reschedule this lesson"
+                                    className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                                  >
+                                    <Calendar size={14} /> Reschedule
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onEditLesson(l); }}
+                                aria-label="Edit this lesson"
+                                className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                              >
+                                <Pencil size={14} /> Edit
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                     );
                   })}
 
-                  {/* Appointments — same dark card shell, purple accent. */}
+                  {/* Appointments — kept distinct via purple accent. */}
                   {dayAppts.map((a) => (
                     <button
                       key={`${a.id}-${a.instance_date}`}
                       type="button"
                       onClick={() => onAppointmentClick(a)}
                       aria-label={`Open ${a.title} details`}
-                      className={`relative w-full text-left rounded-xl overflow-hidden transition-transform active:scale-[0.99] ${a.completed ? "opacity-60" : ""}`}
-                      style={{ background: "#1f2a26" }}
+                      className={`w-full text-left rounded-xl ${a.completed ? "opacity-50" : ""}`}
+                      style={{ background: "linear-gradient(to bottom right, #f5f0ff, #ede5ff)", border: "1px solid #e8deff" }}
                     >
-                      <div
-                        aria-hidden="true"
-                        className="absolute left-0 top-0 bottom-0 w-1.5"
-                        style={{ background: "#a78bfa" }}
-                      />
-                      <div className="flex items-center gap-3 pl-4 pr-3 py-3">
-                        <span className="text-base">{a.emoji ?? "📅"}</span>
+                      <div className="flex items-center gap-3 px-4 py-2.5">
+                        <span className="text-xl shrink-0">{a.emoji ?? "📅"}</span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-[14px] font-semibold truncate" style={{ color: "#f5efe6" }}>
-                            {a.title}
-                          </p>
-                          <p className="text-[11px] mt-0.5" style={{ color: "#a8a094" }}>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[14px] font-medium truncate ${a.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                              {a.title}
+                            </span>
+                            <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#ede9fe] text-[#6d28d9]">
+                              Appt
+                            </span>
+                          </div>
+                          <p className="text-xs text-[#7a6f65] mt-0.5">
                             {a.time
                               ? (() => {
                                   const [h, m] = a.time.split(":").map(Number);
@@ -302,6 +419,17 @@ export default function WeekListView(props: Props) {
                   ))}
                 </div>
               )}
+
+              {/* + Add lesson under each day */}
+              {!isPartner ? (
+                <button
+                  type="button"
+                  onClick={() => onAddLessonForDay(key)}
+                  className="text-[13px] text-[#7a6f65] hover:text-[#5a4f45] font-medium mt-2 pl-1"
+                >
+                  + Add lesson
+                </button>
+              ) : null}
             </div>
           );
         })}
@@ -332,26 +460,31 @@ export default function WeekListView(props: Props) {
             </div>
             <div className="space-y-1.5">
               {days.map((d, idx) => {
-                const key = ymd(d);
-                const isFrom = key === moveTarget.fromDate;
-                const label = `${DAY_NAMES[idx][0] + DAY_NAMES[idx].slice(1).toLowerCase()}, ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+                const k = ymd(d);
+                const isFrom = k === moveTarget.fromDate;
+                const dateLong = d.toLocaleDateString("en-US", { month: "long", day: "numeric" });
+                const label = `${DAY_NAMES_FULL[idx]}, ${dateLong}`;
                 return (
                   <button
-                    key={key}
+                    key={k}
                     type="button"
                     disabled={isFrom}
                     onClick={() => {
-                      void onMoveLesson(moveTarget.lessonId, key);
+                      void onMoveLesson(moveTarget.lessonId, k);
                       setMoveTarget(null);
                     }}
-                    className={`w-full text-left px-4 py-3 rounded-xl text-[14px] transition-colors ${
+                    className={`w-full flex items-center justify-between gap-2 text-left px-4 py-3 rounded-xl text-[14px] transition-colors ${
                       isFrom
-                        ? "bg-[#f0ede8] text-[#9a8f86] cursor-not-allowed"
+                        ? "bg-[#f0f7f1] text-[#2D5A3D] cursor-not-allowed"
                         : "bg-[#faf8f4] text-[#2D2A26] hover:bg-[#e8f0e9]"
                     }`}
                   >
-                    {label}
-                    {isFrom ? <span className="text-[11px] text-[#9a8f86] ml-2">(current)</span> : null}
+                    <span>{label}</span>
+                    {isFrom ? (
+                      <span className="flex items-center gap-1 text-[11px] text-[#2D5A3D] font-medium">
+                        <Check size={14} /> current
+                      </span>
+                    ) : null}
                   </button>
                 );
               })}

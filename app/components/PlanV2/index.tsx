@@ -315,6 +315,7 @@ export default function PlanV2() {
     completed_at: string | null;
     created_at: string | null;
     start_date: string | null;
+    icon_emoji: string | null;
   };
   const [curriculumGoals, setCurriculumGoals] = useState<GoalFull[]>([]);
   const [goalsReloadNonce, setGoalsReloadNonce] = useState(0);
@@ -337,7 +338,7 @@ export default function PlanV2() {
     (async () => {
       const { data } = await supabase
         .from("curriculum_goals")
-        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, default_minutes, completed_at, created_at, start_date")
+        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji")
         .eq("user_id", effectiveUserId)
         .order("created_at");
       if (cancelled) return;
@@ -3074,11 +3075,21 @@ export default function PlanV2() {
                     onNextWeek={nextMonth}
                     weekRangeLabel={monthLabel}
                     onMoveLesson={moveLessonToDate}
+                    isPartner={isPartner}
                     onLessonClick={(lesson) => {
                       const d = lesson.scheduled_date ?? lesson.date;
                       if (d) setOpenDayStr(d);
                     }}
                     onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                    onSkipLesson={(l) => { void skipLessonWithLog(l); }}
+                    onRescheduleLesson={(l) => {
+                      const fromDate = l.scheduled_date ?? l.date;
+                      if (fromDate) setRescheduleTarget({ lessonId: l.id, fromDateStr: fromDate });
+                    }}
+                    onEditLesson={(l) => setEditLessonTarget(l)}
+                    onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
+                    onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
+                    onMarkBreakForDay={(date) => openVacationModalCreate(date)}
                   />
                 ) : (
                 <MonthGrid
@@ -3163,11 +3174,21 @@ export default function PlanV2() {
                       onNextWeek={nextMonth}
                       weekRangeLabel={monthLabel}
                       onMoveLesson={moveLessonToDate}
+                      isPartner={isPartner}
                       onLessonClick={(lesson) => {
                         const d = lesson.scheduled_date ?? lesson.date;
                         if (d) setOpenDayStr(d);
                       }}
                       onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                      onSkipLesson={(l) => { void skipLessonWithLog(l); }}
+                      onRescheduleLesson={(l) => {
+                        const fromDate = l.scheduled_date ?? l.date;
+                        if (fromDate) setRescheduleTarget({ lessonId: l.id, fromDateStr: fromDate });
+                      }}
+                      onEditLesson={(l) => setEditLessonTarget(l)}
+                      onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
+                      onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
+                      onMarkBreakForDay={(date) => openVacationModalCreate(date)}
                     />
                   ) : (
                   <MonthGrid
