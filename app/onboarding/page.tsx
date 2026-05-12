@@ -424,6 +424,26 @@ export default function OnboardingPage() {
     }
   }, [step, celebrationReady, completeOnboarding]);
 
+  // ── Analytics: fire on every step view (mount, not Next click) ────────
+
+  useEffect(() => {
+    if (!ready) return;
+    const stepNames: Record<number, string> = {
+      0: 'name',
+      1: 'family_name',
+      2: 'state',
+      3: 'family_photo',
+      4: 'add_children',
+      5: 'celebration',
+    };
+    const stepName = stepNames[step];
+    if (!stepName) return;
+    posthog.capture('onboarding_step_viewed', {
+      step: step + 1,
+      step_name: stepName,
+    });
+  }, [step, ready]);
+
   // ── Render ──────────────────────���─────────────────────────────────────���
 
   if (!ready) {
