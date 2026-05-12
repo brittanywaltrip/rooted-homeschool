@@ -16,6 +16,11 @@ export interface PlanPrintDialogProps {
   canPrintPaid: boolean; // false for free; true for trial / pro
   onClose: () => void;
   onPick: (mode: PlanPrintMode) => void;
+  /** True while the parent is generating a PDF blob (daily mode uses
+   *  React-PDF). When set, the Print button shows "Generating PDF..." and
+   *  is disabled. Weekly + monthly still use window.print() and never
+   *  toggle this state. */
+  generating?: boolean;
 }
 
 const MODES: {
@@ -31,7 +36,7 @@ const MODES: {
 ];
 
 export default function PlanPrintDialog(props: PlanPrintDialogProps) {
-  const { isOpen, canPrintPaid, onClose, onPick } = props;
+  const { isOpen, canPrintPaid, onClose, onPick, generating } = props;
   const [selected, setSelected] = useState<PlanPrintMode>("daily");
 
   if (!isOpen) return null;
@@ -107,11 +112,11 @@ export default function PlanPrintDialog(props: PlanPrintDialogProps) {
           <div className="px-5 pb-5 pt-2">
             <button
               type="button"
-              disabled={selectedLocked}
+              disabled={selectedLocked || !!generating}
               onClick={() => onPick(selected)}
               className="w-full bg-[#2D5A3D] hover:bg-[#244830] text-white text-[14px] font-semibold rounded-xl py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Print
+              {generating ? "Generating PDF..." : "Print"}
             </button>
           </div>
         </div>

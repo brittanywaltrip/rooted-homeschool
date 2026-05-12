@@ -46,6 +46,7 @@ import { useSchoolYears } from "@/lib/useSchoolYears";
 import { getUSHolidaysForYear } from "@/lib/us-holidays";
 import PlanPrintDialog, { type PlanPrintMode } from "./PlanPrintDialog";
 import DailyPrintSheet from "./DailyPrintSheet";
+import DailyPrintPDF from "./DailyPrintPDF";
 import WeeklyPrintSheet from "./WeeklyPrintSheet";
 import MonthlyPrintSheet from "./MonthlyPrintSheet";
 import { CornerLeaves } from "./print-decorations";
@@ -1098,15 +1099,64 @@ export default function PlanV2() {
     });
   }, [effectiveUserId, kids]);
 
-  // ── Print handler — sets body class, calls window.print(), cleans up ────
-  // The print sheets render off-screen always; @media print + the body
-  // class flips visibility for exactly one sheet.
+  // ── Print handler ────────────────────────────────────────────────────────
+  // Daily uses @react-pdf/renderer to download a real PDF (colors render
+  // reliably, no browser print dialog). Weekly + monthly still use the
+  // legacy window.print() flow until their migration prompts run.
   const canPrintPaid = canExport({ is_pro: isPro, trial_started_at: trialStartedAt });
-  const handlePickPrintMode = useCallback((mode: PlanPrintMode) => {
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const handlePickPrintMode = useCallback(async (mode: PlanPrintMode) => {
     if ((mode === "weekly" || mode === "monthly") && !canPrintPaid) {
       // The dialog renders these tiles as Links to /upgrade for free
       // users, so onPick should never fire — but defensive belt+braces.
       window.location.href = "/upgrade";
+      return;
+    }
+    if (mode === "daily") {
+      setPdfGenerating(true);
+      try {
+        const todayDate = new Date();
+        const todayKey = `${todayDate.getFullYear()}-${String(todayDate.getMonth() + 1).padStart(2, "0")}-${String(todayDate.getDate()).padStart(2, "0")}`;
+        // Apply child + day filters inline so we don't depend on
+        // filteredLessons / filteredAppointments which are declared later
+        // in the component (TDZ would error otherwise).
+        const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
+        const todayKids = allKidsSelected ? kids : kids.filter((k) => childFilter.has(k.id));
+        const childKeep = (cid: string | null) => allKidsSelected || (cid != null && childFilter.has(cid));
+        const todayLessons = lessons.filter((l) => (l.scheduled_date ?? l.date) === todayKey && childKeep(l.child_id));
+        const todayAppts = appointments.filter((a) => {
+          if (a.instance_date !== todayKey) return false;
+          if (allKidsSelected) return true;
+          if (!a.child_ids || a.child_ids.length === 0) return true;
+          return a.child_ids.some((id) => childFilter.has(id));
+        });
+
+        const { pdf } = await import("@react-pdf/renderer");
+        const blob = await pdf(
+          <DailyPrintPDF
+            date={todayDate}
+            familyName={familyName}
+            lessons={todayLessons}
+            appointments={todayAppts}
+            kids={todayKids}
+            curriculumGoals={curriculumGoals}
+          />,
+        ).toBlob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `rooted-daily-${todayKey}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setPrintDialogOpen(false);
+      } catch (e) {
+        console.error("[plan-v2] daily PDF generation failed", e);
+        flashNotice("Couldn't generate the PDF, please try again.");
+      } finally {
+        setPdfGenerating(false);
+      }
       return;
     }
     setPrintDialogOpen(false);
@@ -1122,7 +1172,7 @@ export default function PlanV2() {
     // Defer to next frame so React has flushed the activePrintMode-driven
     // re-render before the print preview snapshots the DOM.
     window.requestAnimationFrame(() => window.print());
-  }, [canPrintPaid]);
+  }, [canPrintPaid, childFilter, kids, lessons, appointments, familyName, curriculumGoals]);
 
   // Default: every child selected. Once data loads, ensure filter includes all
   // current child IDs.
@@ -3587,6 +3637,7 @@ export default function PlanV2() {
           canPrintPaid={canPrintPaid}
           onClose={() => setPrintDialogOpen(false)}
           onPick={handlePickPrintMode}
+          generating={pdfGenerating}
         />
 
         {/* Print sheets — always rendered in DOM, hidden on screen via the
