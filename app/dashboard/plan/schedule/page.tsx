@@ -371,6 +371,35 @@ type Pace = {
   warning: boolean;
 };
 
+/**
+ * Estimate how many lessons should already be done given a past start date,
+ * the row's per-day counts, and the active-days mask. Used to pre-fill
+ * start_at_lesson when the user picks a past start date for a curriculum
+ * they've already been working through. Returns 0 if the date is null,
+ * today, or in the future, or if total_lessons is unset. Capped at
+ * total_lessons so we never seed past the end of the curriculum.
+ *
+ * active_days / per_day_counts are indexed Mon=0..Sun=6 (per the activities
+ * convention). Convert getDay() with `(d.getDay() + 6) % 7` before reading.
+ */
+function estimateLessonsDoneFromPastStart(row: Row, today: Date, startDateStr: string | null): number {
+  if (!startDateStr) return 0;
+  const total = row.total_lessons ?? 0;
+  if (total <= 0) return 0;
+  const start = new Date(`${startDateStr}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || start >= today) return 0;
+  let count = 0;
+  const cursor = new Date(start);
+  while (cursor < today) {
+    const idx = (cursor.getDay() + 6) % 7;
+    if (row.active_days[idx] && row.per_day_counts[idx] > 0) {
+      count += row.per_day_counts[idx];
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return Math.min(count, total);
+}
+
 function calcPace(row: Row, today: Date): Pace | null {
   if (row.type !== "curriculum") return null;
   if (!row.total_lessons || row.total_lessons <= 0) return null;
@@ -1439,7 +1468,20 @@ function RowCard(props: {
           <FieldInput
             label="Start date"
             value={row.start_date ?? ""}
-            onChange={(v) => props.onPatchRow(row.localId, { start_date: v || null })}
+            onChange={(v) => {
+              const next = v || null;
+              const patch: Partial<Row> = { start_date: next };
+              // Auto-pre-fill start_at_lesson when the user picks a past start
+              // date and hasn't manually bumped the field yet (still default 1).
+              // Once they engage with the stepper, leave their value alone even
+              // on subsequent date changes.
+              if (next && row.start_at_lesson === 1) {
+                const candidate = { ...row, start_date: next };
+                const estimated = estimateLessonsDoneFromPastStart(candidate, props.today, next);
+                if (estimated > 0) patch.start_at_lesson = estimated + 1;
+              }
+              props.onPatchRow(row.localId, patch);
+            }}
             type="date"
             placeholder="Today (already started)"
             disabled={isReadOnly}
@@ -1448,6 +1490,53 @@ function RowCard(props: {
           <FieldDash label="Start date" />
         )}
       </div>
+
+      {/* Past-start backfill banner — visible when start_date is in the past.
+          Stepper writes start_at_lesson directly; recomputeCurrentLesson on
+          save derives current_lesson from it (max(start_at_lesson - 1, ...)),
+          so no separate field is needed. Banner hides for today/future dates. */}
+      {isCurriculum && row.start_date && row.start_date < ymd(props.today) && (row.total_lessons ?? 0) > 0 ? (() => {
+        const estimated = estimateLessonsDoneFromPastStart(row, props.today, row.start_date);
+        const done = Math.max(0, row.start_at_lesson - 1);
+        const max = row.total_lessons ?? 0;
+        const dateLabel = new Date(`${row.start_date}T12:00:00`).toLocaleDateString("en-US", {
+          month: "short", day: "numeric", year: "numeric",
+        });
+        return (
+          <div className="mt-3 rounded-xl border border-[#c5dbc9] bg-[#f0f7f2] p-3">
+            <p className="text-[12px] text-[#2d4a36] leading-relaxed">
+              You&apos;ve already started this. Your start date was{" "}
+              <span className="font-semibold">{dateLabel}</span>, that&apos;s about{" "}
+              <span className="font-semibold">{estimated}</span> lesson{estimated === 1 ? "" : "s"} ago
+              based on your schedule. Adjust how many you&apos;ve actually completed and we&apos;ll pick up from there.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-[11px] text-[#5c7f63] font-medium">Already completed</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => props.onPatchRow(row.localId, { start_at_lesson: Math.max(1, row.start_at_lesson - 1) })}
+                  disabled={isReadOnly || done <= 0}
+                  aria-label="One fewer completed lesson"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#c5dbc9] bg-white text-[#2D5A3D] hover:bg-[#e8f0e9] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  −
+                </button>
+                <span className="min-w-[36px] text-center text-[14px] font-semibold text-[#2D5A3D]">{done}</span>
+                <button
+                  type="button"
+                  onClick={() => props.onPatchRow(row.localId, { start_at_lesson: Math.min(max, row.start_at_lesson + 1) })}
+                  disabled={isReadOnly || done >= max}
+                  aria-label="One more completed lesson"
+                  className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#c5dbc9] bg-white text-[#2D5A3D] hover:bg-[#e8f0e9] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })() : null}
 
       {/* Pace line */}
       {isCurriculum && (
