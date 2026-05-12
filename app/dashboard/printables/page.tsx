@@ -11,6 +11,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { canExport } from "@/lib/user-access";
 import ExportGateModal from "@/app/components/ExportGateModal";
+import IDCardGenerator from "@/app/components/Printables/IDCardGenerator";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -909,35 +910,14 @@ export default function PrintablesPage() {
 
 
       {/* ── ID Cards ─────────────────────────────────────────────────── */}
-      <section className="space-y-5">
+      <section className="space-y-3">
         <div>
-          <h2 className="text-base font-bold text-[#2d2926]">🪪 Homeschool ID Cards</h2>
+          <h2 className="text-base font-bold text-[#2d2926]">🪪 Student & Educator ID Cards</h2>
           <p className="text-xs text-[#b5aca4] mt-1 max-w-2xl leading-relaxed">
-            Auto-filled from your profile. Most programs require a photo.
+            Download professional ID cards for your students and yourself. Many museums, zoos, and attractions offer homeschool discounts, these help you ask with confidence.
           </p>
         </div>
-
-        {parentFields ? (
-          <IDCardEditor style={activeStyle} fields={parentFields} onChange={setParentFields} cardLabel="Parent Homeschool Administrator ID" onGateExport={checkExportAccess} />
-        ) : (
-          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-6 py-8 flex items-center justify-center">
-            <span className="text-2xl animate-pulse">🌿</span>
-          </div>
-        )}
-
-        {children.map(child => {
-          const fields = childFields[child.id];
-          if (!fields) return null;
-          return (
-            <IDCardEditor key={child.id} style={activeStyle} fields={fields}
-              onChange={(f) => updateChildField(child.id, f)}
-              cardLabel={`${child.name}'s Student ID`} onGateExport={checkExportAccess} />
-          );
-        })}
-
-        {parentFields && children.length === 0 && (
-          <p className="text-sm text-[#b5aca4] italic px-1">Add children in Settings to generate their student ID cards.</p>
-        )}
+        <IDCardGenerator />
       </section>
 
       {/* Error toast */}
