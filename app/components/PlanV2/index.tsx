@@ -2937,6 +2937,10 @@ export default function PlanV2() {
                 >
                   <FileText size={14} />
                 </button>
+                {/* Print button hidden per request — restore the button
+                    JSX below to re-enable. PlanPrintDialog mount,
+                    handlePickPrintMode, and the print sheets remain wired. */}
+                {/*
                 <button
                   type="button"
                   onClick={() => setPrintDialogOpen(true)}
@@ -2945,6 +2949,7 @@ export default function PlanV2() {
                 >
                   <Printer size={14} />
                 </button>
+                */}
               </div>
             </div>
 
