@@ -2803,59 +2803,82 @@ export default function PlanV2() {
 
         {(
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-            {/* Toolbar */}
-            <div className="flex flex-wrap items-center gap-2 px-4 pt-4 pb-3 border-b border-[#f0ede8]">
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={prevMonth}
-                  aria-label="Previous month"
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
-                >
-                  <ChevronLeft size={16} />
-                </button>
-                <span
-                  className="min-w-[140px] text-center"
-                  style={{ fontSize: 22, lineHeight: 1, color: "#2D2A26" }}
-                >
-                  {monthLabel}
-                </span>
-                <button
-                  type="button"
-                  onClick={nextMonth}
-                  aria-label="Next month"
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
-                >
-                  <ChevronRight size={16} />
-                </button>
+            {/* Toolbar — two stacked rows. Row 1: date nav + filter chips
+                right-aligned. Row 2: action buttons grouped into add /
+                mode-toggle / utility clusters with thin dividers. */}
+            <div className="px-4 pt-4 pb-3 border-b border-[#f0ede8] space-y-2">
+              {/* Row 1 — date navigation + filter chips */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={prevMonth}
+                    aria-label="Previous month"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  <span
+                    className="min-w-[140px] text-center"
+                    style={{ fontSize: 22, lineHeight: 1, color: "#2D2A26" }}
+                  >
+                    {monthLabel}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={nextMonth}
+                    aria-label="Next month"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+
+                {!viewingCurrentMonth ? (
+                  <button
+                    type="button"
+                    onClick={jumpToToday}
+                    className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#e8f0e9] text-[#2D5A3D] hover:bg-[#d4e8d4] transition-colors"
+                  >
+                    Jump to today
+                  </button>
+                ) : null}
+
+                <div className="flex-1" />
+
+                {/* Child filter chips, right-aligned in the date row */}
+                {kids.length > 0 ? (
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    {kids.map((c, i) => {
+                      const active = childFilter.has(c.id);
+                      const color = resolveChildColor(c, i);
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => toggleChild(c.id)}
+                          aria-pressed={active}
+                          className="text-[11px] font-semibold px-2.5 py-1 rounded-full transition-all whitespace-nowrap"
+                          style={{
+                            backgroundColor: active ? color : "#f4f0e8",
+                            color: active ? "#ffffff" : "#7a6f65",
+                            border: `1px solid ${active ? color : "#e8e2d9"}`,
+                          }}
+                        >
+                          {c.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
               </div>
 
-              {!viewingCurrentMonth ? (
-                <button
-                  type="button"
-                  onClick={jumpToToday}
-                  className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#e8f0e9] text-[#2D5A3D] hover:bg-[#d4e8d4] transition-colors"
-                >
-                  Jump to today
-                </button>
-              ) : null}
-
-              {showCreateSchoolYearCTA ? (
-                <button
-                  type="button"
-                  onClick={() => setSchoolYearModalOpen(true)}
-                  className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#fef9e8] text-[#7a4a1a] border border-[#f0dda8] hover:bg-[#fef0d6] transition-colors"
-                >
-                  🎒 Create next school year
-                </button>
-              ) : null}
-
-              <div className="flex-1" />
-
-              <div className="flex items-center gap-1.5">
-                {/* Pencil-outline toolbar buttons — sans icons + Caveat
-                    labels. The aria-pressed state styles Select-mode active
-                    via the .pencil-btn[aria-pressed="true"] rule. */}
+              {/* Row 2 — action buttons in 3 clusters with vertical dividers.
+                  Pencil-outline pill style is uniform across all buttons; the
+                  aria-pressed=true CSS rule supplies the active fill for
+                  Edit-week and Select. */}
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
+                {/* Group 1 — Add actions */}
                 <button
                   type="button"
                   onClick={() => { setAddLessonInitialDate(todayStr); setAddLessonOpen(true); }}
@@ -2873,10 +2896,14 @@ export default function PlanV2() {
                 <button
                   type="button"
                   onClick={() => openVacationModalCreate()}
-                  className="pencil-btn pencil-btn--gold"
+                  className="pencil-btn"
                 >
                   <Plus size={13} /> Break
                 </button>
+
+                <div aria-hidden="true" className="w-px h-5 bg-[#e8e2d9] mx-1 self-center" />
+
+                {/* Group 2 — Mode toggles */}
                 {viewMode === "week" ? (
                   <button
                     type="button"
@@ -2895,6 +2922,10 @@ export default function PlanV2() {
                 >
                   <MousePointerSquareDashed size={13} /> {selectMode ? "Cancel" : "Select"}
                 </button>
+
+                <div aria-hidden="true" className="w-px h-5 bg-[#e8e2d9] mx-1 self-center" />
+
+                {/* Group 3 — Utilities */}
                 <button
                   type="button"
                   onClick={() => setReportDialogOpen(true)}
@@ -2911,35 +2942,6 @@ export default function PlanV2() {
                 </button>
               </div>
             </div>
-
-            {/* Child filter chips */}
-            {kids.length > 0 ? (
-              <div className="flex flex-wrap items-center gap-1.5 px-4 py-2 border-b border-[#f0ede8]">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-[#8B7E74] mr-1">
-                  Filter
-                </span>
-                {kids.map((c, i) => {
-                  const active = childFilter.has(c.id);
-                  const color = resolveChildColor(c, i);
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => toggleChild(c.id)}
-                      aria-pressed={active}
-                      className="text-[11px] font-semibold px-2.5 py-1 rounded-full transition-all"
-                      style={{
-                        backgroundColor: active ? color : "#f4f0e8",
-                        color: active ? "#ffffff" : "#7a6f65",
-                        border: `1px solid ${active ? color : "#e8e2d9"}`,
-                      }}
-                    >
-                      {c.name}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
 
             {/* Select-mode action bar — shown above the grid whenever the user
                 is picking lessons. Replaces the normal filter chip row. */}
