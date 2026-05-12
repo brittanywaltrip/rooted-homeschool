@@ -25,7 +25,7 @@ import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
 import MissedLessonsBanner from "./MissedLessonsBanner";
 import CatchUpBanner from "./CatchUpBanner";
-import StatsBar, { type StatsMemory } from "./StatsBar";
+// StatsBar removed from V2 plan page — stats live on the Transcripts page.
 import CurriculumGroupsPanel, { type CurriculumGoal as PanelGoal } from "./CurriculumGroupsPanel";
 import CompletionConfetti from "./CompletionConfetti";
 import CompletionCelebrationCard from "./CompletionCelebrationCard";
@@ -43,7 +43,7 @@ type CurriculumWizardEditData = Record<string, unknown>;
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import { useSchoolYears } from "@/lib/useSchoolYears";
-import { getSeasonalEmoji, getUSHolidaysForYear } from "@/lib/us-holidays";
+import { getUSHolidaysForYear } from "@/lib/us-holidays";
 import PlanPrintDialog, { type PlanPrintMode } from "./PlanPrintDialog";
 import DailyPrintSheet from "./DailyPrintSheet";
 import WeeklyPrintSheet from "./WeeklyPrintSheet";
@@ -367,27 +367,6 @@ export default function PlanV2() {
     return () => { cancelled = true; };
   }, [effectiveUserId, activitiesReloadNonce]);
 
-  // Memories (books + field trips) in the visible month — powers StatsBar.
-  const [memoriesInRange, setMemoriesInRange] = useState<StatsMemory[]>([]);
-  useEffect(() => {
-    if (!effectiveUserId) return;
-    let cancelled = false;
-    (async () => {
-      const startStr = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, "0")}-01`;
-      const endDate = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
-      const endStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, "0")}-${String(endDate.getDate()).padStart(2, "0")}`;
-      const { data } = await supabase
-        .from("memories")
-        .select("type, date")
-        .eq("user_id", effectiveUserId)
-        .gte("date", startStr)
-        .lte("date", endStr);
-      if (cancelled) return;
-      setMemoriesInRange(((data ?? []) as unknown as StatsMemory[]));
-    })();
-    return () => { cancelled = true; };
-  }, [effectiveUserId, monthStart]);
-
   // Curriculum wizard + activity modal + report dialog state.
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardEditData, setWizardEditData] = useState<CurriculumWizardEditData | null>(null);
@@ -497,13 +476,6 @@ export default function PlanV2() {
     const diffDays = Math.round((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     return diffDays <= 60;
   }, [schoolYears.loading, schoolYears.upcoming, schoolYears.active]);
-
-  // Seasonal emoji for the toolbar label — month for Month view, the
-  // start-of-week's month for Week view.
-  const headerSeasonalEmoji = useMemo(() => {
-    const m = (viewMode === "week" ? weekStart : monthStart).getMonth();
-    return getSeasonalEmoji(m);
-  }, [viewMode, weekStart, monthStart]);
 
   // Lesson mutation handlers. Pass setLessons for both arrays (PlanV2 has one
   // state; the hook's dual setter model collapses cleanly). setAllLessons is
@@ -1187,16 +1159,6 @@ export default function PlanV2() {
         ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""),
       );
   }, [filteredLessons, todayStr]);
-
-  // Distinct subject names in view — for StatsBar.
-  const subjectCountInView = useMemo(() => {
-    const s = new Set<string>();
-    for (const l of filteredLessons) {
-      const n = l.subjects?.name;
-      if (n) s.add(n);
-    }
-    return s.size;
-  }, [filteredLessons]);
 
   // Catch-up threshold: 5+ past incomplete spanning 2+ distinct days AND
   // the 7-day dismissal window has elapsed. Dismissal count doesn't scope
@@ -2719,7 +2681,6 @@ export default function PlanV2() {
     }
     return monthStart.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   })();
-  const monthLabelWithEmoji = `${headerSeasonalEmoji} ${monthLabel}`;
 
   // Split curriculum goals into 3 buckets for the curriculum section render.
   // celebrationDismissNonce is included so localStorage flag changes (Save to
@@ -2767,14 +2728,6 @@ export default function PlanV2() {
         className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
         style={{ background: "#F8F7F4" }}
       >
-        {/* PlanV2 preview badge — removed when the flag rolls out broadly. */}
-        <div
-          className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider px-3 py-1.5 rounded-full w-fit"
-          style={{ backgroundColor: "#fef0dc", color: "#a07000" }}
-        >
-          <span>Plan · new layout preview</span>
-        </div>
-
         {/* View toggle */}
         <div className="flex gap-2">
           <button
@@ -2800,16 +2753,6 @@ export default function PlanV2() {
             Month
           </button>
         </div>
-
-        {/* Stats bar — viewport totals (lessons, hours, subjects, books,
-            field trips). Updates as the month/child filter changes. */}
-        {!loading ? (
-          <StatsBar
-            lessonsInView={filteredLessons}
-            memoriesInRange={memoriesInRange}
-            subjectCount={subjectCountInView}
-          />
-        ) : null}
 
         {/* Catch-up banner — above MissedLessonsBanner when the user has a
             meaningful backlog (5+ across 2+ days) and hasn't dismissed it
@@ -2875,7 +2818,7 @@ export default function PlanV2() {
                   className="min-w-[140px] text-center"
                   style={{ fontSize: 22, lineHeight: 1, color: "#2D2A26" }}
                 >
-                  {monthLabelWithEmoji}
+                  {monthLabel}
                 </span>
                 <button
                   type="button"
