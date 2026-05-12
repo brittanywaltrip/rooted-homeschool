@@ -17,7 +17,9 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import MonthGrid from "./MonthGrid";
-import WeekStrip from "./WeekStrip";
+// WeekStrip is preserved on disk (./WeekStrip) but no longer rendered;
+// week mode now uses WeekListView. Restore the import here if reverting.
+import WeekListView from "./WeekListView";
 import DayDetailPanelV2 from "./DayDetailPanel";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
@@ -168,14 +170,21 @@ export default function PlanV2() {
   const isMobile = useIsMobile();
 
   const [monthStart, setMonthStart] = useState<Date>(() => firstOfMonth(new Date()));
-  const [viewMode, setViewMode] = useState<ViewMode>("month");
-  // Sunday on or before today — anchor for the Week view strip.
+  const [viewMode, setViewMode] = useState<ViewMode>("week");
+  // Monday on or before today — anchor for the Week view (Mon..Sun layout
+  // in WeekListView). Switched from Sunday-anchored when WeekListView replaced
+  // WeekStrip in week mode.
   const [weekStart, setWeekStart] = useState<Date>(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - d.getDay());
+    const offset = (d.getDay() + 6) % 7;
+    d.setDate(d.getDate() - offset);
     return d;
   });
+  // Edit-week mode — when true, lesson cards in WeekListView show a drag
+  // handle that opens a day-picker bottom sheet for moving the lesson to
+  // another day in the same week. Independent from select/move-target mode.
+  const [weekEditMode, setWeekEditMode] = useState(false);
   const [schoolYearModalOpen, setSchoolYearModalOpen] = useState(false);
   // Print dialog state — null = closed; "selected" mode is what the print
   // sheets key off via body class.
@@ -1232,10 +1241,11 @@ export default function PlanV2() {
   function jumpToToday() {
     const now = new Date();
     if (viewMode === "week") {
-      const sun = new Date(now);
-      sun.setHours(0, 0, 0, 0);
-      sun.setDate(sun.getDate() - sun.getDay());
-      setWeekStart(sun);
+      const mon = new Date(now);
+      mon.setHours(0, 0, 0, 0);
+      const offset = (mon.getDay() + 6) % 7;
+      mon.setDate(mon.getDate() - offset);
+      setWeekStart(mon);
     }
     setMonthStart(firstOfMonth(now));
   }
@@ -1757,6 +1767,65 @@ export default function PlanV2() {
     setBulkBusy(false);
     exitSelectMode();
   }, [lessons, vacationBlocks, setLessons, reload, flagLanded, exitSelectMode, recordEvent]);
+
+  // ── Single move (WeekListView Edit-week → day picker) ─────────────────────
+  // Mirrors performBulkMove for one lesson with simpler toast copy. Skipped
+  // intentionally if the target equals the current scheduled_date so noise
+  // taps don't trigger an audit row or a toast.
+  const moveLessonToDate = useCallback(async (lessonId: string, toDateStr: string) => {
+    const inVacation = vacationBlocks.some(
+      (b) => toDateStr >= b.start_date && toDateStr <= b.end_date,
+    );
+    if (inVacation) {
+      flashNotice("That day is blocked off as a vacation, pick another day.");
+      return;
+    }
+    const lesson = lessons.find((l) => l.id === lessonId);
+    if (!lesson) return;
+    const fromDate = lesson.scheduled_date ?? lesson.date;
+    if (!fromDate || fromDate === toDateStr) return;
+
+    const dayLabel = new Date(`${toDateStr}T12:00:00`).toLocaleDateString("en-US", { weekday: "long" });
+
+    setLessons((prev) =>
+      prev.map((l) => (l.id === lessonId ? { ...l, scheduled_date: toDateStr, date: toDateStr } : l)),
+    );
+    flagLanded(lessonId);
+    hapticTap(15);
+
+    const { error } = await supabase
+      .from("lessons")
+      .update({ scheduled_date: toDateStr, date: toDateStr })
+      .eq("id", lessonId);
+    if (error) {
+      setLessons((prev) =>
+        prev.map((l) => (l.id === lessonId ? { ...l, scheduled_date: fromDate, date: fromDate } : l)),
+      );
+      flashNotice("Couldn't move that lesson, check your connection.");
+      return;
+    }
+
+    setUndoAction({
+      message: `Moved to ${dayLabel}`,
+      key: `move-lesson:${lessonId}:${Date.now()}`,
+      onUndo: async () => {
+        setLessons((prev) =>
+          prev.map((l) => (l.id === lessonId ? { ...l, scheduled_date: fromDate, date: fromDate } : l)),
+        );
+        flagLanded(lessonId);
+        hapticTap(15);
+        await supabase.from("lessons").update({ scheduled_date: fromDate, date: fromDate }).eq("id", lessonId);
+        reload();
+      },
+    });
+    recordEvent("lesson.moved", {
+      lesson_id: lessonId,
+      from_date: fromDate,
+      to_date: toDateStr,
+      source: "week_edit_picker",
+    });
+    reload();
+  }, [lessons, vacationBlocks, setLessons, flagLanded, reload, recordEvent]);
 
   // ── Bulk: mark done ───────────────────────────────────────────────────────
 
@@ -2626,11 +2695,12 @@ export default function PlanV2() {
     viewMode === "week"
       ? (() => {
           const now = new Date(); now.setHours(0, 0, 0, 0);
-          const sun = new Date(now);
-          sun.setDate(sun.getDate() - sun.getDay());
-          return weekStart.getFullYear() === sun.getFullYear() &&
-                 weekStart.getMonth() === sun.getMonth() &&
-                 weekStart.getDate() === sun.getDate();
+          const mon = new Date(now);
+          const offset = (mon.getDay() + 6) % 7;
+          mon.setDate(mon.getDate() - offset);
+          return weekStart.getFullYear() === mon.getFullYear() &&
+                 weekStart.getMonth() === mon.getMonth() &&
+                 weekStart.getDate() === mon.getDate();
         })()
       : (monthStart.getFullYear() === new Date().getFullYear() &&
          monthStart.getMonth() === new Date().getMonth());
@@ -2989,35 +3059,26 @@ export default function PlanV2() {
             <div className="p-3">
               {isMobile || selectMode ? (
                 viewMode === "week" ? (
-                  <WeekStrip
+                  <WeekListView
                     weekStart={weekStart}
                     todayStr={todayStr}
                     kids={kids}
                     lessons={filteredLessons}
                     appointments={filteredAppointments}
                     vacationBlocks={vacationBlocks}
+                    curriculumGoals={curriculumGoals}
                     loading={loading}
-                    dndEnabled={false}
-                    recentlyLandedIds={recentlyLandedIds}
-                    selectMode={selectMode}
-                    selectedIds={selectedIds}
-                    moveTargetMode={moveTargetMode}
-                    focusedDateStr={focusedDateStr}
-                    onFocusedDateChange={setFocusedDateStr}
-                    onCellClick={(dateStr) => { if (!selectMode) setOpenDayStr(dateStr); }}
+                    editMode={weekEditMode}
+                    onToggleEdit={() => setWeekEditMode((v) => !v)}
+                    onPrevWeek={prevMonth}
+                    onNextWeek={nextMonth}
+                    weekRangeLabel={monthLabel}
+                    onMoveLesson={moveLessonToDate}
                     onLessonClick={(lesson) => {
-                      if (selectMode) return;
                       const d = lesson.scheduled_date ?? lesson.date;
                       if (d) setOpenDayStr(d);
                     }}
-                    onAppointmentClick={(appt) => { if (!selectMode) setOpenDayStr(appt.instance_date); }}
-                    onOverflowClick={(dateStr) => { if (!selectMode) setOpenDayStr(dateStr); }}
-                    onLessonLongPress={(lesson) => { if (!selectMode) enterSelectMode(lesson.id); }}
-                    onLessonSelectToggle={(lesson) => toggleSelect(lesson.id)}
-                    onMoveTargetPick={(dateStr) => { void performBulkMove(Array.from(selectedIds), dateStr); }}
-                    onCellContextMenu={(dateStr, x, y) => { if (!selectMode) setContextMenu({ dateStr, x, y }); }}
-                    holidays={holidaysMap}
-                    milestones={milestonesMap}
+                    onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
                   />
                 ) : (
                 <MonthGrid
@@ -3087,30 +3148,26 @@ export default function PlanV2() {
                   onDragCancel={handleDragCancel}
                 >
                   {viewMode === "week" ? (
-                    <WeekStrip
+                    <WeekListView
                       weekStart={weekStart}
                       todayStr={todayStr}
                       kids={kids}
                       lessons={filteredLessons}
                       appointments={filteredAppointments}
                       vacationBlocks={vacationBlocks}
+                      curriculumGoals={curriculumGoals}
                       loading={loading}
-                      dndEnabled
-                      isDragActive={activeDragId !== null}
-                      recentlyLandedIds={recentlyLandedIds}
-                      focusedDateStr={focusedDateStr}
-                      onFocusedDateChange={setFocusedDateStr}
-                      onCellClick={(dateStr) => setOpenDayStr(dateStr)}
+                      editMode={weekEditMode}
+                      onToggleEdit={() => setWeekEditMode((v) => !v)}
+                      onPrevWeek={prevMonth}
+                      onNextWeek={nextMonth}
+                      weekRangeLabel={monthLabel}
+                      onMoveLesson={moveLessonToDate}
                       onLessonClick={(lesson) => {
                         const d = lesson.scheduled_date ?? lesson.date;
                         if (d) setOpenDayStr(d);
                       }}
                       onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
-                      onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
-                      onLessonLongPress={(lesson) => enterSelectMode(lesson.id)}
-                      onCellContextMenu={(dateStr, x, y) => setContextMenu({ dateStr, x, y })}
-                      holidays={holidaysMap}
-                      milestones={milestonesMap}
                     />
                   ) : (
                   <MonthGrid
