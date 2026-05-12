@@ -1370,7 +1370,8 @@ function RowCard(props: {
         />
       )}
 
-      {/* Days */}
+      {/* Days — chip toggle for which days are school days. Per-day lesson
+          counts now live in the stepper list below (curriculum rows only). */}
       <div className="mt-3">
         <p className="text-[10px] font-medium uppercase tracking-wide text-[#7a6f65] mb-1.5">
           Days
@@ -1378,40 +1379,104 @@ function RowCard(props: {
         <div className="flex gap-1.5">
           {DAY_LABEL_SHORT.map((label, idx) => {
             const active = row.active_days[idx];
-            const count = row.per_day_counts[idx];
             return (
-              <div key={label} className="flex flex-col items-center gap-1 w-8">
-                <button
-                  onClick={() => props.onToggleDay(row.localId, idx)}
-                  disabled={isReadOnly}
-                  className="w-8 h-8 rounded-md text-xs font-medium transition-colors"
-                  style={{
-                    background: active ? "var(--g-accent)" : "transparent",
-                    color: active ? "white" : "#b5aca4",
-                    border: `1px solid ${active ? "var(--g-accent)" : "#e8e2d9"}`,
-                  }}
-                >
-                  {label}
-                </button>
-                {isCurriculum && active && (
-                  <button
-                    onClick={() => props.onCycleCount(row.localId, idx)}
-                    disabled={isReadOnly}
-                    aria-label={`Lessons on ${DAY_LABEL[idx]}`}
-                    className="w-6 h-5 rounded-sm text-[10px] font-medium"
-                    style={{
-                      background: "var(--g-accent)",
-                      color: "white",
-                    }}
-                  >
-                    {count}
-                  </button>
-                )}
-              </div>
+              <button
+                key={label}
+                onClick={() => props.onToggleDay(row.localId, idx)}
+                disabled={isReadOnly}
+                aria-pressed={active}
+                className="w-8 h-8 rounded-md text-xs font-medium transition-colors"
+                style={{
+                  background: active ? "var(--g-accent)" : "transparent",
+                  color: active ? "white" : "#b5aca4",
+                  border: `1px solid ${active ? "var(--g-accent)" : "#e8e2d9"}`,
+                }}
+              >
+                {label}
+              </button>
             );
           })}
         </div>
       </div>
+
+      {/* Lessons per day — explicit +/- stepper for each weekday (curriculum
+          rows only). All 7 days always render so families can see exactly
+          where lessons land; rows whose day chip is off are disabled with a
+          "Not selected" hint. Counts of 0 are honored by the scheduler as
+          "skip this day" even when the day chip is on. */}
+      {isCurriculum && (
+        <div className="mt-3">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[#7a6f65]">
+            Lessons per day
+          </p>
+          <p className="text-[11px] text-[#8a8580] mt-0.5 mb-2">
+            Set how many lessons your child does each day. Days set to 0 will be skipped in the schedule.
+          </p>
+          <div className="rounded-xl border border-[#e8e2d9] divide-y divide-[#f0ede8] overflow-hidden">
+            {DAY_LABEL.map((dayName, idx) => {
+              const active = row.active_days[idx];
+              const count = row.per_day_counts[idx] ?? 0;
+              const setCount = (next: number) => {
+                const clamped = Math.max(0, Math.min(10, next));
+                const arr = [...row.per_day_counts];
+                arr[idx] = clamped;
+                props.onPatchRow(row.localId, { per_day_counts: arr });
+              };
+              const decDisabled = isReadOnly || !active || count <= 0;
+              const incDisabled = isReadOnly || !active || count >= 10;
+              return (
+                <div
+                  key={dayName}
+                  className={`flex items-center justify-between px-3 py-2 ${active ? "bg-white" : "bg-[#faf8f4]"}`}
+                >
+                  <div className="flex items-baseline gap-2 min-w-0">
+                    <span className={`text-[13px] font-medium ${active ? "text-[#2D2A26]" : "text-[#b5aca4]"}`}>
+                      {dayName === "Mon" ? "Monday"
+                        : dayName === "Tue" ? "Tuesday"
+                        : dayName === "Wed" ? "Wednesday"
+                        : dayName === "Thu" ? "Thursday"
+                        : dayName === "Fri" ? "Friday"
+                        : dayName === "Sat" ? "Saturday"
+                        : "Sunday"}
+                    </span>
+                    {!active ? (
+                      <span className="text-[11px] text-[#b5aca4]">Not selected</span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setCount(count - 1)}
+                      disabled={decDisabled}
+                      aria-label={`One fewer lesson on ${dayName}`}
+                      className="w-7 h-7 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      −
+                    </button>
+                    <span
+                      className={`min-w-[24px] text-center text-[13px] font-semibold ${
+                        active && count > 0 ? "text-[#2D5A3D]" : "text-[#c8bfb5]"
+                      }`}
+                      aria-label={`${count} lessons on ${dayName}`}
+                    >
+                      {count}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCount(count + 1)}
+                      disabled={incDisabled}
+                      aria-label={`One more lesson on ${dayName}`}
+                      className="w-7 h-7 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Number / date inputs */}
       <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
