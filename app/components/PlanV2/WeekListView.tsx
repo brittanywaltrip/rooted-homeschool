@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { Calendar, Check, ChevronLeft, ChevronRight, GripVertical, Pencil, X } from "lucide-react";
+import { Calendar, Check, GripVertical, Pencil, X } from "lucide-react";
 import { resolveChildColor } from "./colors";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -47,11 +47,9 @@ type Props = {
   curriculumGoals: Goal[];
   loading: boolean;
   isPartner: boolean;
+  /** Edit-week toggle is owned by the V2 toolbar; this component just
+   *  reads it to switch card behavior between tap-to-open and tap-to-move. */
   editMode: boolean;
-  onToggleEdit: () => void;
-  onPrevWeek: () => void;
-  onNextWeek: () => void;
-  weekRangeLabel: string;
   onMoveLesson: (lessonId: string, targetDate: string) => void | Promise<void>;
   /** Tap a lesson card in non-edit mode. Caller opens DayDetailPanel. */
   onLessonClick: (lesson: PlanV2Lesson) => void;
@@ -71,8 +69,8 @@ type Props = {
 export default function WeekListView(props: Props) {
   const {
     weekStart, todayStr, kids, lessons, appointments, vacationBlocks,
-    curriculumGoals, loading, isPartner, editMode, onToggleEdit, onPrevWeek,
-    onNextWeek, weekRangeLabel, onMoveLesson, onLessonClick, onAppointmentClick,
+    curriculumGoals, loading, isPartner, editMode,
+    onMoveLesson, onLessonClick, onAppointmentClick,
     onSkipLesson, onRescheduleLesson, onEditLesson, onToggleLessonDone,
     onAddLessonForDay, onMarkBreakForDay,
   } = props;
@@ -132,43 +130,8 @@ export default function WeekListView(props: Props) {
   const [moveTarget, setMoveTarget] = useState<{ lessonId: string; fromDate: string } | null>(null);
 
   return (
-    <div className="px-4 pb-4">
-      {/* Header row: prev/next + range + Edit week. */}
-      <div className="flex items-center justify-between gap-3 mb-4">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onPrevWeek}
-            aria-label="Previous week"
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#e8e5e0] bg-white text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <span className="text-[14px] font-medium text-[#2D2A26] min-w-[110px] text-center">
-            {weekRangeLabel}
-          </span>
-          <button
-            type="button"
-            onClick={onNextWeek}
-            aria-label="Next week"
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-[#e8e5e0] bg-white text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={onToggleEdit}
-          aria-pressed={editMode}
-          className={`text-[13px] font-semibold px-4 py-2 rounded-full transition-colors ${
-            editMode
-              ? "bg-[#2D5A3D] text-white hover:bg-[#244830]"
-              : "bg-white text-[#2D5A3D] border border-[#2D5A3D] hover:bg-[#f0f7f1]"
-          }`}
-        >
-          {editMode ? "Done" : "Edit week"}
-        </button>
-      </div>
+    <div className="w-full max-w-full overflow-hidden px-4 pb-4">
+      {/* Week navigation lives in the V2 toolbar above; no inner nav row here. */}
 
       {/* 7 day sections wrapped in a single outer card so the week reads
           as one cohesive schedule block. Internal dividers separate days. */}
@@ -179,9 +142,10 @@ export default function WeekListView(props: Props) {
           const dayLessons = lessonsByDay.get(key) ?? [];
           const dayAppts = apptsByDay.get(key) ?? [];
           const vac = isVacationDay(key);
-          const dateLabel = day.toLocaleDateString("en-US", { month: "short", day: "numeric" });
           const headerColor = isToday ? "#2D5A3D" : "#8B7E74";
-          const headerLabel = `${DAY_NAMES_FULL[idx].toUpperCase()}, ${dateLabel.toUpperCase()}`;
+          const headerLabel = isToday
+            ? `${DAY_NAMES_FULL[idx].toUpperCase()} · TODAY`
+            : DAY_NAMES_FULL[idx].toUpperCase();
 
           return (
             <Fragment key={key}>
@@ -317,24 +281,23 @@ export default function WeekListView(props: Props) {
                         {/* Action row (hidden in edit mode to keep the move target unambiguous) */}
                         {!isPartner && !editMode ? (
                           <div className="px-4 pb-2.5">
-                            <div className="flex items-center gap-1 flex-wrap">
+                            <div className="flex items-center gap-x-1 gap-y-1 flex-wrap">
                               <button
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); onLessonClick(l); }}
                                 aria-label={l.notes ? "Edit note" : "Add a note"}
-                                className="inline-flex items-center min-h-[40px] -ml-1 px-2 text-[13px] font-medium hover:text-[var(--g-deep)] transition-colors"
+                                className="inline-flex items-center whitespace-nowrap min-h-[40px] -ml-1 px-2 text-[13px] font-medium hover:text-[var(--g-deep)] transition-colors"
                                 style={{ color: l.notes ? "#2D5A3D" : "#5c7f63" }}
                               >
                                 <Pencil size={14} className="mr-1.5" />
                                 {l.notes ? "Edit note" : "+ Add a note"}
                               </button>
-                              <span aria-hidden="true" className="text-[#cfc9c0] select-none">·</span>
                               {l.completed ? (
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); onToggleLessonDone(l); }}
                                   aria-label="Mark not done"
-                                  className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
+                                  className="flex items-center gap-1 whitespace-nowrap min-h-[40px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
                                 >
                                   <X size={14} /> Mark not done
                                 </button>
@@ -345,7 +308,7 @@ export default function WeekListView(props: Props) {
                                       type="button"
                                       onClick={(e) => { e.stopPropagation(); onToggleLessonDone(l); }}
                                       aria-label={`Mark complete on ${key}`}
-                                      className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                                      className="flex items-center gap-1 whitespace-nowrap min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
                                     >
                                       <Check size={14} /> Mark complete
                                     </button>
@@ -354,7 +317,7 @@ export default function WeekListView(props: Props) {
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); onSkipLesson(l); }}
                                     aria-label="Skip this lesson"
-                                    className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
+                                    className="flex items-center gap-1 whitespace-nowrap min-h-[40px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
                                   >
                                     <X size={14} /> Skip
                                   </button>
@@ -362,7 +325,7 @@ export default function WeekListView(props: Props) {
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); onRescheduleLesson(l); }}
                                     aria-label="Reschedule this lesson"
-                                    className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                                    className="flex items-center gap-1 whitespace-nowrap min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
                                   >
                                     <Calendar size={14} /> Reschedule
                                   </button>
@@ -372,7 +335,7 @@ export default function WeekListView(props: Props) {
                                 type="button"
                                 onClick={(e) => { e.stopPropagation(); onEditLesson(l); }}
                                 aria-label="Edit this lesson"
-                                className="flex items-center gap-1 min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
+                                className="flex items-center gap-1 whitespace-nowrap min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
                               >
                                 <Pencil size={14} /> Edit
                               </button>

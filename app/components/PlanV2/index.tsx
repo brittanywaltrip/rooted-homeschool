@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Plus, MousePointerSquareDashed, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, Plus, MousePointerSquareDashed, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -2934,6 +2934,16 @@ export default function PlanV2() {
                 >
                   <Plus size={13} /> Break
                 </button>
+                {viewMode === "week" ? (
+                  <button
+                    type="button"
+                    onClick={() => setWeekEditMode((v) => !v)}
+                    aria-pressed={weekEditMode}
+                    className="pencil-btn"
+                  >
+                    <Pencil size={13} /> {weekEditMode ? "Done" : "Edit week"}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => (selectMode ? exitSelectMode() : enterSelectMode())}
@@ -3070,10 +3080,6 @@ export default function PlanV2() {
                     curriculumGoals={curriculumGoals}
                     loading={loading}
                     editMode={weekEditMode}
-                    onToggleEdit={() => setWeekEditMode((v) => !v)}
-                    onPrevWeek={prevMonth}
-                    onNextWeek={nextMonth}
-                    weekRangeLabel={monthLabel}
                     onMoveLesson={moveLessonToDate}
                     isPartner={isPartner}
                     onLessonClick={(lesson) => {
@@ -3169,10 +3175,6 @@ export default function PlanV2() {
                       curriculumGoals={curriculumGoals}
                       loading={loading}
                       editMode={weekEditMode}
-                      onToggleEdit={() => setWeekEditMode((v) => !v)}
-                      onPrevWeek={prevMonth}
-                      onNextWeek={nextMonth}
-                      weekRangeLabel={monthLabel}
                       onMoveLesson={moveLessonToDate}
                       isPartner={isPartner}
                       onLessonClick={(lesson) => {
