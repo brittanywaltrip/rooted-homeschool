@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Fragment, useEffect, useState, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ChevronDown, Plus, X, Pencil, Calendar, RotateCcw, Check } from "lucide-react";
@@ -2026,8 +2026,8 @@ function PlanV1() {
       ══════════════════════════════════════════════════ */}
       {viewMode === "week" && !loading && (
         <div className="px-4 pb-4">
-          {/* Week navigation */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginBottom: 10 }}>
+          {/* Week navigation — full 7-day list renders below; no day-selector strip */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
             <button onClick={prevWeek} className="p-1 text-[#5c7f63] hover:text-[#2D5A3D] transition-colors" style={{ background: "none", border: "none", cursor: "pointer" }}>
               <ChevronLeft size={18} />
             </button>
@@ -2039,100 +2039,9 @@ function PlanV1() {
             </button>
           </div>
 
-          {/* 7-day strip */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 5 }}>
-            {weekDays.map((day) => {
-              const key = toDateStr(day);
-              const isToday = key === todayStr;
-              const isPast = day < todayMidnight && !isToday;
-              const isSelected = key === selectedDay;
-              const isVacation = isDateInBlocks(key, vacationBlocks);
-              const dayLessons = lessonsByDay[key] ?? [];
-              // Vacation days never display lesson dots — the vacation
-              // tint + 🌴 emoji are the single visual signal for those
-              // cells. A row's stored scheduled_date can fall inside a
-              // break (e.g. wizard rows pre-generated before the user
-              // added the vacation, or legacy orphans), and we don't
-              // move those rows in the DB — the queue projector is the
-              // source of truth. Empty out the per-day data here so no
-              // child-color dot ever sneaks onto a break cell, even if
-              // the conditional below is refactored.
-              const hasLessons = !isVacation && dayLessons.length > 0;
-              const dayChildIds = isVacation
-                ? []
-                : [...new Set(dayLessons.map(l => l.child_id).filter(Boolean))];
-              const dayChildren = dayChildIds.map(id => children.find(c => c.id === id)).filter(Boolean) as Child[];
-
-              let bg = "transparent";
-              let border = "none";
-              let opacity = 1;
-
-              if (isToday) {
-                bg = "#2D5A3D";
-                if (isVacation) border = "2px solid #f0c878";
-                else if (isSelected) border = "2px solid rgba(255,255,255,0.6)";
-              } else if (isSelected) {
-                bg = isVacation ? "#fff4e0" : "#f4faf0";
-                border = "1.5px solid var(--g-brand)";
-              } else if (isVacation) {
-                bg = "#fff8f0";
-                border = "0.5px solid #f0c878";
-              } else if (hasLessons) {
-                bg = "white";
-                border = "0.5px solid #e8e0d4";
-              }
-              if (isPast && hasLessons && !isSelected && !isToday) opacity = 0.6;
-              const isMilestone = !!schoolYearMilestones[key];
-
-              return (
-                <button
-                  key={key}
-                  onClick={() => selectDay(key)}
-                  style={{
-                    borderRadius: 12, padding: "7px 4px", display: "flex", flexDirection: "column",
-                    alignItems: "center", gap: 3, cursor: "pointer", background: bg, border,
-                    opacity,
-                    ...(isMilestone && !isToday ? { borderLeft: "3px solid #2D5A3D" } : {}),
-                  }}
-                >
-                  <span style={{
-                    fontSize: 9, textTransform: "uppercase", letterSpacing: "0.05em",
-                    color: isToday ? "rgba(255,255,255,0.7)" : "#b5aca4", fontWeight: 600,
-                  }}>
-                    {DAY_LABELS[(day.getDay() + 6) % 7]}
-                  </span>
-                  <span style={{
-                    fontSize: 16, fontWeight: 700,
-                    color: isToday ? "white" : "#2d2926",
-                  }}>
-                    {day.getDate()}
-                  </span>
-                  {/* Dots or vacation */}
-                  <div style={{ display: "flex", gap: 3, minHeight: 5, alignItems: "center" }}>
-                    {isVacation ? (
-                      <span style={{ fontSize: 10 }}>🌴</span>
-                    ) : dayChildren.length > 0 ? (
-                      dayChildren.map(c => (
-                        <span key={c.id} style={{
-                          width: 5, height: 5, borderRadius: "50%", display: "inline-block",
-                          backgroundColor: isToday ? "rgba(255,255,255,0.5)" : (c.color ?? "#5c7f63"),
-                        }} />
-                      ))
-                    ) : null}
-                  </div>
-                  {isMilestone && (
-                    <span style={{
-                      fontSize: 7, fontWeight: 700,
-                      color: isToday ? "rgba(255,255,255,0.85)" : "#2D5A3D",
-                      marginTop: 1, textAlign: "center", lineHeight: 1.1,
-                    }}>
-                      {schoolYearMilestones[key].split(" ")[0]}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
+          {/* Day-selector strip removed — week view now expands all 7 days
+              vertically below. The single-source day panel below the calendar
+              card iterates over weekDays in week mode. */}
         </div>
       )}
 
@@ -2412,30 +2321,36 @@ function PlanV1() {
       {/* Scroll anchor for mobile: lands here when a date is tapped */}
       <div ref={dayDetailRef} aria-hidden="true" style={{ scrollMarginTop: 16 }} />
 
-      {/* School year milestone banner for selected day */}
-      {schoolYearMilestones[selectedDay] && (
-        <div className="bg-[#f0f7f2] border border-[#c5dbc9] rounded-xl px-3 py-2 mb-1">
-          <p className="text-sm font-semibold text-[#2D5A3D]">{schoolYearMilestones[selectedDay]}</p>
-        </div>
-      )}
-
       {/* ══════════════════════════════════════════════════
-          SECTION — SELECTED DAY ITEMS (lessons + appointments)
+          SECTION — DAY PANELS (lessons + appointments)
+          Week mode renders all 7 days expanded; month mode renders the
+          single day selected on the month grid.
       ══════════════════════════════════════════════════ */}
+      {(viewMode === "week" ? weekDays.map((d) => toDateStr(d)) : [selectedDay]).map((dayKey) => (
+        <Fragment key={dayKey}>
+        {/* School year milestone banner for this day */}
+        {schoolYearMilestones[dayKey] && (
+          <div className="bg-[#f0f7f2] border border-[#c5dbc9] rounded-xl px-3 py-2 mb-1">
+            <p className="text-sm font-semibold text-[#2D5A3D]">{schoolYearMilestones[dayKey]}</p>
+          </div>
+        )}
       {(() => {
-        const selLessons = viewMode === "month" ? (monthLessonMap[selectedDay] ?? []) : (lessonsByDay[selectedDay] ?? []);
-        const selAppts = monthApptMap[selectedDay] ?? [];
-        const selDate = new Date(selectedDay + "T00:00:00");
+        const selLessons = viewMode === "month" ? (monthLessonMap[dayKey] ?? []) : (lessonsByDay[dayKey] ?? []);
+        const selAppts = monthApptMap[dayKey] ?? [];
+        const selDate = new Date(dayKey + "T00:00:00");
         const selDateLabel = selDate.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-        const selIsVacation = isDateInBlocks(selectedDay, vacationBlocks);
-        const selVacName = getVacationName(selectedDay, vacationBlocks);
+        const selIsVacation = isDateInBlocks(dayKey, vacationBlocks);
+        const selVacName = getVacationName(dayKey, vacationBlocks);
+        const isToday = dayKey === todayStr;
+        const headerLabelClass = `text-[11px] font-semibold uppercase tracking-wide ${isToday ? "text-[#2D5A3D]" : "text-[#8B7E74]"}`;
+        const headerLabel = `${selDateLabel}${isToday ? " · TODAY" : ""}`;
 
         const dayHeader = (
           <div className="flex items-center justify-between gap-2 pl-1 mb-1">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">{selDateLabel}</p>
+            <p className={headerLabelClass}>{headerLabel}</p>
             {!isPartner && !selIsVacation && (
               <button
-                onClick={() => { setVacName(""); setVacStart(selectedDay); setVacEnd(selectedDay); setVacReschedule("leave"); setShowVacModal(true); }}
+                onClick={() => { setVacName(""); setVacStart(dayKey); setVacEnd(dayKey); setVacReschedule("leave"); setShowVacModal(true); }}
                 className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors min-h-[32px] px-1"
               >
                 Mark as break →
@@ -2448,19 +2363,19 @@ function PlanV1() {
           return (
             <div className="mb-3">
               <div className="pl-1 mb-1">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">{selDateLabel}</p>
+                <p className={headerLabelClass}>{headerLabel}</p>
               </div>
               <div className="rounded-xl text-center" style={{ background: "#F8F7F4", border: "1px solid #e5e0d8", padding: 24 }}>
                 {selIsVacation ? (
                   <p className="text-sm text-[#7a5000]">🌴 {selVacName ?? "Break"} — enjoy the time off!</p>
                 ) : (
-                  <p className="text-sm text-[#5C5346]">☀️ Nothing scheduled — enjoy the day!</p>
+                  <p className="text-sm text-[#5C5346]">☀️ Nothing scheduled, enjoy the day!</p>
                 )}
                 {!isPartner && (
                   <div className="flex items-center justify-center gap-2 mt-3 flex-wrap">
                     <button
                       type="button"
-                      onClick={tryOpenAddLessonPicker}
+                      onClick={() => { setSelectedDay(dayKey); tryOpenAddLessonPicker(); }}
                       className="min-h-[36px] text-[12px] font-medium text-[#2D5A3D] rounded-full px-3.5 py-1.5 hover:bg-[#f0f7f1] transition-colors"
                       style={{ background: "white", border: "1px solid #2D5A3D" }}
                     >
@@ -2468,7 +2383,7 @@ function PlanV1() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setShowApptCreate(true)}
+                      onClick={() => { setSelectedDay(dayKey); setShowApptCreate(true); }}
                       className="min-h-[36px] text-[12px] font-medium text-[#2D5A3D] rounded-full px-3.5 py-1.5 hover:bg-[#f0f7f1] transition-colors"
                       style={{ background: "white", border: "1px solid #2D5A3D" }}
                     >
@@ -2591,10 +2506,10 @@ function PlanV1() {
                             </button>
                           ) : (
                             <>
-                              {selectedDay < todayStr && (
+                              {dayKey < todayStr && (
                                 <button
-                                  onClick={() => toggleLesson(l.id, false, `${selectedDay}T12:00:00Z`)}
-                                  aria-label={`Mark complete on ${selectedDay}`}
+                                  onClick={() => toggleLesson(l.id, false, `${dayKey}T12:00:00Z`)}
+                                  aria-label={`Mark complete on ${dayKey}`}
                                   className="flex items-center gap-1 min-h-[44px] min-w-[44px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
                                 >
                                   <Check size={14} /> Mark complete
@@ -2717,7 +2632,7 @@ function PlanV1() {
             {!isPartner && (
               <button
                 type="button"
-                onClick={tryOpenAddLessonPicker}
+                onClick={() => { setSelectedDay(dayKey); tryOpenAddLessonPicker(); }}
                 className="text-[13px] text-[#7a6f65] hover:text-[#5a4f45] font-medium mt-2 pl-1"
               >
                 + Add lesson
@@ -2726,6 +2641,8 @@ function PlanV1() {
           </div>
         );
       })()}
+        </Fragment>
+      ))}
 
       {/* ══════════════════════════════════════════════════
           SECTION — CURRICULUM
