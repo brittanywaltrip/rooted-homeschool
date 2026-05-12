@@ -2090,7 +2090,7 @@ export default function PlanV2() {
     setLessons((prev) => prev.filter((l) => !rowIdSet.has(l.id)));
     hapticTap(20);
 
-    // Defer the DB delete to the end of the 30s undo window. If the user
+    // Defer the DB delete to the end of the 5s undo window. If the user
     // taps Undo first, the timer is cleared and the rows are restored.
     const timer = window.setTimeout(async () => {
       pendingBulkDeleteRef.current = null;
@@ -2100,7 +2100,7 @@ export default function PlanV2() {
         /* silent — next reload reconciles */
       }
       reload();
-    }, 30_000);
+    }, 5_000);
     pendingBulkDeleteRef.current = { rows, timer };
 
     setUndoAction({
