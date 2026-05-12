@@ -11,6 +11,7 @@ import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
 import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib/timezone";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
 import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
@@ -487,6 +488,11 @@ export default function TodayPage() {
   // computeTodayLessons in loadData and the InlineScheduleTabs Upcoming
   // tab so tomorrow's projection starts at the correct lesson_number.
   const [completedTodayPerGoal, setCompletedTodayPerGoal] = useState<Map<string, number>>(new Map());
+  // User's IANA timezone (e.g., "America/Los_Angeles") from profiles.timezone.
+  // Falls back to America/New_York via the helpers when null. Set during
+  // loadData so openExtraLessons + any other event handler can reuse it
+  // without refetching the profile row.
+  const [userTz, setUserTz] = useState<string | null>(null);
   const [showMissedSheet, setShowMissedSheet] = useState(false);
   const [missedSheetSubmitting, setMissedSheetSubmitting] = useState(false);
 
@@ -622,16 +628,30 @@ export default function TodayPage() {
     const lastYear = otdNow.getFullYear() - 1;
     const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
     const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
-    // Local-day window for today's per-goal completion counts. The
-    // queue projector subtracts these from today's slot allocation so
-    // marking complete doesn't pull a fresh lesson onto today.
-    const todayStartLocal = new Date(`${today}T00:00:00`);
-    const tomorrowStartLocal = new Date(todayStartLocal);
-    tomorrowStartLocal.setDate(tomorrowStartLocal.getDate() + 1);
-    const todayStartIso = todayStartLocal.toISOString();
-    const tomorrowStartIso = tomorrowStartLocal.toISOString();
+    // Profile fetched first so we can derive the user's TZ before issuing
+    // queries that depend on a "today in user's local time" boundary. The
+    // extra round trip is cheaper than the alternative — querying with a
+    // wrong-TZ window silently shifts which lessons count as "completed
+    // today", which shifts the queue projector by one slot. profiles.timezone
+    // is the source of truth (added 2026-05-03); falls back to America/New_York
+    // via the timezone.ts helpers when null.
+    const profileResult = await supabase
+      .from("profiles")
+      .select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, last_catchup_dismissed_at, timezone")
+      .eq("id", effectiveUserId)
+      .maybeSingle();
+    const tzFromProfile = (profileResult.data as { timezone?: string | null } | null)?.timezone ?? null;
+    setUserTz(tzFromProfile);
+
+    // Local-day window for today's per-goal completion counts. Computed in
+    // the user's TZ (NOT browser-local) so a Pacific-time mom's late-night
+    // completions don't roll into "today" the next morning UTC. The queue
+    // projector subtracts these from today's slot allocation so marking
+    // complete doesn't pull a fresh lesson onto today.
+    const todayInUserTz = todayInTz(tzFromProfile);
+    const todayStartIso = startOfDayInTzAsUtc(todayInUserTz, tzFromProfile).toISOString();
+    const tomorrowStartIso = startOfDayInTzAsUtc(addDaysYmd(todayInUserTz, 1), tzFromProfile).toISOString();
     const [
-      profileResult,
       authResult,
       childrenResult,
       _todayLessonsResult,
@@ -656,7 +676,6 @@ export default function TodayPage() {
       curriculumGoalsResult,
       completedTodayResult,
     ] = await Promise.all([
-      supabase.from("profiles").select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, last_catchup_dismissed_at").eq("id", effectiveUserId).maybeSingle(),
       supabase.auth.getUser(),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       // TODO: remove after queue scheduling verified in production. Old
@@ -1778,9 +1797,15 @@ export default function TodayPage() {
     // modal projects the BATCH AFTER today onto upcoming school days,
     // skipping vacation blocks, and shows lessons grouped by kid then
     // subject in ascending lesson_number order.
-    const todayLocalStart = new Date(today + "T00:00:00");
-    const tomorrowLocalStart = new Date(todayLocalStart);
-    tomorrowLocalStart.setDate(tomorrowLocalStart.getDate() + 1);
+    //
+    // The completedToday window is bounded in the user's stored TZ
+    // (loadData populates userTz from profiles.timezone). If userTz is
+    // still null (Log Extra opened before loadData resolved), the
+    // helpers fall back to America/New_York — same behavior as the
+    // scheduler invariant test.
+    const todayUserTz = todayInTz(userTz);
+    const todayStartIso = startOfDayInTzAsUtc(todayUserTz, userTz).toISOString();
+    const tomorrowStartIso = startOfDayInTzAsUtc(addDaysYmd(todayUserTz, 1), userTz).toISOString();
     const [{ data: goalsRaw }, { data: vacsRaw }, { data: completedTodayRaw }] = await Promise.all([
       supabase
         .from("curriculum_goals")
@@ -1796,8 +1821,8 @@ export default function TodayPage() {
         .select("curriculum_goal_id")
         .eq("user_id", effectiveUserId)
         .eq("completed", true)
-        .gte("completed_at", todayLocalStart.toISOString())
-        .lt("completed_at", tomorrowLocalStart.toISOString())
+        .gte("completed_at", todayStartIso)
+        .lt("completed_at", tomorrowStartIso)
         .not("curriculum_goal_id", "is", null),
     ]);
     const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null; start_date: string | null }[];
