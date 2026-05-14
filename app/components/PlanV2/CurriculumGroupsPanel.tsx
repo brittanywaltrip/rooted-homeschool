@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Hand, Pencil, Plus, Trash2 } from "lucide-react";
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
@@ -115,6 +115,11 @@ export interface CurriculumGroupsPanelProps {
   onCreate: () => void;
   onEdit: (goal: CurriculumGoal) => void;
   onDelete: (goal: CurriculumGoal, lessonCount: number) => void;
+  /** "Stop this curriculum" — caps the goal at its current_lesson and
+   *  clears uncompleted lessons. Distinct from Delete: completed history
+   *  is preserved and the goal stays in the DB. Only wired for active
+   *  goals (pending goals haven't started, so stopping is meaningless). */
+  onStop: (goal: CurriculumGoal) => void;
   onToggleLesson: (lessonId: string, current: boolean) => void;
   onEditLesson: (lesson: PlanV2Lesson) => void;
   onRescheduleLesson: (lesson: PlanV2Lesson) => void;
@@ -131,7 +136,7 @@ export interface CurriculumGroupsPanelProps {
 export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps) {
   const {
     goals, lessons, kids, vacationBlocks,
-    onCreate, onEdit, onDelete,
+    onCreate, onEdit, onDelete, onStop,
     onToggleLesson, onEditLesson, onRescheduleLesson, onSkipLesson, onDeleteLesson,
     onOpenBackfill, openBackfillGoalId, renderBackfillPanel,
   } = props;
@@ -286,6 +291,13 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                       className="flex items-center gap-1 text-[11px] font-semibold text-[#7a4a1a] hover:text-[#5a3a12] px-2 py-1 rounded-lg hover:bg-[#fef9e8] transition-colors"
                     >
                       📥 Log past hours
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onStop(goal)}
+                      className="flex items-center gap-1 text-[11px] font-semibold text-[#a07000] hover:text-[#7a4a1a] px-2 py-1 rounded-lg hover:bg-[#fef9e8] transition-colors"
+                    >
+                      <Hand size={11} /> Stop curriculum
                     </button>
                     <button
                       type="button"
