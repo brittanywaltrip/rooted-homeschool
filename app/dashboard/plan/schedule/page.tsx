@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { computeNextLessonsForGoal, recomputeCurrentLesson } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate } from "@/app/lib/scheduler";
 import PageHero from "@/app/components/PageHero";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -471,7 +471,13 @@ export default function ScheduleBuilderPage() {
   const [newChildColor, setNewChildColor] = useState<string>(CHILD_COLORS[0]);
   const [addingChild, setAddingChild] = useState(false);
 
-  const saveInFlight = useRef(false);
+  // In-flight gate for handleSave. createInFlightGate gives a stricter
+  // contract than a bare ref: it adds a post-action settle window so a
+  // double-tap during the brief moment between setSaving(false) and the
+  // next render can't slip a second handleSave through. tryEnter()/exit()
+  // are pure, so the gate survives strict-mode double mounts and React 18
+  // concurrent-feature double invocations.
+  const saveGate = useMemo(() => createInFlightGate(), []);
 
   // ── Load ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -715,9 +721,9 @@ export default function ScheduleBuilderPage() {
 
   // ── Save flow ────────────────────────────────────────────────────────────
   async function handleSave() {
-    if (saveInFlight.current || saving || !effectiveUserId) return;
+    if (saveGate.isBusy() || saving || !effectiveUserId) return;
     if (!allValid) return;
-    saveInFlight.current = true;
+    if (!saveGate.tryEnter()) return;
     setSaving(true);
     setSaveError(null);
     try {
@@ -947,6 +953,22 @@ export default function ScheduleBuilderPage() {
         const upcoming = computeNextLessonsForGoal(goalConfig, todayMid, 3650, vacations);
         if (upcoming.length === 0) continue;
 
+        // Delete-before-insert guard, NEW goals only. Closes the race where
+        // two parallel saves both pass the in-process gate (e.g. retry after
+        // partial failure, multi-tab) and both insert their full lesson sets
+        // — observed in production via near-simultaneous created_at on
+        // duplicate (curriculum_goal_id, lesson_number) rows. Safe at create
+        // time because there are no completed lessons yet to clobber. The
+        // edit/regenerate path (previouslySavedAs === "curriculum_goals")
+        // skips this delete since it may have completed history.
+        if (row.previouslySavedAs === null) {
+          await supabase
+            .from("lessons")
+            .delete()
+            .eq("curriculum_goal_id", goalId)
+            .eq("completed", false);
+        }
+
         const { data: existingLessons } = await supabase
           .from("lessons")
           .select("lesson_number")
@@ -1013,8 +1035,11 @@ export default function ScheduleBuilderPage() {
       const msg = (err as { message?: string })?.message ?? String(err);
       setSaveError(msg);
     } finally {
-      saveInFlight.current = false;
       setSaving(false);
+      // 1.5s settle window: prevents a back-to-back re-tap (e.g. impatient
+      // user clicking twice while the post-save router transition is in
+      // flight) from firing handleSave again before the page unmounts.
+      setTimeout(() => saveGate.exit(), 1500);
     }
   }
 
