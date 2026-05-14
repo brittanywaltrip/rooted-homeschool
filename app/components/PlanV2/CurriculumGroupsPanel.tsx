@@ -5,6 +5,7 @@ import { ChevronDown, ChevronRight, Hand, Pencil, Plus, Trash2 } from "lucide-re
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
+import { computeFinishDate, type VacationBlock as SchedulerVacationBlock } from "@/app/lib/scheduler";
 
 /* ============================================================================
  * CurriculumGroupsPanel — curriculum goal list with pace + progress + per-
@@ -30,6 +31,7 @@ export type CurriculumGoal = {
   subject_label: string | null;
   total_lessons: number;
   current_lesson: number;
+  lessons_per_day: number;
   target_date: string | null;
   school_days: string[] | null;
   /** YYYY-MM-DD. When set and > today, the goal renders in the "Upcoming"
@@ -47,14 +49,39 @@ export type PaceStatus = {
 
 function computePaceStatus(
   remainingCount: number,
-  targetDate: string | null,
-  schoolDays: string[] | null,
+  goal: CurriculumGoal,
   vacationBlocks: VacationRange[],
 ): PaceStatus {
+  const targetDate = goal.target_date;
+  const schoolDays = goal.school_days;
   if (remainingCount === 0) {
     return { kind: "complete", label: "✓ Finished!", color: "#7a6f65", bg: "#f0ede8" };
   }
-  if (!targetDate || !schoolDays || schoolDays.length === 0) {
+  if (!targetDate) {
+    // No user-set target. The queue projector can still compute a finish
+    // date from current_lesson + lessons_per_day + school_days — show that
+    // as a soft "Projected" pill instead of the bare "No target" fallback.
+    if (schoolDays && schoolDays.length > 0 && goal.lessons_per_day > 0) {
+      const projected = computeFinishDate(
+        {
+          id: goal.id,
+          total_lessons: goal.total_lessons,
+          lessons_per_day: goal.lessons_per_day,
+          school_days: goal.school_days,
+          current_lesson: goal.current_lesson,
+          start_date: goal.start_date ?? null,
+        },
+        new Date(),
+        vacationBlocks as SchedulerVacationBlock[],
+      );
+      if (projected) {
+        const label = projected.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+        return { kind: "no_target", label: `Projected ${label}`, color: "#5c7f63", bg: "#f0f7f1" };
+      }
+    }
+    return { kind: "no_target", label: "No target", color: "#9a8e84", bg: "#f4f0e8" };
+  }
+  if (!schoolDays || schoolDays.length === 0) {
     return { kind: "no_target", label: "No target", color: "#9a8e84", bg: "#f4f0e8" };
   }
   const today = new Date();
@@ -221,7 +248,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
             const totalInView = goalLessons.length;
             const completed = goalLessons.filter((l) => l.completed).length;
             const remaining = Math.max(0, goal.total_lessons - completed);
-            const pace = computePaceStatus(remaining, goal.target_date, goal.school_days, vacationBlocks);
+            const pace = computePaceStatus(remaining, goal, vacationBlocks);
             const childMeta = goal.child_id ? kidsById.get(goal.child_id) : undefined;
             const color = resolveChildColor(childMeta?.child ?? null, childMeta?.index ?? 0);
             const pctComplete = goal.total_lessons > 0

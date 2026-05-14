@@ -327,6 +327,7 @@ export default function PlanV2() {
     child_id: string | null;
     total_lessons: number;
     current_lesson: number;
+    lessons_per_day: number;
     target_date: string | null;
     school_days: string[] | null;
     default_minutes: number;
@@ -356,7 +357,7 @@ export default function PlanV2() {
     (async () => {
       const { data } = await supabase
         .from("curriculum_goals")
-        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji")
+        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, lessons_per_day, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji")
         .eq("user_id", effectiveUserId)
         .order("created_at");
       if (cancelled) return;
@@ -3380,7 +3381,6 @@ export default function PlanV2() {
                   completedDate={goal.completed_at!}
                   lessonsCount={goal.total_lessons ?? 0}
                   minutesLogged={minutesByGoal.get(goal.id) ?? 0}
-                  weeksSpan={computeWeeksSpan(startedDate, goal.completed_at!)}
                   onSaveToMemories={() => { void handleSaveCurriculumToMemories(goal); }}
                   onAddToYearbook={() => { void handleAddCurriculumToYearbook(goal); }}
                   onPrintCertificate={() => { void handlePrintCertificate(goal); }}
