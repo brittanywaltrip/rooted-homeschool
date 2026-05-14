@@ -1956,24 +1956,54 @@ export default function TodayPage() {
     if (extraChecked.size === 0) return;
     setSavingExtra(true);
 
-    // Collect goal default_minutes in one pass (one query per affected goal, not per lesson)
     const goalMinutes = new Map<string, number>();
+    const currentPerGoal = new Map<string, number>();
     const checkedLessons = upcomingLessons.filter(l => extraChecked.has(l.id));
     const uniqueGoalIds = Array.from(new Set(checkedLessons.map(l => l.curriculum_goal_id).filter(Boolean) as string[]));
     if (uniqueGoalIds.length > 0) {
       const { data: goalRows } = await supabase
         .from("curriculum_goals")
-        .select("id, default_minutes")
+        .select("id, default_minutes, current_lesson")
         .in("id", uniqueGoalIds);
-      for (const g of (goalRows ?? []) as { id: string; default_minutes?: number }[]) {
+      for (const g of (goalRows ?? []) as { id: string; default_minutes?: number; current_lesson: number | null }[]) {
         goalMinutes.set(g.id, g.default_minutes ?? 30);
+        currentPerGoal.set(g.id, g.current_lesson ?? 0);
       }
     }
-    // Use per-lesson minutes if goals have different defaults; fall back to 30
-    // For simplicity, use the first goal's minutes (or 30) as batch default.
-    // Since all checked lessons in one batch are typically the same subject,
-    // and default_minutes is per-goal, apply per-lesson using the map:
-    const lessonIds = checkedLessons.map(l => l.id);
+
+    // Per-goal highest lesson_number the user picked. Any incomplete row in
+    // (current_lesson, maxChecked] for that goal must also be marked complete
+    // so the queue pointer never skips a lesson (recomputeCurrentLesson takes
+    // MAX of completed rows, so without this backfill an intermediate lesson
+    // would stay incomplete while current_lesson jumped past it).
+    const maxCheckedPerGoal = new Map<string, number>();
+    for (const l of checkedLessons) {
+      if (!l.curriculum_goal_id || l.lesson_number == null) continue;
+      const prev = maxCheckedPerGoal.get(l.curriculum_goal_id) ?? 0;
+      if (l.lesson_number > prev) maxCheckedPerGoal.set(l.curriculum_goal_id, l.lesson_number);
+    }
+    const intermediateIds = new Set<string>();
+    for (const goalId of uniqueGoalIds) {
+      const maxChecked = maxCheckedPerGoal.get(goalId) ?? 0;
+      const cur = currentPerGoal.get(goalId) ?? 0;
+      if (maxChecked <= cur + 1) continue;
+      const { data: gapRows } = await supabase
+        .from("lessons")
+        .select("id")
+        .eq("user_id", effectiveUserId)
+        .eq("curriculum_goal_id", goalId)
+        .eq("completed", false)
+        .gt("lesson_number", cur)
+        .lt("lesson_number", maxChecked);
+      for (const r of (gapRows ?? []) as { id: string }[]) {
+        intermediateIds.add(r.id);
+      }
+    }
+
+    const lessonIds = Array.from(new Set([
+      ...checkedLessons.map(l => l.id),
+      ...intermediateIds,
+    ]));
     const { error: batchError } = await supabase.from("lessons").update({
       completed: true,
       completed_at: new Date().toISOString(),

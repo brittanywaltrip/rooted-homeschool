@@ -261,6 +261,7 @@ export default function InlineScheduleTabs({
             .from("lessons")
             .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number")
             .eq("user_id", user.id)
+            .eq("completed", false)
             .in("curriculum_goal_id", projGoalIds)
             .in("lesson_number", projNumbers)
         : { data: [] as unknown[] };
