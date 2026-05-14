@@ -292,13 +292,20 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                     >
                       📥 Log past hours
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => onStop(goal)}
-                      className="flex items-center gap-1 text-[11px] font-semibold text-[#a07000] hover:text-[#7a4a1a] px-2 py-1 rounded-lg hover:bg-[#fef9e8] transition-colors"
-                    >
-                      <Hand size={11} /> Stop curriculum
-                    </button>
+                    {/* Stop is only meaningful once at least one lesson has
+                        been completed; for not-yet-started goals Delete is
+                        the right action. Without this gate, confirming
+                        Stop on a 0-completed goal would set total_lessons
+                        to 0 and create a "0 LESSONS" completion card. */}
+                    {(goal.current_lesson ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => onStop(goal)}
+                        className="flex items-center gap-1 text-[11px] font-semibold text-[#a07000] hover:text-[#7a4a1a] px-2 py-1 rounded-lg hover:bg-[#fef9e8] transition-colors"
+                      >
+                        <Hand size={11} /> Stop curriculum
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => onDelete(goal, totalInView)}

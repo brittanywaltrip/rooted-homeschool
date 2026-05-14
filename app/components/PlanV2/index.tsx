@@ -889,7 +889,7 @@ export default function PlanV2() {
   const handleConfirmStopGoal = useCallback(async () => {
     if (!stopGoalConfirm) return;
     const { goal } = stopGoalConfirm;
-    setStopGoalConfirm(null);
+    const completedAt = new Date().toISOString();
     try {
       // 1. Wipe future / uncompleted lesson rows so the queue projector
       //    has nothing left to schedule.
@@ -905,13 +905,25 @@ export default function PlanV2() {
         .from("curriculum_goals")
         .update({
           total_lessons: goal.current_lesson,
-          completed_at: new Date().toISOString(),
+          completed_at: completedAt,
         })
         .eq("id", goal.id);
     } catch {
       flashNotice("Couldn't stop curriculum, please try again.");
       return;
     }
+    // Optimistic local update so the active/celebrating/completed buckets
+    // re-render immediately. reloadGoals() is fire-and-forget (it bumps a
+    // nonce that triggers a background fetch); without this patch, the
+    // panel can show stale data until the fetch lands, which feels broken.
+    // The background reload still runs as eventual-consistency confirmation.
+    setCurriculumGoals((prev) =>
+      prev.map((g) =>
+        g.id === goal.id
+          ? { ...g, total_lessons: goal.current_lesson, completed_at: completedAt }
+          : g,
+      ),
+    );
     recordEvent("curriculum_goal.updated", {
       goal_id: goal.id,
       curriculum_name: goal.curriculum_name,
@@ -921,6 +933,9 @@ export default function PlanV2() {
     setOpenBackfillGoalId((id) => (id === goal.id ? null : id));
     reloadGoals();
     reload();
+    // Clear the confirm modal LAST so the user sees the panel reflow
+    // happen before the dialog disappears, not after a stale beat.
+    setStopGoalConfirm(null);
   }, [stopGoalConfirm, recordEvent, reloadGoals, reload]);
 
   // ── Curriculum completion actions (celebration card buttons) ─────────────
