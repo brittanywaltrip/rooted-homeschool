@@ -391,6 +391,9 @@ export default function PlanV2() {
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
   const [openBackfillGoalId, setOpenBackfillGoalId] = useState<string | null>(null);
   const [deleteGoalConfirm, setDeleteGoalConfirm] = useState<{ goal: PanelGoal; lessonCount: number } | null>(null);
+  // "Stop this curriculum" confirm — caps total_lessons at current_lesson
+  // and clears uncompleted lessons. Goal row + completed history stay.
+  const [stopGoalConfirm, setStopGoalConfirm] = useState<{ goal: PanelGoal } | null>(null);
   const [deleteActivityConfirm, setDeleteActivityConfirm] = useState<ActivityRow | null>(null);
 
   // ── Audit trail state ────────────────────────────────────────────────────
@@ -877,6 +880,63 @@ export default function PlanV2() {
     reloadGoals();
     reload();
   }, [deleteGoalConfirm, recordEvent, reloadGoals, reload]);
+
+  // "Stop this curriculum" — distinct from delete. Caps total_lessons at
+  // the current_lesson count and stamps completed_at, then clears all
+  // uncompleted lessons so the schedule comes clean. Completed history
+  // stays untouched. The goal row remains in the DB so the user can see
+  // "I finished 7 of 12 chapters" later if they look at history.
+  const handleConfirmStopGoal = useCallback(async () => {
+    if (!stopGoalConfirm) return;
+    const { goal } = stopGoalConfirm;
+    const completedAt = new Date().toISOString();
+    try {
+      // 1. Wipe future / uncompleted lesson rows so the queue projector
+      //    has nothing left to schedule.
+      await supabase
+        .from("lessons")
+        .delete()
+        .eq("curriculum_goal_id", goal.id)
+        .eq("completed", false);
+      // 2. Cap total_lessons at the actual completed count and mark
+      //    completed_at so the goal moves into the celebrating /
+      //    completed buckets and disappears from active.
+      await supabase
+        .from("curriculum_goals")
+        .update({
+          total_lessons: goal.current_lesson,
+          completed_at: completedAt,
+        })
+        .eq("id", goal.id);
+    } catch {
+      flashNotice("Couldn't stop curriculum, please try again.");
+      return;
+    }
+    // Optimistic local update so the active/celebrating/completed buckets
+    // re-render immediately. reloadGoals() is fire-and-forget (it bumps a
+    // nonce that triggers a background fetch); without this patch, the
+    // panel can show stale data until the fetch lands, which feels broken.
+    // The background reload still runs as eventual-consistency confirmation.
+    setCurriculumGoals((prev) =>
+      prev.map((g) =>
+        g.id === goal.id
+          ? { ...g, total_lessons: goal.current_lesson, completed_at: completedAt }
+          : g,
+      ),
+    );
+    recordEvent("curriculum_goal.updated", {
+      goal_id: goal.id,
+      curriculum_name: goal.curriculum_name,
+      action: "stopped",
+      stopped_at_lesson: goal.current_lesson,
+    });
+    setOpenBackfillGoalId((id) => (id === goal.id ? null : id));
+    reloadGoals();
+    reload();
+    // Clear the confirm modal LAST so the user sees the panel reflow
+    // happen before the dialog disappears, not after a stale beat.
+    setStopGoalConfirm(null);
+  }, [stopGoalConfirm, recordEvent, reloadGoals, reload]);
 
   // ── Curriculum completion actions (celebration card buttons) ─────────────
   // Each action localStorage-flags the goal as celebrated so the card moves
@@ -2695,6 +2755,7 @@ export default function PlanV2() {
       if (printDialogOpen) { setPrintDialogOpen(false); return; }
       if (schoolYearModalOpen) { setSchoolYearModalOpen(false); return; }
       if (deleteGoalConfirm) { setDeleteGoalConfirm(null); return; }
+      if (stopGoalConfirm) { setStopGoalConfirm(null); return; }
       if (deleteActivityConfirm) { setDeleteActivityConfirm(null); return; }
       if (reportDialogOpen) { setReportDialogOpen(false); return; }
       if (activityModalOpen) { setActivityModalOpen(false); setActivityEditing(null); return; }
@@ -2713,7 +2774,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -3279,6 +3340,7 @@ export default function PlanV2() {
           onCreate={handleWizardOpenCreate}
           onEdit={handleWizardOpenEdit}
           onDelete={(goal, count) => setDeleteGoalConfirm({ goal, lessonCount: count })}
+          onStop={(goal) => setStopGoalConfirm({ goal })}
           onToggleLesson={(id, current) => { void toggleLessonWithLog(id, current); }}
           onEditLesson={(l) => setEditLessonTarget(l)}
           onRescheduleLesson={(l) => {
@@ -3848,6 +3910,24 @@ export default function PlanV2() {
           />
         ) : null}
 
+        {/* Curriculum stop confirm. Different from delete: keeps the goal
+            row + completed history, just clears the future schedule and
+            caps total_lessons so the goal moves to the celebrating /
+            completed bucket. */}
+        {stopGoalConfirm ? (() => {
+          const completedCount = stopGoalConfirm.goal.current_lesson;
+          return (
+            <ConfirmDialog
+              title={`Stop ${stopGoalConfirm.goal.curriculum_name}?`}
+              body={`You've completed ${completedCount} lesson${completedCount === 1 ? "" : "s"}. This will remove it from your daily schedule. Your completed lessons stay in your history.`}
+              confirmLabel="Yes, stop it"
+              cancelLabel="Keep going"
+              onCancel={() => setStopGoalConfirm(null)}
+              onConfirm={handleConfirmStopGoal}
+            />
+          );
+        })() : null}
+
         {/* Activity delete confirm */}
         {deleteActivityConfirm ? (
           <ConfirmDialog
@@ -3882,11 +3962,12 @@ function ConfirmDialog(props: {
   title: string;
   body: string;
   confirmLabel: string;
+  cancelLabel?: string;
   destructive?: boolean;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 }) {
-  const { title, body, confirmLabel, destructive, onCancel, onConfirm } = props;
+  const { title, body, confirmLabel, cancelLabel, destructive, onCancel, onConfirm } = props;
   return (
     <>
       <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[70]" onClick={onCancel} aria-hidden />
@@ -3913,7 +3994,7 @@ function ConfirmDialog(props: {
               onClick={onCancel}
               className="flex-1 min-h-[44px] text-sm font-medium text-[#7a6f65] bg-[#f4f0e8] rounded-xl hover:bg-[#e8e2d9] transition-colors"
             >
-              Cancel
+              {cancelLabel ?? "Cancel"}
             </button>
             <button
               type="button"
