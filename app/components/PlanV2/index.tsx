@@ -126,11 +126,6 @@ function getCelebrationState(
   return "completed";
 }
 
-function computeWeeksSpan(startISO: string, endISO: string): number {
-  const ms = new Date(endISO).getTime() - new Date(startISO).getTime();
-  return Math.max(1, Math.round(ms / (1000 * 60 * 60 * 24 * 7)));
-}
-
 function formatShortDate(iso: string | null): string {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -1010,8 +1005,8 @@ export default function PlanV2() {
           childName: child?.name ?? "your kid",
           curriculumName: goal.curriculum_name,
           completedDate: goal.completed_at,
+          startedDate,
           lessonsCount: goal.total_lessons ?? 0,
-          weeksSpan: computeWeeksSpan(startedDate, goal.completed_at),
         });
       } catch {
         flashNotice("Couldn't generate certificate — try again.");
