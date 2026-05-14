@@ -105,7 +105,7 @@ export function usePlanV2Data(opts: {
 
     const lessonReq = supabase
       .from("lessons")
-      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color)")
+      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
       .eq("user_id", effectiveUserId)
       .gte("scheduled_date", startStr)
       .lte("scheduled_date", endStr)

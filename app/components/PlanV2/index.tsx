@@ -628,7 +628,7 @@ export default function PlanV2() {
         notes: values.notes,
         completed: false,
       })
-      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color)")
+      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
       .single();
     if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
 

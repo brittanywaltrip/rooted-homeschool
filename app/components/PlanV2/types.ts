@@ -20,6 +20,7 @@ export type PlanV2Lesson = {
   date: string | null;
   curriculum_goal_id: string | null;
   subjects: PlanV2Subject;
+  curriculum_goals?: { subject_label: string | null } | null;
   hours: number | null;
   minutes_spent: number | null;
   notes: string | null;
