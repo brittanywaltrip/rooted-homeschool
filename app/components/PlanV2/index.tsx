@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
 import {
   DndContext,
@@ -167,6 +168,7 @@ type ViewMode = "week" | "month";
 
 export default function PlanV2() {
   const { effectiveUserId, isPartner } = usePartner();
+  const router = useRouter();
   const todayStr = useMemo(() => toDateStr(new Date()), []);
   const isMobile = useIsMobile();
 
@@ -804,18 +806,12 @@ export default function PlanV2() {
   }, []);
 
   const handleWizardOpenEdit = useCallback((goal: PanelGoal) => {
-    setWizardEditData({
-      goalId: goal.id,
-      childId: goal.child_id ?? "",
-      curricName: goal.curriculum_name,
-      subjectLabel: goal.subject_label,
-      totalLessons: goal.total_lessons,
-      currentLesson: goal.current_lesson,
-      targetDate: goal.target_date ?? "",
-      schoolDays: goal.school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"],
-    });
-    setWizardOpen(true);
-  }, []);
+    // The inline edit modal was retired with CurriculumWizard; the Schedule
+    // Builder route is the destination now. Pass the goal id so the builder
+    // can scroll to / highlight the targeted curriculum instead of landing
+    // on the first row in the list.
+    router.push(`/dashboard/plan/schedule?goal=${encodeURIComponent(goal.id)}`);
+  }, [router]);
 
   const wizardWasEdit = wizardEditData !== null;
   const handleWizardSaved = useCallback(async () => {

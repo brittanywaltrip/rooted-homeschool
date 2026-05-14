@@ -506,6 +506,12 @@ export default function TodayPage() {
   const [catchUpGoals, setCatchUpGoals] = useState<CatchUpGoal[]>([]);
   const [catchUpEntriesByGoal, setCatchUpEntriesByGoal] = useState<Map<string, CatchUpEntry[]>>(new Map());
   const [catchUpLastCompletion, setCatchUpLastCompletion] = useState<string | null>(null);
+  // Overdue lesson count for the Today-page indicator. Computed from the
+  // queue-model gap between last completion and today; matches the catch-up
+  // modal's per-goal projection but renders even when gap < 5 days. Stays 0
+  // for brand-new users who have never completed a lesson so we don't
+  // discourage them on day one.
+  const [overdueLessonCount, setOverdueLessonCount] = useState(0);
 
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
@@ -997,6 +1003,7 @@ export default function TodayPage() {
       const activeGoals = goalRows.filter((g) => g.current_lesson < g.total_lessons);
       if (activeGoals.length === 0) {
         setShowCatchUp(false);
+        setOverdueLessonCount(0);
         return;
       }
       const dismissedAtRaw = (profile as { last_catchup_dismissed_at?: string | null } | null)?.last_catchup_dismissed_at ?? null;
@@ -1022,15 +1029,20 @@ export default function TodayPage() {
       // Hide if there's never been any completion at all — that's a brand
       // new user, not someone returning after a gap. The wizard celebrates
       // its own completion path and we don't want to nag empty families.
-      if (!lastCompletedAt) { setShowCatchUp(false); return; }
-      if (gapDays < 5) { setShowCatchUp(false); return; }
-      if (dismissedAt && dismissedAt > gapStart) { setShowCatchUp(false); return; }
+      if (!lastCompletedAt) {
+        setShowCatchUp(false);
+        setOverdueLessonCount(0);
+        return;
+      }
 
       // Compute per-goal catch-up entries. Vacation blocks exclude
       // break days from the gap so the modal never asks about lessons
       // during a vacation. If the entire gap is inside a break, the
-      // modal does not appear (entriesByGoal stays empty).
+      // modal does not appear (entriesByGoal stays empty). The summed
+      // entry count drives the Today-page overdue indicator regardless
+      // of the 5-day threshold the modal uses.
       const entriesByGoal = new Map<string, CatchUpEntry[]>();
+      let overdueTotal = 0;
       for (const goal of activeGoals) {
         const cfg: CurriculumGoalConfig = {
           id: goal.id,
@@ -1041,8 +1053,13 @@ export default function TodayPage() {
           start_date: goal.start_date,
         };
         const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
+        overdueTotal += entries.length;
         if (entries.length > 0) entriesByGoal.set(goal.id, entries);
       }
+      setOverdueLessonCount(overdueTotal);
+
+      if (gapDays < 5) { setShowCatchUp(false); return; }
+      if (dismissedAt && dismissedAt > gapStart) { setShowCatchUp(false); return; }
       if (entriesByGoal.size === 0) { setShowCatchUp(false); return; }
 
       // Build display goal list with child names.
@@ -3153,6 +3170,25 @@ export default function TodayPage() {
           </div>
         );
       })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          OVERDUE LESSON INDICATOR — past-dated incomplete lessons under
+          the queue model. Subtle amber pill, links to Plan for catch-up.
+          Hidden on pace, hidden for brand-new users with no completions.
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && overdueLessonCount > 0 && (
+        <Link
+          href="/dashboard/plan"
+          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#fef3e3] border border-[#c4956a]/30 hover:bg-[#fbe9d0] hover:border-[#c4956a]/50 transition-colors group"
+        >
+          <span className="text-sm leading-none" aria-hidden>⏳</span>
+          <p className="text-[12px] text-[#8b6f47] font-medium flex-1">
+            You&apos;re {overdueLessonCount} lesson{overdueLessonCount !== 1 ? "s" : ""} behind
+            <span className="text-[#c4956a] mx-1.5">·</span>
+            <span className="text-[#7a4a1a] font-semibold">Catch up on Plan →</span>
+          </p>
+        </Link>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           TODAY SCHEDULE — grouped by kid + subject, kid color tints

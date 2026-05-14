@@ -53,6 +53,14 @@ type Row = {
   subject: string;
   total_lessons: number | null;
   start_at_lesson: number;
+  // Initial pre-filled value (current_lesson + 1) when loaded from DB. Null
+  // for never-saved rows. Used by the "Changing this will reset your
+  // progress tracking" guard so it only prompts the first time a user
+  // diverges from the live progress count.
+  start_at_lesson_initial: number | null;
+  // Flips true once the user has confirmed they want to override the
+  // pre-fill. Prevents re-prompting on every subsequent +/- click.
+  progress_confirmed: boolean;
 
   // activity-only
   emoji: string;
@@ -96,6 +104,7 @@ type CurriculumGoalDbRow = {
   icon_emoji: string | null;
   scheduled_start_time: string | null;
   archived: boolean;
+  completed_at: string | null;
 };
 
 type ActivityDbRow = {
@@ -164,6 +173,8 @@ function blankRow(child_id: string, type: RowType): Row {
     subject: "",
     total_lessons: null,
     start_at_lesson: 1,
+    start_at_lesson_initial: null,
+    progress_confirmed: false,
     emoji: type === "curriculum" ? "" : type === "coop" ? COOP_DEFAULT_EMOJI : ACTIVITY_DEFAULT_EMOJI,
     readOnly: false,
     readOnlyReason: null,
@@ -210,6 +221,16 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     per_day_counts.push(count);
   }
 
+  // Pre-fill "Already completed" (start_at_lesson - 1) with the live
+  // current_lesson count rather than the wizard's original start_at_lesson
+  // hint. Without this, a family that's logged 30 lessons sees the field
+  // default to 0 when they reopen the builder, which looks like progress
+  // loss. Falls back to the stored start_at_lesson when current_lesson is
+  // unset; either way the seed is the higher of the two so we never under-
+  // report progress.
+  const seedFromCurrent = Math.max(1, (g.current_lesson ?? 0) + 1);
+  const seedFromStartAt = Math.max(1, g.start_at_lesson ?? 1);
+  const startAtLesson = Math.max(seedFromCurrent, seedFromStartAt);
   return {
     localId: newLocalId(),
     dbId: g.id,
@@ -224,7 +245,9 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     start_date: g.start_date ?? null,
     subject: g.subject_label ?? "",
     total_lessons: g.total_lessons ?? null,
-    start_at_lesson: Math.max(1, g.start_at_lesson ?? 1),
+    start_at_lesson: startAtLesson,
+    start_at_lesson_initial: startAtLesson,
+    progress_confirmed: false,
     emoji: "",
     readOnly: false,
     readOnlyReason: null,
@@ -288,6 +311,8 @@ function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
     subject: "",
     total_lessons: null,
     start_at_lesson: 1,
+    start_at_lesson_initial: null,
+    progress_confirmed: false,
     emoji: fallbackEmoji,
     readOnly,
     readOnlyReason: reason,
@@ -467,6 +492,20 @@ export default function ScheduleBuilderPage() {
 
   const [dirty, setDirty] = useState(false);
 
+  // `?goal=<id>` deep-link from the curriculum panel's "Edit goal" action.
+  // Read once on mount via window.location to avoid the Suspense boundary
+  // that useSearchParams requires for SSG. After rows load, the matching
+  // row card is scrolled into view and highlighted briefly so the user
+  // lands on the curriculum they clicked from instead of the first child.
+  const [targetGoalId, setTargetGoalId] = useState<string | null>(null);
+  const [highlightedGoalId, setHighlightedGoalId] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("goal");
+    if (id) setTargetGoalId(id);
+  }, []);
+
   const [newChildName, setNewChildName] = useState("");
   const [newChildColor, setNewChildColor] = useState<string>(CHILD_COLORS[0]);
   const [addingChild, setAddingChild] = useState(false);
@@ -497,10 +536,11 @@ export default function ScheduleBuilderPage() {
           supabase
             .from("curriculum_goals")
             .select(
-              "id, child_id, curriculum_name, subject_label, total_lessons, current_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date, start_at_lesson, default_minutes, target_date, icon_emoji, scheduled_start_time, archived",
+              "id, child_id, curriculum_name, subject_label, total_lessons, current_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date, start_at_lesson, default_minutes, target_date, icon_emoji, scheduled_start_time, archived, completed_at",
             )
             .eq("user_id", effectiveUserId)
-            .eq("archived", false),
+            .eq("archived", false)
+            .is("completed_at", null),
           supabase
             .from("activities")
             .select(
@@ -566,6 +606,29 @@ export default function ScheduleBuilderPage() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
+
+  // ── Deep-link scroll/highlight ───────────────────────────────────────────
+  // After rows finish loading, find the row card matching the ?goal=<id>
+  // search param, scroll it into view, and apply a brief ring highlight so
+  // the user lands on the curriculum they clicked "Edit goal" from. The
+  // highlight self-clears after 2.5s.
+  useEffect(() => {
+    if (loading || !targetGoalId) return;
+    if (!rows.some((r) => r.dbId === targetGoalId)) return;
+    const id = targetGoalId;
+    const t = setTimeout(() => {
+      const el = document.querySelector(`[data-goal-id="${id}"]`);
+      if (el && typeof (el as HTMLElement).scrollIntoView === "function") {
+        (el as HTMLElement).scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      setHighlightedGoalId(id);
+    }, 50);
+    const clearTimer = setTimeout(() => setHighlightedGoalId(null), 2500);
+    return () => {
+      clearTimeout(t);
+      clearTimeout(clearTimer);
+    };
+  }, [loading, rows, targetGoalId]);
 
   // ── Mutators ─────────────────────────────────────────────────────────────
   const markDirty = () => {
@@ -1101,6 +1164,7 @@ export default function ScheduleBuilderPage() {
             setNewChildColor={setNewChildColor}
             addingChild={addingChild}
             onAddChild={handleAddChild}
+            highlightedGoalId={highlightedGoalId}
           />
         )}
 
@@ -1192,6 +1256,7 @@ function BuilderView(props: {
   setNewChildColor: (v: string) => void;
   addingChild: boolean;
   onAddChild: () => void | Promise<void>;
+  highlightedGoalId: string | null;
 }) {
   const visibleRows = (childId: string) =>
     props.rows.filter((r) => r.child_id === childId && !r.pendingDelete);
@@ -1238,6 +1303,9 @@ function BuilderView(props: {
                   onCycleType={props.onCycleType}
                   onToggleDay={props.onToggleDay}
                   onCycleCount={props.onCycleCount}
+                  isHighlighted={
+                    !!props.highlightedGoalId && row.dbId === props.highlightedGoalId
+                  }
                 />
               ))}
             </div>
@@ -1318,6 +1386,7 @@ function RowCard(props: {
   onCycleType: (localId: string) => void;
   onToggleDay: (localId: string, dayIdx: number) => void;
   onCycleCount: (localId: string, dayIdx: number) => void;
+  isHighlighted: boolean;
 }) {
   const { row } = props;
   const pace = calcPace(row, props.today);
@@ -1327,9 +1396,35 @@ function RowCard(props: {
 
   const typeLabel = row.type === "curriculum" ? "Curriculum" : row.type === "coop" ? "Co-op" : "Activity";
 
+  // Guarded setter for start_at_lesson. When the row was pre-filled from a
+  // live current_lesson value, the first user-driven divergence from that
+  // seed prompts a confirm — diverging means the queue's "I've already done
+  // N lessons" count is about to be rewritten. Subsequent edits in the same
+  // session skip the prompt (progress_confirmed flips true on yes).
+  function changeStartAtLesson(rawValue: number) {
+    const clamped = Math.max(1, Math.floor(rawValue) || 1);
+    if (clamped === row.start_at_lesson) return;
+    const hasSeed = row.start_at_lesson_initial !== null;
+    const needsConfirm =
+      hasSeed && !row.progress_confirmed && clamped !== row.start_at_lesson_initial;
+    if (needsConfirm) {
+      const ok = window.confirm(
+        "Changing this will reset your progress tracking — are you sure?",
+      );
+      if (!ok) return;
+      props.onPatchRow(row.localId, {
+        start_at_lesson: clamped,
+        progress_confirmed: true,
+      });
+      return;
+    }
+    props.onPatchRow(row.localId, { start_at_lesson: clamped });
+  }
+
   return (
     <div
-      className={`px-4 py-4 border-b border-[#f0ede8] last:border-b-0 ${isReadOnly ? "opacity-70" : ""}`}
+      data-goal-id={row.dbId ?? undefined}
+      className={`px-4 py-4 border-b border-[#f0ede8] last:border-b-0 ${isReadOnly ? "opacity-70" : ""} ${props.isHighlighted ? "ring-2 ring-[var(--g-brand)] ring-inset bg-[#f0f7f2]" : ""}`}
     >
       {/* Header strip */}
       <div className="flex items-center gap-2 mb-3">
@@ -1510,11 +1605,7 @@ function RowCard(props: {
             <FieldInput
               label="Start at"
               value={row.start_at_lesson}
-              onChange={(v) =>
-                props.onPatchRow(row.localId, {
-                  start_at_lesson: Math.max(1, Number(v) || 1),
-                })
-              }
+              onChange={(v) => changeStartAtLesson(Number(v) || 1)}
               type="number"
               min={1}
               disabled={isReadOnly}
@@ -1605,7 +1696,7 @@ function RowCard(props: {
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => props.onPatchRow(row.localId, { start_at_lesson: Math.max(1, row.start_at_lesson - 1) })}
+                  onClick={() => changeStartAtLesson(row.start_at_lesson - 1)}
                   disabled={isReadOnly || done <= 0}
                   aria-label="One fewer completed lesson"
                   className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#c5dbc9] bg-white text-[#2D5A3D] hover:bg-[#e8f0e9] disabled:opacity-40 disabled:cursor-not-allowed"
@@ -1615,7 +1706,7 @@ function RowCard(props: {
                 <span className="min-w-[36px] text-center text-[14px] font-semibold text-[#2D5A3D]">{done}</span>
                 <button
                   type="button"
-                  onClick={() => props.onPatchRow(row.localId, { start_at_lesson: Math.min(max, row.start_at_lesson + 1) })}
+                  onClick={() => changeStartAtLesson(Math.min(max, row.start_at_lesson + 1))}
                   disabled={isReadOnly || done >= max}
                   aria-label="One more completed lesson"
                   className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#c5dbc9] bg-white text-[#2D5A3D] hover:bg-[#e8f0e9] disabled:opacity-40 disabled:cursor-not-allowed"
