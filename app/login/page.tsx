@@ -219,6 +219,13 @@ function LoginContent() {
                 </button>
               </form>
 
+              <p className="text-sm text-center text-[#6b7280] mt-3">
+                By continuing, you agree to our{" "}
+                <Link href="/terms" className="underline hover:text-[#2d2926]">Terms of Service</Link>
+                {" "}and{" "}
+                <Link href="/privacy" className="underline hover:text-[#2d2926]">Privacy Policy</Link>.
+              </p>
+
               <p className="text-center text-sm text-[#7a6f65] mt-6">
                 Don&apos;t have an account?{" "}
                 <Link href="/signup" className="text-[#5c7f63] font-medium hover:underline">

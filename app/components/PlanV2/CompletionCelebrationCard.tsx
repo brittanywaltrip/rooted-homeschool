@@ -10,8 +10,6 @@ type Props = {
   lessonsCount: number;
   /** Total minutes logged (will be formatted as "Xh Ym") */
   minutesLogged: number;
-  /** Number of weeks between start and completion */
-  weeksSpan: number;
   onSaveToMemories?: () => void;
   onAddToYearbook?: () => void;
   onPrintCertificate?: () => void;
@@ -36,11 +34,11 @@ export default function CompletionCelebrationCard({
   completedDate,
   lessonsCount,
   minutesLogged,
-  weeksSpan,
   onSaveToMemories,
   onAddToYearbook,
   onPrintCertificate,
 }: Props) {
+  const duration = formatDurationSpan(startedDate, completedDate);
   return (
     <div
       style={{
@@ -69,7 +67,7 @@ export default function CompletionCelebrationCard({
       <div style={statsGridStyle}>
         <Stat num={lessonsCount.toString()} label="Lessons" />
         <Stat num={formatMinutes(minutesLogged)} label="Logged" />
-        <Stat num={weeksSpan.toString()} label="Weeks" />
+        <Stat num={duration.num} label={duration.label} />
       </div>
 
       <div style={actionsStyle}>
@@ -138,6 +136,20 @@ function formatMinutes(mins: number): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+function formatDurationSpan(startISO: string, endISO: string): { num: string; label: string } {
+  const start = new Date(startISO);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(endISO);
+  end.setHours(0, 0, 0, 0);
+  const dayDiff = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+  const totalDays = Math.max(1, dayDiff + 1);
+  if (totalDays < 7) {
+    return { num: String(totalDays), label: totalDays === 1 ? "Day" : "Days" };
+  }
+  const weeks = Math.round(totalDays / 7);
+  return { num: String(weeks), label: weeks === 1 ? "Week" : "Weeks" };
 }
 
 const eyebrowStyle: React.CSSProperties = {

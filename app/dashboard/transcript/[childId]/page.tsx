@@ -48,7 +48,7 @@ type Course = {
   external_provider: string | null;
 };
 
-type CurriculumGoal = { id: string; curriculum_name: string; icon_emoji: string | null; subject_label: string | null; school_year: string | null; default_minutes: number; course_level: string | null; credits_value: number | null };
+type CurriculumGoal = { id: string; curriculum_name: string; icon_emoji: string | null; subject_label: string | null; school_year: string | null; default_minutes: number; course_level: string | null; credits_value: number | null; archived: boolean | null; completed_at: string | null };
 
 type Tab = "courses" | "transcript" | "gpa";
 
@@ -489,9 +489,12 @@ export default function TranscriptBuilderPage() {
   async function syncCoursesFromPlan(uid: string, cId: string, existingCourses: Course[], allGoals: CurriculumGoal[]): Promise<number> {
     if (allGoals.length === 0) return 0;
 
-    // Find which goals already have linked transcript courses
+    // Find which goals already have linked transcript courses. Skip goals
+    // the user has stopped (archived) or completed — those should still
+    // display in the courses list with a "Stopped" badge but shouldn't be
+    // auto-imported as fresh transcript_courses rows.
     const linkedGoalIds = new Set(existingCourses.filter(c => c.curriculum_goal_id).map(c => c.curriculum_goal_id));
-    const newGoals = allGoals.filter(g => !linkedGoalIds.has(g.id));
+    const newGoals = allGoals.filter(g => !linkedGoalIds.has(g.id) && g.archived !== true && g.completed_at == null);
     if (newGoals.length === 0) {
       // Still refresh hours for existing linked courses
       await refreshLinkedCourseHours(uid, existingCourses);
@@ -591,12 +594,15 @@ export default function TranscriptBuilderPage() {
     if (!userId || syncing) return;
     setSyncing(true);
     // Re-fetch goals so wizard-edited course_level / credits_value show up
+    // Include archived/stopped goals so the courses list can render their
+    // status correctly. The sync logic below filters them out before inserting
+    // new transcript_courses rows so we don't auto-import goals the user
+    // explicitly stopped. (Memory: relax transcript archived filter.)
     const { data: freshGoals } = await supabase
       .from("curriculum_goals")
-      .select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes, course_level, credits_value")
+      .select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes, course_level, credits_value, archived, completed_at")
       .eq("user_id", userId)
-      .eq("child_id", childId)
-      .eq("archived", false);
+      .eq("child_id", childId);
     const goalsList = (freshGoals ?? []) as CurriculumGoal[];
     setGoals(goalsList);
     const count = await syncCoursesFromPlan(userId, childId, courses, goalsList);
@@ -637,7 +643,7 @@ export default function TranscriptBuilderPage() {
       supabase.from("children").select("id, name, color, birthday").eq("id", childId).maybeSingle(),
       supabase.from("transcript_settings").select("*").eq("user_id", user.id).eq("child_id", childId).maybeSingle(),
       supabase.from("transcript_courses").select("*").eq("user_id", user.id).eq("child_id", childId).order("school_year", { ascending: false }).order("course_name"),
-      supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes, course_level, credits_value").eq("user_id", user.id).eq("child_id", childId).eq("archived", false),
+      supabase.from("curriculum_goals").select("id, curriculum_name, icon_emoji, subject_label, school_year, default_minutes, course_level, credits_value, archived, completed_at").eq("user_id", user.id).eq("child_id", childId),
       supabase.from("profiles").select("display_name, first_name, last_name, state, is_pro, trial_started_at").eq("id", user.id).maybeSingle(),
     ]);
 
@@ -1056,7 +1062,11 @@ export default function TranscriptBuilderPage() {
                         <div className="space-y-1.5">
                           {yearCourses.map(course => {
                             const isFromPlan = !!course.curriculum_goal_id;
-                            const inProgress = !course.grade_letter;
+                            const linkedGoal = course.curriculum_goal_id
+                              ? goals.find(g => g.id === course.curriculum_goal_id)
+                              : undefined;
+                            const isStopped = !course.grade_letter && !!linkedGoal && (linkedGoal.archived === true || linkedGoal.completed_at != null);
+                            const inProgress = !course.grade_letter && !isStopped;
                             return (
                               <button key={course.id} type="button" onClick={() => openEditCourse(course)}
                                 className="w-full text-left flex items-center gap-2 px-3.5 py-2.5 hover:bg-[#faf8f4] transition-colors rounded-xl border border-[#f0ece6]">
@@ -1067,6 +1077,9 @@ export default function TranscriptBuilderPage() {
                                       <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-[#e8f0e9] text-[#2D5A3D]">
                                         {course.course_level === "ap" ? "AP" : course.course_level === "honors" ? "Honors" : "DE"}
                                       </span>
+                                    )}
+                                    {isStopped && (
+                                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#f0ede8] text-[#7a6f65]">Stopped</span>
                                     )}
                                     {inProgress && (
                                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#fef9ec] text-[#b58a30]">In Progress</span>

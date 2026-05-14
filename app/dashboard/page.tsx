@@ -506,6 +506,12 @@ export default function TodayPage() {
   const [catchUpGoals, setCatchUpGoals] = useState<CatchUpGoal[]>([]);
   const [catchUpEntriesByGoal, setCatchUpEntriesByGoal] = useState<Map<string, CatchUpEntry[]>>(new Map());
   const [catchUpLastCompletion, setCatchUpLastCompletion] = useState<string | null>(null);
+  // Overdue lesson count for the Today-page indicator. Computed from the
+  // queue-model gap between last completion and today; matches the catch-up
+  // modal's per-goal projection but renders even when gap < 5 days. Stays 0
+  // for brand-new users who have never completed a lesson so we don't
+  // discourage them on day one.
+  const [overdueLessonCount, setOverdueLessonCount] = useState(0);
 
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
@@ -997,6 +1003,7 @@ export default function TodayPage() {
       const activeGoals = goalRows.filter((g) => g.current_lesson < g.total_lessons);
       if (activeGoals.length === 0) {
         setShowCatchUp(false);
+        setOverdueLessonCount(0);
         return;
       }
       const dismissedAtRaw = (profile as { last_catchup_dismissed_at?: string | null } | null)?.last_catchup_dismissed_at ?? null;
@@ -1022,15 +1029,20 @@ export default function TodayPage() {
       // Hide if there's never been any completion at all — that's a brand
       // new user, not someone returning after a gap. The wizard celebrates
       // its own completion path and we don't want to nag empty families.
-      if (!lastCompletedAt) { setShowCatchUp(false); return; }
-      if (gapDays < 5) { setShowCatchUp(false); return; }
-      if (dismissedAt && dismissedAt > gapStart) { setShowCatchUp(false); return; }
+      if (!lastCompletedAt) {
+        setShowCatchUp(false);
+        setOverdueLessonCount(0);
+        return;
+      }
 
       // Compute per-goal catch-up entries. Vacation blocks exclude
       // break days from the gap so the modal never asks about lessons
       // during a vacation. If the entire gap is inside a break, the
-      // modal does not appear (entriesByGoal stays empty).
+      // modal does not appear (entriesByGoal stays empty). The summed
+      // entry count drives the Today-page overdue indicator regardless
+      // of the 5-day threshold the modal uses.
       const entriesByGoal = new Map<string, CatchUpEntry[]>();
+      let overdueTotal = 0;
       for (const goal of activeGoals) {
         const cfg: CurriculumGoalConfig = {
           id: goal.id,
@@ -1041,8 +1053,13 @@ export default function TodayPage() {
           start_date: goal.start_date,
         };
         const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
+        overdueTotal += entries.length;
         if (entries.length > 0) entriesByGoal.set(goal.id, entries);
       }
+      setOverdueLessonCount(overdueTotal);
+
+      if (gapDays < 5) { setShowCatchUp(false); return; }
+      if (dismissedAt && dismissedAt > gapStart) { setShowCatchUp(false); return; }
       if (entriesByGoal.size === 0) { setShowCatchUp(false); return; }
 
       // Build display goal list with child names.
@@ -1956,24 +1973,54 @@ export default function TodayPage() {
     if (extraChecked.size === 0) return;
     setSavingExtra(true);
 
-    // Collect goal default_minutes in one pass (one query per affected goal, not per lesson)
     const goalMinutes = new Map<string, number>();
+    const currentPerGoal = new Map<string, number>();
     const checkedLessons = upcomingLessons.filter(l => extraChecked.has(l.id));
     const uniqueGoalIds = Array.from(new Set(checkedLessons.map(l => l.curriculum_goal_id).filter(Boolean) as string[]));
     if (uniqueGoalIds.length > 0) {
       const { data: goalRows } = await supabase
         .from("curriculum_goals")
-        .select("id, default_minutes")
+        .select("id, default_minutes, current_lesson")
         .in("id", uniqueGoalIds);
-      for (const g of (goalRows ?? []) as { id: string; default_minutes?: number }[]) {
+      for (const g of (goalRows ?? []) as { id: string; default_minutes?: number; current_lesson: number | null }[]) {
         goalMinutes.set(g.id, g.default_minutes ?? 30);
+        currentPerGoal.set(g.id, g.current_lesson ?? 0);
       }
     }
-    // Use per-lesson minutes if goals have different defaults; fall back to 30
-    // For simplicity, use the first goal's minutes (or 30) as batch default.
-    // Since all checked lessons in one batch are typically the same subject,
-    // and default_minutes is per-goal, apply per-lesson using the map:
-    const lessonIds = checkedLessons.map(l => l.id);
+
+    // Per-goal highest lesson_number the user picked. Any incomplete row in
+    // (current_lesson, maxChecked] for that goal must also be marked complete
+    // so the queue pointer never skips a lesson (recomputeCurrentLesson takes
+    // MAX of completed rows, so without this backfill an intermediate lesson
+    // would stay incomplete while current_lesson jumped past it).
+    const maxCheckedPerGoal = new Map<string, number>();
+    for (const l of checkedLessons) {
+      if (!l.curriculum_goal_id || l.lesson_number == null) continue;
+      const prev = maxCheckedPerGoal.get(l.curriculum_goal_id) ?? 0;
+      if (l.lesson_number > prev) maxCheckedPerGoal.set(l.curriculum_goal_id, l.lesson_number);
+    }
+    const intermediateIds = new Set<string>();
+    for (const goalId of uniqueGoalIds) {
+      const maxChecked = maxCheckedPerGoal.get(goalId) ?? 0;
+      const cur = currentPerGoal.get(goalId) ?? 0;
+      if (maxChecked <= cur + 1) continue;
+      const { data: gapRows } = await supabase
+        .from("lessons")
+        .select("id")
+        .eq("user_id", effectiveUserId)
+        .eq("curriculum_goal_id", goalId)
+        .eq("completed", false)
+        .gt("lesson_number", cur)
+        .lt("lesson_number", maxChecked);
+      for (const r of (gapRows ?? []) as { id: string }[]) {
+        intermediateIds.add(r.id);
+      }
+    }
+
+    const lessonIds = Array.from(new Set([
+      ...checkedLessons.map(l => l.id),
+      ...intermediateIds,
+    ]));
     const { error: batchError } = await supabase.from("lessons").update({
       completed: true,
       completed_at: new Date().toISOString(),
@@ -3123,6 +3170,25 @@ export default function TodayPage() {
           </div>
         );
       })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          OVERDUE LESSON INDICATOR — past-dated incomplete lessons under
+          the queue model. Subtle amber pill, links to Plan for catch-up.
+          Hidden on pace, hidden for brand-new users with no completions.
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && overdueLessonCount > 0 && (
+        <Link
+          href="/dashboard/plan"
+          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#fef3e3] border border-[#c4956a]/30 hover:bg-[#fbe9d0] hover:border-[#c4956a]/50 transition-colors group"
+        >
+          <span className="text-sm leading-none" aria-hidden>⏳</span>
+          <p className="text-[12px] text-[#8b6f47] font-medium flex-1">
+            You&apos;re {overdueLessonCount} lesson{overdueLessonCount !== 1 ? "s" : ""} behind
+            <span className="text-[#c4956a] mx-1.5">·</span>
+            <span className="text-[#7a4a1a] font-semibold">Catch up on Plan →</span>
+          </p>
+        </Link>
+      )}
 
       {/* ═══════════════════════════════════════════════════════════
           TODAY SCHEDULE — grouped by kid + subject, kid color tints

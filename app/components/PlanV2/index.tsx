@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
 import {
   DndContext,
@@ -125,11 +126,6 @@ function getCelebrationState(
   return "completed";
 }
 
-function computeWeeksSpan(startISO: string, endISO: string): number {
-  const ms = new Date(endISO).getTime() - new Date(startISO).getTime();
-  return Math.max(1, Math.round(ms / (1000 * 60 * 60 * 24 * 7)));
-}
-
 function formatShortDate(iso: string | null): string {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -167,6 +163,7 @@ type ViewMode = "week" | "month";
 
 export default function PlanV2() {
   const { effectiveUserId, isPartner } = usePartner();
+  const router = useRouter();
   const todayStr = useMemo(() => toDateStr(new Date()), []);
   const isMobile = useIsMobile();
 
@@ -325,6 +322,7 @@ export default function PlanV2() {
     child_id: string | null;
     total_lessons: number;
     current_lesson: number;
+    lessons_per_day: number;
     target_date: string | null;
     school_days: string[] | null;
     default_minutes: number;
@@ -354,7 +352,7 @@ export default function PlanV2() {
     (async () => {
       const { data } = await supabase
         .from("curriculum_goals")
-        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji")
+        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, lessons_per_day, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji")
         .eq("user_id", effectiveUserId)
         .order("created_at");
       if (cancelled) return;
@@ -626,7 +624,7 @@ export default function PlanV2() {
         notes: values.notes,
         completed: false,
       })
-      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color)")
+      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
       .single();
     if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
 
@@ -804,18 +802,12 @@ export default function PlanV2() {
   }, []);
 
   const handleWizardOpenEdit = useCallback((goal: PanelGoal) => {
-    setWizardEditData({
-      goalId: goal.id,
-      childId: goal.child_id ?? "",
-      curricName: goal.curriculum_name,
-      subjectLabel: goal.subject_label,
-      totalLessons: goal.total_lessons,
-      currentLesson: goal.current_lesson,
-      targetDate: goal.target_date ?? "",
-      schoolDays: goal.school_days ?? ["Mon", "Tue", "Wed", "Thu", "Fri"],
-    });
-    setWizardOpen(true);
-  }, []);
+    // The inline edit modal was retired with CurriculumWizard; the Schedule
+    // Builder route is the destination now. Pass the goal id so the builder
+    // can scroll to / highlight the targeted curriculum instead of landing
+    // on the first row in the list.
+    router.push(`/dashboard/plan/schedule?goal=${encodeURIComponent(goal.id)}`);
+  }, [router]);
 
   const wizardWasEdit = wizardEditData !== null;
   const handleWizardSaved = useCallback(async () => {
@@ -1013,8 +1005,8 @@ export default function PlanV2() {
           childName: child?.name ?? "your kid",
           curriculumName: goal.curriculum_name,
           completedDate: goal.completed_at,
+          startedDate,
           lessonsCount: goal.total_lessons ?? 0,
-          weeksSpan: computeWeeksSpan(startedDate, goal.completed_at),
         });
       } catch {
         flashNotice("Couldn't generate certificate — try again.");
@@ -3384,7 +3376,6 @@ export default function PlanV2() {
                   completedDate={goal.completed_at!}
                   lessonsCount={goal.total_lessons ?? 0}
                   minutesLogged={minutesByGoal.get(goal.id) ?? 0}
-                  weeksSpan={computeWeeksSpan(startedDate, goal.completed_at!)}
                   onSaveToMemories={() => { void handleSaveCurriculumToMemories(goal); }}
                   onAddToYearbook={() => { void handleAddCurriculumToYearbook(goal); }}
                   onPrintCertificate={() => { void handlePrintCertificate(goal); }}

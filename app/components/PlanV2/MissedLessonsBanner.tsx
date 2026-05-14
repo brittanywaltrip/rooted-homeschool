@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
 import type { PlanV2Lesson } from "./types";
 
 /* ============================================================================
@@ -134,7 +135,8 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
                 day: "numeric",
               })
             : "";
-          const subjectLabel = lesson.subjects?.name ?? "General";
+          const subjectLabel =
+            resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label) ?? "General";
           const title =
             lesson.title && lesson.title.trim().length > 0
               ? lesson.title

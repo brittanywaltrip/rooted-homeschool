@@ -13,13 +13,14 @@ import ExportGateModal from "@/app/components/ExportGateModal";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Child    = { id: string; name: string };
-type Subject  = { id: string; name: string; color: string | null };
 type Lesson   = {
-  id: string; child_id: string; subject_id: string | null;
+  id: string; child_id: string;
+  curriculum_goal_id: string | null;
+  curriculum_goals: { subject_label: string | null } | null;
   title: string; date: string | null; scheduled_date: string | null;
-  completed: boolean; hours: number | null;
+  completed: boolean; completed_at: string | null;
+  minutes_spent: number | null;
 };
-type Attendance = { id: string; child_id: string; day: string; present: boolean };
 type BookEvent  = { payload: { title?: string; child_id?: string; date?: string } };
 type MemoryActivity = { child_id: string | null; type: string; date: string; duration_minutes: number | null };
 
@@ -35,12 +36,12 @@ function schoolYearStart() {
 // ─── Print Report Component ───────────────────────────────────────────────────
 
 function PrintReport({
-  child, dateFrom, dateTo, lessons, attendance, books, subjects, activities,
+  child, dateFrom, dateTo, lessons, books, activities,
 }: {
   child: Child | null;
   dateFrom: string; dateTo: string;
-  lessons: Lesson[]; attendance: Attendance[];
-  books: BookEvent[]; subjects: Subject[];
+  lessons: Lesson[];
+  books: BookEvent[];
   activities: MemoryActivity[];
 }) {
   const filteredLessons = lessons.filter((l) => {
@@ -48,10 +49,6 @@ function PrintReport({
     if (!d) return false;
     if (child && l.child_id !== child.id) return false;
     return d >= dateFrom && d <= dateTo;
-  });
-  const filteredAttendance = attendance.filter((a) => {
-    if (child && a.child_id !== child.id) return false;
-    return a.day >= dateFrom && a.day <= dateTo && a.present;
   });
   const filteredBooks = books.filter((b) => {
     if (child && b.payload.child_id && b.payload.child_id !== child.id) return false;
@@ -64,24 +61,26 @@ function PrintReport({
     if (child && a.child_id !== child.id) return false;
     return a.date >= dateFrom && a.date <= dateTo && a.duration_minutes;
   });
-  const lessonHours = completedLessons.reduce((sum, l) => sum + (l.hours ?? 0), 0);
+  const lessonHours = completedLessons.reduce((sum, l) => sum + ((l.minutes_spent ?? 30) / 60), 0);
   const activityHours = filteredActivities.reduce((sum, a) => sum + ((a.duration_minutes ?? 0) / 60), 0);
   const totalHours = lessonHours + activityHours;
 
-  // Group by subject
   const subjectMap: Record<string, { name: string; color: string | null; count: number; hours: number }> = {};
   completedLessons.forEach((l) => {
-    const subj = subjects.find((s) => s.id === l.subject_id);
-    const key  = l.subject_id ?? "uncat";
+    const key = l.curriculum_goal_id ?? "uncat";
+    const name = l.curriculum_goals?.subject_label ?? "Unassigned";
     if (!subjectMap[key]) {
-      subjectMap[key] = { name: subj?.name ?? "Unassigned", color: subj?.color ?? null, count: 0, hours: 0 };
+      subjectMap[key] = { name, color: null, count: 0, hours: 0 };
     }
     subjectMap[key].count++;
-    subjectMap[key].hours += l.hours ?? 0;
+    subjectMap[key].hours += (l.minutes_spent ?? 30) / 60;
   });
 
-  // Build attendance calendar (unique dates)
-  const presentDates = new Set(filteredAttendance.map((a) => a.day));
+  const presentDates = new Set(
+    completedLessons
+      .map((l) => (l.completed_at ? l.completed_at.slice(0, 10) : null))
+      .filter((d): d is string => d !== null)
+  );
 
   const fromLabel = new Date(dateFrom + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const toLabel   = new Date(dateTo   + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -195,9 +194,7 @@ function PrintReport({
 export default function ReportsPage() {
   const { effectiveUserId } = usePartner();
   const [children,   setChildren]   = useState<Child[]>([]);
-  const [subjects,   setSubjects]   = useState<Subject[]>([]);
   const [lessons,    setLessons]    = useState<Lesson[]>([]);
-  const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [books,      setBooks]      = useState<BookEvent[]>([]);
   const [activities, setActivities] = useState<MemoryActivity[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -217,26 +214,20 @@ export default function ReportsPage() {
     async function load() {
       const [
         { data: kids },
-        { data: subjs },
         { data: lessons_ },
-        { data: att },
         { data: bookEvts },
         { data: memActivities },
         { data: profile },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-        supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId),
-        supabase.from("lessons").select("id, child_id, subject_id, title, date, scheduled_date, completed, hours").eq("user_id", effectiveUserId),
-        supabase.from("attendance").select("id, child_id, day, present").eq("user_id", effectiveUserId),
+        supabase.from("lessons").select("id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, completed_at, minutes_spent").eq("user_id", effectiveUserId),
         supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
         supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
         supabase.from("profiles").select("is_pro, trial_started_at").eq("id", effectiveUserId).single(),
       ]);
 
       setChildren(capitalizeChildNames(kids ?? []));
-      setSubjects(subjs ?? []);
       setLessons((lessons_ as unknown as Lesson[]) ?? []);
-      setAttendance((att as unknown as Attendance[]) ?? []);
       setBooks((bookEvts as unknown as BookEvent[]) ?? []);
       setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
@@ -253,13 +244,17 @@ export default function ReportsPage() {
     const d = l.date ?? l.scheduled_date;
     return d && d >= dateFrom && d <= dateTo && (selectedChild === "all" || l.child_id === selectedChild);
   });
-  const completedCount      = filteredLessons.filter((l) => l.completed).length;
-  const lessonHoursQuick    = filteredLessons.filter((l) => l.completed).reduce((s, l) => s + (l.hours ?? 0), 0);
+  const completedFiltered   = filteredLessons.filter((l) => l.completed);
+  const completedCount      = completedFiltered.length;
+  const lessonHoursQuick    = completedFiltered.reduce((s, l) => s + ((l.minutes_spent ?? 30) / 60), 0);
   const activityHoursQuick  = activities.filter((a) => {
     if (selectedChild !== "all" && a.child_id !== selectedChild) return false;
     return a.date >= dateFrom && a.date <= dateTo;
   }).reduce((s, a) => s + ((a.duration_minutes ?? 0) / 60), 0);
   const totalHours          = lessonHoursQuick + activityHoursQuick;
+  const subjectsCount       = new Set(
+    completedFiltered.map((l) => l.curriculum_goal_id).filter((id): id is string => id !== null)
+  ).size;
   const filteredBooksCount  = books.filter((b) => {
     const d = b.payload.date ?? "";
     if (!d || d < dateFrom || d > dateTo) return false;
@@ -367,7 +362,7 @@ export default function ReportsPage() {
             { label: "Lessons",  value: completedCount },
             { label: "Hours",    value: `${totalHours.toFixed(1)}h` },
             { label: "Books",    value: filteredBooksCount },
-            { label: "Subjects", value: subjects.length },
+            { label: "Subjects", value: subjectsCount },
           ].map(({ label, value }) => (
             <div key={label} className="text-center bg-[#f8f5f0] rounded-xl py-2.5">
               <p className="text-lg font-bold text-[#2d2926]">{value}</p>
@@ -405,9 +400,7 @@ export default function ReportsPage() {
           dateFrom={dateFrom}
           dateTo={dateTo}
           lessons={lessons}
-          attendance={attendance}
           books={books}
-          subjects={subjects}
           activities={activities}
         />
       )}

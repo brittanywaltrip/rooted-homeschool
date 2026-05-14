@@ -48,8 +48,12 @@ export type CertificateOptions = {
   curriculumName: string;
   /** ISO date string */
   completedDate: string;
+  /** ISO date string — when the curriculum began (start_date, created_at,
+   *  or completed_at fallback). Used to compute the days/weeks span so the
+   *  certificate copy reads correctly for same-day completions ("1 Day"
+   *  not "1 Weeks"). */
+  startedDate: string;
   lessonsCount: number;
-  weeksSpan: number;
   /** Optional family name — appears small at the bottom */
   familyName?: string;
 };
@@ -112,11 +116,14 @@ function drawCertificate(
   ctx.font = "italic 300 80px 'Cormorant Garamond', serif";
   ctx.fillText(opts.childName, cx, 470);
 
-  // Program description
+  // Program description. Same day/week threshold + pluralization as
+  // CompletionCelebrationCard's formatDurationSpan so a same-day finish
+  // reads "1 Day" instead of "1 Weeks".
+  const duration = formatDurationSpan(opts.startedDate, opts.completedDate);
   ctx.fillStyle = "#3d5c48";
   ctx.font = "300 18px Jost, sans-serif";
   ctx.fillText(
-    `for completing ${opts.lessonsCount} lessons over ${opts.weeksSpan} weeks`,
+    `for completing ${opts.lessonsCount} lessons over ${duration.num} ${duration.label}`,
     cx,
     540
   );
@@ -138,6 +145,23 @@ function drawCertificate(
     ? `The ${opts.familyName} Family · Rooted`
     : "Rooted";
   ctx.fillText(footer, cx, H - 90);
+}
+
+function formatDurationSpan(
+  startISO: string,
+  endISO: string,
+): { num: string; label: string } {
+  const start = new Date(startISO);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(endISO);
+  end.setHours(0, 0, 0, 0);
+  const dayDiff = Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+  const totalDays = Math.max(1, dayDiff + 1);
+  if (totalDays < 7) {
+    return { num: String(totalDays), label: totalDays === 1 ? "Day" : "Days" };
+  }
+  const weeks = Math.round(totalDays / 7);
+  return { num: String(weeks), label: weeks === 1 ? "Week" : "Weeks" };
 }
 
 function wrapAndDraw(

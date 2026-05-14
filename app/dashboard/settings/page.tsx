@@ -2078,6 +2078,12 @@ export default function SettingsPage() {
         <p className="text-xs text-[#b5aca4] text-center">
           Questions? Email <span className="text-[#5c7f63] font-medium">hello@rootedhomeschoolapp.com</span>
         </p>
+
+        <p className="text-sm text-center text-[#6b7280] mt-3">
+          <Link href="/privacy" className="hover:text-[#2d2926]">Privacy Policy</Link>
+          {" · "}
+          <Link href="/terms" className="hover:text-[#2d2926]">Terms of Service</Link>
+        </p>
       </section>}
 
       {/* ── Delete Account Modal ─────────────────────────────── */}

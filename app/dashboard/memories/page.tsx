@@ -675,17 +675,14 @@ export default function MemoriesPage() {
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2.5 pl-0.5">Quick Actions</p>
         <div className="grid grid-cols-3 gap-3">
-          <button
-            onClick={() => {
-              const el = document.getElementById("quick-photo-fab");
-              if (el) el.click();
-            }}
+          <Link
+            href="/dashboard?capture=1"
             className="bg-white border border-[#ebe8e3] rounded-2xl p-4 text-left hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer group"
           >
             <div className="w-10 h-10 rounded-xl bg-[#e6f4ea] flex items-center justify-center text-lg mb-2">📷</div>
             <p className="text-[13px] font-bold text-[#2D2A26] leading-tight">Capture Memory</p>
             <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">Photo, win, book, drawing, or trip</p>
-          </button>
+          </Link>
           <Link
             href="/dashboard/memories/yearbook"
             className="bg-white border border-[#ebe8e3] rounded-2xl p-4 text-left hover:shadow-md hover:-translate-y-0.5 transition-all cursor-pointer group"
