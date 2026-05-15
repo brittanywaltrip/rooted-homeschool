@@ -107,9 +107,10 @@ function firstOfMonth(d: Date): Date {
 
 type CelebrationState = "active" | "celebrating" | "completed";
 
-// 14-day post-completion window during which the celebration card replaces
+// 7-day post-completion window during which the celebration card replaces
 // the normal row. localStorage flag (`rooted_celebrated_<id>`) lets the user
-// dismiss earlier by acting on the card.
+// dismiss earlier via the card's X button or any positive action (Save to
+// Memories / Add to Yearbook / Print certificate).
 function getCelebrationState(
   goal: { completed_at: string | null },
   goalId: string,
@@ -122,7 +123,7 @@ function getCelebrationState(
   }
   const completedDate = new Date(goal.completed_at);
   const daysSince = (Date.now() - completedDate.getTime()) / (1000 * 60 * 60 * 24);
-  if (daysSince <= 14) return "celebrating";
+  if (daysSince <= 7) return "celebrating";
   return "completed";
 }
 
@@ -3354,6 +3355,7 @@ export default function PlanV2() {
                   onSaveToMemories={() => { void handleSaveCurriculumToMemories(goal); }}
                   onAddToYearbook={() => { void handleAddCurriculumToYearbook(goal); }}
                   onPrintCertificate={() => { void handlePrintCertificate(goal); }}
+                  onDismiss={() => dismissCelebration(goal.id)}
                 />
               );
             })}

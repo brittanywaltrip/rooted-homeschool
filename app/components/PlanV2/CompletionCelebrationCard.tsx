@@ -13,6 +13,10 @@ type Props = {
   onSaveToMemories?: () => void;
   onAddToYearbook?: () => void;
   onPrintCertificate?: () => void;
+  /** Fires when the user taps the X in the top-right corner of the card.
+   *  Parent should flag the goal as celebrated so the card doesn't render
+   *  on the next pass (the existing dismissCelebration helper does this). */
+  onDismiss?: () => void;
 };
 
 /**
@@ -37,6 +41,7 @@ export default function CompletionCelebrationCard({
   onSaveToMemories,
   onAddToYearbook,
   onPrintCertificate,
+  onDismiss,
 }: Props) {
   const duration = formatDurationSpan(startedDate, completedDate);
   return (
@@ -53,6 +58,17 @@ export default function CompletionCelebrationCard({
     >
       <span style={leafTopLeft}>🌿</span>
       <span style={leafTopRight}>🌿</span>
+
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Dismiss completion card"
+          style={dismissBtnStyle}
+        >
+          ×
+        </button>
+      )}
 
       <div style={eyebrowStyle}>Curriculum complete</div>
       <h3 style={titleStyle}>
@@ -218,6 +234,26 @@ const btnTertiary: React.CSSProperties = {
   background: "transparent",
   color: "#3d5c48",
   borderColor: "#E4E1D8",
+};
+
+const dismissBtnStyle: React.CSSProperties = {
+  position: "absolute",
+  top: "8px",
+  right: "8px",
+  width: "28px",
+  height: "28px",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  borderRadius: "9999px",
+  border: "none",
+  background: "rgba(255,255,255,0.6)",
+  color: "#5c5c5c",
+  fontSize: "16px",
+  lineHeight: 1,
+  cursor: "pointer",
+  padding: 0,
+  zIndex: 1,
 };
 
 const leafTopLeft: React.CSSProperties = {
