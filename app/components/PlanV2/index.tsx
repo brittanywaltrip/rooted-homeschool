@@ -440,6 +440,10 @@ export default function PlanV2() {
   // and clears uncompleted lessons. Goal row + completed history stay.
   const [stopGoalConfirm, setStopGoalConfirm] = useState<{ goal: PanelGoal } | null>(null);
   const [deleteActivityConfirm, setDeleteActivityConfirm] = useState<ActivityRow | null>(null);
+  // Appointment delete confirm — triggered by the per-card "⋮" menu in
+  // WeekListView. Routes through the same authed /api/appointments DELETE
+  // path used elsewhere. Recurring instances delete the parent appointment.
+  const [deleteApptConfirm, setDeleteApptConfirm] = useState<PlanV2Appointment | null>(null);
 
   // ── Audit trail state ────────────────────────────────────────────────────
   // Loaded once per effectiveUserId. Further events are prepended locally
@@ -1446,6 +1450,29 @@ export default function PlanV2() {
     },
     [reload, setAppointments],
   );
+
+  // Appointment delete — fired after the ConfirmDialog accepts. Recurring
+  // appointments delete the parent row server-side (per existing API
+  // semantics). Reload picks up the change.
+  const handleAppointmentDeleteConfirm = useCallback(async () => {
+    const appt = deleteApptConfirm;
+    if (!appt) return;
+    setDeleteApptConfirm(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("no session");
+      const res = await fetch("/api/appointments", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: appt.id }),
+      });
+      if (!res.ok) throw new Error("delete failed");
+      reload();
+    } catch {
+      flashNotice("Couldn't delete appointment — try again.");
+    }
+  }, [deleteApptConfirm, reload]);
 
   // ── Ring state for newly-landed pills ──────────────────────────────────────
   const flagLanded = useCallback((lessonId: string) => {
@@ -3064,9 +3091,10 @@ export default function PlanV2() {
                   <button
                     type="button"
                     onClick={jumpToToday}
+                    aria-label="Jump to today"
                     className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#e8f0e9] text-[#2D5A3D] hover:bg-[#d4e8d4] transition-colors"
                   >
-                    Jump to today
+                    Today
                   </button>
                 ) : null}
 
@@ -3192,6 +3220,8 @@ export default function PlanV2() {
                     onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                     onMarkBreakForDay={(date) => openVacationModalCreate(date)}
                     onDayAdd={(date) => openUnifiedAdd(date)}
+                    onEditAppointment={(appt) => setApptEditTarget({ appt })}
+                    onDeleteAppointment={(appt) => setDeleteApptConfirm(appt)}
                   />
                 ) : (
                 <MonthGrid
@@ -3288,6 +3318,8 @@ export default function PlanV2() {
                       onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                       onMarkBreakForDay={(date) => openVacationModalCreate(date)}
                       onDayAdd={(date) => openUnifiedAdd(date)}
+                      onEditAppointment={(appt) => setApptEditTarget({ appt })}
+                      onDeleteAppointment={(appt) => setDeleteApptConfirm(appt)}
                     />
                   ) : (
                   <MonthGrid
@@ -3934,6 +3966,19 @@ export default function PlanV2() {
             destructive
             onCancel={() => setDeleteGoalConfirm(null)}
             onConfirm={handleConfirmDeleteGoal}
+          />
+        ) : null}
+
+        {/* Appointment delete confirm — fired from the per-card "⋮" menu
+            in WeekListView. Recurring appointments delete the parent row. */}
+        {deleteApptConfirm ? (
+          <ConfirmDialog
+            title="Remove this appointment?"
+            body={`"${deleteApptConfirm.title}"${deleteApptConfirm.is_recurring ? " (and all future occurrences)" : ""} will be removed from your schedule.`}
+            confirmLabel="Delete"
+            destructive
+            onCancel={() => setDeleteApptConfirm(null)}
+            onConfirm={handleAppointmentDeleteConfirm}
           />
         ) : null}
 

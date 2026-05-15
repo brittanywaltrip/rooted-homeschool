@@ -67,6 +67,10 @@ type Props = {
   /** Per-day "+" button in the day header — opens the unified add sheet
    *  pre-filled with that date. Optional so legacy callers stay working. */
   onDayAdd?: (dateStr: string) => void;
+  /** Per-appointment overflow menu — Edit opens the existing appointment
+   *  edit form; Delete fires after the parent confirms. Optional. */
+  onEditAppointment?: (appt: PlanV2Appointment) => void;
+  onDeleteAppointment?: (appt: PlanV2Appointment) => void;
 };
 
 export default function WeekListView(props: Props) {
@@ -76,6 +80,7 @@ export default function WeekListView(props: Props) {
     onMoveLesson, onLessonClick, onAppointmentClick,
     onSkipLesson, onRescheduleLesson, onEditLesson, onToggleLessonDone,
     onAddLessonForDay, onMarkBreakForDay, onDayAdd,
+    onEditAppointment, onDeleteAppointment,
   } = props;
 
   const days = useMemo(() => {
@@ -132,6 +137,7 @@ export default function WeekListView(props: Props) {
 
   const [moveTarget, setMoveTarget] = useState<{ lessonId: string; fromDate: string } | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [apptMenuOpenId, setApptMenuOpenId] = useState<string | null>(null);
 
   return (
     <div className="w-full max-w-full overflow-hidden px-4 pb-4">
@@ -417,37 +423,89 @@ export default function WeekListView(props: Props) {
 
                   {/* Appointments — kept distinct via purple accent. */}
                   {dayAppts.map((a) => (
-                    <button
+                    <div
                       key={`${a.id}-${a.instance_date}`}
-                      type="button"
-                      onClick={() => onAppointmentClick(a)}
-                      aria-label={`Open ${a.title} details`}
-                      className={`w-full text-left rounded-xl ${a.completed ? "opacity-50" : ""}`}
+                      className={`rounded-xl ${a.completed ? "opacity-50" : ""}`}
                       style={{ background: "linear-gradient(to bottom right, #f5f0ff, #ede5ff)", border: "1px solid #e8deff" }}
                     >
-                      <div className="flex items-center gap-3 px-4 py-2.5">
-                        <span className="text-xl shrink-0">{a.emoji ?? "📅"}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[14px] font-medium truncate ${a.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
-                              {a.title}
-                            </span>
-                            <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#ede9fe] text-[#6d28d9]">
-                              Appt
-                            </span>
+                      <div className="flex items-center gap-2 px-3 py-2.5">
+                        <button
+                          type="button"
+                          onClick={() => onAppointmentClick(a)}
+                          aria-label={`Open ${a.title} details`}
+                          className="flex-1 min-w-0 text-left flex items-center gap-3"
+                        >
+                          <span className="text-xl shrink-0">{a.emoji ?? "📅"}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[14px] font-medium break-words ${a.completed ? "line-through text-[#b5aca4]" : "text-[#2d2926]"}`}>
+                                {a.title}
+                              </span>
+                              <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#ede9fe] text-[#6d28d9]">
+                                Appt
+                              </span>
+                            </div>
+                            <p className="text-xs text-[#7a6f65] mt-0.5">
+                              {a.time
+                                ? (() => {
+                                    const [h, m] = a.time.split(":").map(Number);
+                                    return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+                                  })()
+                                : "All day"}
+                              {a.location ? ` · 📍 ${a.location}` : ""}
+                            </p>
                           </div>
-                          <p className="text-xs text-[#7a6f65] mt-0.5">
-                            {a.time
-                              ? (() => {
-                                  const [h, m] = a.time.split(":").map(Number);
-                                  return `${h % 12 || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
-                                })()
-                              : "All day"}
-                            {a.location ? ` · 📍 ${a.location}` : ""}
-                          </p>
-                        </div>
+                        </button>
+                        {!isPartner && (onEditAppointment || onDeleteAppointment) ? (
+                          <div className="relative shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => setApptMenuOpenId((id) => (id === a.id ? null : a.id))}
+                              aria-label={`More actions for ${a.title}`}
+                              aria-haspopup="menu"
+                              aria-expanded={apptMenuOpenId === a.id}
+                              className="w-8 h-8 flex items-center justify-center rounded-full text-[#6d28d9] hover:bg-black/5 transition-colors"
+                            >
+                              <MoreVertical size={18} />
+                            </button>
+                            {apptMenuOpenId === a.id ? (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setApptMenuOpenId(null)}
+                                  aria-hidden
+                                />
+                                <div
+                                  role="menu"
+                                  className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[140px]"
+                                >
+                                  {onEditAppointment ? (
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setApptMenuOpenId(null); onEditAppointment(a); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <Pencil size={14} className="text-[#5c7f63]" /> Edit
+                                    </button>
+                                  ) : null}
+                                  {onDeleteAppointment ? (
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setApptMenuOpenId(null); onDeleteAppointment(a); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#b91c1c] hover:bg-[#fef2f2] flex items-center gap-2"
+                                    >
+                                      <X size={14} /> Delete
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
               )}

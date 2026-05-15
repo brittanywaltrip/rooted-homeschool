@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Hand, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Hand, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
@@ -169,6 +169,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
   } = props;
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
   const lessonsByGoal = useMemo(() => {
     const m = new Map<string, PlanV2Lesson[]>();
@@ -288,6 +289,69 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                     >
                       {pace.label}
                     </span>
+                    {/* Per-card overflow menu — replaces the previous inline
+                        Edit / Log past hours / Stop / Delete row. Same
+                        handlers; only the trigger UI changed. */}
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setMenuOpenId((id) => (id === goal.id ? null : goal.id))}
+                        aria-label={`More actions for ${goal.curriculum_name}`}
+                        aria-haspopup="menu"
+                        aria-expanded={menuOpenId === goal.id}
+                        className="w-7 h-7 flex items-center justify-center rounded-full text-[#7a6f65] hover:text-[#2d2926] hover:bg-[#f0ede8] transition-colors"
+                      >
+                        <MoreVertical size={15} />
+                      </button>
+                      {menuOpenId === goal.id ? (
+                        <>
+                          <div
+                            className="fixed inset-0 z-40"
+                            onClick={() => setMenuOpenId(null)}
+                            aria-hidden
+                          />
+                          <div
+                            role="menu"
+                            className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[170px]"
+                          >
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => { setMenuOpenId(null); onEdit(goal); }}
+                              className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                            >
+                              <Pencil size={14} className="text-[#5c7f63]" /> Edit pacing
+                            </button>
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => { setMenuOpenId(null); onOpenBackfill(goal); }}
+                              className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                            >
+                              <span aria-hidden className="text-[14px] leading-none">📥</span> Log past hours
+                            </button>
+                            {(goal.current_lesson ?? 0) > 0 ? (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => { setMenuOpenId(null); onStop(goal); }}
+                                className="w-full px-3 py-2 text-left text-[13px] text-[#a07000] hover:bg-[#fef9e8] flex items-center gap-2"
+                              >
+                                <Hand size={14} /> Stop
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => { setMenuOpenId(null); onDelete(goal, totalInView); }}
+                              className="w-full px-3 py-2 text-left text-[13px] text-[#b91c1c] hover:bg-[#fef2f2] flex items-center gap-2"
+                            >
+                              <Trash2 size={14} /> Delete
+                            </button>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
                   </div>
 
                   {/* Progress bar */}
@@ -296,45 +360,6 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                       className="h-full rounded-full transition-[width] duration-300"
                       style={{ width: `${pctComplete}%`, backgroundColor: color }}
                     />
-                  </div>
-
-                  {/* Secondary actions */}
-                  <div className="mt-2 flex items-center gap-2 flex-wrap">
-                    <button
-                      type="button"
-                      onClick={() => onEdit(goal)}
-                      className="flex items-center gap-1 text-[11px] font-semibold text-[#5c7f63] hover:text-[var(--g-deep)] px-2 py-1 rounded-lg hover:bg-[#e8f0e9] transition-colors"
-                    >
-                      <Pencil size={11} /> Edit goal
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onOpenBackfill(goal)}
-                      className="flex items-center gap-1 text-[11px] font-semibold text-[#7a4a1a] hover:text-[#5a3a12] px-2 py-1 rounded-lg hover:bg-[#fef9e8] transition-colors"
-                    >
-                      📥 Log past hours
-                    </button>
-                    {/* Stop is only meaningful once at least one lesson has
-                        been completed; for not-yet-started goals Delete is
-                        the right action. Without this gate, confirming
-                        Stop on a 0-completed goal would set total_lessons
-                        to 0 and create a "0 LESSONS" completion card. */}
-                    {(goal.current_lesson ?? 0) > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => onStop(goal)}
-                        className="flex items-center gap-1 text-[11px] font-semibold text-[#a07000] hover:text-[#7a4a1a] px-2 py-1 rounded-lg hover:bg-[#fef9e8] transition-colors"
-                      >
-                        <Hand size={11} /> Stop curriculum
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => onDelete(goal, totalInView)}
-                      className="flex items-center gap-1 text-[11px] font-semibold text-[#b91c1c] hover:text-[#991b1b] px-2 py-1 rounded-lg hover:bg-[#fef2f2] transition-colors"
-                    >
-                      <Trash2 size={11} /> Delete goal
-                    </button>
                   </div>
                 </div>
 
