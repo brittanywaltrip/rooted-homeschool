@@ -23,6 +23,9 @@ export type AddLessonGoalOption = {
   id: string;
   curriculum_name: string;
   child_id: string | null;
+  /** Used to auto-fill the Subject field when this goal is picked. May be
+   *  null on goals that never set one — the auto-fill then clears Subject. */
+  subject_label: string | null;
 };
 
 export type AddLessonSubmit = {
@@ -169,7 +172,19 @@ export default function AddLessonModal(props: AddLessonModalProps) {
               </span>
               <select
                 value={goalId}
-                onChange={(e) => setGoalId(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setGoalId(next);
+                  // Auto-fill Subject from the picked goal so the user doesn't
+                  // have to retype "Math" etc. "(no goal)" clears Subject.
+                  // Title is intentionally not touched — that's per-lesson.
+                  if (!next) {
+                    setSubject("");
+                  } else {
+                    const found = goals.find((g) => g.id === next);
+                    setSubject(found?.subject_label ?? "");
+                  }
+                }}
                 className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
               >
                 <option value="">(no goal — one-off lesson)</option>
