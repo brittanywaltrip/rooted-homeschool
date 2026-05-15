@@ -1,6 +1,6 @@
 "use client";
 
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 
 /* ============================================================================
  * ActivitiesPanel — list existing activities with edit + delete, and a
@@ -32,13 +32,7 @@ export default function ActivitiesPanel(props: ActivitiesPanelProps) {
       <header className="flex items-center gap-2 px-4 py-3 border-b border-[#f0ede8]">
         <span aria-hidden className="text-base leading-none">🏃</span>
         <h2 className="flex-1 text-[13px] font-semibold text-[#2d2926]">Activities</h2>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="flex items-center gap-1 text-[11px] font-semibold bg-[#7C3AED] hover:bg-[#6b2fd4] text-white rounded-lg px-2.5 py-1.5 transition-colors"
-        >
-          <Plus size={12} /> Add activity
-        </button>
+        {/* Add activity has moved to the unified "+" sheet in the Plan hero. */}
       </header>
 
       {activities.length === 0 ? (

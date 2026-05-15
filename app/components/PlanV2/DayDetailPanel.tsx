@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Pencil, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import TodayLessonCard, {
   type TodayLessonCardLesson,
@@ -86,6 +86,10 @@ export interface DayDetailPanelV2Props {
   dayEvents?: PlanEventRow[];
   variant?: "inline" | "sheet";
   onClose?: () => void;
+  /** Optional "+" button in the sheet header. When provided, renders a
+   *  small "+" next to the close affordance. Parent wires this to the
+   *  unified add sheet, pre-filled with this day's date. */
+  onAdd?: () => void;
 }
 
 type NoteSaveState = "idle" | "saving" | "saved" | "error";
@@ -97,7 +101,7 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
     onSkipLesson, onMinutesUpdate, onToggleAppointment, onEditAppointment, onLessonChanged,
     onNotesUpdated,
     dayEvents,
-    variant = "inline", onClose,
+    variant = "inline", onClose, onAdd,
   } = props;
 
   // Per-day activity section expansion state. Defaults to collapsed — the
@@ -285,15 +289,30 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
                 : `${lessonsDone} of ${lessons.length} lesson${lessons.length === 1 ? "" : "s"} complete`}
           </p>
         </div>
-        {variant === "sheet" && onClose ? (
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close day detail"
-            className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors shrink-0"
-          >
-            <X size={16} />
-          </button>
+        {variant === "sheet" ? (
+          <div className="flex items-center gap-1 shrink-0">
+            {onAdd ? (
+              <button
+                type="button"
+                onClick={onAdd}
+                aria-label="Add to this day"
+                className="w-8 h-8 flex items-center justify-center rounded-full text-white shadow-sm hover:opacity-90 transition-opacity"
+                style={{ backgroundColor: "#5c7f63" }}
+              >
+                <Plus size={16} strokeWidth={2.5} />
+              </button>
+            ) : null}
+            {onClose ? (
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close day detail"
+                className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors"
+              >
+                <X size={16} />
+              </button>
+            ) : null}
+          </div>
         ) : null}
       </div>
 

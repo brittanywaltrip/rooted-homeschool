@@ -309,6 +309,19 @@ export default function PlanV2() {
   // break" summary view (End now / Edit break). Switched off by Edit-break
   // so the same modal transitions into the regular edit form.
   const [vacationModalActiveView, setVacationModalActiveView] = useState(false);
+  // Unified "+" bottom sheet. Opened from the header "+" (no date) or any
+  // day-row "+" (with that date) or the month-view day-detail "+" (with the
+  // open day's date). Routes to existing modals/handlers — no new save logic.
+  const [unifiedAddOpen, setUnifiedAddOpen] = useState(false);
+  const [unifiedAddDate, setUnifiedAddDate] = useState<string | null>(null);
+  const openUnifiedAdd = useCallback((date?: string | null) => {
+    setUnifiedAddDate(date ?? null);
+    setUnifiedAddOpen(true);
+  }, []);
+  const closeUnifiedAdd = useCallback(() => {
+    setUnifiedAddOpen(false);
+    setUnifiedAddDate(null);
+  }, []);
   // One-time tooltip pointing to the Breaks button. Shown on first Plan
   // visit; persists dismissal in localStorage so it never returns.
   const [showBreaksTooltip, setShowBreaksTooltip] = useState(false);
@@ -2921,7 +2934,21 @@ export default function PlanV2() {
           onDismiss={() => setConfettiGoal(null)}
         />
       ) : null}
-      <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
+      <div className="relative">
+        <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
+        {/* Unified "+" entry in the hero. Opens the bottom sheet with no
+            pre-selected date — actions inside route to their own modals
+            and fall back to today when a date is needed. */}
+        <button
+          type="button"
+          onClick={() => openUnifiedAdd(null)}
+          aria-label="Add to your plan"
+          className="absolute top-7 right-6 w-[30px] h-[30px] rounded-full flex items-center justify-center text-white shadow-md hover:opacity-90 transition-opacity z-10"
+          style={{ backgroundColor: "#5c7f63" }}
+        >
+          <Plus size={18} strokeWidth={2.5} />
+        </button>
+      </div>
 
       <div
         className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
@@ -3072,34 +3099,7 @@ export default function PlanV2() {
                   );
                 })() : null}
 
-                {/* Palm tree → opens VacationBlockModal. The Row-2 "+ Break"
-                    button moved here so break-creation stays reachable after
-                    the toolbar simplification. First-time users see a tooltip
-                    pointing here so the icon's purpose is discoverable. */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => { dismissBreaksTooltip(); openVacationModalCreate(); }}
-                    aria-label="Schedule a break"
-                    className="flex items-center gap-1 h-8 px-2 rounded-lg text-[12px] font-medium text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
-                  >
-                    <span aria-hidden className="text-base leading-none">🌴</span>
-                    <span>Breaks</span>
-                  </button>
-                  {showBreaksTooltip ? (
-                    <div
-                      role="tooltip"
-                      onClick={dismissBreaksTooltip}
-                      className="absolute right-0 top-full mt-2 z-50 bg-[#2d2926] text-white text-[11px] px-3 py-2 rounded-lg shadow-lg whitespace-nowrap cursor-pointer"
-                    >
-                      Tap here to schedule school breaks
-                      <span
-                        aria-hidden
-                        className="absolute -top-1 right-3 w-2 h-2 bg-[#2d2926] rotate-45"
-                      />
-                    </div>
-                  ) : null}
-                </div>
+                {/* Breaks entry has moved to the unified "+" sheet in the hero. */}
               </div>
             </div>
 
@@ -3191,6 +3191,7 @@ export default function PlanV2() {
                     onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
                     onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                     onMarkBreakForDay={(date) => openVacationModalCreate(date)}
+                    onDayAdd={(date) => openUnifiedAdd(date)}
                   />
                 ) : (
                 <MonthGrid
@@ -3286,6 +3287,7 @@ export default function PlanV2() {
                       onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
                       onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                       onMarkBreakForDay={(date) => openVacationModalCreate(date)}
+                      onDayAdd={(date) => openUnifiedAdd(date)}
                     />
                   ) : (
                   <MonthGrid
@@ -3487,6 +3489,7 @@ export default function PlanV2() {
               isPartner={isPartner}
               variant="sheet"
               onClose={() => setOpenDayStr(null)}
+              onAdd={() => { const d = openDayStr; setOpenDayStr(null); openUnifiedAdd(d); }}
               onToggleLesson={(id, current) => { void toggleLessonWithLog(id, current); }}
               onDeleteLesson={(id) => { void deleteLessonWithLog(id); }}
               onSkipLesson={(l) => {
@@ -3963,6 +3966,166 @@ export default function PlanV2() {
             onConfirm={handleConfirmDeleteActivity}
           />
         ) : null}
+
+        {/* Unified "+" bottom sheet — single entry point for adding things
+            to the Plan. Opened from the hero "+" (no date), per-day "+" in
+            WeekListView (with that date), and the month-view day-detail "+".
+            All actions route to existing modals/handlers — no new save logic. */}
+        {unifiedAddOpen ? (() => {
+          const fmtDay = (s: string) => {
+            const [y, m, d] = s.split("-").map(Number);
+            return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+              weekday: "long", month: "long", day: "numeric",
+            });
+          };
+          const dateLabel = unifiedAddDate ? fmtDay(unifiedAddDate) : null;
+          const targetDate = unifiedAddDate ?? todayStr;
+          type AddRow = {
+            key: string;
+            label: string;
+            emoji: string;
+            bg: string;
+            color: string;
+            onClick: () => void;
+          };
+          const rowAddDay: AddRow[] = [
+            {
+              key: "move",
+              label: "Move a lesson here",
+              emoji: "🔄",
+              bg: "#e8f0e9",
+              color: "#2D5A3D",
+              onClick: () => {
+                closeUnifiedAdd();
+                // The existing Reschedule modal is lesson-first (needs a
+                // specific lessonId). A lesson-picker step is a follow-up;
+                // for now, surface guidance so the user knows where to go.
+                flashNotice("Tap a lesson on the calendar to move it.");
+              },
+            },
+            {
+              key: "appt",
+              label: "Add appointment",
+              emoji: "📅",
+              bg: "#f5f0ff",
+              color: "#6d28d9",
+              onClick: () => {
+                closeUnifiedAdd();
+                handleMenuAddAppointment(targetDate);
+              },
+            },
+            {
+              key: "extra",
+              label: "Log an extra lesson",
+              emoji: "📓",
+              bg: "#fef9e8",
+              color: "#7a4a1a",
+              onClick: () => {
+                closeUnifiedAdd();
+                setAddLessonInitialDate(targetDate);
+                setAddLessonOpen(true);
+              },
+            },
+          ];
+          const rowPlanSetup: AddRow[] = [
+            {
+              key: "activity",
+              label: "New recurring activity",
+              emoji: "🔁",
+              bg: "#e6f0ff",
+              color: "#1d4ed8",
+              onClick: () => {
+                closeUnifiedAdd();
+                handleActivityOpenCreate();
+              },
+            },
+            {
+              key: "curriculum",
+              label: "New curriculum",
+              emoji: "📚",
+              bg: "#e8f0e9",
+              color: "#2D5A3D",
+              onClick: () => {
+                closeUnifiedAdd();
+                router.push("/dashboard/plan/schedule");
+              },
+            },
+            {
+              key: "break",
+              label: "Schedule a break",
+              emoji: "🌴",
+              bg: "#fef3e3",
+              color: "#7a4a1a",
+              onClick: () => {
+                closeUnifiedAdd();
+                openVacationModalCreate(unifiedAddDate ?? undefined);
+              },
+            },
+          ];
+          const renderRow = (r: AddRow) => (
+            <button
+              key={r.key}
+              type="button"
+              onClick={r.onClick}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#faf8f4] transition-colors text-left"
+            >
+              <span
+                className="w-9 h-9 rounded-full flex items-center justify-center text-base shrink-0"
+                style={{ backgroundColor: r.bg }}
+                aria-hidden
+              >
+                {r.emoji}
+              </span>
+              <span className="flex-1 text-[14px] font-medium" style={{ color: r.color }}>
+                {r.label}
+              </span>
+              <span aria-hidden className="text-[#c8bfb5] text-[14px]">›</span>
+            </button>
+          );
+          return (
+            <>
+              <div
+                className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[60]"
+                onClick={closeUnifiedAdd}
+                aria-hidden
+              />
+              <div
+                className="fixed bottom-0 left-0 right-0 z-[60] flex justify-center pointer-events-none"
+              >
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label={dateLabel ? `Add to ${dateLabel}` : "Add to your plan"}
+                  className="bg-[#fefcf9] rounded-t-3xl shadow-xl w-full max-w-lg flex flex-col pointer-events-auto overflow-hidden"
+                  style={{ maxHeight: "85vh" }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="w-10 h-1 bg-[#e8e2d9] rounded-full mx-auto mt-3 shrink-0" aria-hidden />
+                  <div className="px-5 pt-3 pb-1 shrink-0">
+                    <h2 className="text-[16px] font-bold text-[#2d2926]">
+                      {dateLabel ? `Add to ${dateLabel}` : "Add to your plan"}
+                    </h2>
+                  </div>
+                  <div className="flex-1 overflow-y-auto pb-5">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8B7E74] px-5 pt-3 pb-1">
+                      Add to a day
+                    </p>
+                    <div className="divide-y divide-[#f0ede8]">
+                      {rowAddDay.map(renderRow)}
+                    </div>
+                    <div className="border-t border-[#e8e2d9] my-2" />
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[#8B7E74] px-5 pt-2 pb-1">
+                      Plan setup
+                    </p>
+                    <div className="divide-y divide-[#f0ede8]">
+                      {rowPlanSetup.map(renderRow)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          );
+        })() : null}
 
         {/* Global undo bar */}
         <UndoBar action={undoAction} onDismiss={() => setUndoAction(null)} />

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { Calendar, Check, GripVertical, MoreVertical, Pencil, X } from "lucide-react";
+import { Calendar, Check, GripVertical, MoreVertical, Pencil, Plus, X } from "lucide-react";
 import { resolveChildColor } from "./colors";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -64,6 +64,9 @@ type Props = {
   onAddLessonForDay: (dateStr: string) => void;
   /** "Mark as break →" header link. */
   onMarkBreakForDay: (dateStr: string) => void;
+  /** Per-day "+" button in the day header — opens the unified add sheet
+   *  pre-filled with that date. Optional so legacy callers stay working. */
+  onDayAdd?: (dateStr: string) => void;
 };
 
 export default function WeekListView(props: Props) {
@@ -72,7 +75,7 @@ export default function WeekListView(props: Props) {
     curriculumGoals, loading, isPartner, editMode,
     onMoveLesson, onLessonClick, onAppointmentClick,
     onSkipLesson, onRescheduleLesson, onEditLesson, onToggleLessonDone,
-    onAddLessonForDay, onMarkBreakForDay,
+    onAddLessonForDay, onMarkBreakForDay, onDayAdd,
   } = props;
 
   const days = useMemo(() => {
@@ -165,6 +168,21 @@ export default function WeekListView(props: Props) {
                 >
                   {headerLabel}
                 </p>
+                {!isPartner && onDayAdd ? (
+                  <button
+                    type="button"
+                    onClick={() => onDayAdd(key)}
+                    aria-label={`Add to ${headerLabel}`}
+                    className="w-5 h-5 flex items-center justify-center rounded-full transition-colors"
+                    style={{
+                      border: "1px solid #5c7f63",
+                      backgroundColor: "#eaf2ec",
+                      color: "#2D5A3D",
+                    }}
+                  >
+                    <Plus size={12} strokeWidth={2.5} />
+                  </button>
+                ) : null}
               </div>
 
               {vac.vacation ? (

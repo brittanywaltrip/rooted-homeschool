@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Hand, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronRight, Hand, Pencil, Trash2 } from "lucide-react";
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
@@ -217,13 +217,8 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
       <header className="flex items-center gap-2 px-4 py-3 border-b border-[#f0ede8]">
         <span aria-hidden className="text-base leading-none">📚</span>
         <h2 className="flex-1 text-[13px] font-semibold text-[#2d2926]">Curriculum</h2>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="flex items-center gap-1 text-[11px] font-semibold bg-[#2D5A3D] hover:bg-[var(--g-deep)] text-white rounded-lg px-2.5 py-1.5 transition-colors"
-        >
-          <Plus size={12} /> Create curriculum
-        </button>
+        {/* Create curriculum has moved to the unified "+" sheet in the Plan hero.
+            The empty-state link below still uses onCreate for first-curriculum onboarding. */}
       </header>
 
       {goals.length === 0 ? (
