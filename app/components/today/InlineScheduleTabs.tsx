@@ -9,7 +9,7 @@
 // loadData) on mount, then keeps that state local. If the parent
 // re-mounts it, the queries re-fire — current behavior.
 
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { Pencil } from "lucide-react";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -152,8 +152,7 @@ export default function InlineScheduleTabs({
     setEditingNoteText("");
   }
 
-  useEffect(() => {
-    (async () => {
+  const loadTabsData = useCallback(async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
       const { data: { user } } = await supabase.auth.getUser();
@@ -314,8 +313,22 @@ export default function InlineScheduleTabs({
       setPastLessons((pastLessonData ?? []) as unknown as TabLesson[]);
 
       setLoaded(true);
-    })();
   }, []);
+
+  // Initial fetch on mount.
+  useEffect(() => {
+    void loadTabsData();
+  }, [loadTabsData]);
+
+  // Re-fetch when lessons change elsewhere (Log Extra save, Plan reschedule,
+  // etc.) so the Upcoming + Past tabs reflect the new queue state without a
+  // manual page reload. Mirrors the `rooted:lessons-updated` event used by
+  // the Today page itself.
+  useEffect(() => {
+    const handler = () => { void loadTabsData(); };
+    window.addEventListener("rooted:lessons-updated", handler);
+    return () => window.removeEventListener("rooted:lessons-updated", handler);
+  }, [loadTabsData]);
 
   async function handleDelete(id: string) {
     setDeleteConfirm(null);

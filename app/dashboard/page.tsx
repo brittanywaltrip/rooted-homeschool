@@ -2076,6 +2076,12 @@ export default function TodayPage() {
     loadDataBusy.current = false;
     await loadData();
     await refreshTodayStory();
+    // Notify InlineScheduleTabs (Upcoming/Past tabs) — its internal load
+    // runs on mount only, so without this event the Upcoming list keeps
+    // showing the just-completed lesson until a hard refresh.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+    }
   }
 
   function openEdit(lesson: Lesson) {
