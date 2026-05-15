@@ -1552,6 +1552,13 @@ export default function PlanV2() {
       });
 
       reload();
+      // Cross-route notification — Today page (when mounted) listens for
+      // this event and reloads so the moved lesson appears on the right
+      // date without a manual page refresh. Mirrors the existing
+      // rooted:children-updated pattern used by Settings.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+      }
     },
     [lessons, vacationBlocks, setLessons, reload, flagLanded, recordEvent],
   );

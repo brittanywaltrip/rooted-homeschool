@@ -1311,6 +1311,14 @@ export default function TodayPage() {
     return () => window.removeEventListener("rooted:children-updated", handler);
   }, [loadData]);
 
+  // Re-fetch when a lesson is rescheduled/moved on the Plan page so the
+  // Today schedule reflects the new date without a manual page reload.
+  useEffect(() => {
+    const handler = () => { loadData(); };
+    window.addEventListener("rooted:lessons-updated", handler);
+    return () => window.removeEventListener("rooted:lessons-updated", handler);
+  }, [loadData]);
+
   // Open the photo-limit modal when the FAB (in layout.tsx) hits the cap.
   useEffect(() => {
     const handler = () => setShowPhotoLimitModal(true);
