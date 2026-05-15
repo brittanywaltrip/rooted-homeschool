@@ -215,13 +215,28 @@ export default function WeekListView(props: Props) {
                         className={`rounded-xl ${l.completed ? "opacity-60" : ""} ${editStyleExtras}`}
                         style={{ background: kidBg }}
                       >
-                        {/* Header row: checkbox + tap-to-open + overflow menu */}
+                        {/* Header row: checkbox + tap-to-open + overflow menu.
+                            Future-dated rows ungatekeep retroactive flips: the
+                            checkbox is disabled and grayed so the user can see
+                            lessons are coming without being able to tap them. */}
                         <div className="flex items-center gap-2 px-3 py-2.5">
+                          {(() => {
+                            const isCheckable = key <= todayStr;
+                            return (
                           <button
                             type="button"
-                            onClick={() => onToggleLessonDone(l)}
-                            aria-label={l.completed ? `Mark ${titleText} not done` : `Mark ${titleText} complete`}
-                            className="shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors"
+                            disabled={!isCheckable}
+                            onClick={() => { if (isCheckable) onToggleLessonDone(l); }}
+                            aria-label={
+                              !isCheckable
+                                ? `${titleText} is scheduled for a future day`
+                                : l.completed
+                                  ? `Mark ${titleText} not done`
+                                  : `Mark ${titleText} complete`
+                            }
+                            className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                              !isCheckable ? "opacity-40 cursor-not-allowed" : ""
+                            }`}
                             style={{
                               borderColor: l.completed ? kidTitle : "#c8bfb5",
                               backgroundColor: l.completed ? kidTitle : "transparent",
@@ -233,6 +248,8 @@ export default function WeekListView(props: Props) {
                               </svg>
                             ) : null}
                           </button>
+                            );
+                          })()}
                           <button
                             type="button"
                             onClick={() => {
