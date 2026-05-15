@@ -3381,9 +3381,17 @@ export default function PlanV2() {
           </div>
         )}
 
-        {/* Recent changes audit card — lives under the calendar; the day
-            detail panel is a fixed-position sheet so placement order here
-            doesn't disturb it. */}
+        {/* Section divider — separates the calendar/schedule (this week's
+            day-to-day) from the year-level setup (curriculum + activities)
+            so users see two distinct jobs on this page. */}
+        <div className="flex items-center gap-3 pt-2">
+          <div className="flex-1 h-px bg-[#e8e2d9]" />
+          <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-[#8B7E74]">
+            Your Year
+          </p>
+          <div className="flex-1 h-px bg-[#e8e2d9]" />
+        </div>
+
         {/* Curriculum panel — pace + progress + per-goal actions + backfill.
             Only ACTIVE goals (completed_at == null) render here. Celebrating
             and completed goals get their own subsections below. */}

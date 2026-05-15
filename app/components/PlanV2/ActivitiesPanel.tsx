@@ -31,16 +31,21 @@ export default function ActivitiesPanel(props: ActivitiesPanelProps) {
 
   return (
     <section className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
-      <header className="flex items-center gap-2 px-4 py-3 border-b border-[#f0ede8]">
-        <span aria-hidden className="text-base leading-none">🏃</span>
-        <h2 className="flex-1 text-[13px] font-semibold text-[#2d2926]">Activities</h2>
-        {/* Add activity has moved to the unified "+" sheet in the Plan hero. */}
+      <header className="flex items-start gap-2 px-4 py-3 border-b border-[#f0ede8]">
+        <span aria-hidden className="text-base leading-none mt-0.5">🏃</span>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-[13px] font-semibold text-[#2d2926]">Activities</h2>
+          <p className="text-[11px] text-[#7a6f65] mt-0.5">
+            Recurring things your family does each week
+          </p>
+        </div>
+        {/* Add activity lives in the unified "+" sheet in the Plan hero. */}
       </header>
 
       {activities.length === 0 ? (
-        <div className="px-4 py-5 text-center">
-          <p className="text-[12px] text-[#7a6f65]">
-            Track music lessons, co-op, sports — anything recurring outside your curriculum.
+        <div className="px-4 py-6 text-center">
+          <p className="text-[13px] text-[#7a6f65] leading-relaxed">
+            No recurring activities yet. Use the + button above to add music, co-op, or anything else your family does each week.
           </p>
         </div>
       ) : (
