@@ -168,7 +168,6 @@ export default function TodaySchedule({
   const grouped = groupItems(items, children);
   const totalItems = items.length;
   const doneItems = items.filter((i) => i.completed).length;
-  const hasIncompleteLessonToday = lessons.some((l) => !l.completed);
 
   const childrenLookup = new Map<string, { id: string; name: string; color: string | null }>(
     children.map((c) => [c.id, { id: c.id, name: c.name, color: c.color }]),
@@ -179,32 +178,12 @@ export default function TodaySchedule({
     <div>
       {/* Header */}
       <div className="flex items-center justify-between px-0.5 -mb-1">
-        <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">Today&apos;s schedule</p>
-        <div className="flex items-center gap-2">
-          {totalItems > 0 && (
-            <span className="text-[12px] text-[#b5aca4]">
-              {doneItems} of {totalItems} done
-            </span>
-          )}
-          {!isPartner && handlers.onRunningLate && hasIncompleteLessonToday && (
-            <button
-              type="button"
-              onClick={handlers.onRunningLate}
-              className="text-[12px] font-medium rounded-full px-3 py-1.5 transition-colors hover:bg-[#f0ede8]"
-              style={{ background: "transparent", color: "#7a6f65", border: "1px solid #e8e3dc" }}
-            >
-              Running late?
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handlers.onManage}
-            className="flex items-center gap-1 text-[12px] font-medium text-white rounded-full px-3.5 py-1.5 transition-opacity hover:opacity-80"
-            style={{ background: "#2D5A3D" }}
-          >
-            📅 Manage
-          </button>
-        </div>
+        <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">Today&apos;s lessons</p>
+        {totalItems > 0 && (
+          <span className="text-[12px] text-[#b5aca4]">
+            {doneItems} of {totalItems} done
+          </span>
+        )}
       </div>
 
       {/* Card */}
@@ -212,32 +191,6 @@ export default function TodaySchedule({
         className="bg-white rounded-2xl overflow-hidden mt-2"
         style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}
       >
-        {/* Action buttons row — single set, top of schedule */}
-        <div className="px-[18px] pt-4 pb-3 border-b border-[#f0ece6]">
-          {!isPartner && (
-            <div className="flex items-center gap-2">
-              {/* Both pills are global actions, not kid-specific. Neutral
-                  warm-beige pair so they read as a matched action set,
-                  visually distinct from the dark-green Manage button. */}
-              <button
-                type="button"
-                onClick={handlers.onAddAppt}
-                className="text-[12px] font-medium rounded-full px-3.5 py-1.5"
-                style={{ background: "#f0ede8", color: "var(--g-deep)", border: "1px solid #e8e3dc" }}
-              >
-                + Appt
-              </button>
-              <button
-                type="button"
-                onClick={handlers.onLogExtra}
-                className="text-[12px] font-medium rounded-full px-3.5 py-1.5"
-                style={{ background: "#f0ede8", color: "var(--g-deep)", border: "1px solid #e8e3dc" }}
-              >
-                + Log an extra lesson
-              </button>
-            </div>
-          )}
-        </div>
 
         {/* Sections */}
         <div className="px-3 py-3">

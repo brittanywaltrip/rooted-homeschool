@@ -2981,6 +2981,13 @@ export default function TodayPage() {
             </p>
           )}
         </div>
+
+        {/* Lesson progress counter */}
+        {totalToday > 0 && (
+          <p className="text-[13px] mt-1" style={{ color: "rgba(255,255,255,0.82)" }}>
+            {completedToday} of {totalToday} lesson{totalToday !== 1 ? "s" : ""} done
+          </p>
+        )}
       </div>
 
       <div className="max-w-2xl mx-auto px-5 pt-4 pb-7 space-y-5">
@@ -3172,20 +3179,18 @@ export default function TodayPage() {
       })()}
 
       {/* ═══════════════════════════════════════════════════════════
-          OVERDUE LESSON INDICATOR — past-dated incomplete lessons under
-          the queue model. Subtle amber pill, links to Plan for catch-up.
+          LESSONS FROM EARLIER — quiet notice for past-dated incomplete
+          lessons under the queue model. No auto-reschedule, no alarm.
           Hidden on pace, hidden for brand-new users with no completions.
          ═══════════════════════════════════════════════════════════ */}
       {!loading && overdueLessonCount > 0 && (
         <Link
           href="/dashboard/plan"
-          className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#fef3e3] border border-[#c4956a]/30 hover:bg-[#fbe9d0] hover:border-[#c4956a]/50 transition-colors group"
+          className="block px-3.5 py-2.5 rounded-xl bg-[#faf8f4] border border-[#e8e2d9] hover:bg-[#f4f0e8] transition-colors"
         >
-          <span className="text-sm leading-none" aria-hidden>⏳</span>
-          <p className="text-[12px] text-[#8b6f47] font-medium flex-1">
-            You&apos;re {overdueLessonCount} lesson{overdueLessonCount !== 1 ? "s" : ""} behind
-            <span className="text-[#c4956a] mx-1.5">·</span>
-            <span className="text-[#7a4a1a] font-semibold">Catch up on Plan →</span>
+          <p className="text-[12px] text-[#7a6f65]">
+            {overdueLessonCount} lesson{overdueLessonCount !== 1 ? "s" : ""} from earlier
+            <span className="text-[#5c7f63] font-medium ml-1">— View in Plan →</span>
           </p>
         </Link>
       )}
@@ -3532,33 +3537,6 @@ export default function TodayPage() {
           </Link>
         </div>
       )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          YEARBOOK NUDGE — slim card, once per week
-         ═══════════════════════════════════════════════════════════ */}
-      {yearbookCount > 0 && (() => {
-        const lastShown = typeof window !== "undefined" ? localStorage.getItem("yearbook_nudge_shown") : null;
-        const now2 = new Date();
-        const ws = new Date(now2.getFullYear(), now2.getMonth(), now2.getDate() - now2.getDay());
-        const wk = ws.toISOString().slice(0, 10);
-        if (lastShown === wk) return null;
-        return (
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Yearbook</p>
-            <button
-              onClick={() => { localStorage.setItem("yearbook_nudge_shown", wk); router.push("/dashboard/memories/yearbook"); }}
-              className="w-full bg-white border border-[#e8e5e0] rounded-2xl p-4 flex items-center gap-3 text-left hover:bg-[#faf9f7] transition-colors"
-            >
-              <span className="text-xl">📗</span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-[#2D2A26]">{yearbookCount} memor{yearbookCount === 1 ? "y" : "ies"} so far this year</p>
-                <p className="text-[11px] text-[#8B7E74]">Tap to open your family yearbook →</p>
-              </div>
-              <span className="text-[#8B7E74] text-sm">›</span>
-            </button>
-          </div>
-        );
-      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           ON THIS DAY — purple card, show only for Tier 1 or 2 matches (1+ year)
