@@ -572,7 +572,7 @@ export default function GardenPage() {
   }
 
   return (
-    <>
+    <div className="w-full max-w-full min-w-0 overflow-x-hidden">
       <PageHero
         overline="Your"
         title="Garden"
@@ -1066,6 +1066,6 @@ export default function GardenPage() {
           50% { transform: translateY(-6px); }
         }
       `}</style>
-    </>
+    </div>
   );
 }
