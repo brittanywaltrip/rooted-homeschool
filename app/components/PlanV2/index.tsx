@@ -309,6 +309,35 @@ export default function PlanV2() {
   // break" summary view (End now / Edit break). Switched off by Edit-break
   // so the same modal transitions into the regular edit form.
   const [vacationModalActiveView, setVacationModalActiveView] = useState(false);
+  // One-time tooltip pointing to the Breaks button. Shown on first Plan
+  // visit; persists dismissal in localStorage so it never returns.
+  const [showBreaksTooltip, setShowBreaksTooltip] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (window.localStorage.getItem("rooted_breaks_tooltip_seen") !== "1") {
+        setShowBreaksTooltip(true);
+      }
+    } catch { /* private-mode / quota — just ignore */ }
+  }, []);
+  const dismissBreaksTooltip = useCallback(() => {
+    setShowBreaksTooltip(false);
+    try {
+      window.localStorage.setItem("rooted_breaks_tooltip_seen", "1");
+    } catch { /* ignore */ }
+  }, []);
+  // Dismiss the tooltip on any document tap once it's visible. The 50ms
+  // delay before binding prevents the same render cycle's click (e.g., the
+  // tap that navigated here) from firing the handler immediately.
+  useEffect(() => {
+    if (!showBreaksTooltip) return;
+    const handler = () => dismissBreaksTooltip();
+    const t = setTimeout(() => document.addEventListener("click", handler, { once: true }), 50);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("click", handler);
+    };
+  }, [showBreaksTooltip, dismissBreaksTooltip]);
 
   // ── Add + edit lesson state ──────────────────────────────────────────────
   // Modals are local state — a single instance of each is enough because
@@ -3036,17 +3065,34 @@ export default function PlanV2() {
                   );
                 })() : null}
 
-                {/* Palm tree → opens VacationBlockModal to add a break. The
-                    Row-2 "+ Break" button moved here so break-creation stays
-                    reachable after the toolbar simplification. */}
-                <button
-                  type="button"
-                  onClick={() => openVacationModalCreate()}
-                  aria-label="Add a break"
-                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#f0ede8] transition-colors text-base leading-none"
-                >
-                  <span aria-hidden>🌴</span>
-                </button>
+                {/* Palm tree → opens VacationBlockModal. The Row-2 "+ Break"
+                    button moved here so break-creation stays reachable after
+                    the toolbar simplification. First-time users see a tooltip
+                    pointing here so the icon's purpose is discoverable. */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => { dismissBreaksTooltip(); openVacationModalCreate(); }}
+                    aria-label="Schedule a break"
+                    className="flex items-center gap-1 h-8 px-2 rounded-lg text-[12px] font-medium text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
+                  >
+                    <span aria-hidden className="text-base leading-none">🌴</span>
+                    <span>Breaks</span>
+                  </button>
+                  {showBreaksTooltip ? (
+                    <div
+                      role="tooltip"
+                      onClick={dismissBreaksTooltip}
+                      className="absolute right-0 top-full mt-2 z-50 bg-[#2d2926] text-white text-[11px] px-3 py-2 rounded-lg shadow-lg whitespace-nowrap cursor-pointer"
+                    >
+                      Tap here to schedule school breaks
+                      <span
+                        aria-hidden
+                        className="absolute -top-1 right-3 w-2 h-2 bg-[#2d2926] rotate-45"
+                      />
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
 
