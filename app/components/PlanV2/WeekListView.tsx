@@ -1,7 +1,7 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
-import { Calendar, Check, GripVertical, MoreVertical, Pencil, Plus, X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Calendar, GripVertical, MoreVertical, Move, Pencil, Plus, X } from "lucide-react";
 import { resolveChildColor } from "./colors";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -160,9 +160,53 @@ export default function WeekListView(props: Props) {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [apptMenuOpenId, setApptMenuOpenId] = useState<string | null>(null);
 
+  // Escape cancels move mode so users have a panic exit alongside the
+  // banner's Cancel button. Body scroll is intentionally not locked; the
+  // user needs to scroll to reach off-screen days to drop into.
+  useEffect(() => {
+    if (!moveTarget) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMoveTarget(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [moveTarget]);
+
+  const movingLesson = useMemo(() => {
+    if (!moveTarget) return null;
+    const l = lessons.find((x) => x.id === moveTarget.lessonId);
+    if (!l) return null;
+    const goal = l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id) : undefined;
+    const title =
+      l.title && l.title.trim().length > 0
+        ? l.title
+        : goal?.curriculum_name ?? "Lesson";
+    return { id: l.id, title };
+  }, [moveTarget, lessons, goalById]);
+
   return (
     <div className="w-full max-w-full overflow-hidden px-4 pb-4">
       {/* Week navigation lives in the V2 toolbar above; no inner nav row here. */}
+
+      {moveTarget && movingLesson ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-[#5c7f63] bg-[#eaf2ec] px-4 py-3"
+        >
+          <p className="text-[13px] text-[#2D5A3D] min-w-0 truncate">
+            <span className="font-medium">Moving</span>{" "}
+            <span className="truncate">{movingLesson.title}</span>. Tap a day to drop it.
+          </p>
+          <button
+            type="button"
+            onClick={() => setMoveTarget(null)}
+            className="shrink-0 text-[13px] font-medium text-[#2D5A3D] hover:underline"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : null}
 
       {/* 7 day sections wrapped in a single outer card so the week reads
           as one cohesive schedule block. Internal dividers separate days. */}
@@ -246,9 +290,12 @@ export default function WeekListView(props: Props) {
                     const kidPillText = darkenHex(kidColor, 0.55);
                     const icon = goal?.icon_emoji ?? "📚";
 
+                    const isBeingMoved = moveTarget?.lessonId === l.id;
                     const editStyleExtras = editMode
                       ? "ring-2 ring-dashed ring-[#5c7f63]/60 ring-offset-2 ring-offset-white shadow-md"
-                      : "";
+                      : isBeingMoved
+                        ? "ring-2 ring-dashed ring-[#5c7f63] ring-offset-2 ring-offset-white opacity-50"
+                        : "";
 
                     const subtitleText = subject
                       ? `${subject}${childName ? ` · ${childName}` : ""}`
@@ -384,6 +431,17 @@ export default function WeekListView(props: Props) {
                                     <button
                                       type="button"
                                       role="menuitem"
+                                      onClick={() => {
+                                        setMenuOpenId(null);
+                                        setMoveTarget({ lessonId: l.id, fromDate: key });
+                                      }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <Move size={14} className="text-[#5c7f63]" /> Move
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
                                       onClick={() => { setMenuOpenId(null); onSkipLesson(l); }}
                                       className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
                                     >
@@ -449,7 +507,8 @@ export default function WeekListView(props: Props) {
                     );
                   })}
 
-                  {/* Appointments — kept distinct via purple accent. */}
+                  {/* Appointments rendered after lessons, before the move
+                      drop zone (which sits at the bottom of the day's stack). */}
                   {dayAppts.map((a) => (
                     <div
                       key={`${a.id}-${a.instance_date}`}
@@ -538,69 +597,37 @@ export default function WeekListView(props: Props) {
                 </div>
               )}
 
+              {/* Inline drop zone for move mode. Non-source days show a
+                  tappable "Move here" target; the source day shows a quiet
+                  "Original day" hint so the user can see where the lesson
+                  started. Vacation days are eligible targets. The move
+                  handler upstream already shows a "(weekend)" suffix in
+                  the confirmation toast when needed. */}
+              {moveTarget ? (
+                key === moveTarget.fromDate ? (
+                  <p className="mt-2 text-center text-[11px] italic text-[#7a6f65]">
+                    Original day
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onMoveLesson(moveTarget.lessonId, key);
+                      setMoveTarget(null);
+                    }}
+                    aria-label={`Move to ${headerLabel}`}
+                    className="mt-2 w-full rounded-xl border-2 border-dashed border-[#5c7f63] bg-[#eaf2ec]/50 px-4 py-3 text-[13px] font-medium text-[#2D5A3D] hover:bg-[#eaf2ec] transition-colors"
+                  >
+                    Move here
+                  </button>
+                )
+              ) : null}
+
               </div>
             </Fragment>
           );
         })}
       </div>
-
-      {/* Move bottom sheet */}
-      {moveTarget ? (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40"
-          onClick={() => setMoveTarget(null)}
-        >
-          <div
-            className="w-full max-w-md bg-white rounded-t-2xl p-5 pb-8 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-label="Move to which day?"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[14px] font-semibold text-[#2D2A26]">Move to which day?</p>
-              <button
-                type="button"
-                onClick={() => setMoveTarget(null)}
-                aria-label="Close"
-                className="w-8 h-8 flex items-center justify-center rounded-full text-[#7a6f65] hover:bg-[#f0ede8]"
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div className="space-y-1.5">
-              {days.map((d, idx) => {
-                const k = ymd(d);
-                const isFrom = k === moveTarget.fromDate;
-                const dateLong = d.toLocaleDateString("en-US", { month: "long", day: "numeric" });
-                const label = `${DAY_NAMES_FULL[idx]}, ${dateLong}`;
-                return (
-                  <button
-                    key={k}
-                    type="button"
-                    disabled={isFrom}
-                    onClick={() => {
-                      void onMoveLesson(moveTarget.lessonId, k);
-                      setMoveTarget(null);
-                    }}
-                    className={`w-full flex items-center justify-between gap-2 text-left px-4 py-3 rounded-xl text-[14px] transition-colors ${
-                      isFrom
-                        ? "bg-[#f0f7f1] text-[#2D5A3D] cursor-not-allowed"
-                        : "bg-[#faf8f4] text-[#2D2A26] hover:bg-[#e8f0e9]"
-                    }`}
-                  >
-                    <span>{label}</span>
-                    {isFrom ? (
-                      <span className="flex items-center gap-1 text-[11px] text-[#2D5A3D] font-medium">
-                        <Check size={14} /> current
-                      </span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }
