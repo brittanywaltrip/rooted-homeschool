@@ -159,30 +159,20 @@ export default function WeekListView(props: Props) {
                 >
                   {headerLabel}
                 </p>
-                {!isPartner && !vac.vacation ? (
-                  <button
-                    type="button"
-                    onClick={() => onMarkBreakForDay(key)}
-                    className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors min-h-[32px] px-1"
-                  >
-                    Mark as break →
-                  </button>
-                ) : null}
               </div>
 
               {vac.vacation ? (
                 <p className="text-[12px] text-[#7a5000] italic mb-2 pl-1">🌴 {vac.name ?? "Break"}</p>
               ) : null}
 
-              {/* Lessons + appointments, or empty state */}
+              {/* Lessons + appointments, or vacation marker. Non-vacation
+                  empty days render nothing. */}
               {!loading && dayLessons.length === 0 && dayAppts.length === 0 ? (
-                <div className="rounded-xl text-center" style={{ background: "#F8F7F4", border: "1px solid #e5e0d8", padding: 18 }}>
-                  {vac.vacation ? (
+                vac.vacation ? (
+                  <div className="rounded-xl text-center" style={{ background: "#F8F7F4", border: "1px solid #e5e0d8", padding: 18 }}>
                     <p className="text-sm text-[#7a5000]">🌴 {vac.name ?? "Break"}, enjoy the time off!</p>
-                  ) : (
-                    <p className="text-sm text-[#5C5346]">☀️ Nothing scheduled, enjoy the day!</p>
-                  )}
-                </div>
+                  </div>
+                ) : null
               ) : (
                 <div className="space-y-2">
                   {dayLessons.map((l) => {
@@ -383,16 +373,6 @@ export default function WeekListView(props: Props) {
                 </div>
               )}
 
-              {/* + Add lesson under each day */}
-              {!isPartner ? (
-                <button
-                  type="button"
-                  onClick={() => onAddLessonForDay(key)}
-                  className="text-[13px] text-[#7a6f65] hover:text-[#5a4f45] font-medium mt-2 pl-1"
-                >
-                  + Add lesson
-                </button>
-              ) : null}
               </div>
             </Fragment>
           );
