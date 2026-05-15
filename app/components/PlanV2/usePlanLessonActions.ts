@@ -79,11 +79,31 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
   const skipLesson = useCallback(async (lesson: T) => {
     const originalDate = lesson.scheduled_date ?? lesson.date;
     if (!originalDate) return;
+    const originalScheduled = lesson.scheduled_date;
+    const originalDateCol = lesson.date;
     const clear = (l: T): T => l.id === lesson.id ? { ...l, scheduled_date: null, date: null } : l;
     setLessons(prev => prev.map(clear));
     setMonthLessons(prev => prev.map(clear));
     if (setAllLessons) setAllLessons(prev => prev.map(clear));
-    await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
+    // Capture the Supabase error explicitly — the JS client returns
+    // { data, error } and doesn't throw on RLS/constraint failures, so a
+    // missed error here was silently leaving the DB unchanged while the
+    // optimistic UI cleared. On error, roll the optimistic state back so
+    // the lesson reappears in place and surface the failure to the caller
+    // (which shows a flashNotice).
+    const { error } = await supabase
+      .from("lessons")
+      .update({ scheduled_date: null, date: null })
+      .eq("id", lesson.id);
+    if (error) {
+      const restore = (l: T): T => l.id === lesson.id
+        ? { ...l, scheduled_date: originalScheduled, date: originalDateCol }
+        : l;
+      setLessons(prev => prev.map(restore));
+      setMonthLessons(prev => prev.map(restore));
+      if (setAllLessons) setAllLessons(prev => prev.map(restore));
+      throw new Error(error.message);
+    }
     onSkipUndo?.(lesson.id, originalDate);
   }, [setLessons, setMonthLessons, setAllLessons, onSkipUndo]);
 

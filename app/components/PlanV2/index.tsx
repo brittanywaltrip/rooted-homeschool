@@ -641,18 +641,32 @@ export default function PlanV2() {
   const skipLessonWithLog = useCallback(
     async (lesson: PlanV2Lesson) => {
       const from = lesson.scheduled_date ?? lesson.date;
-      await skipLesson(lesson);
-      if (from) {
-        const title = lesson.title && lesson.title.trim().length > 0
-          ? lesson.title
-          : lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "lesson";
-        recordEvent("lesson.skipped", {
-          lesson_id: lesson.id,
-          lesson_title: title,
-          from_date: from,
-          actor: "user",
-        });
-        flashNotice("Lesson skipped");
+      if (!from) {
+        // No date to clear — nothing meaningful to skip.
+        return;
+      }
+      try {
+        await skipLesson(lesson);
+      } catch {
+        // skipLesson already rolled back the optimistic UI state.
+        flashNotice("Couldn't skip — try again.");
+        return;
+      }
+      const title = lesson.title && lesson.title.trim().length > 0
+        ? lesson.title
+        : lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "lesson";
+      recordEvent("lesson.skipped", {
+        lesson_id: lesson.id,
+        lesson_title: title,
+        from_date: from,
+        actor: "user",
+      });
+      flashNotice("Lesson skipped");
+      // Cross-route notification — Today page + InlineScheduleTabs listen
+      // for this event and reload so the skipped lesson disappears from
+      // their views without a manual page refresh.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
     [skipLesson, recordEvent],
