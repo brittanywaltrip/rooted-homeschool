@@ -358,6 +358,12 @@ export default function PlanV2() {
   // date for the form; falls back to today when opened from the toolbar.
   const [addLessonOpen, setAddLessonOpen] = useState(false);
   const [addLessonInitialDate, setAddLessonInitialDate] = useState<string>(todayStr);
+  // True when AddLessonModal was opened from the unified "+" sheet's "Log
+  // an extra lesson" action. Insert path uses this to write completed=true
+  // (and completed_at=now()) instead of the default future-lesson semantic.
+  // current_lesson is NEVER touched on either path — only check-off advances
+  // the queue pointer.
+  const [addLessonAsCompleted, setAddLessonAsCompleted] = useState(false);
   const [editLessonTarget, setEditLessonTarget] = useState<PlanV2Lesson | null>(null);
 
   // Full goal shape — used by the CurriculumGroupsPanel (pace, progress).
@@ -660,6 +666,15 @@ export default function PlanV2() {
 
   const handleSubmitAddLesson = useCallback(async (values: AddLessonSubmit) => {
     if (!effectiveUserId) throw new Error("Not signed in");
+    // "Log an extra lesson" mode (from the unified "+" sheet): the row goes
+    // in as completed today. Regular "Add lesson" stays incomplete (future-
+    // schedule semantic). Either way, current_lesson is NOT modified — the
+    // queue pointer only advances on check-off. lesson_number is forced
+    // null in extra-completion mode to avoid colliding with the goal's
+    // queue numbering (partial unique index on goal + lesson_number) and
+    // to stop recomputeCurrentLesson from treating an off-queue completion
+    // as a queue advance the next time it runs.
+    const isExtraCompletion = addLessonAsCompleted;
     const { data: inserted, error } = await supabase
       .from("lessons")
       .insert({
@@ -667,13 +682,14 @@ export default function PlanV2() {
         child_id: values.child_id,
         curriculum_goal_id: values.curriculum_goal_id,
         title: values.title,
-        lesson_number: values.lesson_number,
+        lesson_number: isExtraCompletion ? null : values.lesson_number,
         minutes_spent: values.minutes_spent,
         hours: values.minutes_spent ? values.minutes_spent / 60 : 0,
         scheduled_date: values.scheduled_date,
         date: values.scheduled_date,
         notes: values.notes,
-        completed: false,
+        completed: isExtraCompletion,
+        completed_at: isExtraCompletion ? new Date().toISOString() : null,
       })
       .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
       .single();
@@ -710,7 +726,17 @@ export default function PlanV2() {
     });
 
     reload();
-  }, [effectiveUserId, setLessons, recordEvent, reload]);
+    // Cross-route notification — Today page InlineScheduleTabs + main load
+    // listen for this event and reload so the new lesson (extra-completed
+    // or scheduled) shows up without a manual page refresh.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+    }
+    // Reset the extra-completion flag so a subsequent open of AddLessonModal
+    // from a non-unified entry (e.g. day "+ Add lesson" link) goes back to
+    // the default future-schedule semantic.
+    setAddLessonAsCompleted(false);
+  }, [effectiveUserId, setLessons, recordEvent, reload, addLessonAsCompleted]);
 
   const handleSubmitEditLesson = useCallback(async (
     lessonId: string,
@@ -3678,7 +3704,7 @@ export default function PlanV2() {
           initialDate={addLessonInitialDate}
           childrenList={kids}
           goals={curriculumGoals}
-          onClose={() => setAddLessonOpen(false)}
+          onClose={() => { setAddLessonOpen(false); setAddLessonAsCompleted(false); }}
           onSubmit={handleSubmitAddLesson}
         />
 
@@ -4076,6 +4102,7 @@ export default function PlanV2() {
               onClick: () => {
                 closeUnifiedAdd();
                 setAddLessonInitialDate(targetDate);
+                setAddLessonAsCompleted(true);
                 setAddLessonOpen(true);
               },
             },
