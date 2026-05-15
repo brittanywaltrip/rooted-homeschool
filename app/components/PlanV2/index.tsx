@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, Umbrella, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -2847,15 +2847,15 @@ export default function PlanV2() {
         className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
         style={{ background: "#F8F7F4" }}
       >
-        {/* View toggle */}
-        <div className="flex gap-2">
+        {/* View toggle — pill style, Week / Month */}
+        <div className="inline-flex items-center gap-1 bg-white border border-[#e8e5e0] rounded-full p-1">
           <button
             type="button"
             onClick={() => setViewMode("week")}
-            className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+            className={`px-4 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
               viewMode === "week"
                 ? "bg-[#2D5A3D] text-white"
-                : "bg-white text-[#5C5346] border border-[#e8e5e0]"
+                : "text-[#5C5346] hover:bg-[#f4f0e8]"
             }`}
           >
             Week
@@ -2863,10 +2863,10 @@ export default function PlanV2() {
           <button
             type="button"
             onClick={() => setViewMode("month")}
-            className={`px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${
+            className={`px-4 py-1.5 rounded-full text-[13px] font-medium transition-colors ${
               viewMode === "month"
                 ? "bg-[#2D5A3D] text-white"
-                : "bg-white text-[#5C5346] border border-[#e8e5e0]"
+                : "text-[#5C5346] hover:bg-[#f4f0e8]"
             }`}
           >
             Month
@@ -2990,76 +2990,17 @@ export default function PlanV2() {
                     </button>
                   );
                 })() : null}
-              </div>
 
-              {/* Row 2 — action buttons in 3 clusters with vertical dividers.
-                  Pencil-outline pill style is uniform across all buttons; the
-                  aria-pressed=true CSS rule supplies the active fill for
-                  Edit-week and Select. */}
-              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1.5">
-                {/* Group 1 — Add actions */}
-                <button
-                  type="button"
-                  onClick={() => { setAddLessonInitialDate(todayStr); setAddLessonOpen(true); }}
-                  className="pencil-btn"
-                >
-                  <Plus size={13} /> Lesson
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleMenuAddAppointment(todayStr)}
-                  className="pencil-btn"
-                >
-                  <Plus size={13} /> Appt
-                </button>
+                {/* Umbrella → opens VacationBlockModal to add a break. The
+                    Row-2 "+ Break" button moved here so break-creation stays
+                    reachable after the toolbar simplification. */}
                 <button
                   type="button"
                   onClick={() => openVacationModalCreate()}
-                  className="pencil-btn"
+                  aria-label="Add a break"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
                 >
-                  <Plus size={13} /> Break
-                </button>
-
-                <div aria-hidden="true" className="w-px h-5 bg-[#e8e2d9] mx-1 self-center" />
-
-                {/* Group 2 — Mode toggles */}
-                {viewMode === "week" ? (
-                  <button
-                    type="button"
-                    onClick={() => setWeekEditMode((v) => !v)}
-                    aria-pressed={weekEditMode}
-                    className="pencil-btn"
-                  >
-                    <Pencil size={13} /> {weekEditMode ? "Done" : "Edit week"}
-                  </button>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => (selectMode ? exitSelectMode() : enterSelectMode())}
-                  aria-pressed={selectMode}
-                  className="pencil-btn"
-                >
-                  <MousePointerSquareDashed size={13} /> {selectMode ? "Cancel" : "Select"}
-                </button>
-
-                <div aria-hidden="true" className="w-px h-5 bg-[#e8e2d9] mx-1 self-center" />
-
-                {/* Group 3 — Utilities (icon-only to keep the row compact) */}
-                <button
-                  type="button"
-                  onClick={() => setReportDialogOpen(true)}
-                  aria-label="Report"
-                  className="pencil-btn"
-                >
-                  <FileText size={14} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPrintDialogOpen(true)}
-                  aria-label="Print"
-                  className="pencil-btn"
-                >
-                  <Printer size={14} />
+                  <Umbrella size={16} />
                 </button>
               </div>
             </div>
@@ -3105,27 +3046,17 @@ export default function PlanV2() {
               />
             ) : null}
 
-            {/* Empty-state notice — shown above the grid so the grid itself
-                remains keyboard/drop-navigable even when there's nothing to
-                render. Distinguishes "truly empty month" from "filters hid
-                everything". */}
-            {!loading && filteredLessons.length === 0 && filteredAppointments.length === 0 ? (
+            {/* Empty-state notice — only when filters have hidden all lessons.
+                Truly empty months render nothing per the simplified spec. */}
+            {!loading
+              && filteredLessons.length === 0
+              && filteredAppointments.length === 0
+              && (lessons.length > 0 || appointments.length > 0) ? (
               <div className="px-4 py-3 border-b border-[#f0ede8] text-center">
-                {lessons.length > 0 || appointments.length > 0 ? (
-                  <>
-                    <p className="text-[13px] font-medium text-[#2d2926]">No lessons match your filters</p>
-                    <p className="text-[11px] text-[#7a6f65] mt-0.5">
-                      Turn a child filter chip back on to bring lessons back.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-[13px] font-medium text-[#2d2926]">Nothing scheduled this month</p>
-                    <p className="text-[11px] text-[#7a6f65] mt-0.5">
-                      Head to Add Lesson to start your year.
-                    </p>
-                  </>
-                )}
+                <p className="text-[13px] font-medium text-[#2d2926]">No lessons match your filters</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">
+                  Turn a child filter chip back on to bring lessons back.
+                </p>
               </div>
             ) : null}
 
@@ -3436,13 +3367,6 @@ export default function PlanV2() {
           onCreate={handleActivityOpenCreate}
           onEdit={handleActivityOpenEdit}
           onDelete={(a) => setDeleteActivityConfirm(a)}
-        />
-
-        <RecentChangesCard
-          events={planEvents}
-          onLoadMore={loadMorePlanEvents}
-          loadingMore={planEventsLoadingMore}
-          fullyLoaded={planEventsFullyLoaded}
         />
 
         {/* Day-detail sheet */}
