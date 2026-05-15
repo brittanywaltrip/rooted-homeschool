@@ -45,7 +45,9 @@ export type VacationBlockSave = {
 
 export interface VacationBlockModalProps {
   isOpen: boolean;
-  mode: "create" | "edit";
+  /** "active" = an existing block contains today. Shows a summary view with
+   *  "End break now" + "Edit break" buttons instead of the create/edit form. */
+  mode: "create" | "edit" | "active";
   initialStartDate?: string;
   existing?: VacationBlockExisting | null;
   onClose: () => void;
@@ -53,6 +55,37 @@ export interface VacationBlockModalProps {
   /** `shiftBack` is only meaningful when the existing block had
    *  shift_applied=true at creation; parent should ignore it otherwise. */
   onDelete?: (shiftBack: boolean) => Promise<void>;
+  /** Fired by the "End break now" button in active mode. Parent should set
+   *  end_date = today on the existing block and recompute pace. */
+  onEndNow?: () => Promise<void>;
+  /** Fired by the "Edit break" button in active mode. Parent swaps mode
+   *  from "active" to "edit"; the modal stays open and re-initializes the
+   *  create/edit form with the existing block's values. */
+  onSwitchToEdit?: () => void;
+  /** Short-form weekday labels (e.g. ["Mon","Tue","Wed","Thu","Fri"]). Used
+   *  only in active mode to render "X school days remain". Defaults to
+   *  Mon–Fri when omitted. */
+  schoolDays?: string[];
+}
+
+/** Count weekdays in `schoolDays` between two ISO-date strings, inclusive. */
+function countSchoolDaysInRange(startIso: string, endIso: string, schoolDays: string[]): number {
+  if (!startIso || !endIso || startIso > endIso) return 0;
+  const [ys, ms, ds] = startIso.split("-").map(Number);
+  const [ye, me, de] = endIso.split("-").map(Number);
+  const start = new Date(ys, ms - 1, ds);
+  const end = new Date(ye, me - 1, de);
+  const SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const allowed = new Set(schoolDays);
+  let count = 0;
+  const cursor = new Date(start);
+  let safety = 0;
+  while (cursor <= end && safety < 400) {
+    if (allowed.has(SHORT[cursor.getDay()])) count++;
+    cursor.setDate(cursor.getDate() + 1);
+    safety++;
+  }
+  return count;
 }
 
 function isoToday(): string {
@@ -69,7 +102,7 @@ function labelDate(s: string): string {
 }
 
 export default function VacationBlockModal(props: VacationBlockModalProps) {
-  const { isOpen, mode, initialStartDate, existing, onClose, onSave, onDelete } = props;
+  const { isOpen, mode, initialStartDate, existing, onClose, onSave, onDelete, onEndNow, onSwitchToEdit, schoolDays } = props;
 
   const [name, setName] = useState("");
   const [start, setStart] = useState("");
@@ -84,6 +117,16 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
 
   useEffect(() => {
     if (!isOpen) return;
+    if (mode === "active") {
+      // Active mode renders a summary view, not the form. Skip the form
+      // reset + autofocus so tapping "Edit break" later still hits the
+      // edit-mode branch with a clean transition.
+      setSubmitting(false);
+      setError(null);
+      setConfirmDelete(false);
+      setDeleteShiftBack(false);
+      return;
+    }
     if (mode === "edit" && existing) {
       setName(existing.name ?? "");
       setStart(existing.start_date);
@@ -102,6 +145,20 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
     setDeleteShiftBack(false);
     setTimeout(() => nameInputRef.current?.focus(), 20);
   }, [isOpen, mode, existing, initialStartDate]);
+
+  async function handleEndNow() {
+    if (!onEndNow || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await onEndNow();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Couldn't end break");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   if (!isOpen) return null;
 
@@ -158,10 +215,16 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
           <div className="flex items-start justify-between px-5 pt-4 pb-2 shrink-0">
             <div>
               <h2 className="text-base font-bold text-[#2d2926]">
-                {mode === "edit" ? "Edit break" : "Add a break"}
+                {mode === "active"
+                  ? `Active break${existing?.name ? ` · ${existing.name}` : ""}`
+                  : mode === "edit"
+                    ? "Edit break"
+                    : "Set a break"}
               </h2>
               <p className="text-xs text-[#7a6f65] mt-0.5">
-                {rangeLabel || "Mark a span of days off."}
+                {mode === "active" && existing
+                  ? `${labelDate(existing.start_date)} – ${labelDate(existing.end_date)}`
+                  : rangeLabel || "Mark a span of days off."}
               </p>
             </div>
             <button
@@ -174,7 +237,47 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
             </button>
           </div>
 
-          {confirmDelete ? (
+          {mode === "active" && existing ? (() => {
+            const today = isoToday();
+            const remainingFrom = today > existing.start_date ? today : existing.start_date;
+            const sd = schoolDays && schoolDays.length > 0
+              ? schoolDays
+              : ["Mon", "Tue", "Wed", "Thu", "Fri"];
+            const remaining = countSchoolDaysInRange(remainingFrom, existing.end_date, sd);
+            return (
+              <>
+                <div className="px-5 pb-4 pt-1 space-y-3 overflow-y-auto">
+                  <p className="text-sm text-[#2d2926]">
+                    {remaining === 0
+                      ? "Ends today — back to school tomorrow."
+                      : `${remaining} school day${remaining === 1 ? "" : "s"} remain${remaining === 1 ? "s" : ""}.`}
+                  </p>
+                  {error ? <p className="text-[11px] text-[#b91c1c]">{error}</p> : null}
+                </div>
+                <div className="flex items-center gap-2 px-5 pb-5 shrink-0">
+                  {onSwitchToEdit ? (
+                    <button
+                      type="button"
+                      onClick={onSwitchToEdit}
+                      disabled={submitting}
+                      className="min-h-[44px] text-sm font-medium text-[#7a6f65] bg-[#f4f0e8] rounded-xl px-4 hover:bg-[#e8e2d9] transition-colors disabled:opacity-50"
+                    >
+                      Edit break
+                    </button>
+                  ) : null}
+                  <div className="flex-1" />
+                  <button
+                    type="button"
+                    onClick={handleEndNow}
+                    disabled={!onEndNow || submitting}
+                    className="min-h-[44px] text-sm font-bold text-white bg-[#2D5A3D] rounded-xl px-4 hover:bg-[var(--g-deep)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {submitting ? "Ending…" : "End break now"}
+                  </button>
+                </div>
+              </>
+            );
+          })() : confirmDelete ? (
             <>
               <div className="px-5 pb-4 pt-1 space-y-3 overflow-y-auto">
                 <p className="text-sm text-[#2d2926]">

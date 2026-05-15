@@ -304,6 +304,10 @@ export default function PlanV2() {
   const [vacationModalOpen, setVacationModalOpen] = useState(false);
   const [vacationModalInitialDate, setVacationModalInitialDate] = useState<string | null>(null);
   const [vacationModalExisting, setVacationModalExisting] = useState<VacationBlockExisting | null>(null);
+  // When true AND an existing block is set, the modal renders its "active
+  // break" summary view (End now / Edit break). Switched off by Edit-break
+  // so the same modal transitions into the regular edit form.
+  const [vacationModalActiveView, setVacationModalActiveView] = useState(false);
 
   // ── Add + edit lesson state ──────────────────────────────────────────────
   // Modals are local state — a single instance of each is enough because
@@ -2394,14 +2398,36 @@ export default function PlanV2() {
   // ── Vacation block modal handlers ────────────────────────────────────────
 
   const openVacationModalCreate = useCallback((initialDate?: string) => {
+    // Detect an active break for today first. The 🌴 toolbar tap routes
+    // through this entry point and should land on the "Active break"
+    // summary view (End now / Edit) when one exists; only fall through
+    // to the create form when there's no active break to manage.
+    const today = todayStr;
+    const activeBlock = !initialDate
+      ? vacationBlocks.find((b) => b.start_date <= today && today <= b.end_date)
+      : null;
+    if (activeBlock) {
+      setVacationModalInitialDate(null);
+      setVacationModalExisting({
+        id: activeBlock.id,
+        name: activeBlock.name,
+        start_date: activeBlock.start_date,
+        end_date: activeBlock.end_date,
+      });
+      setVacationModalActiveView(true);
+      setVacationModalOpen(true);
+      return;
+    }
     setVacationModalInitialDate(initialDate ?? null);
     setVacationModalExisting(null);
+    setVacationModalActiveView(false);
     setVacationModalOpen(true);
-  }, []);
+  }, [todayStr, vacationBlocks]);
 
   const openVacationModalEdit = useCallback((block: VacationBlockExisting) => {
     setVacationModalInitialDate(null);
     setVacationModalExisting(block);
+    setVacationModalActiveView(false);
     setVacationModalOpen(true);
   }, []);
 
@@ -2608,6 +2634,23 @@ export default function PlanV2() {
 
     reload();
   }, [effectiveUserId, schoolDays, vacationBlocks, vacationModalExisting, batchUpdateScheduledDates, recordEvent, reload]);
+
+  // "End break now" — invoked from the modal's active-break view. Caps the
+  // block's end_date at today (clamped to start_date so a same-day block
+  // doesn't go negative). Does not touch curriculum_goals.lessons_per_day;
+  // the queue projector reads the updated block range on the next reload.
+  const handleVacationEndNow = useCallback(async () => {
+    if (!vacationModalExisting || !effectiveUserId) return;
+    const newEnd = todayStr < vacationModalExisting.start_date
+      ? vacationModalExisting.start_date
+      : todayStr;
+    const { error } = await supabase
+      .from("vacation_blocks")
+      .update({ end_date: newEnd })
+      .eq("id", vacationModalExisting.id);
+    if (error) throw new Error(error.message);
+    reload();
+  }, [effectiveUserId, todayStr, vacationModalExisting, reload]);
 
   // ── Day-cell context menu actions ─────────────────────────────────────────
   // Helpers scoped to the day the menu is open for. All actions close the
@@ -3571,16 +3614,26 @@ export default function PlanV2() {
         />
         <VacationBlockModal
           isOpen={vacationModalOpen}
-          mode={vacationModalExisting ? "edit" : "create"}
+          mode={
+            vacationModalActiveView && vacationModalExisting
+              ? "active"
+              : vacationModalExisting
+                ? "edit"
+                : "create"
+          }
           initialStartDate={vacationModalInitialDate ?? undefined}
           existing={vacationModalExisting}
+          schoolDays={schoolDays}
           onClose={() => {
             setVacationModalOpen(false);
             setVacationModalExisting(null);
             setVacationModalInitialDate(null);
+            setVacationModalActiveView(false);
           }}
           onSave={handleVacationSave}
           onDelete={vacationModalExisting ? handleVacationDelete : undefined}
+          onEndNow={vacationModalActiveView ? handleVacationEndNow : undefined}
+          onSwitchToEdit={vacationModalActiveView ? () => setVacationModalActiveView(false) : undefined}
         />
 
         {/* Curriculum wizard mount — the inline create/edit modal was
