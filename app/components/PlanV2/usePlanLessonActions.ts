@@ -80,8 +80,13 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     const originalDate = lesson.scheduled_date ?? lesson.date;
     if (!originalDate) return;
     const originalScheduled = lesson.scheduled_date;
-    const originalDateCol = lesson.date;
-    const clear = (l: T): T => l.id === lesson.id ? { ...l, scheduled_date: null, date: null } : l;
+    // Only `scheduled_date` is cleared. `date` has a NOT NULL constraint
+    // on the lessons table — including it in the update payload returned
+    // a 400 every time and was the root cause of "Skip does nothing".
+    // After the write, `scheduled_date IS NULL` makes the lesson fall
+    // outside usePlanV2Data's `gte/lte scheduled_date` window on reload,
+    // so the calendar drops it. `date` is left untouched for history.
+    const clear = (l: T): T => l.id === lesson.id ? { ...l, scheduled_date: null } : l;
     setLessons(prev => prev.map(clear));
     setMonthLessons(prev => prev.map(clear));
     if (setAllLessons) setAllLessons(prev => prev.map(clear));
@@ -93,11 +98,11 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     // (which shows a flashNotice).
     const { error } = await supabase
       .from("lessons")
-      .update({ scheduled_date: null, date: null })
+      .update({ scheduled_date: null })
       .eq("id", lesson.id);
     if (error) {
       const restore = (l: T): T => l.id === lesson.id
-        ? { ...l, scheduled_date: originalScheduled, date: originalDateCol }
+        ? { ...l, scheduled_date: originalScheduled }
         : l;
       setLessons(prev => prev.map(restore));
       setMonthLessons(prev => prev.map(restore));
