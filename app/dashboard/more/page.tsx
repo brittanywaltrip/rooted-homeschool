@@ -2,13 +2,12 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { BookOpen, FileText, Sparkles, HelpCircle, Mail, Settings, ChevronRight } from "lucide-react";
+import { BookOpen, FileText, Sparkles, HelpCircle, Mail, Settings, ChevronRight, GraduationCap } from "lucide-react";
 import PageHero from "@/app/components/PageHero";
 
 const items = [
   { label: "Resources",  sub: "Deals, freebies & field trips",       href: "/dashboard/resources",        icon: BookOpen  },
-  // Transcripts hidden from nav pending App Store review. The page at
-  // /dashboard/transcript still works if linked directly.
+  { label: "Transcripts", sub: "Courses, GPA & official transcripts", href: "/dashboard/transcript",       icon: GraduationCap },
   { label: "What's New", sub: "Latest updates & improvements",       href: "/dashboard/more/whats-new",   icon: Sparkles  },
   { label: "FAQ",        sub: "Common questions",                    href: "/faq",                        icon: HelpCircle },
   { label: "Contact",    sub: "Get in touch",                        href: "/contact",                    icon: Mail      },

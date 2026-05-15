@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
-import { Sun, Leaf, Camera, Calendar, Search, Menu, X, Printer } from "lucide-react";
+import { Sun, Leaf, Camera, Calendar, Search, Menu, X, Printer, GraduationCap } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
@@ -25,8 +25,7 @@ const navItems = [
   { label: "Garden",    href: "/dashboard/garden",    icon: Leaf     },
   { label: "Memories",    href: "/dashboard/memories",    icon: Camera   },
   { label: "Printables",  href: "/dashboard/printables",  icon: Printer  },
-  // Transcripts hidden from nav pending App Store review. The page at
-  // /dashboard/transcript still works if linked directly.
+  { label: "Transcripts", href: "/dashboard/transcript",  icon: GraduationCap },
   { label: "Resources",   href: "/dashboard/resources",   icon: Search   },
 ];
 
