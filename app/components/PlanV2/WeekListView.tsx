@@ -101,6 +101,27 @@ export default function WeekListView(props: Props) {
       arr.push(l);
       m.set(key, arr);
     }
+    // Sort within each day so rows render in queue order regardless of the
+    // upstream fetch sequence. Primary: lesson_number ASC. Nulls (extra /
+    // one-off lessons logged via the unified "+") sort to the end of the
+    // day so they don't break the numerical run. Secondary tiebreakers:
+    // curriculum_goal_id, then title — deterministic ordering when two
+    // subjects share a day or when lesson_numbers tie.
+    for (const arr of m.values()) {
+      arr.sort((a, b) => {
+        const an = a.lesson_number;
+        const bn = b.lesson_number;
+        if (an == null && bn != null) return 1;
+        if (an != null && bn == null) return -1;
+        if (an != null && bn != null && an !== bn) return an - bn;
+        const ag = a.curriculum_goal_id ?? "";
+        const bg = b.curriculum_goal_id ?? "";
+        if (ag !== bg) return ag.localeCompare(bg);
+        const at = a.title ?? "";
+        const bt = b.title ?? "";
+        return at.localeCompare(bt);
+      });
+    }
     return m;
   }, [lessons]);
 
