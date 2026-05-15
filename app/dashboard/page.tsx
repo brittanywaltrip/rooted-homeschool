@@ -936,6 +936,7 @@ export default function TodayPage() {
       lesson_number: number | null;
       goal_id: string | null;
       notes: string | null;
+      scheduled_date: string | null;
     };
     const projectedGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
     const projectedNumbers = Array.from(new Set(projected.map((p) => p.lesson_number)));
@@ -943,7 +944,7 @@ export default function TodayPage() {
       projectedGoalIds.length > 0
         ? supabase
             .from("lessons")
-            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes")
+            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes, scheduled_date")
             .eq("user_id", effectiveUserId)
             .in("curriculum_goal_id", projectedGoalIds)
             .in("lesson_number", projectedNumbers)
@@ -955,11 +956,20 @@ export default function TodayPage() {
         .is("curriculum_goal_id", null)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
     ]);
-    const projectedRows = ((projectedRowsResult.data ?? []) as unknown as LoadedLessonRow[]).filter((r) =>
+    const projectedRows = ((projectedRowsResult.data ?? []) as unknown as LoadedLessonRow[])
       // Only keep rows that match a projected (goal_id, lesson_number) pair —
       // the IN/IN filter widens past the cartesian product so we narrow client-side.
-      projected.some((p) => p.goal_id === r.curriculum_goal_id && p.lesson_number === r.lesson_number)
-    );
+      .filter((r) =>
+        projected.some((p) => p.goal_id === r.curriculum_goal_id && p.lesson_number === r.lesson_number)
+      )
+      // Display-layer reschedule guard: when a missed lesson is rescheduled
+      // forward via the Plan page, its scheduled_date moves into the future
+      // but the queue projector (which reads current_lesson, not date) still
+      // projects it onto today. Hide rows whose stored scheduled_date is
+      // strictly after today so Today and Plan agree. Rows with no
+      // scheduled_date (queue-only) are kept — they're not the rescheduled
+      // case. Scheduler logic untouched.
+      .filter((r) => !(r.scheduled_date && r.scheduled_date > today));
     const oneOffRows = (oneOffRowsResult.data ?? []) as unknown as LoadedLessonRow[];
 
     // Order the projected rows to match the projection sequence (queue
