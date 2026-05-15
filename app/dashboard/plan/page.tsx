@@ -3864,6 +3864,5 @@ function PlanV1() {
 }
 
 export default function PlanPage() {
-  const newPlanViewEnabled = useFeatureFlag("new_plan_view");
-  return newPlanViewEnabled ? <PlanV2 /> : <PlanV1 />;
+  return <PlanV2 />;
 }
