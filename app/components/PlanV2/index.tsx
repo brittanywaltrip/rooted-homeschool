@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, Umbrella, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -2992,16 +2992,16 @@ export default function PlanV2() {
                   );
                 })() : null}
 
-                {/* Umbrella → opens VacationBlockModal to add a break. The
+                {/* Palm tree → opens VacationBlockModal to add a break. The
                     Row-2 "+ Break" button moved here so break-creation stays
                     reachable after the toolbar simplification. */}
                 <button
                   type="button"
                   onClick={() => openVacationModalCreate()}
                   aria-label="Add a break"
-                  className="w-8 h-8 flex items-center justify-center rounded-lg text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
+                  className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#f0ede8] transition-colors text-base leading-none"
                 >
-                  <Umbrella size={16} />
+                  <span aria-hidden>🌴</span>
                 </button>
               </div>
             </div>

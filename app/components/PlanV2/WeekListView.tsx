@@ -150,10 +150,13 @@ export default function WeekListView(props: Props) {
             ? `${shortName} ${dateNum} · TODAY`
             : `${shortName} ${dateNum}`;
 
+          // Soft warm tint on empty non-vacation days so they read as
+          // intentional whitespace rather than a missing block.
+          const isEmptyDay = !loading && dayLessons.length === 0 && dayAppts.length === 0 && !vac.vacation;
           return (
             <Fragment key={key}>
               {idx > 0 ? <div className="border-t border-[#e8e5e0]" /> : null}
-              <div className="px-4 py-3">
+              <div className={`px-4 py-3 ${isEmptyDay ? "bg-[#faf7f2]" : ""}`}>
               {/* Day header */}
               <div className="flex items-center justify-between gap-2 mb-2">
                 <p
@@ -169,7 +172,8 @@ export default function WeekListView(props: Props) {
               ) : null}
 
               {/* Lessons + appointments, or vacation marker. Non-vacation
-                  empty days render nothing. */}
+                  empty days render no content (the warm bg above makes
+                  the day section visually intentional). */}
               {!loading && dayLessons.length === 0 && dayAppts.length === 0 ? (
                 vac.vacation ? (
                   <div className="rounded-xl text-center" style={{ background: "#F8F7F4", border: "1px solid #e5e0d8", padding: 18 }}>
