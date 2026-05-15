@@ -975,10 +975,17 @@ export default function ScheduleBuilderPage() {
       //    The legacy CurriculumWizard pre-generated lessons for the same
       //    reason; the Schedule Builder mirrors that flow.
       //
-      //    No unique constraint exists on (curriculum_goal_id, lesson_number),
-      //    so we pre-check the lessons table and only insert numbers that
-      //    don't already exist. This keeps re-saves of the same goal
-      //    idempotent.
+      //    Each goal is reinserted from the "completed floor" up: pending
+      //    rows above max(lesson_number where completed=true) are deleted
+      //    first, then the queue is rewritten from current_lesson+1 to
+      //    total_lessons against fresh dates. Completed rows are never
+      //    touched (Invariant 3). The (curriculum_goal_id, lesson_number)
+      //    unique index is the DB-side safety net; the floor-based delete
+      //    is what makes re-saves IDEMPOTENT instead of stacking a fresh
+      //    batch on the same calendar dates (the May 2026 overcapacity
+      //    bug: pending rows above the floor were left in place at stale
+      //    dates and the reinsert skipped them, so different lesson_numbers
+      //    landed on the same date across multiple runs).
       const { data: vacationData } = await supabase
         .from("vacation_blocks")
         .select("start_date, end_date")
@@ -1016,22 +1023,39 @@ export default function ScheduleBuilderPage() {
         const upcoming = computeNextLessonsForGoal(goalConfig, todayMid, 3650, vacations);
         if (upcoming.length === 0) continue;
 
-        // Delete-before-insert guard, NEW goals only. Closes the race where
-        // two parallel saves both pass the in-process gate (e.g. retry after
-        // partial failure, multi-tab) and both insert their full lesson sets
-        // — observed in production via near-simultaneous created_at on
-        // duplicate (curriculum_goal_id, lesson_number) rows. Safe at create
-        // time because there are no completed lessons yet to clobber. The
-        // edit/regenerate path (previouslySavedAs === "curriculum_goals")
-        // skips this delete since it may have completed history.
-        if (row.previouslySavedAs === null) {
-          await supabase
-            .from("lessons")
-            .delete()
-            .eq("curriculum_goal_id", goalId)
-            .eq("completed", false);
-        }
+        // Floor-anchored delete. The floor is the highest lesson_number
+        // among completed rows for this goal (0 if none). Pending rows
+        // strictly above the floor are nuked before reinsert, so the
+        // upcoming projection lands on fresh dates with no stale rows
+        // locked in from a prior run. Completed history above the floor
+        // is preserved (Invariant 3). For brand-new goals the floor is
+        // 0, which collapses to "delete every pending row," matching the
+        // pre-floor behavior of the create path and closing the same
+        // multi-tab / retry race it always guarded against.
+        const { data: completedTop } = await supabase
+          .from("lessons")
+          .select("lesson_number")
+          .eq("curriculum_goal_id", goalId)
+          .eq("completed", true)
+          .not("lesson_number", "is", null)
+          .order("lesson_number", { ascending: false })
+          .limit(1);
+        const completedFloor =
+          (completedTop?.[0] as { lesson_number: number } | undefined)?.lesson_number ?? 0;
 
+        await supabase
+          .from("lessons")
+          .delete()
+          .eq("curriculum_goal_id", goalId)
+          .eq("completed", false)
+          .gt("lesson_number", completedFloor);
+
+        // Dedupe by lesson_number is now mostly redundant (the floor
+        // delete just cleared the space above completedFloor, and the
+        // projector emits lesson_numbers strictly above completedFloor
+        // via current_lesson+1). Kept as belt-and-suspenders: the
+        // unique index would 23505 the whole batch if a residual row
+        // slipped through.
         const { data: existingLessons } = await supabase
           .from("lessons")
           .select("lesson_number")
