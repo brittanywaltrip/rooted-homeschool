@@ -327,14 +327,21 @@ export default function WeekListView(props: Props) {
                                   >
                                     ✓ Done
                                   </span>
-                                ) : (
+                                ) : key < todayStr ? (
                                   <span
                                     className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
-                                    style={{ background: kidPillBg, color: kidPillText }}
+                                    style={{ background: "#fef3e3", color: "#8b6f47" }}
                                   >
-                                    Lesson
+                                    Overdue
                                   </span>
-                                )}
+                                ) : key === todayStr ? (
+                                  <span
+                                    className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
+                                    style={{ background: "#e8f0e9", color: "#2D5A3D" }}
+                                  >
+                                    Today
+                                  </span>
+                                ) : null}
                               </div>
                               {subtitleText ? (
                                 <p className="text-xs mt-0.5" style={{ color: kidSubtle }}>
