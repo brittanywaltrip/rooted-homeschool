@@ -7,7 +7,7 @@ import PageHero from "@/app/components/PageHero";
 
 const items = [
   { label: "Resources",  sub: "Deals, freebies & field trips",       href: "/dashboard/resources",        icon: BookOpen  },
-  { label: "Transcripts", sub: "Courses, GPA & official transcripts", href: "/dashboard/transcript",       icon: GraduationCap },
+  { label: "Transcripts", sub: "Courses, GPA & official transcripts", href: "/dashboard/reports",       icon: GraduationCap },
   { label: "Hours Log",  sub: "Hours logged, subjects & attendance",  href: "/dashboard/reports",          icon: FileText  },
   { label: "What's New", sub: "Latest updates & improvements",       href: "/dashboard/more/whats-new",   icon: Sparkles  },
   { label: "FAQ",        sub: "Common questions",                    href: "/faq",                        icon: HelpCircle },

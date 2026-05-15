@@ -25,7 +25,7 @@ const navItems = [
   { label: "Garden",    href: "/dashboard/garden",    icon: Leaf     },
   { label: "Memories",    href: "/dashboard/memories",    icon: Camera   },
   { label: "Printables",  href: "/dashboard/printables",  icon: Printer  },
-  { label: "Transcripts", href: "/dashboard/transcript",  icon: GraduationCap },
+  { label: "Transcripts", href: "/dashboard/reports",  icon: GraduationCap },
   { label: "Resources",   href: "/dashboard/resources",   icon: Search   },
 ];
 
