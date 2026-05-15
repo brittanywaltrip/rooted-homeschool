@@ -522,6 +522,9 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
         />
         <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pointer-events-none">
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Day schedule details"
             className="bg-[#fefcf9] rounded-t-3xl shadow-xl w-full max-w-lg flex flex-col pointer-events-auto"
             style={{ maxHeight: "85vh" }}
             onClick={(e) => e.stopPropagation()}
