@@ -3796,7 +3796,7 @@ function PlanV1() {
                               >
                                 <span className="text-lg shrink-0">{g.goalData?.icon_emoji ?? "📚"}</span>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium text-[#2d2926] truncate">{g.curricName}</p>
+                                  <p className="text-sm font-medium text-[#2d2926] break-words">{g.curricName}</p>
                                   <p className="text-xs text-[#9a8e84] truncate">{subLabel}</p>
                                 </div>
                                 <span className="text-[#c8bfb5] text-base shrink-0">›</span>

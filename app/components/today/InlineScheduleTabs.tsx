@@ -442,7 +442,7 @@ export default function InlineScheduleTabs({
                             <span className="text-lg shrink-0">📚</span>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[13px] font-medium truncate" style={{ color: skin.titleColor }}>{l.title}</span>
+                                <span className="text-[13px] font-medium break-words" style={{ color: skin.titleColor }}>{l.title}</span>
                               </div>
                               <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>
                                 {(() => {
@@ -659,7 +659,7 @@ export default function InlineScheduleTabs({
                                 >
                                   <span className="text-lg shrink-0">✓</span>
                                   <div className="flex-1 min-w-0">
-                                    <span className="text-[13px] font-medium line-through truncate" style={{ color: skin.titleColor }}>{l.title}</span>
+                                    <span className="text-[13px] font-medium line-through break-words" style={{ color: skin.titleColor }}>{l.title}</span>
                                     <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>{dateLabel}</p>
                                   </div>
                                 </div>

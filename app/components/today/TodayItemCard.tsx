@@ -434,7 +434,7 @@ export default function TodayItemCard({
           {emoji && <span className="text-base shrink-0">{emoji}</span>}
           <div className="flex-1 min-w-0">
             <span
-              className={`text-[13px] font-medium truncate block ${item.completed ? "line-through" : ""}`}
+              className={`text-[13px] font-medium break-words block ${item.completed ? "line-through" : ""}`}
               style={{ color: skin.titleColor }}
             >
               {item.title}

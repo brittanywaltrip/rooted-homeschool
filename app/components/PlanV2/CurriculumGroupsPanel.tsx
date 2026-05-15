@@ -279,7 +279,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                       {childMeta?.child?.name.charAt(0).toUpperCase() ?? "·"}
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold text-[#2d2926] leading-tight truncate">
+                      <p className="text-[13px] font-semibold text-[#2d2926] leading-tight break-words">
                         {goal.subject_label ? <span className="text-[#7a6f65]">{goal.subject_label} · </span> : null}
                         {goal.curriculum_name}
                       </p>
@@ -395,7 +395,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                           {childMeta?.child?.name.charAt(0).toUpperCase() ?? "·"}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="text-[13px] font-semibold leading-tight truncate" style={{ color: "#9a8e84" }}>
+                          <p className="text-[13px] font-semibold leading-tight break-words" style={{ color: "#9a8e84" }}>
                             {goal.subject_label ? <span>{goal.subject_label} · </span> : null}
                             {goal.curriculum_name}
                           </p>
