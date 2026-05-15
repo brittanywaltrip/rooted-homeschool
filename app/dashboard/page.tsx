@@ -3223,6 +3223,20 @@ export default function TodayPage() {
               Logging is optional today
             </p>
           )}
+          {/* Standalone "Log extra lessons" entry — quiet sage link sitting
+              above the schedule card so families who blow past today's
+              allocation can pull from the upcoming queue without hunting
+              for the action. Hidden for partners (read-only) and when
+              there are no curriculum lessons to log against. */}
+          {hasAnyLessons && !isPartner ? (
+            <button
+              type="button"
+              onClick={openExtraLessons}
+              className="text-[12px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] mb-2 px-0.5 transition-colors"
+            >
+              + Log extra lessons
+            </button>
+          ) : null}
           <TodaySchedule
             lessons={lessons as never}
             activities={todayActivities as never}
