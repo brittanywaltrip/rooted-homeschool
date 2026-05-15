@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { Calendar, Check, GripVertical, Pencil, X } from "lucide-react";
+import { Calendar, Check, GripVertical, MoreVertical, Pencil, X } from "lucide-react";
 import { resolveChildColor } from "./colors";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -128,6 +128,7 @@ export default function WeekListView(props: Props) {
   };
 
   const [moveTarget, setMoveTarget] = useState<{ lessonId: string; fromDate: string } | null>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
   return (
     <div className="w-full max-w-full overflow-hidden px-4 pb-4">
@@ -143,9 +144,11 @@ export default function WeekListView(props: Props) {
           const dayAppts = apptsByDay.get(key) ?? [];
           const vac = isVacationDay(key);
           const headerColor = isToday ? "#2D5A3D" : "#8B7E74";
+          const shortName = DAY_NAMES_FULL[idx].slice(0, 3);
+          const dateNum = day.getDate();
           const headerLabel = isToday
-            ? `${DAY_NAMES_FULL[idx].toUpperCase()} · TODAY`
-            : DAY_NAMES_FULL[idx].toUpperCase();
+            ? `${shortName} ${dateNum} · TODAY`
+            : `${shortName} ${dateNum}`;
 
           return (
             <Fragment key={key}>
@@ -208,67 +211,141 @@ export default function WeekListView(props: Props) {
                         className={`rounded-xl ${l.completed ? "opacity-60" : ""} ${editStyleExtras}`}
                         style={{ background: kidBg }}
                       >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (editMode) {
-                              setMoveTarget({ lessonId: l.id, fromDate: key });
-                            } else {
-                              onLessonClick(l);
+                        {/* Header row: checkbox + tap-to-open + overflow menu */}
+                        <div className="flex items-center gap-2 px-3 py-2.5">
+                          <button
+                            type="button"
+                            onClick={() => onToggleLessonDone(l)}
+                            aria-label={l.completed ? `Mark ${titleText} not done` : `Mark ${titleText} complete`}
+                            className="shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors"
+                            style={{
+                              borderColor: l.completed ? kidTitle : "#c8bfb5",
+                              backgroundColor: l.completed ? kidTitle : "transparent",
+                            }}
+                          >
+                            {l.completed ? (
+                              <svg viewBox="0 0 8 7" width="8" height="7" fill="none" aria-hidden>
+                                <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            ) : null}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (editMode) {
+                                setMoveTarget({ lessonId: l.id, fromDate: key });
+                              } else {
+                                onLessonClick(l);
+                              }
+                            }}
+                            aria-label={
+                              editMode
+                                ? `Move ${titleText} to a different day`
+                                : `Open ${titleText} details`
                             }
-                          }}
-                          aria-label={
-                            editMode
-                              ? `Move ${titleText} to a different day`
-                              : `Open ${titleText} details`
-                          }
-                          className="w-full text-left flex items-center gap-3 px-4 py-2.5"
-                        >
-                          <span className="text-xl shrink-0">{icon}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={`text-[14px] font-medium truncate ${l.completed ? "line-through" : ""}`}
-                                style={{ color: l.completed ? "#b5aca4" : kidTitle }}
-                              >
-                                {titleText}
-                              </span>
-                              {l.completed ? (
+                            className="flex-1 min-w-0 text-left flex items-center gap-2.5"
+                          >
+                            <span className="text-xl shrink-0">{icon}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
                                 <span
-                                  className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
-                                  style={{ background: kidTitle, color: "white" }}
+                                  className={`text-[14px] font-medium break-words ${l.completed ? "line-through" : ""}`}
+                                  style={{ color: l.completed ? "#b5aca4" : kidTitle }}
                                 >
-                                  ✓ Done
+                                  {titleText}
                                 </span>
-                              ) : (
-                                <span
-                                  className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
-                                  style={{ background: kidPillBg, color: kidPillText }}
-                                >
-                                  Lesson
-                                </span>
-                              )}
+                                {l.completed ? (
+                                  <span
+                                    className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
+                                    style={{ background: kidTitle, color: "white" }}
+                                  >
+                                    ✓ Done
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
+                                    style={{ background: kidPillBg, color: kidPillText }}
+                                  >
+                                    Lesson
+                                  </span>
+                                )}
+                              </div>
+                              {subtitleText ? (
+                                <p className="text-xs mt-0.5" style={{ color: kidSubtle }}>
+                                  {subtitleText}
+                                </p>
+                              ) : null}
                             </div>
-                            {subtitleText ? (
-                              <p className="text-xs mt-0.5" style={{ color: kidSubtle }}>
-                                {subtitleText}
-                              </p>
-                            ) : null}
-                            {l.notes ? (
-                              <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{l.notes}</p>
-                            ) : null}
-                          </div>
+                          </button>
                           {editMode ? (
                             <span
                               aria-hidden="true"
-                              className="flex items-center justify-center w-8 h-8 rounded-lg text-[#5c7f63]"
+                              className="flex items-center justify-center w-8 h-8 rounded-lg text-[#5c7f63] shrink-0"
                             >
                               <GripVertical size={18} />
                             </span>
+                          ) : !isPartner ? (
+                            <div className="relative shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setMenuOpenId((id) => (id === l.id ? null : l.id))}
+                                aria-label={`More actions for ${titleText}`}
+                                aria-haspopup="menu"
+                                aria-expanded={menuOpenId === l.id}
+                                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors"
+                                style={{ color: kidTitle }}
+                              >
+                                <MoreVertical size={18} />
+                              </button>
+                              {menuOpenId === l.id ? (
+                                <>
+                                  <div
+                                    className="fixed inset-0 z-40"
+                                    onClick={() => setMenuOpenId(null)}
+                                    aria-hidden
+                                  />
+                                  <div
+                                    role="menu"
+                                    className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[150px]"
+                                  >
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setMenuOpenId(null); onSkipLesson(l); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <X size={14} className="text-[#8a8580]" /> Skip
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setMenuOpenId(null); onRescheduleLesson(l); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <Calendar size={14} className="text-[#5c7f63]" /> Reschedule
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setMenuOpenId(null); onEditLesson(l); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <Pencil size={14} className="text-[#5c7f63]" /> Edit
+                                    </button>
+                                  </div>
+                                </>
+                              ) : null}
+                            </div>
                           ) : null}
-                        </button>
+                        </div>
 
-                        {/* Action row (hidden in edit mode to keep the move target unambiguous) */}
+                        {/* Notes preview (kept) */}
+                        {l.notes ? (
+                          <p className="px-4 pb-1 text-[11px] text-[#6b6560] italic line-clamp-1">{l.notes}</p>
+                        ) : null}
+
+                        {/* Visible action row — Add a note + Mark not done. Skip
+                            / Reschedule / Edit moved to the overflow menu above. */}
                         {!isPartner && !editMode ? (
                           <div className="px-4 pb-2.5">
                             <div className="flex items-center gap-x-1 gap-y-1 flex-wrap">
@@ -291,44 +368,7 @@ export default function WeekListView(props: Props) {
                                 >
                                   <X size={14} /> Mark not done
                                 </button>
-                              ) : (
-                                <>
-                                  {key < todayStr ? (
-                                    <button
-                                      type="button"
-                                      onClick={(e) => { e.stopPropagation(); onToggleLessonDone(l); }}
-                                      aria-label={`Mark complete on ${key}`}
-                                      className="flex items-center gap-1 whitespace-nowrap min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
-                                    >
-                                      <Check size={14} /> Mark complete
-                                    </button>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); onSkipLesson(l); }}
-                                    aria-label="Skip this lesson"
-                                    className="flex items-center gap-1 whitespace-nowrap min-h-[40px] px-2 text-[13px] text-[#8a8580] font-medium hover:text-[#2d2926] transition-colors"
-                                  >
-                                    <X size={14} /> Skip
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); onRescheduleLesson(l); }}
-                                    aria-label="Reschedule this lesson"
-                                    className="flex items-center gap-1 whitespace-nowrap min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
-                                  >
-                                    <Calendar size={14} /> Reschedule
-                                  </button>
-                                </>
-                              )}
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); onEditLesson(l); }}
-                                aria-label="Edit this lesson"
-                                className="flex items-center gap-1 whitespace-nowrap min-h-[40px] px-2 text-[13px] text-[#2D5A3D] font-medium hover:text-[var(--g-deep)] transition-colors"
-                              >
-                                <Pencil size={14} /> Edit
-                              </button>
+                              ) : null}
                             </div>
                           </div>
                         ) : null}

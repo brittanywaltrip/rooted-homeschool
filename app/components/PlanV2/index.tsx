@@ -2966,8 +2966,9 @@ export default function PlanV2() {
                 <div className="flex-1" />
 
                 {/* Child filter — single trigger that opens a bottom sheet.
-                    Active state when one or more (but not all) kids are picked. */}
-                {kids.length > 0 ? (() => {
+                    Active state when one or more (but not all) kids are picked.
+                    Hidden for single-child families since filtering is meaningless. */}
+                {kids.length > 1 ? (() => {
                   const selectedKids = kids.filter((k) => childFilter.has(k.id));
                   const isFiltered = selectedKids.length > 0 && selectedKids.length < kids.length;
                   const label = !isFiltered
