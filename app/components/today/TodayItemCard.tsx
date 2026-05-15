@@ -188,7 +188,15 @@ export default function TodayItemCard({
   const renderSubtitle = () => {
     if (item.kind === "lesson") {
       const subj = resolveLessonSubject(lessonRaw?.subjects?.name, lessonRaw?.curriculum_goals?.subject_label);
-      return subj ? <span className="text-[10px]" style={{ color: skin.subtitleColor }}>{subj}</span> : null;
+      // Child name appears only for multi-child families — adds no info
+      // when there's just one kid. Mirrors the Plan page subtitle pattern.
+      const childName = childrenLookup.size > 1 && lessonRaw?.child_id
+        ? (childrenLookup.get(lessonRaw.child_id)?.name ?? null)
+        : null;
+      const parts = [subj, childName].filter(Boolean) as string[];
+      return parts.length > 0 ? (
+        <span className="text-[10px]" style={{ color: skin.subtitleColor }}>{parts.join(" · ")}</span>
+      ) : null;
     }
     if (item.kind === "activity") {
       const dur = formatDuration(item.duration_minutes);
