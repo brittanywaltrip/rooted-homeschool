@@ -241,13 +241,13 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
               return da.localeCompare(db);
             });
             const totalInView = goalLessons.length;
-            const completed = goalLessons.filter((l) => l.completed).length;
-            const remaining = Math.max(0, goal.total_lessons - completed);
+            const completedCount = goal.current_lesson ?? 0;
+            const remaining = Math.max(0, goal.total_lessons - completedCount);
             const pace = computePaceStatus(remaining, goal, vacationBlocks);
             const childMeta = goal.child_id ? kidsById.get(goal.child_id) : undefined;
             const color = resolveChildColor(childMeta?.child ?? null, childMeta?.index ?? 0);
             const pctComplete = goal.total_lessons > 0
-              ? Math.min(100, Math.round((completed / goal.total_lessons) * 100))
+              ? Math.min(100, Math.round((completedCount / goal.total_lessons) * 100))
               : 0;
             const isExpanded = expanded.has(goal.id);
             const isBackfillOpen = openBackfillGoalId === goal.id;
@@ -279,7 +279,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                         {goal.curriculum_name}
                       </p>
                       <p className="text-[11px] text-[#9a8e84] mt-0.5 tabular-nums">
-                        Lesson {Math.min(completed + 1, goal.total_lessons)} of {goal.total_lessons}
+                        Lesson {Math.min(completedCount + 1, goal.total_lessons)} of {goal.total_lessons}
                       </p>
                     </div>
                     <span
