@@ -1534,21 +1534,23 @@ export default function TodayPage() {
       const skippedIds = new Set(uncompleted.map(l => l.id));
       const { data: stayingRows } = await supabase
         .from("lessons")
-        .select("id, scheduled_date, curriculum_goal_id, is_backfill")
+        .select("id, scheduled_date, curriculum_goal_id, lesson_number, is_backfill")
         .eq("user_id", effectiveUserId)
         .eq("completed", false)
         .gt("scheduled_date", today);
-      const staying = ((stayingRows ?? []) as { id: string; scheduled_date: string | null; curriculum_goal_id: string | null; is_backfill: boolean | null }[])
+      const staying = ((stayingRows ?? []) as { id: string; scheduled_date: string | null; curriculum_goal_id: string | null; lesson_number: number | null; is_backfill: boolean | null }[])
         .filter(r => r.scheduled_date && r.is_backfill !== true && !skippedIds.has(r.id))
         .map(r => ({
           curriculum_goal_id: r.curriculum_goal_id ?? NO_GOAL_KEY,
           date: r.scheduled_date!,
+          lesson_number: r.lesson_number,
         }));
 
       const { updates } = planRescheduleLessons({
         toReshuffle: uncompleted.map(l => ({
           id: l.id,
           curriculum_goal_id: l.curriculum_goal_id ?? NO_GOAL_KEY,
+          lesson_number: l.lesson_number ?? null,
         })),
         staying,
         goalConfigs,
