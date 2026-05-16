@@ -2,7 +2,7 @@
 
 import { useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { recomputeCurrentLesson } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr } from "@/app/lib/scheduler";
 import { onLogAction } from "@/app/lib/onLogAction";
 
 /* ============================================================================
@@ -48,13 +48,40 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
   } = opts;
 
   const toggleLesson = useCallback(async (id: string, current: boolean) => {
-    setLessons(prev => prev.map(l => l.id === id ? { ...l, completed: !current } : l));
-    setMonthLessons(prev => prev.map(l => l.id === id ? { ...l, completed: !current } : l));
-    await supabase.from("lessons").update({
-      completed: !current,
-      completed_at: !current ? new Date().toISOString() : null,
-    }).eq("id", id);
     const lesson = lessons.find(l => l.id === id) ?? monthLessons.find(l => l.id === id);
+    const completingNow = !current;
+    // If a future-dated lesson is being marked complete, pin its
+    // scheduled_date and date to today. The lesson was DONE today, so
+    // its date should be today. Leaving it at tomorrow makes the row
+    // look like it was completed before it was scheduled and pulls the
+    // Plan / Today views out of sync. Only applied on the
+    // complete-direction; toggling back to incomplete leaves dates
+    // untouched (the user might be undoing a misclick on a real future
+    // lesson). lesson_number is left alone. The queue position is
+    // governed by completed lesson_numbers + current_lesson, not date.
+    const todayStr = toDateStr(new Date());
+    const pinDateToToday =
+      completingNow &&
+      !!lesson &&
+      lesson.scheduled_date != null &&
+      lesson.scheduled_date > todayStr;
+    const patch = (l: T): T =>
+      l.id !== id
+        ? l
+        : pinDateToToday
+          ? { ...l, completed: completingNow, scheduled_date: todayStr, date: todayStr }
+          : { ...l, completed: completingNow };
+    setLessons(prev => prev.map(patch));
+    setMonthLessons(prev => prev.map(patch));
+    const update: Record<string, unknown> = {
+      completed: completingNow,
+      completed_at: completingNow ? new Date().toISOString() : null,
+    };
+    if (pinDateToToday) {
+      update.scheduled_date = todayStr;
+      update.date = todayStr;
+    }
+    await supabase.from("lessons").update(update).eq("id", id);
     if (lesson?.curriculum_goal_id) {
       await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
     }

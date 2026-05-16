@@ -1037,7 +1037,7 @@ function PlanV1() {
             curriculum_goal_id: r.curriculum_goal_id,
             lesson_number: r.lesson_number,
           })),
-          staying: staying.map((r) => ({ curriculum_goal_id: r.curriculum_goal_id, date: r.scheduled_date })),
+          staying: staying.map((r) => ({ curriculum_goal_id: r.curriculum_goal_id, date: r.scheduled_date, lesson_number: r.lesson_number })),
           goalConfigs,
           // Cursor is exclusive: addDays(vacStart, -1) lets the first lesson
           // land on vacStart itself when vacStart is a school day not in any

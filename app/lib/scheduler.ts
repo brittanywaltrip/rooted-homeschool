@@ -1125,8 +1125,16 @@ export interface PlanRescheduleArgs {
    * have one and route through the synthetic NO_GOAL_KEY bucket.
    */
   toReshuffle: { id: string; curriculum_goal_id: string; lesson_number?: number | null }[];
-  /** Lessons of any goal that stay where they are; seeds per-goal occupancy. */
-  staying: { curriculum_goal_id: string; date: string }[];
+  /**
+   * Lessons of any goal that stay where they are. Seeds per-goal
+   * occupancy AND per-goal ordering. When a staying lesson carries a
+   * `lesson_number`, the planner advances the cursor past it before
+   * placing any toReshuffle lesson with a STRICTLY HIGHER lesson_number
+   * (Invariant 1: lessons NEVER appear out of order within a goal).
+   * Pass null when the row lacks a lesson_number (one-off lessons,
+   * legacy goals).
+   */
+  staying: { curriculum_goal_id: string; date: string; lesson_number?: number | null }[];
   /** Per-goal config keyed by curriculum_goal_id. */
   goalConfigs: Map<string, { school_days: string[] | null; lessons_per_day: number }>;
   /** Exclusive starting point for the cursor walk (YYYY-MM-DD). */
@@ -1172,15 +1180,36 @@ export function planRescheduleLessons(args: PlanRescheduleArgs): PlanRescheduleR
       return a.idx - b.idx;
     });
 
-    // Per-goal occupancy: count `staying` lessons of this goal at each date.
+    // Per-goal occupancy + ordering index. The occupancy map seeds the
+    // capacity check; `goalStaying` is the same set scoped to this goal
+    // so we can answer "what's the latest staying date for any lesson
+    // numbered below the one I'm about to place?"
     const occupancy = new Map<string, number>();
+    const goalStaying: { date: string; lesson_number: number | null }[] = [];
     for (const s of args.staying) {
       if (s.curriculum_goal_id !== goalId) continue;
       occupancy.set(s.date, (occupancy.get(s.date) ?? 0) + 1);
+      goalStaying.push({ date: s.date, lesson_number: s.lesson_number ?? null });
     }
 
     let cursor = args.startAfterDate;
     for (const lesson of lessons) {
+      // Ordering floor (Invariant 1, May 16, 2026): if any staying
+      // lesson with a strictly-lower lesson_number is parked on a later
+      // calendar date than the current cursor, advance the cursor past
+      // it so this lesson can't land before its lower-numbered sibling.
+      // Skipped when this lesson lacks a lesson_number (no ordering
+      // signal). Without this, skipRestOfToday could place lesson 115
+      // on May 15 while lesson 113 stays on May 18, flipping the queue
+      // order in calendar time.
+      if (lesson.lesson_number != null) {
+        const myNum = lesson.lesson_number;
+        for (const s of goalStaying) {
+          if (s.lesson_number != null && s.lesson_number < myNum && s.date > cursor) {
+            cursor = s.date;
+          }
+        }
+      }
       const newDate = pickNextAvailableDate({
         fromDate: cursor,
         schoolDays: isoSchoolDays,
