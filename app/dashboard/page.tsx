@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib/timezone";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
@@ -60,6 +60,8 @@ type Lesson = {
   goal_id?: string | null;
   icon_emoji?: string | null;
   notes?: string | null;
+  scheduled_date?: string | null;
+  date?: string | null;
 };
 
 type TodayEvent = {
@@ -1739,14 +1741,33 @@ export default function TodayPage() {
 
   async function toggleLesson(id: string, current: boolean) {
     const lesson = lessons.find((l) => l.id === id);
-    const updatedLessons = lessons.map(l => l.id === id ? { ...l, completed: !current } : l);
+    // Pin date+scheduled_date to today when completing a future-dated row,
+    // so the completed history reflects when work happened (parity with
+    // c13f8ec PlanV2 fix). Only on the complete direction; uncomplete
+    // leaves dates untouched. lesson_number is left alone — queue position
+    // is governed by current_lesson, not date (Invariant 7).
+    const todayStr = toDateStr(new Date());
+    const pinDateToToday =
+      !current && !!lesson && lesson.scheduled_date != null && lesson.scheduled_date > todayStr;
+    const updatedLessons = lessons.map(l =>
+      l.id === id
+        ? (pinDateToToday
+          ? { ...l, completed: !current, scheduled_date: todayStr, date: todayStr }
+          : { ...l, completed: !current })
+        : l
+    );
     setLessons(updatedLessons);
     // Keep completed ↔ completed_at invariant (Bug 2): set timestamp on
     // complete, clear it on uncomplete.
-    await supabase.from("lessons").update({
+    const update: Record<string, unknown> = {
       completed: !current,
       completed_at: !current ? new Date().toISOString() : null,
-    }).eq("id", id);
+    };
+    if (pinDateToToday) {
+      update.scheduled_date = todayStr;
+      update.date = todayStr;
+    }
+    await supabase.from("lessons").update(update).eq("id", id);
 
     // Save minutes_spent when completing a lesson
     if (!current && lesson?.curriculum_goal_id) {
