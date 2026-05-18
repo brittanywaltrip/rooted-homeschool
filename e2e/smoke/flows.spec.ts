@@ -439,3 +439,118 @@ test.describe('FLOW 6. Yearbook loads', () => {
     ).toEqual([]);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FLOW 7. Stop recurring appointment — Keep going dismisses without deleting
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('FLOW 7. Stop recurring appointment', () => {
+  test('Guitar Lessons stop confirm dialog dismisses without removing the row', async ({ page }) => {
+    await page.goto('/dashboard');
+
+    // Today header confirms the dashboard mounted.
+    await expect(
+      page.getByText(/Good morning|Good afternoon|Good evening/i).first(),
+    ).toBeVisible({ timeout: 20_000 });
+
+    // The Recurring tab is a flat button labeled "Recurring" inside the
+    // InlineScheduleTabs strip (InlineScheduleTabs.tsx:365). Click it to
+    // pivot the list to recurring appointments.
+    const recurringTab = page.getByRole('button', { name: /^Recurring$/ }).first();
+    if ((await recurringTab.count()) === 0) {
+      test.skip(true, 'Recurring tab is not on the page. likely a render variant we do not exercise here.');
+      return;
+    }
+    await recurringTab.click();
+
+    // Find the Guitar Lessons row. it surfaces only when the account
+    // actually has a recurring appointment titled "Guitar Lessons". Skip
+    // cleanly otherwise so a fresh account does not false-fail.
+    const guitarRow = page.getByText(/^Guitar Lessons$/).first();
+    if ((await guitarRow.count()) === 0) {
+      test.skip(true, 'Test account has no "Guitar Lessons" recurring appointment.');
+      return;
+    }
+    await expect(guitarRow).toBeVisible({ timeout: 5_000 });
+
+    // Each recurring row renders a small "Stop" button (text-only, NOT a
+    // trash icon) — InlineScheduleTabs.tsx:545-551. Confirm the row exposes
+    // exactly that affordance.
+    const stopButton = page.getByRole('button', { name: /^Stop$/ }).first();
+    await expect(stopButton).toBeVisible({ timeout: 5_000 });
+
+    // No trash/delete icon button next to the row. trash icons would have
+    // an aria-label like "Delete" / "Remove" / "Trash". Their absence is a
+    // separate assertion from "Stop is visible" so a regression to a trash
+    // UI fails the test loudly.
+    const trashIcon = page.getByRole('button', { name: /trash|delete|remove/i });
+    expect(
+      await trashIcon.count(),
+      'recurring appointment row should not expose a trash/delete icon',
+    ).toBe(0);
+
+    await plantReloadSentinel(page);
+    await stopButton.click();
+
+    // The Stop dialog opens with heading "Stop Guitar Lessons?" — both
+    // confirm buttons live inside it. (StopRecurringDialog, line 696.)
+    const stopHeading = page.getByRole('heading', { name: /^Stop Guitar Lessons\?$/ });
+    await expect(stopHeading).toBeVisible({ timeout: 5_000 });
+
+    const keepGoing = page.getByRole('button', { name: /^Keep going$/ });
+    const yesStopIt = page.getByRole('button', { name: /^Yes, stop it$/ });
+    await expect(keepGoing).toBeVisible();
+    await expect(yesStopIt).toBeVisible();
+
+    // Click Keep going. dialog should unmount and the row must still be in
+    // the Recurring tab.
+    await keepGoing.click();
+    await expect(stopHeading).toBeHidden({ timeout: 5_000 });
+
+    // Sentinel survives → no full reload swallowed the dismiss.
+    expect(await reloadSentinelSurvived(page), 'Keep going should not reload the page').toBe(true);
+
+    // Guitar Lessons still present in the Recurring list after dismiss.
+    await expect(page.getByText(/^Guitar Lessons$/).first()).toBeVisible({ timeout: 5_000 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FLOW 8. Curriculum Complete card shows the subject label
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('FLOW 8. Curriculum Complete card shows subject label', () => {
+  test('completed curriculum reads "[child] finished [curriculum] [subject]!"', async ({ page }) => {
+    await page.goto('/dashboard/plan');
+
+    // Plan hero confirms mount.
+    await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // The completion celebration card (CompletionCelebrationCard.tsx:82-87)
+    // lives below the calendar in the curriculum section. The eyebrow
+    // "Curriculum complete" is its most stable anchor. Scroll into view if
+    // present, then assert the headline pattern. Skip cleanly when there
+    // is no celebrating curriculum on the test account.
+    const eyebrow = page.getByText(/^Curriculum complete$/i).first();
+
+    if ((await eyebrow.count()) === 0) {
+      test.skip(true, 'No completed-and-uncelebrated curriculum on the test account.');
+      return;
+    }
+
+    await eyebrow.scrollIntoViewIfNeeded();
+    await expect(eyebrow).toBeVisible();
+
+    // Headline renders as: "{childName} finished" <br/> "{curriculumName} {subjectLabel}!"
+    // DOM textContent collapses the <br/> into a space. The pattern is:
+    // word(s), then "finished", then word(s) (curriculum), then word(s)
+    // (subject), terminated with "!". Two whitespace-separated tokens after
+    // "finished" guards against a regression where subject_label is
+    // omitted (which would shorten the headline to "{name} finished {curriculum}!").
+    const headline = page.locator('h3', { hasText: /finished/i }).first();
+    await expect(headline).toBeVisible({ timeout: 5_000 });
+    await expect(headline).toHaveText(/\S.+\s+finished\s+\S+.+\s+\S+.+!$/);
+  });
+});
