@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: May 3, 2026 — after the queue-based scheduling regression (Path A, migration `20260501064729`). Adds Invariants 8–10.*
+*Last updated: May 18, 2026 — adds the queue_position column and the `plan_move` scheduled_source value so the Plan page's manual move reorders the queue (Ivy's bug). See "Queue position" section below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -120,6 +120,7 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'vacation_resched'` — vacation block insert/edit
 - `'catchup_resched'` — catch-up modal accepted
 - `'skip_today'` — "skip rest of today" pushed today's incompletes forward
+- `'plan_move'` — user dragged or rescheduled a single lesson on the Plan page (queue reorder)
 - `'cleanup_sql'` — manual cleanup via SQL
 
 **Why:** the May 3 investigation took 90 minutes because every affected lesson row had `scheduled_source = NULL`. Future bugs will be identified in 5 minutes if this is populated.
@@ -229,6 +230,44 @@ If a user reports a wonky schedule:
 1. **The wizard is a write operation. Be timid.** Every line that modifies `lessons` or `curriculum_goals` should make you nervous. Read it twice.
 2. **Today is sacred.** Adding work to today is something the USER does, not the system. The system should never auto-add lessons to a day the user is currently looking at.
 3. **Long gaps are intentional.** If a user backfilled lessons through February and is creating a curriculum in April, that's a 6-week pause. Respect it.
+
+---
+
+## Queue position
+
+Added May 18, 2026 to close Ivy's bug: moving a lesson on the Plan page didn't reflect on Today because the queue projector read `current_lesson` while the move only updated `lessons.scheduled_date` (a cache).
+
+`lessons.queue_position` (nullable integer) is the source of truth for "where this lesson sits in the goal's queue." Initialized to `lesson_number` at curriculum creation. A user move on the Plan page rewrites it. A partial unique index `lessons_goal_queue_position_uniq` enforces no duplicates per goal (NULL allowed for one-off non-curriculum lessons).
+
+### Reading rules
+
+- `recomputeCurrentLesson` takes `MAX(queue_position)` over completed rows (not `lesson_number`).
+- The Today projector emits queue slots; the page looks up actual rows by `(curriculum_goal_id, queue_position)`.
+- `lesson_number` stays pinned to the canonical curriculum index (e.g. "Lesson 12: Long Division"). It drives display, Past tab grouping, and lesson titles. Do not reorder by `lesson_number` after creation.
+
+### Writing rules — manual moves only
+
+The `move_lesson_to_date(p_lesson_id, p_target_date)` Postgres function is the **only** path that writes `queue_position` after creation. It is atomic:
+
+1. Reads the moving lesson's `(curriculum_goal_id, queue_position, scheduled_date)`.
+2. Finds the highest `queue_position` already scheduled on the target date for the same goal (or, if none, the highest predecessor). Adds 1 to get the moved lesson's new rank — "end of the day's existing slots for that goal."
+3. Shifts siblings between the old and new positions by ±1 (using a negation trick so the unique index is satisfied at every intermediate step).
+4. Sets the moving lesson's `queue_position`, `scheduled_date`, `date`, and `scheduled_source = 'plan_move'`.
+
+The pure JS mirror `planQueueMove` in `scheduler.ts` exists for unit tests and any future optimistic UI; the RPC is what production runs.
+
+Catch-up and vacation handlers re-date lessons via the existing `planRescheduleLessons` path. Those re-spreads do **not** touch `queue_position` — they preserve queue order and just shift dates. Only an explicit user reorder rewrites `queue_position`.
+
+### Invariant 2 carve-out for manual moves
+
+`lessons_per_day` remains a hard ceiling for the **scheduler-driven** day walk (wizard create, vacation re-spread, catch-up). For an explicit user move on the Plan page, the ceiling is downgraded to a soft warning toast. If the user drags two lessons onto the same Friday for a 1/day goal, the move succeeds; the toast says "That day now has 2 lessons for this goal (planned 1/day)." The user opted in.
+
+Auto-scheduling never bunches; only the user can.
+
+### What this PR did NOT change
+
+- Bulk move handlers in PlanV2 (`performBulkMove`, catch-up shift confirm) still write `scheduled_date` directly without touching `queue_position`. They are scheduler-driven paths, not user reorders. If a future PR makes them user-explicit reorders, route them through `move_lesson_to_date`.
+- `lesson_number` semantics are unchanged everywhere. Display, Past-tab grouping, and lesson titles all still read `lesson_number`.
 
 ---
 

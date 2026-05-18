@@ -28,9 +28,11 @@ import {
   isBreakDay,
   isSchoolDay,
   normalizeSchoolDays,
+  planQueueMove,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
   type VacationBlock,
+  type QueueMoveInputLesson,
 } from './scheduler.ts'
 
 import { readFileSync } from 'node:fs'
@@ -2513,4 +2515,156 @@ test('planPushBackNDays: with vacations, future lessons hop over the vacation bl
   )
   const futureUpdate = result.updates.find((u) => u.id === 'F1')
   assert.equal(futureUpdate?.newDate, '2026-05-18', 'future lesson must skip the vacation when pushed back')
+})
+
+// ── planQueueMove (manual move on the Plan page) ─────────────────────────
+//
+// These tests pin the JS mirror of the move_lesson_to_date RPC. The two
+// implementations MUST agree — the RPC is what production uses, but the
+// pure helper lets us assert the algorithm without a database. See
+// docs/CURRICULUM-SCHEDULING.md, "Queue position".
+
+function queueLesson(
+  id: string,
+  qp: number,
+  scheduled_date: string | null,
+  goalId = 'g1',
+): QueueMoveInputLesson {
+  return { id, queue_position: qp, scheduled_date, curriculum_goal_id: goalId }
+}
+
+test('planQueueMove: move lesson later — siblings between old and new shift down by 1', () => {
+  // Goal has 5 lessons on Mon..Fri. Move lesson 2 (Tue) to Fri.
+  // Existing Fri lesson: lesson 5. End-of-Fri target = lesson 5's slot +1
+  // = qp 6 raw; but because we removed lesson 2 (qp 2) first, the dense
+  // rank collapses to 5. So lesson 2 ends at qp 5, and lessons 3, 4, 5
+  // shift from qp 3, 4, 5 → 2, 3, 4.
+  const lessons: QueueMoveInputLesson[] = [
+    queueLesson('L1', 1, '2026-05-18'),
+    queueLesson('L2', 2, '2026-05-19'),
+    queueLesson('L3', 3, '2026-05-20'),
+    queueLesson('L4', 4, '2026-05-21'),
+    queueLesson('L5', 5, '2026-05-22'),
+  ]
+  const plan = planQueueMove({
+    movingLessonId: 'L2',
+    targetDate: '2026-05-22',
+    goalLessons: lessons,
+  })
+  assert.ok(plan)
+  assert.equal(plan!.noop, false)
+  assert.equal(plan!.movedNewQp, 5)
+  // Shifts must be applied in ascending order so each row's new slot is
+  // vacated before it lands.
+  assert.deepEqual(plan!.shifts, [
+    { id: 'L3', queue_position: 2 },
+    { id: 'L4', queue_position: 3 },
+    { id: 'L5', queue_position: 4 },
+  ])
+})
+
+test('planQueueMove: move lesson earlier — siblings between new and old shift up by 1', () => {
+  // Move lesson 4 (Thu) to Mon (where lesson 1 already sits).
+  // End-of-Mon target = max(qp on Mon) + 1 = 2. Lessons 2, 3 shift up by 1.
+  const lessons: QueueMoveInputLesson[] = [
+    queueLesson('L1', 1, '2026-05-18'),
+    queueLesson('L2', 2, '2026-05-19'),
+    queueLesson('L3', 3, '2026-05-20'),
+    queueLesson('L4', 4, '2026-05-21'),
+  ]
+  const plan = planQueueMove({
+    movingLessonId: 'L4',
+    targetDate: '2026-05-18',
+    goalLessons: lessons,
+  })
+  assert.ok(plan)
+  assert.equal(plan!.movedNewQp, 2)
+  // Descending order so each row's new slot is vacated before it lands.
+  assert.deepEqual(plan!.shifts, [
+    { id: 'L3', queue_position: 4 },
+    { id: 'L2', queue_position: 3 },
+  ])
+})
+
+test('planQueueMove: move onto an empty date pushes the lesson to a new tail position', () => {
+  // Goal currently runs Mon..Wed (qp 1, 2, 3). Move lesson 1 to Fri
+  // (a date with no existing lessons). End-of-Fri falls back to "after
+  // the last predecessor". Last predecessor = Wed (qp 3). After removing
+  // L1, dense rank shifts L2, L3 down. L1 lands at qp 3, L2 → 1, L3 → 2.
+  const lessons: QueueMoveInputLesson[] = [
+    queueLesson('L1', 1, '2026-05-18'),
+    queueLesson('L2', 2, '2026-05-19'),
+    queueLesson('L3', 3, '2026-05-20'),
+  ]
+  const plan = planQueueMove({
+    movingLessonId: 'L1',
+    targetDate: '2026-05-22',
+    goalLessons: lessons,
+  })
+  assert.ok(plan)
+  assert.equal(plan!.movedNewQp, 3)
+  assert.deepEqual(plan!.shifts, [
+    { id: 'L2', queue_position: 1 },
+    { id: 'L3', queue_position: 2 },
+  ])
+})
+
+test('planQueueMove: no-op when target date is already the lesson\'s scheduled date and it is last on that day', () => {
+  // Lesson 3 sits alone on Wed. Moving it back to Wed should be a no-op.
+  const lessons: QueueMoveInputLesson[] = [
+    queueLesson('L1', 1, '2026-05-18'),
+    queueLesson('L2', 2, '2026-05-19'),
+    queueLesson('L3', 3, '2026-05-20'),
+  ]
+  const plan = planQueueMove({
+    movingLessonId: 'L3',
+    targetDate: '2026-05-20',
+    goalLessons: lessons,
+  })
+  assert.ok(plan)
+  assert.equal(plan!.noop, true)
+  assert.equal(plan!.shifts.length, 0)
+})
+
+test('planQueueMove: one-off lesson (no goal) returns a noop result for the caller to date-pin', () => {
+  // A custom Plan-day lesson with no curriculum_goal — not in any queue.
+  // The RPC just updates date columns; the helper signals noop.
+  const lessons: QueueMoveInputLesson[] = [
+    { id: 'X1', queue_position: null, scheduled_date: '2026-05-19', curriculum_goal_id: null },
+  ]
+  const plan = planQueueMove({
+    movingLessonId: 'X1',
+    targetDate: '2026-05-22',
+    goalLessons: lessons,
+  })
+  assert.ok(plan)
+  assert.equal(plan!.noop, true)
+})
+
+test('planQueueMove: moving to a date with a sibling at a higher qp lands AFTER that sibling (preserves "end of day")', () => {
+  // Goal layout where qp order disagrees with date order:
+  //   L1 (qp 1, Mon), L2 (qp 2, Tue), L3 (qp 3, Wed), L5 (qp 5, Wed), L4 (qp 4, Thu).
+  // Move L2 onto Wed. Wed currently has L3 (qp 3) and L5 (qp 5). User
+  // wants L2 at the END of Wed → after L5. So L2's final rank should be 5
+  // (post-shift) so it sits after the LAST current Wed sibling.
+  const lessons: QueueMoveInputLesson[] = [
+    queueLesson('L1', 1, '2026-05-18'),
+    queueLesson('L2', 2, '2026-05-19'),
+    queueLesson('L3', 3, '2026-05-20'),
+    queueLesson('L4', 4, '2026-05-21'),
+    queueLesson('L5', 5, '2026-05-20'),
+  ]
+  const plan = planQueueMove({
+    movingLessonId: 'L2',
+    targetDate: '2026-05-20',
+    goalLessons: lessons,
+  })
+  assert.ok(plan)
+  assert.equal(plan!.movedNewQp, 5)
+  // L3, L4, L5 each shift down by 1.
+  assert.deepEqual(plan!.shifts, [
+    { id: 'L3', queue_position: 2 },
+    { id: 'L4', queue_position: 3 },
+    { id: 'L5', queue_position: 4 },
+  ])
 })
