@@ -1456,8 +1456,48 @@ export default function PlanV2() {
 
   const handleAppointmentToggle = useCallback(
     async (appt: PlanV2Appointment) => {
-      // Optimistic local flip so the check lands instantly. Rollback on any
-      // failure (auth, network, non-2xx response).
+      // Recurring series: the base row's `completed` covers every occurrence,
+      // so writing it through PATCH /api/appointments would mark all future
+      // dates done too. Route through the per-occurrence endpoint, which
+      // upserts a row on appointment_exceptions with completed=true scoped
+      // to (appointment_id, exception_date). Re-tap on an already-done
+      // occurrence is a no-op (un-completing recurring instances isn't
+      // supported yet; matches the Today page).
+      if (appt.is_recurring) {
+        if (appt.completed) return;
+        setAppointments((prev) =>
+          prev.map((a) =>
+            a.id === appt.id && a.instance_date === appt.instance_date
+              ? { ...a, completed: true }
+              : a,
+          ),
+        );
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          if (!token) throw new Error("no session");
+          const res = await fetch("/api/appointments/complete-occurrence", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ id: appt.id, instance_date: appt.instance_date }),
+          });
+          if (!res.ok) throw new Error("complete-occurrence failed");
+          reload();
+        } catch {
+          setAppointments((prev) =>
+            prev.map((a) =>
+              a.id === appt.id && a.instance_date === appt.instance_date
+                ? { ...a, completed: false }
+                : a,
+            ),
+          );
+          flashNotice("Couldn't save. Check your connection and try again.");
+        }
+        return;
+      }
+
+      // One-time appointments: completed lives on the base row, so PATCH the
+      // appointment directly. Optimistic flip, rollback on failure.
       const nextCompleted = !appt.completed;
       setAppointments((prev) =>
         prev.map((a) =>
@@ -1485,7 +1525,7 @@ export default function PlanV2() {
               : a,
           ),
         );
-        flashNotice("Couldn't save — check your connection and try again.");
+        flashNotice("Couldn't save. Check your connection and try again.");
       }
     },
     [reload, setAppointments],
