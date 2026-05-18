@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useIsNativeApp } from "@/lib/platform";
 
 interface ExportGateModalProps {
   title: string;
@@ -10,6 +11,7 @@ interface ExportGateModalProps {
 }
 
 export default function ExportGateModal({ title, body, cta, onClose }: ExportGateModalProps) {
+  const isNative = useIsNativeApp();
   return (
     <>
       <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={onClose} />
@@ -25,17 +27,23 @@ export default function ExportGateModal({ title, body, cta, onClose }: ExportGat
           <p className="text-sm text-[#5c7f63] leading-relaxed mb-5">
             {body}
           </p>
-          <Link
-            href="/upgrade"
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#C4962A] hover:bg-[#a67d1f] text-white font-semibold text-sm transition-colors shadow-sm w-full justify-center"
-          >
-            {cta}
-          </Link>
+          {isNative ? (
+            <p className="text-sm font-medium text-[#7a6f65] py-3">
+              To unlock, visit rootedhomeschoolapp.com
+            </p>
+          ) : (
+            <Link
+              href="/upgrade"
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#C4962A] hover:bg-[#a67d1f] text-white font-semibold text-sm transition-colors shadow-sm w-full justify-center"
+            >
+              {cta}
+            </Link>
+          )}
           <button
             onClick={onClose}
             className="mt-4 text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors block mx-auto"
           >
-            Maybe later
+            {isNative ? "Close" : "Maybe later"}
           </button>
         </div>
       </div>

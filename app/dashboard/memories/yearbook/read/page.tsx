@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { getUserAccess } from "@/lib/user-access";
+import { useIsNativeApp } from "@/lib/platform";
 import PreviewWatermark from "@/app/components/PreviewWatermark";
 import Link from "next/link";
 import {
@@ -236,6 +237,7 @@ const pageTransition = { duration: 0.3, ease: "easeInOut" as const };
 
 export default function YearbookReadPage() {
   const { effectiveUserId } = usePartner();
+  const isNative = useIsNativeApp();
   const [loading, setLoading] = useState(true);
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [children, setChildren] = useState<Child[]>([]);
@@ -1128,6 +1130,13 @@ export default function YearbookReadPage() {
               >
                 Download PDF
               </button>
+            ) : isNative ? (
+              <span
+                className="px-3 py-1 rounded-md text-[11px] font-medium text-[#9a8f85] border border-[#3d3530]"
+                aria-label="PDF download available at rootedhomeschoolapp.com"
+              >
+                PDF at rootedhomeschoolapp.com
+              </span>
             ) : (
               <Link
                 href="/upgrade"
@@ -1252,6 +1261,18 @@ export default function YearbookReadPage() {
               </button>
               <p className="text-[10px] text-[#9a8f85] mt-1 max-w-[220px] text-right leading-tight">
                 Select &ldquo;Save as PDF&rdquo; as the destination in your browser&apos;s print dialog.
+              </p>
+            </div>
+          ) : isNative ? (
+            <div className="flex flex-col items-end">
+              <span
+                className="px-4 py-2 rounded-lg text-[13px] font-medium text-[#c4b89a] border border-[#4d453f]"
+                aria-label="PDF download available at rootedhomeschoolapp.com"
+              >
+                ⬇ PDF at rootedhomeschoolapp.com
+              </span>
+              <p className="text-[10px] text-[#9a8f85] mt-1 max-w-[240px] text-right leading-tight">
+                PDF download for Founding Family — yours to save, print, or share at rootedhomeschoolapp.com.
               </p>
             </div>
           ) : (

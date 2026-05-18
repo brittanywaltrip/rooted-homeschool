@@ -3,8 +3,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
+import { useIsNativeApp } from "@/lib/platform";
 
 export default function UpgradeBanner() {
+  const isNative = useIsNativeApp();
   const [bannerState, setBannerState] = useState<"hidden" | "trial" | "upgrade">("hidden");
   const [daysLeft, setDaysLeft] = useState(0);
   const [dismissed, setDismissed] = useState(
@@ -80,12 +82,18 @@ export default function UpgradeBanner() {
         </div>
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <Link
-          href="/upgrade"
-          className="bg-white text-[var(--g-deep)] text-xs font-bold px-4 py-1.5 rounded-full hover:bg-[#f0f9f1] transition-colors whitespace-nowrap"
-        >
-          {bannerState === "trial" ? "Upgrade now →" : "Get Rooted+ →"}
-        </Link>
+        {isNative ? (
+          <span className="text-white text-xs font-medium whitespace-nowrap">
+            To upgrade, visit rootedhomeschoolapp.com
+          </span>
+        ) : (
+          <Link
+            href="/upgrade"
+            className="bg-white text-[var(--g-deep)] text-xs font-bold px-4 py-1.5 rounded-full hover:bg-[#f0f9f1] transition-colors whitespace-nowrap"
+          >
+            {bannerState === "trial" ? "Upgrade now →" : "Get Rooted+ →"}
+          </Link>
+        )}
         <button
           onClick={() => { sessionStorage.setItem("rooted_banner_dismissed", "1"); setDismissed(true); }}
           className="text-white/50 hover:text-white text-lg leading-none transition-colors"

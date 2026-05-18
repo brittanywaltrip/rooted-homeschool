@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 
@@ -35,6 +34,76 @@ const TYPE_GRADIENT: Record<string, string> = {
 
 const REACTION_EMOJIS = ["🥹", "❤️", "😂", "🙌", "😍"];
 
+/* ── Public-demo placeholder data ───────────────────────────────────────────
+   Rendered when the visitor is NOT signed in, so the URL is shareable to
+   anyone who doesn't have a Rooted account. Logged-in users still see their
+   own real memories below. Kept inline (no DB row, nothing to deactivate)
+   so the demo can't be turned off by user action. */
+const DEMO_FAMILY_NAME = "The Bennett Family";
+
+const DEMO_CHILDREN: Child[] = [
+  { id: "demo-kid-1", name: "Eleanor", color: "#7a4a7e" },
+  { id: "demo-kid-2", name: "Henry",   color: "#c4863a" },
+  { id: "demo-kid-3", name: "Wren",    color: "#a8576f" },
+];
+
+const DEMO_MEMORIES: Memory[] = [
+  {
+    id: "demo-mem-1",
+    type: "book",
+    title: "Charlotte's Web",
+    caption: "Eleanor finished it in two evenings. \"The part about Fern made me cry, Mom.\"",
+    photo_url: null,
+    date: "2026-05-14",
+    child_id: "demo-kid-1",
+  },
+  {
+    id: "demo-mem-2",
+    type: "win",
+    title: "Wrote his name!",
+    caption: "Henry held the pencil all by himself. Eleven tries, then he got it.",
+    photo_url: null,
+    date: "2026-05-13",
+    child_id: "demo-kid-2",
+  },
+  {
+    id: "demo-mem-3",
+    type: "drawing",
+    title: "Our backyard birds",
+    caption: "Wren spent an hour on the cardinal. Insisted we caption it with the species names.",
+    photo_url: null,
+    date: "2026-05-11",
+    child_id: "demo-kid-3",
+  },
+  {
+    id: "demo-mem-4",
+    type: "field_trip",
+    title: "Tide pools at Asilomar",
+    caption: "All three kids in the same tide pool counting hermit crabs. Worth the drive.",
+    photo_url: null,
+    date: "2026-05-09",
+    child_id: null,
+  },
+  {
+    id: "demo-mem-5",
+    type: "project",
+    title: "Volcano, take two",
+    caption: "Eleanor wanted a retry because last week's lava \"didn't erupt enough.\" It erupted enough.",
+    photo_url: null,
+    date: "2026-05-07",
+    child_id: "demo-kid-1",
+  },
+  {
+    id: "demo-mem-6",
+    type: "moment",
+    title: null,
+    caption: "Henry asking Wren if 4 is older than 6. They argued for ten minutes. I let them.",
+    photo_url: null,
+    date: "2026-05-05",
+    child_id: null,
+  },
+];
+
 function formatDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("-");
   return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString(
@@ -43,8 +112,8 @@ function formatDate(dateStr: string): string {
 }
 
 export default function FamilyPreviewPage() {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [isDemo, setIsDemo] = useState(false);
   const [familyName, setFamilyName] = useState("");
   const [children, setChildren] = useState<Child[]>([]);
   const [memories, setMemories] = useState<Memory[]>([]);
@@ -52,15 +121,32 @@ export default function FamilyPreviewPage() {
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push("/login"); return; }
+      // Public-demo path: anyone who hits /family/preview without a session
+      // (incl. a session-fetch error) sees the hardcoded demo. Logged-in
+      // users keep seeing their own real family view below.
+      let userId: string | null = null;
+      try {
+        const { data } = await supabase.auth.getUser();
+        userId = data.user?.id ?? null;
+      } catch {
+        userId = null;
+      }
+
+      if (!userId) {
+        setIsDemo(true);
+        setFamilyName(DEMO_FAMILY_NAME);
+        setChildren(DEMO_CHILDREN);
+        setMemories(DEMO_MEMORIES);
+        setLoading(false);
+        return;
+      }
 
       const [{ data: profile }, { data: kids }, { data: mems }] = await Promise.all([
-        supabase.from("profiles").select("display_name, family_photo_url").eq("id", user.id).single(),
-        supabase.from("children").select("id, name, color").eq("user_id", user.id).eq("archived", false).order("sort_order"),
+        supabase.from("profiles").select("display_name, family_photo_url").eq("id", userId).single(),
+        supabase.from("children").select("id, name, color").eq("user_id", userId).eq("archived", false).order("sort_order"),
         supabase.from("memories")
           .select("id, type, title, caption, photo_url, date, child_id")
-          .eq("user_id", user.id)
+          .eq("user_id", userId)
           .eq("family_visible", true)
           .order("date", { ascending: false })
           .limit(50),
@@ -71,7 +157,7 @@ export default function FamilyPreviewPage() {
       setMemories((mems ?? []) as Memory[]);
       setLoading(false);
     })();
-  }, [router]);
+  }, []);
 
   const childName = (id: string | null) =>
     id ? children.find((c) => c.id === id)?.name ?? "" : "";
@@ -97,15 +183,29 @@ export default function FamilyPreviewPage() {
   return (
     <main className="min-h-screen bg-[#f8f7f4] pb-24">
       {/* ── Preview banner ──────────────────────────────────────────── */}
-      <div className="sticky top-0 z-50 bg-[var(--g-deep)] text-white text-sm py-3 px-5 flex items-center justify-between">
-        <Link href="/dashboard/settings" className="text-white/80 hover:text-white text-sm shrink-0">
-          ← Back to Settings
-        </Link>
-        <span className="text-xs text-white/70 text-center flex-1 px-2">
-          👁 Preview — this is what your family sees
-        </span>
-        <div className="w-20 shrink-0" />
-      </div>
+      {isDemo ? (
+        <div className="sticky top-0 z-50 bg-[var(--g-deep)] text-white text-sm py-3 px-5 flex items-center justify-between">
+          <Link href="/" className="text-white/80 hover:text-white text-sm shrink-0">
+            ← Rooted
+          </Link>
+          <span className="text-xs text-white/70 text-center flex-1 px-2">
+            A peek at what family members see
+          </span>
+          <Link href="/signup" className="text-white text-xs font-semibold shrink-0 hover:text-white/90">
+            Try it free →
+          </Link>
+        </div>
+      ) : (
+        <div className="sticky top-0 z-50 bg-[var(--g-deep)] text-white text-sm py-3 px-5 flex items-center justify-between">
+          <Link href="/dashboard/settings" className="text-white/80 hover:text-white text-sm shrink-0">
+            ← Back to Settings
+          </Link>
+          <span className="text-xs text-white/70 text-center flex-1 px-2">
+            👁 Preview — this is what your family sees
+          </span>
+          <div className="w-20 shrink-0" />
+        </div>
+      )}
 
       {/* ── Header (same as real portal) ────────────────────────────── */}
       <header className="w-full" style={{ backgroundColor: "var(--g-brand)", padding: "32px 20px 24px" }}>
@@ -205,9 +305,18 @@ export default function FamilyPreviewPage() {
       {/* ── Footer ──────────────────────────────────────────────────── */}
       <div className="fixed bottom-0 left-0 right-0 bg-[#fefcf9] border-t border-[#e8e2d9] py-2.5 px-4 z-30" style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}>
         <div className="max-w-[480px] mx-auto text-center">
-          <p className="text-xs text-[#7a6f65]">
-            You&apos;re previewing {familyName}&apos;s family view 🌿
-          </p>
+          {isDemo ? (
+            <p className="text-xs text-[#7a6f65]">
+              Want this for your homeschool?{" "}
+              <Link href="/signup" className="font-semibold text-[var(--g-deep)] hover:underline">
+                Start free →
+              </Link>
+            </p>
+          ) : (
+            <p className="text-xs text-[#7a6f65]">
+              You&apos;re previewing {familyName}&apos;s family view 🌿
+            </p>
+          )}
         </div>
       </div>
     </main>

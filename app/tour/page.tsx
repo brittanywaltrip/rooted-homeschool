@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
+import { useIsNativeApp } from "@/lib/platform";
 
 // ─── Feature Data (preserving best copy from original tour) ──────────────────
 
@@ -479,6 +480,7 @@ const MOCKUPS: Record<FeatureId, () => React.JSX.Element> = {
 // ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function TourPage() {
+  const isNative = useIsNativeApp();
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState(0);
   const [paused, setPaused] = useState(false);
@@ -921,9 +923,15 @@ export default function TourPage() {
               Start Your Free Trial →
             </Link>
             <p className="mt-4">
-              <Link href="/upgrade" className="text-sm text-[var(--g-deep)] hover:underline font-medium">
-                View plans →
-              </Link>
+              {isNative ? (
+                <span className="text-sm text-[var(--g-deep)] font-medium">
+                  See plans at rootedhomeschoolapp.com
+                </span>
+              ) : (
+                <Link href="/upgrade" className="text-sm text-[var(--g-deep)] hover:underline font-medium">
+                  View plans →
+                </Link>
+              )}
             </p>
           </div>
         </div>
