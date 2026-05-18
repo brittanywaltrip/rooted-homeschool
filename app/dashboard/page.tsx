@@ -936,47 +936,55 @@ export default function TodayPage() {
       curriculum_goals: { subject_label: string | null } | null;
       curriculum_goal_id: string | null;
       lesson_number: number | null;
+      queue_position: number | null;
       goal_id: string | null;
       notes: string | null;
       scheduled_date: string | null;
     };
+    // Projection emits a queue slot index (the field is named lesson_number
+    // for backward compat — see ProjectedLesson in scheduler.ts). The DB
+    // column we match against is `queue_position`, which equals lesson_number
+    // at curriculum creation and may diverge after a user manual move on
+    // the Plan page (move_lesson_to_date).
     const projectedGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
-    const projectedNumbers = Array.from(new Set(projected.map((p) => p.lesson_number)));
+    const projectedSlots = Array.from(new Set(projected.map((p) => p.lesson_number)));
     const [projectedRowsResult, oneOffRowsResult] = await Promise.all([
       projectedGoalIds.length > 0
         ? supabase
             .from("lessons")
-            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes, scheduled_date")
+            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes, scheduled_date")
             .eq("user_id", effectiveUserId)
             .in("curriculum_goal_id", projectedGoalIds)
-            .in("lesson_number", projectedNumbers)
+            .in("queue_position", projectedSlots)
         : Promise.resolve({ data: [] as unknown[] }),
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, goal_id, notes")
+        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes")
         .eq("user_id", effectiveUserId)
         .is("curriculum_goal_id", null)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
     ]);
     const projectedRows = ((projectedRowsResult.data ?? []) as unknown as LoadedLessonRow[])
-      // Only keep rows that match a projected (goal_id, lesson_number) pair —
+      // Only keep rows that match a projected (goal_id, queue_position) pair —
       // the IN/IN filter widens past the cartesian product so we narrow client-side.
       .filter((r) =>
-        projected.some((p) => p.goal_id === r.curriculum_goal_id && p.lesson_number === r.lesson_number)
+        projected.some((p) => p.goal_id === r.curriculum_goal_id && p.lesson_number === r.queue_position)
       )
-      // Display-layer reschedule guard: when a missed lesson is rescheduled
-      // forward via the Plan page, its scheduled_date moves into the future
-      // but the queue projector (which reads current_lesson, not date) still
-      // projects it onto today. Hide rows whose stored scheduled_date is
-      // strictly after today so Today and Plan agree. Rows with no
-      // scheduled_date (queue-only) are kept — they're not the rescheduled
-      // case. Scheduler logic untouched.
+      // Plan/Today date agreement: the queue projection picks "the Nth next
+      // lesson in queue order," which under queue_position is correct even
+      // after a manual move. But the matched row still carries a
+      // scheduled_date cache. If the user explicitly moved a lesson into the
+      // future (its scheduled_date > today), Today should NOT surface the
+      // queue's next-up lesson on that day if its concrete scheduled_date
+      // says it lives later. Keeps Plan and Today in agreement after a
+      // user-driven move. Rows with null scheduled_date are kept — they
+      // live purely in the queue.
       .filter((r) => !(r.scheduled_date && r.scheduled_date > today));
     const oneOffRows = (oneOffRowsResult.data ?? []) as unknown as LoadedLessonRow[];
 
     // Order the projected rows to match the projection sequence (queue
     // order). One-off lessons are appended in their existing date order.
-    const rowKey = (r: LoadedLessonRow) => `${r.curriculum_goal_id}|${r.lesson_number}`;
+    const rowKey = (r: LoadedLessonRow) => `${r.curriculum_goal_id}|${r.queue_position}`;
     const projectedRowMap = new Map(projectedRows.map((r) => [rowKey(r), r]));
     const orderedProjectedRows: LoadedLessonRow[] = [];
     for (const p of projected) {
@@ -2209,20 +2217,27 @@ export default function TodayPage() {
     if (activeGoals.length === 0) { setExtraLessonLoading(null); return; }
 
     // Find the next uncompleted lesson across all goals, preferring earliest lesson_number
-    type NextLessonRow = { id: string; title: string; curriculum_goal_id: string; lesson_number: number; child_id: string };
+    type NextLessonRow = { id: string; title: string; curriculum_goal_id: string; lesson_number: number; queue_position: number | null; child_id: string };
     let nextLesson: NextLessonRow | null = null;
 
     for (const goal of activeGoals) {
+      // "Next" follows queue order, not the static lesson_number sequence —
+      // a manually-moved lesson should still surface in its new spot.
       const { data: upcoming } = await supabase
         .from("lessons")
-        .select("id, title, curriculum_goal_id, lesson_number, child_id")
+        .select("id, title, curriculum_goal_id, lesson_number, queue_position, child_id")
         .eq("curriculum_goal_id", goal.id)
         .eq("completed", false)
-        .order("lesson_number", { ascending: true })
+        .not("queue_position", "is", null)
+        .order("queue_position", { ascending: true })
         .limit(1);
       if (upcoming && upcoming.length > 0) {
         const candidate = upcoming[0] as NextLessonRow;
-        if (!nextLesson || candidate.lesson_number < nextLesson.lesson_number) {
+        if (
+          !nextLesson ||
+          (candidate.queue_position ?? Number.POSITIVE_INFINITY) <
+            (nextLesson.queue_position ?? Number.POSITIVE_INFINITY)
+        ) {
           nextLesson = candidate;
         }
       }

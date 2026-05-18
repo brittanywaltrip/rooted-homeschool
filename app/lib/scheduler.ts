@@ -93,16 +93,21 @@ export async function recomputeCurrentLesson(
   const total = (goal as { total_lessons: number | null }).total_lessons ?? 0;
   const startAt = (goal as { start_at_lesson: number | null }).start_at_lesson ?? 1;
 
+  // Read queue_position, not lesson_number. The two are equal at curriculum
+  // creation but diverge once the user reorders a lesson on the Plan page
+  // (see move_lesson_to_date). queue_position is the source of truth for
+  // "where am I in the queue"; lesson_number stays pinned to the lesson's
+  // canonical display index for the Past tab and lesson titles.
   const { data: completedRows } = await supabase
     .from("lessons")
-    .select("lesson_number")
+    .select("queue_position")
     .eq("curriculum_goal_id", goalId)
     .eq("completed", true)
-    .not("lesson_number", "is", null)
-    .order("lesson_number", { ascending: false })
+    .not("queue_position", "is", null)
+    .order("queue_position", { ascending: false })
     .limit(1);
 
-  const maxCompleted = (completedRows?.[0] as { lesson_number: number | null } | undefined)?.lesson_number ?? 0;
+  const maxCompleted = (completedRows?.[0] as { queue_position: number | null } | undefined)?.queue_position ?? 0;
   const floor = Math.max(0, startAt - 1);
   let value = Math.max(floor, maxCompleted);
   if (total > 0) value = Math.min(value, total);
@@ -635,6 +640,11 @@ export interface CurriculumGoalConfig {
 
 export interface ProjectedLesson {
   goal_id: string;
+  // The Nth slot in this goal's queue. Equals `lessons.queue_position`,
+  // which is initialized to lesson_number at curriculum creation and may
+  // diverge after the user reorders on the Plan page (move_lesson_to_date).
+  // Today/Plan look up the actual lesson row by (goal_id, queue_position).
+  // Field name is kept for backward compat with consumers and tests.
   lesson_number: number;
   date: string; // YYYY-MM-DD
 }
@@ -1401,4 +1411,113 @@ export async function rescheduleLessonsInVacationBlock(
   }
 
   return updates;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Queue reorder (manual move)
+ *
+ * When a user moves an incomplete lesson to a new date on the Plan page,
+ * the lesson's queue_position is rewritten so it lands at the END of that
+ * date's existing slots for the same curriculum_goal. Siblings shift to
+ * keep queue_positions dense.
+ *
+ * `planQueueMove` is the pure JS mirror of the `move_lesson_to_date`
+ * Postgres RPC. The RPC is what actually runs in production (atomic,
+ * unique-index safe). This helper exists so tests can assert the algorithm
+ * without a database, and so optimistic UI updates can use the same logic.
+ *
+ * One source of truth for the math, two implementations of the apply
+ * step — same spirit as Invariant 8.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface QueueMoveInputLesson {
+  id: string;
+  curriculum_goal_id: string | null;
+  queue_position: number | null;
+  scheduled_date: string | null;
+}
+
+export interface QueueMoveResult {
+  /** Final queue_position for the moved lesson. */
+  movedNewQp: number;
+  /** Siblings whose queue_position must change, in apply order. */
+  shifts: Array<{ id: string; queue_position: number }>;
+  /** No-op (already where it needs to be). Apply step still pins the date. */
+  noop: boolean;
+}
+
+export function planQueueMove(args: {
+  movingLessonId: string;
+  targetDate: string; // YYYY-MM-DD
+  // All lessons in the same curriculum_goal as the moving lesson, including
+  // the moving lesson itself. queue_position null entries are ignored.
+  goalLessons: QueueMoveInputLesson[];
+}): QueueMoveResult | null {
+  const { movingLessonId, targetDate, goalLessons } = args;
+  const moving = goalLessons.find((l) => l.id === movingLessonId);
+  if (!moving) return null;
+  if (moving.curriculum_goal_id == null || moving.queue_position == null) {
+    // One-off lesson — caller should just update its date and source. Not a
+    // queue operation, so this helper returns a no-op result.
+    return { movedNewQp: 0, shifts: [], noop: true };
+  }
+
+  const goalId = moving.curriculum_goal_id;
+  const oldQp = moving.queue_position;
+
+  const siblings = goalLessons.filter(
+    (l) => l.id !== movingLessonId &&
+      l.curriculum_goal_id === goalId &&
+      l.queue_position != null,
+  );
+
+  // Highest queue_position currently on the target date.
+  let maxQpOnD = -Infinity;
+  for (const s of siblings) {
+    if (s.scheduled_date === targetDate && s.queue_position! > maxQpOnD) {
+      maxQpOnD = s.queue_position!;
+    }
+  }
+  if (maxQpOnD === -Infinity) {
+    // No sibling on target date — anchor to the nearest scheduled predecessor.
+    let maxQpBefore = 0;
+    for (const s of siblings) {
+      if (
+        s.scheduled_date != null &&
+        s.scheduled_date < targetDate &&
+        s.queue_position! > maxQpBefore
+      ) {
+        maxQpBefore = s.queue_position!;
+      }
+    }
+    maxQpOnD = maxQpBefore;
+  }
+
+  const newQp = oldQp > maxQpOnD ? maxQpOnD + 1 : maxQpOnD;
+
+  if (newQp === oldQp) {
+    return { movedNewQp: oldQp, shifts: [], noop: true };
+  }
+
+  const shifts: Array<{ id: string; queue_position: number }> = [];
+  if (oldQp < newQp) {
+    // Shift siblings in (oldQp, newQp] DOWN by 1. Apply in ascending order
+    // so each row's new slot is vacated before it lands.
+    const affected = siblings
+      .filter((s) => s.queue_position! > oldQp && s.queue_position! <= newQp)
+      .sort((a, b) => a.queue_position! - b.queue_position!);
+    for (const s of affected) {
+      shifts.push({ id: s.id, queue_position: s.queue_position! - 1 });
+    }
+  } else {
+    // oldQp > newQp; shift [newQp, oldQp) UP by 1 in descending order.
+    const affected = siblings
+      .filter((s) => s.queue_position! >= newQp && s.queue_position! < oldQp)
+      .sort((a, b) => b.queue_position! - a.queue_position!);
+    for (const s of affected) {
+      shifts.push({ id: s.id, queue_position: s.queue_position! + 1 });
+    }
+  }
+
+  return { movedNewQp: newQp, shifts, noop: false };
 }

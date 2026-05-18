@@ -1576,12 +1576,16 @@ export default function PlanV2() {
       flagLanded(lessonId);
       hapticTap(20);
 
-      // DB write with try/catch + rollback.
+      // DB write via the move_lesson_to_date RPC. The RPC atomically
+      // (a) updates scheduled_date / date / scheduled_source, and
+      // (b) shifts queue_position so the projected queue (Today page)
+      // honors the move. See migration 20260518064205 + the matching
+      // pure helper planQueueMove in scheduler.ts.
       try {
-        const { error } = await supabase
-          .from("lessons")
-          .update({ scheduled_date: toDateStr, date: toDateStr })
-          .eq("id", lessonId);
+        const { error } = await supabase.rpc("move_lesson_to_date", {
+          p_lesson_id: lessonId,
+          p_target_date: toDateStr,
+        });
         if (error) throw error;
       } catch {
         setLessons((prev) =>
@@ -1591,6 +1595,23 @@ export default function PlanV2() {
         );
         flashNotice("Couldn't save — check your connection and try again.");
         return;
+      }
+
+      // Soft warning if the move put more than lessons_per_day onto this
+      // date for the same goal (Invariant 2 was downgraded to a soft
+      // warning for explicit user moves — see CURRICULUM-SCHEDULING.md
+      // Invariant 2 note + the answer captured during the queue_position
+      // PR design step).
+      const goalCount = lessons.filter(
+        (l) =>
+          l.curriculum_goal_id != null &&
+          source.curriculum_goal_id != null &&
+          l.curriculum_goal_id === source.curriculum_goal_id &&
+          (l.scheduled_date ?? l.date) === toDateStr,
+      ).length + 1; // +1 because optimistic state may not include the move yet
+      const lpd = (source as { lessons_per_day?: number | null }).lessons_per_day ?? null;
+      if (lpd != null && goalCount > lpd) {
+        flashNotice(`That day now has ${goalCount} lessons for this goal (planned ${lpd}/day).`);
       }
 
       // Success path — register the universal undo action and reload for
@@ -1610,10 +1631,10 @@ export default function PlanV2() {
           hapticTap(20);
           flagLanded(lessonId);
           try {
-            await supabase
-              .from("lessons")
-              .update({ scheduled_date: fromDateStr, date: fromDateStr })
-              .eq("id", lessonId);
+            await supabase.rpc("move_lesson_to_date", {
+              p_lesson_id: lessonId,
+              p_target_date: fromDateStr,
+            });
           } catch {
             flashNotice("Couldn't undo — check your connection.");
           }
@@ -1995,10 +2016,11 @@ export default function PlanV2() {
     flagLanded(lessonId);
     hapticTap(15);
 
-    const { error } = await supabase
-      .from("lessons")
-      .update({ scheduled_date: toDateStr, date: toDateStr })
-      .eq("id", lessonId);
+    // Atomic queue-aware move (see migration 20260518064205).
+    const { error } = await supabase.rpc("move_lesson_to_date", {
+      p_lesson_id: lessonId,
+      p_target_date: toDateStr,
+    });
     if (error) {
       setLessons((prev) =>
         prev.map((l) => (l.id === lessonId ? { ...l, scheduled_date: fromDate, date: fromDate } : l)),
@@ -2016,7 +2038,10 @@ export default function PlanV2() {
         );
         flagLanded(lessonId);
         hapticTap(15);
-        await supabase.from("lessons").update({ scheduled_date: fromDate, date: fromDate }).eq("id", lessonId);
+        await supabase.rpc("move_lesson_to_date", {
+          p_lesson_id: lessonId,
+          p_target_date: fromDate,
+        });
         reload();
       },
     });
