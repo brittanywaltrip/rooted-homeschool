@@ -3,6 +3,10 @@
 type Props = {
   childName: string;
   curriculumName: string;
+  /** Subject the curriculum was tagged with (e.g. "Math", "Language Arts").
+   *  Optional. When present, it disambiguates two curricula sharing the
+   *  same curriculum_name. Rendered as " · Subject" after the title. */
+  subjectLabel?: string | null;
   /** ISO date string of when the curriculum was started */
   startedDate: string;
   /** ISO date string of when the curriculum was completed */
@@ -34,6 +38,7 @@ type Props = {
 export default function CompletionCelebrationCard({
   childName,
   curriculumName,
+  subjectLabel,
   startedDate,
   completedDate,
   lessonsCount,
@@ -43,6 +48,10 @@ export default function CompletionCelebrationCard({
   onPrintCertificate,
   onDismiss,
 }: Props) {
+  const trimmedSubject = subjectLabel?.trim();
+  const titleLine = trimmedSubject
+    ? `${curriculumName} ${trimmedSubject}!`
+    : `${curriculumName}!`;
   const duration = formatDurationSpan(startedDate, completedDate);
   return (
     <div
@@ -74,7 +83,7 @@ export default function CompletionCelebrationCard({
       <h3 style={titleStyle}>
         {childName} finished
         <br />
-        {curriculumName}!
+        {titleLine}
       </h3>
       <p style={subStyle}>
         Started {formatDate(startedDate)} · Finished {formatDate(completedDate)}
