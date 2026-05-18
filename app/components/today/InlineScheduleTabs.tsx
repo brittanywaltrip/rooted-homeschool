@@ -158,7 +158,12 @@ export default function InlineScheduleTabs({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       const token = session.access_token;
-      const [upRes, recRes, pastRes] = await Promise.all([
+      const sevenAgoYmd = (() => {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      })();
+      const [upRes, recRes, pastRes, pastRecRes] = await Promise.all([
         fetch("/api/appointments", { headers: { Authorization: `Bearer ${token}` } }),
         supabase.from("appointments").select("*").eq("user_id", user.id).eq("is_recurring", true).order("created_at", { ascending: false }),
         supabase
@@ -166,19 +171,65 @@ export default function InlineScheduleTabs({
           .select("*")
           .eq("user_id", user.id)
           .eq("completed", true)
-          .gte("date", (() => {
-            const d = new Date();
-            d.setDate(d.getDate() - 7);
-            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-          })())
+          .gte("date", sevenAgoYmd)
           .order("date", { ascending: false }),
+        // Per-occurrence completions for recurring appointments live on
+        // appointment_exceptions.completed, not on the base appointments
+        // row, so the pastRes query above never surfaces them. Pull each
+        // completed exception in the same 7-day window and join to
+        // appointments for the display fields. The !inner + appointments
+        // .user_id filter scopes the result to this user's series.
+        supabase
+          .from("appointment_exceptions")
+          .select(
+            "exception_date, appointment_id, appointments!inner(id, title, emoji, recurrence_rule, location, child_ids, time, user_id)",
+          )
+          .eq("completed", true)
+          .eq("appointments.user_id", user.id)
+          .gte("exception_date", sevenAgoYmd)
+          .order("exception_date", { ascending: false }),
       ]);
       if (upRes.ok) {
         const all: TabAppt[] = await upRes.json();
         setUpcoming(all.filter((a) => !a.completed).slice(0, 7));
       }
       setRecurring((recRes.data ?? []) as TabAppt[]);
-      setPast((pastRes.data ?? []) as TabAppt[]);
+
+      type PastRecRow = {
+        exception_date: string;
+        appointment_id: string;
+        appointments: {
+          id: string;
+          title: string;
+          emoji: string | null;
+          recurrence_rule: { frequency: string; days: number[] } | null;
+          location: string | null;
+          child_ids: string[] | null;
+          time: string | null;
+          user_id: string;
+        } | null;
+      };
+      const pastRecurring: TabAppt[] = ((pastRecRes.data ?? []) as unknown as PastRecRow[])
+        .filter((r) => r.appointments !== null)
+        .map((r) => {
+          const a = r.appointments!;
+          return {
+            id: a.id,
+            title: a.title,
+            emoji: a.emoji ?? "",
+            date: r.exception_date,
+            time: a.time,
+            location: a.location,
+            child_ids: a.child_ids ?? [],
+            is_recurring: true,
+            recurrence_rule: a.recurrence_rule,
+            completed: true,
+            instance_date: r.exception_date,
+          };
+        });
+      // Render-time sort in the Past tab already orders by `date` desc, so
+      // the concat order here doesn't matter for display.
+      setPast([...((pastRes.data ?? []) as TabAppt[]), ...pastRecurring]);
 
       const todayMid = new Date();
       todayMid.setHours(0, 0, 0, 0);
