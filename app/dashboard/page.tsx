@@ -450,11 +450,16 @@ export default function TodayPage() {
   const [lists, setLists] = useState<ListRow[]>([]);
 
   // Appointments state
-  type ApptRow = { id: string; title: string; emoji: string; date: string; time: string | null; duration_minutes: number; location: string | null; child_ids: string[]; completed: boolean; instance_date: string };
+  type ApptRow = { id: string; title: string; emoji: string; date: string; time: string | null; duration_minutes: number; location: string | null; child_ids: string[]; completed: boolean; instance_date: string; is_recurring: boolean };
   const [todayAppointments, setTodayAppointments] = useState<ApptRow[]>([]);
   const [showApptWizard, setShowApptWizard] = useState(false);
   const [showManageSchedule, setShowManageSchedule] = useState(false);
   const [allDoneCelebration, setAllDoneCelebration] = useState(false);
+  // Recurring-occurrence completion confirmation. One-time appointments use
+  // the existing PATCH /api/appointments toggle; recurring instances route
+  // through this modal so the user explicitly opts into "just this date,
+  // not the whole series" semantics.
+  const [confirmCompleteAppt, setConfirmCompleteAppt] = useState<{ id: string; title: string; instance_date: string } | null>(null);
 
   // Activities state
   const [todayActivities, setTodayActivities] = useState<TodayActivity[]>([]);
@@ -3321,6 +3326,17 @@ export default function TodayPage() {
               onToggleActivity: (raw) => { if (!isPartner) toggleActivity(raw as TodayActivity); },
               onToggleAppointment: async (id, completed) => {
                 if (isPartner) return;
+                const appt = todayAppointments.find((a) => a.id === id);
+                if (!appt) return;
+                // Recurring series: don't toggle the base row (that would mark
+                // every occurrence). Route through the confirmation modal,
+                // which writes a per-date exception row. Already-completed
+                // recurring instances are a no-op on re-tap.
+                if (appt.is_recurring) {
+                  if (completed) return;
+                  setConfirmCompleteAppt({ id, title: appt.title, instance_date: appt.instance_date });
+                  return;
+                }
                 const token = await getToken();
                 if (!token) return;
                 await fetch("/api/appointments", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ id, completed: !completed }) });
@@ -3985,6 +4001,47 @@ export default function TodayPage() {
         onClose={() => setShowApptWizard(false)}
         onSaved={loadData}
       />
+
+      {/* ── Mark recurring occurrence done ────────────────── */}
+      {confirmCompleteAppt && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm overflow-hidden">
+            <div className="px-6 pt-6 pb-2">
+              <h2 className="text-base font-bold text-[#2d2926]">
+                Mark {confirmCompleteAppt.title} as done for today?
+              </h2>
+            </div>
+            <div className="flex items-center gap-2 px-6 pb-6 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmCompleteAppt(null)}
+                className="flex-1 min-h-[44px] text-sm font-medium text-[#7a6f65] bg-[#f4f0e8] rounded-xl hover:bg-[#e8e2d9] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const target = confirmCompleteAppt;
+                  setConfirmCompleteAppt(null);
+                  const token = await getToken();
+                  if (!token) return;
+                  await fetch("/api/appointments/complete-occurrence", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                    body: JSON.stringify({ id: target.id, instance_date: target.instance_date }),
+                  });
+                  loadData();
+                }}
+                className="flex-1 min-h-[44px] text-sm font-bold text-white rounded-xl transition-colors"
+                style={{ backgroundColor: "#2D5A3D" }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Manage Schedule Modal ─────────────────────────── */}
       <ManageScheduleModal

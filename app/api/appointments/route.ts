@@ -42,6 +42,7 @@ type AppointmentException = {
   exception_date: string
   override_fields: Partial<AppointmentRow> | null
   skipped: boolean
+  completed: boolean
 }
 
 // Expanded-instance shape. `exception_id` is set when this instance has an
@@ -114,7 +115,11 @@ function expandRecurring(
     const base: AppointmentRow = exc?.override_fields
       ? applyOverride(appt, exc.override_fields)
       : appt
-    return { ...base, id: appt.id, instance_date: ds, exception_id: exc?.id ?? null }
+    // For recurring instances the base row's `completed` is always false
+    // (we never write true to a series). Per-occurrence completion lives on
+    // the exception row.
+    const completed = exc ? exc.completed : base.completed
+    return { ...base, completed, id: appt.id, instance_date: ds, exception_id: exc?.id ?? null }
   }
 
   // No rule or no days: just return the appointment on its own date if in range
@@ -243,7 +248,7 @@ export async function GET(req: NextRequest) {
   if (recurringIds.length > 0) {
     const { data: exceptions, error: e3 } = await supabaseAdmin
       .from('appointment_exceptions')
-      .select('id, appointment_id, exception_date, override_fields, skipped')
+      .select('id, appointment_id, exception_date, override_fields, skipped, completed')
       .in('appointment_id', recurringIds)
       .gte('exception_date', rangeStart)
       .lte('exception_date', rangeEnd)
