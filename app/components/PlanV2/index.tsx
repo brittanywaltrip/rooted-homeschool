@@ -1251,8 +1251,14 @@ export default function PlanV2() {
   const handlePickPrintMode = useCallback(async (mode: PlanPrintMode) => {
     if ((mode === "weekly" || mode === "monthly") && !canPrintPaid) {
       // The dialog renders these tiles as Links to /upgrade for free
-      // users, so onPick should never fire — but defensive belt+braces.
-      window.location.href = "/upgrade";
+      // users on web (and as plain compliance text on native), so onPick
+      // should never fire — but defensive belt+braces. Apple Guideline
+      // 3.1.1 means we cannot redirect to /upgrade inside the native app,
+      // so no-op silently there; the locked-mode banner already explains
+      // where to upgrade.
+      const isNative = typeof window !== "undefined"
+        && !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
+      if (!isNative) window.location.href = "/upgrade";
       return;
     }
     if (mode === "daily") {

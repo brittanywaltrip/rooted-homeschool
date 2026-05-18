@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import { canExport } from "@/lib/user-access";
+import { useIsNativeApp } from "@/lib/platform";
 
 /* ============================================================================
  * Year Planner printable — horizontal 12-month wall calendar (Letter landscape).
@@ -123,6 +124,7 @@ function saveToggles(t: Toggles) {
 
 export default function YearPlannerPage() {
   const partnerCtx = usePartner();
+  const isNative = useIsNativeApp();
   const [year, setYear] = useState<number>(() => new Date().getFullYear());
   const [toggles, setToggles] = useState<Toggles>(DEFAULT_TOGGLES);
   const [togglesLoaded, setTogglesLoaded] = useState(false);
@@ -370,6 +372,14 @@ export default function YearPlannerPage() {
             >
               <Download size={13} /> Download as PDF
             </button>
+          ) : isNative ? (
+            <span
+              title="Founding Family"
+              aria-label="Download as PDF — available at rootedhomeschoolapp.com"
+              className="flex items-center gap-1.5 text-xs font-semibold bg-[#c4bfb8] text-white px-3.5 py-2 rounded-xl opacity-80"
+            >
+              <Lock size={12} /> Download as PDF
+            </span>
           ) : (
             <Link
               href="/upgrade"
@@ -443,10 +453,16 @@ export default function YearPlannerPage() {
               <p className="font-semibold text-[#7a4a1a] mb-1">Preview only for free accounts</p>
               <p className="text-xs text-[#7a4a1a]/80 leading-relaxed">
                 Founding Family members can download a print-ready PDF wall calendar.{" "}
-                <Link href="/upgrade" className="font-semibold underline underline-offset-2">
-                  Upgrade to Founding Family
-                </Link>
-                .
+                {isNative ? (
+                  <span className="font-semibold">Visit rootedhomeschoolapp.com to upgrade.</span>
+                ) : (
+                  <>
+                    <Link href="/upgrade" className="font-semibold underline underline-offset-2">
+                      Upgrade to Founding Family
+                    </Link>
+                    .
+                  </>
+                )}
               </p>
             </div>
           </section>

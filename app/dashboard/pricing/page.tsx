@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Check, Minus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { useIsNativeApp } from "@/lib/platform";
 
 // ─── Feature comparison data ──────────────────────────────────────────────────
 
@@ -45,6 +46,7 @@ function Cell({ value, highlight }: { value: string; highlight?: boolean }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DashboardPricingPage() {
+  const isNative = useIsNativeApp();
   const [isPro, setIsPro] = useState<boolean | null>(null);
   const [planType, setPlanType] = useState<string | null>(null);
 
@@ -175,6 +177,10 @@ export default function DashboardPricingPage() {
               <div className="w-full text-center py-2.5 rounded-xl bg-[#5c7f63]/20 text-xs font-semibold text-[var(--g-deep)]">
                 ✓ Active
               </div>
+            ) : isNative ? (
+              <p className="w-full text-center py-2.5 rounded-xl bg-[#f0ede8] text-xs font-medium text-[#7a6f65]">
+                Upgrade at rootedhomeschoolapp.com
+              </p>
             ) : (
               <Link
                 href="/upgrade"
@@ -208,6 +214,10 @@ export default function DashboardPricingPage() {
               <div className="w-full text-center py-2.5 rounded-xl bg-[#f0ede8] text-xs font-medium text-[#b5aca4]">
                 Monthly plan
               </div>
+            ) : isNative ? (
+              <p className="w-full text-center py-2.5 rounded-xl bg-[#f0ede8] text-xs font-medium text-[#7a6f65]">
+                Upgrade at rootedhomeschoolapp.com
+              </p>
             ) : (
               <Link
                 href="/upgrade"
@@ -262,16 +272,24 @@ export default function DashboardPricingPage() {
       {/* Footer note */}
       {loaded && !isPro && (
         <div className="text-center pb-4">
-          <Link
-            href="/upgrade"
-            className="inline-flex items-center gap-2 px-6 py-3 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold rounded-xl transition-colors shadow-sm"
-          >
-            <span>✨</span>
-            Get Rooted+ for $59/yr
-          </Link>
-          <p className="text-xs text-[#b5aca4] mt-2">
-            Secure checkout via Stripe · Cancel anytime
-          </p>
+          {isNative ? (
+            <p className="text-sm font-medium text-[#7a6f65]">
+              To upgrade to Rooted+, visit rootedhomeschoolapp.com
+            </p>
+          ) : (
+            <>
+              <Link
+                href="/upgrade"
+                className="inline-flex items-center gap-2 px-6 py-3 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold rounded-xl transition-colors shadow-sm"
+              >
+                <span>✨</span>
+                Get Rooted+ for $59/yr
+              </Link>
+              <p className="text-xs text-[#b5aca4] mt-2">
+                Secure checkout via Stripe · Cancel anytime
+              </p>
+            </>
+          )}
         </div>
       )}
 

@@ -9,6 +9,7 @@ import { signedPhotoUrl } from "@/lib/photo-url";
 import SignedImage from "@/components/SignedImage";
 import { useProfile } from "@/lib/profile-context";
 import { canShareFamily, getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
+import { useIsNativeApp } from "@/lib/platform";
 import { posthog } from "@/lib/posthog";
 import { capitalizeName, capitalizeChildNames } from "@/lib/utils";
 import { formatMonthKey, currentMonthKey } from "@/lib/commission-month";
@@ -153,6 +154,7 @@ export default function SettingsPage() {
   const { refreshProfile } = useProfile();
   const searchParams = useSearchParams();
   const router = useRouter();
+  const isNative = useIsNativeApp();
   const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
     const tab = searchParams.get("tab");
     if (tab && ["family", "kids", "account", "partners"].includes(tab)) return tab as SettingsTab;
@@ -1633,12 +1635,18 @@ export default function SettingsPage() {
             <p className="text-xs text-[#b5aca4] mb-5">
               They&apos;ll see your memories, lessons, and garden — and can leave reactions.
             </p>
-            <a
-              href="/upgrade"
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#C4962A] hover:bg-[#a67d1f] text-white font-semibold text-sm transition-colors shadow-sm"
-            >
-              Upgrade to share 🌿
-            </a>
+            {isNative ? (
+              <p className="text-sm font-medium text-[#7a6f65]">
+                Upgrade at rootedhomeschoolapp.com
+              </p>
+            ) : (
+              <a
+                href="/upgrade"
+                className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl bg-[#C4962A] hover:bg-[#a67d1f] text-white font-semibold text-sm transition-colors shadow-sm"
+              >
+                Upgrade to share 🌿
+              </a>
+            )}
           </div>
         ) : (
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
@@ -1900,6 +1908,10 @@ export default function SettingsPage() {
               </button>
             ) : ADMIN_EMAILS.includes(userEmail) ? (
               <span className="text-xs text-[#9e958d] italic shrink-0">Admin — managed via Stripe dashboard</span>
+            ) : isNative ? (
+              <span className="shrink-0 text-xs font-medium text-[#7a6f65]">
+                Upgrade at rootedhomeschoolapp.com
+              </span>
             ) : (
               <a
                 href="/upgrade"

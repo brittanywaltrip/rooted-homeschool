@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Calendar, CalendarDays, CalendarRange, Lock, X } from "lucide-react";
 import Link from "next/link";
+import { useIsNativeApp } from "@/lib/platform";
 
 /* PlanPrintDialog. Mode picker for the toolbar Print button. Daily is free
  * for everyone; Week + Month are paywalled (locked tiles route to /upgrade).
@@ -37,6 +38,7 @@ const MODES: {
 
 export default function PlanPrintDialog(props: PlanPrintDialogProps) {
   const { isOpen, canPrintPaid, onClose, onPick, generating } = props;
+  const isNative = useIsNativeApp();
   const [selected, setSelected] = useState<PlanPrintMode>("daily");
 
   if (!isOpen) return null;
@@ -99,13 +101,19 @@ export default function PlanPrintDialog(props: PlanPrintDialogProps) {
 
           {selectedLocked ? (
             <div className="px-5 pt-1 pb-2">
-              <Link
-                href="/upgrade"
-                onClick={onClose}
-                className="block w-full text-center text-[12px] font-semibold text-[#a07000] bg-[#fef9e8] border border-[#f0dda8] rounded-xl py-2.5 hover:bg-[#fef0d6] transition-colors"
-              >
-                Founding Family unlocks weekly + monthly prints
-              </Link>
+              {isNative ? (
+                <p className="block w-full text-center text-[12px] font-medium text-[#a07000] bg-[#fef9e8] border border-[#f0dda8] rounded-xl py-2.5">
+                  Weekly + monthly prints available at rootedhomeschoolapp.com
+                </p>
+              ) : (
+                <Link
+                  href="/upgrade"
+                  onClick={onClose}
+                  className="block w-full text-center text-[12px] font-semibold text-[#a07000] bg-[#fef9e8] border border-[#f0dda8] rounded-xl py-2.5 hover:bg-[#fef0d6] transition-colors"
+                >
+                  Founding Family unlocks weekly + monthly prints
+                </Link>
+              )}
             </div>
           ) : null}
 

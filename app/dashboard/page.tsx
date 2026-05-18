@@ -35,6 +35,7 @@ import { groupItems } from "@/app/components/today/groupItems";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
+import { useIsNativeApp } from "@/lib/platform";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
 // PageHero removed — replaced by Book Cover Card
@@ -264,6 +265,7 @@ type FamilyNotification = {
 export default function TodayPage() {
   const today = localDateStr(new Date());
   const router = useRouter();
+  const isNativeApp = useIsNativeApp();
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const { isPartner, effectiveUserId } = usePartner();
   const { setHideFab } = useDashboardLayout();
@@ -3167,6 +3169,19 @@ export default function TodayPage() {
         if (access !== 'trial') return null;
         const left = getTrialDaysLeft(trialStartedAt);
         if (left <= 8) return null;
+        if (isNativeApp) {
+          return (
+            <div className="flex items-center gap-2 bg-[#f0f7f0] border border-[#c8dfc8] rounded-xl px-3 py-2 mb-3">
+              <span className="text-sm">🌿</span>
+              <p className="text-[11px] text-[#5c7f63] font-medium flex-1">
+                You&apos;re on your free Rooted+ trial · {left} day{left !== 1 ? 's' : ''} left
+              </p>
+              <span className="text-[11px] text-[#7a6f65] whitespace-nowrap">
+                rootedhomeschoolapp.com
+              </span>
+            </div>
+          );
+        }
         return (
           <Link
             href="/upgrade"
@@ -3574,6 +3589,13 @@ export default function TodayPage() {
       {(!planType || planType === "free") && totalPhotos >= 45 && totalPhotos < 50 && (() => {
         if (typeof window !== "undefined" && sessionStorage.getItem("rooted_photo_limit_shown")) return null;
         if (typeof window !== "undefined") sessionStorage.setItem("rooted_photo_limit_shown", "1");
+        if (isNativeApp) {
+          return (
+            <div className="block bg-[#faf6f0] border border-[#e8e2d9] rounded-xl px-4 py-3 text-sm text-[#7a6f65]">
+              You have {50 - totalPhotos} photo{50 - totalPhotos !== 1 ? "s" : ""} left before new memories stop saving. Keep everything with Rooted+ at rootedhomeschoolapp.com.
+            </div>
+          );
+        }
         return (
           <Link
             href="/upgrade"
