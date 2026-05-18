@@ -23,6 +23,15 @@ type Lesson   = {
 };
 type BookEvent  = { payload: { title?: string; child_id?: string; date?: string } };
 type MemoryActivity = { child_id: string | null; type: string; date: string; duration_minutes: number | null };
+type ReportAppointment = {
+  id: string;
+  title: string;
+  emoji: string;
+  date: string;
+  duration_minutes: number | null;
+  location: string | null;
+  child_ids: string[];
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -36,13 +45,16 @@ function schoolYearStart() {
 // ─── Print Report Component ───────────────────────────────────────────────────
 
 function PrintReport({
-  child, dateFrom, dateTo, lessons, books, activities,
+  child, children: allKids, dateFrom, dateTo, lessons, books, activities, appointments, includeAppointments,
 }: {
   child: Child | null;
+  children: Child[];
   dateFrom: string; dateTo: string;
   lessons: Lesson[];
   books: BookEvent[];
   activities: MemoryActivity[];
+  appointments: ReportAppointment[];
+  includeAppointments: boolean;
 }) {
   const filteredLessons = lessons.filter((l) => {
     const d = l.date ?? l.scheduled_date;
@@ -76,11 +88,27 @@ function PrintReport({
     subjectMap[key].hours += (l.minutes_spent ?? 30) / 60;
   });
 
-  const presentDates = new Set(
-    completedLessons
-      .map((l) => (l.completed_at ? l.completed_at.slice(0, 10) : null))
-      .filter((d): d is string => d !== null)
-  );
+  // Appointments included in the report only when the toggle is on. For a
+  // single-child report, whole-family appointments (empty child_ids) are
+  // counted toward that child; appointments explicitly tagged to other kids
+  // are excluded. "All Children" includes everything.
+  const filteredAppointments: ReportAppointment[] = !includeAppointments
+    ? []
+    : appointments.filter((a) => {
+        if (child && a.child_ids.length > 0 && !a.child_ids.includes(child.id)) return false;
+        return a.date >= dateFrom && a.date <= dateTo;
+      });
+
+  // Days Present unions completed-lesson dates with completed-appointment
+  // dates so co-op or activity days without a curriculum lesson still count.
+  // Dates appearing in both contribute once (Set dedupes).
+  const presentDates = new Set<string>();
+  for (const l of completedLessons) {
+    if (l.completed_at) presentDates.add(l.completed_at.slice(0, 10));
+  }
+  for (const a of filteredAppointments) {
+    presentDates.add(a.date);
+  }
 
   const fromLabel = new Date(dateFrom + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const toLabel   = new Date(dateTo   + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -146,6 +174,46 @@ function PrintReport({
         </div>
       )}
 
+      {/* Activities and appointments */}
+      {includeAppointments && filteredAppointments.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
+            Activities and Appointments
+          </h3>
+          <div className="space-y-2">
+            {filteredAppointments
+              .slice()
+              .sort((a, b) => b.date.localeCompare(a.date))
+              .map((a) => {
+                const dateLabel = new Date(a.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+                const dur = a.duration_minutes;
+                const durLabel = dur && dur > 0
+                  ? (dur >= 60 ? `${(dur / 60).toFixed(1)}h` : `${dur}m`)
+                  : null;
+                const kidLabel = a.child_ids.length === 0
+                  ? "All children"
+                  : a.child_ids
+                      .map((id) => allKids.find((c) => c.id === id)?.name)
+                      .filter((n): n is string => !!n)
+                      .join(", ");
+                return (
+                  <div key={`${a.id}-${a.date}`} className="flex items-center gap-3">
+                    <span aria-hidden className="shrink-0">{a.emoji || "📍"}</span>
+                    <span className="text-sm text-[#2d2926] flex-1 min-w-0 truncate">{a.title}</span>
+                    <span className="text-xs text-[#7a6f65] shrink-0">{dateLabel}</span>
+                    {durLabel ? (
+                      <span className="text-xs text-[#b5aca4] shrink-0">{durLabel}</span>
+                    ) : null}
+                    {kidLabel ? (
+                      <span className="text-xs text-[#b5aca4] shrink-0">{kidLabel}</span>
+                    ) : null}
+                  </div>
+                );
+              })}
+          </div>
+        </div>
+      )}
+
       {/* Books read */}
       {filteredBooks.length > 0 && (
         <div>
@@ -197,12 +265,14 @@ export default function ReportsPage() {
   const [lessons,    setLessons]    = useState<Lesson[]>([]);
   const [books,      setBooks]      = useState<BookEvent[]>([]);
   const [activities, setActivities] = useState<MemoryActivity[]>([]);
+  const [appointments, setAppointments] = useState<ReportAppointment[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [isPro,      setIsPro]      = useState<boolean | null>(null);
 
   const [selectedChild, setSelectedChild] = useState<string>("all");
   const [dateFrom,      setDateFrom]      = useState(schoolYearStart());
   const [dateTo,        setDateTo]        = useState(toDateStr(new Date()));
+  const [includeAppointments, setIncludeAppointments] = useState(true);
   const [showPreview,   setShowPreview]   = useState(false);
   const [showExportGate, setShowExportGate] = useState(false);
   const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
@@ -218,18 +288,75 @@ export default function ReportsPage() {
         { data: bookEvts },
         { data: memActivities },
         { data: profile },
+        { data: oneTimeAppts },
+        { data: exceptionAppts },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
         supabase.from("lessons").select("id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, completed_at, minutes_spent").eq("user_id", effectiveUserId),
         supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
         supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
         supabase.from("profiles").select("is_pro, trial_started_at").eq("id", effectiveUserId).single(),
+        // One-time completed appointments: completion lives on the base row.
+        supabase
+          .from("appointments")
+          .select("id, title, emoji, date, duration_minutes, location, child_ids")
+          .eq("user_id", effectiveUserId)
+          .eq("is_recurring", false)
+          .eq("completed", true),
+        // Per-occurrence completions for recurring appointments live on
+        // appointment_exceptions; join the parent for display fields.
+        supabase
+          .from("appointment_exceptions")
+          .select("exception_date, appointments!inner(id, title, emoji, duration_minutes, location, child_ids, user_id)")
+          .eq("completed", true)
+          .eq("appointments.user_id", effectiveUserId),
       ]);
 
       setChildren(capitalizeChildNames(kids ?? []));
       setLessons((lessons_ as unknown as Lesson[]) ?? []);
       setBooks((bookEvts as unknown as BookEvent[]) ?? []);
       setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
+
+      type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null };
+      type ExceptionRow = {
+        exception_date: string;
+        appointments: {
+          id: string;
+          title: string;
+          emoji: string | null;
+          duration_minutes: number | null;
+          location: string | null;
+          child_ids: string[] | null;
+          user_id: string;
+        } | null;
+      };
+      const merged: ReportAppointment[] = [
+        ...((oneTimeAppts ?? []) as OneTimeRow[]).map((r) => ({
+          id: r.id,
+          title: r.title,
+          emoji: r.emoji ?? "",
+          date: r.date,
+          duration_minutes: r.duration_minutes,
+          location: r.location,
+          child_ids: r.child_ids ?? [],
+        })),
+        ...(((exceptionAppts ?? []) as unknown as ExceptionRow[])
+          .filter((r) => r.appointments !== null)
+          .map((r) => {
+            const a = r.appointments!;
+            return {
+              id: a.id,
+              title: a.title,
+              emoji: a.emoji ?? "",
+              date: r.exception_date,
+              duration_minutes: a.duration_minutes,
+              location: a.location,
+              child_ids: a.child_ids ?? [],
+            };
+          })),
+      ];
+      setAppointments(merged);
+
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setTrialStartedAt((profile as any)?.trial_started_at ?? null);
       setLoading(false);
@@ -356,6 +483,20 @@ export default function ReportsPage() {
           ))}
         </div>
 
+        {/* Include activities and appointments */}
+        <div className="flex items-center gap-2">
+          <input
+            id="include-appts"
+            type="checkbox"
+            checked={includeAppointments}
+            onChange={(e) => setIncludeAppointments(e.target.checked)}
+            className="w-4 h-4 accent-[#5c7f63] cursor-pointer"
+          />
+          <label htmlFor="include-appts" className="text-sm text-[#2d2926] cursor-pointer select-none">
+            Include activities and appointments
+          </label>
+        </div>
+
         {/* Quick stats preview */}
         <div className="grid grid-cols-4 gap-2 pt-1">
           {[
@@ -397,11 +538,14 @@ export default function ReportsPage() {
       {showPreview && (
         <PrintReport
           child={activeChild}
+          children={children}
           dateFrom={dateFrom}
           dateTo={dateTo}
           lessons={lessons}
           books={books}
           activities={activities}
+          appointments={appointments}
+          includeAppointments={includeAppointments}
         />
       )}
 
