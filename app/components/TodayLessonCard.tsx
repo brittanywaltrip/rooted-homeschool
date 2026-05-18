@@ -116,6 +116,10 @@ export default function TodayLessonCard({
   }
 
   const isEditingNote = editingNoteId === lesson.id;
+  const lessonLabel = lesson.title?.trim() || (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "Untitled");
+  const toggleAriaLabel = lesson.completed
+    ? `Mark ${lessonLabel} incomplete`
+    : `Mark ${lessonLabel} complete`;
 
   return (
     <div>
@@ -130,10 +134,17 @@ export default function TodayLessonCard({
       style={{ minHeight: "56px", borderLeftWidth: "4px", borderLeftColor: borderColor }}
       onClick={handleClick}
     >
-      {/* Circular checkbox */}
-      <div
-        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
-          lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5]"
+      {/* Circular checkbox — real <button> for screen reader users and
+          Playwright role-based queries. No onClick: the native click event
+          bubbles to the row wrapper's onClick (handleClick) which performs
+          the single toggle, so keyboard activation (Enter/Space) routes
+          through the same path as a tap anywhere on the row. */}
+      <button
+        type="button"
+        aria-label={toggleAriaLabel}
+        aria-pressed={lesson.completed}
+        className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-all p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7f63] focus-visible:ring-offset-1 ${
+          lesson.completed ? "bg-[#5c7f63] border-[#5c7f63]" : "bg-transparent border-[#c8bfb5]"
         }`}
       >
         {lesson.completed && (
@@ -141,7 +152,7 @@ export default function TodayLessonCard({
             <path d="M1 4l2.5 2.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )}
-      </div>
+      </button>
 
       {/* Content */}
       <div className="flex-1 min-w-0 py-3.5">
@@ -157,7 +168,8 @@ export default function TodayLessonCard({
           <p className={`text-sm font-medium leading-snug ${
             lesson.completed ? "line-through text-[#9a948e]" : "text-[#2d2926]"
           }`}>
-            {lesson.title || (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "Untitled")}
+            {lessonLabel}
+            {lesson.completed ? <span className="sr-only"> Done.</span> : null}
           </p>
           {lesson.completed && (() => {
             const mins = lesson.minutes_spent ?? (lesson.hours != null && lesson.hours > 0 ? Math.round(lesson.hours * 60) : null);
