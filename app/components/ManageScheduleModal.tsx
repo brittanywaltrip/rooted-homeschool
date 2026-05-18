@@ -67,6 +67,7 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; type: "appt" | "activity" } | null>(null);
+  const [stopTarget, setStopTarget] = useState<{ id: string; name: string; type: "appt" | "activity" } | null>(null);
   const [editingAppt, setEditingAppt] = useState<EditableAppointment | null>(null);
 
   const loadAll = useCallback(async () => {
@@ -148,7 +149,7 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
     });
   }
 
-  function renderRow(item: { id: string; emoji: string; title: string; sub: string; badge: "appt" | "activity"; location?: string | null; childIds: string[]; type: "appt" | "activity"; onEdit?: () => void }) {
+  function renderRow(item: { id: string; emoji: string; title: string; sub: string; badge: "appt" | "activity"; location?: string | null; childIds: string[]; type: "appt" | "activity"; onEdit?: () => void; useStop?: boolean }) {
     const isAppt = item.badge === "appt";
     const isDeleting = deleteConfirm?.id === item.id;
     return (
@@ -169,7 +170,22 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
           <div className="flex flex-wrap gap-1 mt-1">{renderChildChips(item.childIds)}</div>
         </div>
         <div className="shrink-0 flex items-center gap-1 mt-0.5">
-          {isDeleting ? (
+          {item.useStop ? (
+            <>
+              {item.onEdit && (
+                <button type="button" onClick={item.onEdit} className="w-7 h-7 rounded-full flex items-center justify-center text-[#c8c0b8] hover:text-[#7C3AED] hover:bg-[#f5f0ff] transition-colors">
+                  <Pencil size={13} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setStopTarget({ id: item.id, name: item.title, type: item.type })}
+                className="text-[11px] font-medium text-[#7a6f65] hover:text-[#b91c1c] px-2 py-1 rounded-lg hover:bg-red-50 transition-colors"
+              >
+                Stop
+              </button>
+            </>
+          ) : isDeleting ? (
             <>
               <button type="button" onClick={() => handleDelete(item.id, item.type)} className="text-[11px] font-medium text-red-500 px-2 py-1 rounded-lg bg-red-50 hover:bg-red-100">Delete</button>
               <button type="button" onClick={() => setDeleteConfirm(null)} className="text-[11px] text-[#7a6f65] px-2 py-1">Cancel</button>
@@ -223,8 +239,8 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
                 <p className="text-sm text-[#b5aca4] text-center py-12">No recurring items yet</p>
               ) : (
                 <>
-                  {recurringAppts.map((a) => renderRow({ id: a.id, emoji: a.emoji, title: a.title, sub: freqLabel(a) + (a.time ? ` · ${formatTime12(a.time)}` : ""), badge: "appt", location: a.location, childIds: a.child_ids, type: "appt", onEdit: () => openEditAppt(a) }))}
-                  {activities.map((a) => renderRow({ id: a.id, emoji: a.emoji || "📝", title: a.name, sub: actFreqLabel(a) + (a.scheduled_start_time ? ` · ${formatTime12(a.scheduled_start_time)}` : "") + ` · ${a.duration_minutes >= 60 ? `${(a.duration_minutes / 60).toFixed(a.duration_minutes % 60 ? 1 : 0)} hr` : `${a.duration_minutes} min`}`, badge: "activity", location: null, childIds: a.child_ids, type: "activity" }))}
+                  {recurringAppts.map((a) => renderRow({ id: a.id, emoji: a.emoji, title: a.title, sub: freqLabel(a) + (a.time ? ` · ${formatTime12(a.time)}` : ""), badge: "appt", location: a.location, childIds: a.child_ids, type: "appt", onEdit: () => openEditAppt(a), useStop: true }))}
+                  {activities.map((a) => renderRow({ id: a.id, emoji: a.emoji || "📝", title: a.name, sub: actFreqLabel(a) + (a.scheduled_start_time ? ` · ${formatTime12(a.scheduled_start_time)}` : "") + ` · ${a.duration_minutes >= 60 ? `${(a.duration_minutes / 60).toFixed(a.duration_minutes % 60 ? 1 : 0)} hr` : `${a.duration_minutes} min`}`, badge: "activity", location: null, childIds: a.child_ids, type: "activity", useStop: true }))}
                 </>
               )}
             </div>
@@ -273,6 +289,56 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
         onSaved={() => { setEditingAppt(null); onChanged(); loadAll(); }}
         editingAppointment={editingAppt}
       />
+
+      {stopTarget ? (
+        <StopRecurringDialog
+          name={stopTarget.name}
+          onCancel={() => setStopTarget(null)}
+          onConfirm={() => {
+            const t = stopTarget;
+            setStopTarget(null);
+            void handleDelete(t.id, t.type);
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function StopRecurringDialog({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[100]" onClick={onCancel} aria-hidden />
+      <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-3 pointer-events-none">
+        <div
+          className="bg-[#fefcf9] rounded-2xl shadow-xl w-full max-w-sm pointer-events-auto overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-5 pt-5 pb-2">
+            <h2 className="text-base font-bold text-[#2d2926]">Stop {name}?</h2>
+          </div>
+          <p className="px-5 pb-4 text-sm text-[#5c5346] leading-relaxed">
+            This will remove future {name} sessions from your schedule. Individual session history is not tracked in Rooted.
+          </p>
+          <div className="flex items-center gap-2 px-5 pb-5">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 min-h-[44px] text-sm font-medium text-[#7a6f65] bg-[#f4f0e8] rounded-xl hover:bg-[#e8e2d9] transition-colors"
+            >
+              Keep going
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              className="flex-1 min-h-[44px] text-sm font-bold text-white rounded-xl transition-colors"
+              style={{ backgroundColor: "#2D5A3D" }}
+            >
+              Yes, stop it
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }

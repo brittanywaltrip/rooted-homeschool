@@ -90,7 +90,7 @@ export default function ActivitiesPanel(props: ActivitiesPanelProps) {
                         onClick={() => { setMenuOpenId(null); onDelete(a); }}
                         className="w-full px-3 py-2 text-left text-[13px] text-[#b91c1c] hover:bg-[#fef2f2] flex items-center gap-2"
                       >
-                        <Trash2 size={14} /> Delete
+                        <Trash2 size={14} /> Stop
                       </button>
                     </div>
                   </>
