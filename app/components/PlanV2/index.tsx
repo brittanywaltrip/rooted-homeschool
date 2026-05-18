@@ -4044,16 +4044,28 @@ export default function PlanV2() {
         ) : null}
 
         {/* Appointment delete confirm — fired from the per-card "⋮" menu
-            in WeekListView. Recurring appointments delete the parent row. */}
+            in WeekListView. Recurring appointments use Stop copy; one-off
+            appointments keep the standard delete confirm. */}
         {deleteApptConfirm ? (
-          <ConfirmDialog
-            title="Remove this appointment?"
-            body={`"${deleteApptConfirm.title}"${deleteApptConfirm.is_recurring ? " (and all future occurrences)" : ""} will be removed from your schedule.`}
-            confirmLabel="Delete"
-            destructive
-            onCancel={() => setDeleteApptConfirm(null)}
-            onConfirm={handleAppointmentDeleteConfirm}
-          />
+          deleteApptConfirm.is_recurring ? (
+            <ConfirmDialog
+              title={`Stop ${deleteApptConfirm.title}?`}
+              body={`This will remove future ${deleteApptConfirm.title} sessions from your schedule. Individual session history is not tracked in Rooted.`}
+              confirmLabel="Yes, stop it"
+              cancelLabel="Keep going"
+              onCancel={() => setDeleteApptConfirm(null)}
+              onConfirm={handleAppointmentDeleteConfirm}
+            />
+          ) : (
+            <ConfirmDialog
+              title="Remove this appointment?"
+              body={`"${deleteApptConfirm.title}" will be removed from your schedule.`}
+              confirmLabel="Delete"
+              destructive
+              onCancel={() => setDeleteApptConfirm(null)}
+              onConfirm={handleAppointmentDeleteConfirm}
+            />
+          )
         ) : null}
 
         {/* Curriculum stop confirm. Different from delete: keeps the goal
@@ -4074,13 +4086,13 @@ export default function PlanV2() {
           );
         })() : null}
 
-        {/* Activity delete confirm */}
+        {/* Activity stop confirm — UX/copy change only; deletion is unchanged. */}
         {deleteActivityConfirm ? (
           <ConfirmDialog
-            title={`Delete ${deleteActivityConfirm.name}?`}
-            body="The activity is hidden from your plan. Past logs stay in your records."
-            confirmLabel="Delete activity"
-            destructive
+            title={`Stop ${deleteActivityConfirm.name}?`}
+            body={`This will remove future ${deleteActivityConfirm.name} sessions from your schedule. Individual session history is not tracked in Rooted.`}
+            confirmLabel="Yes, stop it"
+            cancelLabel="Keep going"
             onCancel={() => setDeleteActivityConfirm(null)}
             onConfirm={handleConfirmDeleteActivity}
           />

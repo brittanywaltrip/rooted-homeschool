@@ -129,7 +129,7 @@ export default function InlineScheduleTabs({
   const [upcomingLessons, setUpcomingLessons] = useState<TabLesson[]>([]);
   const [pastLessons, setPastLessons] = useState<TabLesson[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [stopTarget, setStopTarget] = useState<TabAppt | null>(null);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState("");
   const noteTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -331,7 +331,7 @@ export default function InlineScheduleTabs({
   }, [loadTabsData]);
 
   async function handleDelete(id: string) {
-    setDeleteConfirm(null);
+    setStopTarget(null);
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) return;
     await fetch("/api/appointments", {
@@ -538,24 +538,17 @@ export default function InlineScheduleTabs({
                         <span className="text-[11px] font-medium px-2 py-0.5 rounded-lg shrink-0" style={{ background: skin.pillBg, color: skin.pillText }}>{c.name}</span>
                       ) : null;
                     })()}
-                  <div className="flex gap-1.5 shrink-0">
+                  <div className="flex gap-1.5 shrink-0 items-center">
                     <button type="button" onClick={onManage} className="opacity-40 hover:opacity-100 transition-opacity">
                       ✏️
                     </button>
-                    {deleteConfirm === a.id ? (
-                      <>
-                        <button type="button" onClick={() => handleDelete(a.id)} className="text-[9px] font-medium text-red-500 px-1.5 py-0.5 rounded bg-red-50">
-                          Del
-                        </button>
-                        <button type="button" onClick={() => setDeleteConfirm(null)} className="text-[9px] text-[#7a6f65] px-1">
-                          ✕
-                        </button>
-                      </>
-                    ) : (
-                      <button type="button" onClick={() => setDeleteConfirm(a.id)} className="opacity-40 hover:opacity-100 transition-opacity">
-                        🗑️
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => setStopTarget(a)}
+                      className="text-[10px] font-medium text-[#7a6f65] hover:text-[#b91c1c] px-2 py-1 rounded-md hover:bg-red-50 transition-colors"
+                    >
+                      Stop
+                    </button>
                   </div>
                 </div>
               );
@@ -688,6 +681,51 @@ export default function InlineScheduleTabs({
             );
           })()
         )}
+      </div>
+      {stopTarget ? (
+        <StopRecurringDialog
+          name={stopTarget.title}
+          onCancel={() => setStopTarget(null)}
+          onConfirm={() => { void handleDelete(stopTarget.id); }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function StopRecurringDialog({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[70]" onClick={onCancel} aria-hidden />
+      <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center p-3 pointer-events-none">
+        <div
+          className="bg-[#fefcf9] rounded-2xl shadow-xl w-full max-w-sm pointer-events-auto overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="px-5 pt-5 pb-2">
+            <h2 className="text-base font-bold text-[#2d2926]">Stop {name}?</h2>
+          </div>
+          <p className="px-5 pb-4 text-sm text-[#5c5346] leading-relaxed">
+            This will remove future {name} sessions from your schedule. Individual session history is not tracked in Rooted.
+          </p>
+          <div className="flex items-center gap-2 px-5 pb-5">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="flex-1 min-h-[44px] text-sm font-medium text-[#7a6f65] bg-[#f4f0e8] rounded-xl hover:bg-[#e8e2d9] transition-colors"
+            >
+              Keep going
+            </button>
+            <button
+              type="button"
+              onClick={onConfirm}
+              className="flex-1 min-h-[44px] text-sm font-bold text-white rounded-xl transition-colors"
+              style={{ backgroundColor: "#2D5A3D" }}
+            >
+              Yes, stop it
+            </button>
+          </div>
+        </div>
       </div>
     </>
   );
