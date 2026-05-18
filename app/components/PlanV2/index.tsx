@@ -3508,6 +3508,7 @@ export default function PlanV2() {
                   key={goal.id}
                   childName={child?.name ?? "your kid"}
                   curriculumName={goal.curriculum_name}
+                  subjectLabel={goal.subject_label}
                   startedDate={startedDate}
                   completedDate={goal.completed_at!}
                   lessonsCount={goal.total_lessons ?? 0}
