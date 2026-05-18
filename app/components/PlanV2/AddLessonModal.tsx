@@ -47,10 +47,16 @@ export interface AddLessonModalProps {
   /** Resolves when the insert commits — parent awaits so we can show the
    *  "Adding…" / "Couldn't save" state accurately. */
   onSubmit: (values: AddLessonSubmit) => Promise<void>;
+  /** "schedule" = adding a future lesson (default). "log_done" = backfilling
+   *  a lesson the family already did; the parent inserts with completed=true.
+   *  The mode only swaps title, subtitle, and CTA copy so the user knows
+   *  which semantic they're in — insert behavior is owned by the parent. */
+  mode?: "schedule" | "log_done";
 }
 
 export default function AddLessonModal(props: AddLessonModalProps) {
-  const { isOpen, initialDate, childrenList: kids, goals, onClose, onSubmit } = props;
+  const { isOpen, initialDate, childrenList: kids, goals, onClose, onSubmit, mode = "schedule" } = props;
+  const isLogDone = mode === "log_done";
 
   const [childId, setChildId] = useState<string>("");
   const [goalId, setGoalId] = useState<string>("");
@@ -134,13 +140,17 @@ export default function AddLessonModal(props: AddLessonModalProps) {
         >
           <div className="flex items-start justify-between px-5 pt-4 pb-2 shrink-0">
             <div>
-              <h2 className="text-base font-bold text-[#2d2926]">Add a lesson</h2>
-              <p className="text-xs text-[#7a6f65] mt-0.5">One-off or tied to a curriculum goal.</p>
+              <h2 className="text-base font-bold text-[#2d2926]">
+                {isLogDone ? "Log a lesson you did" : "Add a lesson"}
+              </h2>
+              <p className="text-xs text-[#7a6f65] mt-0.5">
+                {isLogDone ? "It'll go in as completed for today." : "One-off or tied to a curriculum goal."}
+              </p>
             </div>
             <button
               type="button"
               onClick={onClose}
-              aria-label="Cancel add lesson"
+              aria-label={isLogDone ? "Cancel log lesson" : "Cancel add lesson"}
               className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors"
             >
               <X size={16} />
@@ -299,7 +309,9 @@ export default function AddLessonModal(props: AddLessonModalProps) {
               disabled={!canSubmit || submitting}
               className="flex-1 min-h-[44px] text-sm font-bold text-white bg-[#2D5A3D] rounded-xl hover:bg-[var(--g-deep)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? "Adding…" : "Add lesson"}
+              {submitting
+                ? (isLogDone ? "Logging…" : "Adding…")
+                : (isLogDone ? "Log as done" : "Add lesson")}
             </button>
           </div>
         </form>

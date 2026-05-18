@@ -3784,6 +3784,7 @@ export default function PlanV2() {
           initialDate={addLessonInitialDate}
           childrenList={kids}
           goals={curriculumGoals}
+          mode={addLessonAsCompleted ? "log_done" : "schedule"}
           onClose={() => { setAddLessonOpen(false); setAddLessonAsCompleted(false); }}
           onSubmit={handleSubmitAddLesson}
         />
@@ -4187,7 +4188,7 @@ export default function PlanV2() {
             },
             {
               key: "extra",
-              label: "Log an extra lesson",
+              label: "Log a lesson you did",
               emoji: "📓",
               bg: "#fef9e8",
               color: "#7a4a1a",
