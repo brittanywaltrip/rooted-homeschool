@@ -28,7 +28,7 @@ import ListsSection from "@/app/components/ListsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import TodaySchedule from "@/app/components/today/TodaySchedule";
-import CatchUpModal, { type CatchUpEntry, type CatchUpGoal, type CatchUpSubmission } from "@/app/components/CatchUpModal";
+import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal } from "@/app/components/MissedLessonRecoveryModal";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -498,16 +498,17 @@ export default function TodayPage() {
   const [showMissedSheet, setShowMissedSheet] = useState(false);
   const [missedSheetSubmitting, setMissedSheetSubmitting] = useState(false);
 
-  // ── Catch-up modal (queue-based scheduling, Path A) ───────────────────────
-  // Shown when the family has had a 5+ day gap with no completed lessons.
-  // Lists what *would have been* due in the gap so mom can check off what
-  // she actually did. Submit advances current_lesson per goal; dismiss
-  // leaves the queue alone so Today renders the next-in-queue lesson and
-  // the schedule effectively block-shifts forward.
-  const [showCatchUp, setShowCatchUp] = useState(false);
-  const [catchUpGoals, setCatchUpGoals] = useState<CatchUpGoal[]>([]);
-  const [catchUpEntriesByGoal, setCatchUpEntriesByGoal] = useState<Map<string, CatchUpEntry[]>>(new Map());
-  const [catchUpLastCompletion, setCatchUpLastCompletion] = useState<string | null>(null);
+  // ── Missed Lesson Recovery modal (Path A queue scheduling) ────────────────
+  // Shown on Today when overdueLessonCount > 0 and the sessionStorage flag
+  // `rooted_missed_lesson_prompt_shown` is not set. Binary YES/NO: mark
+  // missed lessons done on their gap dates, or leave them and let the queue
+  // projector absorb them going forward from today.
+  const [showMissedRecovery, setShowMissedRecovery] = useState(false);
+  const [missedGoals, setMissedGoals] = useState<MissedGoal[]>([]);
+  const [missedEntriesByGoal, setMissedEntriesByGoal] = useState<Map<string, MissedEntry[]>>(new Map());
+  // Tracks whether the user has already seen / acted on the modal this
+  // session. Gates both the modal and the "X lessons from earlier" banner.
+  const [missedRecoveryDismissed, setMissedRecoveryDismissed] = useState(false);
   // Overdue lesson count for the Today-page indicator. Computed from the
   // queue-model gap between last completion and today; matches the catch-up
   // modal's per-goal projection but renders even when gap < 5 days. Stays 0
@@ -651,7 +652,7 @@ export default function TodayPage() {
     // browser-detected value for the self-heal write below.
     const profileResult = await supabase
       .from("profiles")
-      .select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, last_catchup_dismissed_at, timezone")
+      .select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, timezone")
       .eq("id", effectiveUserId)
       .maybeSingle();
     const tzFromProfile = (profileResult.data as { timezone?: string | null } | null)?.timezone ?? null;
@@ -1012,22 +1013,19 @@ export default function TodayPage() {
     setHasAnyLessons((allLessonsResult.data?.length ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
-    // ── Catch-up modal eligibility (Path A queue scheduling) ─────────────
-    // Show the modal when:
-    //   (a) there's at least one active goal,
-    //   (b) the family's most recent completion is 5+ calendar days old
-    //       (or there's never been one — first-time after wizard),
-    //   (c) profiles.last_catchup_dismissed_at is null OR older than the
-    //       gap start (so dismissing it sticks until the next 5-day gap).
+    // ── Missed-lesson eligibility (Path A queue scheduling) ──────────────
+    // Computes overdueLessonCount for the banner and decides whether to
+    // open the Missed Lesson Recovery modal. The modal opens whenever
+    // there is at least one overdue entry and the per-session
+    // `rooted_missed_lesson_prompt_shown` flag is not set. Brand-new
+    // families with zero completions are skipped (no gap to show).
     void (async () => {
       const activeGoals = goalRows.filter((g) => g.current_lesson < g.total_lessons);
       if (activeGoals.length === 0) {
-        setShowCatchUp(false);
+        setShowMissedRecovery(false);
         setOverdueLessonCount(0);
         return;
       }
-      const dismissedAtRaw = (profile as { last_catchup_dismissed_at?: string | null } | null)?.last_catchup_dismissed_at ?? null;
-      const dismissedAt = dismissedAtRaw ? new Date(dismissedAtRaw) : null;
 
       const { data: lastCompRows } = await supabase
         .from("lessons")
@@ -1044,24 +1042,20 @@ export default function TodayPage() {
       const gapStart = lastCompletedAt
         ? (() => { const d = new Date(lastCompletedAt); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 1); return d; })()
         : todayMid; // never completed → no gap to show
-      const gapDays = Math.max(0, Math.floor((todayMid.getTime() - gapStart.getTime()) / 86400000));
 
-      // Hide if there's never been any completion at all — that's a brand
-      // new user, not someone returning after a gap. The wizard celebrates
-      // its own completion path and we don't want to nag empty families.
+      // Skip first-time families. The wizard owns their welcome moment;
+      // we do not want to nag empty accounts.
       if (!lastCompletedAt) {
-        setShowCatchUp(false);
+        setShowMissedRecovery(false);
         setOverdueLessonCount(0);
         return;
       }
 
-      // Compute per-goal catch-up entries. Vacation blocks exclude
-      // break days from the gap so the modal never asks about lessons
-      // during a vacation. If the entire gap is inside a break, the
-      // modal does not appear (entriesByGoal stays empty). The summed
-      // entry count drives the Today-page overdue indicator regardless
-      // of the 5-day threshold the modal uses.
-      const entriesByGoal = new Map<string, CatchUpEntry[]>();
+      // Compute per-goal entries. Vacation blocks exclude break days so
+      // the modal never asks about lessons during a vacation. If the
+      // entire gap sits inside a break the modal does not appear
+      // (entriesByGoal stays empty).
+      const entriesByGoal = new Map<string, MissedEntry[]>();
       let overdueTotal = 0;
       for (const goal of activeGoals) {
         const cfg: CurriculumGoalConfig = {
@@ -1078,13 +1072,11 @@ export default function TodayPage() {
       }
       setOverdueLessonCount(overdueTotal);
 
-      if (gapDays < 5) { setShowCatchUp(false); return; }
-      if (dismissedAt && dismissedAt > gapStart) { setShowCatchUp(false); return; }
-      if (entriesByGoal.size === 0) { setShowCatchUp(false); return; }
+      if (entriesByGoal.size === 0) { setShowMissedRecovery(false); return; }
 
       // Build display goal list with child names.
       const childById = new Map((childrenData ?? []).map((c: Child) => [c.id, c]));
-      const displayGoals: CatchUpGoal[] = activeGoals
+      const displayGoals: MissedGoal[] = activeGoals
         .filter((g) => entriesByGoal.has(g.id))
         .map((g) => ({
           id: g.id,
@@ -1094,10 +1086,21 @@ export default function TodayPage() {
           child_name: g.child_id ? (childById.get(g.child_id)?.name ?? null) : null,
         }));
 
-      setCatchUpGoals(displayGoals);
-      setCatchUpEntriesByGoal(entriesByGoal);
-      setCatchUpLastCompletion(lastCompletedAtIso ? lastCompletedAtIso.slice(0, 10) : null);
-      setShowCatchUp(true);
+      setMissedGoals(displayGoals);
+      setMissedEntriesByGoal(entriesByGoal);
+
+      // Session gating. Once the user has seen / acted on the modal in
+      // this tab session we do not re-prompt, and the banner is hidden
+      // until the next session (read by the banner JSX below).
+      const alreadyShown =
+        typeof window !== "undefined" &&
+        window.sessionStorage.getItem("rooted_missed_lesson_prompt_shown") === "1";
+      if (alreadyShown) {
+        setMissedRecoveryDismissed(true);
+        setShowMissedRecovery(false);
+        return;
+      }
+      setShowMissedRecovery(true);
     })();
 
     // Auto-select first incomplete child
@@ -1367,25 +1370,42 @@ export default function TodayPage() {
   }, []);
 
   // ── Catch-up modal handlers (queue-based scheduling) ──────────────────
-  const [catchUpToast, setCatchUpToast] = useState(false);
+  // Success toast after the Missed Lesson Recovery YES path lands.
+  const [recoveryToast, setRecoveryToast] = useState(false);
 
-  async function handleCatchUpSubmit(submission: CatchUpSubmission) {
+  function markMissedRecoveryShown() {
+    if (typeof window === "undefined") return;
+    window.sessionStorage.setItem("rooted_missed_lesson_prompt_shown", "1");
+  }
+
+  async function handleMissedRecoveryYes() {
     if (!effectiveUserId) return;
-    // For each checked entry, mark the matching lesson row complete on
-    // the gap day it would have been due. The row exists in production
-    // because CurriculumWizard pre-generates lesson_number 1..total at
-    // curriculum creation. If a row is missing for any reason, fall
-    // back to inserting a new row keyed by (curriculum_goal_id,
-    // lesson_number).
-    const goalIds = Array.from(new Set(submission.done.map((d) => d.goal_id)));
-    for (const entry of submission.done) {
+    markMissedRecoveryShown();
+    setMissedRecoveryDismissed(true);
+    setShowMissedRecovery(false);
+
+    // Flatten all entries across goals — YES means "mark every missed
+    // lesson done on the gap day it would have been due."
+    const allEntries: MissedEntry[] = [];
+    for (const entries of missedEntriesByGoal.values()) {
+      allEntries.push(...entries);
+    }
+    const goalIds = Array.from(new Set(allEntries.map((e) => e.goal_id)));
+
+    // For each entry, update the existing row by (curriculum_goal_id,
+    // queue_position). The projection emits queue slot indices (see
+    // ProjectedLesson docstring); queue_position is the column the Today
+    // page already matches projection slots against, so it is the correct
+    // field here too. CurriculumWizard pre-generates rows at creation;
+    // missing rows fall through to an insert keyed on the same pair.
+    for (const entry of allEntries) {
       const completedAtIso = `${entry.date}T12:00:00Z`;
       const { data: existing } = await supabase
         .from("lessons")
         .select("id")
         .eq("user_id", effectiveUserId)
         .eq("curriculum_goal_id", entry.goal_id)
-        .eq("lesson_number", entry.lesson_number)
+        .eq("queue_position", entry.lesson_number)
         .maybeSingle();
       if (existing) {
         await supabase.from("lessons").update({
@@ -1396,11 +1416,12 @@ export default function TodayPage() {
           scheduled_source: "catchup_resched",
         }).eq("id", (existing as { id: string }).id);
       } else {
-        // Fall back to insert. Title/subject hydrated from the goal so
-        // the row renders correctly in history. is_backfill marks this
-        // as a catch-up so reports can distinguish if needed.
-        const goal = catchUpGoals.find((g) => g.id === entry.goal_id);
-        const goalRow = await supabase.from("curriculum_goals").select("child_id, subject_label, default_minutes, subject_id").eq("id", entry.goal_id).maybeSingle();
+        const goal = missedGoals.find((g) => g.id === entry.goal_id);
+        const goalRow = await supabase
+          .from("curriculum_goals")
+          .select("child_id, subject_label, default_minutes, subject_id")
+          .eq("id", entry.goal_id)
+          .maybeSingle();
         const childId = (goalRow.data as { child_id?: string | null })?.child_id ?? null;
         const subjectId = (goalRow.data as { subject_id?: string | null })?.subject_id ?? null;
         const defaultMinutes = (goalRow.data as { default_minutes?: number | null })?.default_minutes ?? 30;
@@ -1408,7 +1429,8 @@ export default function TodayPage() {
           user_id: effectiveUserId,
           curriculum_goal_id: entry.goal_id,
           lesson_number: entry.lesson_number,
-          title: `${goal?.subject_label ?? goal?.curriculum_name ?? "Lesson"} — Lesson ${entry.lesson_number}`,
+          queue_position: entry.lesson_number,
+          title: `${goal?.subject_label ?? goal?.curriculum_name ?? "Lesson"}: Lesson ${entry.lesson_number}`,
           completed: true,
           completed_at: completedAtIso,
           date: entry.date,
@@ -1422,26 +1444,30 @@ export default function TodayPage() {
         });
       }
     }
-    // Advance current_lesson per affected goal.
+
     for (const goalId of goalIds) {
       await recomputeCurrentLesson(supabase, goalId);
     }
-    // Persist dismissal so we don't re-prompt for this gap window.
-    await supabase.from("profiles").update({ last_catchup_dismissed_at: new Date().toISOString() }).eq("id", effectiveUserId);
-    setShowCatchUp(false);
-    setCatchUpToast(true);
-    setTimeout(() => setCatchUpToast(false), 2500);
-    // Order matters for the regression guard: loadData first, then story.
+
+    setRecoveryToast(true);
+    setTimeout(() => setRecoveryToast(false), 2500);
+
+    // Regression guard: loadData first, then refreshTodayStory.
     await loadData();
     await refreshTodayStory();
   }
 
-  async function handleCatchUpDismiss() {
-    if (!effectiveUserId) return;
-    await supabase.from("profiles").update({ last_catchup_dismissed_at: new Date().toISOString() }).eq("id", effectiveUserId);
-    setShowCatchUp(false);
-    // No data refresh needed — Today already projects the next-in-queue
-    // lessons, and current_lesson didn't change.
+  async function handleMissedRecoveryNo() {
+    markMissedRecoveryShown();
+    setMissedRecoveryDismissed(true);
+    setShowMissedRecovery(false);
+    // No DB writes — under Path A the queue projector already absorbs
+    // missed lessons into the upcoming schedule going forward from today
+    // (computeTodayLessons projects from current_lesson without
+    // referencing the missed dates). Still refresh both surfaces so the
+    // dashboard re-renders cleanly without the banner.
+    await loadData();
+    await refreshTodayStory();
   }
 
   async function refreshTodayStory() {
@@ -3159,10 +3185,10 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       {/* TODO: remove after queue scheduling verified in production.
           "From earlier" missed-lesson section. Under queue scheduling
-          there are no missed lessons — current_lesson stays put and the
+          there are no missed lessons. current_lesson stays put and the
           same lesson re-appears on Today next school day. Replaced by
-          the catch-up modal (see CatchUpModal below) which only triggers
-          after a 5-day gap. */}
+          the Missed Lesson Recovery modal below which triggers whenever
+          overdueLessonCount > 0 (once per tab session). */}
       {false && !loading && missedLessons.length > 0 && (() => {
         const missedItems = missedLessons.map((l) => ({
           id: l.id,
@@ -3244,15 +3270,17 @@ export default function TodayPage() {
           LESSONS FROM EARLIER — quiet notice for past-dated incomplete
           lessons under the queue model. No auto-reschedule, no alarm.
           Hidden on pace, hidden for brand-new users with no completions.
+          Also hidden once the user has seen / acted on the Missed Lesson
+          Recovery modal this session (gated on missedRecoveryDismissed).
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && overdueLessonCount > 0 && (
+      {!loading && overdueLessonCount > 0 && !missedRecoveryDismissed && (
         <Link
           href="/dashboard/plan"
           className="block px-3.5 py-2.5 rounded-xl bg-[#faf8f4] border border-[#e8e2d9] hover:bg-[#f4f0e8] transition-colors"
         >
           <p className="text-[12px] text-[#7a6f65]">
             {overdueLessonCount} lesson{overdueLessonCount !== 1 ? "s" : ""} from earlier
-            <span className="text-[#5c7f63] font-medium ml-1">— View in Plan →</span>
+            <span className="text-[#5c7f63] font-medium ml-1">View in Plan →</span>
           </p>
         </Link>
       )}
@@ -4813,19 +4841,20 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* ── Catch-up modal (queue-based scheduling) ─────────────────
-           Trigger logic in loadData. Submit advances current_lesson per
-           goal, dismiss persists last_catchup_dismissed_at on profiles. */}
-      {showCatchUp && (
-        <CatchUpModal
-          lastCompletionDate={catchUpLastCompletion}
-          goals={catchUpGoals}
-          entriesByGoal={catchUpEntriesByGoal}
-          onSubmit={handleCatchUpSubmit}
-          onDismiss={handleCatchUpDismiss}
+      {/* ── Missed Lesson Recovery modal (Path A queue scheduling) ──
+           Trigger logic in loadData. YES marks missed rows complete on
+           their gap dates and recomputes current_lesson per goal; NO is
+           a no-op write but still refreshes Today + Memories. Session-
+           storage flag `rooted_missed_lesson_prompt_shown` gates re-show. */}
+      {showMissedRecovery && (
+        <MissedLessonRecoveryModal
+          goals={missedGoals}
+          entriesByGoal={missedEntriesByGoal}
+          onYes={handleMissedRecoveryYes}
+          onNo={handleMissedRecoveryNo}
         />
       )}
-      {catchUpToast && (
+      {recoveryToast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
           <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg">
             Got it. Today is updated.

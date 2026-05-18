@@ -1730,20 +1730,21 @@ test('Invariant 3 — backfilled lessons unchanged after vacation block insert',
   )
 })
 
-test('Invariant 3 — backfilled lessons unchanged after catch-up accept', () => {
-  // Static analysis: handleCatchUpSubmit only writes to rows it identifies
-  // by (goal_id, lesson_number) for entries the user explicitly checked.
-  // It must NOT bulk-update forward-dated lessons or scan by is_backfill,
-  // so backfilled rows are safe by construction.
+test('Invariant 3 — backfilled lessons unchanged after Missed Lesson Recovery YES', () => {
+  // Static analysis: handleMissedRecoveryYes only writes to rows it
+  // identifies by (curriculum_goal_id, queue_position) for entries projected
+  // by computeGapLessonsForGoal. It must NOT bulk-update forward-dated
+  // lessons or scan by is_backfill, so backfilled rows are safe by
+  // construction.
   const src = loadRepoFile('app/dashboard/page.tsx')
-  const body = extractFunctionBody(src, /async function handleCatchUpSubmit\s*\(/)
-  // Sanity: the function does call from("lessons").update — but only inside
+  const body = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  // Sanity: the function does call from("lessons").update, but only inside
   // the per-entry loop, with .eq("id", ...). It does not run a bulk UPDATE.
-  assert.ok(body.includes('for (const entry of submission.done)'), 'catch-up submit must iterate per entry')
+  assert.ok(body.includes('for (const entry of allEntries)'), 'YES must iterate per entry')
   // And it must scope each write by id (not by goal_id + completed=false).
   assert.ok(
     !/\.update\([\s\S]*?\)\.eq\("curriculum_goal_id"/.test(body),
-    'catch-up submit must not run a bulk update by curriculum_goal_id',
+    'YES must not run a bulk update by curriculum_goal_id',
   )
 })
 
@@ -1764,16 +1765,21 @@ test('Invariant 6 — goal.completed_at preserved when last lesson is later mark
 
 // ── Invariant 7 — completion / dismiss is local ───────────────────────────
 
-test('Invariant 7 — catch-up modal DISMISS does not write to lessons table (only updates profiles.last_catchup_dismissed_at)', () => {
+test('Invariant 7 — Missed Lesson Recovery NO does not write to lessons table (session-only dismissal)', () => {
+  // The NO path is a true no-op against the DB. Under Path A queue
+  // scheduling, the projector already absorbs missed lessons into the
+  // upcoming schedule going forward from today, so NO does not need to
+  // re-date or touch any lesson row. It only flips the per-tab session
+  // flag that gates re-show.
   const src = loadRepoFile('app/dashboard/page.tsx')
-  const body = extractFunctionBody(src, /async function handleCatchUpDismiss\s*\(/)
+  const body = extractFunctionBody(src, /async function handleMissedRecoveryNo\s*\(/)
   assert.ok(
     !body.includes('from("lessons")'),
-    'handleCatchUpDismiss must not write to the lessons table',
+    'handleMissedRecoveryNo must not write to the lessons table',
   )
   assert.ok(
-    body.includes('last_catchup_dismissed_at'),
-    'handleCatchUpDismiss must update profiles.last_catchup_dismissed_at',
+    body.includes('markMissedRecoveryShown'),
+    'handleMissedRecoveryNo must call markMissedRecoveryShown to gate re-show',
   )
 })
 
@@ -1862,10 +1868,10 @@ test("Invariant 10 — vacation block insert writes scheduled_source='vacation_r
   )
 })
 
-test("Invariant 10 — catch-up accept writes scheduled_source='catchup_resched' on touched rows", () => {
+test("Invariant 10 — Missed Lesson Recovery YES writes scheduled_source='catchup_resched' on touched rows", () => {
   const src = loadRepoFile('app/dashboard/page.tsx')
-  const body = extractFunctionBody(src, /async function handleCatchUpSubmit\s*\(/)
-  // handleCatchUpSubmit writes both via UPDATE (existing row) and INSERT
+  const body = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  // The YES handler writes both via UPDATE (existing row) and INSERT
   // (fallback when the row is missing). Both must tag catchup_resched.
   const matches = (body.match(/scheduled_source:\s*"catchup_resched"/g) || []).length
   assert.ok(matches >= 2, `expected scheduled_source='catchup_resched' at least twice (update + insert); found ${matches}`)
@@ -1878,7 +1884,7 @@ test('Invariant 10 — no code path leaves scheduled_source NULL after writing l
   const sites: { file: string; fn: RegExp }[] = [
     { file: 'app/dashboard/plan/schedule/page.tsx', fn: /async function handleSave\s*\(/ },
     { file: 'app/dashboard/plan/page.tsx',          fn: /async function saveVacationBlock\s*\(/ },
-    { file: 'app/dashboard/page.tsx',               fn: /async function handleCatchUpSubmit\s*\(/ },
+    { file: 'app/dashboard/page.tsx',               fn: /async function handleMissedRecoveryYes\s*\(/ },
     { file: 'app/dashboard/page.tsx',               fn: /async function skipRestOfToday\s*\(/ },
   ]
   for (const site of sites) {
