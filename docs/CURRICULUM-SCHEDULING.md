@@ -246,9 +246,11 @@ Added May 18, 2026 to close Ivy's bug: moving a lesson on the Plan page didn't r
 - The Today projector emits queue slots; the page looks up actual rows by `(curriculum_goal_id, queue_position)`.
 - `lesson_number` stays pinned to the canonical curriculum index (e.g. "Lesson 12: Long Division"). It drives display, Past tab grouping, and lesson titles. Do not reorder by `lesson_number` after creation.
 
-### Writing rules — manual moves only
+### Writing rules — manual moves + orphan cleanup
 
-The `move_lesson_to_date(p_lesson_id, p_target_date)` Postgres function is the **only** path that writes `queue_position` after creation. It is atomic:
+The `move_lesson_to_date(p_lesson_id, p_target_date)` Postgres function is the primary path that writes `queue_position` after creation. The orphan-cleanup trigger `trg_curriculum_goals_cleanup_orphans` (migration `20260519180000`) nulls `queue_position` on rows it marks complete; nulling keeps `recompute_curriculum_current_lesson` from re-counting cleaned-up rows in its `MAX(queue_position)` formula and so prevents a re-entry loop. No other code path may write `queue_position`.
+
+`move_lesson_to_date` is atomic:
 
 1. Reads the moving lesson's `(curriculum_goal_id, queue_position, scheduled_date)`.
 2. Finds the highest `queue_position` already scheduled on the target date for the same goal (or, if none, the highest predecessor). Adds 1 to get the moved lesson's new rank — "end of the day's existing slots for that goal."
