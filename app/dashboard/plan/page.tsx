@@ -93,6 +93,8 @@ type Activity = {
   child_ids: string[];
   is_active: boolean;
   location: string | null;
+  start_date: string | null;
+  end_date: string | null;
 };
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -721,7 +723,7 @@ function PlanV1() {
     if (!effectiveUserId) return;
     const { data } = await supabase
       .from("activities")
-      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, is_active, location")
+      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, is_active, location, start_date, end_date")
       .eq("user_id", effectiveUserId)
       .eq("is_active", true)
       .order("created_at");
@@ -2122,7 +2124,12 @@ function PlanV1() {
               const d = new Date(dateStr + "T12:00:00");
               // activities.days uses 0=Mon, 1=Tue, ..., 6=Sun
               const dayIdx = (d.getDay() + 6) % 7;
-              return activities.filter(a => a.is_active && a.days.includes(dayIdx)).length;
+              return activities.filter(a => {
+                if (!a.is_active || !a.days.includes(dayIdx)) return false;
+                if (a.start_date && dateStr < a.start_date) return false;
+                if (a.end_date && dateStr > a.end_date) return false;
+                return true;
+              }).length;
             };
 
             // Compute lightest week
@@ -2995,6 +3002,8 @@ function PlanV1() {
                         scheduled_start_time: act.scheduled_start_time,
                         child_ids: act.child_ids,
                         location: act.location,
+                        start_date: act.start_date ?? null,
+                        end_date: act.end_date ?? null,
                       })}
                       className="text-[11px] font-medium text-[#5c7f63] hover:text-[var(--g-deep)] transition-colors"
                     >

@@ -1116,7 +1116,7 @@ export default function PlanV2() {
     // Pull the full row before opening so the modal has all fields.
     const { data } = await supabase
       .from("activities")
-      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, location")
+      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, location, start_date, end_date")
       .eq("id", activity.id)
       .maybeSingle();
     if (!data) return;

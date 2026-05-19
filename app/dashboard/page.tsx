@@ -564,13 +564,15 @@ export default function TodayPage() {
     const todayDow = toMon0(new Date().getDay());
     const { data: actData } = await supabase
       .from("activities")
-      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, created_at")
+      .select("id, name, emoji, frequency, days, duration_minutes, scheduled_start_time, child_ids, created_at, start_date, end_date")
       .eq("user_id", effectiveUserId)
       .eq("is_active", true);
     if (!actData || actData.length === 0) { setTodayActivities([]); return; }
 
     const now = new Date();
-    const filtered = (actData as { id: string; name: string; emoji: string; frequency: string; days: number[]; duration_minutes: number; scheduled_start_time: string | null; child_ids: string[]; created_at: string }[]).filter((a) => {
+    const filtered = (actData as { id: string; name: string; emoji: string; frequency: string; days: number[]; duration_minutes: number; scheduled_start_time: string | null; child_ids: string[]; created_at: string; start_date: string | null; end_date: string | null }[]).filter((a) => {
+      if (a.start_date && today < a.start_date) return false;
+      if (a.end_date && today > a.end_date) return false;
       if (!a.days || !a.days.includes(todayDow)) return false;
       if (a.frequency === "weekly") return true;
       if (a.frequency === "biweekly") {

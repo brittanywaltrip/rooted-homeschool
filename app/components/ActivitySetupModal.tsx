@@ -35,6 +35,9 @@ type ActivityConfig = {
   childIds: string[];
   onceDate: string;
   location: string;
+  hasDateRange: boolean;
+  startDate: string;
+  endDate: string;
 };
 
 export type EditableActivity = {
@@ -47,6 +50,8 @@ export type EditableActivity = {
   scheduled_start_time: string | null;
   child_ids: string[];
   location: string | null;
+  start_date: string | null;
+  end_date: string | null;
 };
 
 interface Props {
@@ -157,6 +162,9 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
       childIds: editingActivity.child_ids ?? [],
       onceDate: "",
       location: editingActivity.location ?? "",
+      hasDateRange: !!(editingActivity.start_date || editingActivity.end_date),
+      startDate: editingActivity.start_date ?? "",
+      endDate: editingActivity.end_date ?? "",
     }];
   });
   const [configIdx, setConfigIdx] = useState(0);
@@ -253,6 +261,9 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
       childIds: children.map((c) => c.id),
       onceDate: todayStr,
       location: "",
+      hasDateRange: false,
+      startDate: "",
+      endDate: "",
     }));
     setConfigs(initial);
     setConfigIdx(0);
@@ -317,6 +328,8 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
           scheduled_start_time: cfg.hasStartTime && cfg.startTime ? cfg.startTime : null,
           child_ids: cfg.childIds,
           location: cfg.location.trim() || null,
+          start_date: cfg.hasDateRange && cfg.startDate ? cfg.startDate : null,
+          end_date: cfg.hasDateRange && cfg.endDate ? cfg.endDate : null,
         }).eq("id", editingActivity.id);
         if (error) {
           console.error("Failed to update activity:", error);
@@ -347,6 +360,8 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
           is_active: true,
           school_year_id: schoolYearId || null,
           location: cfg.location.trim() || null,
+          start_date: cfg.hasDateRange && cfg.startDate ? cfg.startDate : null,
+          end_date: cfg.hasDateRange && cfg.endDate ? cfg.endDate : null,
         }));
 
         const { error } = await supabase.from("activities").insert(rows);
@@ -645,6 +660,62 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
                       );
                     })}
                   </div>
+                </>
+              )}
+
+              {/* Date range toggle (recurring only) */}
+              {cfg.frequency !== "once" && (
+                <>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74]">
+                      Set date range?
+                    </label>
+                    <button
+                      onClick={() =>
+                        updateConfig({ hasDateRange: !cfg.hasDateRange })
+                      }
+                      className="relative rounded-full transition-colors"
+                      style={{
+                        width: 40, height: 22,
+                        background: cfg.hasDateRange ? "#2D5A3D" : "#e8e5e0",
+                      }}
+                    >
+                      <span
+                        className="absolute top-[3px] bg-white rounded-full shadow transition-all"
+                        style={{
+                          width: 16, height: 16,
+                          left: cfg.hasDateRange ? 21 : 3,
+                        }}
+                      />
+                    </button>
+                  </div>
+                  {cfg.hasDateRange && (
+                    <div className="mb-5 grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-medium text-[#8B7E74] block mb-1">
+                          Starts
+                        </label>
+                        <input
+                          type="date"
+                          value={cfg.startDate}
+                          onChange={(e) => updateConfig({ startDate: e.target.value })}
+                          className="w-full border-[1.5px] border-[#e8e5e0] rounded-xl py-2.5 px-3 text-[14px] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-medium text-[#8B7E74] block mb-1">
+                          Ends (optional)
+                        </label>
+                        <input
+                          type="date"
+                          value={cfg.endDate}
+                          onChange={(e) => updateConfig({ endDate: e.target.value })}
+                          className="w-full border-[1.5px] border-[#e8e5e0] rounded-xl py-2.5 px-3 text-[14px] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                        />
+                      </div>
+                    </div>
+                  )}
+                  {!cfg.hasDateRange && <div className="mb-5" />}
                 </>
               )}
 
