@@ -29,6 +29,7 @@ import {
   isSchoolDay,
   normalizeSchoolDays,
   planQueueMove,
+  recomputeCurrentLesson,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
   type VacationBlock,
@@ -2673,4 +2674,99 @@ test('planQueueMove: moving to a date with a sibling at a higher qp lands AFTER 
     { id: 'L4', queue_position: 3 },
     { id: 'L5', queue_position: 4 },
   ])
+})
+
+// ── recomputeCurrentLesson — defensive read-error guard ──────────────────
+//
+// Pre-fix repro: a transient SELECT failure on the goal row or the
+// completed-rows query caused the Supabase client to return
+// { data: null, error: <something> }. The function destructured only
+// `data`, fell to maxCompleted=0, and then WROTE current_lesson back to
+// (start_at_lesson - 1) — clobbering real progress whenever the read
+// hiccupped. The guard now bails on either read error before touching
+// the goal row.
+
+type FakeQueryResult = { data: unknown; error: unknown }
+
+function makeFakeSupabase(opts: {
+  goalResult: FakeQueryResult
+  lessonsResult: FakeQueryResult
+}) {
+  const writes: { table: string; payload: unknown; goalId: string }[] = []
+
+  // The production call chains:
+  //   from('curriculum_goals').select(...).eq(...).maybeSingle()      → goalResult
+  //   from('lessons').select(...).eq(...).eq(...).not(...).order(...).limit(...) → lessonsResult
+  //   from('curriculum_goals').update({...}).eq(...)                  → recorded in writes
+  // The helper builds chainable stubs that ignore their arguments and
+  // resolve to the configured results.
+  const noop = (): unknown => lessonsChain
+  const lessonsChain: Record<string, unknown> = {
+    select: noop, eq: noop, not: noop, order: noop,
+    limit: async () => opts.lessonsResult,
+  }
+
+  const goalsReadChain: Record<string, unknown> = {
+    eq: () => ({ maybeSingle: async () => opts.goalResult }),
+  }
+
+  function goalsTable() {
+    return {
+      select: () => goalsReadChain,
+      update: (payload: unknown) => ({
+        eq: async (_col: string, val: string) => {
+          writes.push({ table: 'curriculum_goals', payload, goalId: val })
+          return { error: null }
+        },
+      }),
+    }
+  }
+
+  const supabase = {
+    from(table: string) {
+      if (table === 'lessons') return lessonsChain
+      if (table === 'curriculum_goals') return goalsTable()
+      throw new Error(`unexpected table: ${table}`)
+    },
+  }
+
+  return { supabase, writes }
+}
+
+test('recomputeCurrentLesson: bails without writing when the goal read errors', async () => {
+  const { supabase, writes } = makeFakeSupabase({
+    goalResult: { data: null, error: { message: 'transient network error' } },
+    lessonsResult: { data: [{ queue_position: 99 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await recomputeCurrentLesson(supabase as any, 'goal-1')
+  assert.equal(result, null, 'returns null on goal read error')
+  assert.equal(writes.length, 0, 'must not write current_lesson when the read failed')
+})
+
+test('recomputeCurrentLesson: bails without writing when the completed-rows read errors', async () => {
+  const { supabase, writes } = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 120, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: null, error: { message: 'transient network error' } },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await recomputeCurrentLesson(supabase as any, 'goal-1')
+  assert.equal(result, null, 'returns null on completed-rows read error')
+  assert.equal(
+    writes.length,
+    0,
+    'must not write current_lesson when the completed-rows read failed (Ivy regression guard)',
+  )
+})
+
+test('recomputeCurrentLesson: writes max(queue_position) when both reads succeed', async () => {
+  const { supabase, writes } = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 120, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: [{ queue_position: 42 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await recomputeCurrentLesson(supabase as any, 'goal-1')
+  assert.equal(result, 42, 'returns the recomputed value')
+  assert.equal(writes.length, 1, 'writes exactly once on the happy path')
+  assert.deepEqual(writes[0].payload, { current_lesson: 42 })
 })
