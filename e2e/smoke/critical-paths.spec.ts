@@ -254,6 +254,208 @@ test.describe('Lesson completion (V2)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Orphan cleanup: advancing current_lesson must auto-complete pre-existing
+// incomplete lesson rows below the new position.
+//
+// Bug context (May 2026): the Schedule Builder's starting-position UI advances
+// current_lesson, but any pre-generated lesson rows below the new position
+// were left sitting as completed=false with real future scheduled_date
+// values. Those "orphans" ghost-rendered on Plan day-detail panels for
+// dates the parent never owed work on. Manual sweep on 2026-05-19 cleaned
+// 557 orphans across 48 goals.
+//
+// Fix: trg_curriculum_goals_cleanup_orphans (migration 20260519180000)
+// fires AFTER UPDATE OF current_lesson and marks any orphan rows as
+// completed inside the same transaction. queue_position is nulled so the
+// row never re-anchors current_lesson; completed_at is backdated one day
+// so the row doesn't count against today's lessons_per_day quota; rows
+// with notes are protected as parent-intentional manual reschedules.
+//
+// This test exercises that contract end-to-end via the same UPDATE path
+// the Schedule Builder runs through (recompute_curriculum_current_lesson
+// writes the new current_lesson, which fires the trigger). Admin-driven
+// because the Schedule Builder UI selectors are flaky in test context.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Orphan cleanup on starting-position advance', () => {
+  // Track IDs for cleanup so afterEach can tear down even on failure mid-run.
+  const createdLabelsOrphan: string[] = [];
+  const createdGoalIdsOrphan: string[] = [];
+
+  test.afterEach(async () => {
+    const sb = adminClient();
+    if (!sb) return;
+    if (createdGoalIdsOrphan.length > 0) {
+      const ids = createdGoalIdsOrphan.splice(0);
+      await sb.from('lessons').delete().in('curriculum_goal_id', ids);
+      await sb.from('curriculum_goals').delete().in('id', ids);
+    }
+    for (const label of createdLabelsOrphan.splice(0)) {
+      await cleanupCurriculumByLabel(label);
+    }
+  });
+
+  test('advancing current_lesson auto-completes incomplete rows below it (skips notes-protected rows)', async ({ page }) => {
+    const sb = adminClient();
+    const ctx = await resolveTestUserAndFirstChild();
+    if (!sb || !ctx) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY + PLAYWRIGHT_EMAIL test account with a child required');
+      return;
+    }
+
+    const stamp = STAMP();
+    const subject = `Orphan Test ${stamp}`;
+    createdLabelsOrphan.push(subject);
+
+    // 1. Seed a curriculum goal with 10 incomplete lesson rows
+    //    (lesson_number 1..10, queue_position matching, all completed=false).
+    //    Row 3 carries a notes value so we can verify the notes carve-out.
+    //    archived=false because the parallel "Data integrity" test asserts
+    //    no archived goal has completed lessons; once the trigger fires
+    //    in step 2, this goal will have completions, so it must not be
+    //    archived during the test window. afterEach deletes it.
+    const { data: goalRow, error: goalErr } = await sb
+      .from('curriculum_goals')
+      .insert({
+        user_id: ctx.userId,
+        child_id: ctx.childId,
+        curriculum_name: subject,
+        subject_label: subject,
+        total_lessons: 10,
+        current_lesson: 0,
+        start_at_lesson: 1,
+        lessons_per_day: 1,
+        school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+        default_minutes: 30,
+        archived: false,
+      })
+      .select('id')
+      .single();
+    if (goalErr || !goalRow) throw new Error(`seed goal failed: ${goalErr?.message}`);
+    const goalId = (goalRow as { id: string }).id;
+    createdGoalIdsOrphan.push(goalId);
+
+    const baseDate = new Date();
+    baseDate.setDate(baseDate.getDate() + 30); // schedule rows far in the future so they would ghost
+    const lessonRows = Array.from({ length: 10 }, (_, i) => {
+      const lessonNumber = i + 1;
+      const d = new Date(baseDate);
+      d.setDate(d.getDate() + lessonNumber);
+      const dateStr = d.toISOString().slice(0, 10);
+      return {
+        user_id: ctx.userId,
+        child_id: ctx.childId,
+        curriculum_goal_id: goalId,
+        title: `${subject} — Lesson ${lessonNumber}`,
+        lesson_number: lessonNumber,
+        queue_position: lessonNumber,
+        scheduled_date: dateStr,
+        date: dateStr,
+        completed: false,
+        scheduled_source: 'wizard_create',
+        hours: 0,
+        // Row 3 has a note. The trigger must NOT touch this row.
+        notes: lessonNumber === 3 ? 'parent: did this manually' : null,
+      };
+    });
+    const { error: lessonErr } = await sb.from('lessons').insert(lessonRows);
+    if (lessonErr) throw new Error(`seed lessons failed: ${lessonErr.message}`);
+
+    // 2. Advance the starting position. Bump start_at_lesson first so the
+    //    recompute floor (start_at_lesson - 1) anchors current_lesson at 10
+    //    after the trigger nulls queue_position on cleaned rows. This
+    //    mirrors what the Schedule Builder does when a parent picks a
+    //    higher starting position and the recompute helper writes the
+    //    new current_lesson.
+    const { error: bumpErr } = await sb
+      .from('curriculum_goals')
+      .update({ start_at_lesson: 11 })
+      .eq('id', goalId);
+    if (bumpErr) throw new Error(`bump start_at_lesson failed: ${bumpErr.message}`);
+
+    const { error: advErr } = await sb
+      .from('curriculum_goals')
+      .update({ current_lesson: 10 })
+      .eq('id', goalId);
+    if (advErr) throw new Error(`advance current_lesson failed: ${advErr.message}`);
+
+    // 3. DB assertion: no incomplete row remains at lesson_number <= 10
+    //    for this goal, EXCEPT the notes-protected row 3.
+    const { data: leftoverIncomplete, error: q1Err } = await sb
+      .from('lessons')
+      .select('lesson_number, completed, queue_position, completed_at, notes')
+      .eq('curriculum_goal_id', goalId)
+      .eq('completed', false);
+    if (q1Err) throw new Error(`leftover query failed: ${q1Err.message}`);
+    const leftovers = (leftoverIncomplete ?? []) as Array<{
+      lesson_number: number;
+      completed: boolean;
+      queue_position: number | null;
+      completed_at: string | null;
+      notes: string | null;
+    }>;
+
+    expect(leftovers.length, 'only the notes-protected row should remain incomplete').toBe(1);
+    expect(leftovers[0].lesson_number).toBe(3);
+    expect(leftovers[0].notes).toMatch(/parent/);
+    expect(leftovers[0].queue_position).toBe(3); // notes-protected row keeps its queue position
+
+    // 4. The cleaned rows are completed with queue_position null + a
+    //    backdated completed_at so the daily quota anchor on Today is not
+    //    poisoned by this cleanup.
+    const { data: cleanedRows, error: q2Err } = await sb
+      .from('lessons')
+      .select('lesson_number, completed, queue_position, completed_at')
+      .eq('curriculum_goal_id', goalId)
+      .eq('completed', true)
+      .order('lesson_number');
+    if (q2Err) throw new Error(`cleaned-rows query failed: ${q2Err.message}`);
+    const cleaned = (cleanedRows ?? []) as Array<{
+      lesson_number: number;
+      completed: boolean;
+      queue_position: number | null;
+      completed_at: string | null;
+    }>;
+    // Rows 1, 2, 4..10 = 9 rows
+    expect(cleaned.length).toBe(9);
+    for (const row of cleaned) {
+      expect(row.queue_position, `row ${row.lesson_number} queue_position must be null`).toBeNull();
+      expect(row.completed_at, `row ${row.lesson_number} completed_at must be set`).toBeTruthy();
+      const completedDate = new Date(row.completed_at as string);
+      const ageDays = (Date.now() - completedDate.getTime()) / 86_400_000;
+      // Backdated by ~1 day; tolerance covers clock skew and the gap
+      // between trigger fire and this assertion.
+      expect(ageDays, `row ${row.lesson_number} should be backdated ~1 day`).toBeGreaterThan(0.5);
+      expect(ageDays, `row ${row.lesson_number} should not be ancient`).toBeLessThan(1.5);
+    }
+
+    // 5. current_lesson held (didn't get reset by the inner recompute loop)
+    const { data: finalGoal, error: q3Err } = await sb
+      .from('curriculum_goals')
+      .select('current_lesson')
+      .eq('id', goalId)
+      .single();
+    if (q3Err) throw new Error(`final goal query failed: ${q3Err.message}`);
+    expect((finalGoal as { current_lesson: number }).current_lesson).toBe(10);
+
+    // 6. Plan page smoke: confirm Plan still renders without JS errors
+    //    after the cleanup. The deep DB assertions above are the real
+    //    contract; this just guards against the cleanup breaking the
+    //    page-load path. We don't assert that the archived test
+    //    curriculum is invisible — some Plan panels still surface
+    //    archived goals (CurriculumGroupsPanel, Past history of
+    //    backdated completed_at), which is a separate UI concern.
+    const consoleErrors: string[] = [];
+    page.on('pageerror', (err) => consoleErrors.push(err.message));
+    await page.goto('/dashboard/plan');
+    await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({
+      timeout: 15_000,
+    });
+    expect(consoleErrors, `Plan page should not throw: ${consoleErrors.join(' | ')}`).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Bonus: data-integrity audit. Skips cleanly without admin credentials.
 // ─────────────────────────────────────────────────────────────────────────────
 
