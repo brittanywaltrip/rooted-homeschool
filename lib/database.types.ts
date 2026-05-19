@@ -21,6 +21,7 @@ export type Database = {
           days: number[] | null
           duration_minutes: number | null
           emoji: string | null
+          end_date: string | null
           frequency: string
           id: string
           is_active: boolean | null
@@ -28,6 +29,7 @@ export type Database = {
           name: string
           scheduled_start_time: string | null
           school_year_id: string | null
+          start_date: string | null
           updated_at: string | null
           user_id: string
         }
@@ -37,6 +39,7 @@ export type Database = {
           days?: number[] | null
           duration_minutes?: number | null
           emoji?: string | null
+          end_date?: string | null
           frequency?: string
           id?: string
           is_active?: boolean | null
@@ -44,6 +47,7 @@ export type Database = {
           name: string
           scheduled_start_time?: string | null
           school_year_id?: string | null
+          start_date?: string | null
           updated_at?: string | null
           user_id: string
         }
@@ -53,6 +57,7 @@ export type Database = {
           days?: number[] | null
           duration_minutes?: number | null
           emoji?: string | null
+          end_date?: string | null
           frequency?: string
           id?: string
           is_active?: boolean | null
@@ -60,6 +65,7 @@ export type Database = {
           name?: string
           scheduled_start_time?: string | null
           school_year_id?: string | null
+          start_date?: string | null
           updated_at?: string | null
           user_id?: string
         }
