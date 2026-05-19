@@ -121,6 +121,7 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'catchup_resched'` — catch-up modal accepted
 - `'skip_today'` — "skip rest of today" pushed today's incompletes forward
 - `'plan_move'` — user dragged or rescheduled a single lesson on the Plan page (queue reorder)
+- `'queue_resync'` — Plan / Today data loader aligned the cached scheduled_date with the queue projector's output (no user-visible change, just keeps the cache honest after current_lesson advances or a `plan_move` shifts siblings without re-dating them)
 - `'cleanup_sql'` — manual cleanup via SQL
 
 **Why:** the May 3 investigation took 90 minutes because every affected lesson row had `scheduled_source = NULL`. Future bugs will be identified in 5 minutes if this is populated.
