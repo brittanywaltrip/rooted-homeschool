@@ -83,12 +83,15 @@ export async function recomputeCurrentLesson(
   supabase: SupabaseClient,
   goalId: string,
 ): Promise<number | null> {
-  const { data: goal } = await supabase
+  const { data: goal, error: goalErr } = await supabase
     .from("curriculum_goals")
     .select("total_lessons, start_at_lesson")
     .eq("id", goalId)
     .maybeSingle();
-  if (!goal) return null;
+  // Bail without writing if the read failed. Pre-fix, a network blip on
+  // this SELECT silently produced data=null and the function then wrote
+  // current_lesson = start_at_lesson - 1, clobbering real progress.
+  if (goalErr || !goal) return null;
 
   const total = (goal as { total_lessons: number | null }).total_lessons ?? 0;
   const startAt = (goal as { start_at_lesson: number | null }).start_at_lesson ?? 1;
@@ -98,7 +101,7 @@ export async function recomputeCurrentLesson(
   // (see move_lesson_to_date). queue_position is the source of truth for
   // "where am I in the queue"; lesson_number stays pinned to the lesson's
   // canonical display index for the Past tab and lesson titles.
-  const { data: completedRows } = await supabase
+  const { data: completedRows, error: rowsErr } = await supabase
     .from("lessons")
     .select("queue_position")
     .eq("curriculum_goal_id", goalId)
@@ -106,6 +109,9 @@ export async function recomputeCurrentLesson(
     .not("queue_position", "is", null)
     .order("queue_position", { ascending: false })
     .limit(1);
+  // Same guard: if the completed-rows read failed, maxCompleted defaults
+  // to 0 and we would overwrite current_lesson with floor. Bail instead.
+  if (rowsErr) return null;
 
   const maxCompleted = (completedRows?.[0] as { queue_position: number | null } | undefined)?.queue_position ?? 0;
   const floor = Math.max(0, startAt - 1);
