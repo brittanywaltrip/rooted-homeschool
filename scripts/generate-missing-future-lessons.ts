@@ -203,6 +203,8 @@ async function main() {
       title: `${titlePrefix} — Lesson ${lesson_number}`,
       notes: seed.notes,
       lesson_number,
+      // queue_position must match lesson_number per Path A invariant.
+      queue_position: lesson_number,
       date,
       scheduled_date: date,
       scheduled_source: 'cleanup_sql',
