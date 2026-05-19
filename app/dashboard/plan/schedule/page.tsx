@@ -1072,6 +1072,8 @@ export default function ScheduleBuilderPage() {
             child_id: row.child_id,
             curriculum_goal_id: goalId,
             lesson_number: l.lesson_number,
+            // queue_position must match lesson_number per Path A invariant.
+            queue_position: l.lesson_number,
             title: `${row.name.trim()} — Lesson ${l.lesson_number}`,
             scheduled_date: l.date,
             date: l.date,

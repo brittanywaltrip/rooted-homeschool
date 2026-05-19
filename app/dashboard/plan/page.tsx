@@ -1420,6 +1420,8 @@ function PlanV1() {
       curriculum_goal_id: goal.id,
       title: `${group.curricName} — Lesson ${nextNumber}`,
       lesson_number: nextNumber,
+      // queue_position must match lesson_number per Path A invariant.
+      queue_position: nextNumber,
       scheduled_date: selectedDay,
       date: selectedDay,
       completed: false,
