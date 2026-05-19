@@ -127,6 +127,73 @@ export async function recomputeCurrentLesson(
 }
 
 /**
+ * Write-through the queue projector's scheduled_date onto the rows it
+ * selected. The projector decides which calendar date a given queue
+ * slot belongs to; the lessons row's scheduled_date is a CACHE of that
+ * decision. Pre-fix, the cache went stale whenever current_lesson
+ * advanced or a manual move shifted siblings on the Plan page, and
+ * Today's `scheduled_date > today` filter (page.tsx) then silently
+ * dropped today's slot rows whose cache still pointed to a future
+ * date. Plan rewrote the date in-memory and rendered the row, so the
+ * two pages disagreed on which lesson was today.
+ *
+ * This helper closes the gap by syncing the DB cache to the
+ * projector's output. Skips rows that are completed or is_backfill —
+ * those carry their historical date and must not be re-dated
+ * (Invariant 3). Skips rows whose cache already matches so a Plan
+ * load with no drift issues zero writes. Groups writes by target
+ * date so the network cost is at most one UPDATE per unique date in
+ * the visible range.
+ *
+ * `rows` carries the local SELECT result; `projDateByKey` maps
+ * `${goal_id}|${slot}` to the projector's date for that slot; `rowKey`
+ * extracts the same composite key from each row (queue_position for
+ * Today, lesson_number for the Plan multi-day window — they agree
+ * before any manual move and Plan's lookup is keyed off the matching
+ * column).
+ */
+export interface QueueResyncRow {
+  id: string;
+  scheduled_date: string | null;
+  completed: boolean;
+  is_backfill?: boolean | null;
+}
+
+export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
+  supabase: SupabaseClient,
+  rows: T[],
+  projDateByKey: Map<string, string>,
+  rowKey: (r: T) => string | null,
+): Promise<void> {
+  const byDate = new Map<string, string[]>();
+  for (const r of rows) {
+    if (r.completed) continue;
+    if (r.is_backfill) continue;
+    const key = rowKey(r);
+    if (!key) continue;
+    const projDate = projDateByKey.get(key);
+    if (!projDate) continue;
+    if (r.scheduled_date === projDate) continue;
+    const list = byDate.get(projDate) ?? [];
+    list.push(r.id);
+    byDate.set(projDate, list);
+  }
+  if (byDate.size === 0) return;
+  await Promise.all(
+    Array.from(byDate.entries()).map(([date, ids]) =>
+      supabase
+        .from("lessons")
+        .update({
+          scheduled_date: date,
+          date: date,
+          scheduled_source: "queue_resync",
+        })
+        .in("id", ids),
+    ),
+  );
+}
+
+/**
  * Heal a goal's lesson rows to match invariants:
  *   - completed=true implies completed_at IS NOT NULL
  *   - delete incomplete duplicate lesson_number rows (keep one)

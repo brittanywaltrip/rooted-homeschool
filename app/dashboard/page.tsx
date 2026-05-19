@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, syncProjectedScheduledDates, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib/timezone";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
@@ -948,6 +948,7 @@ export default function TodayPage() {
       goal_id: string | null;
       notes: string | null;
       scheduled_date: string | null;
+      is_backfill: boolean | null;
     };
     // Projection emits a queue slot index (the field is named lesson_number
     // for backward compat — see ProjectedLesson in scheduler.ts). The DB
@@ -960,7 +961,7 @@ export default function TodayPage() {
       projectedGoalIds.length > 0
         ? supabase
             .from("lessons")
-            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes, scheduled_date")
+            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes, scheduled_date, is_backfill")
             .eq("user_id", effectiveUserId)
             .in("curriculum_goal_id", projectedGoalIds)
             .in("queue_position", projectedSlots)
@@ -972,21 +973,41 @@ export default function TodayPage() {
         .is("curriculum_goal_id", null)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
     ]);
-    const projectedRows = ((projectedRowsResult.data ?? []) as unknown as LoadedLessonRow[])
+    // Align the cached scheduled_date with the projector's truth before
+    // we apply the future-date filter below. Without this, a row at
+    // today's queue slot whose stale cache points at a future date
+    // (e.g. wizard's original schedule, never overwritten after
+    // current_lesson advanced) gets dropped, while Plan rewrites the
+    // date in-memory and renders it. Fire-and-forget DB write; the
+    // local map below is what powers this render.
+    const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
+    const projectedRowsRaw = (projectedRowsResult.data ?? []) as unknown as LoadedLessonRow[];
+    void syncProjectedScheduledDates(
+      supabase,
+      projectedRowsRaw,
+      projDateByKey,
+      (r) => (r.curriculum_goal_id && r.queue_position != null)
+        ? `${r.curriculum_goal_id}|${r.queue_position}`
+        : null,
+    );
+    const projectedRows = projectedRowsRaw
       // Only keep rows that match a projected (goal_id, queue_position) pair —
       // the IN/IN filter widens past the cartesian product so we narrow client-side.
       .filter((r) =>
         projected.some((p) => p.goal_id === r.curriculum_goal_id && p.lesson_number === r.queue_position)
       )
-      // Plan/Today date agreement: the queue projection picks "the Nth next
-      // lesson in queue order," which under queue_position is correct even
-      // after a manual move. But the matched row still carries a
-      // scheduled_date cache. If the user explicitly moved a lesson into the
-      // future (its scheduled_date > today), Today should NOT surface the
-      // queue's next-up lesson on that day if its concrete scheduled_date
-      // says it lives later. Keeps Plan and Today in agreement after a
-      // user-driven move. Rows with null scheduled_date are kept — they
-      // live purely in the queue.
+      // Override the in-memory scheduled_date with the projector's date
+      // so the future-date filter below operates on aligned data instead
+      // of a stale cache.
+      .map((r) => {
+        const projDate = projDateByKey.get(`${r.curriculum_goal_id}|${r.queue_position}`);
+        return projDate ? { ...r, scheduled_date: projDate } : r;
+      })
+      // Defensive: drops a row whose aligned date still ends up in the
+      // future (shouldn't happen for projected today-slot rows; the
+      // projector emits today's date for today's slot). Kept so an
+      // unexpected drift surfaces as a missing row rather than a wrong
+      // one.
       .filter((r) => !(r.scheduled_date && r.scheduled_date > today));
     const oneOffRows = (oneOffRowsResult.data ?? []) as unknown as LoadedLessonRow[];
 

@@ -30,10 +30,12 @@ import {
   normalizeSchoolDays,
   planQueueMove,
   recomputeCurrentLesson,
+  syncProjectedScheduledDates,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
   type VacationBlock,
   type QueueMoveInputLesson,
+  type QueueResyncRow,
 } from './scheduler.ts'
 
 import { readFileSync } from 'node:fs'
@@ -2769,4 +2771,160 @@ test('recomputeCurrentLesson: writes max(queue_position) when both reads succeed
   assert.equal(result, 42, 'returns the recomputed value')
   assert.equal(writes.length, 1, 'writes exactly once on the happy path')
   assert.deepEqual(writes[0].payload, { current_lesson: 42 })
+})
+
+// ── syncProjectedScheduledDates — write-through cache helper ──────────────
+//
+// The queue projector decides which date a queue slot occupies; the
+// lessons row's scheduled_date is a cache of that decision. This
+// helper aligns the cache with the projector's output so Today's
+// scheduled_date filter stops dropping today's slot rows whose cache
+// still points at the wizard's original future date. Tests pin the
+// contract: skip completed + is_backfill, no-op when aligned, group
+// writes by target date, set scheduled_source = 'queue_resync'.
+
+type ResyncSentRow = QueueResyncRow & {
+  curriculum_goal_id: string
+  queue_position: number
+}
+
+function makeResyncSupabase() {
+  const writes: { ids: string[]; payload: Record<string, unknown> }[] = []
+
+  const lessonsWriter = {
+    update: (payload: Record<string, unknown>) => ({
+      in: async (_col: string, ids: string[]) => {
+        writes.push({ ids: [...ids], payload })
+        return { error: null }
+      },
+    }),
+  }
+
+  const supabase = {
+    from(table: string) {
+      if (table === 'lessons') return lessonsWriter
+      throw new Error(`unexpected table: ${table}`)
+    },
+  }
+
+  return { supabase, writes }
+}
+
+function resyncRow(
+  id: string,
+  qp: number,
+  scheduled_date: string | null,
+  completed = false,
+  is_backfill = false,
+): ResyncSentRow {
+  return {
+    id,
+    scheduled_date,
+    completed,
+    is_backfill,
+    curriculum_goal_id: 'g1',
+    queue_position: qp,
+  }
+}
+
+test('syncProjectedScheduledDates: writes nothing when every row already matches the projector', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const rows = [
+    resyncRow('A', 1, '2026-05-19'),
+    resyncRow('B', 2, '2026-05-20'),
+  ]
+  const proj = new Map([
+    ['g1|1', '2026-05-19'],
+    ['g1|2', '2026-05-20'],
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, proj, (r) => `g1|${r.queue_position}`)
+  assert.equal(writes.length, 0, 'aligned cache must not trigger any writes')
+})
+
+test('syncProjectedScheduledDates: drift on a single row issues exactly one UPDATE for the new date', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const rows = [
+    resyncRow('A', 1, '2026-06-15'), // stale: projector says today
+    resyncRow('B', 2, '2026-05-20'),
+  ]
+  const proj = new Map([
+    ['g1|1', '2026-05-19'],
+    ['g1|2', '2026-05-20'],
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, proj, (r) => `g1|${r.queue_position}`)
+  assert.equal(writes.length, 1, 'one UPDATE per distinct target date')
+  assert.deepEqual(writes[0].ids, ['A'])
+  assert.deepEqual(writes[0].payload, {
+    scheduled_date: '2026-05-19',
+    date: '2026-05-19',
+    scheduled_source: 'queue_resync',
+  })
+})
+
+test('syncProjectedScheduledDates: groups rows by target date so two drifted rows on the same date share one UPDATE', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const rows = [
+    resyncRow('A', 1, '2026-06-15'), // drifted → 2026-05-19
+    resyncRow('B', 2, '2026-06-15'), // drifted → 2026-05-19 (same target)
+    resyncRow('C', 3, '2026-06-15'), // drifted → 2026-05-20 (different target)
+  ]
+  const proj = new Map([
+    ['g1|1', '2026-05-19'],
+    ['g1|2', '2026-05-19'],
+    ['g1|3', '2026-05-20'],
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, proj, (r) => `g1|${r.queue_position}`)
+  assert.equal(writes.length, 2, 'two distinct target dates → two UPDATEs')
+  const may19 = writes.find((w) => w.payload.scheduled_date === '2026-05-19')
+  const may20 = writes.find((w) => w.payload.scheduled_date === '2026-05-20')
+  assert.ok(may19 && may20)
+  assert.deepEqual(may19!.ids.sort(), ['A', 'B'])
+  assert.deepEqual(may20!.ids, ['C'])
+})
+
+test('syncProjectedScheduledDates: skips completed rows (Invariant 3 — historical dates stay put)', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const rows = [
+    resyncRow('A', 1, '2026-03-01', /* completed */ true),
+    resyncRow('B', 2, '2026-06-15'),
+  ]
+  const proj = new Map([
+    ['g1|1', '2026-05-19'], // would shift the completed row if we did not skip
+    ['g1|2', '2026-05-20'],
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, proj, (r) => `g1|${r.queue_position}`)
+  assert.equal(writes.length, 1, 'only the incomplete row is written')
+  assert.deepEqual(writes[0].ids, ['B'])
+})
+
+test('syncProjectedScheduledDates: skips is_backfill rows even when incomplete (Invariant 3)', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const rows = [
+    resyncRow('A', 1, '2026-03-01', /* completed */ false, /* is_backfill */ true),
+    resyncRow('B', 2, '2026-06-15'),
+  ]
+  const proj = new Map([
+    ['g1|1', '2026-05-19'],
+    ['g1|2', '2026-05-20'],
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, proj, (r) => `g1|${r.queue_position}`)
+  assert.equal(writes.length, 1)
+  assert.deepEqual(writes[0].ids, ['B'])
+})
+
+test('syncProjectedScheduledDates: skips rows the rowKey extractor returns null for (one-off lessons)', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const rows: QueueResyncRow[] = [
+    { id: 'X1', scheduled_date: '2026-06-15', completed: false, is_backfill: false },
+  ]
+  const proj = new Map([['g1|1', '2026-05-19']])
+  // The extractor returns null for one-off lessons (no curriculum_goal_id).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, proj, () => null)
+  assert.equal(writes.length, 0)
 })

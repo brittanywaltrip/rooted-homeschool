@@ -17,7 +17,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, healGoalIntegrity, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, buildPastDateCompletionPayload, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, healGoalIntegrity, nthSchoolDay as nthSchoolDayLib, planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays, planRescheduleLessons, isQueueEnabled, computeNextLessonsForGoal, computeFinishDate, isVacationDay, isLessonMissed, buildPastDateCompletionPayload, syncProjectedScheduledDates, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { addDays as addDaysYmd } from "@/app/lib/timezone";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
@@ -271,7 +271,7 @@ async function loadLessonsForRange(
     projGoalIds.length > 0
       ? supabase
           .from("lessons")
-          .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+          .select("id, title, completed, child_id, hours, minutes_spent, date, scheduled_date, curriculum_goal_id, lesson_number, is_backfill, notes, subjects(name, color), curriculum_goals(subject_label)")
           .eq("user_id", userId)
           .in("curriculum_goal_id", projGoalIds)
           .in("lesson_number", projNumbers)
@@ -292,8 +292,25 @@ async function loadLessonsForRange(
       .or(`and(scheduled_date.gte.${rangeStartStr},scheduled_date.lte.${rangeEndStr}),and(scheduled_date.is.null,date.gte.${rangeStartStr},date.lte.${rangeEndStr})`),
   ]);
 
-  type Row = Lesson & { lesson_number?: number | null };
+  type Row = Lesson & { lesson_number?: number | null; is_backfill?: boolean | null };
   const projRowsRaw = (projRowsRes.data ?? []) as unknown as Row[];
+
+  // Write-through: align cached scheduled_date on the rows the projector
+  // selected so Today's scheduled_date filter doesn't drop today's queue
+  // slot rows whose cache still points at a wizard-assigned future date.
+  // The helper skips completed and is_backfill rows (Invariant 3) and
+  // no-ops when the cache already matches. Fire-and-forget — display
+  // uses the in-memory override below regardless of whether the write
+  // landed.
+  void syncProjectedScheduledDates(
+    supabase,
+    projRowsRaw,
+    projDateByKey,
+    (r) => (r.curriculum_goal_id && r.lesson_number != null)
+      ? `${r.curriculum_goal_id}|${r.lesson_number}`
+      : null,
+  );
+
   const projRows = projRowsRaw
     .filter((r) => projDateByKey.has(`${r.curriculum_goal_id}|${r.lesson_number}`))
     .map((r) => {
