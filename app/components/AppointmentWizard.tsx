@@ -53,6 +53,10 @@ const PRESETS = [
   { emoji: "📋", name: "Evaluation" },
   { emoji: "🏫", name: "School Meeting" },
   { emoji: "🎵", name: "Lessons/Class" },
+  { emoji: "🚌", name: "Field Trip" },
+  { emoji: "🏛️", name: "Museum" },
+  { emoji: "🌲", name: "Nature Walk" },
+  { emoji: "🎤", name: "Webinar" },
   { emoji: "✨", name: "Custom" },
 ];
 

@@ -4161,6 +4161,7 @@ export default function PlanV2() {
           type AddRow = {
             key: string;
             label: string;
+            description?: string;
             emoji: string;
             bg: string;
             color: string;
@@ -4187,6 +4188,18 @@ export default function PlanV2() {
               emoji: "📅",
               bg: "#f5f0ff",
               color: "#6d28d9",
+              onClick: () => {
+                closeUnifiedAdd();
+                handleMenuAddAppointment(targetDate);
+              },
+            },
+            {
+              key: "event",
+              label: "Add an event",
+              description: "Field trip, convention, outing, webinar",
+              emoji: "🎟️",
+              bg: "#fdf2f8",
+              color: "#be185d",
               onClick: () => {
                 closeUnifiedAdd();
                 handleMenuAddAppointment(targetDate);
@@ -4255,8 +4268,15 @@ export default function PlanV2() {
               >
                 {r.emoji}
               </span>
-              <span className="flex-1 text-[14px] font-medium" style={{ color: r.color }}>
-                {r.label}
+              <span className="flex-1 min-w-0">
+                <span className="block text-[14px] font-medium" style={{ color: r.color }}>
+                  {r.label}
+                </span>
+                {r.description ? (
+                  <span className="block text-[12px] text-[#7a6f65] mt-0.5">
+                    {r.description}
+                  </span>
+                ) : null}
               </span>
               <span aria-hidden className="text-[#c8bfb5] text-[14px]">›</span>
             </button>
