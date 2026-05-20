@@ -724,6 +724,19 @@ export default function PlanV2() {
         notes: values.notes,
         completed: isExtraCompletion,
         completed_at: isExtraCompletion ? new Date().toISOString() : null,
+        // Extra-completion rows ("Log an extra lesson") previously left
+        // scheduled_source / queue_position / is_backfill null, which made
+        // audit queries unable to identify which code path created them
+        // (Drift E on 2026-05-20). Stamp them here so future audits can
+        // attribute these to the unified "+ → Log an extra lesson" path.
+        // The non-extra branch (regular future scheduling) is unchanged.
+        ...(isExtraCompletion
+          ? {
+              scheduled_source: "extra_log",
+              is_backfill: false,
+              queue_position: null,
+            }
+          : {}),
       })
       .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
       .single();
