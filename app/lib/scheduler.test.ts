@@ -1786,17 +1786,22 @@ test('Invariant 7 — Missed Lesson Recovery NO does not write to lessons table 
   )
 })
 
-test('Invariant 7 — marking a single lesson complete leaves all other lesson dates unchanged', () => {
-  // confirmCheckOff is the lesson-completion handler. Its UPDATE must touch
-  // completion-related columns only — never scheduled_date or date.
+test('Invariant 7 — marking a single lesson complete only touches that lesson, and pins its scheduled_date to today', () => {
+  // confirmCheckOff is the Today-page lesson-completion handler. The
+  // structural "no other rows touched" guarantee comes from the
+  // .eq("id", lesson.id) filter — we assert the .update().eq("id", ...)
+  // shape directly. The payload now pins scheduled_date / date to today
+  // on completion so a future-scheduled row doesn't ghost back onto its
+  // original calendar slot (sync-scheduled_date fix).
   const src = loadRepoFile('app/dashboard/page.tsx')
   const body = extractFunctionBody(src, /async function confirmCheckOff\s*\(/)
-  // Find the lessons.update payload object literal in confirmCheckOff.
-  const updateMatch = body.match(/from\("lessons"\)\.update\(\s*\{([\s\S]*?)\}\s*\)/)
-  assert.ok(updateMatch, 'confirmCheckOff must call from("lessons").update')
+  const updateMatch = body.match(/from\("lessons"\)\.update\(\s*\{([\s\S]*?)\}\s*\)\.eq\(\s*"id"/)
+  assert.ok(updateMatch, 'confirmCheckOff must call from("lessons").update(...).eq("id", ...)')
   const payload = updateMatch[1]
-  assert.ok(!/\bscheduled_date\b/.test(payload), 'confirmCheckOff payload must not include scheduled_date')
-  assert.ok(!/\bdate\b\s*:/.test(payload), 'confirmCheckOff payload must not include date')
+  assert.ok(/\bcompleted\s*:\s*true\b/.test(payload), 'payload sets completed: true')
+  assert.ok(/\bcompleted_at\s*:/.test(payload), 'payload sets completed_at')
+  assert.ok(/\bscheduled_date\s*:\s*today\b/.test(payload), 'payload pins scheduled_date to today')
+  assert.ok(/\bdate\s*:\s*today\b/.test(payload), 'payload pins date to today')
 })
 
 // ── Invariant 9 — every "today" is in the user's timezone ─────────────────

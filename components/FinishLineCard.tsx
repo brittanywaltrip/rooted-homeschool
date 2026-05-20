@@ -45,9 +45,18 @@ export default function FinishLineCard({ goal, onEdit, onUpdate, showToast }: Fi
       .limit(1)
       .maybeSingle()
     const nowIso = new Date().toISOString()
+    // Pin scheduled_date / date to today on completion so a future-scheduled
+    // row doesn't ghost back onto its original calendar slot.
+    const todayLocal = new Date()
+    const todayStr = `${todayLocal.getFullYear()}-${String(todayLocal.getMonth() + 1).padStart(2, '0')}-${String(todayLocal.getDate()).padStart(2, '0')}`
     if (nextRow?.id) {
       await supabase.from('lessons')
-        .update({ completed: true, completed_at: nowIso })
+        .update({
+          completed: true,
+          completed_at: nowIso,
+          scheduled_date: todayStr,
+          date: todayStr,
+        })
         .eq('id', nextRow.id)
     }
     await supabase

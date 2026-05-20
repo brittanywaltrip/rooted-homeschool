@@ -101,6 +101,7 @@ export default function LogActivityModal({
           completed:  true,
           completed_at: new Date().toISOString(),
           date:       today,
+          scheduled_date: today,
         });
         if (err) throw err;
 

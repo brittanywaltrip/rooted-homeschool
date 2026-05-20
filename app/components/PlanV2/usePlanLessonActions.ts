@@ -50,21 +50,17 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
   const toggleLesson = useCallback(async (id: string, current: boolean) => {
     const lesson = lessons.find(l => l.id === id) ?? monthLessons.find(l => l.id === id);
     const completingNow = !current;
-    // If a future-dated lesson is being marked complete, pin its
-    // scheduled_date and date to today. The lesson was DONE today, so
-    // its date should be today. Leaving it at tomorrow makes the row
-    // look like it was completed before it was scheduled and pulls the
-    // Plan / Today views out of sync. Only applied on the
-    // complete-direction; toggling back to incomplete leaves dates
-    // untouched (the user might be undoing a misclick on a real future
-    // lesson). lesson_number is left alone. The queue position is
-    // governed by completed lesson_numbers + current_lesson, not date.
+    // Pin scheduled_date / date to today whenever the user marks a lesson
+    // complete — past, present, or future. Without this universal pin,
+    // future rows ghost back onto their original calendar slot and missed
+    // rows keep flagging on the past-dated surface even after they're
+    // done. Only applied on the complete direction; toggling back to
+    // incomplete leaves dates untouched (the user might be undoing a
+    // misclick on a real future lesson). lesson_number is left alone — the
+    // queue position is governed by completed lesson_numbers +
+    // current_lesson, not date (Invariant 7).
     const todayStr = toDateStr(new Date());
-    const pinDateToToday =
-      completingNow &&
-      !!lesson &&
-      lesson.scheduled_date != null &&
-      lesson.scheduled_date > todayStr;
+    const pinDateToToday = completingNow && !!lesson;
     const patch = (l: T): T =>
       l.id !== id
         ? l

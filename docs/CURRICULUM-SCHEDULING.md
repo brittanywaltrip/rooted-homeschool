@@ -82,15 +82,15 @@ Once a `curriculum_goals.completed_at` is set, it must NOT be cleared by any sub
 
 **Test case:** "completed_at preserved on edit-back" — given a goal with completed_at set, marking the last lesson incomplete does NOT clear completed_at.
 
-### Invariant 7 — Lesson completion never triggers rescheduling
+### Invariant 7 — Lesson completion never reschedules OTHER lessons
 
-Marking a lesson `completed = true` must NEVER reschedule any other lessons. Only the goal's `current_lesson` counter and (potentially) `completed_at` may change.
+Marking a lesson `completed = true` must NEVER reschedule any other lessons. The lesson being marked complete may itself have its `scheduled_date` (and `date`) pinned to today so it doesn't ghost on its original calendar slot — that's a same-row pin, not a cross-row reschedule. Beyond that, only the goal's `current_lesson` counter and (potentially) `completed_at` may change.
 
-**Why:** users expect "tap to mark done" to be safe. Side effects on other lessons would be terrifying.
+**Why:** users expect "tap to mark done" to be safe. Side effects on OTHER lessons would be terrifying. Pinning the just-completed lesson's own scheduled_date to today is the opposite — it makes the calendar honest about when the work actually happened, instead of leaving a future-dated ghost behind.
 
-**Enforced by:** the toggle-lesson code path calls `recomputeCurrentLesson(goal)` only — never bulk-update on lessons table.
+**Enforced by:** the toggle-lesson code path calls `recomputeCurrentLesson(goal)` only — never bulk-update on lessons table. The `scheduled_date = today` pin is scoped via `.eq("id", lesson.id)` so by construction no sibling row can be touched.
 
-**Test case:** "marking complete touches only one lesson" — given a goal with N lessons, mark lesson K complete, all other lessons' dates are unchanged.
+**Test case:** "marking complete touches only one lesson" — given a goal with N lessons, mark lesson K complete, lesson K's `scheduled_date` is pinned to today and all other lessons' dates are unchanged.
 
 ### Invariant 8 — One shared `pickNextAvailableDate` helper
 

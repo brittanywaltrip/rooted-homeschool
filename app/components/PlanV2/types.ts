@@ -25,6 +25,7 @@ export type PlanV2Lesson = {
   minutes_spent: number | null;
   notes: string | null;
   scheduled_source: string | null;
+  completed_at: string | null;
 };
 
 export type PlanV2Appointment = {

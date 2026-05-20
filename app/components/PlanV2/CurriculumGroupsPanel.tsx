@@ -249,10 +249,21 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
       ) : (
         <ul className="divide-y divide-[#f0ede8]">
           {activeGoals.map((goal) => {
+            // Sort by lesson_number ASC so the expanded list reads "1, 2,
+            // 3..." regardless of what calendar dates the rows happen to
+            // carry. Date-based sort meant a recalibrated curriculum (with
+            // gap-fill estimates spread across past dates) could render
+            // lesson 5 above lesson 2. Lessons with a null lesson_number
+            // (one-off rows logged via the unified "+") sort to the end so
+            // they don't break the numerical run — same convention used by
+            // WeekListView's day-bucket sort.
             const goalLessons = (lessonsByGoal.get(goal.id) ?? []).sort((a, b) => {
-              const da = a.scheduled_date ?? a.date ?? "";
-              const db = b.scheduled_date ?? b.date ?? "";
-              return da.localeCompare(db);
+              const an = a.lesson_number;
+              const bn = b.lesson_number;
+              if (an == null && bn == null) return 0;
+              if (an == null) return 1;
+              if (bn == null) return -1;
+              return an - bn;
             });
             const totalInView = goalLessons.length;
             const completedCount = goal.current_lesson ?? 0;
@@ -649,7 +660,16 @@ function LessonList(props: {
                   : l.lesson_number
                     ? `Lesson ${l.lesson_number}`
                     : "Lesson";
-              const dateLabel = formatDate(l.scheduled_date ?? l.date);
+              // Completed rows surface the actual completion date so the
+              // user can see when each lesson got marked off. Incomplete /
+              // upcoming rows leave the secondary line blank — the date
+              // would just be the projector's tentative future slot.
+              // Prefer completed_at (truth of when the user tapped done);
+              // fall back to scheduled_date / date for legacy rows that
+              // pre-date the completed_at backfill.
+              const dateLabel = l.completed
+                ? formatDate(l.completed_at?.slice(0, 10) ?? l.scheduled_date ?? l.date)
+                : "";
               return (
                 <li
                   key={l.id}

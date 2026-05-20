@@ -225,19 +225,40 @@ export default function WeekListView(props: Props) {
             : `${shortName} ${dateNum}`;
 
           // Soft warm tint on empty non-vacation days so they read as
-          // intentional whitespace rather than a missing block.
+          // intentional whitespace rather than a missing block. Today wins
+          // over the warm empty-day tint so an idle today still reads as
+          // "this is now", not "nothing here."
           const isEmptyDay = !loading && dayLessons.length === 0 && dayAppts.length === 0 && !vac.vacation;
+          const sectionBgClass = isToday
+            ? "bg-[#f0f7f2]"
+            : isEmptyDay
+              ? "bg-[#faf7f2]"
+              : "";
           return (
             <Fragment key={key}>
               {idx > 0 ? <div className="border-t border-[#e8e5e0]" /> : null}
-              <div className={`px-4 py-3 ${isEmptyDay ? "bg-[#faf7f2]" : ""}`}>
-              {/* Day header */}
+              <div className={`px-4 py-3 ${sectionBgClass}`}>
+              {/* Day header. Today's date number gets a bold + underlined
+                  treatment in --g-brand to match the DateCircle ring the
+                  Month view paints around today. The full header color
+                  already flips green for today (headerColor above); the
+                  underline + bold anchors the eye to the date glyph. */}
               <div className="flex items-center justify-between gap-2 mb-2">
                 <p
                   className="text-[11px] font-semibold uppercase tracking-wide"
                   style={{ color: headerColor }}
                 >
-                  {headerLabel}
+                  {shortName}{" "}
+                  {isToday ? (
+                    <span
+                      className="font-bold border-b-2 border-[#2D5A3D] pb-px"
+                    >
+                      {dateNum}
+                    </span>
+                  ) : (
+                    <span>{dateNum}</span>
+                  )}
+                  {isToday ? " · TODAY" : ""}
                 </p>
                 {!isPartner && onDayAdd ? (
                   <button

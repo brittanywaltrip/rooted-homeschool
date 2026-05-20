@@ -2231,17 +2231,28 @@ export default function PlanV2() {
     setBulkBusy(true);
     hapticTap(20);
 
-    // Optimistic.
+    // Optimistic. Mark-complete also pins scheduled_date / date to today
+    // so a future-dated row in the batch doesn't ghost back onto its
+    // original calendar slot after the write lands.
     const completeSet = new Set(toComplete);
     setLessons((prev) =>
-      prev.map((l) => (completeSet.has(l.id) ? { ...l, completed: true } : l)),
+      prev.map((l) =>
+        completeSet.has(l.id)
+          ? { ...l, completed: true, scheduled_date: todayStr, date: todayStr }
+          : l,
+      ),
     );
 
     const results = await Promise.allSettled(
       toComplete.map((id) =>
         supabase
           .from("lessons")
-          .update({ completed: true, completed_at: new Date().toISOString() })
+          .update({
+            completed: true,
+            completed_at: new Date().toISOString(),
+            scheduled_date: todayStr,
+            date: todayStr,
+          })
           .eq("id", id)
           .then(({ error }) => (error ? Promise.reject(error) : true)),
       ),
@@ -2333,7 +2344,7 @@ export default function PlanV2() {
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode, recordEvent, fireConfettiIfNewlyCompleted]);
+  }, [lessons, setLessons, reload, exitSelectMode, recordEvent, fireConfettiIfNewlyCompleted, todayStr]);
 
   // ── Bulk: skip (clear scheduled_date) ─────────────────────────────────────
 
