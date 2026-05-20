@@ -214,7 +214,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
   }
 
   return (
-    <section className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
+    <section className="bg-white border border-[#e8e5e0] rounded-2xl overflow-visible">
       <header className="flex items-start gap-2 px-4 py-3 border-b border-[#f0ede8]">
         <span aria-hidden className="text-base leading-none mt-0.5">📚</span>
         <div className="flex-1 min-w-0">
