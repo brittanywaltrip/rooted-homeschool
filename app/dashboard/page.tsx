@@ -1481,11 +1481,17 @@ export default function TodayPage() {
     }
   }
 
-  // Poll for new memories (e.g. FAB photo saved from layout)
+  // Poll for new memories (e.g. FAB photo saved from layout). 5 min
+  // cadence: loadData also pulls /api/appointments + /api/lists, and a
+  // 15s tick on those endpoints tripped a Vercel function-invocation
+  // usage anomaly. User-initiated edits don't wait on this — Settings
+  // (children), Plan (lessons), and the FAB all dispatch the
+  // rooted:* window events above for immediate refresh; this poll is
+  // the fallback for changes that arrive without an event.
   useEffect(() => {
     const interval = setInterval(() => {
       loadData();
-    }, 15000);
+    }, 300000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
