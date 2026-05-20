@@ -441,6 +441,11 @@ export default function PlanV2() {
   const [activityModalOpen, setActivityModalOpen] = useState(false);
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
   const [openBackfillGoalId, setOpenBackfillGoalId] = useState<string | null>(null);
+  // Open recalibration form per goal. Only one form open at a time; a
+  // second tap on the menu item collapses the currently-open form. The
+  // form lives inside CurriculumGroupsPanel; we drive open/close from
+  // here so the menu and form share state.
+  const [recalibratingGoalId, setRecalibratingGoalId] = useState<string | null>(null);
   const [deleteGoalConfirm, setDeleteGoalConfirm] = useState<{ goal: PanelGoal; lessonCount: number } | null>(null);
   // "Stop this curriculum" confirm — caps total_lessons at current_lesson
   // and clears uncompleted lessons. Goal row + completed history stay.
@@ -1215,6 +1220,52 @@ export default function PlanV2() {
     }
     reload();
   }, [effectiveUserId, curriculumGoals, recordEvent, reload]);
+
+  // "I'm actually on lesson X" recalibration. Bumps the queue pointer
+  // directly without touching the lessons table. trg_curriculum_goals_
+  // cleanup_orphans (migration 20260519180000) fires on the
+  // current_lesson UPDATE and auto-completes any in-range incomplete rows
+  // so the family does not see stale orphans on Plan; completed history
+  // is preserved (the trigger skips notes-bearing rows and never deletes).
+  const handleRecalibrateGoal = useCallback(
+    async (goal: PanelGoal, newCurrentLesson: number) => {
+      if (!effectiveUserId) throw new Error("Not signed in");
+      // Clamp defensively: the form does the same check but a stale
+      // total_lessons in props could let a bad value through.
+      const total = goal.total_lessons ?? 0;
+      const clamped = Math.max(1, total > 0 ? Math.min(total, newCurrentLesson) : newCurrentLesson);
+      const { error } = await supabase
+        .from("curriculum_goals")
+        .update({
+          current_lesson: clamped,
+          start_at_lesson: clamped,
+        })
+        .eq("id", goal.id);
+      if (error) throw new Error(error.message);
+      recordEvent("curriculum_goal.updated", {
+        goal_id: goal.id,
+        curriculum_name: goal.curriculum_name,
+        action: "recalibrate",
+        new_current_lesson: clamped,
+      });
+      flashNotice(`Schedule updated to lesson ${clamped}`);
+      // Optimistic local patch so the goal card shows the new pointer
+      // before the background refetch lands. GoalFull does not carry
+      // start_at_lesson (it's only read inside Schedule Builder), so we
+      // only mirror current_lesson locally.
+      setCurriculumGoals((prev) =>
+        prev.map((g) =>
+          g.id === goal.id
+            ? { ...g, current_lesson: clamped }
+            : g,
+        ),
+      );
+      setRecalibratingGoalId((id) => (id === goal.id ? null : id));
+      reloadGoals();
+      reload();
+    },
+    [effectiveUserId, recordEvent, reloadGoals, reload],
+  );
 
   const handleGenerateReport = useCallback(async (opts: {
     childId: string | null;
@@ -3529,6 +3580,10 @@ export default function PlanV2() {
           onDeleteLesson={(l) => { void deleteLessonWithLog(l.id); }}
           onOpenBackfill={(g) => setOpenBackfillGoalId((id) => (id === g.id ? null : g.id))}
           openBackfillGoalId={openBackfillGoalId}
+          onOpenRecalibrate={(g) => setRecalibratingGoalId((id) => (id === g.id ? null : g.id))}
+          recalibratingGoalId={recalibratingGoalId}
+          onRecalibrate={handleRecalibrateGoal}
+          onCloseRecalibrate={() => setRecalibratingGoalId(null)}
           renderBackfillPanel={(g) => (
             <BackfillPanel
               goalId={g.id}
