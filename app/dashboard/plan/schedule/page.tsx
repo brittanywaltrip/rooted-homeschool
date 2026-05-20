@@ -1226,6 +1226,36 @@ export default function ScheduleBuilderPage() {
             cleanupErr.message,
           );
         }
+
+        // Post-INSERT overcapacity assertion. The May 20 audit surfaced
+        // pre-existing goals where two disjoint lesson_number ranges
+        // collided onto the same future scheduled_date (e.g. lessons
+        // 94-95 AND 155-156 both on the same day) — a silent corruption
+        // pattern the floor-anchored delete + lesson_number dedup is
+        // supposed to prevent. This read-only check verifies no future
+        // school day exceeds lessons_per_day for THIS goal after the
+        // INSERT batch settled. On violation: throw so handleSave's
+        // catch surfaces the error and the user can re-try, instead of
+        // silently shipping the bad rows.
+        const todayYmd = ymd(todayMid);
+        const { data: overCheck } = await supabase
+          .from("lessons")
+          .select("scheduled_date, curriculum_goal_id")
+          .eq("curriculum_goal_id", goalId)
+          .eq("completed", false)
+          .gte("scheduled_date", todayYmd);
+        const dateMap: Record<string, number> = {};
+        for (const r of (overCheck ?? []) as { scheduled_date: string | null }[]) {
+          if (!r.scheduled_date) continue;
+          dateMap[r.scheduled_date] = (dateMap[r.scheduled_date] ?? 0) + 1;
+        }
+        const violated = Object.entries(dateMap).filter(([, count]) => count > lessons_per_day);
+        if (violated.length > 0) {
+          console.error("[handleSave] Overcapacity after INSERT — rolling back", violated);
+          throw new Error(
+            `Overcapacity detected on ${violated.length} date(s) after save. No changes committed.`,
+          );
+        }
       }
 
       setDirty(false);
