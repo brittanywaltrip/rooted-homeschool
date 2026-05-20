@@ -1208,17 +1208,24 @@ export default function TodayPage() {
         return;
       }
 
-      // One SELECT covers every candidate. We pull EVERY row at the queue
-      // slot in question (regardless of completed flag) so the check
-      // distinguishes "row missing entirely" from "row exists but not yet
-      // marked done." Only the missing-row case triggers the prompt:
+      // One SELECT covers every candidate. We match against lesson_number
+      // (the canonical curriculum index that stays pinned per
+      // docs/CURRICULUM-SCHEDULING.md) rather than queue_position, which
+      // gets nulled by trg_curriculum_goals_cleanup_orphans whenever
+      // current_lesson advances. Without this, the trigger would null
+      // queue_position on the row we just marked complete and the next
+      // load would re-flag the goal as unconfirmed.
+      //
+      // The check distinguishes "row missing entirely" from "row exists
+      // but not yet marked done." Only the missing-row case triggers the
+      // prompt:
       //
       //   * Pre-2026-05-19 Schedule Builder advanced current_lesson via
       //     start_at_lesson without writing backfill rows; the slot at
-      //     queue_position = current_lesson is silently empty and the
+      //     lesson_number = current_lesson is silently empty and the
       //     family has no audit trail of those completions.
       //
-      //   * A normal forward lesson at queue_position = current_lesson
+      //   * A normal forward lesson at lesson_number = current_lesson
       //     (row present, completed=false) is just today's lesson sitting
       //     unfinished. The Yes-handler advances current_lesson by 1, so
       //     re-prompting on every completed=false row would chain a fresh
@@ -1229,14 +1236,14 @@ export default function TodayPage() {
       // erasing a real one.
       const { data: presentRows, error: presentErr } = await supabase
         .from("lessons")
-        .select("curriculum_goal_id, queue_position")
+        .select("curriculum_goal_id, lesson_number")
         .eq("user_id", effectiveUserId)
         .in("curriculum_goal_id", candidates.map((g) => g.id))
-        .not("queue_position", "is", null);
+        .not("lesson_number", "is", null);
       if (presentErr) return;
       const presentSet = new Set(
-        ((presentRows ?? []) as { curriculum_goal_id: string; queue_position: number }[])
-          .map((r) => `${r.curriculum_goal_id}|${r.queue_position}`),
+        ((presentRows ?? []) as { curriculum_goal_id: string; lesson_number: number }[])
+          .map((r) => `${r.curriculum_goal_id}|${r.lesson_number}`),
       );
 
       const unconfirmed = candidates
@@ -2558,18 +2565,21 @@ export default function TodayPage() {
     });
     try {
       const completedAtIso = new Date().toISOString();
-      // Look up an existing row at the queue position so we UPDATE the
-      // canonical lesson row when it exists (preserves notes, title,
-      // minutes) and INSERT only when no row was ever pre-generated for
-      // this slot. Both rows get is_backfill=true so the queue projector
-      // never re-spreads them (Invariant 3) and the Today projector's
-      // `is_backfill !== true` filter keeps them out of the daily list.
+      // Look up an existing row at the canonical lesson_number so we
+      // UPDATE the row when it exists (preserves notes, title, minutes)
+      // and INSERT only when no row was ever pre-generated for this
+      // slot. lesson_number is the stable curriculum index; queue_position
+      // gets nulled by the orphan-cleanup trigger and is not safe to key
+      // on across the current_lesson advance below. Both rows get
+      // is_backfill=true so the queue projector never re-spreads them
+      // (Invariant 3) and the Today projector's `is_backfill !== true`
+      // filter keeps them out of the daily list.
       const { data: existing } = await supabase
         .from("lessons")
         .select("id")
         .eq("user_id", effectiveUserId)
         .eq("curriculum_goal_id", g.goal_id)
-        .eq("queue_position", g.current_lesson)
+        .eq("lesson_number", g.current_lesson)
         .maybeSingle();
 
       if (existing && (existing as { id: string }).id) {
