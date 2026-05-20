@@ -1050,6 +1050,102 @@ export default function ScheduleBuilderPage() {
           .eq("completed", false)
           .gt("lesson_number", completedFloor);
 
+        // Historical backfill: when the user enters a past start_date AND
+        // has already completed lessons (currentLesson > 0), generate
+        // is_backfill=true rows for lesson_numbers 1..currentLesson dated
+        // from start_date forward using the schedule. Without this block
+        // the past start_date was silently ignored: forward lessons all
+        // landed on today and the Plan calendar showed no record of the
+        // family's actual past work. The rows are marked is_backfill so
+        // the queue projector never re-spreads them (Invariant 3) and the
+        // Today page's `is_backfill !== true` filter keeps them out of the
+        // daily checklist. They exist only as historical entries the Plan
+        // calendar surfaces on their past dates.
+        const ymdToday = ymd(todayMid);
+        if (row.start_date && row.start_date < ymdToday && currentLesson > 0) {
+          const startMid = new Date(`${row.start_date}T00:00:00`);
+          // Project from start_date with current_lesson=0 +
+          // total_lessons=currentLesson so the projector lays down exactly
+          // the historical slots numbered 1..currentLesson.
+          const histConfig = {
+            id: goalId,
+            school_days,
+            lessons_per_day,
+            lessons_per_day_overrides,
+            current_lesson: 0,
+            total_lessons: currentLesson,
+            start_date: row.start_date,
+          };
+          const daysSpan = Math.max(
+            1,
+            Math.floor((todayMid.getTime() - startMid.getTime()) / 86400000) + 60,
+          );
+          const histProjected = computeNextLessonsForGoal(
+            histConfig,
+            startMid,
+            daysSpan,
+            vacations,
+          );
+          // Only backfill slots that land STRICTLY before today. Today's
+          // slot still belongs to the normal Today flow, not a pre-fab
+          // "already done" stamp.
+          const pastSlots = histProjected.filter((p) => p.date < ymdToday);
+
+          // Respect the (curriculum_goal_id, lesson_number) unique index.
+          // The floor delete above cleared incomplete rows 1..currentLesson;
+          // anything left is either a real completion or a previously
+          // inserted backfill row, both of which must be preserved.
+          const { data: existingHist } = await supabase
+            .from("lessons")
+            .select("lesson_number")
+            .eq("curriculum_goal_id", goalId)
+            .gte("lesson_number", 1)
+            .lte("lesson_number", currentLesson);
+          const existingHistNums = new Set(
+            ((existingHist ?? []) as { lesson_number: number | null }[])
+              .map((r) => r.lesson_number)
+              .filter((n): n is number => n !== null),
+          );
+
+          const minutes = row.minutes_per_lesson ?? 30;
+          const histToInsert = pastSlots
+            .filter((p) => !existingHistNums.has(p.lesson_number))
+            .map((p) => ({
+              user_id: effectiveUserId,
+              child_id: row.child_id,
+              curriculum_goal_id: goalId,
+              lesson_number: p.lesson_number,
+              queue_position: p.lesson_number,
+              title: `${row.name.trim()} — Lesson ${p.lesson_number}`,
+              scheduled_date: p.date,
+              date: p.date,
+              // `wizard_create` covers both forward AND backfill rows per
+              // Invariant 10 in docs/CURRICULUM-SCHEDULING.md.
+              scheduled_source: "wizard_create",
+              completed: true,
+              completed_at: new Date(`${p.date}T12:00:00`).toISOString(),
+              is_backfill: true,
+              minutes_spent: minutes,
+              hours: minutes / 60,
+            }));
+
+          if (histToInsert.length > 0) {
+            for (let i = 0; i < histToInsert.length; i += 100) {
+              const { error: histErr } = await supabase
+                .from("lessons")
+                .insert(histToInsert.slice(i, i + 100));
+              if (histErr) {
+                console.error(
+                  "[ScheduleBuilder] backfill insert error for goal",
+                  goalId,
+                  ":",
+                  histErr.message,
+                );
+              }
+            }
+          }
+        }
+
         // Dedupe by lesson_number is now mostly redundant (the floor
         // delete just cleared the space above completedFloor, and the
         // projector emits lesson_numbers strictly above completedFloor
