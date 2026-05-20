@@ -147,6 +147,10 @@ export interface CurriculumGroupsPanelProps {
    *  is preserved and the goal stays in the DB. Only wired for active
    *  goals (pending goals haven't started, so stopping is meaningless). */
   onStop: (goal: CurriculumGoal) => void;
+  /** "Mark as finished" — sets archived=true on curriculum_goals so the
+   *  goal drops off Today + Plan immediately. Does NOT touch lesson rows;
+   *  history stays intact and Transcript still surfaces the goal. */
+  onMarkFinished: (goal: CurriculumGoal) => void;
   onToggleLesson: (lessonId: string, current: boolean) => void;
   onEditLesson: (lesson: PlanV2Lesson) => void;
   onRescheduleLesson: (lesson: PlanV2Lesson) => void;
@@ -172,7 +176,7 @@ export interface CurriculumGroupsPanelProps {
 export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps) {
   const {
     goals, lessons, kids, vacationBlocks,
-    onCreate, onEdit, onDelete, onStop,
+    onCreate, onEdit, onDelete, onStop, onMarkFinished,
     onToggleLesson, onEditLesson, onRescheduleLesson, onSkipLesson, onDeleteLesson,
     onOpenBackfill, openBackfillGoalId, renderBackfillPanel,
     onOpenRecalibrate, recalibratingGoalId, onRecalibrate, onCloseRecalibrate,
@@ -357,6 +361,14 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                                 <Hand size={14} /> Stop
                               </button>
                             ) : null}
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => { setMenuOpenId(null); onMarkFinished(goal); }}
+                              className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                            >
+                              <span aria-hidden className="text-[14px] leading-none">✅</span> Mark as finished
+                            </button>
                             <button
                               type="button"
                               role="menuitem"
