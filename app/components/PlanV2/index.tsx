@@ -68,7 +68,13 @@ import {
 import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
 import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
-import { recomputeCurrentLesson } from "@/app/lib/scheduler";
+import {
+  recomputeCurrentLesson,
+  computeNextLessonsForGoal,
+  syncProjectedScheduledDates,
+  type CurriculumGoalConfig,
+  type VacationBlock as SchedVacationBlock,
+} from "@/app/lib/scheduler";
 import {
   buildOptimisticEventRow,
   filterEventsForDay,
@@ -1313,6 +1319,62 @@ export default function PlanV2() {
         action: "recalibrate",
         new_current_lesson: clamped,
       });
+
+      // Re-project this goal's incomplete lessons from today so cached
+      // scheduled_date values align with the new queue position. Without
+      // this, lesson `clamped` keeps its wizard-assigned scheduled_date
+      // (potentially weeks away) and won't appear on Today until then.
+      // PanelGoal lacks lessons_per_day_overrides, so fetch it back so
+      // per-weekday counts feed the projector. Awaited so the reload
+      // below reads the freshly-aligned rows.
+      const { data: cfgRow } = await supabase
+        .from("curriculum_goals")
+        .select("lessons_per_day_overrides")
+        .eq("id", goal.id)
+        .maybeSingle();
+      const cfg: CurriculumGoalConfig = {
+        id: goal.id,
+        total_lessons: goal.total_lessons,
+        lessons_per_day: goal.lessons_per_day,
+        school_days: goal.school_days,
+        current_lesson: newCountDone,
+        start_date: goal.start_date ?? null,
+        lessons_per_day_overrides:
+          (cfgRow as { lessons_per_day_overrides?: Record<string, number> | null } | null)
+            ?.lessons_per_day_overrides ?? null,
+      };
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      // 1500 days covers a 180-lesson curriculum at 1/week (~3.5 yrs);
+      // the projector also stops when total_lessons is reached.
+      const projected = computeNextLessonsForGoal(
+        cfg,
+        today,
+        1500,
+        vacationBlocks as unknown as SchedVacationBlock[],
+      );
+      const projDateByKey = new Map(
+        projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
+      );
+      const { data: rowsData } = await supabase
+        .from("lessons")
+        .select("id, scheduled_date, completed, is_backfill, lesson_number")
+        .eq("curriculum_goal_id", goal.id)
+        .eq("completed", false);
+      const rows = (rowsData ?? []) as Array<{
+        id: string;
+        scheduled_date: string | null;
+        completed: boolean;
+        is_backfill: boolean | null;
+        lesson_number: number | null;
+      }>;
+      await syncProjectedScheduledDates(
+        supabase,
+        rows,
+        projDateByKey,
+        (r) => (r.lesson_number != null ? `${goal.id}|${r.lesson_number}` : null),
+      );
+
       flashNotice(`Schedule updated to lesson ${clamped}`);
       // Optimistic local patch so the goal card shows the new pointer
       // before the background refetch lands. GoalFull does not carry
@@ -1329,7 +1391,7 @@ export default function PlanV2() {
       reloadGoals();
       reload();
     },
-    [effectiveUserId, recordEvent, reloadGoals, reload],
+    [effectiveUserId, recordEvent, reloadGoals, reload, vacationBlocks],
   );
 
   const handleGenerateReport = useCallback(async (opts: {
