@@ -1208,27 +1208,39 @@ export default function TodayPage() {
         return;
       }
 
-      // One SELECT covers every candidate. We pull all completed rows for
-      // these goals and check the (goal_id | queue_position) set client-
-      // side; the result is one row per recorded completion across all
-      // candidate goals, which stays small in practice. Failure is silent:
-      // a transient query error leaves needsConfirmation untouched rather
-      // than showing a stale prompt or erasing a real one.
-      const { data: confirmedRows, error: confirmedErr } = await supabase
+      // One SELECT covers every candidate. We pull EVERY row at the queue
+      // slot in question (regardless of completed flag) so the check
+      // distinguishes "row missing entirely" from "row exists but not yet
+      // marked done." Only the missing-row case triggers the prompt:
+      //
+      //   * Pre-2026-05-19 Schedule Builder advanced current_lesson via
+      //     start_at_lesson without writing backfill rows; the slot at
+      //     queue_position = current_lesson is silently empty and the
+      //     family has no audit trail of those completions.
+      //
+      //   * A normal forward lesson at queue_position = current_lesson
+      //     (row present, completed=false) is just today's lesson sitting
+      //     unfinished. The Yes-handler advances current_lesson by 1, so
+      //     re-prompting on every completed=false row would chain a fresh
+      //     prompt after every Yes click. Suppress it.
+      //
+      // Failure is silent: a transient query error leaves
+      // needsConfirmation untouched rather than showing a stale prompt or
+      // erasing a real one.
+      const { data: presentRows, error: presentErr } = await supabase
         .from("lessons")
         .select("curriculum_goal_id, queue_position")
         .eq("user_id", effectiveUserId)
-        .eq("completed", true)
         .in("curriculum_goal_id", candidates.map((g) => g.id))
         .not("queue_position", "is", null);
-      if (confirmedErr) return;
-      const confirmedSet = new Set(
-        ((confirmedRows ?? []) as { curriculum_goal_id: string; queue_position: number }[])
+      if (presentErr) return;
+      const presentSet = new Set(
+        ((presentRows ?? []) as { curriculum_goal_id: string; queue_position: number }[])
           .map((r) => `${r.curriculum_goal_id}|${r.queue_position}`),
       );
 
       const unconfirmed = candidates
-        .filter((g) => !confirmedSet.has(`${g.id}|${g.current_lesson}`))
+        .filter((g) => !presentSet.has(`${g.id}|${g.current_lesson}`))
         // Session dismissal: localStorage key scoped to (goal_id, today)
         // so a "No, show it today" press hides the prompt for the rest of
         // the day but reappears tomorrow if still unresolved.
