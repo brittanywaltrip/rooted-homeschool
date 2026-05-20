@@ -4,7 +4,7 @@ import {
   syncProjectedScheduledDates,
   type CurriculumGoalConfig,
   type VacationBlock,
-} from "./scheduler";
+} from "./scheduler.ts";
 
 /* ============================================================================
  * recalibrate.ts — shared "I'm actually on lesson X" recalibration.
