@@ -523,6 +523,23 @@ export default function TodayPage() {
   // discourage them on day one.
   const [overdueLessonCount, setOverdueLessonCount] = useState(0);
 
+  // Unconfirmed-prior-lesson prompts. A goal lands here when
+  // current_lesson > 0 but the lesson row at queue_position = current_lesson
+  // is missing or not flagged completed=true. Caused most often when the
+  // Schedule Builder advances start_at_lesson without backfilling the
+  // earlier slots (pre-2026-05-19 fix) or when the queue advances by some
+  // path that does not stamp the row. Computed off the critical-path so
+  // Today still renders normally for users with no unconfirmed work.
+  type UnconfirmedGoal = {
+    goal_id: string;
+    curriculum_name: string;
+    subject_label: string | null;
+    current_lesson: number;
+    child_id: string | null;
+  };
+  const [needsConfirmation, setNeedsConfirmation] = useState<UnconfirmedGoal[]>([]);
+  const [confirmingGoalIds, setConfirmingGoalIds] = useState<Set<string>>(() => new Set());
+
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.search.includes("capture=1")) {
@@ -1169,6 +1186,84 @@ export default function TodayPage() {
         return;
       }
       setShowMissedRecovery(true);
+    })();
+
+    // ── Unconfirmed-prior-lesson check (Path A queue scheduling) ──────────
+    // For each active goal, see whether the queue slot at queue_position =
+    // current_lesson has actually been recorded as completed. If not, the
+    // queue advanced (via Schedule Builder starting-position bump, manual
+    // SQL, or a missed mark-complete) without an audit trail. We surface a
+    // one-tap inline prompt above today's lesson list so the family can
+    // confirm or push the lesson back to today. Runs fire-and-forget so a
+    // slow round trip never blocks Today's main render.
+    void (async () => {
+      // Skip the same-day-as-creation case: a goal created today with
+      // start_at_lesson > 1 (the Schedule Builder's past-start UX) would
+      // otherwise prompt on the same page-load that created it.
+      const candidates = goalRows.filter(
+        (g) => g.current_lesson > 0 && g.start_date !== today,
+      );
+      if (candidates.length === 0) {
+        setNeedsConfirmation([]);
+        return;
+      }
+
+      // One SELECT covers every candidate. We match against lesson_number
+      // (the canonical curriculum index that stays pinned per
+      // docs/CURRICULUM-SCHEDULING.md) rather than queue_position, which
+      // gets nulled by trg_curriculum_goals_cleanup_orphans whenever
+      // current_lesson advances. Without this, the trigger would null
+      // queue_position on the row we just marked complete and the next
+      // load would re-flag the goal as unconfirmed.
+      //
+      // The check distinguishes "row missing entirely" from "row exists
+      // but not yet marked done." Only the missing-row case triggers the
+      // prompt:
+      //
+      //   * Pre-2026-05-19 Schedule Builder advanced current_lesson via
+      //     start_at_lesson without writing backfill rows; the slot at
+      //     lesson_number = current_lesson is silently empty and the
+      //     family has no audit trail of those completions.
+      //
+      //   * A normal forward lesson at lesson_number = current_lesson
+      //     (row present, completed=false) is just today's lesson sitting
+      //     unfinished. The Yes-handler advances current_lesson by 1, so
+      //     re-prompting on every completed=false row would chain a fresh
+      //     prompt after every Yes click. Suppress it.
+      //
+      // Failure is silent: a transient query error leaves
+      // needsConfirmation untouched rather than showing a stale prompt or
+      // erasing a real one.
+      const { data: presentRows, error: presentErr } = await supabase
+        .from("lessons")
+        .select("curriculum_goal_id, lesson_number")
+        .eq("user_id", effectiveUserId)
+        .in("curriculum_goal_id", candidates.map((g) => g.id))
+        .not("lesson_number", "is", null);
+      if (presentErr) return;
+      const presentSet = new Set(
+        ((presentRows ?? []) as { curriculum_goal_id: string; lesson_number: number }[])
+          .map((r) => `${r.curriculum_goal_id}|${r.lesson_number}`),
+      );
+
+      const unconfirmed = candidates
+        .filter((g) => !presentSet.has(`${g.id}|${g.current_lesson}`))
+        // Session dismissal: localStorage key scoped to (goal_id, today)
+        // so a "No, show it today" press hides the prompt for the rest of
+        // the day but reappears tomorrow if still unresolved.
+        .filter((g) => {
+          if (typeof window === "undefined") return true;
+          const key = `rooted_dismissed_confirmation_${g.id}_${today}`;
+          return window.localStorage.getItem(key) !== "1";
+        })
+        .map((g) => ({
+          goal_id: g.id,
+          curriculum_name: g.curriculum_name,
+          subject_label: g.subject_label,
+          current_lesson: g.current_lesson,
+          child_id: g.child_id,
+        }));
+      setNeedsConfirmation(unconfirmed);
     })();
 
     // Auto-select first incomplete child
@@ -2452,6 +2547,110 @@ export default function TodayPage() {
     });
   }
 
+  // ── Unconfirmed-prior-lesson prompt handlers ───────────────────────────
+  // The prompt above today's lesson list asks "Did you finish [Subject] -
+  // Lesson [current_lesson]?". Yes records the completion + advances the
+  // queue by one; No drops a localStorage flag so the prompt stays hidden
+  // for the rest of the calendar day. Both paths leave Today's main
+  // render path untouched so a failed write does not strand the user on
+  // a half-loaded page.
+
+  async function confirmPriorLessonComplete(g: UnconfirmedGoal) {
+    if (!effectiveUserId) return;
+    if (confirmingGoalIds.has(g.goal_id)) return;
+    setConfirmingGoalIds((prev) => {
+      const next = new Set(prev);
+      next.add(g.goal_id);
+      return next;
+    });
+    try {
+      const completedAtIso = new Date().toISOString();
+      // Look up an existing row at the canonical lesson_number so we
+      // UPDATE the row when it exists (preserves notes, title, minutes)
+      // and INSERT only when no row was ever pre-generated for this
+      // slot. lesson_number is the stable curriculum index; queue_position
+      // gets nulled by the orphan-cleanup trigger and is not safe to key
+      // on across the current_lesson advance below. Both rows get
+      // is_backfill=true so the queue projector never re-spreads them
+      // (Invariant 3) and the Today projector's `is_backfill !== true`
+      // filter keeps them out of the daily list.
+      const { data: existing } = await supabase
+        .from("lessons")
+        .select("id")
+        .eq("user_id", effectiveUserId)
+        .eq("curriculum_goal_id", g.goal_id)
+        .eq("lesson_number", g.current_lesson)
+        .maybeSingle();
+
+      if (existing && (existing as { id: string }).id) {
+        const { error } = await supabase
+          .from("lessons")
+          .update({
+            completed: true,
+            completed_at: completedAtIso,
+            is_backfill: true,
+            // Invariant 10: every lesson write stamps a scheduled_source.
+            // 'wizard_create' is the closest existing tag for a confirmed
+            // historical completion seeded from the queue position.
+            scheduled_source: "wizard_create",
+          })
+          .eq("id", (existing as { id: string }).id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("lessons").insert({
+          user_id: effectiveUserId,
+          child_id: g.child_id,
+          curriculum_goal_id: g.goal_id,
+          lesson_number: g.current_lesson,
+          queue_position: g.current_lesson,
+          title: `${g.curriculum_name} — Lesson ${g.current_lesson}`,
+          scheduled_date: today,
+          date: today,
+          completed: true,
+          completed_at: completedAtIso,
+          is_backfill: true,
+          scheduled_source: "wizard_create",
+          hours: 0,
+        });
+        if (error) throw error;
+      }
+
+      // Advance the queue pointer by one. Per spec: do not call
+      // recomputeCurrentLesson here. Its formula would clamp
+      // current_lesson back to max(queue_position) of completed rows,
+      // which equals the value we just confirmed (no advance). The
+      // confirmation prompt's contract is that Yes moves the family
+      // forward by one lesson.
+      await supabase
+        .from("curriculum_goals")
+        .update({ current_lesson: g.current_lesson + 1 })
+        .eq("id", g.goal_id);
+
+      // Hide the prompt locally before the reload lands so the card
+      // disappears immediately.
+      setNeedsConfirmation((prev) => prev.filter((u) => u.goal_id !== g.goal_id));
+      // Pull Today's data again so the projector emits the next slot
+      // (current_lesson + 1) as today's lesson.
+      await loadData();
+    } finally {
+      setConfirmingGoalIds((prev) => {
+        const next = new Set(prev);
+        next.delete(g.goal_id);
+        return next;
+      });
+    }
+  }
+
+  function dismissPriorLessonPrompt(g: UnconfirmedGoal) {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(
+        `rooted_dismissed_confirmation_${g.goal_id}_${today}`,
+        "1",
+      );
+    }
+    setNeedsConfirmation((prev) => prev.filter((u) => u.goal_id !== g.goal_id));
+  }
+
   async function runMissedAddToNextDays() {
     return runReschedule(async () => {
       if (missedSheetSubmitting || missedLessons.length === 0) return;
@@ -3369,13 +3568,57 @@ export default function TodayPage() {
       {/* ═══════════════════════════════════════════════════════════
           TODAY SCHEDULE — grouped by kid + subject, kid color tints
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
+      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0 || needsConfirmation.length > 0) && (
         <div>
           {activeVacation && (
             <p className="text-[11px] text-[#9a8f85] mb-2 px-0.5">
               Logging is optional today
             </p>
           )}
+          {/* Unconfirmed-prior-lesson prompts. One card per affected goal,
+              rendered at the very top of Today's lesson list so the
+              question is the first thing mom sees on open. Hidden for
+              partners (read-only context) since they cannot record
+              completions on someone else's behalf. */}
+          {!isPartner && needsConfirmation.length > 0 ? (
+            <div className="space-y-2 mb-3">
+              {needsConfirmation.map((g) => {
+                const subjectLabel = (g.subject_label && g.subject_label.trim().length > 0)
+                  ? g.subject_label
+                  : g.curriculum_name;
+                const busy = confirmingGoalIds.has(g.goal_id);
+                return (
+                  <div
+                    key={g.goal_id}
+                    className="rounded-2xl border border-[#e5dec5] bg-[#fdfaef] px-3.5 py-3"
+                  >
+                    <p className="text-[13px] text-[#5c4a1a] leading-snug">
+                      Did you finish <span className="font-semibold">{subjectLabel}</span>
+                      {" "}Lesson {g.current_lesson}?
+                    </p>
+                    <div className="mt-2.5 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { void confirmPriorLessonComplete(g); }}
+                        disabled={busy}
+                        className="text-[12px] font-semibold text-white bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
+                      >
+                        {busy ? "Saving…" : "Yes, mark it done"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => dismissPriorLessonPrompt(g)}
+                        disabled={busy}
+                        className="text-[12px] font-semibold text-[#5c4a1a] bg-white border border-[#e5dec5] hover:bg-[#f8f2e0] disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
+                      >
+                        No, show it today
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
           {/* Standalone "Log extra lessons" entry — quiet sage link sitting
               above the schedule card so families who blow past today's
               allocation can pull from the upcoming queue without hunting
