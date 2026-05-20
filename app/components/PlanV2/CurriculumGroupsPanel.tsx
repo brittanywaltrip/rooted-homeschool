@@ -505,7 +505,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
   );
 }
 
-function RecalibrateForm(props: {
+export function RecalibrateForm(props: {
   goal: CurriculumGoal;
   onSubmit: (newCurrentLesson: number) => Promise<void>;
   onClose: () => void;
