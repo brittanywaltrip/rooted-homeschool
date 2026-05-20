@@ -154,6 +154,7 @@ function toTodayLessons(ls: PlanV2Lesson[]): TodayLessonCardLesson[] {
     lesson_number: l.lesson_number,
     curriculum_goal_id: l.curriculum_goal_id,
     notes: l.notes,
+    scheduled_source: l.scheduled_source,
   }));
 }
 
@@ -1305,6 +1306,55 @@ export default function PlanV2() {
       const total = goal.total_lessons ?? 0;
       const clamped = Math.max(1, total > 0 ? Math.min(total, newCurrentLesson) : newCurrentLesson);
       const newCountDone = Math.max(0, clamped - 1);
+
+      // Snapshot the pre-UPDATE state of the goal. We need three things
+      // before the orphan-cleanup trigger fires:
+      //   1. The set of "gap" lesson rows (incomplete, lesson_number <
+      //      clamped) so we can backfill estimated completion dates onto
+      //      them after the trigger has marked them complete.
+      //   2. The anchor for that distribution: the most recent real
+      //      completion (scheduled_source != 'recalibrate_estimate') —
+      //      falling back to start_date, then to created_at.
+      //   3. The goal's lessons_per_day_overrides + created_at, needed by
+      //      the forward projector resync and the anchor fallback chain.
+      //      PanelGoal carries neither, so we fetch them here.
+      const [goalExtraRes, gapRowsRes, anchorRowRes] = await Promise.all([
+        supabase
+          .from("curriculum_goals")
+          .select("lessons_per_day_overrides, created_at")
+          .eq("id", goal.id)
+          .maybeSingle(),
+        supabase
+          .from("lessons")
+          .select("id, lesson_number")
+          .eq("curriculum_goal_id", goal.id)
+          .eq("completed", false)
+          .not("lesson_number", "is", null)
+          .lt("lesson_number", clamped)
+          .order("lesson_number", { ascending: true }),
+        supabase
+          .from("lessons")
+          .select("completed_at")
+          .eq("curriculum_goal_id", goal.id)
+          .eq("completed", true)
+          .not("completed_at", "is", null)
+          .or("scheduled_source.is.null,scheduled_source.neq.recalibrate_estimate")
+          .order("completed_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ]);
+      const goalExtra =
+        (goalExtraRes.data as {
+          lessons_per_day_overrides?: Record<string, number> | null;
+          created_at?: string | null;
+        } | null) ?? null;
+      const gapLessons = (gapRowsRes.data ?? []) as Array<{
+        id: string;
+        lesson_number: number;
+      }>;
+      const anchorCompletedAt =
+        (anchorRowRes.data as { completed_at: string | null } | null)?.completed_at ?? null;
+
       const { error } = await supabase
         .from("curriculum_goals")
         .update({
@@ -1318,20 +1368,95 @@ export default function PlanV2() {
         curriculum_name: goal.curriculum_name,
         action: "recalibrate",
         new_current_lesson: clamped,
+        gap_count: gapLessons.length,
       });
+
+      // ── Distribute the gap lessons across the available calendar
+      // window. The orphan-cleanup trigger has already marked the
+      // notes-less rows complete with completed_at = NOW() - 1 day; this
+      // re-stamps them (plus any notes-bearing rows the trigger skipped)
+      // with evenly-spread dates and scheduled_source =
+      // 'recalibrate_estimate' so the lesson card can flag them as
+      // estimates. Raw calendar days — no weekend / break filtering, per
+      // spec.
+      if (gapLessons.length > 0) {
+        const todayMid = new Date();
+        todayMid.setHours(0, 0, 0, 0);
+        const yesterdayMid = new Date(todayMid);
+        yesterdayMid.setDate(todayMid.getDate() - 1);
+
+        // Anchor fallback chain: most-recent real completion → start_date
+        // → created_at → yesterday (last-ditch so the math never blows up).
+        let anchorMid: Date | null = null;
+        if (anchorCompletedAt) {
+          anchorMid = new Date(anchorCompletedAt);
+        } else if (goal.start_date) {
+          anchorMid = new Date(`${goal.start_date}T00:00:00`);
+        } else if (goalExtra?.created_at) {
+          anchorMid = new Date(goalExtra.created_at);
+        }
+        if (!anchorMid || Number.isNaN(anchorMid.getTime())) anchorMid = yesterdayMid;
+        anchorMid.setHours(0, 0, 0, 0);
+
+        const startMid = new Date(anchorMid);
+        startMid.setDate(anchorMid.getDate() + 1);
+        const daysAvailable = Math.max(
+          0,
+          Math.floor((yesterdayMid.getTime() - startMid.getTime()) / 86400000) + 1,
+        );
+
+        const dates: string[] = [];
+        if (daysAvailable <= 0) {
+          // Anchor is yesterday or today — collapse to a single day so
+          // every gap lesson lands on yesterday rather than the future.
+          dates.push(toDateStr(yesterdayMid));
+        } else {
+          const cursor = new Date(startMid);
+          for (let i = 0; i < daysAvailable; i++) {
+            dates.push(toDateStr(cursor));
+            cursor.setDate(cursor.getDate() + 1);
+          }
+        }
+
+        // Even spread: lesson i of N → date index floor(i * (D-1) / (N-1)).
+        // For N=1 the formula divides by zero, so anchor to dates[0]. For
+        // N > D this clusters multiple lessons onto the same day in
+        // lesson-number order; for D > N it spreads with gaps. Earliest
+        // lesson_number → earliest date, per spec.
+        const N = gapLessons.length;
+        const D = dates.length;
+        const updatesByDate = new Map<string, string[]>();
+        gapLessons.forEach((l, i) => {
+          const idx = N === 1 ? 0 : Math.floor((i * (D - 1)) / (N - 1));
+          const d = dates[idx];
+          const list = updatesByDate.get(d) ?? [];
+          list.push(l.id);
+          updatesByDate.set(d, list);
+        });
+
+        await Promise.all(
+          Array.from(updatesByDate.entries()).map(([date, ids]) =>
+            supabase
+              .from("lessons")
+              .update({
+                completed: true,
+                completed_at: `${date}T12:00:00Z`,
+                scheduled_date: date,
+                date: date,
+                scheduled_source: "recalibrate_estimate",
+                queue_position: null,
+              })
+              .in("id", ids),
+          ),
+        );
+      }
 
       // Re-project this goal's incomplete lessons from today so cached
       // scheduled_date values align with the new queue position. Without
       // this, lesson `clamped` keeps its wizard-assigned scheduled_date
       // (potentially weeks away) and won't appear on Today until then.
-      // PanelGoal lacks lessons_per_day_overrides, so fetch it back so
-      // per-weekday counts feed the projector. Awaited so the reload
-      // below reads the freshly-aligned rows.
-      const { data: cfgRow } = await supabase
-        .from("curriculum_goals")
-        .select("lessons_per_day_overrides")
-        .eq("id", goal.id)
-        .maybeSingle();
+      // syncProjectedScheduledDates skips completed rows, so the
+      // estimate-stamped gap rows we just wrote stay put.
       const cfg: CurriculumGoalConfig = {
         id: goal.id,
         total_lessons: goal.total_lessons,
@@ -1339,9 +1464,7 @@ export default function PlanV2() {
         school_days: goal.school_days,
         current_lesson: newCountDone,
         start_date: goal.start_date ?? null,
-        lessons_per_day_overrides:
-          (cfgRow as { lessons_per_day_overrides?: Record<string, number> | null } | null)
-            ?.lessons_per_day_overrides ?? null,
+        lessons_per_day_overrides: goalExtra?.lessons_per_day_overrides ?? null,
       };
       const today = new Date();
       today.setHours(0, 0, 0, 0);

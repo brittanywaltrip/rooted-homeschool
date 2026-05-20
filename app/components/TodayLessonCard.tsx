@@ -27,6 +27,12 @@ export type TodayLessonCardLesson = {
   goal_id?: string | null;
   icon_emoji?: string | null;
   notes?: string | null;
+  /** When 'recalibrate_estimate', the row's completed_at + scheduled_date
+   *  were synthesized to fill the gap left by an "I'm on lesson X" save.
+   *  The card surfaces a muted hint so families know this date isn't real
+   *  history. The flag clears automatically the next time the lesson is
+   *  moved (move_lesson_to_date stamps scheduled_source = 'plan_move'). */
+  scheduled_source?: string | null;
 };
 
 export type TodayLessonCardChild = {
@@ -213,6 +219,13 @@ export default function TodayLessonCard({
             />
           )}
         </div>
+        {/* Estimated-date hint. Set on rows whose completed_at was
+            synthesized by the recalibration gap-fill so the user knows
+            this isn't a real completion date. Cleared automatically by
+            move_lesson_to_date when the lesson is moved. */}
+        {lesson.scheduled_source === "recalibrate_estimate" && (
+          <p className="text-[11px] text-[#9a8e84] mt-0.5">Estimated date · tap to move.</p>
+        )}
         {/* Note preview (collapsed) */}
         {!isEditingNote && lesson.notes && (
           <p className="text-[11px] text-[#6b6560] italic mt-1 line-clamp-1">{lesson.notes}</p>

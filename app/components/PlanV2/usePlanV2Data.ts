@@ -110,7 +110,7 @@ export function usePlanV2Data(opts: {
     // out of the daily checklist; the Plan calendar wants the opposite.
     const lessonReq = supabase
       .from("lessons")
-      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
+      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, subjects(name, color), curriculum_goals(subject_label)")
       .eq("user_id", effectiveUserId)
       .gte("scheduled_date", startStr)
       .lte("scheduled_date", endStr)
