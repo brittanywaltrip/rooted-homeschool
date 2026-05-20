@@ -103,6 +103,11 @@ export function usePlanV2Data(opts: {
       .select("id, name, start_date, end_date")
       .eq("user_id", effectiveUserId);
 
+    // No `is_backfill` filter on purpose. The Plan calendar shows the full
+    // history of the family's work, including the "Log past hours" entries
+    // and the wizard-generated backfill rows for past start_dates. Today
+    // page filters `is_backfill !== true` separately so backfill rows stay
+    // out of the daily checklist; the Plan calendar wants the opposite.
     const lessonReq = supabase
       .from("lessons")
       .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
