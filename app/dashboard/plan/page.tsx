@@ -863,13 +863,23 @@ function PlanV1() {
     setMonthLessons((prev) => prev.map((l) => l.id === id ? { ...l, completed: !current } : l));
     // Build the update payload. Past-day backfill goes through the helper
     // in scheduler.ts so Invariant 10 (scheduled_source) and Invariant 3
-    // (is_backfill) stay enforced in one place.
+    // (is_backfill) stay enforced in one place. The regular flip path
+    // pins scheduled_date / date to today on the complete direction so a
+    // future-dated row doesn't ghost back onto its original calendar
+    // slot. Uncomplete leaves dates untouched (parity with PlanV2 toggle).
     const updatePayload = !current && completedAt
       ? buildPastDateCompletionPayload(completedAt)
-      : {
-          completed: !current,
-          completed_at: !current ? new Date().toISOString() : null,
-        };
+      : !current
+        ? {
+            completed: true,
+            completed_at: new Date().toISOString(),
+            scheduled_date: todayStr,
+            date: todayStr,
+          }
+        : {
+            completed: false,
+            completed_at: null,
+          };
     await supabase.from("lessons").update(updatePayload).eq("id", id);
     // Recompute goal progress from rows (Bug 3) — this is what drives Today
     // to show the correct next lesson after a past-date completion.

@@ -1823,12 +1823,16 @@ export default function TodayPage() {
     setCheckOffVisible(false);
     setTimeout(() => setCheckOffLesson(null), 300);
     // Save minutes_spent and hours alongside completion. completed_at must be
-    // set whenever completed=true (Bug 2 invariant).
+    // set whenever completed=true (Bug 2 invariant). scheduled_date / date
+    // are pinned to today so a future-scheduled row doesn't ghost back onto
+    // its original calendar slot after this write.
     await supabase.from("lessons").update({
       completed: true,
       completed_at: new Date().toISOString(),
       minutes_spent: minutes,
       hours: minutes / 60.0,
+      scheduled_date: today,
+      date: today,
     }).eq("id", lesson.id);
     // Update local state
     setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, completed: true, minutes_spent: minutes, hours: minutes / 60.0 } : l));
@@ -1944,14 +1948,17 @@ export default function TodayPage() {
 
   async function toggleLesson(id: string, current: boolean) {
     const lesson = lessons.find((l) => l.id === id);
-    // Pin date+scheduled_date to today when completing a future-dated row,
-    // so the completed history reflects when work happened (parity with
-    // c13f8ec PlanV2 fix). Only on the complete direction; uncomplete
-    // leaves dates untouched. lesson_number is left alone — queue position
-    // is governed by current_lesson, not date (Invariant 7).
+    // Pin date+scheduled_date to today on the complete direction so the
+    // completed history reflects when the work actually happened — even
+    // when the original scheduled_date sits in the past (missed) or matches
+    // today. Without this universal pin, past-dated rows kept ghosting on
+    // the missed-lessons surface and future-dated rows kept ghosting on
+    // future calendar days. Uncomplete still leaves dates untouched (the
+    // user might be undoing a misclick on a real future lesson).
+    // lesson_number is left alone — queue position is governed by
+    // current_lesson, not date (Invariant 7).
     const todayStr = toDateStr(new Date());
-    const pinDateToToday =
-      !current && !!lesson && lesson.scheduled_date != null && lesson.scheduled_date > todayStr;
+    const pinDateToToday = !current && !!lesson;
     const updatedLessons = lessons.map(l =>
       l.id === id
         ? (pinDateToToday
@@ -2513,11 +2520,15 @@ export default function TodayPage() {
         .single();
       mins = (goalRow as { default_minutes?: number } | null)?.default_minutes ?? 30;
     }
+    // Pin scheduled_date / date to today so the missed row's original
+    // past slot doesn't keep flagging it as missed after the write.
     await supabase.from("lessons").update({
       completed: true,
       completed_at: completedAt,
       minutes_spent: mins,
       hours: mins != null ? mins / 60.0 : null,
+      scheduled_date: today,
+      date: today,
     }).eq("id", lesson.id);
     setMissedLessons(prev => prev.filter(l => l.id !== lesson.id));
     if (lesson.curriculum_goal_id) {
@@ -2594,6 +2605,11 @@ export default function TodayPage() {
           .update({
             completed: true,
             completed_at: completedAtIso,
+            // Pair the INSERT branch below: pin scheduled_date / date to
+            // today so the existing row's stale future scheduled_date
+            // doesn't ghost it back onto a future calendar day.
+            scheduled_date: today,
+            date: today,
             is_backfill: true,
             // Invariant 10: every lesson write stamps a scheduled_source.
             // 'wizard_create' is the closest existing tag for a confirmed
