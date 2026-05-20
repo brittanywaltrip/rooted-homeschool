@@ -499,7 +499,15 @@ function RecalibrateForm(props: {
   onClose: () => void;
 }) {
   const { goal, onSubmit, onClose } = props;
-  const [value, setValue] = useState<string>(String(goal.current_lesson ?? 0));
+  // The field reflects mom's "I'm actually on lesson X" mental model:
+  // the lesson currently in progress, which is one slot beyond the count
+  // stored in current_lesson. handleRecalibrateGoal converts back when it
+  // writes to the DB, so the round trip is idempotent (re-opening the
+  // form after a save shows the value mom just entered).
+  const defaultDisplayValue = Math.max(1, (goal.current_lesson ?? 0) + 1);
+  const cap = goal.total_lessons > 0 ? goal.total_lessons : undefined;
+  const clampedDefault = cap != null ? Math.min(cap, defaultDisplayValue) : defaultDisplayValue;
+  const [value, setValue] = useState<string>(String(clampedDefault));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

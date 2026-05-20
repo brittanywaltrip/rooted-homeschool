@@ -1221,12 +1221,25 @@ export default function PlanV2() {
     reload();
   }, [effectiveUserId, curriculumGoals, recordEvent, reload]);
 
-  // "I'm actually on lesson X" recalibration. Bumps the queue pointer
-  // directly without touching the lessons table. trg_curriculum_goals_
-  // cleanup_orphans (migration 20260519180000) fires on the
-  // current_lesson UPDATE and auto-completes any in-range incomplete rows
-  // so the family does not see stale orphans on Plan; completed history
-  // is preserved (the trigger skips notes-bearing rows and never deletes).
+  // "I'm actually on lesson X" recalibration. Bumps the queue pointer so
+  // Today/Plan project lesson X as the next slot, without touching the
+  // lessons table from app code. trg_curriculum_goals_cleanup_orphans
+  // (migration 20260519180000) auto-completes any incomplete rows that
+  // fall before the new position; completed history is preserved and
+  // notes-bearing rows are skipped.
+  //
+  // Off-by-one note: in mom's UI the field is "Which lesson are you
+  // actually on?" (the lesson currently in progress). The scheduler
+  // stores current_lesson as the COUNT of completed lessons, so the next
+  // projected slot is current_lesson + 1. The save below stores
+  //   current_lesson = userInput - 1  (== count of lessons mom has
+  //                                       finished so far)
+  //   start_at_lesson = userInput     (== the next lesson to project)
+  // so today's projector emits userInput as the next slot and lesson
+  // userInput's queue_position survives the orphan-cleanup trigger (which
+  // only touches lesson_number <= NEW.current_lesson = userInput - 1).
+  // RecalibrateForm mirrors this by defaulting to current_lesson + 1, so
+  // re-opening the form shows mom's last entered value.
   const handleRecalibrateGoal = useCallback(
     async (goal: PanelGoal, newCurrentLesson: number) => {
       if (!effectiveUserId) throw new Error("Not signed in");
@@ -1234,10 +1247,11 @@ export default function PlanV2() {
       // total_lessons in props could let a bad value through.
       const total = goal.total_lessons ?? 0;
       const clamped = Math.max(1, total > 0 ? Math.min(total, newCurrentLesson) : newCurrentLesson);
+      const newCountDone = Math.max(0, clamped - 1);
       const { error } = await supabase
         .from("curriculum_goals")
         .update({
-          current_lesson: clamped,
+          current_lesson: newCountDone,
           start_at_lesson: clamped,
         })
         .eq("id", goal.id);
@@ -1256,7 +1270,7 @@ export default function PlanV2() {
       setCurriculumGoals((prev) =>
         prev.map((g) =>
           g.id === goal.id
-            ? { ...g, current_lesson: clamped }
+            ? { ...g, current_lesson: newCountDone }
             : g,
         ),
       );
