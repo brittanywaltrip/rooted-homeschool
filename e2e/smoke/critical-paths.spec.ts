@@ -501,3 +501,223 @@ test.describe('Data integrity', () => {
     ).toBe(0);
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Past start_date backfill — regression guard for the May 19, 2026 fix.
+//
+// Bug: setting a past start_date in the Schedule Builder used to be silently
+// ignored. The date persisted to curriculum_goals.start_date but the
+// projector clamped its cursor at today for forward generation (Bug B's May 3
+// clamp), so all 30 lessons landed on or after today and the Plan calendar
+// carried no record of the family's pre-creation work.
+//
+// Fix (commit b63c3f1): handleSave generates is_backfill=true rows for
+// lesson_numbers 1..currentLesson dated from start_date forward using the
+// schedule, then projects forward lessons from currentLesson+1. Past slots
+// land on past dates as ✓ Done in the Plan calendar; today's slot still
+// belongs to the forward flow (Invariant 1).
+//
+// This test drives the bug fix end-to-end through the actual UI flow.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Past start_date backfill via Schedule Builder', () => {
+  const createdCurriculumNames: string[] = [];
+
+  test.afterEach(async () => {
+    const sb = adminClient();
+    if (!sb) return;
+    for (const name of createdCurriculumNames.splice(0)) {
+      const { data: goals } = await sb
+        .from('curriculum_goals')
+        .select('id')
+        .eq('curriculum_name', name);
+      const ids = (goals ?? []).map((g) => (g as { id: string }).id);
+      if (ids.length === 0) continue;
+      await sb.from('lessons').delete().in('curriculum_goal_id', ids);
+      await sb.from('curriculum_goals').delete().in('id', ids);
+    }
+  });
+
+  test('Past start_date populates is_backfill rows on the Plan calendar', async ({ page }) => {
+    const sb = adminClient();
+    if (!sb) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY not set; backfill cleanup unavailable.');
+      return;
+    }
+
+    // Today's weekday matters: the "Today" badge only appears for incomplete
+    // lessons whose scheduled_date equals today. On Sat/Sun the M-F schedule
+    // skips today, so step 9 has nothing to assert. Skip cleanly there.
+    const todayDow = new Date().getDay(); // Sun=0..Sat=6
+    if (todayDow === 0 || todayDow === 6) {
+      test.skip(true, 'Today is a weekend; the M-F schedule has no lesson on today, so the TODAY-badge assertion cannot fire.');
+      return;
+    }
+
+    const curriculumName = 'Test Backfill E2E';
+    createdCurriculumNames.push(curriculumName);
+
+    // Pre-clean any leftovers from a prior failed run so the curriculum name
+    // is unique when we look it up later.
+    await sb.from('lessons').delete().in(
+      'curriculum_goal_id',
+      ((await sb
+        .from('curriculum_goals')
+        .select('id')
+        .eq('curriculum_name', curriculumName)).data ?? []
+      ).map((g) => (g as { id: string }).id),
+    );
+    await sb.from('curriculum_goals').delete().eq('curriculum_name', curriculumName);
+
+    // ── 1. Navigate to the Schedule Builder ─────────────────────────────────
+    await page.goto('/dashboard/plan/schedule');
+    await expect(
+      page.getByRole('heading', { name: /Your Schedule/i }).first(),
+    ).toBeVisible({ timeout: 15_000 });
+
+    // ── 2. Click "+ Add curriculum" under the first child block ─────────────
+    const addCurriculumBtn = page.getByRole('button', { name: /\+ Add curriculum/i }).first();
+    await expect(addCurriculumBtn).toBeVisible({ timeout: 10_000 });
+    await addCurriculumBtn.click();
+
+    // ── 3. Fill name + subject. Use last() so we target the row we just
+    //      added even if the account already has existing curriculum rows.
+    const nameInput = page.locator('input[placeholder^="e.g. The Good and the Beautiful"]').last();
+    await nameInput.fill(curriculumName);
+
+    const subjectInput = page.locator('input[placeholder="Subject (e.g. Math)"]').last();
+    await subjectInput.fill('Math');
+
+    // ── 4. Days M-F + 1 lesson/day are the row's default state; no extra
+    //      clicks needed (blankRow seeds active_days=[T,T,T,T,T,F,F] and
+    //      per_day_counts=[1,1,1,1,1,1,1]).
+    // ────────────────────────────────────────────────────────────────────────
+
+    // ── 5. Set Total lessons = 30. The label is "Total lessons" (small-caps
+    //      via CSS); the underlying input carries placeholder "e.g. 120".
+    const totalInput = page.locator('input[placeholder="e.g. 120"]').last();
+    await totalInput.fill('30');
+
+    // ── 6. Set Start date = today - 28 days. The user prompt specified
+    //      MM/DD/YYYY but <input type="date"> stores YYYY-MM-DD regardless
+    //      of locale, so that's what Playwright's .fill() needs.
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const fourWeeksAgo = new Date(today);
+    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
+    const startDateStr =
+      `${fourWeeksAgo.getFullYear()}-` +
+      `${String(fourWeeksAgo.getMonth() + 1).padStart(2, '0')}-` +
+      `${String(fourWeeksAgo.getDate()).padStart(2, '0')}`;
+
+    const startDateInput = page.locator('input[type="date"]').last();
+    await startDateInput.fill(startDateStr);
+    // Blur so the onChange-driven auto-fill of start_at_lesson settles before
+    // we read the counter.
+    await startDateInput.blur();
+
+    // ── 7. Confirm the "Already completed" counter appears with value > 0.
+    //      The +/- buttons carry aria-labels "One fewer completed lesson"
+    //      and "One more completed lesson"; the count sits between them in
+    //      a <span> with aria-label-less text. The banner only renders for
+    //      past start_dates with total_lessons > 0.
+    const moreCompletedBtn = page.getByRole('button', { name: 'One more completed lesson' }).last();
+    await expect(moreCompletedBtn, 'past start_date should expose the "Already completed" stepper').toBeVisible({ timeout: 10_000 });
+    const countSpan = moreCompletedBtn.locator('xpath=preceding-sibling::span[1]');
+    const countText = (await countSpan.textContent())?.trim() ?? '';
+    expect(Number(countText), `"Already completed" should auto-fill to > 0 (saw "${countText}")`).toBeGreaterThan(0);
+
+    // ── 8. Preview + Save. previewAndSave handles both clicks + the post-
+    //      save settle wait.
+    await previewAndSave(page);
+
+    // Save returns to /dashboard/plan. Wait for the Plan header to render.
+    await expect(page).toHaveURL(/\/dashboard\/plan(\?|$|\/)/, { timeout: 20_000 });
+    await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+
+    // ── 9. Navigate back 4 weeks. In Week mode the "Previous month" arrow
+    //      slides by 7 days per click; 4 clicks lands us in the week
+    //      containing start_date.
+    const prevBtn = page.getByRole('button', { name: 'Previous month' });
+    await expect(prevBtn).toBeVisible({ timeout: 10_000 });
+    for (let i = 0; i < 4; i++) {
+      await prevBtn.click();
+      // Small settle so the lesson fetch keyed off monthStart can resolve
+      // before the next click swaps the date window again.
+      await page.waitForTimeout(300);
+    }
+
+    // ── 10. Assert "Test Backfill E2E — Lesson 1" appears with ✓ Done.
+    //       The WeekListView lesson card wraps a row in a div.rounded-xl
+    //       that contains both the title and the badge.
+    const lesson1Card = page.locator('div.rounded-xl').filter({
+      hasText: `${curriculumName} — Lesson 1`,
+    });
+    await expect(lesson1Card.first(), 'Lesson 1 should render in the start_date week').toBeVisible({ timeout: 15_000 });
+    await expect(
+      lesson1Card.first().getByText(/Done/i).first(),
+      'Lesson 1 should carry the ✓ Done badge (it is is_backfill=true, completed=true)',
+    ).toBeVisible({ timeout: 5_000 });
+
+    // ── 11. Jump back to today's week. The Jump-to-today pill only renders
+    //       when not on the current week, which is exactly our state now.
+    const jumpToToday = page.getByRole('button', { name: 'Jump to today' });
+    if ((await jumpToToday.count()) > 0) {
+      await jumpToToday.click();
+      await page.waitForTimeout(300);
+    }
+
+    // ── 12. Assert the curriculum appears in today's day section with the
+    //       "Today" badge, not "Done". With 30 total and ~20 backfilled
+    //       lessons (school days from start_date to today exclusive), the
+    //       next forward lesson lands on today. hasText is case-insensitive
+    //       for strings; the day-section header ("Tue 19 · TODAY") lives
+    //       outside this rounded-xl card, so it does not match the filter.
+    const todayBadgedCard = page.locator('div.rounded-xl').filter({
+      hasText: curriculumName,
+    }).filter({ hasText: 'Today' });
+    await expect(
+      todayBadgedCard.first(),
+      'The next forward lesson should sit on today with a Today badge (not Done).',
+    ).toBeVisible({ timeout: 15_000 });
+
+    // Belt-and-braces: that same card must NOT carry the ✓ Done badge,
+    // because today's slot belongs to the forward flow (Invariant 1).
+    const doneInTodayCard = todayBadgedCard.first().getByText(/Done/i);
+    expect(
+      await doneInTodayCard.count(),
+      "today's lesson should be incomplete (no Done badge)",
+    ).toBe(0);
+
+    // ── 13. DB-side sanity: at least one row exists with is_backfill=true
+    //       for this curriculum, and at least one incomplete forward row
+    //       sits at lesson_number > the max backfilled number.
+    const { data: goals } = await sb
+      .from('curriculum_goals')
+      .select('id, current_lesson, start_date')
+      .eq('curriculum_name', curriculumName);
+    expect((goals ?? []).length, 'curriculum row should exist after save').toBeGreaterThan(0);
+    const goalId = (goals![0] as { id: string }).id;
+
+    const { data: backfillRows } = await sb
+      .from('lessons')
+      .select('lesson_number, is_backfill, completed, scheduled_date')
+      .eq('curriculum_goal_id', goalId)
+      .eq('is_backfill', true);
+    expect(
+      (backfillRows ?? []).length,
+      'past start_date should have produced at least one is_backfill row',
+    ).toBeGreaterThan(0);
+    for (const r of (backfillRows ?? []) as Array<{ completed: boolean; scheduled_date: string }>) {
+      expect(r.completed, 'every backfill row must be completed=true').toBe(true);
+      // YYYY-MM-DD string compare is sufficient for "before today".
+      const todayYmd =
+        `${today.getFullYear()}-` +
+        `${String(today.getMonth() + 1).padStart(2, '0')}-` +
+        `${String(today.getDate()).padStart(2, '0')}`;
+      expect(r.scheduled_date < todayYmd, `backfill rows must land before today (saw ${r.scheduled_date})`).toBe(true);
+    }
+  });
+});
