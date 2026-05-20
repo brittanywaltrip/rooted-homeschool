@@ -2,11 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Trash2 } from "lucide-react";
+import { MoreVertical, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
+import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
+import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
@@ -491,6 +494,17 @@ export default function ScheduleBuilderPage() {
   const [originalActivityIds, setOriginalActivityIds] = useState<Set<string>>(new Set());
 
   const [dirty, setDirty] = useState(false);
+
+  // Per-row UI state for the curriculum kebab menu and the inline
+  // RecalibrateForm. menuOpenLocalId tracks which kebab is currently
+  // expanded; recalibratingLocalId tracks which row's "I'm actually on..."
+  // form is mounted. Both clear on outside-click / form close.
+  const [menuOpenLocalId, setMenuOpenLocalId] = useState<string | null>(null);
+  const [recalibratingLocalId, setRecalibratingLocalId] = useState<string | null>(null);
+  // Recalibration / mark-finished errors surface in a small banner above
+  // the row — kept separate from saveError so the user can still drive
+  // the rest of the Save flow if a per-row immediate action fails.
+  const [rowActionError, setRowActionError] = useState<string | null>(null);
 
   // `?goal=<id>` deep-link from the curriculum panel's "Edit goal" action.
   // Read once on mount via window.location to avoid the Suspense boundary
@@ -1237,6 +1251,103 @@ export default function ScheduleBuilderPage() {
     router.push(href);
   }
 
+  // ── Immediate row actions (recalibrate + mark finished) ─────────────────
+  // Both bypass the pending-delete Save flow because they're destructive
+  // edits the user expects to apply right now: "I'm actually on lesson X"
+  // re-anchors the queue + backfills gap dates, and "Mark as finished"
+  // archives the goal so it drops off Today + Plan. Local row state syncs
+  // afterward so the page reflects the new DB truth without a reload.
+  async function handleRowRecalibrate(localId: string, newCurrentLesson: number) {
+    if (!effectiveUserId) throw new Error("Not signed in");
+    const row = rows.find((r) => r.localId === localId);
+    if (!row || !row.dbId) throw new Error("Row not yet saved");
+    setRowActionError(null);
+    // The schedule page doesn't keep vacation_blocks in state — fetch them
+    // here for the projector resync. Save flow does the same.
+    const { data: vacationData } = await supabase
+      .from("vacation_blocks")
+      .select("start_date, end_date")
+      .eq("user_id", effectiveUserId);
+    const vacations = (vacationData ?? []) as SchedVacationBlock[];
+    const result = await recalibrateCurriculumGoal({
+      supabase,
+      goalId: row.dbId,
+      newCurrentLesson,
+      vacationBlocks: vacations,
+    });
+    void logPlanEvent({
+      userId: effectiveUserId,
+      type: "curriculum_goal.updated",
+      payload: {
+        goal_id: row.dbId,
+        curriculum_name: row.name,
+        action: "recalibrate",
+        new_current_lesson: result.clamped,
+        gap_count: result.gapCount,
+      },
+    });
+    // Sync local row to match the DB truth without marking dirty — the
+    // edit already landed in Supabase. Reset progress_confirmed so the
+    // stepper re-prompts on the next manual divergence.
+    setRows((prev) =>
+      prev.map((r) =>
+        r.localId === localId
+          ? {
+              ...r,
+              start_at_lesson: result.clamped,
+              start_at_lesson_initial: result.clamped,
+              progress_confirmed: false,
+            }
+          : r,
+      ),
+    );
+    setRecalibratingLocalId((id) => (id === localId ? null : id));
+  }
+
+  async function handleRowMarkFinished(localId: string) {
+    if (!effectiveUserId) return;
+    const row = rows.find((r) => r.localId === localId);
+    if (!row || !row.dbId) return;
+    const ok = window.confirm(
+      `Mark ${row.name || "this curriculum"} as finished? It won't appear on Today or Plan anymore, but your lesson history is saved.`,
+    );
+    if (!ok) return;
+    setRowActionError(null);
+    try {
+      const { error } = await supabase
+        .from("curriculum_goals")
+        .update({ archived: true })
+        .eq("id", row.dbId);
+      if (error) throw error;
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ?? "Couldn't mark as finished.";
+      setRowActionError(msg);
+      return;
+    }
+    void logPlanEvent({
+      userId: effectiveUserId,
+      type: "curriculum_goal.updated",
+      payload: {
+        goal_id: row.dbId,
+        curriculum_name: row.name,
+        action: "marked_finished",
+      },
+    });
+    // Drop the row locally so the panel re-renders without it, and remove
+    // the dbId from originalCurriculumIds so the reconciliation sweep on
+    // Save doesn't try to archive an already-archived row.
+    const archivedDbId = row.dbId;
+    setRows((prev) => prev.filter((r) => r.localId !== localId));
+    setOriginalCurriculumIds((prev) => {
+      if (!prev.has(archivedDbId)) return prev;
+      const next = new Set(prev);
+      next.delete(archivedDbId);
+      return next;
+    });
+    setMenuOpenLocalId((id) => (id === localId ? null : id));
+    setRecalibratingLocalId((id) => (id === localId ? null : id));
+  }
+
   // ── Render ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -1287,6 +1398,14 @@ export default function ScheduleBuilderPage() {
             addingChild={addingChild}
             onAddChild={handleAddChild}
             highlightedGoalId={highlightedGoalId}
+            menuOpenLocalId={menuOpenLocalId}
+            setMenuOpenLocalId={setMenuOpenLocalId}
+            recalibratingLocalId={recalibratingLocalId}
+            setRecalibratingLocalId={setRecalibratingLocalId}
+            onRecalibrateRow={handleRowRecalibrate}
+            onMarkFinishedRow={handleRowMarkFinished}
+            rowActionError={rowActionError}
+            onDismissRowActionError={() => setRowActionError(null)}
           />
         )}
 
@@ -1379,12 +1498,33 @@ function BuilderView(props: {
   addingChild: boolean;
   onAddChild: () => void | Promise<void>;
   highlightedGoalId: string | null;
+  menuOpenLocalId: string | null;
+  setMenuOpenLocalId: (id: string | null) => void;
+  recalibratingLocalId: string | null;
+  setRecalibratingLocalId: (id: string | null) => void;
+  onRecalibrateRow: (localId: string, newCurrentLesson: number) => Promise<void>;
+  onMarkFinishedRow: (localId: string) => Promise<void>;
+  rowActionError: string | null;
+  onDismissRowActionError: () => void;
 }) {
   const visibleRows = (childId: string) =>
     props.rows.filter((r) => r.child_id === childId && !r.pendingDelete);
 
   return (
     <div className="space-y-5">
+      {props.rowActionError && (
+        <div className="bg-white border border-[#e8c8c8] rounded-2xl px-3 py-2 flex items-start gap-2">
+          <p className="flex-1 text-sm text-[#9a3a3a]">{props.rowActionError}</p>
+          <button
+            type="button"
+            onClick={props.onDismissRowActionError}
+            className="text-xs text-[#9a3a3a] underline underline-offset-2"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {props.children.length === 0 && (
         <div className="bg-white border border-[#e8e2d9] rounded-2xl p-5 text-center">
           <p className="text-sm text-[#7a6f65]">
@@ -1428,6 +1568,15 @@ function BuilderView(props: {
                   isHighlighted={
                     !!props.highlightedGoalId && row.dbId === props.highlightedGoalId
                   }
+                  menuOpen={props.menuOpenLocalId === row.localId}
+                  onMenuOpenChange={(open) =>
+                    props.setMenuOpenLocalId(open ? row.localId : null)
+                  }
+                  recalibrating={props.recalibratingLocalId === row.localId}
+                  onOpenRecalibrate={() => props.setRecalibratingLocalId(row.localId)}
+                  onCloseRecalibrate={() => props.setRecalibratingLocalId(null)}
+                  onRecalibrate={(newValue) => props.onRecalibrateRow(row.localId, newValue)}
+                  onMarkFinished={() => props.onMarkFinishedRow(row.localId)}
                 />
               ))}
             </div>
@@ -1509,6 +1658,14 @@ function RowCard(props: {
   onToggleDay: (localId: string, dayIdx: number) => void;
   onCycleCount: (localId: string, dayIdx: number) => void;
   isHighlighted: boolean;
+  /** Kebab menu state — only meaningful for saved curriculum rows. */
+  menuOpen: boolean;
+  onMenuOpenChange: (open: boolean) => void;
+  recalibrating: boolean;
+  onOpenRecalibrate: () => void;
+  onCloseRecalibrate: () => void;
+  onRecalibrate: (newCurrentLesson: number) => Promise<void>;
+  onMarkFinished: () => Promise<void>;
 }) {
   const { row } = props;
   const pace = calcPace(row, props.today);
@@ -1574,7 +1731,31 @@ function RowCard(props: {
           </span>
         )}
         <div className="flex-1" />
-        {!isReadOnly && (
+        {/* Saved curriculum rows expose the kebab menu so desktop users
+            can reach "I'm actually on..." / "Mark as finished" / "Remove
+            curriculum" without the mobile-only Plan UI. New (unsaved)
+            curriculum rows + activity/coop rows keep the inline trash
+            because the menu's two extra items don't apply to them — you
+            can't recalibrate or archive a row that doesn't have a DB id
+            yet. */}
+        {!isReadOnly && isCurriculum && row.dbId ? (
+          <CurriculumKebabMenu
+            isOpen={props.menuOpen}
+            onOpenChange={props.onMenuOpenChange}
+            onRecalibrate={() => {
+              props.onMenuOpenChange(false);
+              props.onOpenRecalibrate();
+            }}
+            onMarkFinished={() => {
+              props.onMenuOpenChange(false);
+              void props.onMarkFinished();
+            }}
+            onRemove={() => {
+              props.onMenuOpenChange(false);
+              props.onDeleteRow(row.localId);
+            }}
+          />
+        ) : !isReadOnly ? (
           <button
             onClick={() => props.onDeleteRow(row.localId)}
             aria-label="Remove row"
@@ -1582,8 +1763,22 @@ function RowCard(props: {
           >
             <Trash2 size={16} />
           </button>
-        )}
+        ) : null}
       </div>
+
+      {/* Inline recalibration form. Matches the Plan panel's tinted
+          sub-block so the row card retains its existing visual rhythm.
+          handleRowRecalibrate (page-level) handles the DB write and local
+          state sync; the form itself only owns the input + validation. */}
+      {props.recalibrating ? (
+        <div className="mb-3 rounded-xl border border-[#c5dbc9] bg-[#f0f7f2] px-3 pb-3">
+          <RecalibrateForm
+            goal={rowToPanelGoal(row)}
+            onSubmit={props.onRecalibrate}
+            onClose={props.onCloseRecalibrate}
+          />
+        </div>
+      ) : null}
 
       {/* Name */}
       <input
@@ -1866,6 +2061,91 @@ function RowCard(props: {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Builds a PanelGoal-shaped object from a Row so RecalibrateForm — which
+ * was written against the Plan curriculum panel's CurriculumGoal type — can
+ * be reused verbatim. Only the fields the form actually reads are filled
+ * (id, total_lessons, current_lesson). The form derives its default value
+ * from current_lesson + 1, so passing start_at_lesson - 1 keeps the
+ * round-trip idempotent: re-opening the form after a save shows mom's
+ * last entered value.
+ */
+function rowToPanelGoal(row: Row): PanelGoal {
+  return {
+    id: row.dbId ?? "",
+    child_id: row.child_id,
+    curriculum_name: row.name,
+    subject_label: row.subject || null,
+    total_lessons: row.total_lessons ?? 0,
+    current_lesson: Math.max(0, row.start_at_lesson - 1),
+    lessons_per_day: 1,
+    target_date: null,
+    school_days: null,
+    start_date: row.start_date,
+  };
+}
+
+function CurriculumKebabMenu(props: {
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+  onRecalibrate: () => void;
+  onMarkFinished: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => props.onOpenChange(!props.isOpen)}
+        aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={props.isOpen}
+        className="w-7 h-7 flex items-center justify-center rounded-full text-[#7a6f65] hover:text-[#2d2926] hover:bg-[#f0ede8] transition-colors"
+      >
+        <MoreVertical size={15} />
+      </button>
+      {props.isOpen ? (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => props.onOpenChange(false)}
+            aria-hidden
+          />
+          <div
+            role="menu"
+            className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[180px]"
+          >
+            <button
+              type="button"
+              role="menuitem"
+              onClick={props.onRecalibrate}
+              className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+            >
+              <span aria-hidden className="text-[14px] leading-none">🎯</span> I&apos;m actually on...
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={props.onMarkFinished}
+              className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+            >
+              <span aria-hidden className="text-[14px] leading-none">✅</span> Mark as finished
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={props.onRemove}
+              className="w-full px-3 py-2 text-left text-[13px] text-[#b91c1c] hover:bg-[#fef2f2] flex items-center gap-2"
+            >
+              <Trash2 size={14} /> Remove curriculum
+            </button>
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }

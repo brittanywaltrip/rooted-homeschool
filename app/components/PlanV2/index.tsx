@@ -68,7 +68,11 @@ import {
 import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
 import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
-import { recomputeCurrentLesson } from "@/app/lib/scheduler";
+import {
+  recomputeCurrentLesson,
+  type VacationBlock as SchedVacationBlock,
+} from "@/app/lib/scheduler";
+import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import {
   buildOptimisticEventRow,
   filterEventsForDay,
@@ -148,6 +152,7 @@ function toTodayLessons(ls: PlanV2Lesson[]): TodayLessonCardLesson[] {
     lesson_number: l.lesson_number,
     curriculum_goal_id: l.curriculum_goal_id,
     notes: l.notes,
+    scheduled_source: l.scheduled_source,
   }));
 }
 
@@ -1294,26 +1299,20 @@ export default function PlanV2() {
   const handleRecalibrateGoal = useCallback(
     async (goal: PanelGoal, newCurrentLesson: number) => {
       if (!effectiveUserId) throw new Error("Not signed in");
-      // Clamp defensively: the form does the same check but a stale
-      // total_lessons in props could let a bad value through.
-      const total = goal.total_lessons ?? 0;
-      const clamped = Math.max(1, total > 0 ? Math.min(total, newCurrentLesson) : newCurrentLesson);
-      const newCountDone = Math.max(0, clamped - 1);
-      const { error } = await supabase
-        .from("curriculum_goals")
-        .update({
-          current_lesson: newCountDone,
-          start_at_lesson: clamped,
-        })
-        .eq("id", goal.id);
-      if (error) throw new Error(error.message);
+      const result = await recalibrateCurriculumGoal({
+        supabase,
+        goalId: goal.id,
+        newCurrentLesson,
+        vacationBlocks: vacationBlocks as unknown as SchedVacationBlock[],
+      });
       recordEvent("curriculum_goal.updated", {
         goal_id: goal.id,
         curriculum_name: goal.curriculum_name,
         action: "recalibrate",
-        new_current_lesson: clamped,
+        new_current_lesson: result.clamped,
+        gap_count: result.gapCount,
       });
-      flashNotice(`Schedule updated to lesson ${clamped}`);
+      flashNotice(`Schedule updated to lesson ${result.clamped}`);
       // Optimistic local patch so the goal card shows the new pointer
       // before the background refetch lands. GoalFull does not carry
       // start_at_lesson (it's only read inside Schedule Builder), so we
@@ -1321,7 +1320,7 @@ export default function PlanV2() {
       setCurriculumGoals((prev) =>
         prev.map((g) =>
           g.id === goal.id
-            ? { ...g, current_lesson: newCountDone }
+            ? { ...g, current_lesson: result.newCountDone }
             : g,
         ),
       );
@@ -1329,7 +1328,7 @@ export default function PlanV2() {
       reloadGoals();
       reload();
     },
-    [effectiveUserId, recordEvent, reloadGoals, reload],
+    [effectiveUserId, recordEvent, reloadGoals, reload, vacationBlocks],
   );
 
   const handleGenerateReport = useCallback(async (opts: {
