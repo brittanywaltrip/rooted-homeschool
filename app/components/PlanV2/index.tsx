@@ -403,10 +403,16 @@ export default function PlanV2() {
     if (!effectiveUserId) return;
     let cancelled = false;
     (async () => {
+      // Filters archived=false so "Mark as finished" goals disappear from
+      // every PlanV2 surface that hangs off this state (the CurriculumGroupsPanel
+      // list, the confetti detection, the Add/Edit Lesson goal dropdown).
+      // Schema default is `NOT NULL DEFAULT false`, so .eq is safe; no
+      // legacy null rows to worry about.
       const { data } = await supabase
         .from("curriculum_goals")
         .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, lessons_per_day, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji")
         .eq("user_id", effectiveUserId)
+        .eq("archived", false)
         .order("created_at");
       if (cancelled) return;
       setCurriculumGoals(((data ?? []) as unknown as GoalFull[]));
@@ -450,6 +456,10 @@ export default function PlanV2() {
   // "Stop this curriculum" confirm — caps total_lessons at current_lesson
   // and clears uncompleted lessons. Goal row + completed history stay.
   const [stopGoalConfirm, setStopGoalConfirm] = useState<{ goal: PanelGoal } | null>(null);
+  // "Mark as finished" confirm. Sets curriculum_goals.archived = true so the
+  // goal drops off Today + Plan immediately; never touches lesson rows
+  // (history stays intact under archived goals).
+  const [markFinishedConfirm, setMarkFinishedConfirm] = useState<{ goal: PanelGoal } | null>(null);
   const [deleteActivityConfirm, setDeleteActivityConfirm] = useState<ActivityRow | null>(null);
   // Appointment delete confirm — triggered by the per-card "⋮" menu in
   // WeekListView. Routes through the same authed /api/appointments DELETE
@@ -1025,6 +1035,47 @@ export default function PlanV2() {
     // happen before the dialog disappears, not after a stale beat.
     setStopGoalConfirm(null);
   }, [stopGoalConfirm, recordEvent, reloadGoals, reload]);
+
+  // "Mark as finished" — sets archived=true on curriculum_goals so the
+  // goal drops off Today + Plan immediately. Distinct from Stop (which
+  // caps total_lessons) and Delete (which removes the row + lessons).
+  // Lesson rows are never touched here; the family's completed history
+  // stays where it was and remains accessible via Transcript (which
+  // explicitly includes archived goals).
+  const handleConfirmMarkFinished = useCallback(async () => {
+    if (!markFinishedConfirm) return;
+    const { goal } = markFinishedConfirm;
+    try {
+      const { error } = await supabase
+        .from("curriculum_goals")
+        .update({ archived: true })
+        .eq("id", goal.id);
+      if (error) throw new Error(error.message);
+    } catch {
+      flashNotice("Couldn't mark as finished, please try again.");
+      return;
+    }
+    // Optimistic local state update: remove the goal from the in-memory
+    // list so Plan stops rendering it before reloadGoals lands, and clear
+    // any open inline panels for that goal so they don't dangle.
+    setCurriculumGoals((prev) => prev.filter((g) => g.id !== goal.id));
+    setOpenBackfillGoalId((id) => (id === goal.id ? null : id));
+    setRecalibratingGoalId((id) => (id === goal.id ? null : id));
+    recordEvent("curriculum_goal.updated", {
+      goal_id: goal.id,
+      curriculum_name: goal.curriculum_name,
+      action: "marked_finished",
+    });
+    flashNotice(`Marked as finished: ${goal.curriculum_name}`);
+    // Reload so Today's lesson list, Plan's calendar dots, and the
+    // upcoming pane all re-query and exclude the archived goal's lessons.
+    reloadGoals();
+    reload();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+    }
+    setMarkFinishedConfirm(null);
+  }, [markFinishedConfirm, recordEvent, reloadGoals, reload]);
 
   // ── Curriculum completion actions (celebration card buttons) ─────────────
   // Each action localStorage-flags the goal as celebrated so the card moves
@@ -3044,6 +3095,7 @@ export default function PlanV2() {
       if (schoolYearModalOpen) { setSchoolYearModalOpen(false); return; }
       if (deleteGoalConfirm) { setDeleteGoalConfirm(null); return; }
       if (stopGoalConfirm) { setStopGoalConfirm(null); return; }
+      if (markFinishedConfirm) { setMarkFinishedConfirm(null); return; }
       if (deleteActivityConfirm) { setDeleteActivityConfirm(null); return; }
       if (reportDialogOpen) { setReportDialogOpen(false); return; }
       if (activityModalOpen) { setActivityModalOpen(false); setActivityEditing(null); return; }
@@ -3062,7 +3114,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -3580,6 +3632,7 @@ export default function PlanV2() {
           onEdit={handleWizardOpenEdit}
           onDelete={(goal, count) => setDeleteGoalConfirm({ goal, lessonCount: count })}
           onStop={(goal) => setStopGoalConfirm({ goal })}
+          onMarkFinished={(goal) => setMarkFinishedConfirm({ goal })}
           onToggleLesson={(id, current) => { void toggleLessonWithLog(id, current); }}
           onEditLesson={(l) => setEditLessonTarget(l)}
           onRescheduleLesson={(l) => {
@@ -4182,6 +4235,22 @@ export default function PlanV2() {
               onConfirm={handleAppointmentDeleteConfirm}
             />
           )
+        ) : null}
+
+        {/* Mark-as-finished confirm. Different from Stop and Delete:
+            archived=true is a soft-hide flag, so Today + Plan stop
+            rendering the goal but lesson history and Transcript still
+            see it. The body copy is the verbatim string the spec asked
+            for so the warning matches the QA script. */}
+        {markFinishedConfirm ? (
+          <ConfirmDialog
+            title={`Mark ${markFinishedConfirm.goal.curriculum_name} as finished?`}
+            body={`Mark ${markFinishedConfirm.goal.curriculum_name} as finished? It won't appear on Today or Plan anymore, but your lesson history is saved.`}
+            confirmLabel="Yes, mark finished"
+            cancelLabel="Keep going"
+            onCancel={() => setMarkFinishedConfirm(null)}
+            onConfirm={handleConfirmMarkFinished}
+          />
         ) : null}
 
         {/* Curriculum stop confirm. Different from delete: keeps the goal
