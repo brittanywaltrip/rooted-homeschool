@@ -931,6 +931,20 @@ export default function TodayPage() {
     setCompletedTodayPerGoal(completedTodayPerGoal);
     const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks, completedTodayPerGoal);
 
+    // Project a 7-day window for cache warming. Today's loader only displays
+    // today's slot, but if a user never opens Plan their upcoming rows'
+    // scheduled_date cache stays stale for weeks (wizard-assigned future
+    // dates never get re-aligned to the projector's truth). Projecting a
+    // week here lets syncProjectedScheduledDates write through the next
+    // few days too, so when the user finally opens Plan or moves through
+    // the week, the calendar shows correct dates without a self-heal pass.
+    // Display still uses `projected` (today only); `weekProjected` only
+    // widens the fetch.
+    const weekProjected: ProjectedLesson[] = goalConfigs.flatMap((goal) => {
+      const completed = completedTodayPerGoal.get(goal.id) ?? 0;
+      return computeNextLessonsForGoal(goal, new Date(), 7, vacationBlocks, completed);
+    });
+
     // Fetch the lesson rows matching the projection so we can hydrate
     // display fields (title, notes, completion state, subject join). We
     // also fetch any one-off lessons (no curriculum_goal_id) that mom
@@ -959,14 +973,26 @@ export default function TodayPage() {
     // the Plan page (move_lesson_to_date).
     const projectedGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
     const projectedSlots = Array.from(new Set(projected.map((p) => p.lesson_number)));
+    // Union the today-only slots with the 7-day window so the helper sees
+    // every row that might need cache alignment. The IN clause widens past
+    // the cartesian product anyway; the client-side narrowing below picks
+    // out just today's display rows.
+    const fetchGoalIds = Array.from(new Set([
+      ...projectedGoalIds,
+      ...weekProjected.map((p) => p.goal_id),
+    ]));
+    const fetchSlots = Array.from(new Set([
+      ...projectedSlots,
+      ...weekProjected.map((p) => p.lesson_number),
+    ]));
     const [projectedRowsResult, oneOffRowsResult] = await Promise.all([
-      projectedGoalIds.length > 0
+      fetchGoalIds.length > 0
         ? supabase
             .from("lessons")
             .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes, scheduled_date, is_backfill")
             .eq("user_id", effectiveUserId)
-            .in("curriculum_goal_id", projectedGoalIds)
-            .in("queue_position", projectedSlots)
+            .in("curriculum_goal_id", fetchGoalIds)
+            .in("queue_position", fetchSlots)
         : Promise.resolve({ data: [] as unknown[] }),
       supabase
         .from("lessons")
@@ -982,7 +1008,17 @@ export default function TodayPage() {
     // current_lesson advanced) gets dropped, while Plan rewrites the
     // date in-memory and renders it. Fire-and-forget DB write; the
     // local map below is what powers this render.
-    const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
+    //
+    // The map covers the 7-day window so the helper can warm the cache
+    // for rows that won't display today but will display when the
+    // user opens Plan or completes today's lesson and re-renders. The
+    // display path (the narrower projected map below) is unchanged.
+    const projDateByKey = new Map<string, string>(
+      weekProjected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
+    );
+    const todayProjDateByKey = new Map<string, string>(
+      projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
+    );
     const projectedRowsRaw = (projectedRowsResult.data ?? []) as unknown as LoadedLessonRow[];
     void syncProjectedScheduledDates(
       supabase,
@@ -1000,9 +1036,11 @@ export default function TodayPage() {
       )
       // Override the in-memory scheduled_date with the projector's date
       // so the future-date filter below operates on aligned data instead
-      // of a stale cache.
+      // of a stale cache. Uses today's narrower map because only today's
+      // rows are displayed; the wider 7-day map above is only for the
+      // DB write-through helper.
       .map((r) => {
-        const projDate = projDateByKey.get(`${r.curriculum_goal_id}|${r.queue_position}`);
+        const projDate = todayProjDateByKey.get(`${r.curriculum_goal_id}|${r.queue_position}`);
         return projDate ? { ...r, scheduled_date: projDate } : r;
       })
       // Defensive: drops a row whose aligned date still ends up in the
