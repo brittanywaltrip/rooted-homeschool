@@ -2244,31 +2244,46 @@ export default function PlanV2() {
     setBulkBusy(true);
     hapticTap(20);
 
-    // Optimistic. Mark-complete also pins scheduled_date / date to today
-    // so a future-dated row in the batch doesn't ghost back onto its
-    // original calendar slot after the write lands.
+    // Optimistic. Mark-complete pins scheduled_date / date to today only
+    // for rows whose current date is today or future — that keeps a
+    // future-dated row from ghosting back onto its original slot after
+    // the write lands. Past-dated rows keep their original date so the
+    // calendar still shows them as completed history on the day they
+    // were scheduled. Per-lesson decision since a bulk batch can mix
+    // past and future.
     const completeSet = new Set(toComplete);
+    const shouldPinId = (l: PlanV2Lesson): boolean => {
+      const d = l.scheduled_date ?? l.date;
+      return !!d && d >= todayStr;
+    };
+    const pinIds = new Set(
+      lessons.filter((l) => completeSet.has(l.id) && shouldPinId(l)).map((l) => l.id),
+    );
     setLessons((prev) =>
-      prev.map((l) =>
-        completeSet.has(l.id)
+      prev.map((l) => {
+        if (!completeSet.has(l.id)) return l;
+        return pinIds.has(l.id)
           ? { ...l, completed: true, scheduled_date: todayStr, date: todayStr }
-          : l,
-      ),
+          : { ...l, completed: true };
+      }),
     );
 
     const results = await Promise.allSettled(
-      toComplete.map((id) =>
-        supabase
+      toComplete.map((id) => {
+        const update: Record<string, unknown> = {
+          completed: true,
+          completed_at: new Date().toISOString(),
+        };
+        if (pinIds.has(id)) {
+          update.scheduled_date = todayStr;
+          update.date = todayStr;
+        }
+        return supabase
           .from("lessons")
-          .update({
-            completed: true,
-            completed_at: new Date().toISOString(),
-            scheduled_date: todayStr,
-            date: todayStr,
-          })
+          .update(update)
           .eq("id", id)
-          .then(({ error }) => (error ? Promise.reject(error) : true)),
-      ),
+          .then(({ error }) => (error ? Promise.reject(error) : true));
+      }),
     );
 
     const succeededIds: string[] = [];

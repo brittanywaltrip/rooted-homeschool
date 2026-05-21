@@ -103,18 +103,34 @@ export function usePlanV2Data(opts: {
       .select("id, name, start_date, end_date")
       .eq("user_id", effectiveUserId);
 
+    // Pre-fetch archived goal IDs so we can hide their lesson rows from the
+    // calendar. "Mark as finished" sets curriculum_goals.archived=true but
+    // intentionally leaves the lesson history in place; without this filter
+    // those completed lessons keep rendering on past dates and the user
+    // can't clear them. Standalone lessons (curriculum_goal_id IS NULL)
+    // stay visible — PostgREST's `not.in` treats NULL as not-in-set.
+    const { data: archivedGoalsData } = await supabase
+      .from("curriculum_goals")
+      .select("id")
+      .eq("user_id", effectiveUserId)
+      .eq("archived", true);
+    const archivedGoalIds = ((archivedGoalsData ?? []) as { id: string }[]).map((g) => g.id);
+
     // No `is_backfill` filter on purpose. The Plan calendar shows the full
     // history of the family's work, including the "Log past hours" entries
     // and the wizard-generated backfill rows for past start_dates. Today
     // page filters `is_backfill !== true` separately so backfill rows stay
     // out of the daily checklist; the Plan calendar wants the opposite.
-    const lessonReq = supabase
+    let lessonReq = supabase
       .from("lessons")
       .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, completed_at, subjects(name, color), curriculum_goals(subject_label)")
       .eq("user_id", effectiveUserId)
       .gte("scheduled_date", startStr)
       .lte("scheduled_date", endStr)
       .order("lesson_number", { ascending: true });
+    if (archivedGoalIds.length > 0) {
+      lessonReq = lessonReq.not("curriculum_goal_id", "in", `(${archivedGoalIds.join(",")})`);
+    }
 
     const apptReq = token
       ? fetch(`/api/appointments?date=${startStr}&end=${endStr}`, {
