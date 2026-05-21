@@ -55,6 +55,7 @@ import {
   buildPastDateCompletionPayload,
   nthSchoolDay,
   planPushBackNDays,
+  schoolDayDelta,
 } from './scheduler.ts'
 
 test('forwardScheduleStart bumps today to tomorrow', () => {
@@ -2472,6 +2473,41 @@ test('nthSchoolDay: N=3 with vacation in the middle of the requested run skips t
   const vac = [{ start: '2026-05-06', end: '2026-05-08' }]
   const third = nthSchoolDay('2026-05-04', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], 3, vac)
   assert.equal(third, '2026-05-12')
+})
+
+test('schoolDayDelta: Wed → next Mon, Mon-Fri = 3 school days (Thu, Fri, Mon)', () => {
+  // Wed May 6 → Mon May 11. Mon-Fri school days, no vacations.
+  // School days strictly after May 6 up to and including May 11:
+  // Thu May 7 = 1, Fri May 8 = 2, Mon May 11 = 3. Sat/Sun skipped.
+  const n = schoolDayDelta('2026-05-06', '2026-05-11', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'])
+  assert.equal(n, 3)
+})
+
+test('schoolDayDelta: targetDate on or before fromDate returns 0', () => {
+  const sd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  assert.equal(schoolDayDelta('2026-05-06', '2026-05-06', sd), 0)
+  assert.equal(schoolDayDelta('2026-05-06', '2026-05-05', sd), 0)
+})
+
+test('schoolDayDelta: vacation block inside the window does not count', () => {
+  // Mon May 4 → Mon May 18. Mon-Fri. Vacation May 6 – May 15 covers
+  // Wed-Fri week 1 + Mon-Fri week 2 → 8 school days knocked out.
+  // School days in (May 4, May 18]: Tue May 5 = 1, then Mon May 18 = 2.
+  const vac = [{ start: '2026-05-06', end: '2026-05-15' }]
+  const n = schoolDayDelta('2026-05-04', '2026-05-18', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], vac)
+  assert.equal(n, 2)
+})
+
+test('schoolDayDelta: inverse of nthSchoolDay round-trips for the Plan cascade move', () => {
+  // For any N, nthSchoolDay(d, sd, N) should be the date where
+  // schoolDayDelta(d, that, sd) === N. The cascade-shift Plan move
+  // relies on this invariant: pick a delta N from the user's date pick,
+  // apply it to every later lesson with nthSchoolDay.
+  const sd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  for (const n of [1, 2, 5, 10, 21]) {
+    const target = nthSchoolDay('2026-05-04', sd, n)
+    assert.equal(schoolDayDelta('2026-05-04', target, sd), n, `round-trip failed at N=${n}`)
+  }
 })
 
 test('planAddToNextSchoolDays: with vacations, missed lesson lands after the vacation block', () => {
