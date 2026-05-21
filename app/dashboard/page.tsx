@@ -327,6 +327,14 @@ export default function TodayPage() {
 
   const [showPwaBanner, setShowPwaBanner] = useState(false);
   const [showPwaModal,  setShowPwaModal]  = useState(false);
+  // Render-time guard: the useEffect below already skips setShowPwaBanner
+  // when Capacitor is detected, but if window.Capacitor isn't injected
+  // before that effect fires (race on cold start of the WebView), the
+  // banner state would stick at true and the prompt would appear inside
+  // the native iOS app. Re-checking at render time prevents the JSX from
+  // mounting regardless of how the state was set.
+  const isNative = typeof window !== "undefined" &&
+    !!(window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.();
   useEffect(() => {
     const dismissed   = localStorage.getItem("pwa-banner-dismissed") === "true";
     const standalone  = window.matchMedia("(display-mode: standalone)").matches;
@@ -4847,7 +4855,10 @@ export default function TodayPage() {
       )}
 
       {/* ── PWA Install Banner ────────────────────────────── */}
-      {showPwaBanner && (
+      {/* Render-time isNative guard: the install prompt never belongs
+          inside the Capacitor iOS / Android shell, even if a stale
+          showPwaBanner=true slipped through the useEffect race above. */}
+      {!isNative && showPwaBanner && (
         <div className="sm:hidden fixed bottom-20 left-4 right-4 z-50 bg-[#2d2926] text-white rounded-2xl shadow-xl px-4 py-3 flex items-center gap-3">
           <span className="text-xl shrink-0">🌿</span>
           <p className="flex-1 text-sm font-medium leading-tight">Add Rooted to your home screen</p>
@@ -4857,7 +4868,7 @@ export default function TodayPage() {
       )}
 
       {/* ── PWA Install Modal ─────────────────────────────── */}
-      {showPwaModal && (
+      {!isNative && showPwaModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-4">
           <div className="bg-[#fefcf9] rounded-3xl shadow-xl w-full max-w-sm p-6 space-y-4">
             <div className="flex items-center justify-between">
