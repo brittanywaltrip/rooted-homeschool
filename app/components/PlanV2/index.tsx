@@ -70,6 +70,8 @@ import { usePlanV2Data } from "./usePlanV2Data";
 import { usePlanLessonActions } from "./usePlanLessonActions";
 import {
   recomputeCurrentLesson,
+  schoolDayDelta,
+  buildPastDateCompletionPayload,
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
@@ -203,6 +205,27 @@ export default function PlanV2() {
   const [recentlyLandedIds, setRecentlyLandedIds] = useState<Set<string>>(() => new Set());
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<{ lessonId: string; fromDateStr: string } | null>(null);
+  // Two-step choice when the user picks a NEW date for a curriculum lesson
+  // and there are later uncompleted lessons in the same goal that could
+  // ripple. shiftDays is the school-day delta from the original date to
+  // the chosen date.
+  const [cascadeChoice, setCascadeChoice] = useState<{
+    lessonId: string;
+    fromDateStr: string;
+    toDateStr: string;
+    goalId: string;
+    shiftDays: number;
+    futureLessonsToShift: number;
+    projectedFinishDate: string | null;
+  } | null>(null);
+  // Follow-up prompt when the user picks a PAST date. Decouples "where
+  // this lesson lives on the calendar" from "did you actually do it on
+  // that day" — both are mom-decisions, not system inferences.
+  const [pastCompleteConfirm, setPastCompleteConfirm] = useState<{
+    lessonId: string;
+    fromDateStr: string;
+    toDateStr: string;
+  } | null>(null);
   // Context menu — right-click on desktop / cell long-press on mobile.
   const [contextMenu, setContextMenu] = useState<{ dateStr: string; x: number; y: number } | null>(null);
   // Appointment wizard opened from "+ Add appointment" menu item.
@@ -2543,21 +2566,32 @@ export default function PlanV2() {
   // Undo restores each lesson's prior scheduled_date by id.
 
   const batchUpdateScheduledDates = useCallback(
-    async (pairs: { id: string; date: string }[]): Promise<{ succeededIds: Set<string>; failedIds: Set<string> }> => {
+    async (
+      pairs: { id: string; date: string }[],
+      source?: string,
+    ): Promise<{ succeededIds: Set<string>; failedIds: Set<string> }> => {
       const succeededIds = new Set<string>();
       const failedIds = new Set<string>();
       // Chunk of 20 is the same step legacy uses — a balance between
       // Postgres round-trip count and Supabase PostgREST row-limit quirks.
+      // When `source` is provided, it's written to scheduled_source too —
+      // honors Invariant 10 (CURRICULUM-SCHEDULING.md). Existing callers
+      // that omit it preserve their prior behavior.
       for (let i = 0; i < pairs.length; i += 20) {
         const slice = pairs.slice(i, i + 20);
         const results = await Promise.allSettled(
-          slice.map((p) =>
-            supabase
+          slice.map((p) => {
+            const update: { scheduled_date: string; date: string; scheduled_source?: string } = {
+              scheduled_date: p.date,
+              date: p.date,
+            };
+            if (source) update.scheduled_source = source;
+            return supabase
               .from("lessons")
-              .update({ scheduled_date: p.date, date: p.date })
+              .update(update)
               .eq("id", p.id)
-              .then(({ error }) => (error ? Promise.reject(error) : true)),
-          ),
+              .then(({ error }) => (error ? Promise.reject(error) : true));
+          }),
         );
         results.forEach((r, idx) => {
           if (r.status === "fulfilled") succeededIds.add(slice[idx].id);
@@ -2736,6 +2770,158 @@ export default function PlanV2() {
     reload();
     setBulkBusy(false);
   }, [setLessons, flagLanded, batchUpdateScheduledDates, recordEvent, reload]);
+
+  // ── Cascade shift on single-lesson move ──────────────────────────────────
+  // When a mom moves one curriculum lesson forward, the queue projector
+  // happily shows it on the new date — but lessons after it still sit on
+  // their original projected dates, causing visual overlap on the day
+  // panel. This handler is the user-explicit "shift them too" path.
+  //
+  // Mechanics: every uncompleted lesson in the same goal whose
+  // scheduled_date sits strictly after the moved lesson's ORIGINAL date
+  // gets pushed forward by the same school-day delta. The moved lesson
+  // itself is also written in the same batch so the optimistic UI lands
+  // it on the picked date. Queue order is preserved (no queue_position
+  // rewrites — that's reserved for explicit reorders per the May 18
+  // queue_position doc in CURRICULUM-SCHEDULING.md).
+  const handleShiftAllForward = useCallback(async (c: {
+    lessonId: string;
+    fromDateStr: string;
+    toDateStr: string;
+    goalId: string;
+    shiftDays: number;
+  }) => {
+    setCascadeChoice(null);
+    setBulkBusy(true);
+
+    const goal = curriculumGoals.find((g) => g.id === c.goalId);
+    const goalSchoolDays = (goal?.school_days && goal.school_days.length > 0)
+      ? goal.school_days
+      : schoolDays;
+    // nthSchoolDay (lib/school-days) reads start_date/end_date; pass
+    // vacationBlocks directly. schoolDayDelta (lib/scheduler) reads
+    // start/end and is only used in the dispatch step, not here.
+
+    // Collect every uncompleted future row in the same goal (excluding
+    // the moved lesson, which gets its own entry below). "Future" here
+    // means scheduled_date strictly after the moved lesson's ORIGINAL
+    // date — not after today — so the user's cascade choice ripples the
+    // whole tail, not just the slice past today.
+    const futureLessons = lessons.filter((l) =>
+      l.curriculum_goal_id === c.goalId &&
+      !l.completed &&
+      l.id !== c.lessonId &&
+      (l.scheduled_date ?? l.date) !== null &&
+      ((l.scheduled_date ?? l.date)!) > c.fromDateStr,
+    );
+
+    const pairs: { id: string; date: string }[] = [
+      { id: c.lessonId, date: c.toDateStr },
+    ];
+    const fromByLessonId = new Map<string, string>();
+    fromByLessonId.set(c.lessonId, c.fromDateStr);
+    for (const fl of futureLessons) {
+      const cur = (fl.scheduled_date ?? fl.date)!;
+      const next = nthSchoolDay(cur, goalSchoolDays, c.shiftDays, vacationBlocks);
+      pairs.push({ id: fl.id, date: next });
+      fromByLessonId.set(fl.id, cur);
+    }
+
+    // Optimistic local update.
+    const dateById = new Map(pairs.map((p) => [p.id, p.date]));
+    setLessons((prev) =>
+      prev.map((l) => {
+        const d = dateById.get(l.id);
+        return d ? { ...l, scheduled_date: d, date: d } : l;
+      }),
+    );
+    pairs.forEach((p) => flagLanded(p.id));
+    hapticTap(20);
+
+    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs, "plan_move");
+
+    if (failedIds.size > 0) {
+      setLessons((prev) =>
+        prev.map((l) => {
+          if (!failedIds.has(l.id)) return l;
+          const orig = fromByLessonId.get(l.id);
+          return orig ? { ...l, scheduled_date: orig, date: orig } : l;
+        }),
+      );
+    }
+
+    recordEvent("lesson.bulk_action", {
+      action: "shift_forward_cascade",
+      count: pairs.length,
+      lesson_ids: pairs.map((p) => p.id),
+      from_dates: pairs.map((p) => fromByLessonId.get(p.id) ?? ""),
+      to_dates: pairs.map((p) => p.date),
+      school_days_shifted: c.shiftDays,
+      succeeded: succeededIds.size,
+      failed: failedIds.size,
+      trigger_lesson_id: c.lessonId,
+      goal_id: c.goalId,
+    });
+
+    if (succeededIds.size > 0) {
+      const succeededPairs = pairs.filter((p) => succeededIds.has(p.id));
+      setUndoAction({
+        message: `Shifted ${pairs.length} lesson${pairs.length === 1 ? "" : "s"} forward by ${c.shiftDays} school day${c.shiftDays === 1 ? "" : "s"}`,
+        key: `shift-forward:${Date.now()}`,
+        onUndo: async () => {
+          const undoPairs = succeededPairs
+            .map((p) => ({ id: p.id, date: fromByLessonId.get(p.id) ?? p.date }));
+          const undoDateById = new Map(undoPairs.map((p) => [p.id, p.date]));
+          setLessons((prev) =>
+            prev.map((l) => {
+              const d = undoDateById.get(l.id);
+              return d ? { ...l, scheduled_date: d, date: d } : l;
+            }),
+          );
+          hapticTap(20);
+          succeededPairs.forEach((p) => flagLanded(p.id));
+          await batchUpdateScheduledDates(undoPairs, "plan_move");
+          reload();
+        },
+      });
+    } else {
+      flashNotice("Couldn't shift the schedule — check your connection.");
+    }
+
+    reload();
+    setBulkBusy(false);
+  }, [lessons, curriculumGoals, schoolDays, vacationBlocks, batchUpdateScheduledDates, recordEvent, reload, flagLanded, flashNotice]);
+
+  // ── Past-date move with optional completion ──────────────────────────────
+  // When a mom picks a past date for a single lesson, the move itself
+  // is a normal queue-position rewrite (`move_lesson_to_date` RPC via
+  // performMove). The Yes/No follow-up decides whether to ALSO mark the
+  // row complete on that date. `buildPastDateCompletionPayload` is the
+  // shared shape that the catch-up flow uses; same source-of-truth, same
+  // scheduled_source. "No, just move" leaves completed=false and lets
+  // mom mark it later from Today/Plan.
+  const handlePastDateMove = useCallback(async (
+    p: { lessonId: string; fromDateStr: string; toDateStr: string },
+    markCompleted: boolean,
+  ) => {
+    setPastCompleteConfirm(null);
+    await performMove(p.lessonId, p.fromDateStr, p.toDateStr);
+    if (!markCompleted) return;
+    const payload = buildPastDateCompletionPayload(`${p.toDateStr}T12:00:00Z`);
+    const { error } = await supabase.from("lessons").update(payload).eq("id", p.lessonId);
+    if (error) {
+      flashNotice("Lesson moved, but couldn't mark complete.");
+      return;
+    }
+    setLessons((prev) =>
+      prev.map((l) =>
+        l.id === p.lessonId
+          ? { ...l, completed: true, completed_at: payload.completed_at, scheduled_source: payload.scheduled_source }
+          : l,
+      ),
+    );
+    reload();
+  }, [performMove, setLessons, reload, flashNotice]);
 
   // ── Vacation block modal handlers ────────────────────────────────────────
 
@@ -3143,6 +3329,8 @@ export default function PlanV2() {
       if (shiftForwardOpen) { setShiftForwardOpen(false); return; }
       if (addLessonOpen) { setAddLessonOpen(false); return; }
       if (editLessonTarget) { setEditLessonTarget(null); return; }
+      if (cascadeChoice) { setCascadeChoice(null); return; }
+      if (pastCompleteConfirm) { setPastCompleteConfirm(null); return; }
       if (rescheduleTarget) { setRescheduleTarget(null); return; }
       if (apptEditTarget) { setApptEditTarget(null); return; }
       if (openDayStr) { setOpenDayStr(null); return; }
@@ -3152,7 +3340,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -3850,18 +4038,108 @@ export default function PlanV2() {
 
         {/* Reschedule dialog — opened from the DayDetailPanel 3-dot menu.
             Uses the native <input type="date"> picker (opens the OS picker
-            on mobile, a calendar popover on desktop). */}
+            on mobile, a calendar popover on desktop). minDateStr is omitted
+            so moms can move a lesson to a past date when they're logging
+            something they already did. The follow-up PastCompleteDialog
+            asks whether to also mark the lesson done. */}
         {rescheduleTarget ? (
           <RescheduleDialog
             lessonId={rescheduleTarget.lessonId}
             fromDateStr={rescheduleTarget.fromDateStr}
-            minDateStr={todayStr}
             vacationBlocks={vacationBlocks}
             onCancel={() => setRescheduleTarget(null)}
-            onPick={async (toDateStr) => {
+            onPick={(toDateStr) => {
+              const target = rescheduleTarget;
               setRescheduleTarget(null);
-              await performMove(rescheduleTarget.lessonId, rescheduleTarget.fromDateStr, toDateStr);
+              if (!target) return;
+              // Past date → ask whether mom is also marking it complete.
+              if (toDateStr < todayStr) {
+                setPastCompleteConfirm({
+                  lessonId: target.lessonId,
+                  fromDateStr: target.fromDateStr,
+                  toDateStr,
+                });
+                return;
+              }
+              // Same date or no goal → existing single-move behavior.
+              const movedLesson = lessons.find((l) => l.id === target.lessonId);
+              const goalId = movedLesson?.curriculum_goal_id ?? null;
+              if (!goalId || toDateStr === target.fromDateStr) {
+                void performMove(target.lessonId, target.fromDateStr, toDateStr);
+                return;
+              }
+              // Compute the school-day delta and the set of lessons that
+              // would ripple. If nothing ripples (no later uncompleted
+              // siblings, or delta is 0), skip the modal and just move.
+              const goal = curriculumGoals.find((g) => g.id === goalId);
+              const goalSchoolDays = (goal?.school_days && goal.school_days.length > 0)
+                ? goal.school_days
+                : schoolDays;
+              const vacRanges = vacationBlocks.map((v) => ({ start: v.start_date, end: v.end_date }));
+              const shiftDays = schoolDayDelta(target.fromDateStr, toDateStr, goalSchoolDays, vacRanges);
+              const futureLessons = lessons.filter((l) =>
+                l.curriculum_goal_id === goalId &&
+                !l.completed &&
+                l.id !== target.lessonId &&
+                (l.scheduled_date ?? l.date) !== null &&
+                ((l.scheduled_date ?? l.date)!) > target.fromDateStr,
+              );
+              if (shiftDays <= 0 || futureLessons.length === 0) {
+                void performMove(target.lessonId, target.fromDateStr, toDateStr);
+                return;
+              }
+              // Projected new finish = the latest future lesson's current
+              // date, shifted forward by shiftDays. Shown verbatim in the
+              // modal so mom knows what she's agreeing to.
+              const latestDateStr = futureLessons.reduce<string>((acc, l) => {
+                const d = (l.scheduled_date ?? l.date)!;
+                return d > acc ? d : acc;
+              }, target.fromDateStr);
+              const projectedFinishDate = nthSchoolDay(latestDateStr, goalSchoolDays, shiftDays, vacationBlocks);
+              setCascadeChoice({
+                lessonId: target.lessonId,
+                fromDateStr: target.fromDateStr,
+                toDateStr,
+                goalId,
+                shiftDays,
+                futureLessonsToShift: futureLessons.length,
+                projectedFinishDate,
+              });
             }}
+          />
+        ) : null}
+
+        {/* Cascade choice — appears after the user picks a future date
+            for a curriculum lesson with later uncompleted siblings. */}
+        {cascadeChoice ? (
+          <CascadeChoiceDialog
+            choice={cascadeChoice}
+            onCancel={() => setCascadeChoice(null)}
+            onMoveJustThis={() => {
+              const c = cascadeChoice;
+              setCascadeChoice(null);
+              void performMove(c.lessonId, c.fromDateStr, c.toDateStr);
+            }}
+            onShiftAll={() => {
+              void handleShiftAllForward({
+                lessonId: cascadeChoice.lessonId,
+                fromDateStr: cascadeChoice.fromDateStr,
+                toDateStr: cascadeChoice.toDateStr,
+                goalId: cascadeChoice.goalId,
+                shiftDays: cascadeChoice.shiftDays,
+              });
+            }}
+          />
+        ) : null}
+
+        {/* Past-date completion follow-up. Asks whether mom is also
+            logging that she completed the lesson on the picked day. */}
+        {pastCompleteConfirm ? (
+          <PastCompleteDialog
+            confirm={pastCompleteConfirm}
+            onCancel={() => setPastCompleteConfirm(null)}
+            onYes={() => void handlePastDateMove(pastCompleteConfirm, true)}
+            onNo={() => void handlePastDateMove(pastCompleteConfirm, false)}
           />
         ) : null}
 
@@ -4576,7 +4854,7 @@ function ConfirmDialog(props: {
 function RescheduleDialog(props: {
   lessonId: string;
   fromDateStr: string;
-  minDateStr: string;
+  minDateStr?: string;
   vacationBlocks: { start_date: string; end_date: string }[];
   onCancel: () => void;
   onPick: (toDateStr: string) => void;
@@ -4624,7 +4902,7 @@ function RescheduleDialog(props: {
               <input
                 type="date"
                 value={value}
-                min={minDateStr}
+                {...(minDateStr ? { min: minDateStr } : {})}
                 onChange={(e) => setValue(e.target.value)}
                 className="mt-1.5 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2.5 text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
               />
@@ -4651,6 +4929,163 @@ function RescheduleDialog(props: {
                 Save new date
               </button>
             </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function CascadeChoiceDialog(props: {
+  choice: {
+    lessonId: string;
+    fromDateStr: string;
+    toDateStr: string;
+    goalId: string;
+    shiftDays: number;
+    futureLessonsToShift: number;
+    projectedFinishDate: string | null;
+  };
+  onCancel: () => void;
+  onMoveJustThis: () => void;
+  onShiftAll: () => void;
+}) {
+  const { choice, onCancel, onMoveJustThis, onShiftAll } = props;
+  const toLabel = new Date(`${choice.toDateStr}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "long", month: "short", day: "numeric",
+  });
+  const finishLabel = choice.projectedFinishDate
+    ? new Date(`${choice.projectedFinishDate}T12:00:00`).toLocaleDateString("en-US", {
+        month: "short", day: "numeric", year: "numeric",
+      })
+    : null;
+  const days = `${choice.shiftDays} school day${choice.shiftDays === 1 ? "" : "s"}`;
+  const tail = `${choice.futureLessonsToShift} later lesson${choice.futureLessonsToShift === 1 ? "" : "s"}`;
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[75]"
+        onClick={onCancel}
+        aria-hidden
+      />
+      <div className="fixed inset-0 z-[75] flex items-end sm:items-center justify-center p-3 pointer-events-none">
+        <div
+          className="bg-[#fefcf9] rounded-2xl shadow-xl w-full max-w-sm pointer-events-auto overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between px-5 pt-4 pb-2">
+            <div>
+              <h2 className="text-base font-bold text-[#2d2926]">Moving to {toLabel}</h2>
+              <p className="text-xs text-[#7a6f65] mt-0.5">What about the lessons after it?</p>
+            </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="Cancel"
+              className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="px-5 pb-5 pt-2 space-y-3">
+            <button
+              type="button"
+              onClick={onMoveJustThis}
+              className="w-full text-left p-4 bg-white rounded-xl border border-[#e8e2d9] hover:bg-[#f4faf0] transition-colors"
+            >
+              <p className="text-sm font-medium text-[#2d3a2e]">Move just this lesson</p>
+              <p className="text-xs text-[#9a8e84] mt-0.5">
+                Only this lesson moves. Lessons after it stay on their dates.
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={onShiftAll}
+              className="w-full text-left p-4 rounded-xl border transition-colors"
+              style={{ background: "#f8fdf9", borderColor: "#b8d89a" }}
+            >
+              <p className="text-sm font-medium text-[#2d3a2e]">Shift all remaining lessons forward</p>
+              <p className="text-xs text-[#9a8e84] mt-0.5">
+                {tail} shift by {days}.
+                {finishLabel ? ` New finish date: ${finishLabel}.` : ""}
+              </p>
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="w-full min-h-[44px] text-sm font-medium text-[#7a6f65] bg-[#f4f0e8] rounded-xl hover:bg-[#e8e2d9] transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function PastCompleteDialog(props: {
+  confirm: { lessonId: string; fromDateStr: string; toDateStr: string };
+  onCancel: () => void;
+  onYes: () => void;
+  onNo: () => void;
+}) {
+  const { confirm, onCancel, onYes, onNo } = props;
+  const toLabel = new Date(`${confirm.toDateStr}T12:00:00`).toLocaleDateString("en-US", {
+    weekday: "long", month: "short", day: "numeric",
+  });
+
+  return (
+    <>
+      <div
+        className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[75]"
+        onClick={onCancel}
+        aria-hidden
+      />
+      <div className="fixed inset-0 z-[75] flex items-end sm:items-center justify-center p-3 pointer-events-none">
+        <div
+          className="bg-[#fefcf9] rounded-2xl shadow-xl w-full max-w-sm pointer-events-auto overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between px-5 pt-4 pb-2">
+            <div>
+              <h2 className="text-base font-bold text-[#2d2926]">Did you do it on {toLabel}?</h2>
+              <p className="text-xs text-[#7a6f65] mt-0.5">
+                You're moving this lesson to a past date.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="Cancel"
+              className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors"
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="px-5 pb-5 pt-2 space-y-3">
+            <button
+              type="button"
+              onClick={onYes}
+              className="w-full min-h-[44px] text-sm font-bold text-white bg-[#2D5A3D] rounded-xl hover:bg-[var(--g-deep)] transition-colors"
+            >
+              Yes, mark complete
+            </button>
+            <button
+              type="button"
+              onClick={onNo}
+              className="w-full min-h-[44px] text-sm font-medium text-[#2d3a2e] bg-white border border-[#e8e2d9] rounded-xl hover:bg-[#f4f0e8] transition-colors"
+            >
+              No, just move it
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="w-full min-h-[44px] text-sm font-medium text-[#7a6f65] hover:bg-[#f4f0e8] rounded-xl transition-colors"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       </div>

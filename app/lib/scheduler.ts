@@ -345,6 +345,42 @@ export function nthSchoolDay(
 }
 
 /**
+ * Counts the number of school days strictly between fromDate (exclusive)
+ * and toDate (inclusive), respecting vacations. Returns 0 when toDate is
+ * on or before fromDate. The inverse of `nthSchoolDay` — if
+ * `nthSchoolDay(from, sd, n) === to`, then `schoolDayDelta(from, to, sd) === n`.
+ *
+ * Used by the cascade-shift Plan move to compute how many school days a
+ * single lesson was pushed forward, then apply that same delta to every
+ * later uncompleted lesson in the same goal. Caller stays out of the
+ * day-walk loop (Invariant 8).
+ */
+export function schoolDayDelta(
+  fromDateStr: string,
+  targetDateStr: string,
+  schoolDays: string[],
+  vacations: VacationRange[] = [],
+): number {
+  if (targetDateStr <= fromDateStr) return 0;
+  const activeDays = new Set(schoolDays.map((d) => DAY_LABEL_TO_IDX[d] ?? -1));
+  const cursor = new Date(fromDateStr + "T12:00:00");
+  let count = 0;
+  for (let i = 0; i < 3650; i++) {
+    cursor.setDate(cursor.getDate() + 1);
+    const dateStr = toDateStr(cursor);
+    if (dateStr > targetDateStr) break;
+    const idx = (cursor.getDay() + 6) % 7;
+    if (!activeDays.has(idx)) continue;
+    if (vacations.length > 0) {
+      if (vacations.some((v) => dateStr >= v.start && dateStr <= v.end)) continue;
+    }
+    count++;
+    if (dateStr === targetDateStr) break;
+  }
+  return count;
+}
+
+/**
  * Minimal lesson shape consumed by the missed-lesson reschedule planners.
  * Pages pass their full Lesson rows in — the planners only read these fields.
  */
