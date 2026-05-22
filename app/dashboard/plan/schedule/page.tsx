@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreVertical, Trash2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -630,11 +630,21 @@ export default function ScheduleBuilderPage() {
   // ── Deep-link scroll/highlight ───────────────────────────────────────────
   // After rows finish loading, find the row card matching the ?goal=<id>
   // search param, scroll it into view, and apply a brief ring highlight so
-  // the user lands on the curriculum they clicked "Edit goal" from. The
+  // the user lands on the curriculum they clicked "Edit" from. The
   // highlight self-clears after 2.5s.
+  //
+  // `rows` is in the dep array because we need to wait for it to populate
+  // before the data-goal-id node exists in the DOM. Without a guard, every
+  // subsequent rows mutation (every keystroke in a row input) re-fires the
+  // scrollIntoView and yanks the user away from the field they're typing
+  // in. consumedTargetGoalRef remembers which targetGoalId we already
+  // scrolled to so the effect short-circuits on later rows changes.
+  const consumedTargetGoalRef = useRef<string | null>(null);
   useEffect(() => {
     if (loading || !targetGoalId) return;
+    if (consumedTargetGoalRef.current === targetGoalId) return;
     if (!rows.some((r) => r.dbId === targetGoalId)) return;
+    consumedTargetGoalRef.current = targetGoalId;
     const id = targetGoalId;
     const t = setTimeout(() => {
       const el = document.querySelector(`[data-goal-id="${id}"]`);

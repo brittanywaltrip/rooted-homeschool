@@ -344,7 +344,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                               onClick={() => { setMenuOpenId(null); onEdit(goal); }}
                               className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
                             >
-                              <Pencil size={14} className="text-[#5c7f63]" /> Edit pacing
+                              <Pencil size={14} className="text-[#5c7f63]" /> Edit
                             </button>
                             <button
                               type="button"
