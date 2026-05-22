@@ -487,6 +487,12 @@ export default function ScheduleBuilderPage() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // Distinct from saveError: post-save phase (lesson regen / recompute /
+  // overcapacity assertion) runs AFTER the curriculum_goals + activities
+  // writes have already committed. A failure here doesn't roll back the
+  // schema writes, so showing "Save failed:" would lie. This carries the
+  // softer "saved, but lesson layout needs another touch" notice instead.
+  const [postSaveNotice, setPostSaveNotice] = useState<string | null>(null);
 
   const [children, setChildren] = useState<Child[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
@@ -803,6 +809,13 @@ export default function ScheduleBuilderPage() {
     if (!saveGate.tryEnter()) return;
     setSaving(true);
     setSaveError(null);
+    setPostSaveNotice(null);
+    // Phase tracking so the catch can distinguish a true write failure
+    // (curriculum_goals / activities never committed) from a post-save
+    // hiccup (writes committed; lesson regen / recompute / overcapacity
+    // assertion threw afterward). Flip to "post_save" once Phase 1 + 2
+    // settle so any throw past that point routes to the soft notice.
+    let phase: "write" | "post_save" = "write";
     try {
       // Each entry pairs a saved curriculum_goals row with the local Row it
       // came from. The lesson-generation pass below needs both the dbId (for
@@ -977,6 +990,11 @@ export default function ScheduleBuilderPage() {
           .in("id", activitiesToDeactivate);
         if (error) throw error;
       }
+
+      // Phase 1 (per-row writes) and Phase 2 (reconciliation sweep) are
+      // committed at this point. Anything that throws below is a post-save
+      // hiccup, not a write failure — route through the soft notice.
+      phase = "post_save";
 
       // 3. Recompute current_lesson on every curriculum row we wrote so
       //    start_at_lesson is honored on the read side (queue projector
@@ -1251,9 +1269,9 @@ export default function ScheduleBuilderPage() {
         }
         const violated = Object.entries(dateMap).filter(([, count]) => count > lessons_per_day);
         if (violated.length > 0) {
-          console.error("[handleSave] Overcapacity after INSERT — rolling back", violated);
+          console.error("[handleSave] Overcapacity after INSERT", violated);
           throw new Error(
-            `Overcapacity detected on ${violated.length} date(s) after save. No changes committed.`,
+            `Overcapacity detected on ${violated.length} date(s) after save. Lesson rows may need another save to resolve.`,
           );
         }
       }
@@ -1262,7 +1280,21 @@ export default function ScheduleBuilderPage() {
       router.push("/dashboard/plan");
     } catch (err) {
       const msg = (err as { message?: string })?.message ?? String(err);
-      setSaveError(msg);
+      if (phase === "write") {
+        // Schema writes never committed. True save failure.
+        setSaveError(msg);
+      } else {
+        // curriculum_goals + activities did commit. Lesson regen / recompute /
+        // overcapacity assertion threw. Don't alarm the user with "Save failed"
+        // when the thing they edited is on disk. Log the raw error for debug,
+        // surface the soft notice, and clear dirty so the saved schema isn't
+        // treated as pending changes.
+        console.warn("[handleSave] post-save phase failed:", msg);
+        setPostSaveNotice(
+          "Curriculum changes saved. Lesson layout needs another touch, save again to sync.",
+        );
+        setDirty(false);
+      }
     } finally {
       setSaving(false);
       // 1.5s settle window: prevents a back-to-back re-tap (e.g. impatient
@@ -1452,6 +1484,12 @@ export default function ScheduleBuilderPage() {
         {saveError && (
           <div className="mt-4 bg-white border border-[#e8c8c8] rounded-2xl p-3">
             <p className="text-sm text-[#9a3a3a]">Save failed: {saveError}</p>
+          </div>
+        )}
+
+        {postSaveNotice && (
+          <div className="mt-4 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-3">
+            <p className="text-sm text-[#7a6f65]">{postSaveNotice}</p>
           </div>
         )}
       </div>
