@@ -578,7 +578,7 @@ export default function GardenPage() {
         title="Garden"
         subtitle="Watch your family grow"
       />
-      <div className="max-w-3xl mx-auto px-4 pt-5 pb-7 space-y-6 overflow-x-hidden">
+      <div className="max-w-3xl mx-auto px-4 pt-3 pb-7 space-y-4 overflow-x-hidden">
 
       {/* ── First-visit tip ───────────────────────────────── */}
       {!tipDismissed && totalLeaves === 0 && (
@@ -608,7 +608,8 @@ export default function GardenPage() {
         style={{
           background: theme.skyGradient,
           aspectRatio: "16/9",
-          minHeight: 280,
+          minHeight: "18vh",
+          maxHeight: "30vh",
         }}
       >
         {/* Sun */}
