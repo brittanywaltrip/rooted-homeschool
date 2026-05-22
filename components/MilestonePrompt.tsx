@@ -79,7 +79,7 @@ export default function MilestonePrompt({
             className="block w-full py-3 rounded-xl text-sm font-bold text-white text-center transition-all shadow-sm"
             style={{ backgroundColor: "var(--g-brand)" }}
           >
-            Upgrade — $39/yr →
+            Upgrade to Rooted+ · $59/yr →
           </Link>
           <button
             onClick={handleShare}

@@ -131,16 +131,16 @@ const sections = [
         ),
       },
       {
-        q: "What is the Founding Family price?",
-        a: "Rooted+ with Founding Family pricing is $39/year — locked in forever, even as the price increases. Regular price will be $59/year after April 30, 2026. Founding Family pricing is our way of thanking early supporters who helped us build and improve the app.",
+        q: "How much does Rooted+ cost?",
+        a: "Rooted+ is $59/year. Founding Family members who joined during our launch period (before April 30, 2026) keep their $39/year rate forever.",
       },
       {
-        q: "When does the founding price end?",
-        a: "Rooted+ Founding Family pricing ($39/year) is available during our early access period. The standard Rooted+ price is $59/year. Founding Families keep their $39/year rate permanently — even as we add more features and the price increases.",
+        q: "Is Founding Family pricing still available?",
+        a: "No. Founding Family pricing closed on April 30, 2026. Standard Rooted+ pricing is $59/year. Existing Founding Family members keep their $39/year rate permanently.",
       },
       {
         q: "How do I upgrade to a paid plan?",
-        a: 'Tap "Get Rooted+" in the app or visit the upgrade page. Rooted+ Founding Family pricing is $39/yr — locked in forever. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account upgrades instantly.',
+        a: 'Tap "Get Rooted+" in the app or visit the upgrade page. Rooted+ is $59/year. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account upgrades instantly.',
       },
       {
         q: "How do I cancel?",
@@ -166,7 +166,7 @@ const sections = [
       },
       {
         q: "What happens at renewal?",
-        a: "Founding Family members renew at $39/year, locked forever. Standard members renew at the price they signed up at. You'll get an email before the charge — cancel anytime if you don't want to renew.",
+        a: "Founding Family members renew at $39/year, locked forever. Standard members renew at the price they signed up at. You'll get an email before the charge. Cancel anytime if you don't want to renew.",
       },
       {
         q: "Can I become an affiliate?",
