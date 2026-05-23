@@ -124,8 +124,22 @@ export default function FamilyViewPage() {
   const [giftLoading, setGiftLoading] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
 
+  // Error toast — surfaced when a comment or reaction POST fails so the
+  // viewer knows their action didn't actually save (we used to silently
+  // optimistic-update and never reconcile with the server).
+  const [toastError, setToastError] = useState<string | null>(null);
+
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const autoReactDone = useRef(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showErrorToast(message: string) {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastError(message);
+    toastTimerRef.current = setTimeout(() => setToastError(null), 4000);
+  }
+
+  useEffect(() => () => { if (toastTimerRef.current) clearTimeout(toastTimerRef.current); }, []);
 
   /* ─── Init ──────────────────────────────────────────────────────────── */
 
@@ -252,19 +266,47 @@ export default function FamilyViewPage() {
       return updated;
     });
 
-    try {
-      await fetch(`/api/family/${token}/react`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memory_id: memoryId, emoji, reactor_key: key, reactor_name: name }),
-      });
-    } catch {
+    const rollback = () => {
+      // Invert both pieces of state we applied above so the UI matches the
+      // server. fetchData() reconciles counts (other family members' reactions
+      // may have arrived between the optimistic update and the rollback).
       setMyReactions((prev) => {
         const next = new Set(prev);
         if (alreadyReacted) next.add(reactionKey); else next.delete(reactionKey);
         return next;
       });
+      setReactions((prev) => {
+        const updated = { ...prev };
+        const memRxns = [...(updated[memoryId] ?? [])];
+        const idx = memRxns.findIndex((r) => r.emoji === emoji);
+        if (alreadyReacted) {
+          if (idx >= 0) memRxns[idx] = { ...memRxns[idx], count: memRxns[idx].count + 1 };
+          else memRxns.push({ emoji, count: 1 });
+        } else {
+          if (idx >= 0) {
+            memRxns[idx] = { ...memRxns[idx], count: Math.max(0, memRxns[idx].count - 1) };
+            if (memRxns[idx].count === 0) memRxns.splice(idx, 1);
+          }
+        }
+        updated[memoryId] = memRxns;
+        return updated;
+      });
       fetchData();
+    };
+
+    try {
+      const res = await fetch(`/api/family/${token}/react`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory_id: memoryId, emoji, reactor_key: key, reactor_name: name }),
+      });
+      if (!res.ok) {
+        rollback();
+        showErrorToast("Couldn't send your reaction, try again");
+      }
+    } catch {
+      rollback();
+      showErrorToast("Couldn't send your reaction, try again");
     }
   }
 
@@ -279,18 +321,34 @@ export default function FamilyViewPage() {
     if (!commentText.trim() || !guestName) return;
     setSendingComment(true);
 
+    // Save the original text up front so we can restore it on failure
+    // (the input clears optimistically so the textbox feels responsive).
+    const originalText = commentText.trim();
     const optimistic: Comment = {
-      id: `temp-${Date.now()}`, name: guestName, text: commentText.trim(), created_at: new Date().toISOString(),
+      id: `temp-${Date.now()}`, name: guestName, text: originalText, created_at: new Date().toISOString(),
     };
     setComments((prev) => ({ ...prev, [memoryId]: [...(prev[memoryId] ?? []), optimistic] }));
     setCommentText("");
+
+    const rollback = () => {
+      setComments((prev) => ({
+        ...prev,
+        [memoryId]: (prev[memoryId] ?? []).filter((c) => c.id !== optimistic.id),
+      }));
+      setCommentText(originalText);
+      showErrorToast("Couldn't post your comment, try again");
+    };
 
     try {
       const res = await fetch(`/api/family/${token}/comment`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memory_id: memoryId, commenter_key: guestKey, commenter_name: guestName, body: optimistic.text }),
+        body: JSON.stringify({ memory_id: memoryId, commenter_key: guestKey, commenter_name: guestName, body: originalText }),
       });
+      if (!res.ok) {
+        rollback();
+        return;
+      }
       const data = await res.json();
       if (data.comment) {
         setComments((prev) => ({
@@ -301,7 +359,7 @@ export default function FamilyViewPage() {
         }));
       }
     } catch {
-      setComments((prev) => ({ ...prev, [memoryId]: (prev[memoryId] ?? []).filter((c) => c.id !== optimistic.id) }));
+      rollback();
     } finally {
       setSendingComment(false);
     }
@@ -432,6 +490,18 @@ export default function FamilyViewPage() {
       {giftSuccess && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-[var(--g-brand)] text-white px-5 py-3 rounded-2xl shadow-lg text-sm font-medium animate-[toast-slide-up_0.3s_ease-out]">
           🎁 Gift sent! They&apos;ll be so happy.
+        </div>
+      )}
+
+      {/* ─── Error toast ───────────────────────────────────────────────── */}
+      {toastError && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed top-4 left-1/2 -translate-x-1/2 z-50 text-white px-5 py-3 rounded-2xl shadow-lg text-sm font-medium animate-[toast-slide-up_0.3s_ease-out]"
+          style={{ backgroundColor: "#a8584a" }}
+        >
+          {toastError}
         </div>
       )}
 
