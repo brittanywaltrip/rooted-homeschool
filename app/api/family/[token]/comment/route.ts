@@ -28,11 +28,14 @@ export async function POST(
     return NextResponse.json({ error: "Invalid link" }, { status: 404 });
   }
 
-  // Insert comment
+  // Insert comment. family_token is NOT NULL in the live schema even though
+  // invite_token is the column the rest of the app reads — set both to the
+  // same value until the catch-up migration drops family_token.
   const { data: comment, error: commentErr } = await supabaseAdmin
     .from("memory_comments")
     .insert({
       memory_id,
+      family_token: token,
       invite_token: token,
       commenter_name,
       commenter_key,
@@ -43,8 +46,16 @@ export async function POST(
     .single();
 
   if (commentErr) {
-    console.error("Comment error:", commentErr);
-    return NextResponse.json({ error: "Failed to save comment" }, { status: 500 });
+    console.error("memory_comments insert failed", {
+      token,
+      memory_id,
+      commenter_key,
+      code: commentErr.code,
+      message: commentErr.message,
+      details: commentErr.details,
+      hint: commentErr.hint,
+    });
+    return NextResponse.json({ error: commentErr.message }, { status: 500 });
   }
 
   // Create notification for mom
