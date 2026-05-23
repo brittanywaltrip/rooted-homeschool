@@ -868,18 +868,20 @@ export default function ScheduleBuilderPage() {
         seen.set(key, r);
       }
 
-      // DB check. Skip any goal whose id is already being edited by a
-      // row in this session so renaming an in-place edit doesn't collide
-      // with itself.
-      const editedDbIds = new Set(
-        rows
-          .filter((r) => r.previouslySavedAs === "curriculum_goals" && r.dbId)
-          .map((r) => r.dbId as string),
-      );
-      // Filter mirrors the Builder's load query (archived = false AND
-      // completed_at IS NULL) so a finished curriculum doesn't block
-      // starting the same one fresh next school year. The DB partial
-      // unique index uses the same predicate.
+      // DB check. Filter mirrors the Builder's load query (archived =
+      // false AND completed_at IS NULL) so a finished curriculum doesn't
+      // block starting the same one fresh next school year. The DB
+      // partial unique index uses the same predicate.
+      //
+      // newCurriculumRows already excludes in-place edits (rows whose
+      // previouslySavedAs === 'curriculum_goals' && dbId), so every row
+      // we're about to check is a brand-new insert with no "self" to
+      // exclude. Compare against EVERY active DB goal for this child,
+      // including ones the form has loaded into other slots — otherwise
+      // a user who reopens the Builder with goal "Foo" already loaded
+      // can add a second "Foo" row and the existing one would be
+      // skipped as "already being edited" (this was the 2026-05-23
+      // DUP TEST V2 regression on staging adc0d7d).
       const { data: existingGoals, error: dupCheckErr } = await supabase
         .from("curriculum_goals")
         .select("id, child_id, curriculum_name")
@@ -896,7 +898,6 @@ export default function ScheduleBuilderPage() {
         const target = canonical.toLowerCase();
         const conflict = (existingGoals ?? []).find(
           (g) =>
-            !editedDbIds.has(g.id) &&
             g.child_id === r.child_id &&
             (g.curriculum_name ?? "").trim().toLowerCase() === target,
         );
