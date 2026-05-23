@@ -487,6 +487,18 @@ export default function ScheduleBuilderPage() {
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // The save-error banner sits in normal page flow at the bottom of the
+  // Preview, BELOW the sticky footer that holds Save & build schedule.
+  // On phones (and on any scrolled desktop) the banner renders off-screen
+  // and the user sees the button drop from "Saving..." back to normal
+  // with no other feedback. The ref + effect below scrolls the banner
+  // into the centre of the viewport whenever saveError flips truthy so
+  // the failure is always visible without restructuring the layout.
+  const saveErrorRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!saveError) return;
+    saveErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [saveError]);
   // Distinct from saveError: post-save phase (lesson regen / recompute /
   // overcapacity assertion) runs AFTER the curriculum_goals + activities
   // writes have already committed. A failure here doesn't roll back the
@@ -1595,7 +1607,12 @@ export default function ScheduleBuilderPage() {
         )}
 
         {saveError && (
-          <div className="mt-4 bg-white border border-[#e8c8c8] rounded-2xl p-3">
+          <div
+            ref={saveErrorRef}
+            role="alert"
+            aria-live="assertive"
+            className="mt-4 bg-white border border-[#e8c8c8] rounded-2xl p-3 scroll-mt-24"
+          >
             <p className="text-sm text-[#9a3a3a]">Save failed: {saveError}</p>
           </div>
         )}
