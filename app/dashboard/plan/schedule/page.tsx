@@ -820,6 +820,94 @@ export default function ScheduleBuilderPage() {
     setSaving(true);
     setSaveError(null);
     setPostSaveNotice(null);
+
+    // Duplicate pre-check. The Layer-1 in-flight gate above stops true
+    // double-clicks; this layer stops the slower duplicate path that's
+    // been hitting prod (same name, same child, separate save events
+    // seconds-to-minutes apart, often from a second tab or a user who
+    // didn't realise the goal had already saved). We also catch the
+    // intra-batch case where the user adds two new rows with the same
+    // name + child in one session. Case-insensitive on curriculum_name
+    // so "A River Of Voices" and "a river of voices" collide.
+    //
+    // Skips updates: rows already saved as curriculum_goals just hit
+    // UPDATE in the loop below, so they can't create dupes here. Rows
+    // converting activity → curriculum DO insert a new goal row and so
+    // are checked.
+    const dupReleaseAndExit = (msg: string) => {
+      setSaveError(msg);
+      setSaving(false);
+      // No settle window — the save never started, so a quick retry
+      // after the user fixes the name should not be locked out.
+      saveGate.exit();
+    };
+
+    const newCurriculumRows = rows.filter(
+      (r) =>
+        r.type === "curriculum" &&
+        !r.pendingDelete &&
+        !r.readOnly &&
+        !(r.previouslySavedAs === "curriculum_goals" && r.dbId),
+    );
+
+    if (newCurriculumRows.length > 0) {
+      const childNameFor = (cid: string) =>
+        children.find((c) => c.id === cid)?.name ?? "this child";
+
+      // Intra-batch first — cheaper, no round-trip.
+      const seen = new Map<string, Row>();
+      for (const r of newCurriculumRows) {
+        const canonical = capitalizeName(r.name.trim());
+        const key = `${r.child_id}|${canonical.toLowerCase()}`;
+        if (seen.has(key)) {
+          dupReleaseAndExit(
+            `Two rows on this page name "${canonical}" for ${childNameFor(r.child_id)}. Rename or remove one before saving.`,
+          );
+          return;
+        }
+        seen.set(key, r);
+      }
+
+      // DB check. Skip any goal whose id is already being edited by a
+      // row in this session so renaming an in-place edit doesn't collide
+      // with itself.
+      const editedDbIds = new Set(
+        rows
+          .filter((r) => r.previouslySavedAs === "curriculum_goals" && r.dbId)
+          .map((r) => r.dbId as string),
+      );
+      // Filter mirrors the Builder's load query (archived = false AND
+      // completed_at IS NULL) so a finished curriculum doesn't block
+      // starting the same one fresh next school year. The DB partial
+      // unique index uses the same predicate.
+      const { data: existingGoals, error: dupCheckErr } = await supabase
+        .from("curriculum_goals")
+        .select("id, child_id, curriculum_name")
+        .eq("user_id", effectiveUserId)
+        .eq("archived", false)
+        .is("completed_at", null);
+      if (dupCheckErr) {
+        console.error("[handleSave] duplicate pre-check query failed", dupCheckErr);
+        dupReleaseAndExit(dupCheckErr.message);
+        return;
+      }
+      for (const r of newCurriculumRows) {
+        const canonical = capitalizeName(r.name.trim());
+        const target = canonical.toLowerCase();
+        const conflict = (existingGoals ?? []).find(
+          (g) =>
+            !editedDbIds.has(g.id) &&
+            g.child_id === r.child_id &&
+            (g.curriculum_name ?? "").trim().toLowerCase() === target,
+        );
+        if (conflict) {
+          dupReleaseAndExit(
+            `You already have a goal called "${canonical}" for ${childNameFor(r.child_id)}. Edit the existing one or rename this.`,
+          );
+          return;
+        }
+      }
+    }
     // Phase tracking so the catch can distinguish a true write failure
     // (curriculum_goals / activities never committed) from a post-save
     // hiccup (writes committed; lesson regen / recompute / overcapacity
@@ -1289,10 +1377,24 @@ export default function ScheduleBuilderPage() {
       setDirty(false);
       router.push("/dashboard/plan");
     } catch (err) {
-      const msg = (err as { message?: string })?.message ?? String(err);
+      const raw = err as { message?: string; code?: string };
+      const msg = raw?.message ?? String(err);
       if (phase === "write") {
-        // Schema writes never committed. True save failure.
-        setSaveError(msg);
+        // Schema writes never committed. True save failure. Postgres
+        // unique-violation (23505) from the curriculum_goals partial
+        // unique index gets translated so the user sees the same
+        // "already exists" copy as the pre-check. The index can only
+        // trip after the pre-check passes if a concurrent tab wrote
+        // the matching row in between (the rare race the index exists
+        // to close); we can't easily recover the row context here, so
+        // the message stays generic.
+        if (raw?.code === "23505") {
+          setSaveError(
+            "One of these goals already exists for this child. Reload the page and edit the existing goal instead of creating a new one.",
+          );
+        } else {
+          setSaveError(msg);
+        }
       } else {
         // curriculum_goals + activities did commit. Lesson regen / recompute /
         // overcapacity assertion threw. Don't alarm the user with "Save failed"
