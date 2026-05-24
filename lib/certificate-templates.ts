@@ -185,132 +185,141 @@ function resolveCertContentInner(
   data: Record<string, string>
 ): CertContent {
   switch (type) {
+    // Every data.* interpolation below uses `?? ""` to keep an unset field
+    // from rendering as the literal string "undefined" on a printed
+    // certificate. The catalog download path in app/dashboard/printables/
+    // page.tsx only supplies academyName, schoolYear, date, plus
+    // childName or educatorName — every other field (bookTitle, grade,
+    // subjectName, streakDays, daysCompleted, weekRange, totalDays,
+    // memoryCount) was rendering as "undefined" until this audit. The
+    // copy will read a touch awkwardly when a field is missing (e.g.
+    // "completed reading "), but that's a downstream UX fix.
     case "graduation":
       return {
         heroName: data.childName ?? "",
         certTitle: "Graduation Certificate",
-        bodyText: `${data.childName} has successfully completed ${data.grade} at ${data.academyName}`,
+        bodyText: `${data.childName ?? ""} has successfully completed ${data.grade ?? ""} at ${data.academyName ?? ""}`,
       };
     case "subject_mastery":
       return {
         heroName: data.childName ?? "",
         certTitle: "Subject Mastery",
-        bodyText: `${data.childName} has demonstrated mastery of ${data.subjectName} at ${data.academyName}`,
+        bodyText: `${data.childName ?? ""} has demonstrated mastery of ${data.subjectName ?? ""} at ${data.academyName ?? ""}`,
       };
     case "reading_achievement":
       return {
         heroName: data.childName ?? "",
         certTitle: "Reading Achievement",
-        bodyText: `${data.childName} has completed reading ${data.bookTitle}`,
+        bodyText: `${data.childName ?? ""} has completed reading ${data.bookTitle ?? ""}`,
       };
     case "weekly_win":
       return {
         heroName: data.childName ?? "",
         certTitle: "Weekly Win",
-        bodyText: `${data.childName} completed ${data.daysCompleted} days of learning ${data.weekRange}`,
+        bodyText: `${data.childName ?? ""} completed ${data.daysCompleted ?? ""} days of learning ${data.weekRange ?? ""}`,
         note: data.note,
       };
     case "streak_award":
       return {
         heroName: data.childName ?? "",
         certTitle: "Learning Streak Award",
-        bodyText: `${data.childName} achieved a ${data.streakDays}-day learning streak at ${data.academyName}`,
+        bodyText: `${data.childName ?? ""} achieved a ${data.streakDays ?? ""}-day learning streak at ${data.academyName ?? ""}`,
       };
     case "first_day":
       return {
         heroName: data.childName ?? "",
         certTitle: "First Day of School",
-        bodyText: `${data.childName} began their learning journey at ${data.academyName}`,
+        bodyText: `${data.childName ?? ""} began their learning journey at ${data.academyName ?? ""}`,
       };
     case "bookworm":
       return {
         heroName: data.childName ?? "",
         certTitle: "Bookworm Award",
-        bodyText: `${data.childName} completed their first book: ${data.bookTitle}`,
+        bodyText: `${data.childName ?? ""} completed their first book: ${data.bookTitle ?? ""}`,
       };
     case "explorer":
       return {
         heroName: data.childName ?? "",
         certTitle: "Explorer Award",
-        bodyText: `${data.childName} completed their first field trip with ${data.academyName}`,
+        bodyText: `${data.childName ?? ""} completed their first field trip with ${data.academyName ?? ""}`,
       };
     case "artist":
       return {
         heroName: data.childName ?? "",
         certTitle: "Artist Award",
-        bodyText: `${data.childName} created their first piece of artwork at ${data.academyName}`,
+        bodyText: `${data.childName ?? ""} created their first piece of artwork at ${data.academyName ?? ""}`,
       };
     case "daily_champion":
       return {
         heroName: data.childName ?? "",
         certTitle: "Daily Champion",
-        bodyText: `${data.childName} completed every lesson on ${data.date} at ${data.academyName}`,
+        bodyText: `${data.childName ?? ""} completed every lesson on ${data.date ?? ""} at ${data.academyName ?? ""}`,
       };
     case "you_started":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "You Started",
-        bodyText: `${data.educatorName} began the beautiful work of teaching ${data.academyName}`,
+        bodyText: `${data.educatorName ?? ""} began the beautiful work of teaching ${data.academyName ?? ""}`,
       };
     case "you_captured_it":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "Memory Capturer",
-        bodyText: `${data.educatorName} began preserving the memories of ${data.academyName}`,
+        bodyText: `${data.educatorName ?? ""} began preserving the memories of ${data.academyName ?? ""}`,
       };
     case "you_read_together":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "Read Together",
-        bodyText: `${data.educatorName} read ${data.bookTitle} together with ${data.academyName}`,
+        bodyText: `${data.educatorName ?? ""} read ${data.bookTitle ?? ""} together with ${data.academyName ?? ""}`,
       };
     case "you_took_them_there":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "First Field Trip",
-        bodyText: `${data.educatorName} took ${data.academyName} on their first learning adventure`,
+        bodyText: `${data.educatorName ?? ""} took ${data.academyName ?? ""} on their first learning adventure`,
       };
     case "one_whole_week":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "One Whole Week",
-        bodyText: `${data.educatorName} completed a full week of homeschooling with ${data.academyName}`,
+        bodyText: `${data.educatorName ?? ""} completed a full week of homeschooling with ${data.academyName ?? ""}`,
       };
     case "one_whole_month":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "One Whole Month",
-        bodyText: `${data.educatorName} completed 30 school days with ${data.academyName}`,
+        bodyText: `${data.educatorName ?? ""} completed 30 school days with ${data.academyName ?? ""}`,
       };
     case "100_days_strong":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "100 Days Strong",
-        bodyText: `${data.educatorName} has shown up for ${data.totalDays} days of learning with ${data.academyName}`,
+        bodyText: `${data.educatorName ?? ""} has shown up for ${data.totalDays ?? ""} days of learning with ${data.academyName ?? ""}`,
       };
     case "memory_keeper":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "Memory Keeper",
-        bodyText: `${data.educatorName} has preserved ${data.memoryCount} memories for ${data.academyName}`,
+        bodyText: `${data.educatorName ?? ""} has preserved ${data.memoryCount ?? ""} memories for ${data.academyName ?? ""}`,
       };
     case "story_keeper":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "Story Keeper",
-        bodyText: `${data.educatorName} has built a treasure of ${data.memoryCount} memories for ${data.academyName}`,
+        bodyText: `${data.educatorName ?? ""} has built a treasure of ${data.memoryCount ?? ""} memories for ${data.academyName ?? ""}`,
       };
     case "you_did_that":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "You Did That",
-        bodyText: `${data.educatorName} guided ${data.childName} through ${data.grade} at ${data.academyName}`,
+        bodyText: `${data.educatorName ?? ""} guided ${data.childName ?? ""} through ${data.grade ?? ""} at ${data.academyName ?? ""}`,
       };
     case "founding_homeschooler":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "Founding Homeschooler",
-        bodyText: `${data.educatorName} chose to keep their children close and teach them with intention. That is not small.`,
+        bodyText: `${data.educatorName ?? ""} chose to keep their children close and teach them with intention. That is not small.`,
         bodyIsEmotional: true,
       };
     case "custom":

@@ -93,10 +93,13 @@ function drawCertificate(
   ctx.font = "300 13px Jost, sans-serif";
   ctx.fillText("CERTIFICATE OF COMPLETION", cx, 180);
 
-  // Curriculum name — large display
+  // Curriculum name — large display.
+  // `|| ""` so a missing curriculum_name (FK orphan, partial save, etc.)
+  // renders blank instead of the literal string "undefined" on the cert,
+  // and so wrapAndDraw doesn't throw on text.split.
   ctx.fillStyle = "#1a2c22";
   ctx.font = "italic 300 56px 'Cormorant Garamond', serif";
-  wrapAndDraw(ctx, opts.curriculumName, cx, 270, W - 240, 64);
+  wrapAndDraw(ctx, opts.curriculumName || "", cx, 270, W - 240, 64);
 
   // "presented to"
   ctx.fillStyle = "#7a6f65";
@@ -111,10 +114,12 @@ function drawCertificate(
   ctx.lineTo(cx + 60, 380);
   ctx.stroke();
 
-  // Child's name — hero element
+  // Child's name — hero element. `|| ""` for the same reason as
+  // curriculumName above: defensive against a missing field rendering
+  // as the literal "undefined" on a printed certificate.
   ctx.fillStyle = "#2D5A3D";
   ctx.font = "italic 300 80px 'Cormorant Garamond', serif";
-  ctx.fillText(opts.childName, cx, 470);
+  ctx.fillText(opts.childName || "", cx, 470);
 
   // Program description. Same day/week threshold + pluralization as
   // CompletionCelebrationCard's formatDurationSpan so a same-day finish
@@ -226,7 +231,7 @@ export async function downloadCertificate(
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  const safeName = `${opts.childName}-${opts.curriculumName}-certificate`
+  const safeName = `${opts.childName || ""}-${opts.curriculumName || ""}-certificate`
     .replace(/[^a-z0-9]/gi, "-")
     .toLowerCase();
   a.download = `${safeName}.pdf`;

@@ -608,7 +608,7 @@ async function drawIdCardGarden(ctx: CanvasRenderingContext2D, data: IdCardData)
   ctx.fillStyle = "#2D5016";
   ctx.font = '11px "Cormorant Garamond"';
   ctx.letterSpacing = "1px";
-  ctx.fillText(data.title.toUpperCase(), tx, 92);
+  ctx.fillText((data.title || "").toUpperCase(), tx, 92);
   ctx.letterSpacing = "0px";
 
   // State + role
@@ -688,7 +688,7 @@ async function drawIdCardHeritage(ctx: CanvasRenderingContext2D, data: IdCardDat
   ctx.fillStyle = "#1A3A2A";
   ctx.font = '11px "Cormorant Garamond"';
   ctx.letterSpacing = "1px";
-  ctx.fillText(data.title.toUpperCase(), tx, 96);
+  ctx.fillText((data.title || "").toUpperCase(), tx, 96);
   ctx.letterSpacing = "0px";
 
   ctx.fillStyle = "#5a5a48";
@@ -748,7 +748,7 @@ async function drawIdCardArtisan(ctx: CanvasRenderingContext2D, data: IdCardData
   ctx.fillStyle = "#C4613A";
   ctx.font = '300 9px "Jost"';
   ctx.letterSpacing = "1px";
-  ctx.fillText(data.title.toUpperCase(), tx, 92);
+  ctx.fillText((data.title || "").toUpperCase(), tx, 92);
   ctx.letterSpacing = "0px";
 
   // State + year
