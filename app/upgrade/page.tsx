@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { posthog } from '@/lib/posthog'
 import { normalizeAffiliateCode } from '@/lib/referrals'
 import { copyToClipboard } from '@/lib/clipboard'
+import { TRIAL_DAYS } from '@/lib/user-access'
 
 export default function UpgradePage() {
   return (
@@ -22,6 +23,7 @@ function UpgradePageInner() {
   const [error, setError] = useState<string | null>(null)
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
+  const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null)
   // giftCopyState is the Copy link button's UX feedback (staging
   // commit 56ea41f). Kept on resolve. The countdown state from the
   // Founding Family deadline timer was dropped — feat/may-1-pricing
@@ -55,9 +57,11 @@ function UpgradePageInner() {
 
       const { data: profile } = await supabase
         .from('profiles')
-        .select('is_pro, plan_type')
+        .select('is_pro, plan_type, trial_started_at')
         .eq('id', user.id)
         .single()
+
+      setTrialStartedAt((profile as { trial_started_at?: string | null } | null)?.trial_started_at ?? null)
 
       if (
         profile?.is_pro ||
@@ -127,6 +131,9 @@ function UpgradePageInner() {
     }
   }
 
+  const trialAlreadyUsed = !!trialStartedAt
+    && new Date(trialStartedAt).getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000 <= Date.now()
+
   return (
     <main className="min-h-screen bg-[#f8f7f4] px-4 py-14">
       <div className="max-w-3xl mx-auto">
@@ -141,7 +148,9 @@ function UpgradePageInner() {
             Your homeschool, organized, saved, and ready whenever you need it.
           </p>
           <p className="text-[#5c7f63] font-medium max-w-md mx-auto text-sm">
-            Start with 30 days free — full access to every feature, no credit card needed.
+            {trialAlreadyUsed
+              ? 'Your free trial has ended. Ready to keep going?'
+              : 'Start with 30 days free — full access to every feature, no credit card needed.'}
           </p>
         </div>
 
@@ -186,7 +195,9 @@ function UpgradePageInner() {
             </div>
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                '30-day free trial — full access to everything',
+                trialAlreadyUsed
+                  ? 'Trial completed'
+                  : '30-day free trial — full access to everything',
                 'After trial: lesson logging & curriculum planning',
                 'After trial: garden & scheduling',
                 'After trial: memories (50 photo limit)',
