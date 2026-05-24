@@ -57,6 +57,7 @@ export const metadata: Metadata = {
   },
   other: {
     'google-site-verification': 'cDzAlZ7R9GExF4LyE2aFbSb1eGl8FlSHvnWyaNiuLCg',
+    'apple-itunes-app': 'app-id=6769627145',
   },
 };
 
