@@ -1963,6 +1963,25 @@ function PlanV1() {
         </div>
       )}
 
+      {/* ── Close This School Year entry ──────────────────── */}
+      {!schoolYears.loading && schoolYears.active && yearView === "this" && (
+        <Link
+          href="/dashboard/close-year"
+          className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
+        >
+          <span className="text-xl shrink-0">🎓</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-medium text-[#2D2A26]">
+              Close This School Year
+            </p>
+            <p className="text-[11px] text-[#8B7E74] mt-0.5">
+              Archive this year and start fresh. Your memories, yearbook, and badges are saved forever.
+            </p>
+          </div>
+          <ChevronRight size={16} className="text-[#8B7E74] shrink-0 mt-0.5" />
+        </Link>
+      )}
+
       {/* ── Plan Next Year prompt (no upcoming year yet) ──── */}
       {!schoolYears.loading && schoolYears.active && !schoolYears.upcoming && yearView === "this" && (
         <button
