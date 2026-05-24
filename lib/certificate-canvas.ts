@@ -991,3 +991,241 @@ export async function drawIdCardPrintSheetPDF(style: string, data: IdCardData) {
 </body></html>`);
   printWindow.document.close();
 }
+
+// ─── Grade completion certificate ────────────────────────────────────────────
+
+const GRADE_NAMES: Record<string, string> = {
+  'Preschool': 'Preschool',
+  'Pre-K': 'Pre-Kindergarten',
+  'Kindergarten': 'Kindergarten',
+  '1st Grade': 'First Grade',
+  '2nd Grade': 'Second Grade',
+  '3rd Grade': 'Third Grade',
+  '4th Grade': 'Fourth Grade',
+  '5th Grade': 'Fifth Grade',
+  '6th Grade': 'Sixth Grade',
+  '7th Grade': 'Seventh Grade',
+  '8th Grade': 'Eighth Grade',
+  '9th Grade': 'Ninth Grade',
+  '10th Grade': 'Tenth Grade',
+  '11th Grade': 'Eleventh Grade',
+  '12th Grade': 'Twelfth Grade',
+}
+
+export async function drawGradeCompletionCertificate(data: {
+  childName: string
+  gradeCompleted: string
+  schoolName: string
+  schoolYear: string
+  completionDate: string
+}, mode: 'download' | 'blob' = 'download'): Promise<string | Blob> {
+
+  await loadFonts()
+
+  const SCALE = 3
+  const W = 816
+  const H = 1056
+  const cx = W / 2
+
+  const canvas = document.createElement('canvas')
+  canvas.width = W * SCALE
+  canvas.height = H * SCALE
+  const ctx = canvas.getContext('2d')!
+  ctx.scale(SCALE, SCALE)
+
+  const CREAM = '#F8F7F4'
+  const GREEN_DEEP = '#1a2c22'
+  const GREEN_BRAND = '#2D4A35'
+  const GREEN_ACCENT = '#5c7f63'
+  const GOLD = '#C4962A'
+  const WARM_GRAY = '#7a6f65'
+
+  // Background
+  ctx.fillStyle = CREAM
+  ctx.fillRect(0, 0, W, H)
+
+  // Outer border — deep green, 3px
+  ctx.strokeStyle = GREEN_BRAND
+  ctx.lineWidth = 3
+  ctx.strokeRect(22, 22, W - 44, H - 44)
+
+  // Inner border — deep green, 1px
+  ctx.lineWidth = 1
+  ctx.strokeRect(32, 32, W - 64, H - 64)
+
+  // Gold top accent bar — full width between borders, 40px from top border
+  ctx.fillStyle = GOLD
+  ctx.fillRect(33, 72, W - 66, 1.5)
+
+  // Gold bottom accent bar
+  ctx.fillRect(33, H - 72, W - 66, 1.5)
+
+  // Corner leaf ornaments — simple botanical marks at each inner corner
+  // Draw a small filled leaf shape at each corner using bezier curves
+  const drawLeaf = (x: number, y: number, flipX: boolean, flipY: boolean) => {
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.scale(flipX ? -1 : 1, flipY ? -1 : 1)
+    ctx.fillStyle = GREEN_BRAND
+    ctx.beginPath()
+    ctx.moveTo(0, 0)
+    ctx.bezierCurveTo(8, -18, 22, -14, 18, 0)
+    ctx.bezierCurveTo(22, -14, 18, -28, 0, 0)
+    ctx.fill()
+    ctx.beginPath()
+    ctx.moveTo(0, 0)
+    ctx.bezierCurveTo(-8, -18, -22, -14, -18, 0)
+    ctx.bezierCurveTo(-22, -14, -18, -28, 0, 0)
+    ctx.fill()
+    ctx.restore()
+  }
+
+  drawLeaf(60, 60, false, false)
+  drawLeaf(W - 60, 60, true, false)
+  drawLeaf(60, H - 60, false, true)
+  drawLeaf(W - 60, H - 60, true, true)
+
+  // "CERTIFICATE OF COMPLETION" — small caps label
+  ctx.fillStyle = GREEN_ACCENT
+  ctx.font = '300 11px Jost'
+  ctx.textAlign = 'center'
+  ctx.letterSpacing = '3px'
+  ctx.fillText('CERTIFICATE OF COMPLETION', cx, 120)
+  ctx.letterSpacing = '0px'
+
+  // Three gold dots as ornament
+  const dotY = 148
+  for (let i = -1; i <= 1; i++) {
+    ctx.beginPath()
+    ctx.arc(cx + i * 16, dotY, 2.5, 0, Math.PI * 2)
+    ctx.fillStyle = GOLD
+    ctx.fill()
+  }
+
+  // "This certifies that"
+  ctx.fillStyle = WARM_GRAY
+  ctx.font = 'italic 300 20px "Cormorant Garamond"'
+  ctx.textAlign = 'center'
+  ctx.fillText('This certifies that', cx, 210)
+
+  // Child name — the hero element
+  ctx.fillStyle = GREEN_DEEP
+  ctx.font = '700 58px "Playfair Display"'
+  ctx.textAlign = 'center'
+  // Handle long names — scale down if needed
+  const nameMetrics = ctx.measureText(data.childName)
+  if (nameMetrics.width > W - 120) {
+    ctx.font = '700 44px "Playfair Display"'
+  }
+  ctx.fillText(data.childName, cx, 295)
+
+  // Gold divider under name
+  ctx.strokeStyle = GOLD
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(cx - 120, 320)
+  ctx.lineTo(cx + 120, 320)
+  ctx.stroke()
+
+  // "has successfully completed"
+  ctx.fillStyle = WARM_GRAY
+  ctx.font = 'italic 300 20px "Cormorant Garamond"'
+  ctx.textAlign = 'center'
+  ctx.fillText('has successfully completed', cx, 368)
+
+  // Grade name — second hero element
+  const gradeName = GRADE_NAMES[data.gradeCompleted] ?? data.gradeCompleted
+  ctx.fillStyle = GREEN_BRAND
+  ctx.font = 'italic normal 48px "Playfair Display"'
+  ctx.textAlign = 'center'
+  ctx.fillText(gradeName, cx, 440)
+
+  // Small botanical divider — hand-drawn style stem with two leaves
+  const stemY = 490
+  ctx.strokeStyle = GREEN_BRAND
+  ctx.lineWidth = 1
+  ctx.beginPath()
+  ctx.moveTo(cx - 80, stemY)
+  ctx.lineTo(cx + 80, stemY)
+  ctx.stroke()
+  // Small leaf left
+  ctx.fillStyle = GREEN_BRAND
+  ctx.beginPath()
+  ctx.ellipse(cx - 40, stemY, 8, 3, -Math.PI / 6, 0, Math.PI * 2)
+  ctx.fill()
+  // Small leaf right
+  ctx.beginPath()
+  ctx.ellipse(cx + 40, stemY, 8, 3, Math.PI / 6, 0, Math.PI * 2)
+  ctx.fill()
+  // Center circle
+  ctx.beginPath()
+  ctx.arc(cx, stemY, 3, 0, Math.PI * 2)
+  ctx.fill()
+
+  // School year
+  ctx.fillStyle = WARM_GRAY
+  ctx.font = '300 14px Jost'
+  ctx.textAlign = 'center'
+  ctx.letterSpacing = '1px'
+  ctx.fillText(data.schoolYear, cx, 540)
+  ctx.letterSpacing = '0px'
+
+  // School name
+  ctx.fillStyle = GREEN_DEEP
+  ctx.font = '300 22px "Cormorant Garamond"'
+  ctx.textAlign = 'center'
+  ctx.fillText(data.schoolName, cx, 576)
+
+  // Completion date
+  ctx.fillStyle = WARM_GRAY
+  ctx.font = '300 13px Jost'
+  ctx.textAlign = 'center'
+  ctx.fillText(data.completionDate, cx, 700)
+
+  // Signature line
+  ctx.strokeStyle = GREEN_DEEP
+  ctx.lineWidth = 0.75
+  ctx.beginPath()
+  ctx.moveTo(cx - 100, 770)
+  ctx.lineTo(cx + 100, 770)
+  ctx.stroke()
+
+  // "Educator" label
+  ctx.fillStyle = WARM_GRAY
+  ctx.font = '300 11px Jost'
+  ctx.textAlign = 'center'
+  ctx.letterSpacing = '1px'
+  ctx.fillText('EDUCATOR', cx, 790)
+  ctx.letterSpacing = '0px'
+
+  // Rooted wordmark at bottom
+  ctx.fillStyle = GREEN_BRAND
+  ctx.font = 'italic normal 18px "Playfair Display"'
+  ctx.textAlign = 'center'
+  ctx.fillText('rooted.', cx, 960)
+
+  ctx.fillStyle = GREEN_ACCENT
+  ctx.font = '300 10px Jost'
+  ctx.letterSpacing = '2px'
+  ctx.fillText('HOMESCHOOL', cx, 976)
+  ctx.letterSpacing = '0px'
+
+  // Return blob or trigger download
+  const dataUrl = canvas.toDataURL('image/png')
+
+  if (mode === 'blob') {
+    return new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(blob => {
+        if (blob) resolve(blob)
+        else reject(new Error('Canvas toBlob failed'))
+      }, 'image/png')
+    })
+  }
+
+  // Download mode — also generate PDF
+  const { jsPDF } = await import('jspdf')
+  const pdf = new jsPDF({ orientation: 'portrait', unit: 'in', format: [8.5, 11] })
+  pdf.addImage(dataUrl, 'PNG', 0, 0, 8.5, 11)
+  pdf.save(`${data.childName.replace(/\s+/g, '-')}-Grade-Certificate.pdf`)
+  return dataUrl
+}
