@@ -954,9 +954,9 @@ export default function PrintablesPage() {
 
     {showExportGate && (
       <ExportGateModal
-        title="Keep this for your records"
-        body="Download a clean, printable copy for your homeschool files."
-        cta="Get My Copy"
+        title="Certificates are a Rooted+ feature"
+        body="Upgrade to download and print certificates for your kids anytime."
+        cta="Upgrade to Rooted+ · $59/yr"
         onClose={() => setShowExportGate(false)}
       />
     )}

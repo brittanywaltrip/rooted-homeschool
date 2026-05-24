@@ -149,7 +149,7 @@ function UpgradePageInner() {
           </p>
           <p className="text-[#5c7f63] font-medium max-w-md mx-auto text-sm">
             {trialAlreadyUsed
-              ? 'Your free trial has ended. Ready to keep going?'
+              ? 'Your free trial has ended. Upgrade to keep everything you built.'
               : 'Start with 30 days free — full access to every feature, no credit card needed.'}
           </p>
         </div>
@@ -195,9 +195,7 @@ function UpgradePageInner() {
             </div>
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                trialAlreadyUsed
-                  ? 'Trial completed'
-                  : '30-day free trial — full access to everything',
+                ...(trialAlreadyUsed ? [] : ['30-day free trial — full access to everything']),
                 'After trial: lesson logging & curriculum planning',
                 'After trial: garden & scheduling',
                 'After trial: memories (50 photo limit)',
