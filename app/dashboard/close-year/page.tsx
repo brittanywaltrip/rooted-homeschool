@@ -19,44 +19,48 @@ type Child = {
   grade_level: string | null;
 };
 
-// Display names for each grade_level value stored in the children table.
-// Mirrors the keys used by GRADE_ADVANCEMENT in app/api/school-year/close/route.ts.
+// Display names for the free-text values users have actually entered into
+// children.grade_level. Lookups normalize the value with .toLowerCase().trim()
+// before checking this map.
 const GRADE_DISPLAY: Record<string, string> = {
-  "Preschool": "Preschool",
-  "Pre-K": "Pre-K",
-  "Kindergarten": "Kindergarten",
-  "1st Grade": "1st Grade",
-  "2nd Grade": "2nd Grade",
-  "3rd Grade": "3rd Grade",
-  "4th Grade": "4th Grade",
-  "5th Grade": "5th Grade",
-  "6th Grade": "6th Grade",
-  "7th Grade": "7th Grade",
-  "8th Grade": "8th Grade",
-  "9th Grade": "9th Grade",
-  "10th Grade": "10th Grade",
-  "11th Grade": "11th Grade",
-  "12th Grade": "12th Grade",
-  "Graduated": "Graduated",
-};
-
-// Must stay in sync with GRADE_ADVANCEMENT in app/api/school-year/close/route.ts.
-const GRADE_ADVANCE: Record<string, string> = {
-  "Preschool": "Pre-K",
-  "Pre-K": "Kindergarten",
-  "Kindergarten": "1st Grade",
-  "1st Grade": "2nd Grade",
-  "2nd Grade": "3rd Grade",
-  "3rd Grade": "4th Grade",
-  "4th Grade": "5th Grade",
-  "5th Grade": "6th Grade",
-  "6th Grade": "7th Grade",
-  "7th Grade": "8th Grade",
-  "8th Grade": "9th Grade",
-  "9th Grade": "10th Grade",
-  "10th Grade": "11th Grade",
-  "11th Grade": "12th Grade",
-  "12th Grade": "Graduated",
+  "preschool": "Preschool",
+  "pre-k": "Pre-K",
+  "kindergarten": "Kindergarten",
+  "kindy": "Kindergarten",
+  "1st grade": "1st Grade",
+  "2nd grade": "2nd Grade",
+  "3rd grade": "3rd Grade",
+  "4th grade": "4th Grade",
+  "5th grade": "5th Grade",
+  "6th grade": "6th Grade",
+  "7th grade": "7th Grade",
+  "8th grade": "8th Grade",
+  "9th grade": "9th Grade",
+  "10th grade": "10th Grade",
+  "11th grade": "11th Grade",
+  "12th grade": "12th Grade",
+  "graduated": "Graduated",
+  "1": "1st Grade",
+  "2": "2nd Grade",
+  "3": "3rd Grade",
+  "4": "4th Grade",
+  "5": "5th Grade",
+  "6": "6th Grade",
+  "7": "7th Grade",
+  "8": "8th Grade",
+  "9": "9th Grade",
+  "10": "10th Grade",
+  "11": "11th Grade",
+  "12": "12th Grade",
+  "1st": "1st Grade",
+  "2nd": "2nd Grade",
+  "3rd": "3rd Grade",
+  "4th": "4th Grade",
+  "5th": "5th Grade",
+  "6th": "6th Grade",
+  "7th": "7th Grade",
+  "8th": "8th Grade",
+  "9th": "9th Grade",
 };
 
 function formatMonthYear(iso: string): string {
@@ -227,11 +231,17 @@ export default function CloseYearPage() {
         <div className="space-y-3">
           {children.map((child) => {
             const initial = (child.name || "?").trim().charAt(0).toUpperCase();
-            const from = child.grade_level;
-            const toRaw = from ? GRADE_ADVANCE[from] : undefined;
-            const fromDisplay = from ? GRADE_DISPLAY[from] ?? from : null;
-            const toDisplay = toRaw ? GRADE_DISPLAY[toRaw] ?? toRaw : null;
-            const isGraduated = from === "Graduated" || !toRaw || !fromDisplay;
+            const raw = child.grade_level;
+            const normalized = raw ? raw.toLowerCase().trim() : "";
+            const mapped = normalized ? GRADE_DISPLAY[normalized] : undefined;
+            let gradeLine: string;
+            if (!raw || !raw.trim()) {
+              gradeLine = "Grade not set -- add it in Settings";
+            } else if (mapped) {
+              gradeLine = mapped;
+            } else {
+              gradeLine = raw;
+            }
             return (
               <div
                 key={child.id}
@@ -242,11 +252,7 @@ export default function CloseYearPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-[#2D2A26]">{child.name}</p>
-                  <p className="text-xs text-[#7a6f65]">
-                    {isGraduated
-                      ? "Has completed their homeschool journey."
-                      : `Completing ${fromDisplay}, advancing to ${toDisplay}`}
-                  </p>
+                  <p className="text-xs text-[#7a6f65]">{gradeLine}</p>
                 </div>
               </div>
             );
