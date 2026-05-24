@@ -1129,10 +1129,11 @@ export default function ScheduleBuilderPage() {
       //    bug: pending rows above the floor were left in place at stale
       //    dates and the reinsert skipped them, so different lesson_numbers
       //    landed on the same date across multiple runs).
-      const { data: vacationData } = await supabase
+      const { data: vacationData, error: vacationErr } = await supabase
         .from("vacation_blocks")
         .select("start_date, end_date")
         .eq("user_id", effectiveUserId);
+      if (vacationErr) throw vacationErr;
       const vacations = (vacationData ?? []) as { start_date: string; end_date: string }[];
       const todayMid = todayDate();
 
@@ -1175,7 +1176,7 @@ export default function ScheduleBuilderPage() {
         // 0, which collapses to "delete every pending row," matching the
         // pre-floor behavior of the create path and closing the same
         // multi-tab / retry race it always guarded against.
-        const { data: completedTop } = await supabase
+        const { data: completedTop, error: completedTopErr } = await supabase
           .from("lessons")
           .select("lesson_number")
           .eq("curriculum_goal_id", goalId)
@@ -1183,15 +1184,17 @@ export default function ScheduleBuilderPage() {
           .not("lesson_number", "is", null)
           .order("lesson_number", { ascending: false })
           .limit(1);
+        if (completedTopErr) throw completedTopErr;
         const completedFloor =
           (completedTop?.[0] as { lesson_number: number } | undefined)?.lesson_number ?? 0;
 
-        await supabase
+        const { error: incompleteDeleteErr } = await supabase
           .from("lessons")
           .delete()
           .eq("curriculum_goal_id", goalId)
           .eq("completed", false)
           .gt("lesson_number", completedFloor);
+        if (incompleteDeleteErr) throw incompleteDeleteErr;
 
         // Historical backfill: when the user enters a past start_date AND
         // has already completed lessons (currentLesson > 0), generate
@@ -1238,12 +1241,13 @@ export default function ScheduleBuilderPage() {
           // The floor delete above cleared incomplete rows 1..currentLesson;
           // anything left is either a real completion or a previously
           // inserted backfill row, both of which must be preserved.
-          const { data: existingHist } = await supabase
+          const { data: existingHist, error: existingHistErr } = await supabase
             .from("lessons")
             .select("lesson_number")
             .eq("curriculum_goal_id", goalId)
             .gte("lesson_number", 1)
             .lte("lesson_number", currentLesson);
+          if (existingHistErr) throw existingHistErr;
           const existingHistNums = new Set(
             ((existingHist ?? []) as { lesson_number: number | null }[])
               .map((r) => r.lesson_number)
@@ -1277,14 +1281,7 @@ export default function ScheduleBuilderPage() {
               const { error: histErr } = await supabase
                 .from("lessons")
                 .insert(histToInsert.slice(i, i + 100));
-              if (histErr) {
-                console.error(
-                  "[ScheduleBuilder] backfill insert error for goal",
-                  goalId,
-                  ":",
-                  histErr.message,
-                );
-              }
+              if (histErr) throw histErr;
             }
           }
         }
@@ -1295,11 +1292,12 @@ export default function ScheduleBuilderPage() {
         // via current_lesson+1). Kept as belt-and-suspenders: the
         // unique index would 23505 the whole batch if a residual row
         // slipped through.
-        const { data: existingLessons } = await supabase
+        const { data: existingLessons, error: existingLessonsErr } = await supabase
           .from("lessons")
           .select("lesson_number")
           .eq("curriculum_goal_id", goalId)
           .not("lesson_number", "is", null);
+        if (existingLessonsErr) throw existingLessonsErr;
         const existingNums = new Set(
           ((existingLessons ?? []) as { lesson_number: number }[]).map((l) => l.lesson_number),
         );
@@ -1326,14 +1324,7 @@ export default function ScheduleBuilderPage() {
             const { error: lessonErr } = await supabase
               .from("lessons")
               .insert(toInsert.slice(i, i + 100));
-            if (lessonErr) {
-              console.error(
-                "[ScheduleBuilder] lesson insert error for goal",
-                goalId,
-                ":",
-                lessonErr.message,
-              );
-            }
+            if (lessonErr) throw lessonErr;
           }
         }
 
@@ -1347,14 +1338,7 @@ export default function ScheduleBuilderPage() {
           .eq("curriculum_goal_id", goalId)
           .gt("lesson_number", row.total_lessons)
           .eq("completed", false);
-        if (cleanupErr) {
-          console.error(
-            "[ScheduleBuilder] lesson cleanup error for goal",
-            goalId,
-            ":",
-            cleanupErr.message,
-          );
-        }
+        if (cleanupErr) throw cleanupErr;
 
         // Post-INSERT overcapacity assertion. The May 20 audit surfaced
         // pre-existing goals where two disjoint lesson_number ranges
@@ -1367,12 +1351,13 @@ export default function ScheduleBuilderPage() {
         // catch surfaces the error and the user can re-try, instead of
         // silently shipping the bad rows.
         const todayYmd = ymd(todayMid);
-        const { data: overCheck } = await supabase
+        const { data: overCheck, error: overCheckErr } = await supabase
           .from("lessons")
           .select("scheduled_date, curriculum_goal_id")
           .eq("curriculum_goal_id", goalId)
           .eq("completed", false)
           .gte("scheduled_date", todayYmd);
+        if (overCheckErr) throw overCheckErr;
         const dateMap: Record<string, number> = {};
         for (const r of (overCheck ?? []) as { scheduled_date: string | null }[]) {
           if (!r.scheduled_date) continue;
@@ -1445,50 +1430,56 @@ export default function ScheduleBuilderPage() {
   // archives the goal so it drops off Today + Plan. Local row state syncs
   // afterward so the page reflects the new DB truth without a reload.
   async function handleRowRecalibrate(localId: string, newCurrentLesson: number) {
-    if (!effectiveUserId) throw new Error("Not signed in");
-    const row = rows.find((r) => r.localId === localId);
-    if (!row || !row.dbId) throw new Error("Row not yet saved");
     setRowActionError(null);
-    // The schedule page doesn't keep vacation_blocks in state — fetch them
-    // here for the projector resync. Save flow does the same.
-    const { data: vacationData } = await supabase
-      .from("vacation_blocks")
-      .select("start_date, end_date")
-      .eq("user_id", effectiveUserId);
-    const vacations = (vacationData ?? []) as SchedVacationBlock[];
-    const result = await recalibrateCurriculumGoal({
-      supabase,
-      goalId: row.dbId,
-      newCurrentLesson,
-      vacationBlocks: vacations,
-    });
-    void logPlanEvent({
-      userId: effectiveUserId,
-      type: "curriculum_goal.updated",
-      payload: {
-        goal_id: row.dbId,
-        curriculum_name: row.name,
-        action: "recalibrate",
-        new_current_lesson: result.clamped,
-        gap_count: result.gapCount,
-      },
-    });
-    // Sync local row to match the DB truth without marking dirty — the
-    // edit already landed in Supabase. Reset progress_confirmed so the
-    // stepper re-prompts on the next manual divergence.
-    setRows((prev) =>
-      prev.map((r) =>
-        r.localId === localId
-          ? {
-              ...r,
-              start_at_lesson: result.clamped,
-              start_at_lesson_initial: result.clamped,
-              progress_confirmed: false,
-            }
-          : r,
-      ),
-    );
-    setRecalibratingLocalId((id) => (id === localId ? null : id));
+    try {
+      if (!effectiveUserId) throw new Error("Not signed in");
+      const row = rows.find((r) => r.localId === localId);
+      if (!row || !row.dbId) throw new Error("Row not yet saved");
+      // The schedule page doesn't keep vacation_blocks in state — fetch them
+      // here for the projector resync. Save flow does the same.
+      const { data: vacationData, error: vacationErr } = await supabase
+        .from("vacation_blocks")
+        .select("start_date, end_date")
+        .eq("user_id", effectiveUserId);
+      if (vacationErr) throw vacationErr;
+      const vacations = (vacationData ?? []) as SchedVacationBlock[];
+      const result = await recalibrateCurriculumGoal({
+        supabase,
+        goalId: row.dbId,
+        newCurrentLesson,
+        vacationBlocks: vacations,
+      });
+      void logPlanEvent({
+        userId: effectiveUserId,
+        type: "curriculum_goal.updated",
+        payload: {
+          goal_id: row.dbId,
+          curriculum_name: row.name,
+          action: "recalibrate",
+          new_current_lesson: result.clamped,
+          gap_count: result.gapCount,
+        },
+      });
+      // Sync local row to match the DB truth without marking dirty — the
+      // edit already landed in Supabase. Reset progress_confirmed so the
+      // stepper re-prompts on the next manual divergence.
+      setRows((prev) =>
+        prev.map((r) =>
+          r.localId === localId
+            ? {
+                ...r,
+                start_at_lesson: result.clamped,
+                start_at_lesson_initial: result.clamped,
+                progress_confirmed: false,
+              }
+            : r,
+        ),
+      );
+      setRecalibratingLocalId((id) => (id === localId ? null : id));
+    } catch (err) {
+      const msg = (err as { message?: string })?.message ?? "Couldn't recalibrate.";
+      setRowActionError(msg);
+    }
   }
 
   async function handleRowMarkFinished(localId: string) {
