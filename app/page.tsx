@@ -362,7 +362,7 @@ function HomeInner() {
           <div className="flex items-center gap-2">
             <Link
               href="/login"
-              className="hidden sm:inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-3 py-2 rounded-lg hover:bg-[#f0ede8]"
+              className="inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-2 sm:px-3 py-2 rounded-lg hover:bg-[#f0ede8]"
             >
               Log In
             </Link>

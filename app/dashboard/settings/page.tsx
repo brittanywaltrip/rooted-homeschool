@@ -293,6 +293,16 @@ export default function SettingsPage() {
   type ArchivedYear = { id: string; name: string; start_date: string; end_date: string };
   const [archivedYears, setArchivedYears] = useState<ArchivedYear[]>([]);
 
+  // Active school year + edit-in-place state
+  type ActiveSchoolYear = { id: string; name: string; start_date: string; end_date: string };
+  const [activeSchoolYear, setActiveSchoolYear] = useState<ActiveSchoolYear | null>(null);
+  const [editingYearDetails, setEditingYearDetails] = useState(false);
+  const [editYearName, setEditYearName] = useState("");
+  const [editYearStart, setEditYearStart] = useState("");
+  const [editYearEnd, setEditYearEnd] = useState("");
+  const [editYearSaving, setEditYearSaving] = useState(false);
+  const [editYearSaved, setEditYearSaved] = useState(false);
+
   // Share with Family
   type FamilyInvite = {
     id: string; token: string; email: string; viewer_name: string | null;
@@ -400,6 +410,15 @@ export default function SettingsPage() {
       .eq("status", "archived")
       .order("end_date", { ascending: false });
     setArchivedYears((archived ?? []) as ArchivedYear[]);
+
+    // Load active school year for the "Edit Year Details" card
+    const { data: activeYear } = await supabase
+      .from("school_years")
+      .select("id, name, start_date, end_date")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .maybeSingle();
+    setActiveSchoolYear((activeYear as ActiveSchoolYear | null) ?? null);
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -1078,6 +1097,35 @@ export default function SettingsPage() {
       showCopiedToast("Unable to load subscription management. Please contact hello@rootedhomeschoolapp.com");
       setPortalLoading(false);
     }
+  }
+
+  // ── Edit active school year details ───────────────────────────────────────
+
+  async function saveYearDetails() {
+    if (!activeSchoolYear) return;
+    const trimmedName = editYearName.trim();
+    if (!trimmedName || !editYearStart || !editYearEnd) return;
+    setEditYearSaving(true);
+    const { error: updErr } = await supabase
+      .from("school_years")
+      .update({
+        name: trimmedName,
+        start_date: editYearStart,
+        end_date: editYearEnd,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", activeSchoolYear.id);
+    setEditYearSaving(false);
+    if (updErr) return;
+    setActiveSchoolYear({
+      ...activeSchoolYear,
+      name: trimmedName,
+      start_date: editYearStart,
+      end_date: editYearEnd,
+    });
+    setEditingYearDetails(false);
+    setEditYearSaved(true);
+    setTimeout(() => setEditYearSaved(false), 2000);
   }
 
   // ── New school year ───────────────────────────────────────────────────────
@@ -1845,23 +1893,103 @@ export default function SettingsPage() {
               <Sprout size={16} className="text-[#5c7f63]" />
             </div>
             <div>
-              <p className="text-sm font-medium text-[#2d2926] mb-0.5">Start a New School Year</p>
+              <p className="text-sm font-medium text-[#2d2926] mb-0.5">Close This School Year</p>
               <p className="text-xs text-[#7a6f65] leading-relaxed">
-                Archive your current curriculum and schedule as School Year {getCurrentSchoolYearLabel()},
-                then start fresh with a clean plan. Your garden, memories, and family info stay untouched.
+                Archive this school year with a summary, grade advancement, and certificates. Your memories and yearbook are saved forever.
               </p>
             </div>
           </div>
 
           <button
             type="button"
-            onClick={() => { setShowYearModal(true); setYearConfirmInput(""); setYearError(""); }}
+            onClick={() => router.push('/dashboard/close-year')}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl border border-[#c8ddb8] bg-[#f0f8f0] hover:bg-[#e4f2e4] text-[var(--g-deep)] text-sm font-medium transition-colors"
           >
-            <span>🌱</span>
-            Start New School Year
+            <span>🎓</span>
+            Close This School Year
           </button>
         </div>
+
+        {activeSchoolYear && (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
+            {!editingYearDetails ? (
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-[#e8f0e9] flex items-center justify-center shrink-0">
+                  <Pencil size={14} className="text-[#5c7f63]" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-[#2d2926]">Edit Year Details</p>
+                  <p className="text-xs text-[#7a6f65] mt-0.5">
+                    {activeSchoolYear.name}
+                  </p>
+                </div>
+                {editYearSaved && (
+                  <span className="text-xs text-[#5c7f63]">Saved</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditYearName(activeSchoolYear.name);
+                    setEditYearStart(activeSchoolYear.start_date);
+                    setEditYearEnd(activeSchoolYear.end_date);
+                    setEditingYearDetails(true);
+                  }}
+                  className="text-xs text-[#5c7f63] hover:underline shrink-0"
+                >
+                  Edit
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-[#7a6f65] mb-1">Year name</label>
+                  <input
+                    type="text"
+                    value={editYearName}
+                    onChange={e => setEditYearName(e.target.value)}
+                    className="border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#7a6f65] mb-1">Start date</label>
+                  <input
+                    type="date"
+                    value={editYearStart}
+                    onChange={e => setEditYearStart(e.target.value)}
+                    className="border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#7a6f65] mb-1">End date</label>
+                  <input
+                    type="date"
+                    value={editYearEnd}
+                    onChange={e => setEditYearEnd(e.target.value)}
+                    className="border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
+                  />
+                </div>
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditingYearDetails(false)}
+                    disabled={editYearSaving}
+                    className="text-sm text-[#7a6f65] hover:underline disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveYearDetails}
+                    disabled={editYearSaving || !editYearName.trim() || !editYearStart || !editYearEnd}
+                    className="text-sm font-medium text-white bg-[#5c7f63] rounded-lg px-4 py-2 hover:bg-[#2D4A35] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {editYearSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </section>}
 
       {/* ── Subscription ────────────────────────────────────── */}

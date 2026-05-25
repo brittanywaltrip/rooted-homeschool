@@ -118,14 +118,24 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   });
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) {
+    let mounted = true;
+
+    // getUser() makes a network call to Supabase's auth server using whichever
+    // session it can find (cookie or localStorage). Middleware refreshes the
+    // cookie on every request, so this call succeeds whenever the cookie is
+    // valid — even when the browser client has nothing in localStorage.
+    // INITIAL_SESSION was unreliable in that case and left the layout stuck
+    // on the loading skeleton.
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!mounted) return;
+      const user = data.user;
+      if (!user) {
         router.replace("/login");
         return;
       }
 
       const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
-      if (ADMIN_EMAILS.includes(session.user.email ?? "")) {
+      if (ADMIN_EMAILS.includes(user.email ?? "")) {
         setIsAdmin(true);
       }
 
@@ -133,8 +143,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       const { data: profile } = await supabase
         .from("profiles")
         .select("display_name, subscription_status, family_photo_url, first_name, onboarded, is_pro, trial_started_at")
-        .eq("id", session.user.id)
+        .eq("id", user.id)
         .maybeSingle();
+
+      if (!mounted) return;
 
       // Gate: send new (no profile yet) or non-onboarded users through the wizard
       // onboarded is NULL for new users (not false), so check !== true
@@ -145,9 +157,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
       // ── Partner detection ──────────────────────────────────────────────────
       // The owner/admin account is never a partner view — skip the check entirely.
-      if (session.user.email === "garfieldbrittany@gmail.com") {
+      if (user.email === "garfieldbrittany@gmail.com") {
         sessionStorage.removeItem("rooted_partner");
-        setPartnerCtx({ isPartner: false, effectiveUserId: session.user.id, ownerName: "" });
+        setPartnerCtx({ isPartner: false, effectiveUserId: user.id, ownerName: "" });
         if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
         setIsPro((profile as any).is_pro ?? false);
         setTrialStartedAt((profile as any).trial_started_at ?? null);
@@ -166,13 +178,15 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
       // Check if this user's email appears as partner_email in any profile.
       // Requires: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS partner_email text;
-      const email = session.user.email;
+      const email = user.email;
       if (email) {
         const { data: ownerProfile, error: partnerErr } = await supabase
           .from("profiles")
           .select("id, display_name")
           .eq("partner_email", email)
           .maybeSingle();
+
+        if (!mounted) return;
 
         if (!partnerErr && ownerProfile) {
           const ctx: PartnerContextType = {
@@ -190,7 +204,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       // Normal user
       setPartnerCtx({
         isPartner: false,
-        effectiveUserId: session.user.id,
+        effectiveUserId: user.id,
         ownerName: "",
       });
       if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
@@ -201,12 +215,33 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       const { count } = await supabase
         .from("family_notifications")
         .select("id", { count: "exact", head: true })
-        .eq("user_id", session.user.id)
+        .eq("user_id", user.id)
         .is("read_at", null);
+
+      if (!mounted) return;
       setUnreadFamilyNotifs(count ?? 0);
 
       setChecking(false);
     });
+
+    // Keep the auth-state subscription for cross-tab sign-outs and to absorb
+    // middleware-driven token refreshes. The initial auth check above is
+    // handled by getUser(), so INITIAL_SESSION/SIGNED_IN are intentionally
+    // not handled here.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (!mounted) return;
+      if (event === "SIGNED_OUT") {
+        router.replace("/login");
+        return;
+      }
+      // TOKEN_REFRESHED: middleware already wrote the new cookies and the
+      // browser client now has the new session in memory. No action needed.
+    });
+
+    return () => {
+      mounted = false;
+      subscription.unsubscribe();
+    };
   }, [router]);
 
   // Prefer context photo (updates after settings save) over one-time local fetch
