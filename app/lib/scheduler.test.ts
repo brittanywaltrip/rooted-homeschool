@@ -2969,3 +2969,121 @@ test('syncProjectedScheduledDates: skips rows the rowKey extractor returns null 
   await syncProjectedScheduledDates(supabase as any, rows, proj, () => null)
   assert.equal(writes.length, 0)
 })
+
+// ── Create-path regression suite (May 2026 t.ferrebee bug) ──────────────────
+// Production bug: a goal saved through the Schedule Builder ended up with
+// lesson 1 AND lesson 2 BOTH on the first school day (lpd=1, school_days=
+// [Sat], total=36). The same shape was seen across ~21 goals. Root cause
+// was not identified from code review of the projector — every input combo
+// traced produced clean output. These tests are a regression guard so a
+// future projector edit can't reintroduce the doubler silently.
+function countByDate(rows: { lesson_number: number; date: string }[]): Map<string, number> {
+  const m = new Map<string, number>()
+  for (const r of rows) m.set(r.date, (m.get(r.date) ?? 0) + 1)
+  return m
+}
+
+test('create-path: t.ferrebee shape (lpd=1, Sat-only, total=36) emits one lesson per Saturday with no doubling', () => {
+  const goal: CurriculumGoalConfig = {
+    id: 'g_tferrebee',
+    school_days: ['Sat'],
+    lessons_per_day: 1,
+    current_lesson: 0,
+    total_lessons: 36,
+    start_date: null,
+  }
+  const fromDate = new Date('2026-05-22T00:00:00') // Fri before first Sat
+  const out = computeNextLessonsForGoal(goal, fromDate, 3650, [])
+  assert.equal(out.length, 36, '36 lessons emitted')
+  const counts = countByDate(out)
+  for (const [date, count] of counts) {
+    assert.ok(count <= 1, `date ${date} has ${count} lessons, expected <= 1`)
+  }
+  // Lesson 1 and lesson 2 must land on DIFFERENT calendar dates.
+  const l1 = out.find((l) => l.lesson_number === 1)!
+  const l2 = out.find((l) => l.lesson_number === 2)!
+  assert.notEqual(l1.date, l2.date, 'lesson 1 and lesson 2 must be on different dates')
+  // Lesson_numbers must be contiguous in queue order.
+  for (let i = 0; i < out.length; i++) {
+    assert.equal(out[i].lesson_number, i + 1, `lesson at index ${i} is ${out[i].lesson_number}, expected ${i + 1}`)
+  }
+})
+
+test('create-path: t.ferrebee shape with future start_date (jump to Sat 5/30) still emits one per Sat', () => {
+  const goal: CurriculumGoalConfig = {
+    id: 'g_tferrebee_future',
+    school_days: ['Sat'],
+    lessons_per_day: 1,
+    current_lesson: 0,
+    total_lessons: 36,
+    start_date: '2026-05-30',
+  }
+  const fromDate = new Date('2026-05-22T00:00:00')
+  const out = computeNextLessonsForGoal(goal, fromDate, 3650, [])
+  assert.equal(out.length, 36)
+  const counts = countByDate(out)
+  for (const [date, count] of counts) {
+    assert.ok(count <= 1, `date ${date} has ${count} lessons, expected <= 1`)
+  }
+  const l1 = out.find((l) => l.lesson_number === 1)!
+  assert.equal(l1.date, '2026-05-30', 'lesson 1 lands on start_date 5/30')
+  const l2 = out.find((l) => l.lesson_number === 2)!
+  assert.equal(l2.date, '2026-06-06', 'lesson 2 lands on next Sat 6/6')
+})
+
+test('create-path: elizabeth.roach shape (lpd=7, Wed/Thu/Fri, total=210, current_lesson=32) packs 7 per day, no doubling', () => {
+  const goal: CurriculumGoalConfig = {
+    id: 'g_eroach',
+    school_days: ['Wed', 'Thu', 'Fri'],
+    lessons_per_day: 7,
+    current_lesson: 32,
+    total_lessons: 210,
+    start_date: null,
+  }
+  const fromDate = new Date('2026-05-20T00:00:00') // Wed
+  const out = computeNextLessonsForGoal(goal, fromDate, 3650, [])
+  assert.equal(out.length, 178, '210 - 32 = 178 remaining lessons')
+  const counts = countByDate(out)
+  for (const [date, count] of counts) {
+    assert.ok(count <= 7, `date ${date} has ${count} lessons, expected <= 7`)
+  }
+  // First three school days each get exactly 7 contiguous lessons starting at 33.
+  const dateToLessons = new Map<string, number[]>()
+  for (const r of out) {
+    const list = dateToLessons.get(r.date) ?? []
+    list.push(r.lesson_number)
+    dateToLessons.set(r.date, list)
+  }
+  assert.deepEqual(dateToLessons.get('2026-05-20'), [33, 34, 35, 36, 37, 38, 39])
+  assert.deepEqual(dateToLessons.get('2026-05-21'), [40, 41, 42, 43, 44, 45, 46])
+  assert.deepEqual(dateToLessons.get('2026-05-22'), [47, 48, 49, 50, 51, 52, 53])
+  // Lessons 54-60 belong on the NEXT Wed (5/27), not back on 5/20.
+  assert.deepEqual(dateToLessons.get('2026-05-27'), [54, 55, 56, 57, 58, 59, 60])
+})
+
+test('create-path: 50 lessons, lpd=3, MWF, no doubling, contiguous per date', () => {
+  const goal: CurriculumGoalConfig = {
+    id: 'g_50_3_mwf',
+    school_days: ['Mon', 'Wed', 'Fri'],
+    lessons_per_day: 3,
+    current_lesson: 0,
+    total_lessons: 50,
+    start_date: null,
+  }
+  const fromDate = new Date('2026-05-22T00:00:00') // Fri
+  const out = computeNextLessonsForGoal(goal, fromDate, 3650, [])
+  assert.equal(out.length, 50)
+  const dateToLessons = new Map<string, number[]>()
+  for (const r of out) {
+    const list = dateToLessons.get(r.date) ?? []
+    list.push(r.lesson_number)
+    dateToLessons.set(r.date, list)
+  }
+  for (const [date, lessons] of dateToLessons) {
+    assert.ok(lessons.length <= 3, `date ${date} has ${lessons.length} lessons, expected <= 3`)
+    // Per-date lesson_numbers must be contiguous (e.g. [1,2,3] not [1,3,5]).
+    for (let i = 1; i < lessons.length; i++) {
+      assert.equal(lessons[i], lessons[i - 1] + 1, `non-contiguous lesson_numbers on ${date}: ${lessons.join(',')}`)
+    }
+  }
+})

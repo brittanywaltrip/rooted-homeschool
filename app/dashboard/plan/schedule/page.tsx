@@ -1319,6 +1319,44 @@ export default function ScheduleBuilderPage() {
             hours: 0,
           }));
 
+        // PRE-INSERT defensive assertion. Refuses to commit a batch where
+        // the projector emitted more than lessons_per_day rows on any
+        // single date. The May 2026 t.ferrebee bug ("lesson 1 + lesson 2
+        // both on 5/30 for lpd=1") shipped because the post-INSERT check
+        // below threw inside phase="post_save" and the catch swallowed it
+        // softly — the bad rows persisted in DB. Catching the violation
+        // BEFORE the INSERT means no bad rows are ever committed,
+        // regardless of how the catch handles the throw. The per-day
+        // ceiling uses lessons_per_day_overrides when present so a
+        // Tue=2/Thu=1 goal is still validated correctly.
+        const toInsertByDate: Record<string, number> = {};
+        for (const r of toInsert) {
+          if (!r.scheduled_date) continue;
+          toInsertByDate[r.scheduled_date] = (toInsertByDate[r.scheduled_date] ?? 0) + 1;
+        }
+        const overridesMap = lessons_per_day_overrides ?? null;
+        const preInsertViolations: string[] = [];
+        for (const [dateStr, count] of Object.entries(toInsertByDate)) {
+          const [yy, mm, dd] = dateStr.split("-").map(Number);
+          const dateObj = new Date(yy, mm - 1, dd);
+          const dayLabel = DAY_LABEL[(dateObj.getDay() + 6) % 7];
+          const allowed = overridesMap && typeof overridesMap[dayLabel] === "number"
+            ? overridesMap[dayLabel]
+            : lessons_per_day;
+          if (count > allowed) {
+            preInsertViolations.push(`${dateStr} (${count} > ${allowed})`);
+          }
+        }
+        if (preInsertViolations.length > 0) {
+          console.error(
+            "[handleSave] Projector emitted overcapacity batch — refusing INSERT",
+            { goalId, violations: preInsertViolations },
+          );
+          throw new Error(
+            `Lesson scheduling produced ${preInsertViolations.length} overcapacity date(s): ${preInsertViolations.join(", ")}. The curriculum saved, but lessons were not generated. Please try a different start date or contact support.`,
+          );
+        }
+
         if (toInsert.length > 0) {
           for (let i = 0; i < toInsert.length; i += 100) {
             const { error: lessonErr } = await supabase
