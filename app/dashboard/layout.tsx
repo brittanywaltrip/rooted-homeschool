@@ -119,132 +119,130 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
-    let initialized = false;
 
-    // INITIAL_SESSION fires once after the @supabase/ssr browser client has
-    // finished hydrating its in-memory session from cookies. Driving the
-    // auth check off that event (instead of an eager getSession() call)
-    // closes the race where authenticated users were getting bounced to
-    // /login because getSession() returned null before the client had
-    // loaded. Staying subscribed also keeps the client in sync with the
-    // middleware's token refresh and propagates cross-tab sign-outs.
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mounted) return;
+    // getUser() makes a network call to Supabase's auth server using whichever
+    // session it can find (cookie or localStorage). Middleware refreshes the
+    // cookie on every request, so this call succeeds whenever the cookie is
+    // valid — even when the browser client has nothing in localStorage.
+    // INITIAL_SESSION was unreliable in that case and left the layout stuck
+    // on the loading skeleton.
+    supabase.auth.getUser().then(async ({ data }) => {
+      if (!mounted) return;
+      const user = data.user;
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
 
-        if (event === "SIGNED_OUT") {
-          router.replace("/login");
-          return;
-        }
+      const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
+      if (ADMIN_EMAILS.includes(user.email ?? "")) {
+        setIsAdmin(true);
+      }
 
-        if (event !== "INITIAL_SESSION" && event !== "SIGNED_IN") {
-          return;
-        }
+      // Load family name + subscription status
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("display_name, subscription_status, family_photo_url, first_name, onboarded, is_pro, trial_started_at")
+        .eq("id", user.id)
+        .maybeSingle();
 
-        if (initialized) return;
-        initialized = true;
+      if (!mounted) return;
 
-        if (!session) {
-          router.replace("/login");
-          return;
-        }
+      // Gate: send new (no profile yet) or non-onboarded users through the wizard
+      // onboarded is NULL for new users (not false), so check !== true
+      if (!profile || (profile as { onboarded?: boolean | null } | null)?.onboarded !== true) {
+        router.replace("/onboarding");
+        return;
+      }
 
-        const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
-        if (ADMIN_EMAILS.includes(session.user.email ?? "")) {
-          setIsAdmin(true);
-        }
+      // ── Partner detection ──────────────────────────────────────────────────
+      // The owner/admin account is never a partner view — skip the check entirely.
+      if (user.email === "garfieldbrittany@gmail.com") {
+        sessionStorage.removeItem("rooted_partner");
+        setPartnerCtx({ isPartner: false, effectiveUserId: user.id, ownerName: "" });
+        if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
+        setIsPro((profile as any).is_pro ?? false);
+        setTrialStartedAt((profile as any).trial_started_at ?? null);
+        setChecking(false);
+        return;
+      }
 
-        // Load family name + subscription status
-        const { data: profile } = await supabase
+      // Check sessionStorage cache first (avoids extra DB call on nav)
+      const cached = sessionStorage.getItem("rooted_partner");
+      if (cached) {
+        const parsed: PartnerContextType = JSON.parse(cached);
+        setPartnerCtx(parsed);
+        setChecking(false);
+        return;
+      }
+
+      // Check if this user's email appears as partner_email in any profile.
+      // Requires: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS partner_email text;
+      const email = user.email;
+      if (email) {
+        const { data: ownerProfile, error: partnerErr } = await supabase
           .from("profiles")
-          .select("display_name, subscription_status, family_photo_url, first_name, onboarded, is_pro, trial_started_at")
-          .eq("id", session.user.id)
+          .select("id, display_name")
+          .eq("partner_email", email)
           .maybeSingle();
 
         if (!mounted) return;
 
-        // Gate: send new (no profile yet) or non-onboarded users through the wizard
-        // onboarded is NULL for new users (not false), so check !== true
-        if (!profile || (profile as { onboarded?: boolean | null } | null)?.onboarded !== true) {
-          router.replace("/onboarding");
-          return;
-        }
-
-        // ── Partner detection ──────────────────────────────────────────────────
-        // The owner/admin account is never a partner view — skip the check entirely.
-        if (session.user.email === "garfieldbrittany@gmail.com") {
-          sessionStorage.removeItem("rooted_partner");
-          setPartnerCtx({ isPartner: false, effectiveUserId: session.user.id, ownerName: "" });
-          if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
-          setIsPro((profile as any).is_pro ?? false);
-          setTrialStartedAt((profile as any).trial_started_at ?? null);
+        if (!partnerErr && ownerProfile) {
+          const ctx: PartnerContextType = {
+            isPartner: true,
+            effectiveUserId: ownerProfile.id,
+            ownerName: ownerProfile.display_name || "",
+          };
+          sessionStorage.setItem("rooted_partner", JSON.stringify(ctx));
+          setPartnerCtx(ctx);
           setChecking(false);
           return;
         }
-
-        // Check sessionStorage cache first (avoids extra DB call on nav)
-        const cached = sessionStorage.getItem("rooted_partner");
-        if (cached) {
-          const parsed: PartnerContextType = JSON.parse(cached);
-          setPartnerCtx(parsed);
-          setChecking(false);
-          return;
-        }
-
-        // Check if this user's email appears as partner_email in any profile.
-        // Requires: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS partner_email text;
-        const email = session.user.email;
-        if (email) {
-          const { data: ownerProfile, error: partnerErr } = await supabase
-            .from("profiles")
-            .select("id, display_name")
-            .eq("partner_email", email)
-            .maybeSingle();
-
-          if (!mounted) return;
-
-          if (!partnerErr && ownerProfile) {
-            const ctx: PartnerContextType = {
-              isPartner: true,
-              effectiveUserId: ownerProfile.id,
-              ownerName: ownerProfile.display_name || "",
-            };
-            sessionStorage.setItem("rooted_partner", JSON.stringify(ctx));
-            setPartnerCtx(ctx);
-            setChecking(false);
-            return;
-          }
-        }
-
-        // Normal user
-        setPartnerCtx({
-          isPartner: false,
-          effectiveUserId: session.user.id,
-          ownerName: "",
-        });
-        if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
-        setIsPro((profile as any).is_pro ?? false);
-        setTrialStartedAt((profile as any).trial_started_at ?? null);
-
-        // Check for unread family notifications
-        const { count } = await supabase
-          .from("family_notifications")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", session.user.id)
-          .is("read_at", null);
-
-        if (!mounted) return;
-        setUnreadFamilyNotifs(count ?? 0);
-
-        setChecking(false);
       }
-    );
+
+      // Normal user
+      setPartnerCtx({
+        isPartner: false,
+        effectiveUserId: user.id,
+        ownerName: "",
+      });
+      if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
+      setIsPro((profile as any).is_pro ?? false);
+      setTrialStartedAt((profile as any).trial_started_at ?? null);
+
+      // Check for unread family notifications
+      const { count } = await supabase
+        .from("family_notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .is("read_at", null);
+
+      if (!mounted) return;
+      setUnreadFamilyNotifs(count ?? 0);
+
+      setChecking(false);
+    });
+
+    // Keep the auth-state subscription for cross-tab sign-outs and to absorb
+    // middleware-driven token refreshes. The initial auth check above is
+    // handled by getUser(), so INITIAL_SESSION/SIGNED_IN are intentionally
+    // not handled here.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (!mounted) return;
+      if (event === "SIGNED_OUT") {
+        router.replace("/login");
+        return;
+      }
+      // TOKEN_REFRESHED: middleware already wrote the new cookies and the
+      // browser client now has the new session in memory. No action needed.
+    });
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [router, supabase]);
+  }, [router]);
 
   // Prefer context photo (updates after settings save) over one-time local fetch
   const avatarPhotoUrl = ctxPhotoUrl ?? profileData.family_photo_url ?? null;
