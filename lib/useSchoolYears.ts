@@ -35,8 +35,6 @@ export function useSchoolYears(_userId?: string | null): SchoolYears {
 
   const reload = useCallback(async () => {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setLoading(false); return; }
 
     const { data } = await supabase
       .from("school_years")
@@ -44,6 +42,15 @@ export function useSchoolYears(_userId?: string | null): SchoolYears {
       .order("start_date", { ascending: false });
 
     const rows = (data ?? []) as SchoolYear[];
+
+    if (rows.length === 0) {
+      setActive(null);
+      setUpcoming(null);
+      setArchived([]);
+      setLoading(false);
+      return;
+    }
+
     const today = new Date().toISOString().slice(0, 10);
     const currentActive = rows.find(r => r.status === "active");
     const currentUpcoming = rows.find(r => r.status === "upcoming");
