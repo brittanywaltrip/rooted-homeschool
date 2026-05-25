@@ -37,12 +37,16 @@ export function useSchoolYears(_userId?: string | null): SchoolYears {
     console.log("[useSchoolYears] reload called");
     setLoading(true);
 
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    console.log("[useSchoolYears] auth user:", userData?.user?.id, "error:", userError?.message);
+
     const { data, error } = await supabase
       .from("school_years")
       .select("*")
       .order("start_date", { ascending: false });
 
-    console.log("[useSchoolYears] result:", { data, error, rowCount: data?.length });
+    console.log("[useSchoolYears] data:", JSON.stringify(data));
+    console.log("[useSchoolYears] error:", JSON.stringify(error));
 
     const rows = (data ?? []) as SchoolYear[];
 
