@@ -3482,6 +3482,26 @@ export default function PlanV2() {
           </Link>
         )}
 
+        {/* Past Years entry — only shown once the user has archived at least
+            one year, so the link never lands on an empty shelf. */}
+        {!schoolYears.loading && schoolYears.archived.length > 0 && (
+          <Link
+            href="/dashboard/years"
+            className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
+          >
+            <span className="text-xl shrink-0">📚</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium text-[#2D2A26]">
+                Past Years
+              </p>
+              <p className="text-[11px] text-[#8B7E74] mt-0.5">
+                Revisit yearbooks and keepsakes from previous school years.
+              </p>
+            </div>
+            <ChevronRight size={16} className="text-[#8B7E74] shrink-0 mt-0.5" />
+          </Link>
+        )}
+
         {/* Year filter chip — toggles between active-year view and all-time.
             yearFilterAll is wired into queries in a future pass; for now this
             just renders the chips. */}

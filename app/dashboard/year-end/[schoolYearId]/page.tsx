@@ -615,6 +615,15 @@ export default function YearEndSummaryPage() {
           </section>
         )}
 
+        <section className="no-print text-center pt-4">
+          <Link
+            href="/dashboard/years"
+            className="text-sm text-[#5c7f63] hover:underline"
+          >
+            View past years
+          </Link>
+        </section>
+
         <section className="text-center py-12">
           <p
             className="text-base max-w-xl mx-auto italic text-[#1a2c22]"
