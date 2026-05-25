@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileDown, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -476,6 +476,13 @@ export default function PlanV2() {
   const [activityEditing, setActivityEditing] = useState<EditableActivity | null>(null);
   const [activityModalOpen, setActivityModalOpen] = useState(false);
   const [reportDialogOpen, setReportDialogOpen] = useState(false);
+
+  // Edit Year Details modal — name + start/end dates for the active school year.
+  const [editYearOpen, setEditYearOpen] = useState(false);
+  const [editYearName, setEditYearName] = useState("");
+  const [editYearStart, setEditYearStart] = useState("");
+  const [editYearEnd, setEditYearEnd] = useState("");
+  const [editYearSaving, setEditYearSaving] = useState(false);
   const [openBackfillGoalId, setOpenBackfillGoalId] = useState<string | null>(null);
   // Open recalibration form per goal. Only one form open at a time; a
   // second tap on the menu item collapses the currently-open form. The
@@ -1368,6 +1375,26 @@ export default function PlanV2() {
     },
     [effectiveUserId, recordEvent, reloadGoals, reload, vacationBlocks],
   );
+
+  async function saveYearDetails() {
+    if (!schoolYears.active) return;
+    const trimmed = editYearName.trim();
+    if (!trimmed || !editYearStart || !editYearEnd) return;
+    setEditYearSaving(true);
+    const { error } = await supabase
+      .from("school_years")
+      .update({
+        name: trimmed,
+        start_date: editYearStart,
+        end_date: editYearEnd,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", schoolYears.active.id);
+    setEditYearSaving(false);
+    if (error) return;
+    await schoolYears.reload();
+    setEditYearOpen(false);
+  }
 
   const handleGenerateReport = useCallback(async (opts: {
     childId: string | null;
@@ -3323,6 +3350,7 @@ export default function PlanV2() {
       if (stopGoalConfirm) { setStopGoalConfirm(null); return; }
       if (markFinishedConfirm) { setMarkFinishedConfirm(null); return; }
       if (deleteActivityConfirm) { setDeleteActivityConfirm(null); return; }
+      if (editYearOpen) { setEditYearOpen(false); return; }
       if (reportDialogOpen) { setReportDialogOpen(false); return; }
       if (activityModalOpen) { setActivityModalOpen(false); setActivityEditing(null); return; }
       if (wizardOpen) { setWizardOpen(false); setWizardEditData(null); return; }
@@ -3342,7 +3370,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -3480,6 +3508,30 @@ export default function PlanV2() {
             </div>
             <ChevronRight size={16} className="text-[#8B7E74] shrink-0 mt-0.5" />
           </Link>
+        )}
+
+        {/* Edit Year Details — moved from Settings so all school-year admin
+            lives on the Plan page. Opens a modal seeded with the active year's
+            current name + start/end dates. */}
+        {!schoolYears.loading && schoolYears.active && (
+          <button
+            type="button"
+            onClick={() => {
+              setEditYearName(schoolYears.active!.name);
+              setEditYearStart(schoolYears.active!.start_date);
+              setEditYearEnd(schoolYears.active!.end_date);
+              setEditYearOpen(true);
+            }}
+            className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
+          >
+            <span className="text-xl shrink-0">✏️</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium text-[#2D2A26]">Edit Year Details</p>
+              <p className="text-[11px] text-[#8B7E74] mt-0.5">
+                Update your school year name or dates.
+              </p>
+            </div>
+          </button>
         )}
 
         {/* Past Years entry — only shown once the user has archived at least
@@ -3927,6 +3979,14 @@ export default function PlanV2() {
             Your Year
           </p>
           <div className="flex-1 h-px bg-[#e8e2d9]" />
+          <button
+            type="button"
+            onClick={() => setReportDialogOpen(true)}
+            className="flex items-center gap-1 text-[10px] text-[#5c7f63] hover:text-[#2D4A35] font-medium transition-colors shrink-0"
+          >
+            <FileDown size={11} />
+            Progress report
+          </button>
         </div>
 
         {/* Curriculum panel — pace + progress + per-goal actions + backfill.
@@ -4393,6 +4453,68 @@ export default function PlanV2() {
           onClose={() => setReportDialogOpen(false)}
           onGenerate={handleGenerateReport}
         />
+
+        {/* Edit Year Details modal — name + start/end dates for the active
+            school year. Saves directly to school_years and reloads the hook. */}
+        {editYearOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
+            onClick={() => setEditYearOpen(false)}
+          >
+            <div
+              className="bg-white rounded-2xl p-6 w-full max-w-sm space-y-4 shadow-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 className="text-[15px] font-semibold text-[#2D2A26]">Edit Year Details</h2>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[11px] font-medium text-[#8B7E74] uppercase tracking-wide">Year name</label>
+                  <input
+                    className="mt-1 w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-[13px] text-[#2D2A26] focus:outline-none focus:ring-1 focus:ring-[#2D4A35]"
+                    value={editYearName}
+                    onChange={(e) => setEditYearName(e.target.value)}
+                    placeholder="e.g. 2025-2026"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-[#8B7E74] uppercase tracking-wide">Start date</label>
+                  <input
+                    type="date"
+                    className="mt-1 w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-[13px] text-[#2D2A26] focus:outline-none focus:ring-1 focus:ring-[#2D4A35]"
+                    value={editYearStart}
+                    onChange={(e) => setEditYearStart(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-medium text-[#8B7E74] uppercase tracking-wide">End date</label>
+                  <input
+                    type="date"
+                    className="mt-1 w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-[13px] text-[#2D2A26] focus:outline-none focus:ring-1 focus:ring-[#2D4A35]"
+                    value={editYearEnd}
+                    onChange={(e) => setEditYearEnd(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setEditYearOpen(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-[13px] text-[#8B7E74] hover:bg-[#faf9f7] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { void saveYearDetails(); }}
+                  disabled={editYearSaving}
+                  className="flex-1 py-2.5 rounded-xl bg-[#2D4A35] text-[13px] text-white font-medium hover:bg-[#3d5c48] disabled:opacity-50 transition-colors"
+                >
+                  {editYearSaving ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Plan print dialog (Daily/Week/Month) */}
         <PlanPrintDialog
