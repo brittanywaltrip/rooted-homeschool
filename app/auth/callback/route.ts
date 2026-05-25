@@ -4,6 +4,19 @@ import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getCookieDomain } from '@/lib/cookie-domain'
 
+// Map raw Supabase auth errors into stable short codes that the
+// /login page knows how to render as friendly recovery copy.
+// Keeping this in the callback means /login never sees raw provider
+// strings and we have one place to add new mappings.
+function mapAuthErrorToCode(message: string | undefined | null): string {
+  const msg = (message || '').toLowerCase()
+  if (msg.includes('code verifier')) return 'pkce_cross_device'
+  if (msg.includes('expired')) return 'link_expired'
+  if (msg.includes('invalid') && msg.includes('grant')) return 'link_used'
+  if (msg.includes('already')) return 'link_used'
+  return 'callback_failed'
+}
+
 export async function GET(request: Request) {
   const requestUrl = new URL(request.url)
   const BASE_URL = `${requestUrl.protocol}//${requestUrl.host}`
@@ -13,8 +26,10 @@ export async function GET(request: Request) {
 
   // OAuth provider returned an error (e.g. user denied consent)
   if (errorParam) {
+    // Provider denial or upstream OAuth error. We don't surface the raw
+    // provider text because it's often technical ("access_denied", etc.).
     return NextResponse.redirect(
-      new URL(`/login?error=${encodeURIComponent(errorParam)}`, BASE_URL)
+      new URL('/login?error=provider_denied', BASE_URL)
     )
   }
 
@@ -47,9 +62,13 @@ export async function GET(request: Request) {
   try {
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
     if (exchangeError) {
+      // Keep the raw message in server logs for debugging, but translate
+      // to a stable code for the user-facing URL so we never render raw
+      // Supabase strings.
       console.error('Code exchange failed:', exchangeError.message)
+      const code = mapAuthErrorToCode(exchangeError.message)
       return NextResponse.redirect(
-        new URL(`/login?error=${encodeURIComponent(exchangeError.message)}`, BASE_URL)
+        new URL(`/login?error=${code}`, BASE_URL)
       )
     }
 

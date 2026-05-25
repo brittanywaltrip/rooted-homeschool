@@ -1,12 +1,34 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 type View = "login" | "forgot" | "forgot-sent";
+
+// Stable error codes set by /auth/callback. Anything not in this map
+// (including legacy raw messages from older builds still in the wild)
+// falls through to a safe generic recovery line. Never render the raw
+// param value, since it can contain provider exception text.
+function errorCodeToMessage(code: string): string {
+  switch (code) {
+    case 'pkce_cross_device':
+      return "Looks like you started this sign in on another device or browser. Tap Forgot password below to set a password and log in here."
+    case 'link_expired':
+      return "That link expired. Tap Forgot password below to request a new one."
+    case 'link_used':
+      return "That link was already used. Try logging in below, or tap Forgot password to reset."
+    case 'missing_code':
+      return "Something went wrong opening that link. Try logging in or resetting your password."
+    case 'provider_denied':
+      return "Sign in was cancelled. Try again, or use email and password below."
+    case 'callback_failed':
+    default:
+      return "We couldn't complete sign in. Try logging in directly, or tap Forgot password."
+  }
+}
 
 export default function LoginPage() {
   return (
@@ -23,7 +45,9 @@ function LoginContent() {
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [resetEmail, setResetEmail] = useState("");
-  const [error,    setError]    = useState(searchParams.get("error") || "");
+  const errorCode = searchParams.get("error") || "";
+  const [error, setError] = useState(errorCode ? errorCodeToMessage(errorCode) : "");
+  const [errorIsNotice, setErrorIsNotice] = useState(!!errorCode);
   const [loading,  setLoading]  = useState(false);
   const passwordReset = searchParams.get("passwordReset") === "true";
 
@@ -37,12 +61,25 @@ function LoginContent() {
   const [otpVerifying, setOtpVerifying] = useState(false);
   const [otpError, setOtpError] = useState("");
 
+  function clearError() { setError(""); setErrorIsNotice(false); }
+
+  useEffect(() => {
+    if (searchParams.get("error")) {
+      // Strip the error param so a refresh doesn't keep showing the notice.
+      // We've already captured it into local state above.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("error");
+      window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
+    clearError();
     setLoading(true);
     const { error, data } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) { setError(error.message); setLoading(false); return; }
+    if (error) { setError(error.message); setErrorIsNotice(false); setLoading(false); return; }
 
     const { data: profile } = await supabase
       .from("profiles")
@@ -67,13 +104,13 @@ function LoginContent() {
 
   async function handleForgot(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
+    clearError();
     setLoading(true);
     const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
       redirectTo: 'https://www.rootedhomeschoolapp.com/reset-password',
     });
     setLoading(false);
-    if (error) setError(error.message);
+    if (error) { setError(error.message); setErrorIsNotice(false); }
     else { setOtp(""); setOtpError(""); setView("forgot-sent"); }
   }
 
@@ -210,7 +247,7 @@ function LoginContent() {
                     </label>
                     <button
                       type="button"
-                      onClick={() => { setError(""); setResetEmail(email); setView("forgot"); }}
+                      onClick={() => { clearError(); setResetEmail(email); setView("forgot"); }}
                       className="text-xs text-[#5c7f63] hover:underline"
                     >
                       Forgot password?
@@ -227,7 +264,13 @@ function LoginContent() {
                 </div>
 
                 {error && (
-                  <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                  <p
+                    className={
+                      errorIsNotice
+                        ? "text-sm text-[#2d5a3d] bg-[#f5efdf] border border-[#e6d9b0] rounded-lg px-3 py-2"
+                        : "text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2"
+                    }
+                  >
                     {error}
                   </p>
                 )}
@@ -282,7 +325,13 @@ function LoginContent() {
                 </div>
 
                 {error && (
-                  <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2">
+                  <p
+                    className={
+                      errorIsNotice
+                        ? "text-sm text-[#2d5a3d] bg-[#f5efdf] border border-[#e6d9b0] rounded-lg px-3 py-2"
+                        : "text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2"
+                    }
+                  >
                     {error}
                   </p>
                 )}
@@ -297,7 +346,7 @@ function LoginContent() {
               </form>
 
               <button
-                onClick={() => { setError(""); setView("login"); }}
+                onClick={() => { clearError(); setView("login"); }}
                 className="w-full text-center text-sm text-[#7a6f65] hover:text-[#2d2926] mt-5 transition-colors"
               >
                 ← Back to login
@@ -319,7 +368,7 @@ function LoginContent() {
               <p className="text-xs text-[#b5aca4] mb-5">
                 Didn&apos;t get it? Check your spam folder or{" "}
                 <button
-                  onClick={() => { setError(""); setView("forgot"); }}
+                  onClick={() => { clearError(); setView("forgot"); }}
                   className="text-[#5c7f63] hover:underline"
                 >
                   try again
@@ -363,7 +412,7 @@ function LoginContent() {
               )}
 
               <button
-                onClick={() => { setError(""); setView("login"); }}
+                onClick={() => { clearError(); setView("login"); }}
                 className="w-full border border-[#e8e2d9] hover:bg-[#f0ede8] text-[#7a6f65] font-medium py-2.5 rounded-xl transition-colors text-sm mt-5"
               >
                 ← Back to login
