@@ -60,6 +60,15 @@ export async function GET(request: Request) {
   )
 
   try {
+    // TEMPORARY DEBUG (debug/ios-cookie-loss branch only) — confirm
+    // whether the PKCE verifier cookie is present in the callback's
+    // cookie jar at exchange time. If it's missing for iOS Safari /
+    // WKWebView user-agents but present for desktop browsers, that
+    // confirms ITP is dropping the cookie during the cross-subdomain
+    // OAuth hop. Remove this log before merging anywhere.
+    console.log('[auth-debug] callback cookies on entry:', cookieStore.getAll().map(c => c.name))
+    console.log('[auth-debug] user-agent:', request.headers.get('user-agent'))
+
     const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code)
     if (exchangeError) {
       // Keep the raw message in server logs for debugging, but translate
