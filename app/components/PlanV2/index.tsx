@@ -3463,8 +3463,6 @@ export default function PlanV2() {
           </button>
         </div>
 
-        {(() => { console.log('[Plan] schoolYears:', JSON.stringify(schoolYears)); return null; })()}
-
         {/* Close This School Year entry — links to the review/confirm page. */}
         {!schoolYears.loading && schoolYears.active && (
           <Link
