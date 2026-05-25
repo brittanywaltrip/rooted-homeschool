@@ -487,12 +487,21 @@ function PlanV1() {
   const isFreeUser = !planType || planType === "free" || previewFree;
 
   // ── School year support ─────────────────────────────────────────────────────
-  const schoolYears = useSchoolYears(effectiveUserId || null);
-  const [yearView, setYearView] = useState<"this" | "next">("this");
+  // sessionUserId is a fallback for the initial render before the dashboard
+  // layout's PartnerContext effect populates effectiveUserId — useSchoolYears
+  // short-circuits on null, so without this the cards never appear.
+  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSessionUserId(data.session?.user.id ?? null);
+    });
+  }, []);
+  const schoolYears = useSchoolYears(effectiveUserId || sessionUserId);
   const [showCreateYear, setShowCreateYear] = useState(false);
+  const [yearFilterAll, setYearFilterAll] = useState(false);
   const activeYearId = schoolYears.active?.id ?? null;
   const upcomingYearId = schoolYears.upcoming?.id ?? null;
-  const viewingYearId = yearView === "next" ? upcomingYearId : activeYearId;
+  const viewingYearId = activeYearId;
 
   // School year milestone dates for calendar indicators
   const schoolYearMilestones: Record<string, string> = {};
@@ -507,24 +516,6 @@ function PlanV1() {
     }
   }
 
-  // Jump calendar to the relevant school year's start date when switching tabs
-  useEffect(() => {
-    if (yearView === "next" && schoolYears.upcoming?.start_date) {
-      const startDate = new Date(schoolYears.upcoming.start_date + "T00:00:00");
-      setWeekStart(getMondayOf(startDate));
-      const monthOf = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-      monthOf.setHours(0, 0, 0, 0);
-      setMonthStart(monthOf);
-      setSelectedDay(schoolYears.upcoming.start_date);
-    } else if (yearView === "this") {
-      const now = new Date();
-      setWeekStart(getMondayOf(now));
-      const monthOf = new Date(now.getFullYear(), now.getMonth(), 1);
-      monthOf.setHours(0, 0, 0, 0);
-      setMonthStart(monthOf);
-      setSelectedDay(toDateStr(now));
-    }
-  }, [yearView, schoolYears.upcoming?.start_date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { document.title = "Plan · Rooted"; posthog.capture('page_viewed', { page: 'plan' }); }, []);
 
@@ -1623,20 +1614,17 @@ function PlanV1() {
   // ── Year-scoped data ─────────────────────────────────────────────────────
   const yearScopedGoals = curriculumGoals.filter(g => {
     const gYearId = (g as unknown as { school_year_id?: string }).school_year_id;
-    if (yearView === "next") return gYearId === upcomingYearId;
     return !gYearId || gYearId === activeYearId; // null = active year (pre-migration)
   });
   const yearScopedLessons = allLessons.filter(l => {
     const goalId = l.curriculum_goal_id;
-    if (!goalId) return yearView === "this"; // unlinked lessons → this year
+    if (!goalId) return true; // unlinked lessons → this year
     const goal = curriculumGoals.find(g => g.id === goalId);
     const gYearId = (goal as unknown as { school_year_id?: string } | undefined)?.school_year_id;
-    if (yearView === "next") return gYearId === upcomingYearId;
     return !gYearId || gYearId === activeYearId;
   });
   const yearScopedActivities = activities.filter(a => {
     const aYearId = (a as unknown as { school_year_id?: string }).school_year_id;
-    if (yearView === "next") return aYearId === upcomingYearId;
     return !aYearId || aYearId === activeYearId;
   });
 
@@ -1935,36 +1923,8 @@ function PlanV1() {
     <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
     <div className="px-4 pt-5 pb-7 space-y-4 max-w-5xl" style={{ background: "#F8F7F4" }}>
 
-      {/* ── Year toggle (when upcoming year exists) ────────── */}
-      {!schoolYears.loading && schoolYears.upcoming && (
-        <div className="flex gap-2">
-          <button
-            onClick={() => setYearView("this")}
-            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-            style={{
-              background: yearView === "this" ? "#2D5A3D" : "white",
-              color: yearView === "this" ? "white" : "#8B7E74",
-              border: yearView === "this" ? "none" : "1px solid #e8e5e0",
-            }}
-          >
-            This Year
-          </button>
-          <button
-            onClick={() => setYearView("next")}
-            className="text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-            style={{
-              background: yearView === "next" ? "#2D5A3D" : "white",
-              color: yearView === "next" ? "white" : "#8B7E74",
-              border: yearView === "next" ? "none" : "1px solid #e8e5e0",
-            }}
-          >
-            Next Year
-          </button>
-        </div>
-      )}
-
       {/* ── Close This School Year entry ──────────────────── */}
-      {!schoolYears.loading && schoolYears.active && yearView === "this" && (
+      {!schoolYears.loading && schoolYears.active && (
         <Link
           href="/dashboard/close-year"
           className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
@@ -1982,8 +1942,48 @@ function PlanV1() {
         </Link>
       )}
 
+      {/* ── Year filter chip ──────────────────────────────── */}
+      {schoolYears.active && (
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => setYearFilterAll(false)}
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              padding: "5px 14px",
+              borderRadius: 20,
+              border: "0.5px solid",
+              cursor: "pointer",
+              background: !yearFilterAll ? "#2D4A35" : "white",
+              color: !yearFilterAll ? "white" : "#5C5346",
+              borderColor: !yearFilterAll ? "#2D4A35" : "#e8e5e0",
+              transition: "all 0.15s",
+            }}
+          >
+            {schoolYears.active.name}
+          </button>
+          <button
+            onClick={() => setYearFilterAll(true)}
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              padding: "5px 14px",
+              borderRadius: 20,
+              border: "0.5px solid",
+              cursor: "pointer",
+              background: yearFilterAll ? "#2D4A35" : "white",
+              color: yearFilterAll ? "white" : "#5C5346",
+              borderColor: yearFilterAll ? "#2D4A35" : "#e8e5e0",
+              transition: "all 0.15s",
+            }}
+          >
+            All time
+          </button>
+        </div>
+      )}
+
       {/* ── Plan Next Year prompt (no upcoming year yet) ──── */}
-      {!schoolYears.loading && schoolYears.active && !schoolYears.upcoming && yearView === "this" && (
+      {!schoolYears.loading && schoolYears.active && !schoolYears.upcoming && (
         <button
           onClick={() => setShowCreateYear(true)}
           className="w-full bg-white border border-[#e8e5e0] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
@@ -2707,18 +2707,7 @@ function PlanV1() {
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
             Curriculum
           </p>
-          {curricGroups.length === 0 && yearView === "next" && (
-            <div className="bg-[#f0f7f2] border border-[#c5dbc9] rounded-2xl p-5 text-center mb-2">
-              <p className="text-2xl mb-2">🌱</p>
-              <p className="text-sm font-semibold text-[#2D5A3D] mb-1">
-                Start planning {schoolYears.upcoming?.name ?? "next year"}!
-              </p>
-              <p className="text-xs text-[#7a6f65]">
-                Add curriculum and activities now so everything is ready when the new year begins.
-              </p>
-            </div>
-          )}
-          {curricGroups.length === 0 && yearView !== "next" && (
+          {curricGroups.length === 0 && (
             <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5 text-center mb-2">
               <p style={{ fontSize: 13, color: "#b5aca4", margin: 0 }}>No curriculum added yet</p>
             </div>
@@ -3135,9 +3124,9 @@ function PlanV1() {
       )}
 
       {/* ══════════════════════════════════════════════════
-          HOURS & PROGRESS REPORT (combined) — hidden in next year view
+          HOURS & PROGRESS REPORT (combined)
       ══════════════════════════════════════════════════ */}
-      {!isPartner && !loading && yearView === "this" && (
+      {!isPartner && !loading && (
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">
             Progress Report
@@ -3430,7 +3419,7 @@ function PlanV1() {
           userId={effectiveUserId}
           activeYearName={schoolYears.active?.name}
           onClose={() => setShowCreateYear(false)}
-          onCreated={() => { schoolYears.reload(); setYearView("next"); }}
+          onCreated={() => { schoolYears.reload(); }}
         />
       )}
       {showActivityModal && (
