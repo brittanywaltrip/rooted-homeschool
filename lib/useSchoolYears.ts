@@ -22,18 +22,25 @@ export type SchoolYears = {
   reload: () => Promise<void>;
 };
 
-export function useSchoolYears(userId: string | null): SchoolYears {
+// The userId parameter is kept for backwards compatibility with existing
+// call sites but is no longer consumed — reload() resolves the user via
+// supabase.auth.getUser() so the hook works on initial mount before any
+// outer context (e.g. PartnerContext) has populated.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function useSchoolYears(_userId?: string | null): SchoolYears {
   const [active, setActive] = useState<SchoolYear | null>(null);
   const [upcoming, setUpcoming] = useState<SchoolYear | null>(null);
   const [archived, setArchived] = useState<SchoolYear[]>([]);
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
-    if (!userId) { setLoading(false); return; }
+    setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+
     const { data } = await supabase
       .from("school_years")
       .select("*")
-      .eq("user_id", userId)
       .order("start_date", { ascending: false });
 
     const rows = (data ?? []) as SchoolYear[];
@@ -41,13 +48,12 @@ export function useSchoolYears(userId: string | null): SchoolYears {
     const currentActive = rows.find(r => r.status === "active");
     const currentUpcoming = rows.find(r => r.status === "upcoming");
 
-    // Auto-archive active year if its end_date has passed and no upcoming to promote
     if (currentActive && currentActive.end_date < today && !currentUpcoming) {
       await supabase.from("school_years")
         .update({ status: "archived", updated_at: new Date().toISOString() })
         .eq("id", currentActive.id);
       const { data: refreshed } = await supabase
-        .from("school_years").select("*").eq("user_id", userId).order("start_date", { ascending: false });
+        .from("school_years").select("*").order("start_date", { ascending: false });
       const freshRows = (refreshed ?? []) as SchoolYear[];
       setActive(freshRows.find(r => r.status === "active") ?? null);
       setUpcoming(freshRows.find(r => r.status === "upcoming") ?? null);
@@ -56,7 +62,6 @@ export function useSchoolYears(userId: string | null): SchoolYears {
       return;
     }
 
-    // Auto-promote upcoming → active when its start_date arrives
     if (currentUpcoming && currentUpcoming.start_date <= today) {
       if (currentActive) {
         await supabase.from("school_years")
@@ -67,7 +72,7 @@ export function useSchoolYears(userId: string | null): SchoolYears {
         .update({ status: "active", updated_at: new Date().toISOString() })
         .eq("id", currentUpcoming.id);
       const { data: refreshed } = await supabase
-        .from("school_years").select("*").eq("user_id", userId).order("start_date", { ascending: false });
+        .from("school_years").select("*").order("start_date", { ascending: false });
       const freshRows = (refreshed ?? []) as SchoolYear[];
       setActive(freshRows.find(r => r.status === "active") ?? null);
       setUpcoming(freshRows.find(r => r.status === "upcoming") ?? null);
@@ -80,7 +85,7 @@ export function useSchoolYears(userId: string | null): SchoolYears {
     setUpcoming(currentUpcoming ?? null);
     setArchived(rows.filter(r => r.status === "archived"));
     setLoading(false);
-  }, [userId]);
+  }, []);
 
   useEffect(() => { reload(); }, [reload]);
 

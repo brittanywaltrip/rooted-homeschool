@@ -487,16 +487,7 @@ function PlanV1() {
   const isFreeUser = !planType || planType === "free" || previewFree;
 
   // ── School year support ─────────────────────────────────────────────────────
-  // sessionUserId is a fallback for the initial render before the dashboard
-  // layout's PartnerContext effect populates effectiveUserId — useSchoolYears
-  // short-circuits on null, so without this the cards never appear.
-  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSessionUserId(data.session?.user.id ?? null);
-    });
-  }, []);
-  const schoolYears = useSchoolYears(effectiveUserId || sessionUserId);
+  const schoolYears = useSchoolYears(effectiveUserId);
   const [showCreateYear, setShowCreateYear] = useState(false);
   const [yearFilterAll, setYearFilterAll] = useState(false);
   const activeYearId = schoolYears.active?.id ?? null;
