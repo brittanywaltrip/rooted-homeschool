@@ -1377,7 +1377,8 @@ export default function PlanV2() {
   );
 
   async function saveYearDetails() {
-    if (!schoolYears.active) return;
+    const yearToEdit = schoolYears.active ?? schoolYears.upcoming;
+    if (!yearToEdit) return;
     const trimmed = editYearName.trim();
     if (!trimmed || !editYearStart || !editYearEnd) return;
     setEditYearSaving(true);
@@ -1389,7 +1390,7 @@ export default function PlanV2() {
         end_date: editYearEnd,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", schoolYears.active.id);
+      .eq("id", yearToEdit.id);
     setEditYearSaving(false);
     if (error) return;
     await schoolYears.reload();
@@ -3513,13 +3514,15 @@ export default function PlanV2() {
         {/* Edit Year Details — moved from Settings so all school-year admin
             lives on the Plan page. Opens a modal seeded with the active year's
             current name + start/end dates. */}
-        {!schoolYears.loading && schoolYears.active && (
+        {!schoolYears.loading && (schoolYears.active || schoolYears.upcoming) && (
           <button
             type="button"
             onClick={() => {
-              setEditYearName(schoolYears.active!.name);
-              setEditYearStart(schoolYears.active!.start_date);
-              setEditYearEnd(schoolYears.active!.end_date);
+              const yr = schoolYears.active ?? schoolYears.upcoming;
+              if (!yr) return;
+              setEditYearName(yr.name);
+              setEditYearStart(yr.start_date);
+              setEditYearEnd(yr.end_date);
               setEditYearOpen(true);
             }}
             className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
