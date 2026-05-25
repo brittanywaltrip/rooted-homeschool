@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
 import {
   DndContext,
@@ -192,6 +193,7 @@ export default function PlanV2() {
   // another day in the same week. Independent from select/move-target mode.
   const [weekEditMode, setWeekEditMode] = useState(false);
   const [schoolYearModalOpen, setSchoolYearModalOpen] = useState(false);
+  const [yearFilterAll, setYearFilterAll] = useState(false);
   // Print dialog state — null = closed; "selected" mode is what the print
   // sheets key off via body class.
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -3460,6 +3462,69 @@ export default function PlanV2() {
             Month
           </button>
         </div>
+
+        {(() => { console.log('[Plan] schoolYears:', JSON.stringify(schoolYears)); return null; })()}
+
+        {/* Close This School Year entry — links to the review/confirm page. */}
+        {!schoolYears.loading && schoolYears.active && (
+          <Link
+            href="/dashboard/close-year"
+            className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
+          >
+            <span className="text-xl shrink-0">🎓</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium text-[#2D2A26]">
+                Close This School Year
+              </p>
+              <p className="text-[11px] text-[#8B7E74] mt-0.5">
+                Archive this year and start fresh. Your memories, yearbook, and badges are saved forever.
+              </p>
+            </div>
+            <ChevronRight size={16} className="text-[#8B7E74] shrink-0 mt-0.5" />
+          </Link>
+        )}
+
+        {/* Year filter chip — toggles between active-year view and all-time.
+            yearFilterAll is wired into queries in a future pass; for now this
+            just renders the chips. */}
+        {schoolYears.active && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => setYearFilterAll(false)}
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                padding: "5px 14px",
+                borderRadius: 20,
+                border: "0.5px solid",
+                cursor: "pointer",
+                background: !yearFilterAll ? "#2D4A35" : "white",
+                color: !yearFilterAll ? "white" : "#5C5346",
+                borderColor: !yearFilterAll ? "#2D4A35" : "#e8e5e0",
+                transition: "all 0.15s",
+              }}
+            >
+              {schoolYears.active.name}
+            </button>
+            <button
+              onClick={() => setYearFilterAll(true)}
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                padding: "5px 14px",
+                borderRadius: 20,
+                border: "0.5px solid",
+                cursor: "pointer",
+                background: yearFilterAll ? "#2D4A35" : "white",
+                color: yearFilterAll ? "white" : "#5C5346",
+                borderColor: yearFilterAll ? "#2D4A35" : "#e8e5e0",
+                transition: "all 0.15s",
+              }}
+            >
+              All time
+            </button>
+          </div>
+        )}
 
         {/* Catch-up banner — above MissedLessonsBanner when the user has a
             meaningful backlog (5+ across 2+ days) and hasn't dismissed it
