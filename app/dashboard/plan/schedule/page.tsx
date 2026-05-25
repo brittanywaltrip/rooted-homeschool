@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreVertical, Trash2 } from "lucide-react";
+import * as Sentry from "@sentry/nextjs";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
@@ -143,6 +144,28 @@ function ymd(d: Date): string {
 
 function formatMonthYear(d: Date): string {
   return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
+
+// Short calendar form for the "Saving your schedule" panel:
+// "Jul 3, 2026" or "today" when no explicit start_date was picked
+// (the scheduler will start at the next school day).
+function formatShortDate(iso: string | null): string {
+  if (!iso) return "today";
+  const d = new Date(`${iso}T00:00:00`);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// "Mon, Wed, Fri" from a row's active_days + per_day_counts. A day
+// counts as scheduled only if active AND has count > 0 (matches
+// compactCurriculumPerDay's filter).
+function rowSchoolDaysLabel(row: Row): string {
+  const days: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    if (row.active_days[i] && row.per_day_counts[i] > 0) {
+      days.push(DAY_LABEL[i]);
+    }
+  }
+  return days.join(", ");
 }
 
 function isFutureDate(ymdStr: string | null, today: Date): boolean {
@@ -506,6 +529,15 @@ export default function ScheduleBuilderPage() {
   // softer "saved, but lesson layout needs another touch" notice instead.
   const [postSaveNotice, setPostSaveNotice] = useState<string | null>(null);
 
+  // Snapshot of curriculum rows being saved, captured at the moment
+  // handleSave fires. Drives the "Saving your schedule" panel so the
+  // user sees exactly what they're saving, and is decoupled from `rows`
+  // in case the user's local edits mutate during the save round-trip.
+  const [savingRows, setSavingRows] = useState<Row[]>([]);
+  // Flips true on a successful save and stays true until the redirect
+  // fires, so the user sees the success notice before navigating away.
+  const [showSavedToast, setShowSavedToast] = useState(false);
+
   const [children, setChildren] = useState<Child[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
   const [originalCurriculumIds, setOriginalCurriculumIds] = useState<Set<string>>(new Set());
@@ -832,6 +864,15 @@ export default function ScheduleBuilderPage() {
     setSaving(true);
     setSaveError(null);
     setPostSaveNotice(null);
+    setShowSavedToast(false);
+
+    // Snapshot curriculum rows being saved so the saving panel renders
+    // a stable list even if the user's local state mutates mid-save.
+    // Activity rows are intentionally excluded — the panel reads as a
+    // curriculum confirmation, matching the "Saving your schedule" copy.
+    setSavingRows(
+      rows.filter((r) => r.type === "curriculum" && !r.pendingDelete && !r.readOnly),
+    );
 
     // Duplicate pre-check. The Layer-1 in-flight gate above stops true
     // double-clicks; this layer stops the slower duplicate path that's
@@ -1411,10 +1452,29 @@ export default function ScheduleBuilderPage() {
       }
 
       setDirty(false);
+      // Hold the success notice on-screen briefly so the user can read
+      // where to find / edit their schedule before we navigate away.
+      setShowSavedToast(true);
+      await new Promise((resolve) => setTimeout(resolve, 2000));
       router.push("/dashboard/plan");
     } catch (err) {
       const raw = err as { message?: string; code?: string };
       const msg = raw?.message ?? String(err);
+      // Capture every save failure (both phases) to Sentry so the
+      // soft-notice phase doesn't go silent like it did pre-fix.
+      // Tags + extras let us slice by user, by curriculum, and by
+      // whether the schema commit landed before the failure.
+      Sentry.captureException(err, {
+        tags: { feature: "wizard-save", phase },
+        extra: {
+          user_id: effectiveUserId,
+          curriculum_names: rows
+            .filter((r) => r.type === "curriculum" && !r.pendingDelete && !r.readOnly)
+            .map((r) => r.name),
+          error_code: raw?.code,
+          error_message: msg,
+        },
+      });
       if (phase === "write") {
         // Schema writes never committed. True save failure. Postgres
         // unique-violation (23505) from the curriculum_goals partial
@@ -1635,14 +1695,69 @@ export default function ScheduleBuilderPage() {
           />
         )}
 
+        {saving && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-4 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4"
+          >
+            <p className="text-sm font-medium text-[#2d2926] mb-3">Saving your schedule</p>
+            {savingRows.length === 0 ? (
+              <p className="text-sm text-[#7a6f65]">Working on it...</p>
+            ) : (
+              <ul className="space-y-3">
+                {savingRows.map((r) => {
+                  const days = rowSchoolDaysLabel(r);
+                  const start = formatShortDate(r.start_date);
+                  const total = r.total_lessons ?? 0;
+                  const mins = r.minutes_per_lesson ?? 0;
+                  return (
+                    <li key={r.localId} className="text-sm text-[#7a6f65]">
+                      <p className="font-medium text-[#2d2926]">{r.name.trim() || "Untitled"}</p>
+                      <p className="text-xs mt-0.5">
+                        {days || "no days selected"} starting {start}
+                      </p>
+                      {total > 0 && mins > 0 && (
+                        <p className="text-xs mt-0.5">
+                          {total} lessons at {mins} min each
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
+
+        {showSavedToast && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mt-4 bg-[#e8f0e9] border border-[#c8ddb8] rounded-2xl p-4"
+          >
+            <p className="text-sm text-[#2d5a3d]">
+              Schedule saved. You can view or edit anytime from the Plan tab, scroll down to the Curriculum section and tap the three dots.
+            </p>
+          </div>
+        )}
+
         {saveError && (
           <div
             ref={saveErrorRef}
             role="alert"
             aria-live="assertive"
-            className="mt-4 bg-white border border-[#e8c8c8] rounded-2xl p-3 scroll-mt-24"
+            className="mt-4 bg-white border border-[#e8c8c8] rounded-2xl p-4 scroll-mt-24"
           >
-            <p className="text-sm text-[#9a3a3a]">Save failed: {saveError}</p>
+            <p className="text-sm font-semibold text-[#9a3a3a] mb-1">Couldn&apos;t save your schedule</p>
+            <p className="text-sm text-[#9a3a3a]">{saveError}</p>
+            <p className="text-xs text-[#7a6f65] mt-2">
+              Please try again, or email{" "}
+              <a href="mailto:hello@rootedhomeschoolapp.com" className="underline">
+                hello@rootedhomeschoolapp.com
+              </a>{" "}
+              if this keeps happening.
+            </p>
           </div>
         )}
 
