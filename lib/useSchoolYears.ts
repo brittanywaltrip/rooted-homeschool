@@ -34,12 +34,15 @@ export function useSchoolYears(_userId?: string | null): SchoolYears {
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
+    console.log("[useSchoolYears] reload called");
     setLoading(true);
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("school_years")
       .select("*")
       .order("start_date", { ascending: false });
+
+    console.log("[useSchoolYears] result:", { data, error, rowCount: data?.length });
 
     const rows = (data ?? []) as SchoolYear[];
 
