@@ -551,7 +551,7 @@ export default function TourPage() {
             <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
           </Link>
           <div className="flex items-center gap-2">
-            <Link href="/login" className="hidden sm:inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-3 py-2 rounded-lg hover:bg-[#f0ede8]">
+            <Link href="/login" className="inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-2 sm:px-3 py-2 rounded-lg hover:bg-[#f0ede8]">
               Log In
             </Link>
             <Link href="/signup" className="inline-flex items-center gap-1.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white px-5 py-2.5 rounded-xl transition-colors shadow-sm">
