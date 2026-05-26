@@ -131,6 +131,16 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 
 **Test case:** integration test — wizard create writes lessons with `scheduled_source = 'wizard_create'`; vacation-block insert writes `'vacation_resched'`; catch-up accept writes `'catchup_resched'`.
 
+### Invariant 11 — Cache-sync writes the FULL incomplete tail of a goal, not a window
+
+Every caller of `syncProjectedScheduledDates` must build `projDateByKey` from a projection that covers every remaining incomplete lesson of the goal. A fixed-day window is not allowed.
+
+**Why:** the May 26, 2026 audit caught 77 bunched goals (whitley.t2212 + 12 others, 674 misplaced lessons). The dashboard's 7-day cache-warm projection wrote projector dates for in-window lessons onto dates that out-of-window lessons (still carrying their wizard_create cache) already occupied. The collision pair `{queue_resync, wizard_create}` was the dominant fingerprint. The sync skips rows whose key is absent from `projDateByKey`, so any out-of-window incomplete lesson keeps its stale cache while in-window lessons get rewritten on top of it.
+
+**Enforced by:** `app/dashboard/page.tsx` passes `daysAhead=3650` (the projector's safety bound, also matched by the Schedule Builder's create path) so the projection naturally stops at `total_lessons` and emits one entry per remaining incomplete lesson. `app/lib/recalibrate.ts` already does this with `daysAhead=1500`. No caller may pass a small fixed window like 7 or 14.
+
+**Test case:** `Invariant 11 (whitley)` tests in `scheduler.test.ts` — given lpd=1, school_days=[Mon,Wed,Fri], 5 incomplete lessons whose stale cache overlaps today's projector output, a full-tail projection results in 5 distinct dates and no collisions. A companion test pins the bug shape: a 7-day projection over the same goal config reproduces the lesson 84 / lesson 85 collision on 2026-06-01.
+
 ---
 
 ## Bug patterns to NEVER reintroduce
@@ -169,6 +179,10 @@ The May 3 regression was caused by a second scheduling implementation ("Path A: 
 
 Migrations are environment-shared. A migration that bulk-updates `lessons` will run against every environment (staging AND production) at deploy time and rewrite real users' schedules without warning. If you need to fix data, write a one-off script with a backup table, dry run, and explicit Brittany sign-off — not a migration.
 
+### Anti-pattern I — Fixed-day projection window feeding the cache sync
+
+Any caller of `syncProjectedScheduledDates` that builds `projDateByKey` from a small fixed window (e.g. 7 days, 14 days) is broken by construction. The sync skips rows whose key is absent from the map, so in-window writes can land on dates that out-of-window rows still occupy in their stale cache. Always project until `total_lessons` is reached. See Invariant 11.
+
 ---
 
 ## Required test cases (`app/lib/scheduler.test.ts`)
@@ -193,6 +207,7 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 14 | Catch-up DISMISS does not write to lessons | Dismissing the catch-up modal updates `last_catchup_dismissed_at` only. Zero rows touched in `lessons` table. |
 | 15 | TZ-aware today | Same call from Pacific user and Eastern user at the same UTC instant late-evening Pacific produces different "today" dates. |
 | 16 | scheduled_source populated | After any code path runs, the lessons it touched have a non-NULL `scheduled_source` matching the originating action. |
+| 17 | queue_resync full-tail (whitley) | With lpd=1, school_days=[Mon,Wed,Fri], and 5 incomplete lessons whose stale cache overlaps today's projector output, a full-tail projection yields 5 distinct dates. Companion test pins the 7-day collision bug. |
 
 ---
 
