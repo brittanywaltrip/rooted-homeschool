@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronLeft, ChevronRight, FileDown, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -3537,6 +3537,27 @@ export default function PlanV2() {
           </button>
         )}
 
+        {/* Download Progress Report — promoted from a tiny corner link in
+            the Your Year divider. Same card shape as the entries above so
+            users can find it. Mounts no new state; reuses reportDialogOpen
+            and the existing ProgressReportDialog at the bottom of this
+            file. */}
+        {!schoolYears.loading && (
+          <button
+            type="button"
+            onClick={() => setReportDialogOpen(true)}
+            className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
+          >
+            <span className="text-xl shrink-0">📋</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium text-[#2D2A26]">Download Progress Report</p>
+              <p className="text-[11px] text-[#8B7E74] mt-0.5">
+                A printable PDF of lessons completed, books read, and pacing for this school year.
+              </p>
+            </div>
+          </button>
+        )}
+
         {/* Past Years entry — only shown once the user has archived at least
             one year, so the link never lands on an empty shelf. */}
         {!schoolYears.loading && schoolYears.archived.length > 0 && (
@@ -3982,14 +4003,6 @@ export default function PlanV2() {
             Your Year
           </p>
           <div className="flex-1 h-px bg-[#e8e2d9]" />
-          <button
-            type="button"
-            onClick={() => setReportDialogOpen(true)}
-            className="flex items-center gap-1 text-[10px] text-[#5c7f63] hover:text-[#2D4A35] font-medium transition-colors shrink-0"
-          >
-            <FileDown size={11} />
-            Progress report
-          </button>
         </div>
 
         {/* Curriculum panel — pace + progress + per-goal actions + backfill.
