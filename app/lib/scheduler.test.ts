@@ -3087,3 +3087,151 @@ test('create-path: 50 lessons, lpd=3, MWF, no doubling, contiguous per date', ()
     }
   }
 })
+
+// ── Invariant 11: cache-sync writes the full incomplete tail ──────────────
+//
+// Production bug 2026-05-26 (whitley.t2212 + 12 others, 77 affected goals,
+// 674 misplaced lessons): the dashboard caller projected a 7-day window
+// for cache warming. The sync wrote in-window lessons onto the projector's
+// new dates without re-aligning out-of-window lessons, whose stale cache
+// could still occupy those same dates. Result: queue_resync writes
+// collided with wizard_create rows on the same calendar day.
+//
+// Fix: callers of syncProjectedScheduledDates must build projDateByKey
+// from a projection that covers every remaining incomplete lesson of the
+// goal, not a fixed-day window. These tests pin that contract.
+
+function applyWrites(
+  rows: ResyncSentRow[],
+  writes: { ids: string[]; payload: Record<string, unknown> }[],
+): Map<string, string | null> {
+  const out = new Map<string, string | null>(rows.map((r) => [r.id, r.scheduled_date]))
+  for (const w of writes) {
+    const newDate = w.payload.scheduled_date as string
+    for (const id of w.ids) out.set(id, newDate)
+  }
+  return out
+}
+
+test('Invariant 11 (whitley): full-tail projection of lpd=1 MWF goal emits one lesson per school day, no doubling', () => {
+  // whitley.t2212 goal 81046ad4: lpd=1, school_days=[Mon,Wed,Fri].
+  // current_lesson=82, total_lessons=87 so lessons 83..87 are the
+  // remaining incomplete tail.
+  const goal: CurriculumGoalConfig = {
+    id: 'g_whitley_kindergarten',
+    school_days: ['Mon', 'Wed', 'Fri'],
+    lessons_per_day: 1,
+    current_lesson: 82,
+    total_lessons: 87,
+    start_date: null,
+  }
+  const today = new Date('2026-05-26T00:00:00') // Tue
+  const out = computeNextLessonsForGoal(goal, today, 3650, [])
+  assert.equal(out.length, 5, '5 incomplete lessons emitted (83..87)')
+  const counts = countByDate(out)
+  for (const [date, count] of counts) {
+    assert.ok(count <= 1, `date ${date} has ${count} lessons, expected <= 1`)
+  }
+  const byLesson = new Map(out.map((p) => [p.lesson_number, p.date]))
+  assert.equal(byLesson.get(83), '2026-05-27')
+  assert.equal(byLesson.get(84), '2026-05-29')
+  assert.equal(byLesson.get(85), '2026-06-01')
+  assert.equal(byLesson.get(86), '2026-06-03')
+  assert.equal(byLesson.get(87), '2026-06-05')
+})
+
+test('Invariant 11 (whitley): full-tail projDateByKey + syncProjectedScheduledDates leaves every incomplete row on a distinct date', async () => {
+  // Simulates the dashboard caller. The "stale cache" mimics the actual
+  // production state on 2026-05-26: lessons 83..87 placed by an earlier
+  // wizard run, with lesson 85 sitting on 2026-06-01 (its wizard date).
+  // Today the projector shifts lessons 83..87 forward by one school day
+  // each; a full-tail projection covers all five, so the sync rewrites
+  // every drifted row and lesson 85 moves off 2026-06-01 before lesson 84
+  // can land there.
+  const goal: CurriculumGoalConfig = {
+    id: 'g_whitley_kindergarten',
+    school_days: ['Mon', 'Wed', 'Fri'],
+    lessons_per_day: 1,
+    current_lesson: 82,
+    total_lessons: 87,
+    start_date: null,
+  }
+  // Today is Thu 2026-05-28 in this scenario so the projector shifts
+  // dates one school day forward vs. the cached wizard placement.
+  const today = new Date('2026-05-28T00:00:00')
+  const projected = computeNextLessonsForGoal(goal, today, 3650, [])
+  const projDateByKey = new Map(
+    projected.map((p) => [`${goal.id}|${p.lesson_number}`, p.date]),
+  )
+  // Stale cache: wizard placement one school day earlier than today's
+  // projection. Lesson 85 sits on 2026-06-01, the same date today's
+  // projector emits for lesson 84.
+  const rows: ResyncSentRow[] = [
+    { id: 'L83', curriculum_goal_id: goal.id, queue_position: 83, scheduled_date: '2026-05-27', completed: false, is_backfill: false },
+    { id: 'L84', curriculum_goal_id: goal.id, queue_position: 84, scheduled_date: '2026-05-29', completed: false, is_backfill: false },
+    { id: 'L85', curriculum_goal_id: goal.id, queue_position: 85, scheduled_date: '2026-06-01', completed: false, is_backfill: false },
+    { id: 'L86', curriculum_goal_id: goal.id, queue_position: 86, scheduled_date: '2026-06-03', completed: false, is_backfill: false },
+    { id: 'L87', curriculum_goal_id: goal.id, queue_position: 87, scheduled_date: '2026-06-05', completed: false, is_backfill: false },
+  ]
+  const { supabase, writes } = makeResyncSupabase()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, projDateByKey, (r) => `${(r as ResyncSentRow).curriculum_goal_id}|${(r as ResyncSentRow).queue_position}`)
+
+  const finalDates = applyWrites(rows, writes)
+  const dateCounts = new Map<string, number>()
+  for (const d of finalDates.values()) {
+    if (!d) continue
+    dateCounts.set(d, (dateCounts.get(d) ?? 0) + 1)
+  }
+  for (const [date, count] of dateCounts) {
+    assert.ok(count <= 1, `Invariant 2 violation: date ${date} ended with ${count} incomplete lessons for a lpd=1 goal`)
+  }
+  // Spot-check: the post-sync dates match the projector's full-tail output.
+  assert.equal(finalDates.get('L83'), '2026-05-29')
+  assert.equal(finalDates.get('L84'), '2026-06-01')
+  assert.equal(finalDates.get('L85'), '2026-06-03')
+  assert.equal(finalDates.get('L86'), '2026-06-05')
+  assert.equal(finalDates.get('L87'), '2026-06-08')
+})
+
+test('Invariant 11 (whitley): partial 7-day projDateByKey reproduces the May 26 collision (regression guard against re-introducing the window)', async () => {
+  // Documents the bug Option A fixes. With a 7-day window the projector
+  // emits dates only for lessons 83 and 84; lessons 85..87 are absent from
+  // projDateByKey and keep their stale cache. The sync moves lesson 84
+  // onto 2026-06-01, the same date lesson 85's untouched wizard cache
+  // already occupies. This test asserts the collision so a future change
+  // that re-narrows the projection window fails loudly here instead of
+  // silently re-shipping the production bug.
+  const goal: CurriculumGoalConfig = {
+    id: 'g_whitley_kindergarten',
+    school_days: ['Mon', 'Wed', 'Fri'],
+    lessons_per_day: 1,
+    current_lesson: 82,
+    total_lessons: 87,
+    start_date: null,
+  }
+  const today = new Date('2026-05-28T00:00:00')
+  const narrowProjection = computeNextLessonsForGoal(goal, today, 7, [])
+  // A 7-day window from Thu 5/28 (endDate Thu 6/4) reaches Wed 6/3, so it
+  // emits lessons 83, 84, and 85 but leaves 86 and 87 outside the map.
+  assert.equal(narrowProjection.length, 3, '7-day window emits 3 lessons (83, 84, 85)')
+  const projDateByKey = new Map(
+    narrowProjection.map((p) => [`${goal.id}|${p.lesson_number}`, p.date]),
+  )
+  const rows: ResyncSentRow[] = [
+    { id: 'L83', curriculum_goal_id: goal.id, queue_position: 83, scheduled_date: '2026-05-27', completed: false, is_backfill: false },
+    { id: 'L84', curriculum_goal_id: goal.id, queue_position: 84, scheduled_date: '2026-05-29', completed: false, is_backfill: false },
+    { id: 'L85', curriculum_goal_id: goal.id, queue_position: 85, scheduled_date: '2026-06-01', completed: false, is_backfill: false },
+    { id: 'L86', curriculum_goal_id: goal.id, queue_position: 86, scheduled_date: '2026-06-03', completed: false, is_backfill: false },
+    { id: 'L87', curriculum_goal_id: goal.id, queue_position: 87, scheduled_date: '2026-06-05', completed: false, is_backfill: false },
+  ]
+  const { supabase, writes } = makeResyncSupabase()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, projDateByKey, (r) => `${(r as ResyncSentRow).curriculum_goal_id}|${(r as ResyncSentRow).queue_position}`)
+  const finalDates = applyWrites(rows, writes)
+  // Lesson 85 was rewritten to 2026-06-03 (projector's date). Lesson 86
+  // was skipped (out of window) and remains on its stale cache value of
+  // 2026-06-03. Two incomplete rows of a lpd=1 goal now share a date.
+  assert.equal(finalDates.get('L85'), '2026-06-03')
+  assert.equal(finalDates.get('L86'), '2026-06-03')
+})

@@ -956,18 +956,17 @@ export default function TodayPage() {
     setCompletedTodayPerGoal(completedTodayPerGoal);
     const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks, completedTodayPerGoal);
 
-    // Project a 7-day window for cache warming. Today's loader only displays
-    // today's slot, but if a user never opens Plan their upcoming rows'
-    // scheduled_date cache stays stale for weeks (wizard-assigned future
-    // dates never get re-aligned to the projector's truth). Projecting a
-    // week here lets syncProjectedScheduledDates write through the next
-    // few days too, so when the user finally opens Plan or moves through
-    // the week, the calendar shows correct dates without a self-heal pass.
-    // Display still uses `projected` (today only); `weekProjected` only
-    // widens the fetch.
-    const weekProjected: ProjectedLesson[] = goalConfigs.flatMap((goal) => {
+    // Project the FULL incomplete tail of each goal (Invariant 11). A
+    // narrower window writes projector dates for in-window lessons that
+    // collide with the stale cache of out-of-window lessons. That was the
+    // May 26 bunching bug. The projector returns at most one entry per
+    // (goal, queue_position), stops at total_lessons, and skips
+    // completed rows, so the cost is bounded by remaining lessons per goal.
+    // Display still uses `projected` (today only); `tailProjected` only
+    // widens the fetch and the sync map.
+    const tailProjected: ProjectedLesson[] = goalConfigs.flatMap((goal) => {
       const completed = completedTodayPerGoal.get(goal.id) ?? 0;
-      return computeNextLessonsForGoal(goal, new Date(), 7, vacationBlocks, completed);
+      return computeNextLessonsForGoal(goal, new Date(), 3650, vacationBlocks, completed);
     });
 
     // Fetch the lesson rows matching the projection so we can hydrate
@@ -998,17 +997,17 @@ export default function TodayPage() {
     // the Plan page (move_lesson_to_date).
     const projectedGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
     const projectedSlots = Array.from(new Set(projected.map((p) => p.lesson_number)));
-    // Union the today-only slots with the 7-day window so the helper sees
-    // every row that might need cache alignment. The IN clause widens past
-    // the cartesian product anyway; the client-side narrowing below picks
-    // out just today's display rows.
+    // Union the today-only slots with the full-tail projection so the
+    // helper sees every row that might need cache alignment. The IN clause
+    // widens past the cartesian product anyway; the client-side narrowing
+    // below picks out just today's display rows.
     const fetchGoalIds = Array.from(new Set([
       ...projectedGoalIds,
-      ...weekProjected.map((p) => p.goal_id),
+      ...tailProjected.map((p) => p.goal_id),
     ]));
     const fetchSlots = Array.from(new Set([
       ...projectedSlots,
-      ...weekProjected.map((p) => p.lesson_number),
+      ...tailProjected.map((p) => p.lesson_number),
     ]));
     const [projectedRowsResult, oneOffRowsResult] = await Promise.all([
       fetchGoalIds.length > 0
@@ -1034,12 +1033,13 @@ export default function TodayPage() {
     // date in-memory and renders it. Fire-and-forget DB write; the
     // local map below is what powers this render.
     //
-    // The map covers the 7-day window so the helper can warm the cache
-    // for rows that won't display today but will display when the
-    // user opens Plan or completes today's lesson and re-renders. The
-    // display path (the narrower projected map below) is unchanged.
+    // The map covers the full incomplete tail so the helper can write a
+    // gap-free alignment (Invariant 11). A narrower window left
+    // out-of-window rows on their stale cache, which the in-window writes
+    // could then collide with. The display path (the narrower projected
+    // map below) is unchanged.
     const projDateByKey = new Map<string, string>(
-      weekProjected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
+      tailProjected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
     );
     const todayProjDateByKey = new Map<string, string>(
       projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
