@@ -1,16 +1,26 @@
 /**
- * School-day arithmetic helpers — shared by catch-up, push-back, and
+ * School-day arithmetic helpers, shared by catch-up, push-back, and
  * vacation-block flows in PlanV2.
  *
- * Day-name convention matches profiles.school_days (string array like
- * ["Mon","Tue","Wed","Thu","Fri"]). Date strings are always local-calendar
- * "YYYY-MM-DD" — we never mix ISO timestamps into these helpers, so there
- * are no timezone footguns across DST boundaries.
+ * Canonical day-name format is ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].
+ * profiles.school_days, however, defaults to lowercase full names
+ * (["monday","tuesday",...]) and 2,210 of 2,225 users hit that default.
+ * Every helper that accepts schoolDays therefore normalizes input through
+ * `normalizeSchoolDays` at function entry. Without that, every comparison
+ * against DAY_NAME silently returned false and the helpers degraded
+ * (count returned 0, nth returned garbage). Pass either format in; you
+ * always get canonical-form behavior out.
+ *
+ * Date strings are always local-calendar "YYYY-MM-DD". We never mix ISO
+ * timestamps into these helpers, so there are no timezone footguns across
+ * DST boundaries.
  *
  * Vacation blocks are treated as non-school days. Every helper accepts a
  * blocks array and returns results consistent with "skip any date that
  * falls inside a block."
  */
+
+import * as Sentry from "@sentry/nextjs";
 
 export type VacationRange = { start_date: string; end_date: string };
 
@@ -20,6 +30,50 @@ export const DEFAULT_SCHOOL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const DAY_NAME: Record<number, string> = {
   0: "Sun", 1: "Mon", 2: "Tue", 3: "Wed", 4: "Thu", 5: "Fri", 6: "Sat",
 };
+
+const CANONICAL: Record<string, string> = {
+  sun: "Sun", sunday: "Sun",
+  mon: "Mon", monday: "Mon",
+  tue: "Tue", tues: "Tue", tuesday: "Tue",
+  wed: "Wed", wednesday: "Wed",
+  thu: "Thu", thur: "Thu", thurs: "Thu", thursday: "Thu",
+  fri: "Fri", friday: "Fri",
+  sat: "Sat", saturday: "Sat",
+};
+
+/**
+ * Normalize any incoming schoolDays array to canonical "Mon".."Sun" form.
+ * Accepts lowercase full names, lowercase abbreviations, mixed case, and
+ * canonical entries. Dedupes the output. Unknown entries are dropped and
+ * reported to Sentry as warnings so the bad value surfaces without
+ * breaking the caller.
+ */
+export function normalizeSchoolDays(schoolDays: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of schoolDays) {
+    const key = String(raw).trim().toLowerCase();
+    const canon = CANONICAL[key];
+    if (canon) {
+      if (!seen.has(canon)) {
+        out.push(canon);
+        seen.add(canon);
+      }
+    } else if (raw) {
+      // Sentry.captureMessage is undefined when @sentry/nextjs is loaded
+      // via node ESM (the test runner path). Guard so this helper is safe
+      // to call from `node --test`; the Next.js bundle keeps full Sentry
+      // reporting in prod.
+      if (typeof Sentry.captureMessage === "function") {
+        Sentry.captureMessage(
+          `Unknown school_days value: ${JSON.stringify(raw)}`,
+          { level: "warning", tags: { fn: "normalizeSchoolDays" } },
+        );
+      }
+    }
+  }
+  return out;
+}
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -33,8 +87,9 @@ function parseDateStr(dateStr: string): Date {
 
 /** True if the date is in the user's configured school_days. */
 export function isSchoolDayDate(dateStr: string, schoolDays: string[]): boolean {
+  const sd = normalizeSchoolDays(schoolDays);
   const d = parseDateStr(dateStr);
-  return schoolDays.includes(DAY_NAME[d.getDay()]);
+  return sd.includes(DAY_NAME[d.getDay()]);
 }
 
 /** True if `dateStr` falls inside any vacation block range (inclusive). */
@@ -51,7 +106,8 @@ export function isTeachingDay(
   schoolDays: string[],
   blocks: VacationRange[],
 ): boolean {
-  return isSchoolDayDate(dateStr, schoolDays) && !isInVacation(dateStr, blocks);
+  const sd = normalizeSchoolDays(schoolDays);
+  return isSchoolDayDate(dateStr, sd) && !isInVacation(dateStr, blocks);
 }
 
 /**
@@ -67,12 +123,13 @@ export function nthSchoolDay(
   blocks: VacationRange[] = [],
 ): string {
   if (n <= 0) return afterDateStr;
+  const sd = normalizeSchoolDays(schoolDays);
   const cursor = parseDateStr(afterDateStr);
   let found = 0;
   for (let i = 0; i < 365; i++) {
     cursor.setDate(cursor.getDate() + 1);
     const s = toDateStr(cursor);
-    if (isSchoolDayDate(s, schoolDays) && !isInVacation(s, blocks)) {
+    if (isSchoolDayDate(s, sd) && !isInVacation(s, blocks)) {
       found++;
       if (found === n) return s;
     }
@@ -101,12 +158,13 @@ export function countSchoolDaysInRange(
   blocks: VacationRange[] = [],
 ): number {
   if (startDateStr > endDateStr) return 0;
+  const sd = normalizeSchoolDays(schoolDays);
   const cursor = parseDateStr(startDateStr);
   const end = parseDateStr(endDateStr);
   let n = 0;
   while (cursor <= end) {
     const s = toDateStr(cursor);
-    if (isSchoolDayDate(s, schoolDays) && !isInVacation(s, blocks)) n++;
+    if (isSchoolDayDate(s, sd) && !isInVacation(s, blocks)) n++;
     cursor.setDate(cursor.getDate() + 1);
   }
   return n;
