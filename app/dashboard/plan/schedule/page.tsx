@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreVertical, Trash2 } from "lucide-react";
+import * as Sentry from "@sentry/nextjs";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
@@ -1005,9 +1006,18 @@ export default function ScheduleBuilderPage() {
               .update({ is_active: false })
               .eq("id", row.dbId);
             if (deactErr) throw deactErr;
+            // INSERTs must seed current_lesson in lockstep with start_at_lesson
+            // so the DB row is consistent BEFORE Phase 2 runs. Without this
+            // seed, a Phase 2 throw left rows with start_at_lesson=3 and
+            // current_lesson=0 (Kendra Poole, 5/27/26): internally
+            // inconsistent and stuck behind the "save again" notice.
+            const insertPayload = {
+              ...payload,
+              current_lesson: Math.max(0, row.start_at_lesson - 1),
+            };
             const { data: inserted, error: insErr } = await supabase
               .from("curriculum_goals")
-              .insert(payload)
+              .insert(insertPayload)
               .select("id")
               .single();
             if (insErr || !inserted) throw insErr ?? new Error("insert failed");
@@ -1015,10 +1025,15 @@ export default function ScheduleBuilderPage() {
             localCurriculumIds.add(newId);
             savedCurriculumGoals.push({ id: newId, row });
           } else {
-            // Brand-new row.
+            // Brand-new row. Same seed as above so the post-INSERT row is
+            // consistent before Phase 2 runs.
+            const insertPayload = {
+              ...payload,
+              current_lesson: Math.max(0, row.start_at_lesson - 1),
+            };
             const { data: inserted, error } = await supabase
               .from("curriculum_goals")
-              .insert(payload)
+              .insert(insertPayload)
               .select("id")
               .single();
             if (error || !inserted) throw error ?? new Error("insert failed");
@@ -1137,7 +1152,17 @@ export default function ScheduleBuilderPage() {
       const vacations = (vacationData ?? []) as { start_date: string; end_date: string }[];
       const todayMid = todayDate();
 
-      for (const { id: goalId, row } of savedCurriculumGoals) {
+      // Per-goal Phase 2 with one-shot retry. Phase 1 (curriculum_goals +
+      // activities) has already committed; a throw here means the lesson
+      // layout didn't land, not that the user's saved row is gone. A 500ms
+      // retry catches transient blips (network jitter, momentary RLS hiccup)
+      // before the soft "save again" notice fires. If both attempts fail,
+      // Sentry captures the final error AND we throw so the outer catch's
+      // soft notice still fires. Same UX as before, just observable now.
+      // The 3 early-returns inside `applyPhase2ForGoal` replace `continue`s
+      // from the original inline loop and mean "no Phase 2 work for this
+      // goal" (no lessons to project, no school days, etc.).
+      const applyPhase2ForGoal = async (goalId: string, row: Row): Promise<void> => {
         // Recompute first so we know where the queue stands. The return
         // value is the post-recompute current_lesson; for brand-new goals
         // it equals max(start_at_lesson - 1, 0). For UPDATE flows it can be
@@ -1145,10 +1170,10 @@ export default function ScheduleBuilderPage() {
         const newCurrent = await recomputeCurrentLesson(supabase, goalId);
         const currentLesson = newCurrent ?? Math.max(0, row.start_at_lesson - 1);
 
-        if (!row.total_lessons || row.total_lessons <= 0) continue;
+        if (!row.total_lessons || row.total_lessons <= 0) return;
         const { lessons_per_day, lessons_per_day_overrides, school_days } =
           compactCurriculumPerDay(row);
-        if (school_days.length === 0) continue;
+        if (school_days.length === 0) return;
 
         const goalConfig = {
           id: goalId,
@@ -1165,7 +1190,7 @@ export default function ScheduleBuilderPage() {
         // earlier once the queue runs out. start_date in the future is
         // honored inside the projector.
         const upcoming = computeNextLessonsForGoal(goalConfig, todayMid, 3650, vacations);
-        if (upcoming.length === 0) continue;
+        if (upcoming.length === 0) return;
 
         // Floor-anchored delete. The floor is the highest lesson_number
         // among completed rows for this goal (0 if none). Pending rows
@@ -1407,6 +1432,28 @@ export default function ScheduleBuilderPage() {
           throw new Error(
             `Overcapacity detected on ${violated.length} date(s) after save. Lesson rows may need another save to resolve.`,
           );
+        }
+      };
+
+      for (const { id: goalId, row } of savedCurriculumGoals) {
+        let lastErr: unknown = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            await applyPhase2ForGoal(goalId, row);
+            lastErr = null;
+            break;
+          } catch (err) {
+            lastErr = err;
+            if (attempt === 0) {
+              await new Promise((r) => setTimeout(r, 500));
+            }
+          }
+        }
+        if (lastErr) {
+          Sentry.captureException(lastErr, {
+            tags: { phase: "curriculum_save_phase2", goal_id: goalId },
+          });
+          throw lastErr;
         }
       }
 

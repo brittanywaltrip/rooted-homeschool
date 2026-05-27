@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import * as Sentry from "@sentry/nextjs";
 import { addDays, isoDowFromYmd } from "./timezone.ts";
 
 // Day index conventions: Mon=0..Sun=6 for school_days / school_days bool arrays
@@ -118,10 +119,23 @@ export async function recomputeCurrentLesson(
   let value = Math.max(floor, maxCompleted);
   if (total > 0) value = Math.min(value, total);
 
-  await supabase
+  const { error: updateErr } = await supabase
     .from("curriculum_goals")
     .update({ current_lesson: value })
     .eq("id", goalId);
+  // Write failure here was the original Kendra/Sight Words bug: Phase 1
+  // committed start_at_lesson=3, recompute computed value=2, the UPDATE
+  // threw silently, and the function still returned value=2. The caller
+  // treated the recompute as a success while DB stayed at
+  // current_lesson=0. Returning null routes the caller through its
+  // `?? Math.max(0, row.start_at_lesson - 1)` fallback AND surfaces the
+  // error to Sentry so the silent corruption pattern is visible.
+  if (updateErr) {
+    Sentry.captureException(updateErr, {
+      tags: { fn: "recomputeCurrentLesson", goalId },
+    });
+    return null;
+  }
 
   return value;
 }
