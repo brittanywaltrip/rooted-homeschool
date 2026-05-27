@@ -61,6 +61,7 @@ import DayCellContextMenu from "./DayCellContextMenu";
 import AddLessonModal, { type AddLessonSubmit } from "./AddLessonModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
+import { mapLessonDateAcrossVacation } from "./handleVacationSave.shift";
 import {
   DEFAULT_SCHOOL_DAYS,
   countSchoolDaysInRange,
@@ -3045,7 +3046,14 @@ export default function PlanV2() {
         ];
         for (const l of rows) {
           const orig = l.scheduled_date ?? l.date ?? values.start_date;
-          const next = nthSchoolDay(orig, schoolDays, shiftDays, blocksIncludingNew);
+          const next = mapLessonDateAcrossVacation(
+            orig,
+            values.start_date,
+            values.end_date,
+            schoolDays,
+            shiftDays,
+            blocksIncludingNew,
+          );
           shiftPairs.push({ id: l.id, date: next, fromDate: orig });
         }
         if (shiftPairs.length > 0) {
