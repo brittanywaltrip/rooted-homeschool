@@ -871,10 +871,12 @@ export default function ScheduleBuilderPage() {
       const seen = new Map<string, Row>();
       for (const r of newCurriculumRows) {
         const canonical = capitalizeName(r.name.trim());
-        const key = `${r.child_id}|${canonical.toLowerCase()}`;
+        const canonicalName = canonical.toLowerCase();
+        const canonicalSubject = (r.subject ?? "").trim().toLowerCase();
+        const key = `${r.child_id}|${canonicalName}|${canonicalSubject}`;
         if (seen.has(key)) {
           dupReleaseAndExit(
-            `Two rows on this page name "${canonical}" for ${childNameFor(r.child_id)}. Rename or remove one before saving.`,
+            `Two rows on this page have the same name AND subject ("${r.name.trim()}" / "${r.subject?.trim() || "no subject"}") for ${childNameFor(r.child_id)}. Either give them different names, different subjects, or remove one.`,
           );
           return;
         }
@@ -897,7 +899,7 @@ export default function ScheduleBuilderPage() {
       // DUP TEST V2 regression on staging adc0d7d).
       const { data: existingGoals, error: dupCheckErr } = await supabase
         .from("curriculum_goals")
-        .select("id, child_id, curriculum_name")
+        .select("id, child_id, curriculum_name, subject_label")
         .eq("user_id", effectiveUserId)
         .eq("archived", false)
         .is("completed_at", null);
@@ -908,15 +910,17 @@ export default function ScheduleBuilderPage() {
       }
       for (const r of newCurriculumRows) {
         const canonical = capitalizeName(r.name.trim());
-        const target = canonical.toLowerCase();
+        const targetName = canonical.toLowerCase();
+        const targetSubject = (r.subject ?? "").trim().toLowerCase();
         const conflict = (existingGoals ?? []).find(
           (g) =>
             g.child_id === r.child_id &&
-            (g.curriculum_name ?? "").trim().toLowerCase() === target,
+            (g.curriculum_name ?? "").trim().toLowerCase() === targetName &&
+            (g.subject_label ?? "").trim().toLowerCase() === targetSubject,
         );
         if (conflict) {
           dupReleaseAndExit(
-            `You already have a goal called "${canonical}" for ${childNameFor(r.child_id)}. Edit the existing one or rename this.`,
+            `You already have a goal called "${r.name.trim()}" with subject "${r.subject?.trim() || "no subject"}" for ${childNameFor(r.child_id)}. Edit the existing one, change this row's subject, or rename this row.`,
           );
           return;
         }
@@ -1473,7 +1477,7 @@ export default function ScheduleBuilderPage() {
         // the message stays generic.
         if (raw?.code === "23505") {
           setSaveError(
-            "One of these goals already exists for this child. Reload the page and edit the existing goal instead of creating a new one.",
+            "One of these goals already exists for this child with the same name and subject. Reload the page and edit the existing goal, or change the subject on this row.",
           );
         } else {
           setSaveError(msg);
