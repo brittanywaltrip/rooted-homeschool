@@ -3492,7 +3492,9 @@ export default function PlanV2() {
         className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
         style={{ background: "#F8F7F4" }}
       >
-        {/* View toggle — pill style, Week / Month */}
+        {/* View toggle — pill style, Week / Month. Hidden for zero-goal users
+            since the calendar below is replaced by the empty state. */}
+        {(curriculumGoals.length > 0 || loading) && (
         <div className="inline-flex items-center gap-1 bg-white border border-[#e8e5e0] rounded-full p-1">
           <button
             type="button"
@@ -3517,6 +3519,7 @@ export default function PlanV2() {
             Month
           </button>
         </div>
+        )}
 
         {/* Close This School Year entry — links to the review/confirm page.
             Hidden for brand-new users (see showYearAdmin). */}
@@ -3694,7 +3697,27 @@ export default function PlanV2() {
           />
         ) : null}
 
-        {(
+        {curriculumGoals.length === 0 && !loading ? (
+          /* New-user empty state — rendered in place of the calendar so a
+             zero-goal user sees the call to action without scrolling past a
+             blank week. The calendar only renders once the user has goals.
+             (Moved up from inside the grid; copy + handler unchanged.) */
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl">
+            <div className="flex flex-col items-center text-center px-6 py-14">
+              <h3 className="text-[17px] font-semibold text-[#2d2926]">Your plan starts here</h3>
+              <p className="text-[13px] text-[#7a6f65] mt-1.5 max-w-[280px]">
+                Add your first subject and Rooted will build your week automatically.
+              </p>
+              <button
+                type="button"
+                onClick={handleWizardOpenCreate}
+                className="mt-5 px-5 py-2.5 rounded-full bg-[#2D5A3D] text-white text-[13px] font-medium hover:bg-[#3d5c42] transition-colors"
+              >
+                Add a subject
+              </button>
+            </div>
+          </div>
+        ) : (
           <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
             {/* Toolbar — two stacked rows. Row 1: date nav + filter chips
                 right-aligned. Row 2: action buttons grouped into add /
@@ -3831,24 +3854,7 @@ export default function PlanV2() {
                 Drag is also disabled in select mode + move-target mode so
                 gesture intent stays unambiguous. */}
             <div className="p-3">
-              {curriculumGoals.length === 0 && !loading ? (
-                /* New-user empty state — shown only when the account has zero
-                   curriculum goals. A week with no lessons but existing goals
-                   still renders the calendar. */
-                <div className="flex flex-col items-center text-center px-6 py-14">
-                  <h3 className="text-[17px] font-semibold text-[#2d2926]">Your plan starts here</h3>
-                  <p className="text-[13px] text-[#7a6f65] mt-1.5 max-w-[280px]">
-                    Add your first subject and Rooted will build your week automatically.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={handleWizardOpenCreate}
-                    className="mt-5 px-5 py-2.5 rounded-full bg-[#2D5A3D] text-white text-[13px] font-medium hover:bg-[#3d5c42] transition-colors"
-                  >
-                    Add a subject
-                  </button>
-                </div>
-              ) : isMobile || selectMode ? (
+              {isMobile || selectMode ? (
                 viewMode === "week" ? (
                   <WeekListView
                     weekStart={weekStart}
