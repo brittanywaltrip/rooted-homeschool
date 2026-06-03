@@ -425,6 +425,7 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
                         key={lesson.id}
                         lesson={lesson}
                         childObj={child}
+                        completeOnRowClick={false}
                         onToggle={onToggleLesson}
                         onEdit={onEditLesson}
                         onDelete={onDeleteLesson}

@@ -270,6 +270,9 @@ export default function PlanV2() {
   // Mirrors the Year Planner's pattern: trial counts as paid.
   const [isPro, setIsPro] = useState<boolean>(false);
   const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
+  // When the user finished onboarding. Gates the school-year admin cards so a
+  // brand-new user doesn't land on "Close This School Year" as their first view.
+  const [onboardedAt, setOnboardedAt] = useState<string | null>(null);
   // Family name used as the print-sheet header label. Schema field is
   // display_name (set during onboarding as "The {LastName} Family"); we
   // fall back to "{first_name} Family" if display_name is unset.
@@ -281,7 +284,7 @@ export default function PlanV2() {
     (async () => {
       const { data } = await supabase
         .from("profiles")
-        .select("school_days, is_pro, trial_started_at, display_name, first_name")
+        .select("school_days, is_pro, trial_started_at, display_name, first_name, onboarded_at")
         .eq("id", effectiveUserId)
         .maybeSingle();
       if (cancelled) return;
@@ -292,12 +295,14 @@ export default function PlanV2() {
             trial_started_at?: string | null;
             display_name?: string | null;
             first_name?: string | null;
+            onboarded_at?: string | null;
           }
         | null;
       const sd = row?.school_days;
       setSchoolDays(sd && sd.length > 0 ? sd : DEFAULT_SCHOOL_DAYS);
       setIsPro(!!row?.is_pro);
       setTrialStartedAt(row?.trial_started_at ?? null);
+      setOnboardedAt(row?.onboarded_at ?? null);
       const dn = row?.display_name?.trim();
       const fn = row?.first_name?.trim();
       setFamilyName(dn && dn.length > 0 ? dn : fn && fn.length > 0 ? `${fn} Family` : "Family Plan");
@@ -557,6 +562,19 @@ export default function PlanV2() {
 
   const { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
+
+  // Gate the school-year admin cards (Close Year / Edit Year Details / Download
+  // Progress Report). They should not be the first thing a brand-new user sees,
+  // so show them only once the account is 30+ days past onboarding OR the user
+  // has completed at least one lesson. A null onboarded_at (legacy accounts) is
+  // treated as established so we never hide the tools from existing users.
+  const showYearAdmin = useMemo(() => {
+    const hasCompletedLesson = lessons.some((l) => l.completed);
+    if (hasCompletedLesson) return true;
+    if (!onboardedAt) return true;
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+    return Date.now() - new Date(onboardedAt).getTime() > THIRTY_DAYS_MS;
+  }, [lessons, onboardedAt]);
 
   // School years — drives milestone markers + the "Create next year" CTA.
   const schoolYears = useSchoolYears(effectiveUserId ?? null);
@@ -3500,8 +3518,9 @@ export default function PlanV2() {
           </button>
         </div>
 
-        {/* Close This School Year entry — links to the review/confirm page. */}
-        {!schoolYears.loading && schoolYears.active && (
+        {/* Close This School Year entry — links to the review/confirm page.
+            Hidden for brand-new users (see showYearAdmin). */}
+        {showYearAdmin && !schoolYears.loading && schoolYears.active && (
           <Link
             href="/dashboard/close-year"
             className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
@@ -3522,7 +3541,7 @@ export default function PlanV2() {
         {/* Edit Year Details — moved from Settings so all school-year admin
             lives on the Plan page. Opens a modal seeded with the active year's
             current name + start/end dates. */}
-        {!schoolYears.loading && (schoolYears.active || schoolYears.upcoming) && (
+        {showYearAdmin && !schoolYears.loading && (schoolYears.active || schoolYears.upcoming) && (
           <button
             type="button"
             onClick={() => {
@@ -3550,7 +3569,7 @@ export default function PlanV2() {
             users can find it. Mounts no new state; reuses reportDialogOpen
             and the existing ProgressReportDialog at the bottom of this
             file. */}
-        {!schoolYears.loading && (
+        {showYearAdmin && !schoolYears.loading && (
           <button
             type="button"
             onClick={() => setReportDialogOpen(true)}
@@ -3812,7 +3831,24 @@ export default function PlanV2() {
                 Drag is also disabled in select mode + move-target mode so
                 gesture intent stays unambiguous. */}
             <div className="p-3">
-              {isMobile || selectMode ? (
+              {curriculumGoals.length === 0 && !loading ? (
+                /* New-user empty state — shown only when the account has zero
+                   curriculum goals. A week with no lessons but existing goals
+                   still renders the calendar. */
+                <div className="flex flex-col items-center text-center px-6 py-14">
+                  <h3 className="text-[17px] font-semibold text-[#2d2926]">Your plan starts here</h3>
+                  <p className="text-[13px] text-[#7a6f65] mt-1.5 max-w-[280px]">
+                    Add your first subject and Rooted will build your week automatically.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleWizardOpenCreate}
+                    className="mt-5 px-5 py-2.5 rounded-full bg-[#2D5A3D] text-white text-[13px] font-medium hover:bg-[#3d5c42] transition-colors"
+                  >
+                    Add a subject
+                  </button>
+                </div>
+              ) : isMobile || selectMode ? (
                 viewMode === "week" ? (
                   <WeekListView
                     weekStart={weekStart}

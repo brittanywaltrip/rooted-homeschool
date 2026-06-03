@@ -75,11 +75,19 @@ export interface TodayLessonCardProps {
   onNoteTextChange: (text: string) => void;
   onSaveNote: (lessonId: string) => void;
   onCancelEditingNote: () => void;
+  /**
+   * When true (default), tapping anywhere on the row toggles completion — the
+   * Today page behavior. When false (Plan day-detail panel), ONLY the circular
+   * checkbox toggles; the title becomes a separate "open detail / edit" zone so
+   * a tap on the name no longer accidentally marks the lesson complete.
+   */
+  completeOnRowClick?: boolean;
 }
 
 export default function TodayLessonCard({
   lesson, childObj, onToggle, onEdit, onDelete, onReschedule, onSkip, onStartEditingNote, onMinutesUpdate, isPartner,
   editingNoteId, editingNoteText, noteSaveState, noteTextareaRef, onNoteTextChange, onSaveNote, onCancelEditingNote,
+  completeOnRowClick = true,
 }: TodayLessonCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showLeaf, setShowLeaf] = useState(false);
@@ -118,6 +126,9 @@ export default function TodayLessonCard({
 
   function handleClick(e: React.MouseEvent) {
     if ((e.target as Element).closest("[data-no-toggle]")) return;
+    // In day-detail mode the row body never completes the lesson — only the
+    // checkbox does (it has its own onClick below).
+    if (!completeOnRowClick) return;
     onToggle(lesson.id, lesson.completed);
   }
 
@@ -130,23 +141,26 @@ export default function TodayLessonCard({
   return (
     <div>
     <div
-      className={`relative flex items-center gap-3 px-4 border transition-all cursor-pointer select-none ${
+      className={`relative flex items-center gap-3 px-4 border transition-all ${
+        completeOnRowClick ? "cursor-pointer select-none" : ""
+      } ${
         isEditingNote ? "rounded-t-2xl border-b-0" : "rounded-2xl"
       } ${
         lesson.completed
           ? "bg-[#f0f7f1] border-[#c2dbc5]"
-          : "bg-[#fefcf9] border-[#e8e2d9] active:bg-[#f0f7f1]"
+          : `bg-[#fefcf9] border-[#e8e2d9]${completeOnRowClick ? " active:bg-[#f0f7f1]" : ""}`
       }`}
       style={{ minHeight: "56px", borderLeftWidth: "4px", borderLeftColor: borderColor }}
       onClick={handleClick}
     >
       {/* Circular checkbox — real <button> for screen reader users and
-          Playwright role-based queries. No onClick: the native click event
-          bubbles to the row wrapper's onClick (handleClick) which performs
-          the single toggle, so keyboard activation (Enter/Space) routes
-          through the same path as a tap anywhere on the row. */}
+          Playwright role-based queries. It owns the toggle via its own onClick
+          (stopPropagation so it never double-fires with the row). This is the
+          ONLY completion target when completeOnRowClick is false; on Today the
+          row body also toggles via handleClick. */}
       <button
         type="button"
+        onClick={(e) => { e.stopPropagation(); onToggle(lesson.id, lesson.completed); }}
         aria-label={toggleAriaLabel}
         aria-pressed={lesson.completed}
         className={`w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition-all p-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7f63] focus-visible:ring-offset-1 ${
@@ -171,9 +185,16 @@ export default function TodayLessonCard({
           </span>
         )}
         <div className="flex items-baseline gap-1.5">
-          <p className={`text-sm font-medium leading-snug ${
-            lesson.completed ? "line-through text-[#9a948e]" : "text-[#2d2926]"
-          }`}>
+          <p
+            data-no-toggle={!completeOnRowClick ? true : undefined}
+            role={!completeOnRowClick ? "button" : undefined}
+            tabIndex={!completeOnRowClick ? 0 : undefined}
+            onClick={!completeOnRowClick ? (e) => { e.stopPropagation(); onEdit(lesson); } : undefined}
+            onKeyDown={!completeOnRowClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onEdit(lesson); } } : undefined}
+            className={`text-sm font-medium leading-snug ${
+              lesson.completed ? "line-through text-[#9a948e]" : "text-[#2d2926]"
+            }${!completeOnRowClick ? " cursor-pointer hover:underline" : ""}`}
+          >
             {lessonLabel}
             {lesson.completed ? <span className="sr-only"> Done.</span> : null}
           </p>

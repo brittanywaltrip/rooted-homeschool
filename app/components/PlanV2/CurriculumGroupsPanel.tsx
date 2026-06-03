@@ -298,10 +298,21 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                     >
                       {childMeta?.child?.name.charAt(0).toUpperCase() ?? "·"}
                     </span>
-                    <div className="min-w-0 flex-1">
+                    {/* Name/label area is a shortcut to Edit curriculum (same
+                        as the 3-dot Edit). The 3-dot menu stays intact. */}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => onEdit(goal)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onEdit(goal); }
+                      }}
+                      aria-label={`Edit ${goal.curriculum_name}`}
+                      className="min-w-0 flex-1 cursor-pointer group text-left"
+                    >
                       <p className="text-[13px] font-semibold text-[#2d2926] leading-tight break-words">
                         {goal.subject_label ? <span className="text-[#7a6f65]">{goal.subject_label} · </span> : null}
-                        {goal.curriculum_name}
+                        <span className="group-hover:underline">{goal.curriculum_name}</span>
                       </p>
                       <p className="text-[11px] text-[#9a8e84] mt-0.5 tabular-nums">
                         Lesson {Math.min(completedCount + 1, goal.total_lessons)} of {goal.total_lessons}
