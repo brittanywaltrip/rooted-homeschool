@@ -3748,9 +3748,27 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       {!loading && (() => {
         const ls = (k: string) => typeof window !== "undefined" && localStorage.getItem(k) === "1";
+        // Plan-card nudge uses a 14-day snooze (key: plan_card_snoozed_at), not a
+        // permanent flag. Dismissing hides it for 14 days so a user who skips
+        // early still gets re-prompted later.
+        const PLAN_CARD_SNOOZE_MS = 14 * 24 * 60 * 60 * 1000;
+        const planCardSnoozed = (() => {
+          if (typeof window === "undefined") return false;
+          const raw = localStorage.getItem("plan_card_snoozed_at");
+          if (!raw) return false;
+          const ts = parseInt(raw, 10);
+          return Number.isFinite(ts) && Date.now() - ts < PLAN_CARD_SNOOZE_MS;
+        })();
+        // Record a nudge as handled: snoozeKey writes a timestamp (re-prompts
+        // after the snooze window); lsKey writes a permanent "seen" flag.
+        const markNudgeHandled = (cfg: { lsKey?: string; snoozeKey?: string }) => {
+          if (typeof window === "undefined") return;
+          if (cfg.snoozeKey) localStorage.setItem(cfg.snoozeKey, String(Date.now()));
+          else if (cfg.lsKey) localStorage.setItem(cfg.lsKey, "1");
+        };
         const gardenVisited = ls("rooted_visited_garden");
         const yearbookVisited = ls("rooted_visited_yearbook");
-        const curriculumDismissed = ls("rooted_dismissed_curriculum");
+        const curriculumDismissed = planCardSnoozed;
         const resourcesVisited = ls("rooted_visited_resources");
         const sharingVisited = ls("rooted_visited_sharing");
         const printablesVisited = ls("rooted_visited_printables");
@@ -3760,7 +3778,7 @@ export default function TodayPage() {
 
         const childName = children.length > 0 ? children[0].name : null;
 
-        type Nudge = { key: string; emoji: string; title: string; body: string; href: string; lsKey: string; dismiss?: { label: string; lsKey: string } };
+        type Nudge = { key: string; emoji: string; title: string; body: string; href: string; lsKey?: string; snoozeKey?: string; dismiss?: { label: string; lsKey?: string; snoozeKey?: string } };
         let nudge: Nudge | null = null;
 
         // Nudge 1 (memories === 0) is handled by the activation card above
@@ -3786,8 +3804,8 @@ export default function TodayPage() {
             key: "curriculum", emoji: "📚",
             title: "Track your lessons in Plan",
             body: "Auto-schedule your curriculum and see your pace. Or skip \u2014 memories work great on their own.",
-            href: "/dashboard/plan", lsKey: "rooted_dismissed_curriculum",
-            dismiss: { label: "Not for us \u2192", lsKey: "rooted_dismissed_curriculum" },
+            href: "/dashboard/plan", snoozeKey: "plan_card_snoozed_at",
+            dismiss: { label: "Not for us \u2192", snoozeKey: "plan_card_snoozed_at" },
           };
         }
         if (!nudge && yearbookVisited && (hasAnyLessons || curriculumDismissed) && !resourcesVisited) {
@@ -3822,7 +3840,7 @@ export default function TodayPage() {
           <div key={n.key} className="bg-white border border-[#e8e2d9] rounded-2xl p-6 text-center relative">
             <button
               type="button"
-              onClick={() => { localStorage.setItem(n.lsKey, "1"); forceUpdate(prev => prev + 1); }}
+              onClick={() => { markNudgeHandled(n); forceUpdate(prev => prev + 1); }}
               className="absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center text-[#d4d0ca] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-xs"
               aria-label="Dismiss"
             >
@@ -3835,7 +3853,7 @@ export default function TodayPage() {
             <p className="text-[13px] text-[#7a6f65] leading-relaxed max-w-[280px] mx-auto mb-5">{n.body}</p>
             <Link
               href={n.href}
-              onClick={() => localStorage.setItem(n.lsKey, "1")}
+              onClick={() => markNudgeHandled(n)}
               className="block w-full bg-[#2D5A3D] text-white rounded-xl py-3.5 font-semibold text-[15px] hover:opacity-90 transition-colors"
             >
               Let&apos;s go &rarr;
@@ -3843,7 +3861,7 @@ export default function TodayPage() {
             {n.dismiss && (
               <button
                 type="button"
-                onClick={() => { localStorage.setItem(n.dismiss!.lsKey, "1"); forceUpdate(prev => prev + 1); }}
+                onClick={() => { markNudgeHandled(n.dismiss!); forceUpdate(prev => prev + 1); }}
                 className="text-[12px] text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-3"
               >
                 {n.dismiss.label}

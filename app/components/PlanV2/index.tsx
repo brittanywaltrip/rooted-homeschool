@@ -563,21 +563,26 @@ export default function PlanV2() {
   const { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
 
+  // School years — drives milestone markers + the "Create next year" CTA.
+  const schoolYears = useSchoolYears(effectiveUserId ?? null);
+
   // Gate the school-year admin cards (Close Year / Edit Year Details / Download
-  // Progress Report). They should not be the first thing a brand-new user sees,
-  // so show them only once the account is 30+ days past onboarding OR the user
-  // has completed at least one lesson. A null onboarded_at (legacy accounts) is
-  // treated as established so we never hide the tools from existing users.
+  // Progress Report). Show them only when the user has an actual school year on
+  // file AND (the account is 30+ days past onboarding OR has a completed lesson).
+  // A brand-new user with no school year never sees them. A null onboarded_at
+  // (legacy accounts) is treated as established so we never hide the tools from
+  // existing users.
   const showYearAdmin = useMemo(() => {
+    const hasSchoolYear = !!(
+      schoolYears.active || schoolYears.upcoming || schoolYears.archived.length > 0
+    );
+    if (!hasSchoolYear) return false;
     const hasCompletedLesson = lessons.some((l) => l.completed);
     if (hasCompletedLesson) return true;
     if (!onboardedAt) return true;
     const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
     return Date.now() - new Date(onboardedAt).getTime() > THIRTY_DAYS_MS;
-  }, [lessons, onboardedAt]);
-
-  // School years — drives milestone markers + the "Create next year" CTA.
-  const schoolYears = useSchoolYears(effectiveUserId ?? null);
+  }, [lessons, onboardedAt, schoolYears]);
 
   // US holidays — covered for both the visible month/year and the
   // surrounding ±1 year so the week-view strip near year boundaries shows
