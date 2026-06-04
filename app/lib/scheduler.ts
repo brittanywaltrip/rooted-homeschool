@@ -208,6 +208,97 @@ export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
 }
 
 /**
+ * Env kill switch for the Today scheduled_date cache reconciler. Set
+ * NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED=false to stop all queue_resync cache
+ * writes without a code change. The NEXT_PUBLIC_ prefix is required because
+ * the caller (Today dashboard) is a client component, so the flag is inlined
+ * at build time — flipping it takes effect on the next deploy. Default 'true'.
+ */
+export function isSchedulerSyncEnabled(): boolean {
+  return (process.env.NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED ?? "true") !== "false";
+}
+
+/**
+ * Reconcile ONE goal's cached scheduled_date against the projector.
+ *
+ * Replaces the former cross-goal cartesian fetch in the Today loader, which
+ * exceeded PostgREST's row cap for large accounts (>~1000 incomplete rows
+ * across all goals) and silently dropped rows from the write set — leaving
+ * stale dates that a later pass collided with (the 2026-06-02 bunching bug).
+ * One goal's incomplete tail is always far under the cap, so the fetch is
+ * complete and `syncProjectedScheduledDates`'s diff-write stays gap-free.
+ *
+ * Fire-and-forget safe: never throws; logs to Sentry and returns on any
+ * error. Completed and backfill rows are never re-dated (the inner helper
+ * skips them).
+ */
+export async function reconcileGoalScheduleCache(
+  supabase: SupabaseClient,
+  goal: CurriculumGoalConfig,
+  vacationBlocks: VacationBlock[],
+  completedTodayCount: number = 0,
+  today: Date = new Date(),
+): Promise<void> {
+  if (!isSchedulerSyncEnabled()) return;
+  try {
+    const projected = computeNextLessonsForGoal(
+      goal,
+      today,
+      3650,
+      vacationBlocks,
+      completedTodayCount,
+    );
+    if (projected.length === 0) return;
+
+    // Projector regression guard: the projection assigns at most
+    // lessons_per_day (or the per-DOW override) lessons to any date. If a date
+    // ever exceeds that ceiling the projector has regressed — skip this goal
+    // rather than write a bunched cache, and surface it loudly.
+    let maxPerDay = goal.lessons_per_day ?? 1;
+    for (const v of Object.values(goal.lessons_per_day_overrides ?? {})) {
+      const n = typeof v === "number" ? v : Number(v);
+      if (Number.isFinite(n)) maxPerDay = Math.max(maxPerDay, n);
+    }
+    const perDate = new Map<string, number>();
+    for (const p of projected) {
+      const count = (perDate.get(p.date) ?? 0) + 1;
+      perDate.set(p.date, count);
+      if (count > maxPerDay) {
+        Sentry.captureMessage(
+          `Projection exceeds per-day cap for goal ${goal.id}: ${p.date} has ${count} (max ${maxPerDay})`,
+          "error",
+        );
+        return;
+      }
+    }
+
+    const projDateByKey = new Map(
+      projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
+    );
+
+    const { data, error } = await supabase
+      .from("lessons")
+      .select("id, scheduled_date, completed, is_backfill, queue_position")
+      .eq("curriculum_goal_id", goal.id)
+      .eq("completed", false);
+    if (error || !data) {
+      if (error) Sentry.captureException(error, { extra: { goalId: goal.id } });
+      return;
+    }
+
+    const rows = data as Array<QueueResyncRow & { queue_position: number | null }>;
+    await syncProjectedScheduledDates(
+      supabase,
+      rows,
+      projDateByKey,
+      (r) => (r.queue_position != null ? `${goal.id}|${r.queue_position}` : null),
+    );
+  } catch (err) {
+    Sentry.captureException(err, { extra: { goalId: goal.id } });
+  }
+}
+
+/**
  * Heal a goal's lesson rows to match invariants:
  *   - completed=true implies completed_at IS NOT NULL
  *   - delete incomplete duplicate lesson_number rows (keep one)

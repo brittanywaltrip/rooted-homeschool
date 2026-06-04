@@ -33,8 +33,12 @@ export default function UpgradeBanner() {
       if (access === "trial") {
         const left = getTrialDaysLeft((profile as any).trial_started_at);
         setDaysLeft(left);
-        // Only show trial banner in the last 8 days
-        if (left <= 8) setBannerState("trial");
+        // Only show the trial banner in the last 8 days AND while days actually
+        // remain. getTrialDaysLeft already clamps to 0 and getUserAccess returns
+        // 'free' once expired, but guarding on left > 0 here means an expired or
+        // zero-day trial can never render "ends in 0 days"/"ends today" — those
+        // users fall through to the upgrade banner instead.
+        if (left > 0 && left <= 8) setBannerState("trial");
         return;
       }
 

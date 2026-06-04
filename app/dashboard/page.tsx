@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, syncProjectedScheduledDates, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib/timezone";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
@@ -956,18 +956,13 @@ export default function TodayPage() {
     setCompletedTodayPerGoal(completedTodayPerGoal);
     const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks, completedTodayPerGoal);
 
-    // Project the FULL incomplete tail of each goal (Invariant 11). A
-    // narrower window writes projector dates for in-window lessons that
-    // collide with the stale cache of out-of-window lessons. That was the
-    // May 26 bunching bug. The projector returns at most one entry per
-    // (goal, queue_position), stops at total_lessons, and skips
-    // completed rows, so the cost is bounded by remaining lessons per goal.
-    // Display still uses `projected` (today only); `tailProjected` only
-    // widens the fetch and the sync map.
-    const tailProjected: ProjectedLesson[] = goalConfigs.flatMap((goal) => {
-      const completed = completedTodayPerGoal.get(goal.id) ?? 0;
-      return computeNextLessonsForGoal(goal, new Date(), 3650, vacationBlocks, completed);
-    });
+    // Cache reconciliation (aligning lessons.scheduled_date with the
+    // projector's full incomplete tail) runs per goal below via
+    // reconcileGoalScheduleCache, after the display rows load. Per goal, not
+    // one cross-goal fetch, because the combined fetch truncated at
+    // PostgREST's row cap for large accounts and dropped rows from the write
+    // set (the 2026-06-02 bunching bug). Display still uses `projected`
+    // (today only).
 
     // Fetch the lesson rows matching the projection so we can hydrate
     // display fields (title, notes, completion state, subject join). We
@@ -995,28 +990,19 @@ export default function TodayPage() {
     // column we match against is `queue_position`, which equals lesson_number
     // at curriculum creation and may diverge after a user manual move on
     // the Plan page (move_lesson_to_date).
+    // Display fetch: today's projected slots only. This is a handful of rows
+    // and never approaches PostgREST's row cap. The full-tail cache
+    // reconciliation is separate and per-goal (reconcileGoalScheduleCache).
     const projectedGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
     const projectedSlots = Array.from(new Set(projected.map((p) => p.lesson_number)));
-    // Union the today-only slots with the full-tail projection so the
-    // helper sees every row that might need cache alignment. The IN clause
-    // widens past the cartesian product anyway; the client-side narrowing
-    // below picks out just today's display rows.
-    const fetchGoalIds = Array.from(new Set([
-      ...projectedGoalIds,
-      ...tailProjected.map((p) => p.goal_id),
-    ]));
-    const fetchSlots = Array.from(new Set([
-      ...projectedSlots,
-      ...tailProjected.map((p) => p.lesson_number),
-    ]));
     const [projectedRowsResult, oneOffRowsResult] = await Promise.all([
-      fetchGoalIds.length > 0
+      projectedGoalIds.length > 0
         ? supabase
             .from("lessons")
             .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes, scheduled_date, is_backfill")
             .eq("user_id", effectiveUserId)
-            .in("curriculum_goal_id", fetchGoalIds)
-            .in("queue_position", fetchSlots)
+            .in("curriculum_goal_id", projectedGoalIds)
+            .in("queue_position", projectedSlots)
         : Promise.resolve({ data: [] as unknown[] }),
       supabase
         .from("lessons")
@@ -1025,34 +1011,28 @@ export default function TodayPage() {
         .is("curriculum_goal_id", null)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
     ]);
-    // Align the cached scheduled_date with the projector's truth before
-    // we apply the future-date filter below. Without this, a row at
-    // today's queue slot whose stale cache points at a future date
-    // (e.g. wizard's original schedule, never overwritten after
-    // current_lesson advanced) gets dropped, while Plan rewrites the
-    // date in-memory and renders it. Fire-and-forget DB write; the
-    // local map below is what powers this render.
-    //
-    // The map covers the full incomplete tail so the helper can write a
-    // gap-free alignment (Invariant 11). A narrower window left
-    // out-of-window rows on their stale cache, which the in-window writes
-    // could then collide with. The display path (the narrower projected
-    // map below) is unchanged.
-    const projDateByKey = new Map<string, string>(
-      tailProjected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
+    // Reconcile each goal's cached scheduled_date with the projector, one
+    // goal at a time. Per goal (not a cross-goal cartesian fetch) because the
+    // combined fetch truncated at PostgREST's row cap for large accounts and
+    // silently dropped rows from the write set, leaving stale dates that a
+    // later pass collided with — the 2026-06-02 bunching bug. Each goal's
+    // incomplete tail is far under the cap, so its fetch is complete and the
+    // diff-write stays gap-free. Fire-and-forget; the display below uses its
+    // own narrower projection and does not depend on these writes.
+    void Promise.all(
+      goalConfigs.map((goal) =>
+        reconcileGoalScheduleCache(
+          supabase,
+          goal,
+          vacationBlocks,
+          completedTodayPerGoal.get(goal.id) ?? 0,
+        ),
+      ),
     );
     const todayProjDateByKey = new Map<string, string>(
       projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
     );
     const projectedRowsRaw = (projectedRowsResult.data ?? []) as unknown as LoadedLessonRow[];
-    void syncProjectedScheduledDates(
-      supabase,
-      projectedRowsRaw,
-      projDateByKey,
-      (r) => (r.curriculum_goal_id && r.queue_position != null)
-        ? `${r.curriculum_goal_id}|${r.queue_position}`
-        : null,
-    );
     const projectedRows = projectedRowsRaw
       // Only keep rows that match a projected (goal_id, queue_position) pair —
       // the IN/IN filter widens past the cartesian product so we narrow client-side.
@@ -3768,9 +3748,27 @@ export default function TodayPage() {
          ═══════════════════════════════════════════════════════════ */}
       {!loading && (() => {
         const ls = (k: string) => typeof window !== "undefined" && localStorage.getItem(k) === "1";
+        // Plan-card nudge uses a 14-day snooze (key: plan_card_snoozed_at), not a
+        // permanent flag. Dismissing hides it for 14 days so a user who skips
+        // early still gets re-prompted later.
+        const PLAN_CARD_SNOOZE_MS = 14 * 24 * 60 * 60 * 1000;
+        const planCardSnoozed = (() => {
+          if (typeof window === "undefined") return false;
+          const raw = localStorage.getItem("plan_card_snoozed_at");
+          if (!raw) return false;
+          const ts = parseInt(raw, 10);
+          return Number.isFinite(ts) && Date.now() - ts < PLAN_CARD_SNOOZE_MS;
+        })();
+        // Record a nudge as handled: snoozeKey writes a timestamp (re-prompts
+        // after the snooze window); lsKey writes a permanent "seen" flag.
+        const markNudgeHandled = (cfg: { lsKey?: string; snoozeKey?: string }) => {
+          if (typeof window === "undefined") return;
+          if (cfg.snoozeKey) localStorage.setItem(cfg.snoozeKey, String(Date.now()));
+          else if (cfg.lsKey) localStorage.setItem(cfg.lsKey, "1");
+        };
         const gardenVisited = ls("rooted_visited_garden");
         const yearbookVisited = ls("rooted_visited_yearbook");
-        const curriculumDismissed = ls("rooted_dismissed_curriculum");
+        const curriculumDismissed = planCardSnoozed;
         const resourcesVisited = ls("rooted_visited_resources");
         const sharingVisited = ls("rooted_visited_sharing");
         const printablesVisited = ls("rooted_visited_printables");
@@ -3780,7 +3778,7 @@ export default function TodayPage() {
 
         const childName = children.length > 0 ? children[0].name : null;
 
-        type Nudge = { key: string; emoji: string; title: string; body: string; href: string; lsKey: string; dismiss?: { label: string; lsKey: string } };
+        type Nudge = { key: string; emoji: string; title: string; body: string; href: string; lsKey?: string; snoozeKey?: string; dismiss?: { label: string; lsKey?: string; snoozeKey?: string } };
         let nudge: Nudge | null = null;
 
         // Nudge 1 (memories === 0) is handled by the activation card above
@@ -3806,8 +3804,8 @@ export default function TodayPage() {
             key: "curriculum", emoji: "📚",
             title: "Track your lessons in Plan",
             body: "Auto-schedule your curriculum and see your pace. Or skip \u2014 memories work great on their own.",
-            href: "/dashboard/plan", lsKey: "rooted_dismissed_curriculum",
-            dismiss: { label: "Not for us \u2192", lsKey: "rooted_dismissed_curriculum" },
+            href: "/dashboard/plan", snoozeKey: "plan_card_snoozed_at",
+            dismiss: { label: "Not for us \u2192", snoozeKey: "plan_card_snoozed_at" },
           };
         }
         if (!nudge && yearbookVisited && (hasAnyLessons || curriculumDismissed) && !resourcesVisited) {
@@ -3842,7 +3840,7 @@ export default function TodayPage() {
           <div key={n.key} className="bg-white border border-[#e8e2d9] rounded-2xl p-6 text-center relative">
             <button
               type="button"
-              onClick={() => { localStorage.setItem(n.lsKey, "1"); forceUpdate(prev => prev + 1); }}
+              onClick={() => { markNudgeHandled(n); forceUpdate(prev => prev + 1); }}
               className="absolute top-3 right-3 w-6 h-6 rounded-full flex items-center justify-center text-[#d4d0ca] hover:text-[#7a6f65] hover:bg-[#f0ede8] transition-colors text-xs"
               aria-label="Dismiss"
             >
@@ -3855,7 +3853,7 @@ export default function TodayPage() {
             <p className="text-[13px] text-[#7a6f65] leading-relaxed max-w-[280px] mx-auto mb-5">{n.body}</p>
             <Link
               href={n.href}
-              onClick={() => localStorage.setItem(n.lsKey, "1")}
+              onClick={() => markNudgeHandled(n)}
               className="block w-full bg-[#2D5A3D] text-white rounded-xl py-3.5 font-semibold text-[15px] hover:opacity-90 transition-colors"
             >
               Let&apos;s go &rarr;
@@ -3863,7 +3861,7 @@ export default function TodayPage() {
             {n.dismiss && (
               <button
                 type="button"
-                onClick={() => { localStorage.setItem(n.dismiss!.lsKey, "1"); forceUpdate(prev => prev + 1); }}
+                onClick={() => { markNudgeHandled(n.dismiss!); forceUpdate(prev => prev + 1); }}
                 className="text-[12px] text-[#b5aca4] hover:text-[#7a6f65] transition-colors mt-3"
               >
                 {n.dismiss.label}

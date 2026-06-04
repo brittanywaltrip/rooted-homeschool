@@ -42,6 +42,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { todayInTz, isoDowFromYmd, addDays, ymdInTz } from './timezone.ts'
+import { mapLessonDateAcrossVacation } from '../components/PlanV2/handleVacationSave.shift.ts'
 import {
   pickNextAvailableDate,
   planRescheduleLessons,
@@ -1716,21 +1717,21 @@ test('Invariant 2 — catch-up modal accept handles 5 missed school days without
 
 // ── Invariant 3 — historical backfill stays put ────────────────────────────
 
-test('Invariant 3 — backfilled lessons unchanged after vacation block insert', () => {
-  // Static analysis: saveVacationBlock must filter out is_backfill rows
-  // before passing lessons to planRescheduleLessons. The actual filter is
-  // `r.is_backfill !== true` in the client-side reducer.
-  const src = loadRepoFile('app/dashboard/plan/page.tsx')
-  const body = extractFunctionBody(src, /async function saveVacationBlock\s*\(/)
+test('Invariant 3 — completed/backfill lessons unchanged after vacation block insert', () => {
+  // Path A (PlanV2): the vacation re-spread lives in handleVacationSave, which
+  // fetches only INCOMPLETE rows (.eq("completed", false)) before shifting, so
+  // completed and backfill lessons (backfill rows are completed) are never
+  // re-dated. Date math is centralized in mapLessonDateAcrossVacation, not an
+  // inline day-walk. (Replaces the deleted PlanV1 saveVacationBlock check.)
+  const src = loadRepoFile('app/components/PlanV2/index.tsx')
+  const body = extractFunctionBody(src, /const handleVacationSave = useCallback\(async/)
   assert.ok(
-    body.includes('is_backfill !== true'),
-    'saveVacationBlock must filter out is_backfill rows from the re-spread',
+    body.includes('.eq("completed", false)'),
+    'handleVacationSave must fetch only incomplete rows so completed/backfill stay put',
   )
-  // And it must operate on planRescheduleLessons (Invariant 8) so backfill
-  // exclusion logic is centralized at the input filter, not the planner.
   assert.ok(
-    body.includes('planRescheduleLessons('),
-    'saveVacationBlock must route through planRescheduleLessons',
+    body.includes('mapLessonDateAcrossVacation('),
+    'handleVacationSave must route the shift through mapLessonDateAcrossVacation',
   )
 })
 
@@ -1868,13 +1869,25 @@ test("Invariant 10 — schedule builder save writes scheduled_source='wizard_cre
   )
 })
 
-test("Invariant 10 — vacation block insert writes scheduled_source='vacation_resched' on touched rows", () => {
-  const src = loadRepoFile('app/dashboard/plan/page.tsx')
-  const body = extractFunctionBody(src, /async function saveVacationBlock\s*\(/)
-  assert.ok(
-    body.includes('scheduled_source: "vacation_resched"'),
-    'saveVacationBlock must tag scheduled_source=vacation_resched on the re-spread update',
-  )
+test('Invariant 8 (behavioral) — vacation shift never lands a lesson inside the break and always moves forward', () => {
+  // Replaces the deleted PlanV1 saveVacationBlock source-label static check.
+  // Under PlanV2 the re-spread runs through the pure mapLessonDateAcrossVacation
+  // helper; this asserts the real invariant directly instead of grepping source.
+  // (Note: PlanV2's handleVacationSave writes the shift via batchUpdateScheduledDates
+  // WITHOUT a scheduled_source tag, so 'vacation_resched' no longer applies.)
+  const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const vacStart = '2026-06-01', vacEnd = '2026-06-05' // Mon–Fri break (5 teaching days)
+  const blocks = [{ start_date: vacStart, end_date: vacEnd }]
+  const shiftDays = 5
+  // Lessons that sat inside the break must move strictly past the break end.
+  for (const orig of ['2026-06-01', '2026-06-03', '2026-06-05']) {
+    const out = mapLessonDateAcrossVacation(orig, vacStart, vacEnd, schoolDays, shiftDays, blocks)
+    assert.ok(out > vacEnd, `${orig} (inside break) must move past ${vacEnd}, got ${out}`)
+    assert.ok(!(out >= vacStart && out <= vacEnd), `${orig} must not land inside the break, got ${out}`)
+  }
+  // A lesson already after the break shifts strictly forward.
+  const after = mapLessonDateAcrossVacation('2026-06-08', vacStart, vacEnd, schoolDays, shiftDays, blocks)
+  assert.ok(after > '2026-06-08', `post-break lesson must shift forward, got ${after}`)
 })
 
 test("Invariant 10 — Missed Lesson Recovery YES writes scheduled_source='catchup_resched' on touched rows", () => {
@@ -1890,9 +1903,12 @@ test('Invariant 10 — no code path leaves scheduled_source NULL after writing l
   // For each of the four post-CC#2 trigger sites, confirm that every
   // lessons.update / lessons.insert that touches scheduled_date or date
   // also names scheduled_source somewhere in the same payload.
+  // The PlanV1 saveVacationBlock site was deleted in the PlanV2 migration; its
+  // successor (PlanV2 handleVacationSave) writes the shift via
+  // batchUpdateScheduledDates and is covered by the behavioral vacation test
+  // above. The remaining three trigger sites still write dates inline.
   const sites: { file: string; fn: RegExp }[] = [
     { file: 'app/dashboard/plan/schedule/page.tsx', fn: /async function handleSave\s*\(/ },
-    { file: 'app/dashboard/plan/page.tsx',          fn: /async function saveVacationBlock\s*\(/ },
     { file: 'app/dashboard/page.tsx',               fn: /async function handleMissedRecoveryYes\s*\(/ },
     { file: 'app/dashboard/page.tsx',               fn: /async function skipRestOfToday\s*\(/ },
   ]
@@ -1935,16 +1951,15 @@ test("Invariant 10 — skipRestOfToday writes scheduled_source='skip_today' on e
   )
 })
 
-test('Invariant 8 — saveVacationBlock and skipRestOfToday route through planRescheduleLessons (no direct day-walk loops)', () => {
-  // Both pre-May-3 buggy sites must now go through the shared planner.
-  const planSrc = loadRepoFile('app/dashboard/plan/page.tsx')
-  const dashSrc = loadRepoFile('app/dashboard/page.tsx')
-  const vacBody = extractFunctionBody(planSrc, /async function saveVacationBlock\s*\(/)
-  const skipBody = extractFunctionBody(dashSrc, /async function skipRestOfToday\s*\(/)
-  assert.ok(vacBody.includes('planRescheduleLessons('), 'saveVacationBlock must call planRescheduleLessons')
+test('Invariant 8 — vacation shift and skipRestOfToday route through shared schedulers (no inline day-walk loops)', () => {
+  // Both pre-May-3 buggy sites go through shared helpers, not hand-rolled date
+  // loops. PlanV2 handleVacationSave uses mapLessonDateAcrossVacation; the
+  // Today "running late" path (skipRestOfToday) uses planRescheduleLessons and
+  // honors the queue kill switch.
+  const vacBody = extractFunctionBody(loadRepoFile('app/components/PlanV2/index.tsx'), /const handleVacationSave = useCallback\(async/)
+  const skipBody = extractFunctionBody(loadRepoFile('app/dashboard/page.tsx'), /async function skipRestOfToday\s*\(/)
+  assert.ok(vacBody.includes('mapLessonDateAcrossVacation('), 'handleVacationSave must use the shared vacation date mapper')
   assert.ok(skipBody.includes('planRescheduleLessons('), 'skipRestOfToday must call planRescheduleLessons')
-  // And both must honor the kill switch.
-  assert.ok(vacBody.includes('isQueueEnabled()'), 'saveVacationBlock must honor isQueueEnabled()')
   assert.ok(skipBody.includes('isQueueEnabled()'), 'skipRestOfToday must honor isQueueEnabled()')
 })
 

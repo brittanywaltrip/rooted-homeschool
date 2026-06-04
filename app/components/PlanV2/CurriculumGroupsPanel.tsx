@@ -298,15 +298,22 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                     >
                       {childMeta?.child?.name.charAt(0).toUpperCase() ?? "·"}
                     </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[13px] font-semibold text-[#2d2926] leading-tight break-words">
+                    {/* Name/label area is a shortcut to Edit curriculum (same
+                        as the 3-dot Edit). The 3-dot menu stays intact. */}
+                    <button
+                      type="button"
+                      onClick={() => onEdit(goal)}
+                      aria-label={`Edit ${goal.curriculum_name}`}
+                      className="min-w-0 flex-1 cursor-pointer group text-left bg-transparent border-0 p-0 m-0"
+                    >
+                      <span className="block text-[13px] font-semibold text-[#2d2926] leading-tight break-words">
                         {goal.subject_label ? <span className="text-[#7a6f65]">{goal.subject_label} · </span> : null}
-                        {goal.curriculum_name}
-                      </p>
-                      <p className="text-[11px] text-[#9a8e84] mt-0.5 tabular-nums">
+                        <span className="group-hover:underline">{goal.curriculum_name}</span>
+                      </span>
+                      <span className="block text-[11px] text-[#9a8e84] mt-0.5 tabular-nums">
                         Lesson {Math.min(completedCount + 1, goal.total_lessons)} of {goal.total_lessons}
-                      </p>
-                    </div>
+                      </span>
+                    </button>
                     <span
                       className="shrink-0 text-[10px] font-semibold rounded-full px-2 py-0.5 whitespace-nowrap"
                       style={{ color: pace.color, background: pace.bg }}
