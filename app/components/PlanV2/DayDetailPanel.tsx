@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Pencil, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import TodayLessonCard, {
@@ -107,7 +107,6 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
   // Per-day activity section expansion state. Defaults to collapsed — the
   // section is an "on-demand receipt", not primary content.
   const [activityExpanded, setActivityExpanded] = useState(false);
-  const [activityVisible, setActivityVisible] = useState(10);
 
   // ── Note editor state (internal to the panel) ──────────────────────────────
   // Auto-save pattern: 800ms debounce after last keystroke triggers a save;
@@ -273,6 +272,19 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
 
   const kidsById = new Map<string, { child: TodayLessonCardChild; index: number }>();
   kids.forEach((c, i) => kidsById.set(c.id, { child: c, index: i }));
+
+  // "Activity on this day" shows only lesson + curriculum changes — not
+  // appointments/vacations/activities — capped at the 10 most recent for this
+  // day. dayEvents is already restricted to this day (filterEventsForDay, by
+  // payload date) and sorted newest-first by the caller, so a plain slice gives
+  // the 10 most recent.
+  const dayActivity = useMemo(
+    () =>
+      (dayEvents ?? [])
+        .filter((e) => e.type.startsWith("lesson.") || e.type.startsWith("curriculum_goal."))
+        .slice(0, 10),
+    [dayEvents],
+  );
 
   // ── Content ────────────────────────────────────────────────────────────────
   const content = (
@@ -473,9 +485,9 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
             <span aria-hidden className="text-[13px] leading-none">🕒</span>
             <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] flex-1">
               Activity on this day
-              {dayEvents.length > 0 ? (
+              {dayActivity.length > 0 ? (
                 <span className="ml-1.5 text-[10px] text-[#9a8e84] normal-case tracking-normal font-medium">
-                  · {dayEvents.length}
+                  · {dayActivity.length}
                 </span>
               ) : null}
             </span>
@@ -488,42 +500,31 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
 
           {activityExpanded ? (
             <div id="day-activity-body" className="mt-2">
-              {dayEvents.length === 0 ? (
+              {dayActivity.length === 0 ? (
                 <p className="text-xs text-[#9a8e84] py-2">
                   No changes recorded for this day.
                 </p>
               ) : (
-                <>
-                  <ul className="space-y-1">
-                    {dayEvents.slice(0, activityVisible).map((row) => {
-                      const f = formatEvent(row);
-                      return (
-                        <li
-                          key={row.id}
-                          className="flex items-start gap-2 text-[11px] text-[#2d2926] leading-snug"
+                <ul className="space-y-1">
+                  {dayActivity.map((row) => {
+                    const f = formatEvent(row);
+                    return (
+                      <li
+                        key={row.id}
+                        className="flex items-start gap-2 text-[11px] text-[#2d2926] leading-snug"
+                      >
+                        <span aria-hidden className="mt-0.5">{f.icon}</span>
+                        <span className="flex-1 min-w-0">{f.summary}</span>
+                        <span
+                          className="text-[10px] text-[#9a8e84] tabular-nums shrink-0"
+                          title={new Date(row.created_at).toLocaleString()}
                         >
-                          <span aria-hidden className="mt-0.5">{f.icon}</span>
-                          <span className="flex-1 min-w-0">{f.summary}</span>
-                          <span
-                            className="text-[10px] text-[#9a8e84] tabular-nums shrink-0"
-                            title={new Date(row.created_at).toLocaleString()}
-                          >
-                            {relativeTimestamp(row.created_at)}
-                          </span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  {dayEvents.length > activityVisible ? (
-                    <button
-                      type="button"
-                      onClick={() => setActivityVisible((v) => v + 10)}
-                      className="mt-2 text-[11px] font-semibold text-[#5c7f63] hover:text-[var(--g-deep)]"
-                    >
-                      Show more
-                    </button>
-                  ) : null}
-                </>
+                          {relativeTimestamp(row.created_at)}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </div>
           ) : null}
