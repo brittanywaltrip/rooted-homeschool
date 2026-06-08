@@ -90,7 +90,7 @@ import { PillShell } from "./LessonPill";
 import { AppointmentPillShell } from "./AppointmentPill";
 import { useIsMobile } from "./useIsMobile";
 import { hapticTap } from "./haptic";
-import type { PlanV2Appointment, PlanV2Lesson } from "./types";
+import type { PlanV2Activity, PlanV2Appointment, PlanV2Lesson } from "./types";
 import type {
   TodayLessonCardChild,
   TodayLessonCardLesson,
@@ -560,7 +560,7 @@ export default function PlanV2() {
     [effectiveUserId],
   );
 
-  const { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons, setAppointments } =
+  const { kids, lessons, appointments, vacationBlocks, activities: calendarActivities, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
 
   // School years — drives milestone markers + the "Create next year" CTA.
@@ -1550,6 +1550,18 @@ export default function PlanV2() {
       return a.child_ids.some((id) => childFilter.has(id));
     });
   }, [appointments, childFilter, kids.length]);
+
+  // Recurring activities for the calendar — same child-filter semantics as
+  // appointments (empty/null child_ids = whole-family, always shown). This is
+  // the calendar feed from usePlanV2Data; it is separate from the `activities`
+  // state above that drives the ActivitiesPanel sidebar list.
+  const filteredActivities = useMemo<PlanV2Activity[]>(() => {
+    if (childFilter.size === 0 || childFilter.size === kids.length) return calendarActivities;
+    return calendarActivities.filter((a) => {
+      if (!a.child_ids || a.child_ids.length === 0) return true;
+      return a.child_ids.some((id) => childFilter.has(id));
+    });
+  }, [calendarActivities, childFilter, kids.length]);
 
   // Missed = scheduled_date before today AND not completed. Uses filteredLessons
   // so the banner respects the active child filter chips (Amanda grades one
@@ -3867,6 +3879,7 @@ export default function PlanV2() {
                     kids={kids}
                     lessons={filteredLessons}
                     appointments={filteredAppointments}
+                    activities={filteredActivities}
                     vacationBlocks={vacationBlocks}
                     curriculumGoals={curriculumGoals}
                     loading={loading}
@@ -3878,6 +3891,7 @@ export default function PlanV2() {
                       if (d) setOpenDayStr(d);
                     }}
                     onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                    onActivityClick={(_activity, dateStr) => setOpenDayStr(dateStr)}
                     onSkipLesson={(l) => { void skipLessonWithLog(l); }}
                     onRescheduleLesson={(l) => {
                       const fromDate = l.scheduled_date ?? l.date;
@@ -3898,6 +3912,7 @@ export default function PlanV2() {
                   kids={kids}
                   lessons={filteredLessons}
                   appointments={filteredAppointments}
+                  activities={filteredActivities}
                   vacationBlocks={vacationBlocks}
                   loading={loading}
                   dndEnabled={false}
@@ -3965,6 +3980,7 @@ export default function PlanV2() {
                       kids={kids}
                       lessons={filteredLessons}
                       appointments={filteredAppointments}
+                      activities={filteredActivities}
                       vacationBlocks={vacationBlocks}
                       curriculumGoals={curriculumGoals}
                       loading={loading}
@@ -3976,6 +3992,7 @@ export default function PlanV2() {
                         if (d) setOpenDayStr(d);
                       }}
                       onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                      onActivityClick={(_activity, dateStr) => setOpenDayStr(dateStr)}
                       onSkipLesson={(l) => { void skipLessonWithLog(l); }}
                       onRescheduleLesson={(l) => {
                         const fromDate = l.scheduled_date ?? l.date;
@@ -3996,6 +4013,7 @@ export default function PlanV2() {
                     kids={kids}
                     lessons={filteredLessons}
                     appointments={filteredAppointments}
+                    activities={filteredActivities}
                     vacationBlocks={vacationBlocks}
                     loading={loading}
                     dndEnabled

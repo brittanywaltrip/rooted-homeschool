@@ -2,7 +2,9 @@
 
 import { useMemo } from "react";
 import DayCell, { CELL_ID_PREFIX } from "./DayCell";
+import { buildActivitiesByDate } from "./activityOccurrences";
 import type {
+  PlanV2Activity,
   PlanV2Appointment,
   PlanV2Child,
   PlanV2Lesson,
@@ -43,6 +45,7 @@ interface Props {
   kids: PlanV2Child[];
   lessons: PlanV2Lesson[];
   appointments: PlanV2Appointment[];
+  activities: PlanV2Activity[];
   vacationBlocks: PlanV2Vacation[];
   loading: boolean;
   dndEnabled?: boolean;
@@ -76,7 +79,7 @@ function SkeletonCell() {
 
 export default function WeekStrip(props: Props) {
   const {
-    weekStart, todayStr, kids, lessons, appointments, vacationBlocks,
+    weekStart, todayStr, kids, lessons, appointments, activities, vacationBlocks,
     loading, dndEnabled, isDragActive, recentlyLandedIds,
     selectMode, selectedIds, moveTargetMode,
     focusedDateStr, onFocusedDateChange,
@@ -116,6 +119,11 @@ export default function WeekStrip(props: Props) {
     }
     return { lessonsByDate: lMap, apptsByDate: aMap };
   }, [lessons, appointments]);
+
+  const activitiesByDate = useMemo(
+    () => buildActivitiesByDate(activities, cells),
+    [activities, cells],
+  );
 
   const visibleDateStrs = useMemo(() => cells.map(toDateStr), [cells]);
   const effectiveFocusedDateStr = useMemo(() => {
@@ -215,6 +223,7 @@ export default function WeekStrip(props: Props) {
                   vacation={vac}
                   lessons={lessonsByDate.get(dateStr) ?? []}
                   appointments={apptsByDate.get(dateStr) ?? []}
+                  activities={activitiesByDate.get(dateStr) ?? []}
                   childrenById={childrenById}
                   todayStr={todayStr}
                   dndEnabled={dndEnabled}
