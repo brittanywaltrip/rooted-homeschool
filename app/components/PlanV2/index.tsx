@@ -238,6 +238,13 @@ export default function PlanV2() {
   const [apptEditTarget, setApptEditTarget] = useState<{
     appt: PlanV2Appointment;
   } | null>(null);
+  // Appointment move target — set when "Move to another day" is tapped on an
+  // appointment pill (day panel or week list). Opens the shared
+  // RescheduleDialog seeded with the appointment's current date.
+  const [apptMoveTarget, setApptMoveTarget] = useState<{
+    apptId: string;
+    fromDateStr: string;
+  } | null>(null);
   // Keyboard-nav focused cell. Null = not-yet-focused; MonthGrid's own
   // fallback chooses today (or the first current-month cell) on Tab-focus.
   const [focusedDateStr, setFocusedDateStr] = useState<string | null>(null);
@@ -2010,14 +2017,14 @@ export default function PlanV2() {
   // Recurring instances are non-draggable at the pill level; this handler
   // also guards in case anything ever sneaks through.
   const performApptMove = useCallback(
-    async (apptId: string, fromDateStr: string, toDateStr: string) => {
-      if (fromDateStr === toDateStr) return;
+    async (apptId: string, fromDateStr: string, toDateStr: string): Promise<boolean> => {
+      if (fromDateStr === toDateStr) return false;
 
       const source = appointments.find((a) => a.id === apptId);
-      if (!source) return;
+      if (!source) return false;
       if (source.is_recurring) {
         flashNotice("Recurring appointments must be moved from the editor.");
-        return;
+        return false;
       }
 
       const inVacation = vacationBlocks.some(
@@ -2055,7 +2062,7 @@ export default function PlanV2() {
           ),
         );
         flashNotice("Couldn't save — check your connection and try again.");
-        return;
+        return false;
       }
 
       setUndoAction({
@@ -2087,6 +2094,7 @@ export default function PlanV2() {
       });
 
       reload();
+      return true;
     },
     [appointments, vacationBlocks, setAppointments, reload, recordEvent],
   );
@@ -3486,6 +3494,7 @@ export default function PlanV2() {
       if (pastCompleteConfirm) { setPastCompleteConfirm(null); return; }
       if (rescheduleTarget) { setRescheduleTarget(null); return; }
       if (apptEditTarget) { setApptEditTarget(null); return; }
+      if (apptMoveTarget) { setApptMoveTarget(null); return; }
       if (openDayStr) { setOpenDayStr(null); return; }
       if (contextMenu) { setContextMenu(null); return; }
       if (moveTargetMode) { setMoveTargetMode(false); return; }
@@ -3493,7 +3502,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -3983,6 +3992,7 @@ export default function PlanV2() {
                     onDayAdd={(date) => openUnifiedAdd(date)}
                     onEditAppointment={(appt) => setApptEditTarget({ appt })}
                     onDeleteAppointment={(appt) => setDeleteApptConfirm(appt)}
+                    onMoveAppointment={(appt) => setApptMoveTarget({ apptId: appt.id, fromDateStr: appt.date })}
                   />
                 ) : (
                 <MonthGrid
@@ -4084,6 +4094,7 @@ export default function PlanV2() {
                       onDayAdd={(date) => openUnifiedAdd(date)}
                       onEditAppointment={(appt) => setApptEditTarget({ appt })}
                       onDeleteAppointment={(appt) => setDeleteApptConfirm(appt)}
+                      onMoveAppointment={(appt) => setApptMoveTarget({ apptId: appt.id, fromDateStr: appt.date })}
                     />
                   ) : (
                   <MonthGrid
@@ -4329,6 +4340,10 @@ export default function PlanV2() {
                 setOpenDayStr(null);
                 setApptEditTarget({ appt });
               }}
+              onMoveAppointment={(appt) => {
+                setOpenDayStr(null);
+                setApptMoveTarget({ apptId: appt.id, fromDateStr: appt.date });
+              }}
               onLessonChanged={handleLessonChanged}
               onNotesUpdated={handleLessonNotesUpdated}
               dayEvents={dayEvents}
@@ -4416,6 +4431,31 @@ export default function PlanV2() {
                 futureLessonsToShift: futureLessons.length,
                 projectedFinishDate,
               });
+            }}
+          />
+        ) : null}
+
+        {/* Appointment move dialog — opened from the "Move to another day"
+            kebab item on an appointment pill (day panel or week list). Reuses
+            the lesson RescheduleDialog seeded with the appointment's current
+            date. On confirm, performApptMove writes appointments.date, reloads
+            the calendar, and registers an undo entry; a success flash confirms
+            the move. Recurring appointments never reach here — the kebab hides
+            the item for them. */}
+        {apptMoveTarget ? (
+          <RescheduleDialog
+            fromDateStr={apptMoveTarget.fromDateStr}
+            title="Move to another day"
+            vacationBlocks={vacationBlocks}
+            onCancel={() => setApptMoveTarget(null)}
+            onPick={(toDateStr) => {
+              const target = apptMoveTarget;
+              setApptMoveTarget(null);
+              if (!target) return;
+              void (async () => {
+                const ok = await performApptMove(target.apptId, target.fromDateStr, toDateStr);
+                if (ok) flashNotice("Appointment moved");
+              })();
             }}
           />
         ) : null}
@@ -5225,14 +5265,19 @@ function ConfirmDialog(props: {
 }
 
 function RescheduleDialog(props: {
-  lessonId: string;
+  // lessonId is optional — the dialog body is purely date-driven, so the
+  // appointment "Move to another day" flow reuses it without a lesson id.
+  lessonId?: string;
   fromDateStr: string;
   minDateStr?: string;
+  // Heading copy. Defaults to the lesson reschedule wording; the appointment
+  // move flow overrides it with "Move to another day".
+  title?: string;
   vacationBlocks: { start_date: string; end_date: string }[];
   onCancel: () => void;
   onPick: (toDateStr: string) => void;
 }) {
-  const { fromDateStr, minDateStr, vacationBlocks, onCancel, onPick } = props;
+  const { fromDateStr, minDateStr, title = "Reschedule lesson", vacationBlocks, onCancel, onPick } = props;
   const [value, setValue] = useState<string>(fromDateStr);
   const inVacation = vacationBlocks.some(
     (b) => value >= b.start_date && value <= b.end_date,
@@ -5255,7 +5300,7 @@ function RescheduleDialog(props: {
         >
           <div className="flex items-start justify-between px-5 pt-4 pb-2">
             <div>
-              <h2 className="text-base font-bold text-[#2d2926]">Reschedule lesson</h2>
+              <h2 className="text-base font-bold text-[#2d2926]">{title}</h2>
               <p className="text-xs text-[#7a6f65] mt-0.5">Currently on {fromLabel}</p>
             </div>
             <button

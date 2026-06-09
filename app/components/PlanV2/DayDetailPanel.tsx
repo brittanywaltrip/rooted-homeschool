@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Pencil, Plus, X } from "lucide-react";
+import { ChevronDown, ChevronRight, MoreVertical, Move, Pencil, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import TodayLessonCard, {
   type TodayLessonCardLesson,
@@ -73,6 +73,10 @@ export interface DayDetailPanelV2Props {
   onMinutesUpdate: (id: string, mins: number) => void;
   onToggleAppointment?: (appt: PlanV2Appointment) => void;
   onEditAppointment?: (appt: PlanV2Appointment) => void;
+  /** "Move to another day" on the appointment kebab. Opens the shared date
+   *  picker seeded with the appointment's current date. Non-recurring only
+   *  (the item is hidden for recurring series). Optional. */
+  onMoveAppointment?: (appt: PlanV2Appointment) => void;
   /** Called after a note is saved so the parent can sync local state. */
   onLessonChanged?: (lessonId: string, patch: Partial<TodayLessonCardLesson>) => void;
   /** Fires after a note save lands successfully (DB ack'd). `noteLength` is
@@ -98,7 +102,8 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
   const {
     date, lessons, appointments, kids, isPartner,
     onToggleLesson, onEditLesson, onDeleteLesson, onRescheduleLesson,
-    onSkipLesson, onMinutesUpdate, onToggleAppointment, onEditAppointment, onLessonChanged,
+    onSkipLesson, onMinutesUpdate, onToggleAppointment, onEditAppointment, onMoveAppointment,
+    onLessonChanged,
     onNotesUpdated,
     dayEvents,
     variant = "inline", onClose, onAdd,
@@ -107,6 +112,10 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
   // Per-day activity section expansion state. Defaults to collapsed — the
   // section is an "on-demand receipt", not primary content.
   const [activityExpanded, setActivityExpanded] = useState(false);
+
+  // Which appointment's kebab menu is open (keyed by appointment id). Null =
+  // none open. Mirrors the WeekListView appointment-menu pattern.
+  const [apptMenuOpenId, setApptMenuOpenId] = useState<string | null>(null);
 
   // ── Note editor state (internal to the panel) ──────────────────────────────
   // Auto-save pattern: 800ms debounce after last keystroke triggers a save;
@@ -385,15 +394,56 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
                       {a.location ? <span className="truncate">· {a.location}</span> : null}
                     </div>
                   </button>
-                  {!isPartner && onEditAppointment ? (
-                    <button
-                      type="button"
-                      onClick={() => onEditAppointment(a)}
-                      aria-label={`Edit appointment: ${a.title}`}
-                      className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[#b5aca4] hover:text-[#7C3AED] hover:bg-[#f5f0ff] transition-colors"
-                    >
-                      <Pencil size={13} />
-                    </button>
+                  {!isPartner && (onEditAppointment || (onMoveAppointment && !a.is_recurring)) ? (
+                    <div className="relative shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setApptMenuOpenId((id) => (id === a.id ? null : a.id))}
+                        aria-label={`More actions for ${a.title}`}
+                        aria-haspopup="menu"
+                        aria-expanded={apptMenuOpenId === a.id}
+                        className="w-7 h-7 rounded-full flex items-center justify-center text-[#b5aca4] hover:text-[#7C3AED] hover:bg-[#f5f0ff] transition-colors"
+                      >
+                        <MoreVertical size={16} />
+                      </button>
+                      {apptMenuOpenId === a.id ? (
+                        <>
+                          <div
+                            className="fixed inset-0 z-40"
+                            onClick={() => setApptMenuOpenId(null)}
+                            aria-hidden
+                          />
+                          <div
+                            role="menu"
+                            className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[170px]"
+                          >
+                            {/* Recurring series can't move a single occurrence
+                                (the move writes the canonical date); hide the
+                                item for them. */}
+                            {onMoveAppointment && !a.is_recurring ? (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => { setApptMenuOpenId(null); onMoveAppointment(a); }}
+                                className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                              >
+                                <Move size={14} className="text-[#5c7f63]" /> Move to another day
+                              </button>
+                            ) : null}
+                            {onEditAppointment ? (
+                              <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => { setApptMenuOpenId(null); onEditAppointment(a); }}
+                                className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                              >
+                                <Pencil size={14} className="text-[#5c7f63]" /> Edit
+                              </button>
+                            ) : null}
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               );

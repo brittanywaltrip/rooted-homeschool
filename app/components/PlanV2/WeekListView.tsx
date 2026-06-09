@@ -76,6 +76,10 @@ type Props = {
    *  edit form; Delete fires after the parent confirms. Optional. */
   onEditAppointment?: (appt: PlanV2Appointment) => void;
   onDeleteAppointment?: (appt: PlanV2Appointment) => void;
+  /** "Move to another day" on the appointment kebab. Opens the shared date
+   *  picker seeded with the appointment's current date. Non-recurring only
+   *  (the item is hidden for recurring series). Optional. */
+  onMoveAppointment?: (appt: PlanV2Appointment) => void;
 };
 
 export default function WeekListView(props: Props) {
@@ -85,7 +89,7 @@ export default function WeekListView(props: Props) {
     onMoveLesson, onLessonClick, onAppointmentClick, onActivityClick,
     onSkipLesson, onRescheduleLesson, onEditLesson, onToggleLessonDone,
     onAddLessonForDay, onMarkBreakForDay, onDayAdd,
-    onEditAppointment, onDeleteAppointment,
+    onEditAppointment, onDeleteAppointment, onMoveAppointment,
   } = props;
 
   const days = useMemo(() => {
@@ -575,7 +579,7 @@ export default function WeekListView(props: Props) {
                             </p>
                           </div>
                         </button>
-                        {!isPartner && (onEditAppointment || onDeleteAppointment) ? (
+                        {!isPartner && (onEditAppointment || onDeleteAppointment || (onMoveAppointment && !a.is_recurring)) ? (
                           <div className="relative shrink-0">
                             <button
                               type="button"
@@ -596,8 +600,21 @@ export default function WeekListView(props: Props) {
                                 />
                                 <div
                                   role="menu"
-                                  className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[140px]"
+                                  className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[170px]"
                                 >
+                                  {/* Recurring series can't move a single
+                                      occurrence (the appointment move writes the
+                                      canonical date); hide the item for them. */}
+                                  {onMoveAppointment && !a.is_recurring ? (
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setApptMenuOpenId(null); onMoveAppointment(a); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <Move size={14} className="text-[#5c7f63]" /> Move to another day
+                                    </button>
+                                  ) : null}
                                   {onEditAppointment ? (
                                     <button
                                       type="button"
