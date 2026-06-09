@@ -18,6 +18,7 @@ import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-lay
 import { capitalizeChildNames } from "@/lib/utils";
 import { LeafAnimationProvider, useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import { getUserAccess } from "@/lib/user-access";
+import { posthog } from "@/lib/posthog";
 
 const navItems = [
   { label: "Today",     href: "/dashboard",           icon: Sun      },
@@ -250,6 +251,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   async function handleSignOut() {
     sessionStorage.removeItem("rooted_partner");
     await supabase.auth.signOut();
+    // Clear the PostHog identity so the next user who signs in on this same
+    // browser starts a fresh analytics identity instead of inheriting the
+    // previous user's distinct_id.
+    posthog.reset();
     router.replace("/login");
   }
 

@@ -2795,6 +2795,9 @@ export default function SettingsPage() {
       <button
         onClick={async () => {
           await supabase.auth.signOut();
+          // Reset PostHog identity so the next user on this browser doesn't
+          // inherit the previous user's distinct_id.
+          posthog.reset();
           window.location.href = "/login";
         }}
         className="w-full text-center text-sm text-red-500 font-semibold py-4 mt-2"
