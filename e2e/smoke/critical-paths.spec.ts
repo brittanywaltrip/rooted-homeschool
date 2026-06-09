@@ -110,8 +110,20 @@ async function resolveTestUserAndFirstChild(): Promise<{ userId: string; childId
 // Schedule Builder is a two-step flow: click "Preview schedule →" first,
 // then "Save & build schedule" on the preview screen. Wraps both clicks +
 // waits for the post-save state so callers can assume the save has landed.
+//
+// The Preview button is disabled until EVERY row passes rowIsValid (child_id
+// set, non-empty name, a day with per_day_counts > 0, and for curriculum rows
+// total_lessons > 0 and start_at_lesson >= 1) AND at least one editable row
+// exists (schedule/page.tsx: disabled={!allValid || !anyEditableRow}). We
+// assert it's enabled first so a row left invalid by the test fails loudly
+// here with an actionable message, instead of timing out on a disabled click.
 async function previewAndSave(page: import('@playwright/test').Page) {
-  await page.getByRole('button', { name: /preview schedule/i }).first().click();
+  const previewBtn = page.getByRole('button', { name: /preview schedule/i }).first();
+  await expect(
+    previewBtn,
+    'Preview button never enabled — a row failed rowIsValid. Check the row being filled actually received child_id, name, a producing day, total_lessons>0, and start_at_lesson>=1 (and that .fill() targeted the new row, not another child\'s row).',
+  ).toBeEnabled({ timeout: 10_000 });
+  await previewBtn.click();
   const saveBtn = page.getByRole('button', { name: /save & build schedule/i }).first();
   await saveBtn.click();
   // Saving... → some success state. Wait for the button to either disappear
@@ -591,11 +603,15 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       return;
     }
 
-    const curriculumName = 'Test Backfill E2E';
+    // Unique per run so the save's duplicate-name guard (same name + subject +
+    // child) can never collide with a leftover row from a crashed/overlapping
+    // run — which surfaced as "Save failed: ... already exists" and a stuck
+    // Preview screen. afterEach cleans up by the exact name we record here.
+    const curriculumName = `Test Backfill E2E ${STAMP()}`;
     createdCurriculumNames.push(curriculumName);
 
-    // Pre-clean any leftovers from a prior failed run so the curriculum name
-    // is unique when we look it up later.
+    // Defensive pre-clean of this run's (unique) name, in case the same stamp
+    // is ever replayed. Normally a no-op given the timestamp suffix.
     await sb.from('lessons').delete().in(
       'curriculum_goal_id',
       ((await sb
@@ -612,17 +628,32 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       page.getByRole('heading', { name: /Your Schedule/i }).first(),
     ).toBeVisible({ timeout: 15_000 });
 
-    // ── 2. Click "+ Add curriculum" under the first child block ─────────────
+    // ── 2. Add a curriculum row under the FIRST child, and scope every field
+    //      lookup to that child's card.
+    //
+    //      The builder renders one card per child (schedule/page.tsx
+    //      children.map → a bordered div per child, each with its own rows and
+    //      its own "+ Add curriculum" button; addRow appends the new row to the
+    //      clicked child's section). A page-wide `.last()` selector therefore
+    //      targets the LAST child's existing curriculum row on a multi-child
+    //      account — not the row we just added — so the real new row stays
+    //      blank (name="", total_lessons=null), fails rowIsValid, and leaves
+    //      the Preview button disabled. We scope to the first child's card (the
+    //      add button's nearest rounded-2xl ancestor, robust against any outer
+    //      wrapper) and use `.last()` WITHIN it to hit the freshly appended row.
     const addCurriculumBtn = page.getByRole('button', { name: /\+ Add curriculum/i }).first();
     await expect(addCurriculumBtn).toBeVisible({ timeout: 10_000 });
+    const firstChildCard = addCurriculumBtn.locator(
+      'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " rounded-2xl ")][1]',
+    );
     await addCurriculumBtn.click();
 
-    // ── 3. Fill name + subject. Use last() so we target the row we just
-    //      added even if the account already has existing curriculum rows.
-    const nameInput = page.locator('input[placeholder^="e.g. The Good and the Beautiful"]').last();
+    // ── 3. Fill name + subject on the row we just appended (last row WITHIN
+    //      the first child's card).
+    const nameInput = firstChildCard.locator('input[placeholder^="e.g. The Good and the Beautiful"]').last();
     await nameInput.fill(curriculumName);
 
-    const subjectInput = page.locator('input[placeholder="Subject (e.g. Math)"]').last();
+    const subjectInput = firstChildCard.locator('input[placeholder="Subject (e.g. Math)"]').last();
     await subjectInput.fill('Math');
 
     // ── 4. Days M-F + 1 lesson/day are the row's default state; no extra
@@ -632,7 +663,7 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
 
     // ── 5. Set Total lessons = 30. The label is "Total lessons" (small-caps
     //      via CSS); the underlying input carries placeholder "e.g. 120".
-    const totalInput = page.locator('input[placeholder="e.g. 120"]').last();
+    const totalInput = firstChildCard.locator('input[placeholder="e.g. 120"]').last();
     await totalInput.fill('30');
 
     // ── 6. Set Start date = today - 28 days. The user prompt specified
@@ -647,7 +678,7 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       `${String(fourWeeksAgo.getMonth() + 1).padStart(2, '0')}-` +
       `${String(fourWeeksAgo.getDate()).padStart(2, '0')}`;
 
-    const startDateInput = page.locator('input[type="date"]').last();
+    const startDateInput = firstChildCard.locator('input[type="date"]').last();
     await startDateInput.fill(startDateStr);
     // Blur so the onChange-driven auto-fill of start_at_lesson settles before
     // we read the counter.
@@ -658,7 +689,7 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     //      and "One more completed lesson"; the count sits between them in
     //      a <span> with aria-label-less text. The banner only renders for
     //      past start_dates with total_lessons > 0.
-    const moreCompletedBtn = page.getByRole('button', { name: 'One more completed lesson' }).last();
+    const moreCompletedBtn = firstChildCard.getByRole('button', { name: 'One more completed lesson' }).last();
     await expect(moreCompletedBtn, 'past start_date should expose the "Already completed" stepper').toBeVisible({ timeout: 10_000 });
     const countSpan = moreCompletedBtn.locator('xpath=preceding-sibling::span[1]');
     const countText = (await countSpan.textContent())?.trim() ?? '';
@@ -674,6 +705,35 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       timeout: 20_000,
     });
 
+    // ── 8b. Wait for the save's server-side lesson generation to land before
+    //       hunting for the backfilled cards in the UI. Save kicks off backfill
+    //       row generation asynchronously; if the calendar assertions race it,
+    //       the week renders before Lesson 1 exists (observed as a flaky
+    //       "Lesson 1 should render in the start_date week"). Poll the DB until
+    //       the is_backfill rows exist, so the later week-fetch returns them.
+    await expect
+      .poll(
+        async () => {
+          const { data: g } = await sb
+            .from('curriculum_goals')
+            .select('id')
+            .eq('curriculum_name', curriculumName);
+          const gid = (g ?? [])[0]?.id as string | undefined;
+          if (!gid) return 0;
+          const { data: bf } = await sb
+            .from('lessons')
+            .select('id')
+            .eq('curriculum_goal_id', gid)
+            .eq('is_backfill', true);
+          return (bf ?? []).length;
+        },
+        {
+          timeout: 20_000,
+          message: 'save should generate is_backfill lesson rows server-side before the calendar assertions run',
+        },
+      )
+      .toBeGreaterThan(0);
+
     // ── 9. Navigate back 4 weeks. In Week mode the "Previous month" arrow
     //      slides by 7 days per click; 4 clicks lands us in the week
     //      containing start_date.
@@ -685,6 +745,8 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       // before the next click swaps the date window again.
       await page.waitForTimeout(300);
     }
+    // Let the final week's lesson fetch settle before asserting on its cards.
+    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
 
     // ── 10. Assert "Test Backfill E2E — Lesson 1" appears with ✓ Done.
     //       The WeekListView lesson card wraps a row in a div.rounded-xl
