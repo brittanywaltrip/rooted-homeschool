@@ -514,7 +514,7 @@ export default function YearbookReadPage() {
         <div className="flex flex-col items-center justify-center text-center px-4">
           <span className="text-[48px] font-serif text-[rgba(254, 252, 249, 0.55)] leading-none">&ldquo;</span>
           <p className="italic text-[11px] text-[#5a5048] leading-relaxed max-w-[200px] mt-1 line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
-            Every lesson, every photo, every little moment — Rooted holds onto it all.
+            Every lesson, every photo, every little moment. Rooted holds onto it all.
           </p>
           <div className="w-9 h-px bg-[#ddd5c0] my-4" />
           <div className="space-y-1 text-[10px] text-[#9a8f85]" style={{ lineHeight: 2.0 }}>
@@ -554,7 +554,7 @@ export default function YearbookReadPage() {
             <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
               <span className="text-[36px] mb-3 opacity-50">✉️</span>
               <p className="text-[12px] italic text-[#c4b89a] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-                Your letter will go here —<br />a message to your family, from the heart.
+                Your letter will go here:<br />a message to your family, from the heart.
               </p>
               <Link href="/dashboard/memories/yearbook/edit" className="mt-3 text-[10px] text-[rgba(254, 252, 249, 0.55)] font-medium">
                 Write your letter →
@@ -871,7 +871,7 @@ export default function YearbookReadPage() {
           <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
             <span className="text-[36px] mb-3 opacity-40">👨‍👩‍👧‍👦</span>
             <p className="text-[11px] italic text-[#c4b89a] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
-              Family memories will fill these pages — add memories without choosing a specific child.
+              Family memories will fill these pages. Add memories without choosing a specific child.
             </p>
           </div>
         )}
@@ -1272,7 +1272,7 @@ export default function YearbookReadPage() {
                 ⬇ PDF at rootedhomeschoolapp.com
               </span>
               <p className="text-[10px] text-[#9a8f85] mt-1 max-w-[240px] text-right leading-tight">
-                PDF download for Founding Family — yours to save, print, or share at rootedhomeschoolapp.com.
+                PDF download for Founding Family, yours to save, print, or share at rootedhomeschoolapp.com.
               </p>
             </div>
           ) : (
@@ -1285,7 +1285,7 @@ export default function YearbookReadPage() {
                 ⬇ Download PDF (Founding Family)
               </Link>
               <p className="text-[10px] text-[#9a8f85] mt-1 max-w-[240px] text-right leading-tight">
-                Unlock PDF download with Founding Family — yours to save, print, or share.
+                Unlock PDF download with Founding Family, yours to save, print, or share.
               </p>
             </div>
           )}
