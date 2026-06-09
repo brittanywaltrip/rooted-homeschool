@@ -180,9 +180,25 @@ test.describe('Curriculum CRUD via Schedule Builder', () => {
       archived: false,
     });
 
-    // Navigate to /dashboard/plan and verify the curriculum surfaces.
+    // Verify the curriculum surfaces in the UI. /dashboard/plan has two
+    // surfaces: the week CALENDAR (lessons only — a lesson-less seed never
+    // shows there) and the "Your Year > Curriculum" panel
+    // (CurriculumGroupsPanel), which lists EVERY active goal
+    // (archived=false, completed_at IS NULL) by name regardless of lessons.
+    // The seeded goal renders in that panel within seconds.
+    //
+    // Target the panel's per-goal Edit button by its accessible name
+    // (`aria-label={`Edit ${curriculum_name}`}`): one button per goal, so it's
+    // a single unambiguous match — unlike getByText(subject), which matched
+    // the subject-prefix span AND the name span (strict-mode violation) and
+    // was the actual cause of the prior failure. (We assert here rather than
+    // on the Schedule Builder because the builder renders names as <input>
+    // values, not text, and its client-side goal fetch lags the page paint.)
     await page.goto('/dashboard/plan');
-    await expect(page.getByText(subject, { exact: false })).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByRole('button', { name: `Edit ${subject}` }).first(),
+      'seeded curriculum should appear in the Plan curriculum panel regardless of lessons',
+    ).toBeVisible({ timeout: 15_000 });
 
     // DB-side assertion: archived must be false.
     const { data } = await sb
