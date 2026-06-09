@@ -53,3 +53,28 @@ export type PlanV2Vacation = {
   start_date: string;
   end_date: string;
 };
+
+/* A recurring activity (extracurricular / co-op / lessons-outside-curriculum).
+ *
+ * IMPORTANT day-of-week convention: `days` is stored Mon=0..Sun=6 (the
+ * ActivitySetupModal convention — DAY_LABELS = ["M","T","W","Th","F","Sa","Su"]),
+ * which is NOT the same as JS Date.getDay() (Sun=0..Sat=6). Convert with
+ * `(jsDow + 6) % 7` before comparing. See activityOccurrences.ts and the
+ * Today read-path in app/dashboard/page.tsx, which use the same convention.
+ *
+ * `created_at` is carried because it is the anchor for biweekly cadence —
+ * the Today page anchors "every other week" on created_at, and the calendar
+ * mirrors that so both surfaces agree on which weeks an activity lands. */
+export type PlanV2Activity = {
+  id: string;
+  name: string;
+  emoji: string | null;
+  frequency: "weekly" | "biweekly" | "monthly";
+  days: number[]; // Mon=0..Sun=6 (NOT JS getDay order)
+  start_date: string | null;
+  end_date: string | null;
+  duration_minutes: number | null;
+  child_ids: string[] | null;
+  location: string | null;
+  created_at: string | null;
+};

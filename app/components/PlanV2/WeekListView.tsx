@@ -5,7 +5,8 @@ import { Calendar, GripVertical, MoreVertical, Move, Pencil, Plus, X } from "luc
 import { resolveChildColor } from "./colors";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
-import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
+import type { PlanV2Activity, PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
+import { buildActivitiesByDate } from "./activityOccurrences";
 
 /* WeekListView. Renders all 7 days of the current week (Mon..Sun) expanded
  * vertically. Card visual style matches V1 (light child-color tint, full
@@ -43,6 +44,7 @@ type Props = {
   kids: PlanV2Child[];
   lessons: PlanV2Lesson[];
   appointments: PlanV2Appointment[];
+  activities: PlanV2Activity[];
   vacationBlocks: PlanV2Vacation[];
   curriculumGoals: Goal[];
   loading: boolean;
@@ -55,6 +57,9 @@ type Props = {
   onLessonClick: (lesson: PlanV2Lesson) => void;
   /** Tap an appointment card. Caller opens DayDetailPanel. */
   onAppointmentClick: (appt: PlanV2Appointment) => void;
+  /** Tap an activity card. Caller opens the day detail for that date.
+   *  Optional so legacy callers stay working. */
+  onActivityClick?: (activity: PlanV2Activity, dateStr: string) => void;
   /** Inline action wiring (V2 equivalents of V1's per-card actions). */
   onSkipLesson: (lesson: PlanV2Lesson) => void;
   onRescheduleLesson: (lesson: PlanV2Lesson) => void;
@@ -71,16 +76,20 @@ type Props = {
    *  edit form; Delete fires after the parent confirms. Optional. */
   onEditAppointment?: (appt: PlanV2Appointment) => void;
   onDeleteAppointment?: (appt: PlanV2Appointment) => void;
+  /** "Move to another day" on the appointment kebab. Opens the shared date
+   *  picker seeded with the appointment's current date. Non-recurring only
+   *  (the item is hidden for recurring series). Optional. */
+  onMoveAppointment?: (appt: PlanV2Appointment) => void;
 };
 
 export default function WeekListView(props: Props) {
   const {
-    weekStart, todayStr, kids, lessons, appointments, vacationBlocks,
+    weekStart, todayStr, kids, lessons, appointments, activities, vacationBlocks,
     curriculumGoals, loading, isPartner, editMode,
-    onMoveLesson, onLessonClick, onAppointmentClick,
+    onMoveLesson, onLessonClick, onAppointmentClick, onActivityClick,
     onSkipLesson, onRescheduleLesson, onEditLesson, onToggleLessonDone,
     onAddLessonForDay, onMarkBreakForDay, onDayAdd,
-    onEditAppointment, onDeleteAppointment,
+    onEditAppointment, onDeleteAppointment, onMoveAppointment,
   } = props;
 
   const days = useMemo(() => {
@@ -136,6 +145,11 @@ export default function WeekListView(props: Props) {
     }
     return m;
   }, [appointments]);
+
+  const activitiesByDay = useMemo(
+    () => buildActivitiesByDate(activities, days),
+    [activities, days],
+  );
 
   const childById = useMemo(() => {
     const m = new Map<string, { child: PlanV2Child; index: number }>();
@@ -216,6 +230,7 @@ export default function WeekListView(props: Props) {
           const isToday = key === todayStr;
           const dayLessons = lessonsByDay.get(key) ?? [];
           const dayAppts = apptsByDay.get(key) ?? [];
+          const dayActivities = activitiesByDay.get(key) ?? [];
           const vac = isVacationDay(key);
           const headerColor = isToday ? "#2D5A3D" : "#8B7E74";
           const shortName = DAY_NAMES_FULL[idx].slice(0, 3);
@@ -228,7 +243,7 @@ export default function WeekListView(props: Props) {
           // intentional whitespace rather than a missing block. Today wins
           // over the warm empty-day tint so an idle today still reads as
           // "this is now", not "nothing here."
-          const isEmptyDay = !loading && dayLessons.length === 0 && dayAppts.length === 0 && !vac.vacation;
+          const isEmptyDay = !loading && dayLessons.length === 0 && dayAppts.length === 0 && dayActivities.length === 0 && !vac.vacation;
           const sectionBgClass = isToday
             ? "bg-[#f0f7f2]"
             : isEmptyDay
@@ -284,7 +299,7 @@ export default function WeekListView(props: Props) {
               {/* Lessons + appointments, or vacation marker. Non-vacation
                   empty days render no content (the warm bg above makes
                   the day section visually intentional). */}
-              {!loading && dayLessons.length === 0 && dayAppts.length === 0 ? (
+              {!loading && dayLessons.length === 0 && dayAppts.length === 0 && dayActivities.length === 0 ? (
                 vac.vacation ? (
                   <div className="rounded-xl text-center" style={{ background: "#F8F7F4", border: "1px solid #e5e0d8", padding: 18 }}>
                     <p className="text-sm text-[#7a5000]">🌴 {vac.name ?? "Break"}, enjoy the time off!</p>
@@ -564,7 +579,7 @@ export default function WeekListView(props: Props) {
                             </p>
                           </div>
                         </button>
-                        {!isPartner && (onEditAppointment || onDeleteAppointment) ? (
+                        {!isPartner && (onEditAppointment || onDeleteAppointment || (onMoveAppointment && !a.is_recurring)) ? (
                           <div className="relative shrink-0">
                             <button
                               type="button"
@@ -585,8 +600,21 @@ export default function WeekListView(props: Props) {
                                 />
                                 <div
                                   role="menu"
-                                  className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[140px]"
+                                  className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[170px]"
                                 >
+                                  {/* Recurring series can't move a single
+                                      occurrence (the appointment move writes the
+                                      canonical date); hide the item for them. */}
+                                  {onMoveAppointment && !a.is_recurring ? (
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setApptMenuOpenId(null); onMoveAppointment(a); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <Move size={14} className="text-[#5c7f63]" /> Move to another day
+                                    </button>
+                                  ) : null}
                                   {onEditAppointment ? (
                                     <button
                                       type="button"
@@ -613,6 +641,39 @@ export default function WeekListView(props: Props) {
                           </div>
                         ) : null}
                       </div>
+                    </div>
+                  ))}
+
+                  {/* Activities rendered after appointments. Recurring,
+                      no completion state, so no checkbox — tap opens the
+                      day detail. Green-tinted to match the Month-view pill. */}
+                  {dayActivities.map((act) => (
+                    <div
+                      key={act.id}
+                      className="rounded-xl"
+                      style={{ background: "#f0f4f1", border: "1px solid #c8d9cb" }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => onActivityClick?.(act, key)}
+                        aria-label={`Open ${act.name} details`}
+                        className="w-full text-left flex items-center gap-3 px-3 py-2.5"
+                      >
+                        <span className="text-xl shrink-0">{act.emoji ?? "📝"}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[14px] font-medium break-words text-[#2d2926]">
+                              {act.name}
+                            </span>
+                            <span className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0 bg-[#e2ece4] text-[#3d5c42]">
+                              Activity
+                            </span>
+                          </div>
+                          {act.location ? (
+                            <p className="text-xs text-[#7a6f65] mt-0.5">📍 {act.location}</p>
+                          ) : null}
+                        </div>
+                      </button>
                     </div>
                   ))}
                 </div>

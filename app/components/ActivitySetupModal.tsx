@@ -876,6 +876,13 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
                 </>
               )}
 
+              {/* Warn when a recurring activity has no days picked */}
+              {cfg.frequency !== "once" && cfg.days.length === 0 && (
+                <p className="text-[12px] text-[#b91c1c] text-center">
+                  Please select at least one day.
+                </p>
+              )}
+
               {/* Smart preview */}
               {(cfg.frequency === "once" || cfg.days.length > 0) && (
                 <div className="bg-[#f5f3ef] rounded-xl p-3 mb-5">
@@ -907,7 +914,7 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
                 )}
                 <button
                   onClick={isEdit ? handleSave : nextActivity}
-                  disabled={isEdit && saving}
+                  disabled={(isEdit && saving) || (cfg.frequency !== "once" && cfg.days.length === 0)}
                   className="px-6 py-3 rounded-xl bg-[#2D5A3D] hover:opacity-90 text-white text-sm font-semibold transition-colors disabled:opacity-50"
                 >
                   {isEdit

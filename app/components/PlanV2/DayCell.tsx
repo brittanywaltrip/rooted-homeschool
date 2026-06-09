@@ -7,6 +7,7 @@ import AppointmentPill from "./AppointmentPill";
 import { useLongPress } from "./useLongPress";
 import { DateCircle, InlineLeaf } from "./print-decorations";
 import type {
+  PlanV2Activity,
   PlanV2Appointment,
   PlanV2Child,
   PlanV2Lesson,
@@ -40,6 +41,9 @@ interface Props {
   vacation: PlanV2Vacation | null;
   lessons: PlanV2Lesson[];
   appointments: PlanV2Appointment[];
+  /** Recurring activities that land on this day (already filtered by the
+   *  grid via activityOccurrences). Optional so legacy callers stay valid. */
+  activities?: PlanV2Activity[];
   childrenById: Map<string, { child: PlanV2Child; index: number }>;
   todayStr: string;
   isDragActive?: boolean;
@@ -89,7 +93,7 @@ function sortAppointments(appts: PlanV2Appointment[]): PlanV2Appointment[] {
 export default function DayCell(props: Props) {
   const {
     date, dateStr, isCurrentMonth, isToday, isWeekend, vacation,
-    lessons, appointments, childrenById, todayStr,
+    lessons, appointments, activities = [], childrenById, todayStr,
     isDragActive, recentlyLandedIds, dndEnabled,
     selectMode, selectedIds, moveTargetMode,
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
@@ -117,11 +121,15 @@ export default function DayCell(props: Props) {
   const isPast = dateStr < todayStr;
 
   const sortedAppts = useMemo(() => sortAppointments(appointments), [appointments]);
-  const totalItems = sortedAppts.length + lessons.length;
+  const totalItems = sortedAppts.length + activities.length + lessons.length;
+  // Cap budget fills in reading order: appointments → activities → lessons.
   const visibleAppts = sortedAppts.slice(0, visibleCap);
-  const remainingLessonCap = Math.max(0, visibleCap - visibleAppts.length);
+  const afterApptsCap = Math.max(0, visibleCap - visibleAppts.length);
+  const visibleActivities = activities.slice(0, afterApptsCap);
+  const remainingLessonCap = Math.max(0, afterApptsCap - visibleActivities.length);
   const visibleLessons = lessons.slice(0, remainingLessonCap);
-  const overflowCount = totalItems - visibleAppts.length - visibleLessons.length;
+  const overflowCount =
+    totalItems - visibleAppts.length - visibleActivities.length - visibleLessons.length;
 
   // Droppable registration. Disabled in select mode (drag is suppressed to
   // avoid gesture conflict) and in move-target mode (cell-click is the
@@ -332,6 +340,16 @@ export default function DayCell(props: Props) {
               draggable={dndEnabled !== false && !selectMode}
               onClick={() => onAppointmentClick?.(a)}
             />
+          ))}
+          {visibleActivities.map((act) => (
+            <div
+              key={`act-${act.id}`}
+              title={act.name}
+              className="rounded-lg bg-[#f0f4f1] border border-[#c8d9cb] text-[#3d5c42] text-[11px] px-2 py-0.5 flex items-center gap-1 min-w-0"
+            >
+              <span aria-hidden className="shrink-0 text-[9px]">{act.emoji ?? "📝"}</span>
+              <span className="min-w-0 flex-1 truncate leading-tight">{act.name}</span>
+            </div>
           ))}
           {visibleLessons.map((l) => {
             const meta = l.child_id ? childrenById.get(l.child_id) : undefined;

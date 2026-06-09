@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import type {
+  PlanV2Activity,
   PlanV2Appointment,
   PlanV2Child,
   PlanV2Lesson,
@@ -51,12 +52,16 @@ export type PlanV2Data = {
   lessons: PlanV2Lesson[];
   appointments: PlanV2Appointment[];
   vacationBlocks: PlanV2Vacation[];
+  /** Active recurring activities. Occurrence math (which dates they land on)
+   *  lives in activityOccurrences.ts — this is the raw row set. */
+  activities: PlanV2Activity[];
   loading: boolean;
   reload: () => void;
   /** Exposed so consumers can run optimistic updates via usePlanLessonActions. */
   setLessons: React.Dispatch<React.SetStateAction<PlanV2Lesson[]>>;
   /** Exposed for optimistic appointment toggles (Phase 10 fix). */
   setAppointments: React.Dispatch<React.SetStateAction<PlanV2Appointment[]>>;
+  setActivities: React.Dispatch<React.SetStateAction<PlanV2Activity[]>>;
 };
 
 export function usePlanV2Data(opts: {
@@ -68,6 +73,7 @@ export function usePlanV2Data(opts: {
   const [lessons, setLessons] = useState<PlanV2Lesson[]>([]);
   const [appointments, setAppointments] = useState<PlanV2Appointment[]>([]);
   const [vacationBlocks, setVacationBlocks] = useState<PlanV2Vacation[]>([]);
+  const [activities, setActivities] = useState<PlanV2Activity[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloadNonce, setReloadNonce] = useState(0);
 
@@ -76,7 +82,7 @@ export function usePlanV2Data(opts: {
 
   const load = useCallback(async () => {
     if (!effectiveUserId) {
-      setKids([]); setLessons([]); setAppointments([]); setVacationBlocks([]);
+      setKids([]); setLessons([]); setAppointments([]); setVacationBlocks([]); setActivities([]);
       setLoading(false);
       return;
     }
@@ -138,13 +144,24 @@ export function usePlanV2Data(opts: {
         }).then((r) => (r.ok ? r.json() : []))
       : Promise.resolve([]);
 
+    // Activities aren't date-windowed in the query — recurrence is expanded
+    // client-side over the visible grid (see activityOccurrences.ts), so we
+    // pull every active row once and let the grid decide which dates it lands
+    // on. created_at is the biweekly cadence anchor.
+    const actReq = supabase
+      .from("activities")
+      .select("id, name, emoji, frequency, days, start_date, end_date, duration_minutes, child_ids, location, created_at")
+      .eq("user_id", effectiveUserId)
+      .eq("is_active", true);
+
     try {
-      const [cRes, vRes, lRes, aRes] = await Promise.all([childrenReq, vacReq, lessonReq, apptReq]);
+      const [cRes, vRes, lRes, aRes, actRes] = await Promise.all([childrenReq, vacReq, lessonReq, apptReq, actReq]);
       if (cancelRef.current) return;
       setKids((cRes.data ?? []) as PlanV2Child[]);
       setVacationBlocks((vRes.data ?? []) as PlanV2Vacation[]);
       setLessons((lRes.data ?? []) as unknown as PlanV2Lesson[]);
       setAppointments(Array.isArray(aRes) ? (aRes as PlanV2Appointment[]) : []);
+      setActivities((actRes.data ?? []) as unknown as PlanV2Activity[]);
     } catch {
       /* silent-fail — leave previous data in place */
     } finally {
@@ -165,5 +182,5 @@ export function usePlanV2Data(opts: {
 
   const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 
-  return { kids, lessons, appointments, vacationBlocks, loading, reload, setLessons, setAppointments };
+  return { kids, lessons, appointments, vacationBlocks, activities, loading, reload, setLessons, setAppointments, setActivities };
 }

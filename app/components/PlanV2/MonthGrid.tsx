@@ -3,7 +3,9 @@
 import { useMemo } from "react";
 import DayCell, { CELL_ID_PREFIX } from "./DayCell";
 import { computeGridRange } from "./usePlanV2Data";
+import { buildActivitiesByDate } from "./activityOccurrences";
 import type {
+  PlanV2Activity,
   PlanV2Appointment,
   PlanV2Child,
   PlanV2Lesson,
@@ -34,6 +36,7 @@ interface Props {
   kids: PlanV2Child[];
   lessons: PlanV2Lesson[];
   appointments: PlanV2Appointment[];
+  activities: PlanV2Activity[];
   vacationBlocks: PlanV2Vacation[];
   loading: boolean;
   dndEnabled?: boolean;
@@ -70,7 +73,7 @@ function SkeletonCell() {
 
 export default function MonthGrid(props: Props) {
   const {
-    monthStart, todayStr, kids, lessons, appointments, vacationBlocks,
+    monthStart, todayStr, kids, lessons, appointments, activities, vacationBlocks,
     loading, dndEnabled, isDragActive, recentlyLandedIds,
     selectMode, selectedIds, moveTargetMode,
     focusedDateStr, onFocusedDateChange,
@@ -105,6 +108,12 @@ export default function MonthGrid(props: Props) {
     }
     return { lessonsByDate: lMap, apptsByDate: aMap };
   }, [lessons, appointments]);
+
+  // Expand recurring activities into per-date buckets across the 42-cell grid.
+  const activitiesByDate = useMemo(
+    () => buildActivitiesByDate(activities, cells),
+    [activities, cells],
+  );
 
   // Clamp the focused cell to the 42-cell window. The orchestrator may set
   // a focusedDateStr that falls outside (e.g. in the previous month) after
@@ -218,6 +227,7 @@ export default function MonthGrid(props: Props) {
                   vacation={vac}
                   lessons={lessonsByDate.get(dateStr) ?? []}
                   appointments={apptsByDate.get(dateStr) ?? []}
+                  activities={activitiesByDate.get(dateStr) ?? []}
                   childrenById={childrenById}
                   todayStr={todayStr}
                   dndEnabled={dndEnabled}
