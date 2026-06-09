@@ -758,48 +758,122 @@ export default function PlanV2() {
     if (!effectiveUserId) throw new Error("Not signed in");
     // "Log an extra lesson" mode (from the unified "+" sheet): the row goes
     // in as completed today. Regular "Add lesson" stays incomplete (future-
-    // schedule semantic). Either way, current_lesson is NOT modified — the
-    // queue pointer only advances on check-off. lesson_number is forced
-    // null in extra-completion mode to avoid colliding with the goal's
-    // queue numbering (partial unique index on goal + lesson_number) and
-    // to stop recomputeCurrentLesson from treating an off-queue completion
-    // as a queue advance the next time it runs.
+    // schedule semantic).
+    //
+    // When both curriculum_goal_id and lesson_number are present, a
+    // queue_resync placeholder row may already exist for that pair. A blind
+    // INSERT would fail on the partial unique index on (curriculum_goal_id,
+    // lesson_number). Instead, check first: UPDATE the existing row if found,
+    // INSERT only when no row exists.
     const isExtraCompletion = addLessonAsCompleted;
-    const { data: inserted, error } = await supabase
-      .from("lessons")
-      .insert({
-        user_id: effectiveUserId,
-        child_id: values.child_id,
-        curriculum_goal_id: values.curriculum_goal_id,
-        title: values.title,
-        lesson_number: isExtraCompletion ? null : values.lesson_number,
-        minutes_spent: values.minutes_spent,
-        hours: values.minutes_spent ? values.minutes_spent / 60 : 0,
-        scheduled_date: values.scheduled_date,
-        date: values.scheduled_date,
-        notes: values.notes,
-        completed: isExtraCompletion,
-        completed_at: isExtraCompletion ? new Date().toISOString() : null,
-        // Extra-completion rows ("Log an extra lesson") previously left
-        // scheduled_source / queue_position / is_backfill null, which made
-        // audit queries unable to identify which code path created them
-        // (Drift E on 2026-05-20). Stamp them here so future audits can
-        // attribute these to the unified "+ → Log an extra lesson" path.
-        // The non-extra branch (regular future scheduling) is unchanged.
-        ...(isExtraCompletion
-          ? {
-              scheduled_source: "extra_log",
-              is_backfill: false,
-              queue_position: null,
-            }
-          : {}),
-      })
-      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
-      .single();
-    if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
+    const completedAt = isExtraCompletion ? new Date().toISOString() : null;
+    const hasGoalAndNumber = !!values.curriculum_goal_id && values.lesson_number != null;
 
-    const row = inserted as unknown as PlanV2Lesson;
-    setLessons((prev) => [...prev, row]);
+    let row: PlanV2Lesson;
+    // True when we updated a pre-existing placeholder instead of inserting a
+    // fresh row. Affects the optimistic state update and undo behavior below:
+    // an existing row must be patched in-place (not appended), and undo for an
+    // existing row restores its prior completion state rather than deleting it.
+    let updatedExisting = false;
+
+    if (hasGoalAndNumber) {
+      // Select-then-update/insert to avoid the unique-constraint collision.
+      const { data: existing } = await supabase
+        .from("lessons")
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
+        .eq("curriculum_goal_id", values.curriculum_goal_id!)
+        .eq("lesson_number", values.lesson_number!)
+        .maybeSingle();
+
+      if (existing) {
+        updatedExisting = true;
+        const updatePayload: Record<string, unknown> = {
+          scheduled_date: values.scheduled_date,
+          date: values.scheduled_date,
+          minutes_spent: values.minutes_spent,
+          hours: values.minutes_spent ? values.minutes_spent / 60 : 0,
+          notes: values.notes,
+          completed: isExtraCompletion,
+          completed_at: completedAt,
+        };
+        if (isExtraCompletion) {
+          updatePayload.scheduled_source = "extra_log";
+        }
+        const { error: updErr } = await supabase
+          .from("lessons")
+          .update(updatePayload)
+          .eq("id", (existing as { id: string }).id);
+        if (updErr) throw new Error(updErr.message);
+        row = { ...(existing as unknown as PlanV2Lesson), ...updatePayload } as PlanV2Lesson;
+      } else {
+        const { data: inserted, error } = await supabase
+          .from("lessons")
+          .insert({
+            user_id: effectiveUserId,
+            child_id: values.child_id,
+            curriculum_goal_id: values.curriculum_goal_id,
+            title: values.title,
+            lesson_number: values.lesson_number,
+            minutes_spent: values.minutes_spent,
+            hours: values.minutes_spent ? values.minutes_spent / 60 : 0,
+            scheduled_date: values.scheduled_date,
+            date: values.scheduled_date,
+            notes: values.notes,
+            completed: isExtraCompletion,
+            completed_at: completedAt,
+            ...(isExtraCompletion
+              ? { scheduled_source: "extra_log", is_backfill: false, queue_position: null }
+              : {}),
+          })
+          .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
+          .single();
+        if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
+        row = inserted as unknown as PlanV2Lesson;
+      }
+    } else {
+      // No curriculum+lesson_number pair — safe to INSERT directly.
+      // Extra-completion without a lesson_number uses null to avoid keying
+      // on the queue (off-queue completions don't advance current_lesson).
+      const { data: inserted, error } = await supabase
+        .from("lessons")
+        .insert({
+          user_id: effectiveUserId,
+          child_id: values.child_id,
+          curriculum_goal_id: values.curriculum_goal_id,
+          title: values.title,
+          lesson_number: isExtraCompletion ? null : values.lesson_number,
+          minutes_spent: values.minutes_spent,
+          hours: values.minutes_spent ? values.minutes_spent / 60 : 0,
+          scheduled_date: values.scheduled_date,
+          date: values.scheduled_date,
+          notes: values.notes,
+          completed: isExtraCompletion,
+          completed_at: completedAt,
+          // Extra-completion rows stamp scheduled_source so audit queries can
+          // identify the "+ → Log an extra lesson" path (Drift E 2026-05-20).
+          ...(isExtraCompletion
+            ? { scheduled_source: "extra_log", is_backfill: false, queue_position: null }
+            : {}),
+        })
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
+        .single();
+      if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
+      row = inserted as unknown as PlanV2Lesson;
+    }
+
+    // After completing a lesson tied to a curriculum goal, recompute
+    // current_lesson so the queue pointer reflects the highest completed slot.
+    if (isExtraCompletion && values.curriculum_goal_id) {
+      await recomputeCurrentLesson(supabase, values.curriculum_goal_id);
+    }
+
+    // Optimistic state: patch in-place if we updated a pre-existing row
+    // (appending would create a duplicate in the calendar); append for inserts.
+    if (updatedExisting) {
+      setLessons((prev) => prev.map((l) => l.id === row.id ? row : l));
+    } else {
+      setLessons((prev) => [...prev, row]);
+    }
     hapticTap(20);
 
     recordEvent("lesson.created", {
@@ -813,20 +887,25 @@ export default function PlanV2() {
     const dateLabel = new Date(`${values.scheduled_date}T12:00:00`).toLocaleDateString("en-US", {
       weekday: "short", month: "short", day: "numeric",
     });
-    setUndoAction({
-      message: `Added lesson · ${row.title ?? "Lesson"} on ${dateLabel}`,
-      key: `lesson-add:${row.id}`,
-      onUndo: async () => {
-        setLessons((prev) => prev.filter((l) => l.id !== row.id));
-        hapticTap(20);
-        try {
-          await supabase.from("lessons").delete().eq("id", row.id);
-        } catch {
-          /* best-effort; next reload reconciles */
-        }
-        reload();
-      },
-    });
+    // Only register an undo for freshly inserted rows. For updated placeholders,
+    // deleting the row would destroy pre-existing lesson history; the reload
+    // below reconciles the calendar without an undo entry.
+    if (!updatedExisting) {
+      setUndoAction({
+        message: `Added lesson · ${row.title ?? "Lesson"} on ${dateLabel}`,
+        key: `lesson-add:${row.id}`,
+        onUndo: async () => {
+          setLessons((prev) => prev.filter((l) => l.id !== row.id));
+          hapticTap(20);
+          try {
+            await supabase.from("lessons").delete().eq("id", row.id);
+          } catch {
+            /* best-effort; next reload reconciles */
+          }
+          reload();
+        },
+      });
+    }
 
     reload();
     // Cross-route notification — Today page InlineScheduleTabs + main load
