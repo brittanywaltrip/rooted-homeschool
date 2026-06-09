@@ -28,6 +28,25 @@ function adminClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+// Fetch every row for a column-projected query, paging past PostgREST's
+// default 1000-row cap so a global audit sees the whole table rather than
+// just the first page. `build` receives an inclusive [from, to] range and
+// must apply it via .range(); it returns the standard Supabase result shape.
+async function fetchAllRows<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 // Tear down a curriculum row by subject_label match. Best-effort; leaves
 // the row in place if the admin client isn't configured.
 async function cleanupCurriculumByLabel(label: string) {
@@ -310,10 +329,9 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     // 1. Seed a curriculum goal with 10 incomplete lesson rows
     //    (lesson_number 1..10, queue_position matching, all completed=false).
     //    Row 3 carries a notes value so we can verify the notes carve-out.
-    //    archived=false because the parallel "Data integrity" test asserts
-    //    no archived goal has completed lessons; once the trigger fires
-    //    in step 2, this goal will have completions, so it must not be
-    //    archived during the test window. afterEach deletes it.
+    //    archived=false simply mirrors a freshly created, active goal (the
+    //    Data integrity audit no longer cares about archived+completed — see
+    //    its header for why that pairing is valid). afterEach deletes it.
     const { data: goalRow, error: goalErr } = await sb
       .from('curriculum_goals')
       .insert({
@@ -457,47 +475,66 @@ test.describe('Orphan cleanup on starting-position advance', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bonus: data-integrity audit. Skips cleanly without admin credentials.
+//
+// Invariant: no lesson references a curriculum_goal that no longer exists.
+//
+// Why this and not "no archived goal has completed lessons": an archived goal
+// WITH completed lessons is the *intended* result of the "Mark as finished"
+// action (handleConfirmMarkFinished in app/components/PlanV2/index.tsx). That
+// handler only sets curriculum_goals.archived = true and deliberately leaves
+// every lesson row untouched — completed AND incomplete — so the family's
+// history survives and Transcript (which includes archived goals) can read it.
+// So the old assertion (zero archived goals with completed lessons) contradicted
+// the feature and tripped on real data.
+//
+// Because Mark as finished leaves incomplete lessons too, "no archived goal has
+// incomplete lessons" would be equally wrong. The meaningful invariant is the
+// delete contract: Delete (handleConfirmDeleteGoal) removes the lesson rows AND
+// the goal row together (no FK cascade exists in the schema, so it does both
+// explicitly). If a delete ever removed a goal without its lessons, those rows
+// would dangle — a lesson.curriculum_goal_id pointing at a vanished goal. That
+// true orphan is what this audit guards against. Archived-but-present goals are
+// fine; only a missing goal is a violation.
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe('Data integrity', () => {
-  test('No user has an archived curriculum with completed lessons', async () => {
+  test('No lesson references a curriculum goal that no longer exists (orphans from a bad delete)', async () => {
     const sb = adminClient();
     if (!sb) {
       test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY not set — admin DB checks unavailable.');
       return;
     }
 
-    // Two-step query: pull goal IDs that have completed lessons, then
-    // count how many of those goals are archived.
-    const { data: completedRows, error: e1 } = await sb
-      .from('lessons')
-      .select('curriculum_goal_id')
-      .not('completed_at', 'is', null)
-      .not('curriculum_goal_id', 'is', null);
-    if (e1) throw new Error(`audit query 1 failed: ${e1.message}`);
-
-    const goalIdsWithCompletions = Array.from(
+    // 1. Distinct curriculum_goal_id referenced by any lesson row. Paged so
+    //    the audit covers every lesson, not just PostgREST's first 1000.
+    const lessonGoalRows = await fetchAllRows<{ curriculum_goal_id: string | null }>(
+      (from, to) =>
+        sb
+          .from('lessons')
+          .select('curriculum_goal_id')
+          .not('curriculum_goal_id', 'is', null)
+          .range(from, to),
+    );
+    const referencedGoalIds = Array.from(
       new Set(
-        (completedRows ?? [])
-          .map((r) => (r as { curriculum_goal_id: string | null }).curriculum_goal_id)
+        lessonGoalRows
+          .map((r) => r.curriculum_goal_id)
           .filter((v): v is string => !!v),
       ),
     );
-    if (goalIdsWithCompletions.length === 0) return;
+    if (referencedGoalIds.length === 0) return;
 
-    const { data: archivedRows, error: e2 } = await sb
-      .from('curriculum_goals')
-      .select('id, curriculum_name, archived')
-      .in('id', goalIdsWithCompletions)
-      .eq('archived', true);
-    if (e2) throw new Error(`audit query 2 failed: ${e2.message}`);
+    // 2. The full set of goal ids that actually exist (also paged).
+    const existingGoalRows = await fetchAllRows<{ id: string }>(
+      (from, to) => sb.from('curriculum_goals').select('id').range(from, to),
+    );
+    const existingGoalIds = new Set(existingGoalRows.map((r) => r.id));
 
-    const offenders = (archivedRows ?? []) as { id: string; curriculum_name: string }[];
+    // 3. Any referenced goal id with no matching goal row is an orphan.
+    const orphanGoalIds = referencedGoalIds.filter((id) => !existingGoalIds.has(id));
     expect(
-      offenders.length,
-      `${offenders.length} archived curriculum goal(s) still have completed lessons. IDs: ${offenders
-        .map((o) => `${o.id} (${o.curriculum_name})`)
-        .join(', ')}`,
+      orphanGoalIds.length,
+      `${orphanGoalIds.length} curriculum_goal_id value(s) on lessons point to a goal that no longer exists (orphans from a delete that removed the goal but not its lessons). Goal IDs: ${orphanGoalIds.join(', ')}`,
     ).toBe(0);
   });
 });
