@@ -1276,7 +1276,7 @@ function HomeInner() {
                   alt="Get it on Google Play"
                   height={36}
                   width={120}
-                  style={{ height: '53px', width: 'auto' }}
+                  style={{ height: '44px', width: 'auto' }}
                 />
               </a>
             </div>
