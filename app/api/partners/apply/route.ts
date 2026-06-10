@@ -8,11 +8,11 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-async function sendEmail(to: string, subject: string, text: string, html?: string) {
+async function sendEmail(to: string, subject: string, text: string, html?: string, from = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>') {
   const { Resend } = await import('resend')
   const resend = new Resend(process.env.RESEND_API_KEY)
   const payload: { from: string; to: string; subject: string; text: string; html?: string } = {
-    from: 'Brittany from Rooted <hello@rootedhomeschoolapp.com>',
+    from,
     to, subject,
     text: text + emailFooterText(),
   }
@@ -123,6 +123,8 @@ Review this application: https://www.rootedhomeschoolapp.com/admin/partners
       'hello@rootedhomeschoolapp.com',
       `\uD83C\uDF31 New partner application \u2014 ${firstName} ${lastName}`,
       adminEmailBody,
+      undefined,
+      'Rooted Notifications <notifications@rootedhomeschoolapp.com>',
     )
 
     return NextResponse.json({ success: true })
