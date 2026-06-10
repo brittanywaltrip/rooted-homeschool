@@ -55,6 +55,10 @@ interface Application {
   audience_size: string | null; why_rooted: string | null;
   about_journey: string | null; status: string;
   created_at: string; notes: string | null;
+  payment_method: string | null;
+  platforms: string[] | null;
+  platform_sizes: Record<string, string> | null;
+  used_rooted: string | null;
 }
 
 interface EditDraft { contact_email: string; paypal_email: string; notes: string; }
@@ -431,7 +435,12 @@ export default function AdminPartnersPage() {
                       </div>
                       {/* Quick details row */}
                       <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-                        {app.social_handle && <Detail label="Social" value={app.social_handle} />}
+                        {app.social_handle && (
+                          <span className="text-[11px] text-[#7a6f65]">
+                            <span className="text-[#b5aca4]">Social:</span>{" "}
+                            <InstagramLink handle={app.social_handle} onClick={(e) => e.stopPropagation()} />
+                          </span>
+                        )}
                         {app.audience_size && <Detail label="Audience" value={app.audience_size} />}
                         <Detail label="Rooted account" value={app.rooted_account_email || (app.has_rooted_account ? "Yes" : "No")} />
                       </div>
@@ -439,12 +448,43 @@ export default function AdminPartnersPage() {
 
                     {isExpanded && (
                       <div className="border-t border-[#e8e2d9] px-4 py-4 bg-[#faf8f4] space-y-4">
+                        {app.social_handle && (
+                          <AppField label="Instagram">
+                            <InstagramLink handle={app.social_handle} />
+                          </AppField>
+                        )}
+                        {app.audience_size && (
+                          <AppField label="Audience Size">{app.audience_size}</AppField>
+                        )}
+                        {app.platforms && app.platforms.length > 0 && (
+                          <AppField label="Platforms">{app.platforms.join(", ")}</AppField>
+                        )}
+                        {app.platform_sizes && Object.keys(app.platform_sizes).length > 0 && (
+                          <AppField label="Per Platform">
+                            <div className="space-y-0.5">
+                              {Object.entries(app.platform_sizes).map(([k, v]) => (
+                                <p key={k}>{k}: {v}</p>
+                              ))}
+                            </div>
+                          </AppField>
+                        )}
+                        {app.used_rooted && (
+                          <AppField label="Used Rooted">{app.used_rooted}</AppField>
+                        )}
                         <div>
                           <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Why they want to partner</p>
                           <p className="text-sm text-[#2d2926] leading-relaxed bg-white border border-[#e8e2d9] rounded-lg px-4 py-3">
                             {app.why_rooted || app.about_journey || "No response"}
                           </p>
                         </div>
+                        {app.about_journey && (
+                          <AppField label="About their journey">
+                            <p className="leading-relaxed bg-white border border-[#e8e2d9] rounded-lg px-4 py-3">{app.about_journey}</p>
+                          </AppField>
+                        )}
+                        {app.payment_method && (
+                          <p className="text-xs text-[#7a6f65]">Payment Method: <span className="text-[#2d2926] font-medium">{app.payment_method}</span></p>
+                        )}
                         {app.paypal_email && (
                           <p className="text-xs text-[#7a6f65]">PayPal: <span className="text-[#2d2926] font-medium">{app.paypal_email}</span></p>
                         )}
@@ -1013,6 +1053,39 @@ function Detail({ label, value }: { label: string; value: string }) {
     <span className="text-[11px] text-[#7a6f65]">
       <span className="text-[#b5aca4]">{label}:</span> {value}
     </span>
+  );
+}
+
+// Normalize a social handle (strip a leading @) for use in an Instagram URL.
+function igHandle(raw: string): string {
+  return raw.replace(/^@+/, "").trim();
+}
+
+// Render a social handle as an @-prefixed clickable Instagram link that opens
+// in a new tab. onClick is passed through so callers inside a clickable card
+// header can stopPropagation and avoid toggling the card.
+function InstagramLink({ handle, onClick }: { handle: string; onClick?: (e: React.MouseEvent) => void }) {
+  return (
+    <a
+      href={`https://instagram.com/${igHandle(handle)}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={onClick}
+      className="text-[#5c7f63] hover:underline"
+    >
+      @{igHandle(handle)}
+    </a>
+  );
+}
+
+// A labeled field for the expanded application card — small uppercase label
+// above the value, matching the existing card detail style.
+function AppField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">{label}</p>
+      <div className="text-sm text-[#2d2926]">{children}</div>
+    </div>
   );
 }
 
