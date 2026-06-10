@@ -495,7 +495,7 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
               </div>
 
               <p className="text-xs text-[#8B7E74] mt-2 px-1">
-                Logging a field trip? Use <strong>Capture a Memory</strong> for one-time activities like field trips — you can log hours there too!
+                Logging a field trip? Use <strong>Capture a Memory</strong> for one-time activities like field trips, you can log hours there too!
               </p>
 
               {/* Custom activity cards already selected */}

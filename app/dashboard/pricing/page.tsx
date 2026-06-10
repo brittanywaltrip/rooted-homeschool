@@ -18,7 +18,7 @@ const features: FeatureRow[] = [
   { label: "Scheduling & appointments",      free: "✓",              pro: "✓" },
   { label: "Memories (books, wins, etc.)",   free: "✓",              pro: "✓" },
   { label: "Photos",                         free: "Up to 50",       pro: "✓ Unlimited" },
-  { label: "Yearbook",                       free: "Preview",        pro: "✓ Full — no watermark" },
+  { label: "Yearbook",                       free: "Preview",        pro: "✓ Full, no watermark" },
   { label: "Transcript builder",             free: "Preview",        pro: "✓ Full + export" },
   { label: "Hours & Attendance",             free: "View only",      pro: "✓ + PDF export" },
   { label: "PDF exports (transcripts, hours, reports)", free: "—",   pro: "✓" },
@@ -107,7 +107,7 @@ export default function DashboardPricingPage() {
           )}
           <div className="mb-4">
             <p className="text-base font-bold text-[#2d2926] mb-1">Rooted</p>
-            <p className="text-xs text-[#7a6f65] leading-relaxed">Lesson logging, garden, reports, and unlimited children — free forever.</p>
+            <p className="text-xs text-[#7a6f65] leading-relaxed">Lesson logging, garden, reports, and unlimited children, free forever.</p>
           </div>
           <div className="mb-5">
             <span className="text-3xl font-bold text-[#2d2926]">$0</span>
@@ -195,7 +195,7 @@ export default function DashboardPricingPage() {
         {/* Monthly — hidden during Founding Family window */}
         {false && <div className="relative bg-[#fefcf9] border-2 border-[#e8e2d9] rounded-2xl p-5 flex flex-col">
           <p className="text-base font-bold text-[#2d2926] mb-1">Rooted+ Monthly</p>
-          <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Most flexible — cancel anytime</p>
+          <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Most flexible, cancel anytime</p>
           <div className="mb-5">
             <span className="text-3xl font-bold text-[#2d2926]">$6.99</span>
             <span className="text-sm text-[#7a6f65]">/mo</span>
@@ -223,7 +223,7 @@ export default function DashboardPricingPage() {
                 href="/upgrade"
                 className="block w-full text-center py-2.5 rounded-xl border border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8] text-xs font-bold transition-colors"
               >
-                Subscribe — $6.99/mo →
+                Subscribe, $6.99/mo →
               </Link>
             )}
           </div>

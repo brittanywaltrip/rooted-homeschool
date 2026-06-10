@@ -28,6 +28,25 @@ function adminClient() {
   return createClient(url, key, { auth: { persistSession: false } });
 }
 
+// Fetch every row for a column-projected query, paging past PostgREST's
+// default 1000-row cap so a global audit sees the whole table rather than
+// just the first page. `build` receives an inclusive [from, to] range and
+// must apply it via .range(); it returns the standard Supabase result shape.
+async function fetchAllRows<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const PAGE = 1000;
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const rows = data ?? [];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 // Tear down a curriculum row by subject_label match. Best-effort; leaves
 // the row in place if the admin client isn't configured.
 async function cleanupCurriculumByLabel(label: string) {
@@ -91,8 +110,20 @@ async function resolveTestUserAndFirstChild(): Promise<{ userId: string; childId
 // Schedule Builder is a two-step flow: click "Preview schedule →" first,
 // then "Save & build schedule" on the preview screen. Wraps both clicks +
 // waits for the post-save state so callers can assume the save has landed.
+//
+// The Preview button is disabled until EVERY row passes rowIsValid (child_id
+// set, non-empty name, a day with per_day_counts > 0, and for curriculum rows
+// total_lessons > 0 and start_at_lesson >= 1) AND at least one editable row
+// exists (schedule/page.tsx: disabled={!allValid || !anyEditableRow}). We
+// assert it's enabled first so a row left invalid by the test fails loudly
+// here with an actionable message, instead of timing out on a disabled click.
 async function previewAndSave(page: import('@playwright/test').Page) {
-  await page.getByRole('button', { name: /preview schedule/i }).first().click();
+  const previewBtn = page.getByRole('button', { name: /preview schedule/i }).first();
+  await expect(
+    previewBtn,
+    'Preview button never enabled — a row failed rowIsValid. Check the row being filled actually received child_id, name, a producing day, total_lessons>0, and start_at_lesson>=1 (and that .fill() targeted the new row, not another child\'s row).',
+  ).toBeEnabled({ timeout: 10_000 });
+  await previewBtn.click();
   const saveBtn = page.getByRole('button', { name: /save & build schedule/i }).first();
   await saveBtn.click();
   // Saving... → some success state. Wait for the button to either disappear
@@ -149,9 +180,25 @@ test.describe('Curriculum CRUD via Schedule Builder', () => {
       archived: false,
     });
 
-    // Navigate to /dashboard/plan and verify the curriculum surfaces.
+    // Verify the curriculum surfaces in the UI. /dashboard/plan has two
+    // surfaces: the week CALENDAR (lessons only — a lesson-less seed never
+    // shows there) and the "Your Year > Curriculum" panel
+    // (CurriculumGroupsPanel), which lists EVERY active goal
+    // (archived=false, completed_at IS NULL) by name regardless of lessons.
+    // The seeded goal renders in that panel within seconds.
+    //
+    // Target the panel's per-goal Edit button by its accessible name
+    // (`aria-label={`Edit ${curriculum_name}`}`): one button per goal, so it's
+    // a single unambiguous match — unlike getByText(subject), which matched
+    // the subject-prefix span AND the name span (strict-mode violation) and
+    // was the actual cause of the prior failure. (We assert here rather than
+    // on the Schedule Builder because the builder renders names as <input>
+    // values, not text, and its client-side goal fetch lags the page paint.)
     await page.goto('/dashboard/plan');
-    await expect(page.getByText(subject, { exact: false })).toBeVisible({ timeout: 15_000 });
+    await expect(
+      page.getByRole('button', { name: `Edit ${subject}` }).first(),
+      'seeded curriculum should appear in the Plan curriculum panel regardless of lessons',
+    ).toBeVisible({ timeout: 15_000 });
 
     // DB-side assertion: archived must be false.
     const { data } = await sb
@@ -310,10 +357,9 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     // 1. Seed a curriculum goal with 10 incomplete lesson rows
     //    (lesson_number 1..10, queue_position matching, all completed=false).
     //    Row 3 carries a notes value so we can verify the notes carve-out.
-    //    archived=false because the parallel "Data integrity" test asserts
-    //    no archived goal has completed lessons; once the trigger fires
-    //    in step 2, this goal will have completions, so it must not be
-    //    archived during the test window. afterEach deletes it.
+    //    archived=false simply mirrors a freshly created, active goal (the
+    //    Data integrity audit no longer cares about archived+completed — see
+    //    its header for why that pairing is valid). afterEach deletes it.
     const { data: goalRow, error: goalErr } = await sb
       .from('curriculum_goals')
       .insert({
@@ -457,47 +503,66 @@ test.describe('Orphan cleanup on starting-position advance', () => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bonus: data-integrity audit. Skips cleanly without admin credentials.
+//
+// Invariant: no lesson references a curriculum_goal that no longer exists.
+//
+// Why this and not "no archived goal has completed lessons": an archived goal
+// WITH completed lessons is the *intended* result of the "Mark as finished"
+// action (handleConfirmMarkFinished in app/components/PlanV2/index.tsx). That
+// handler only sets curriculum_goals.archived = true and deliberately leaves
+// every lesson row untouched — completed AND incomplete — so the family's
+// history survives and Transcript (which includes archived goals) can read it.
+// So the old assertion (zero archived goals with completed lessons) contradicted
+// the feature and tripped on real data.
+//
+// Because Mark as finished leaves incomplete lessons too, "no archived goal has
+// incomplete lessons" would be equally wrong. The meaningful invariant is the
+// delete contract: Delete (handleConfirmDeleteGoal) removes the lesson rows AND
+// the goal row together (no FK cascade exists in the schema, so it does both
+// explicitly). If a delete ever removed a goal without its lessons, those rows
+// would dangle — a lesson.curriculum_goal_id pointing at a vanished goal. That
+// true orphan is what this audit guards against. Archived-but-present goals are
+// fine; only a missing goal is a violation.
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe('Data integrity', () => {
-  test('No user has an archived curriculum with completed lessons', async () => {
+  test('No lesson references a curriculum goal that no longer exists (orphans from a bad delete)', async () => {
     const sb = adminClient();
     if (!sb) {
       test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY not set — admin DB checks unavailable.');
       return;
     }
 
-    // Two-step query: pull goal IDs that have completed lessons, then
-    // count how many of those goals are archived.
-    const { data: completedRows, error: e1 } = await sb
-      .from('lessons')
-      .select('curriculum_goal_id')
-      .not('completed_at', 'is', null)
-      .not('curriculum_goal_id', 'is', null);
-    if (e1) throw new Error(`audit query 1 failed: ${e1.message}`);
-
-    const goalIdsWithCompletions = Array.from(
+    // 1. Distinct curriculum_goal_id referenced by any lesson row. Paged so
+    //    the audit covers every lesson, not just PostgREST's first 1000.
+    const lessonGoalRows = await fetchAllRows<{ curriculum_goal_id: string | null }>(
+      (from, to) =>
+        sb
+          .from('lessons')
+          .select('curriculum_goal_id')
+          .not('curriculum_goal_id', 'is', null)
+          .range(from, to),
+    );
+    const referencedGoalIds = Array.from(
       new Set(
-        (completedRows ?? [])
-          .map((r) => (r as { curriculum_goal_id: string | null }).curriculum_goal_id)
+        lessonGoalRows
+          .map((r) => r.curriculum_goal_id)
           .filter((v): v is string => !!v),
       ),
     );
-    if (goalIdsWithCompletions.length === 0) return;
+    if (referencedGoalIds.length === 0) return;
 
-    const { data: archivedRows, error: e2 } = await sb
-      .from('curriculum_goals')
-      .select('id, curriculum_name, archived')
-      .in('id', goalIdsWithCompletions)
-      .eq('archived', true);
-    if (e2) throw new Error(`audit query 2 failed: ${e2.message}`);
+    // 2. The full set of goal ids that actually exist (also paged).
+    const existingGoalRows = await fetchAllRows<{ id: string }>(
+      (from, to) => sb.from('curriculum_goals').select('id').range(from, to),
+    );
+    const existingGoalIds = new Set(existingGoalRows.map((r) => r.id));
 
-    const offenders = (archivedRows ?? []) as { id: string; curriculum_name: string }[];
+    // 3. Any referenced goal id with no matching goal row is an orphan.
+    const orphanGoalIds = referencedGoalIds.filter((id) => !existingGoalIds.has(id));
     expect(
-      offenders.length,
-      `${offenders.length} archived curriculum goal(s) still have completed lessons. IDs: ${offenders
-        .map((o) => `${o.id} (${o.curriculum_name})`)
-        .join(', ')}`,
+      orphanGoalIds.length,
+      `${orphanGoalIds.length} curriculum_goal_id value(s) on lessons point to a goal that no longer exists (orphans from a delete that removed the goal but not its lessons). Goal IDs: ${orphanGoalIds.join(', ')}`,
     ).toBe(0);
   });
 });
@@ -539,6 +604,15 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
   });
 
   test('Past start_date populates is_backfill rows on the Plan calendar', async ({ page }) => {
+    // This is the heaviest smoke test: it drives the Schedule Builder, runs a
+    // backfill save that generates + inserts ~30 lessons, recomputes, and runs
+    // an overcapacity check, then navigates the Plan calendar across weeks. On a
+    // cold/contended staging serverless start that whole flow regularly exceeds
+    // the default 30s per-test budget (the save alone can take 60s+), so give it
+    // a generous timeout. Without this, the per-test timeout fires before the
+    // post-save assertions can resolve, masking a passing flow as a failure.
+    test.setTimeout(150_000);
+
     const sb = adminClient();
     if (!sb) {
       test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY not set; backfill cleanup unavailable.');
@@ -554,11 +628,15 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       return;
     }
 
-    const curriculumName = 'Test Backfill E2E';
+    // Unique per run so the save's duplicate-name guard (same name + subject +
+    // child) can never collide with a leftover row from a crashed/overlapping
+    // run — which surfaced as "Save failed: ... already exists" and a stuck
+    // Preview screen. afterEach cleans up by the exact name we record here.
+    const curriculumName = `Test Backfill E2E ${STAMP()}`;
     createdCurriculumNames.push(curriculumName);
 
-    // Pre-clean any leftovers from a prior failed run so the curriculum name
-    // is unique when we look it up later.
+    // Defensive pre-clean of this run's (unique) name, in case the same stamp
+    // is ever replayed. Normally a no-op given the timestamp suffix.
     await sb.from('lessons').delete().in(
       'curriculum_goal_id',
       ((await sb
@@ -575,17 +653,32 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       page.getByRole('heading', { name: /Your Schedule/i }).first(),
     ).toBeVisible({ timeout: 15_000 });
 
-    // ── 2. Click "+ Add curriculum" under the first child block ─────────────
+    // ── 2. Add a curriculum row under the FIRST child, and scope every field
+    //      lookup to that child's card.
+    //
+    //      The builder renders one card per child (schedule/page.tsx
+    //      children.map → a bordered div per child, each with its own rows and
+    //      its own "+ Add curriculum" button; addRow appends the new row to the
+    //      clicked child's section). A page-wide `.last()` selector therefore
+    //      targets the LAST child's existing curriculum row on a multi-child
+    //      account — not the row we just added — so the real new row stays
+    //      blank (name="", total_lessons=null), fails rowIsValid, and leaves
+    //      the Preview button disabled. We scope to the first child's card (the
+    //      add button's nearest rounded-2xl ancestor, robust against any outer
+    //      wrapper) and use `.last()` WITHIN it to hit the freshly appended row.
     const addCurriculumBtn = page.getByRole('button', { name: /\+ Add curriculum/i }).first();
     await expect(addCurriculumBtn).toBeVisible({ timeout: 10_000 });
+    const firstChildCard = addCurriculumBtn.locator(
+      'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " rounded-2xl ")][1]',
+    );
     await addCurriculumBtn.click();
 
-    // ── 3. Fill name + subject. Use last() so we target the row we just
-    //      added even if the account already has existing curriculum rows.
-    const nameInput = page.locator('input[placeholder^="e.g. The Good and the Beautiful"]').last();
+    // ── 3. Fill name + subject on the row we just appended (last row WITHIN
+    //      the first child's card).
+    const nameInput = firstChildCard.locator('input[placeholder^="e.g. The Good and the Beautiful"]').last();
     await nameInput.fill(curriculumName);
 
-    const subjectInput = page.locator('input[placeholder="Subject (e.g. Math)"]').last();
+    const subjectInput = firstChildCard.locator('input[placeholder="Subject (e.g. Math)"]').last();
     await subjectInput.fill('Math');
 
     // ── 4. Days M-F + 1 lesson/day are the row's default state; no extra
@@ -595,7 +688,7 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
 
     // ── 5. Set Total lessons = 30. The label is "Total lessons" (small-caps
     //      via CSS); the underlying input carries placeholder "e.g. 120".
-    const totalInput = page.locator('input[placeholder="e.g. 120"]').last();
+    const totalInput = firstChildCard.locator('input[placeholder="e.g. 120"]').last();
     await totalInput.fill('30');
 
     // ── 6. Set Start date = today - 28 days. The user prompt specified
@@ -610,7 +703,7 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       `${String(fourWeeksAgo.getMonth() + 1).padStart(2, '0')}-` +
       `${String(fourWeeksAgo.getDate()).padStart(2, '0')}`;
 
-    const startDateInput = page.locator('input[type="date"]').last();
+    const startDateInput = firstChildCard.locator('input[type="date"]').last();
     await startDateInput.fill(startDateStr);
     // Blur so the onChange-driven auto-fill of start_at_lesson settles before
     // we read the counter.
@@ -621,7 +714,7 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     //      and "One more completed lesson"; the count sits between them in
     //      a <span> with aria-label-less text. The banner only renders for
     //      past start_dates with total_lessons > 0.
-    const moreCompletedBtn = page.getByRole('button', { name: 'One more completed lesson' }).last();
+    const moreCompletedBtn = firstChildCard.getByRole('button', { name: 'One more completed lesson' }).last();
     await expect(moreCompletedBtn, 'past start_date should expose the "Already completed" stepper').toBeVisible({ timeout: 10_000 });
     const countSpan = moreCompletedBtn.locator('xpath=preceding-sibling::span[1]');
     const countText = (await countSpan.textContent())?.trim() ?? '';
@@ -631,11 +724,46 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     //      save settle wait.
     await previewAndSave(page);
 
-    // Save returns to /dashboard/plan. Wait for the Plan header to render.
-    await expect(page).toHaveURL(/\/dashboard\/plan(\?|$|\/)/, { timeout: 20_000 });
+    // Wait for the Plan page to render after save. The heavy backfill save
+    // (generate + insert ~30 lessons, recompute, overcapacity check) can take a
+    // while on a cold/contended serverless start. We key off the Plan page's
+    // own h1 ("Plan") rather than the URL: the post-save soft navigation renders
+    // the Plan content while page.url() can still briefly report the builder
+    // path (/dashboard/plan/schedule), so a strict URL assertion flakes even
+    // though the page has navigated. The heading is the reliable "save landed"
+    // signal — the builder's h1 is "Your Schedule", so it can't false-match.
     await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({
-      timeout: 20_000,
+      timeout: 90_000,
     });
+
+    // ── 8b. Wait for the save's server-side lesson generation to land before
+    //       hunting for the backfilled cards in the UI. Save kicks off backfill
+    //       row generation asynchronously; if the calendar assertions race it,
+    //       the week renders before Lesson 1 exists (observed as a flaky
+    //       "Lesson 1 should render in the start_date week"). Poll the DB until
+    //       the is_backfill rows exist, so the later week-fetch returns them.
+    await expect
+      .poll(
+        async () => {
+          const { data: g } = await sb
+            .from('curriculum_goals')
+            .select('id')
+            .eq('curriculum_name', curriculumName);
+          const gid = (g ?? [])[0]?.id as string | undefined;
+          if (!gid) return 0;
+          const { data: bf } = await sb
+            .from('lessons')
+            .select('id')
+            .eq('curriculum_goal_id', gid)
+            .eq('is_backfill', true);
+          return (bf ?? []).length;
+        },
+        {
+          timeout: 20_000,
+          message: 'save should generate is_backfill lesson rows server-side before the calendar assertions run',
+        },
+      )
+      .toBeGreaterThan(0);
 
     // ── 9. Navigate back 4 weeks. In Week mode the "Previous month" arrow
     //      slides by 7 days per click; 4 clicks lands us in the week
@@ -648,6 +776,8 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       // before the next click swaps the date window again.
       await page.waitForTimeout(300);
     }
+    // Let the final week's lesson fetch settle before asserting on its cards.
+    await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
 
     // ── 10. Assert "Test Backfill E2E — Lesson 1" appears with ✓ Done.
     //       The WeekListView lesson card wraps a row in a div.rounded-xl

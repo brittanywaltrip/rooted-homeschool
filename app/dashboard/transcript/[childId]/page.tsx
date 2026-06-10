@@ -246,7 +246,7 @@ export default function TranscriptBuilderPage() {
     for (const year of gradedSortedYears) {
       const yc = gradedByYear[year];
       const gradeLevel = yc.find((c: Course) => c.grade_level)?.grade_level;
-      const yearLabel = year + (gradeLevel ? ` — Grade ${gradeLevel}` : "");
+      const yearLabel = year + (gradeLevel ? `, Grade ${gradeLevel}` : "");
 
       // Check if we need a new page (header + at least 2 rows)
       checkPage(rowH * (yc.length + 3));
@@ -942,7 +942,7 @@ export default function TranscriptBuilderPage() {
               <div className="flex items-center justify-between py-3 border-t border-[#e8e2d9]">
                 <div>
                   <p className="text-[13px] font-medium text-[#3c3a37]">Include notary block</p>
-                  <p className="text-[11px] text-[#8a8580]">Adds a notary certification section to the PDF — useful for college applications</p>
+                  <p className="text-[11px] text-[#8a8580]">Adds a notary certification section to the PDF, useful for college applications</p>
                 </div>
                 <button
                   type="button"
@@ -961,7 +961,7 @@ export default function TranscriptBuilderPage() {
               <div className="flex items-center justify-between py-3 border-t border-[#e8e2d9]">
                 <div>
                   <p className="text-[13px] font-medium text-[#3c3a37]">Show institution on every course</p>
-                  <p className="text-[11px] text-[#8a8580]">Helpful for transcripts with mixed home and outside courses — labels every row instead of only exceptions.</p>
+                  <p className="text-[11px] text-[#8a8580]">Helpful for transcripts with mixed home and outside courses, labels every row instead of only exceptions.</p>
                 </div>
                 <button
                   type="button"
@@ -1239,7 +1239,7 @@ export default function TranscriptBuilderPage() {
                       const gradeLevel = yc.find(c => c.grade_level)?.grade_level;
                       return (
                         <div key={year} className="mb-4">
-                          <p className="text-[13px] font-bold text-[#2D5A3D] mb-1.5">{year}{gradeLevel ? ` — Grade ${gradeLevel}` : ""}</p>
+                          <p className="text-[13px] font-bold text-[#2D5A3D] mb-1.5">{year}{gradeLevel ? `, Grade ${gradeLevel}` : ""}</p>
                           <div className="rounded-lg border border-[#f0ece6] overflow-hidden text-[12px]">
                             <div className="grid grid-cols-12 gap-1 px-3 py-1.5 bg-[#faf8f4] font-medium text-[#8a8580]">
                               <span className="col-span-5">Course</span>
@@ -1322,7 +1322,7 @@ export default function TranscriptBuilderPage() {
 
                   {inProgressCount > 0 && (
                     <div className="mt-3 px-4 py-2.5 rounded-xl bg-[#fef9ec] border border-[#f5ecd0] text-[12px] text-[#8a7a50]">
-                      {inProgressCount} course{inProgressCount === 1 ? "" : "s"} in progress — {inProgressCount === 1 ? "it" : "they"}&apos;ll appear here once graded.
+                      {inProgressCount} course{inProgressCount === 1 ? "" : "s"} in progress, {inProgressCount === 1 ? "it" : "they"}&apos;ll appear here once graded.
                     </div>
                   )}
 
@@ -1368,7 +1368,7 @@ export default function TranscriptBuilderPage() {
                 <div>
                   <label className="text-[12px] font-medium text-[#6b6560] block mb-1">Institution</label>
                   <input type="text" list="institution-suggestions" value={form.external_provider || ""} onChange={e => updateForm("external_provider", e.target.value)}
-                    placeholder="e.g. Riverside High School — leave blank if home school"
+                    placeholder="e.g. Riverside High School, leave blank if home school"
                     className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]" />
                   <datalist id="institution-suggestions">
                     {pastProviders.map((p) => <option key={p} value={p} />)}
@@ -1467,7 +1467,7 @@ export default function TranscriptBuilderPage() {
                 <div>
                   <label className="text-[12px] font-medium text-[#6b6560] block mb-1">Course description</label>
                   <textarea value={form.course_description || ""} onChange={e => updateForm("course_description", e.target.value)}
-                    placeholder="Optional — helpful for college applications"
+                    placeholder="Optional, helpful for college applications"
                     rows={2}
                     className="w-full px-3 py-2 rounded-lg border border-[#e8e2d9] text-[14px] text-[#3c3a37] bg-white resize-none focus:outline-none focus:ring-2 focus:ring-[#2D5A3D]/20 focus:border-[#2D5A3D]" />
                 </div>

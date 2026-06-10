@@ -89,7 +89,7 @@ export default function CompletionConfetti({
           marginTop: "4px",
         }}
       >
-        {curriculumName} — complete
+        {curriculumName}, complete
       </div>
     </div>
   );

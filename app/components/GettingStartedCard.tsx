@@ -33,7 +33,7 @@ export default function GettingStartedCard({
           🌿 Welcome to Rooted{firstName ? `, ${firstName}` : ""}
         </div>
         <p className="text-sm sm:text-base" style={{ color: "#4b5a4f", lineHeight: 1.55 }}>
-          You've got the basics set up. Two more and you'll see how Rooted actually works —
+          You've got the basics set up. Two more and you'll see how Rooted actually works:
         </p>
       </div>
 
@@ -89,7 +89,7 @@ export default function GettingStartedCard({
               </span>
               {!hasMemory && (
                 <span className="block text-xs mt-0.5" style={{ color: "#87927c" }}>
-                  a photo, a quote, a win — takes 10 seconds
+                  a photo, a quote, a win, takes 10 seconds
                 </span>
               )}
             </span>
@@ -99,7 +99,7 @@ export default function GettingStartedCard({
       </ul>
 
       <p className="text-xs mt-4" style={{ color: "#87927c", fontStyle: "italic" }}>
-        {stepsDone}/4 done — take your time 🌱 Once both actions are done, everything else falls into place.
+        {stepsDone}/4 done, take your time 🌱 Once both actions are done, everything else falls into place.
       </p>
     </div>
   );

@@ -158,7 +158,7 @@ export default function YearPlannerPage() {
   }, [toggles, togglesLoaded]);
 
   useEffect(() => {
-    document.title = "Year Planner — Rooted";
+    document.title = "Year Planner, Rooted";
   }, []);
 
   // ── Profile + children (one-time, not year-dependent) ────────────────────
@@ -299,7 +299,7 @@ export default function YearPlannerPage() {
       <PageHero
         overline="Your Family's"
         title="Year Planner"
-        subtitle="A one-page wall calendar — your breaks, birthdays, and school days at a glance."
+        subtitle="A one-page wall calendar, your breaks, birthdays, and school days at a glance."
       />
 
       {/* Print-only CSS. Lives in the page so the @page rule only applies
@@ -375,7 +375,7 @@ export default function YearPlannerPage() {
           ) : isNative ? (
             <span
               title="Founding Family"
-              aria-label="Download as PDF — available at rootedhomeschoolapp.com"
+              aria-label="Download as PDF, available at rootedhomeschoolapp.com"
               className="flex items-center gap-1.5 text-xs font-semibold bg-[#c4bfb8] text-white px-3.5 py-2 rounded-xl opacity-80"
             >
               <Lock size={12} /> Download as PDF
@@ -384,7 +384,7 @@ export default function YearPlannerPage() {
             <Link
               href="/upgrade"
               title="Founding Family"
-              aria-label="Download as PDF — Upgrade to Founding Family"
+              aria-label="Download as PDF, Upgrade to Founding Family"
               className="flex items-center gap-1.5 text-xs font-semibold bg-[#c4bfb8] text-white px-3.5 py-2 rounded-xl opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
             >
               <Lock size={12} /> Download as PDF

@@ -134,7 +134,7 @@ export default function BackfillPanel(props: BackfillPanelProps) {
 
       {candidateDates.length === 0 ? (
         <p className="text-[11px] text-[#9a8e84] italic">
-          Nothing to log — the last {LOOKBACK_DAYS} school days are already covered.
+          Nothing to log, the last {LOOKBACK_DAYS} school days are already covered.
         </p>
       ) : (
         <>
@@ -171,7 +171,7 @@ export default function BackfillPanel(props: BackfillPanelProps) {
           </ul>
           {candidateDates.length > 30 ? (
             <p className="text-[10px] text-[#9a8e84] text-center">
-              + {candidateDates.length - 30} more days — save these first, then open again.
+              + {candidateDates.length - 30} more days, save these first, then open again.
             </p>
           ) : null}
 

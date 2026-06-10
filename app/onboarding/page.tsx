@@ -529,7 +529,7 @@ export default function OnboardingPage() {
             className="w-full px-5 py-4 rounded-2xl bg-white/15 border border-white/20 text-white text-lg placeholder-white/40 focus:outline-none focus:border-white/50 focus:bg-white/20 transition mb-2"
           />
           <p className="text-white/40 text-xs mb-6 px-1">
-            We&apos;ll pre-fill this for you — just edit if needed
+            We&apos;ll pre-fill this for you, just edit if needed
           </p>
 
           {error && <p className="text-sm text-red-300 text-center mb-4">{error}</p>}
@@ -573,7 +573,7 @@ export default function OnboardingPage() {
             Where are you homeschooling?
           </h1>
           <p className="text-white/60 text-center text-sm mb-10">
-            Every state does homeschooling differently — this helps us personalize Rooted for your family.
+            Every state does homeschooling differently, this helps us personalize Rooted for your family.
           </p>
 
           <select
@@ -628,7 +628,7 @@ export default function OnboardingPage() {
             Add a family photo
           </h1>
           <p className="text-white/60 text-center text-sm mb-8">
-            Makes Rooted feel like yours — shows in your app header and yearbook cover.
+            Makes Rooted feel like yours, shows in your app header and yearbook cover.
           </p>
 
           {displayName && (

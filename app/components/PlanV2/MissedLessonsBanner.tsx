@@ -77,7 +77,7 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
                 setConfirming(false);
                 onMarkAllDone();
               }}
-              aria-label={`Confirm — mark ${n} missed lesson${n !== 1 ? "s" : ""} as done`}
+              aria-label={`Confirm, mark ${n} missed lesson${n !== 1 ? "s" : ""} as done`}
               className="text-[11px] font-bold text-white rounded-lg px-3 py-1.5 min-h-[32px] transition-colors disabled:opacity-50"
               style={{ backgroundColor: "#5c7f63" }}
               onMouseEnter={(e) => { if (!busy) e.currentTarget.style.backgroundColor = "#3d5c42"; }}

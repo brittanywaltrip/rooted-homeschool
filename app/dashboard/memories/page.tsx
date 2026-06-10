@@ -668,7 +668,7 @@ export default function MemoriesPage() {
 
   return (
     <>
-    <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Photos, drawings, wins, books, field trips — everything." />
+    <PageHero overline="Your Family Story" title="Memories 📸" subtitle="Photos, drawings, wins, books, field trips, everything." />
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
       {/* ── Quick Actions ─────────────────────────────────── */}
@@ -955,7 +955,7 @@ export default function MemoriesPage() {
               Your family story starts here
             </h2>
             <p className="text-sm text-[#7a6f65] max-w-sm mb-1 leading-relaxed">
-              Photos, drawings, wins, books, field trips — everything worth remembering.
+              Photos, drawings, wins, books, field trips, everything worth remembering.
             </p>
             <p className="text-sm text-[#7a6f65] max-w-sm mb-8 leading-relaxed">
               Every memory earns a leaf for your garden 🌿
@@ -1468,7 +1468,7 @@ export default function MemoriesPage() {
               <div className={`w-8 h-[18px] rounded-full transition-colors relative ${viewingReflection.is_private ? "bg-[#5c7f63]" : "bg-[#e8e2d9]"}`}>
                 <div className={`absolute top-[2px] w-[14px] h-[14px] rounded-full bg-white shadow-sm transition-transform ${viewingReflection.is_private ? "translate-x-[16px]" : "translate-x-[2px]"}`} />
               </div>
-              <span>{viewingReflection.is_private ? "🔒 Private — hidden in Kid Mode" : "👀 Visible in Kid Mode"}</span>
+              <span>{viewingReflection.is_private ? "🔒 Private, hidden in Kid Mode" : "👀 Visible in Kid Mode"}</span>
             </button>
 
             {editingReflection ? (

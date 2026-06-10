@@ -219,7 +219,7 @@ export default function LogActivityModal({
             <div className="flex items-start justify-between mb-4">
               <div>
                 <h2 className="text-lg font-bold text-[#2d2926]">What happened today? 🌿</h2>
-                <p className="text-sm text-[#7a6f65]">Log it here — takes just a second.</p>
+                <p className="text-sm text-[#7a6f65]">Log it here, takes just a second.</p>
               </div>
               <button
                 onClick={onClose}
@@ -378,7 +378,7 @@ export default function LogActivityModal({
                     onChange={(e) => setTitle(e.target.value)}
                     autoFocus
                     placeholder={
-                      mode === "lesson"  ? "e.g. Chapter 5 — Fractions"
+                      mode === "lesson"  ? "e.g. Chapter 5, Fractions"
                       : mode === "book" ? "e.g. Charlotte's Web"
                                          : "e.g. Volcano experiment"
                     }

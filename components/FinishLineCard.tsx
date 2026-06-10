@@ -136,9 +136,9 @@ export default function FinishLineCard({ goal, onEdit, onUpdate, showToast }: Fi
   } else if (goal.current_lesson < 3) {
     message = `🌱 Keep going! Log a few more lessons and ${goal.child_name}'s pace will be calculated automatically.`
   } else if (isOnTrack && projectedFinish) {
-    message = `🌿 At your current pace, ${goal.child_name} will finish ${goal.curriculum_name} by ${fmt(projectedFinish)} — right on time!`
+    message = `🌿 At your current pace, ${goal.child_name} will finish ${goal.curriculum_name} by ${fmt(projectedFinish)}, right on time!`
   } else if (projectedFinish) {
-    message = `🍂 At your current pace, ${goal.child_name} would finish ${goal.curriculum_name} on ${fmt(projectedFinish)} — ${weeksDiff} week${weeksDiff !== 1 ? 's' : ''} after your goal. Aim for ${Math.ceil(weeklyNeeded)} lessons/week to finish by ${fmt(target)}.`
+    message = `🍂 At your current pace, ${goal.child_name} would finish ${goal.curriculum_name} on ${fmt(projectedFinish)}, ${weeksDiff} week${weeksDiff !== 1 ? 's' : ''} after your goal. Aim for ${Math.ceil(weeklyNeeded)} lessons/week to finish by ${fmt(target)}.`
   }
 
   const progress = Math.min((goal.current_lesson / goal.total_lessons) * 100, 100)

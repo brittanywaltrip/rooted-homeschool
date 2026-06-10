@@ -249,7 +249,7 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
                 <div className="px-5 pb-4 pt-1 space-y-3 overflow-y-auto">
                   <p className="text-sm text-[#2d2926]">
                     {remaining === 0
-                      ? "Ends today — back to school tomorrow."
+                      ? "Ends today, back to school tomorrow."
                       : `${remaining} school day${remaining === 1 ? "" : "s"} remain${remaining === 1 ? "s" : ""}.`}
                   </p>
                   {error ? <p className="text-[11px] text-[#b91c1c]">{error}</p> : null}
@@ -397,7 +397,7 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
                         onChange={() => setApplyShift(false)}
                         className="w-3.5 h-3.5 accent-[#5c7f63]"
                       />
-                      <span>Leave them — I&apos;ll skip them manually</span>
+                      <span>Leave them, I&apos;ll skip them manually</span>
                     </label>
                   </fieldset>
                 ) : null}

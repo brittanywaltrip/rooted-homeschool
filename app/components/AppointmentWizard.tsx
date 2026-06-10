@@ -13,6 +13,7 @@ export type EditableAppointment = {
   duration_minutes: number; location: string | null; notes: string | null;
   child_ids: string[]; is_recurring: boolean;
   recurrence_rule: { frequency: string; days: number[] } | null;
+  is_school_activity: boolean;
 };
 
 /** Optional metadata passed to the parent after a save/delete completes.
@@ -122,6 +123,7 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
   const [frequency, setFrequency] = useState<"weekly" | "biweekly" | "monthly">("weekly");
   const [days, setDays] = useState<number[]>([]);
   const [notes, setNotes] = useState("");
+  const [isSchoolActivity, setIsSchoolActivity] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -153,12 +155,14 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
       setIsRecurring(ea.is_recurring);
       setFrequency((ea.recurrence_rule?.frequency as "weekly" | "biweekly" | "monthly") ?? "weekly");
       setDays(ea.recurrence_rule?.days ?? []); setNotes(ea.notes ?? "");
+      setIsSchoolActivity(editingAppointment.is_school_activity ?? false);
     } else {
       setStep(1); setSelectedType(null); setEmoji("📅"); setTitle("");
       setCustomEmoji(""); setCustomTitle(""); setDate(initialDate ?? todayStr());
       setAllDay(true); setTime(""); setDuration(60); setCustomDuration("");
       setLocation(""); setJustMe(true); setChildIds([]); setIsRecurring(false);
       setFrequency("weekly"); setDays([]); setNotes("");
+      setIsSchoolActivity(false);
     }
   }, [isOpen, editingAppointment, initialDate]);
 
@@ -218,6 +222,7 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
         child_ids: justMe ? [] : childIds,
         is_recurring: isRecurring,
         recurrence_rule: isRecurring ? { frequency, days } : null,
+        is_school_activity: isSchoolActivity,
       };
       if (scope && editingInstanceDate) {
         payload.scope = scope;
@@ -485,6 +490,22 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
                 <label className="text-[11px] font-medium uppercase tracking-wide text-[#8B7E74] block mb-1.5">Notes (optional)</label>
                 <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Anything to remember..."
                   rows={2} className="w-full border-[1.5px] border-[#e8e5e0] rounded-xl py-3 px-3.5 text-[14px] bg-white text-[#2d2926] placeholder:text-[#c8c0b8] focus:outline-none focus:border-[#7C3AED] resize-none" />
+              </div>
+
+              {/* Count toward school records */}
+              <div>
+                <label className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isSchoolActivity}
+                    onChange={(e) => setIsSchoolActivity(e.target.checked)}
+                    className="w-4 h-4 rounded accent-[#5c7f63]"
+                  />
+                  <span className="text-sm text-[#2d2926]">Count toward school records</span>
+                </label>
+                <p className="text-xs text-[#7a6f65] ml-7">
+                  Co-op, PE, music class, field trips. Not doctor or dentist visits.
+                </p>
               </div>
 
               {/* Nav */}

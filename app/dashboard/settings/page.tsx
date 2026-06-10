@@ -706,7 +706,7 @@ export default function SettingsPage() {
       return;
     }
     if (!userEmail) {
-      setPasswordError("We couldn't find your email — try refreshing the page.");
+      setPasswordError("We couldn't find your email, try refreshing the page.");
       return;
     }
 
@@ -980,7 +980,7 @@ export default function SettingsPage() {
 
       if (error) {
         console.error("[Settings] Child update failed:", error.message);
-        setEditError(error.message.includes("unique") ? "That name is already taken." : "Save failed — try again.");
+        setEditError(error.message.includes("unique") ? "That name is already taken." : "Save failed, try again.");
         return;
       }
 
@@ -1633,7 +1633,7 @@ export default function SettingsPage() {
               Invite grandparents, family, or friends to follow along.
             </p>
             <p className="text-xs text-[#b5aca4] mb-5">
-              They&apos;ll see your memories, lessons, and garden — and can leave reactions.
+              They&apos;ll see your memories, lessons, and garden, and can leave reactions.
             </p>
             {isNative ? (
               <p className="text-sm font-medium text-[#7a6f65]">
@@ -1876,12 +1876,12 @@ export default function SettingsPage() {
               <p className="text-sm font-medium text-[#2d2926]">
                 {(() => {
                   const access = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
-                  if (planType === 'founding_family') return '🌱 Rooted+ — $39/yr locked forever (Founding Family)';
-                  if (planType === 'standard') return '🌿 Rooted+ — $59/yr';
-                  if (planType === 'monthly') return '🌿 Rooted+ — $6.99/mo';
+                  if (planType === 'founding_family') return '🌱 Rooted+, $39/yr locked forever (Founding Family)';
+                  if (planType === 'standard') return '🌿 Rooted+, $59/yr';
+                  if (planType === 'monthly') return '🌿 Rooted+, $6.99/mo';
                   if (access === 'trial') {
                     const left = getTrialDaysLeft(trialStartedAt);
-                    return `🌿 Rooted+ Trial — ${left} day${left !== 1 ? 's' : ''} remaining`;
+                    return `🌿 Rooted+ Trial, ${left} day${left !== 1 ? 's' : ''} remaining`;
                   }
                   return '🪴 Rooted (Free)';
                 })()}
@@ -1907,7 +1907,7 @@ export default function SettingsPage() {
                 {portalLoading ? 'Loading…' : 'Manage Subscription'}
               </button>
             ) : ADMIN_EMAILS.includes(userEmail) ? (
-              <span className="text-xs text-[#9e958d] italic shrink-0">Admin — managed via Stripe dashboard</span>
+              <span className="text-xs text-[#9e958d] italic shrink-0">Admin, managed via Stripe dashboard</span>
             ) : isNative ? (
               <span className="shrink-0 text-xs font-medium text-[#7a6f65]">
                 Upgrade at rootedhomeschoolapp.com
@@ -1958,7 +1958,7 @@ export default function SettingsPage() {
           <div>
             <p className="text-sm font-medium text-[#2d2926]">Export My Data</p>
             <p className="text-xs text-[#7a6f65] mt-0.5 leading-relaxed">
-              Download everything you&apos;ve added to Rooted — your memories, photos, children&apos;s info, and curriculum — as a ZIP file. Your memories are yours, always.
+              Download everything you&apos;ve added to Rooted, your memories, photos, children&apos;s info, and curriculum, as a ZIP file. Your memories are yours, always.
             </p>
           </div>
           <button
@@ -2106,7 +2106,7 @@ export default function SettingsPage() {
               <div className="text-3xl mb-2">⚠️</div>
               <h3 className="text-base font-bold text-[#2d2926]">Are you sure?</h3>
               <p className="text-sm text-[#7a6f65] leading-relaxed">
-                This will permanently delete everything in your Rooted account — memories, photos, children, curriculum, and yearbook. <strong>This cannot be undone.</strong>
+                This will permanently delete everything in your Rooted account, memories, photos, children, curriculum, and yearbook. <strong>This cannot be undone.</strong>
               </p>
             </div>
             <div className="space-y-1.5">
@@ -2193,7 +2193,7 @@ export default function SettingsPage() {
               <div className="bg-[#faf8f4] rounded-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5 space-y-4" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold uppercase tracking-widest text-[#7a6f65]">
-                    🤝 Rooted Partner — {previewAffiliate.name}&apos;s view
+                    🤝 Rooted Partner, {previewAffiliate.name}&apos;s view
                   </h3>
                   <button onClick={() => setShowAffiliatePreview(false)} className="text-[#7a6f65] hover:text-[#2d2926] text-lg">✕</button>
                 </div>
@@ -2204,7 +2204,7 @@ export default function SettingsPage() {
                     className="w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-sm bg-white text-[#2d2926] focus:outline-none focus:ring-2 focus:ring-[#c7d2fe]"
                   >
                     {allAffiliates.map((aff) => (
-                      <option key={aff.id} value={aff.id}>{aff.name} — {aff.code}</option>
+                      <option key={aff.id} value={aff.id}>{aff.name}, {aff.code}</option>
                     ))}
                   </select>
                 )}
@@ -2795,6 +2795,9 @@ export default function SettingsPage() {
       <button
         onClick={async () => {
           await supabase.auth.signOut();
+          // Reset PostHog identity so the next user on this browser doesn't
+          // inherit the previous user's distinct_id.
+          posthog.reset();
           window.location.href = "/login";
         }}
         className="w-full text-center text-sm text-red-500 font-semibold py-4 mt-2"

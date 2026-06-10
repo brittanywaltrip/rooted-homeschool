@@ -1378,7 +1378,7 @@ export default function ScheduleBuilderPage() {
         }
         if (preInsertViolations.length > 0) {
           console.error(
-            "[handleSave] Projector emitted overcapacity batch — refusing INSERT",
+            "[handleSave] Projector emitted overcapacity batch, refusing INSERT",
             { goalId, violations: preInsertViolations },
           );
           throw new Error(
@@ -1966,7 +1966,7 @@ function RowCard(props: {
       hasSeed && !row.progress_confirmed && clamped !== row.start_at_lesson_initial;
     if (needsConfirm) {
       const ok = window.confirm(
-        "Changing this will reset your progress tracking — are you sure?",
+        "Changing this will reset your progress tracking, are you sure?",
       );
       if (!ok) return;
       props.onPatchRow(row.localId, {

@@ -152,7 +152,7 @@ export default function DayDetailPanel({
           {/* Past-day explainer */}
           {dateStr < toDateStr(new Date()) && lessons.length > 0 && (
             <p className="px-5 pt-2 text-xs text-[#b5aca4] italic">
-              Past lessons never expire — check off what you covered any time.
+              Past lessons never expire, check off what you covered any time.
             </p>
           )}
 

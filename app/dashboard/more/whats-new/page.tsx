@@ -12,7 +12,7 @@ const UPDATES = [
     emoji: "📖",
     title: "Yearbook",
     description:
-      "Your family's year — captured in one beautiful, scrollable yearbook. Photos, memories, milestones, all in one place. Free to build with up to 50 memories.",
+      "Your family's year, captured in one beautiful, scrollable yearbook. Photos, memories, milestones, all in one place. Free to build with up to 50 memories.",
     inspiredByFamily: true,
   },
   {
@@ -20,7 +20,7 @@ const UPDATES = [
     emoji: "👨‍👩‍👧‍👦",
     title: "Family Sharing",
     description:
-      "Invite grandparents, co-parents, or anyone who wants to follow along. They get a read-only view of your family's progress — no account needed.",
+      "Invite grandparents, co-parents, or anyone who wants to follow along. They get a read-only view of your family's progress, no account needed.",
     inspiredByFamily: true,
   },
   {
@@ -28,7 +28,7 @@ const UPDATES = [
     emoji: "📋",
     title: "Hours & Attendance Log",
     description:
-      "Track your homeschool hours and attendance in one place. Download or print a PDF anytime — perfect for state requirements or your own records. Free for everyone.",
+      "Track your homeschool hours and attendance in one place. Download or print a PDF anytime, perfect for state requirements or your own records. Free for everyone.",
     inspiredByFamily: true,
   },
   {
@@ -44,7 +44,7 @@ const UPDATES = [
     emoji: "📅",
     title: "Reschedule a Lesson",
     description:
-      "Life happens — doctor appointments, off days, spontaneous field trips. Now you can reschedule any lesson right from Today. Tap ··· on any lesson and choose Reschedule. Move it to tomorrow, pick a specific day, push all remaining lessons back, or double up tomorrow to stay on track. Undo available for 8 seconds.",
+      "Life happens: doctor appointments, off days, spontaneous field trips. Now you can reschedule any lesson right from Today. Tap ··· on any lesson and choose Reschedule. Move it to tomorrow, pick a specific day, push all remaining lessons back, or double up tomorrow to stay on track. Undo available for 8 seconds.",
     inspiredByFamily: true,
   },
   {
@@ -68,7 +68,7 @@ const UPDATES = [
     emoji: "📊",
     title: "Progress Report",
     description:
-      "Download a full record of your homeschool year from the Plan page. Choose a specific child or all children. Includes total hours, lessons per subject, books read, field trips, wins, and a daily activity log — ready to share or save.",
+      "Download a full record of your homeschool year from the Plan page. Choose a specific child or all children. Includes total hours, lessons per subject, books read, field trips, wins, and a daily activity log, ready to share or save.",
     inspiredByFamily: false,
   },
   {
@@ -84,13 +84,13 @@ const UPDATES = [
     emoji: "🎉",
     title: "Celebrations When You Finish",
     description:
-      "Every lesson you check off now feels like it matters. A little burst when you check a lesson, a toast when your child finishes their day, and an 'Amazing day!' banner when the whole family is done — because you earned it.",
+      "Every lesson you check off now feels like it matters. A little burst when you check a lesson, a toast when your child finishes their day, and an 'Amazing day!' banner when the whole family is done, because you earned it.",
     inspiredByFamily: true,
   },
   {
     date: "March 2026",
     emoji: "📸",
-    title: "+ Log Something — Field Trips & Activities",
+    title: "+ Log Something, Field Trips & Activities",
     description:
       "Tap '+ Log something' to log more than just lessons. Add a field trip (where did you go?), an activity like piano or co-op, a book, a photo, a project, or a reflection. Everything saves to Memories automatically.",
     inspiredByFamily: false,
@@ -106,9 +106,9 @@ const UPDATES = [
   {
     date: "March 2026",
     emoji: "🌿",
-    title: '"+ Log Something" — Not Just Lessons',
+    title: '"+ Log Something", Not Just Lessons',
     description:
-      "We renamed 'Log Today' to '+ Log something' because that's what you're really doing — capturing your homeschool story, not just checking boxes. The button now lives in the bottom corner of your Today page, always ready.",
+      "We renamed 'Log Today' to '+ Log something' because that's what you're really doing, capturing your homeschool story, not just checking boxes. The button now lives in the bottom corner of your Today page, always ready.",
     inspiredByFamily: false,
   },
   {
@@ -116,7 +116,7 @@ const UPDATES = [
     emoji: "🌴",
     title: "Vacation Blocking",
     description:
-      "Mark breaks and holidays on your calendar and your lessons will automatically shift around them — and your garden will show a little vacation sign while you're away.",
+      "Mark breaks and holidays on your calendar and your lessons will automatically shift around them, and your garden will show a little vacation sign while you're away.",
     inspiredByFamily: true,
   },
   {
@@ -124,7 +124,7 @@ const UPDATES = [
     emoji: "✨",
     title: "Introducing Rooted+",
     description:
-      "We redesigned the upgrade page to tell the real story — you're not just getting an app, you're joining a movement. Rooted+ Founding Family pricing is locked forever for the first 200 families.",
+      "We redesigned the upgrade page to tell the real story, you're not just getting an app, you're joining a movement. Rooted+ Founding Family pricing is locked forever for the first 200 families.",
     inspiredByFamily: false,
   },
   {
@@ -140,7 +140,7 @@ const UPDATES = [
     emoji: "🎯",
     title: "Finish Line on Today",
     description:
-      "Your curriculum pacing goal now shows up right on your Today page — so you always know if you're on track without having to go looking for it.",
+      "Your curriculum pacing goal now shows up right on your Today page, so you always know if you're on track without having to go looking for it.",
     inspiredByFamily: false,
   },
   {
@@ -148,7 +148,7 @@ const UPDATES = [
     emoji: "📋",
     title: "View All Upcoming Lessons",
     description:
-      "Tap '5 remaining' on any curriculum to see all your upcoming lessons and their dates in one place — no more clicking through the calendar week by week.",
+      "Tap '5 remaining' on any curriculum to see all your upcoming lessons and their dates in one place, no more clicking through the calendar week by week.",
     inspiredByFamily: false,
   },
   {
@@ -156,7 +156,7 @@ const UPDATES = [
     emoji: "🌱",
     title: "Curriculum Wizard Fixed",
     description:
-      "The Set Up Curriculum wizard is now fully working — lessons save correctly, populate your calendar, and show up on Today ready to check off.",
+      "The Set Up Curriculum wizard is now fully working, lessons save correctly, populate your calendar, and show up on Today ready to check off.",
     inspiredByFamily: false,
   },
 ];
@@ -190,7 +190,7 @@ export default function WhatsNewPage() {
           What&apos;s New 🌱
         </h1>
         <p className="text-sm text-[#7a6f65] mt-1 leading-relaxed">
-          Updates, improvements, and features — shaped by families like yours.
+          Updates, improvements, and features, shaped by families like yours.
         </p>
       </div>
 

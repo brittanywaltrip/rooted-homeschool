@@ -732,7 +732,7 @@ export default function PlanV2() {
         await skipLesson(lesson);
       } catch {
         // skipLesson already rolled back the optimistic UI state.
-        flashNotice("Couldn't skip — try again.");
+        flashNotice("Couldn't skip, try again.");
         return;
       }
       const title = lesson.title && lesson.title.trim().length > 0
@@ -1126,7 +1126,7 @@ export default function PlanV2() {
       await supabase.from("lessons").delete().eq("curriculum_goal_id", goal.id);
       await supabase.from("curriculum_goals").delete().eq("id", goal.id);
     } catch {
-      flashNotice("Couldn't delete curriculum — try again.");
+      flashNotice("Couldn't delete curriculum, try again.");
       return;
     }
     recordEvent("curriculum_goal.deleted", {
@@ -1262,7 +1262,7 @@ export default function PlanV2() {
         include_in_book: false,
       });
       if (error) {
-        flashNotice("Couldn't save to Memories — try again.");
+        flashNotice("Couldn't save to Memories, try again.");
         return;
       }
       flashNotice("Saved to Memories 🌿");
@@ -1292,7 +1292,7 @@ export default function PlanV2() {
         yearbook_bookmark: true,
       });
       if (error) {
-        flashNotice("Couldn't add to Yearbook — try again.");
+        flashNotice("Couldn't add to Yearbook, try again.");
         return;
       }
       flashNotice("Added to Yearbook 📖");
@@ -1316,7 +1316,7 @@ export default function PlanV2() {
           lessonsCount: goal.total_lessons ?? 0,
         });
       } catch {
-        flashNotice("Couldn't generate certificate — try again.");
+        flashNotice("Couldn't generate certificate, try again.");
       }
     },
     [kids],
@@ -1382,7 +1382,7 @@ export default function PlanV2() {
       // Soft-delete to match legacy (is_active = false).
       await supabase.from("activities").update({ is_active: false }).eq("id", a.id);
     } catch {
-      flashNotice("Couldn't delete activity — try again.");
+      flashNotice("Couldn't delete activity, try again.");
       return;
     }
     recordEvent("activity.deleted", {
@@ -1859,7 +1859,7 @@ export default function PlanV2() {
       if (!res.ok) throw new Error("delete failed");
       reload();
     } catch {
-      flashNotice("Couldn't delete appointment — try again.");
+      flashNotice("Couldn't delete appointment, try again.");
     }
   }, [deleteApptConfirm, reload]);
 
@@ -1942,7 +1942,7 @@ export default function PlanV2() {
             l.id === lessonId ? { ...l, scheduled_date: fromDateStr, date: fromDateStr } : l,
           ),
         );
-        flashNotice("Couldn't save — check your connection and try again.");
+        flashNotice("Couldn't save, check your connection and try again.");
         return;
       }
 
@@ -1985,7 +1985,7 @@ export default function PlanV2() {
               p_target_date: fromDateStr,
             });
           } catch {
-            flashNotice("Couldn't undo — check your connection.");
+            flashNotice("Couldn't undo, check your connection.");
           }
           reload();
         },
@@ -2061,7 +2061,7 @@ export default function PlanV2() {
             a.id === apptId ? { ...a, date: fromDateStr, instance_date: fromDateStr } : a,
           ),
         );
-        flashNotice("Couldn't save — check your connection and try again.");
+        flashNotice("Couldn't save, check your connection and try again.");
         return false;
       }
 
@@ -2081,7 +2081,7 @@ export default function PlanV2() {
               .update({ date: fromDateStr })
               .eq("id", apptId);
           } catch {
-            flashNotice("Couldn't undo — check your connection.");
+            flashNotice("Couldn't undo, check your connection.");
           }
           reload();
         },
@@ -2229,7 +2229,7 @@ export default function PlanV2() {
       (b) => toDateStr >= b.start_date && toDateStr <= b.end_date,
     );
     if (inVacation) {
-      flashNotice("That day is blocked off as a vacation — pick another day.");
+      flashNotice("That day is blocked off as a vacation, pick another day.");
       return;
     }
 
@@ -2242,7 +2242,7 @@ export default function PlanV2() {
       moves.push({ id, from });
     }
     if (moves.length === 0) {
-      flashNotice("No lessons needed moving — pick a different day.");
+      flashNotice("No lessons needed moving, pick a different day.");
       return;
     }
 
@@ -2299,7 +2299,7 @@ export default function PlanV2() {
       setUndoAction({
         message:
           failedIds.length > 0
-            ? `Moved ${succeeded.length} of ${total} to ${toLabel}${weekendSuffix} — ${failedIds.length} couldn't be moved`
+            ? `Moved ${succeeded.length} of ${total} to ${toLabel}${weekendSuffix}, ${failedIds.length} couldn't be moved`
             : `Moved ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"} to ${toLabel}${weekendSuffix}`,
         key: `bulk-move:${Date.now()}`,
         onUndo: async () => {
@@ -2323,7 +2323,7 @@ export default function PlanV2() {
         },
       });
     } else {
-      flashNotice(`Couldn't move ${failedIds.length} lesson${failedIds.length === 1 ? "" : "s"} — check your connection.`);
+      flashNotice(`Couldn't move ${failedIds.length} lesson${failedIds.length === 1 ? "" : "s"}, check your connection.`);
     }
 
     recordEvent("lesson.bulk_action", {
@@ -2498,7 +2498,7 @@ export default function PlanV2() {
       setUndoAction({
         message:
           failedIds.length > 0
-            ? `Marked ${succeededIds.length} of ${toComplete.length} done — ${failedIds.length} couldn't be marked`
+            ? `Marked ${succeededIds.length} of ${toComplete.length} done, ${failedIds.length} couldn't be marked`
             : `Marked ${succeededIds.length} lesson${succeededIds.length === 1 ? "" : "s"} done`,
         key: `bulk-done:${Date.now()}`,
         onUndo: async () => {
@@ -2606,7 +2606,7 @@ export default function PlanV2() {
       setUndoAction({
         message:
           failedIds.length > 0
-            ? `Skipped ${succeeded.length} of ${snap.length} — ${failedIds.length} couldn't be skipped`
+            ? `Skipped ${succeeded.length} of ${snap.length}, ${failedIds.length} couldn't be skipped`
             : `Skipped ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"}`,
         key: `bulk-skip:${Date.now()}`,
         onUndo: async () => {
@@ -2800,7 +2800,7 @@ export default function PlanV2() {
       setUndoAction({
         message:
           failedIds.size > 0
-            ? `Shifted ${succeeded.length} of ${moves.length} forward — ${failedIds.size} couldn't move`
+            ? `Shifted ${succeeded.length} of ${moves.length} forward, ${failedIds.size} couldn't move`
             : `Shifted ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"} forward`,
         key: `catch-up:${Date.now()}`,
         onUndo: async () => {
@@ -2917,7 +2917,7 @@ export default function PlanV2() {
         },
       });
     } else {
-      flashNotice("Couldn't push the schedule back — check your connection.");
+      flashNotice("Couldn't push the schedule back, check your connection.");
     }
 
     reload();
@@ -3038,7 +3038,7 @@ export default function PlanV2() {
         },
       });
     } else {
-      flashNotice("Couldn't shift the schedule — check your connection.");
+      flashNotice("Couldn't shift the schedule, check your connection.");
     }
 
     reload();
@@ -3431,7 +3431,7 @@ export default function PlanV2() {
         .select("id, name, start_date, end_date")
         .single();
       if (error || !data) {
-        flashNotice("Couldn't save — check your connection and try again.");
+        flashNotice("Couldn't save, check your connection and try again.");
         return;
       }
       hapticTap(20);
@@ -3447,7 +3447,7 @@ export default function PlanV2() {
           try {
             await supabase.from("vacation_blocks").delete().eq("id", insertedId);
           } catch {
-            flashNotice("Couldn't undo — check your connection.");
+            flashNotice("Couldn't undo, check your connection.");
           }
           recordEvent("vacation_block.deleted", {
             vacation_block_id: insertedId,
@@ -3466,7 +3466,7 @@ export default function PlanV2() {
       });
       reload();
     } catch {
-      flashNotice("Couldn't save — check your connection and try again.");
+      flashNotice("Couldn't save, check your connection and try again.");
     }
   }, [effectiveUserId, reload, recordEvent]);
 
@@ -3794,7 +3794,7 @@ export default function PlanV2() {
             onReschedule={(lesson) => {
               const fromDateStr = lesson.scheduled_date ?? lesson.date ?? null;
               if (!fromDateStr) {
-                flashNotice("This lesson isn't on the calendar yet — edit it from the Plan page.");
+                flashNotice("This lesson isn't on the calendar yet, edit it from the Plan page.");
                 return;
               }
               setRescheduleTarget({ lessonId: lesson.id, fromDateStr });
@@ -4186,7 +4186,7 @@ export default function PlanV2() {
           onRescheduleLesson={(l) => {
             const fromDateStr = l.scheduled_date ?? l.date ?? null;
             if (!fromDateStr) {
-              flashNotice("This lesson isn't scheduled — edit it from the Plan page.");
+              flashNotice("This lesson isn't scheduled, edit it from the Plan page.");
               return;
             }
             setRescheduleTarget({ lessonId: l.id, fromDateStr });
@@ -4328,7 +4328,7 @@ export default function PlanV2() {
                 const full = lessons.find((x) => x.id === l.id);
                 const fromDateStr = full?.scheduled_date ?? full?.date ?? null;
                 if (!full || !fromDateStr) {
-                  flashNotice("This lesson isn't on the calendar yet — edit it from the Plan page.");
+                  flashNotice("This lesson isn't on the calendar yet, edit it from the Plan page.");
                   return;
                 }
                 setOpenDayStr(null);
@@ -4562,6 +4562,7 @@ export default function PlanV2() {
                   child_ids: apptEditTarget.appt.child_ids,
                   is_recurring: apptEditTarget.appt.is_recurring,
                   recurrence_rule: apptEditTarget.appt.recurrence_rule,
+                  is_school_activity: apptEditTarget.appt.is_school_activity ?? false,
                 }
               : null
           }
@@ -5327,7 +5328,7 @@ function RescheduleDialog(props: {
             </label>
             {inVacation ? (
               <p className="text-[11px] text-[#b91c1c]">
-                That day is blocked off as a vacation — pick a different day.
+                That day is blocked off as a vacation, pick a different day.
               </p>
             ) : null}
             <div className="flex items-center gap-2 pt-1">

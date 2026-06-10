@@ -15,7 +15,7 @@ type Appointment = {
   id: string; title: string; emoji: string; date: string; time: string | null;
   duration_minutes: number; location: string | null; notes: string | null; child_ids: string[];
   is_recurring: boolean; recurrence_rule: { frequency: string; days: number[] } | null;
-  completed: boolean; instance_date?: string;
+  completed: boolean; instance_date?: string; is_school_activity: boolean;
 };
 type Activity = {
   id: string; name: string; emoji: string; frequency: string; days: number[];
@@ -112,6 +112,7 @@ export default function ManageScheduleModal({ isOpen, onClose, onAddAppt, onChan
       id: a.id, title: a.title, emoji: a.emoji, date: a.date, time: a.time,
       duration_minutes: a.duration_minutes, location: a.location, notes: a.notes,
       child_ids: a.child_ids, is_recurring: a.is_recurring, recurrence_rule: a.recurrence_rule,
+      is_school_activity: a.is_school_activity ?? false,
     });
   }
 

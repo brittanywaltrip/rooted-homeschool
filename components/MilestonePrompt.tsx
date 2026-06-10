@@ -31,7 +31,7 @@ export default function MilestonePrompt({
       try {
         await navigator.share({
           title: "Rooted",
-          text: "Check out Rooted — a beautiful way to plan your homeschool and capture memories.",
+          text: "Check out Rooted, a beautiful way to plan your homeschool and capture memories.",
           url: shareUrl,
         });
       } catch {

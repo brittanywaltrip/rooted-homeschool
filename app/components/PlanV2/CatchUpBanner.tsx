@@ -43,7 +43,7 @@ export default function CatchUpBanner(props: CatchUpBannerProps) {
         <span aria-hidden className="text-base leading-none">🗓️</span>
         <div className="min-w-0">
           <p className="truncate" style={{ fontSize: 13, fontWeight: 700, color: "#7a4a1a", margin: 0 }}>
-            You&apos;re {count} lesson{count === 1 ? "" : "s"} behind — want to catch up?
+            You&apos;re {count} lesson{count === 1 ? "" : "s"} behind, want to catch up?
           </p>
           <p style={{ fontSize: 11, color: "#8a5a2a", margin: "1px 0 0" }}>
             Shift them forward or push your whole schedule back.

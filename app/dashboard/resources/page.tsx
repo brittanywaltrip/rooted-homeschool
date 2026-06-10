@@ -173,10 +173,10 @@ const VIRTUAL_TOURS: VirtualTour[] = [
   { emoji: "🌿", name: "Amazon Rainforest Virtual Tour",   url: "https://www.youtube.com/watch?v=LPiyBe3UDPI",           desc: "Aerial and ground-level exploration of the rainforest.",                                                                                grade: "All Ages", subject: "Science/Nature"    },
   { emoji: "🐙", name: "Monterey Bay Aquarium Live",       url: "https://www.youtube.com/watch?v=NUnJc82ptd4",           desc: "Live underwater cameras from the famous aquarium.",                                                                                    grade: "All Ages", subject: "Science"           },
   { emoji: "🖼️", name: "The Louvre Museum Tour",           url: "https://www.youtube.com/watch?v=dHViKO9DrDA",           desc: "Walk the halls of the world's most visited museum.",                                                                                   grade: "All Ages", subject: "Art/History"       },
-  { emoji: "📦", name: "Amazon Career Tours",              url: "https://www.amazonfutureengineer.com/alltours",          desc: "11+ free virtual career tours — AWS data centers, robotics, music production, space tech & more. Filterable by grade, 45 min each.",   grade: "K–12",     subject: "Career/Technology" },
+  { emoji: "📦", name: "Amazon Career Tours",              url: "https://www.amazonfutureengineer.com/alltours",          desc: "11+ free virtual career tours, AWS data centers, robotics, music production, space tech & more. Filterable by grade, 45 min each.",   grade: "K–12",     subject: "Career/Technology" },
   { emoji: "🌋", name: "Yellowstone National Park",        url: "https://www.youtube.com/watch?v=bme0rs75Z3E",           desc: "Geysers, wildlife, and volcanic landscapes in stunning detail.",                                                                        grade: "All Ages", subject: "Science/Nature"    },
   { emoji: "🚀", name: "International Space Station Tour", url: "https://www.youtube.com/watch?v=nmBbcNTUkOg",           desc: "NASA astronaut guides you through the ISS.",                                                                                           grade: "All Ages", subject: "Science/Space"     },
-  { emoji: "🥒", name: "Mount Olive Pickle Factory Tour",  url: "https://www.youtube.com/watch?v=CqZJaFJVkBo",           desc: "See how pickles are made inside the Mount Olive Pickle Company — a real-world look at food manufacturing.",                            grade: "All Ages", subject: "Career/Food Science" },
+  { emoji: "🥒", name: "Mount Olive Pickle Factory Tour",  url: "https://www.youtube.com/watch?v=CqZJaFJVkBo",           desc: "See how pickles are made inside the Mount Olive Pickle Company, a real-world look at food manufacturing.",                            grade: "All Ages", subject: "Career/Food Science" },
 ];
 
 // ─── Browse categories ───────────────────────────────────────────────────────
@@ -593,7 +593,7 @@ export default function ResourcesPage() {
                   </a>
                 </div>
                 <p className="px-5 pb-4 text-[10px] text-[#8aaa90] italic leading-relaxed">
-                  Laws change — always verify with your state homeschool association or HSLDA.org.
+                  Laws change, always verify with your state homeschool association or HSLDA.org.
                 </p>
               </>
             )}
@@ -603,7 +603,7 @@ export default function ResourcesPage() {
         <div className="rounded-2xl p-4 border border-[#e0dbd4] bg-[#fefcf9] flex items-center gap-3">
           <MapPin size={16} className="text-[#b5aca4]" />
           <p className="text-sm text-[#7a6f65]">
-            You&apos;re homeschooling outside the US — check your local education authority for requirements.
+            You&apos;re homeschooling outside the US, check your local education authority for requirements.
           </p>
         </div>
       ) : stateLoaded ? (
@@ -683,7 +683,7 @@ export default function ResourcesPage() {
         {/* ── Virtual Tours ───────────────────────────────────── */}
         {browseFilter === "tours" && (
           <div className="space-y-3">
-            <p className="text-xs text-[#7a6f65]">Free virtual field trips and immersive video experiences — click Watch to play inline.</p>
+            <p className="text-xs text-[#7a6f65]">Free virtual field trips and immersive video experiences, click Watch to play inline.</p>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {VIRTUAL_TOURS.map((tour) => {
                 const isYouTube = /[?&]v=/.test(tour.url);

@@ -387,7 +387,7 @@ function PhotoUpload({ photoUrl, onChange }: {
               <button type="button" onClick={() => onChange(null)} className="text-xs text-[#b5aca4] hover:text-red-400 hover:underline">Remove</button>
             </div>
           )}
-          <p className="text-[11px] text-[#2d2926] font-medium mt-2 leading-relaxed">Photo required — most programs require a photo ID to be valid.</p>
+          <p className="text-[11px] text-[#2d2926] font-medium mt-2 leading-relaxed">Photo required, most programs require a photo ID to be valid.</p>
           <p className="text-[10px] text-[#b5aca4] mt-0.5">JPG or PNG, auto-cropped to portrait</p>
         </div>
       </div>
@@ -582,7 +582,7 @@ export default function PrintablesPage() {
   const [subjectChild, setSubjectChild] = useState("");
   const [subjectName, setSubjectName] = useState("");
 
-  useEffect(() => { document.title = "Printables — Rooted"; localStorage.setItem("rooted_visited_printables", "1"); posthog.capture('page_viewed', { page: 'printables' }); }, []);
+  useEffect(() => { document.title = "Printables, Rooted"; localStorage.setItem("rooted_visited_printables", "1"); posthog.capture('page_viewed', { page: 'printables' }); }, []);
 
   useEffect(() => {
     async function load() {
@@ -737,7 +737,7 @@ export default function PrintablesPage() {
   }
 
   function showError(e: unknown) {
-    const msg = e instanceof Error ? e.message : "Download failed — please try again";
+    const msg = e instanceof Error ? e.message : "Download failed, please try again";
     setErrorToast(msg);
     setTimeout(() => setErrorToast(null), 5000);
   }
@@ -763,13 +763,13 @@ export default function PrintablesPage() {
 
   return (
     <>
-    <PageHero overline="Your Family's" title="Printables" subtitle="Made for you, not by you. Your certificates and ID cards — made beautiful automatically." />
+    <PageHero overline="Your Family's" title="Printables" subtitle="Made for you, not by you. Your certificates and ID cards, made beautiful automatically." />
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-10">
 
       {/* ── Style Picker ──────────────────────────────────────────── */}
       <section>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Your Style</p>
-        <h2 className="text-[13px] font-medium text-[#5C5346] mb-0.5">Your style — applies to all printables</h2>
+        <h2 className="text-[13px] font-medium text-[#5C5346] mb-0.5">Your style, applies to all printables</h2>
         <p className="text-xs text-[#b5aca4] mb-4">Choose once, applied everywhere.</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {STYLES.map((s) => (
@@ -814,7 +814,7 @@ export default function PrintablesPage() {
                 Year Planner
               </p>
               <p className="text-[11px] text-[#b5aca4] mt-0.5 leading-relaxed">
-                Horizontal 12-month grid with breaks, birthdays &amp; appointments — landscape wall calendar.
+                Horizontal 12-month grid with breaks, birthdays &amp; appointments, landscape wall calendar.
               </p>
             </div>
           </Link>

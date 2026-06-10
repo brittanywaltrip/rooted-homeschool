@@ -322,7 +322,7 @@ export default function YearbookEditPage() {
       <PageHero
         overline={`${yearLabel} School Year`}
         title="Customize your yearbook"
-        subtitle={isReadOnly ? "This yearbook is closed — read only" : `${filledCount} of ${totalCount} sections complete`}
+        subtitle={isReadOnly ? "This yearbook is closed, read only" : `${filledCount} of ${totalCount} sections complete`}
       />
 
       <div className="max-w-3xl mx-auto px-4 pt-5 pb-20 space-y-4">
@@ -523,7 +523,7 @@ export default function YearbookEditPage() {
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
           <p className="text-[13px] font-semibold text-[#2d2926]">Letter from home</p>
           <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
-            Write a letter to your family about this year — what you noticed,
+            Write a letter to your family about this year, what you noticed,
             what you&apos;re proud of, what you want to remember.
           </p>
           <textarea
@@ -805,7 +805,7 @@ export default function YearbookEditPage() {
               <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
                 <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">A note to future {child.name}</p>
                 <p className="text-[11px] text-[#9a8f85] italic mb-2">
-                  {child.name} dictates, you type — or let them type it themselves!
+                  {child.name} dictates, you type, or let them type it themselves!
                 </p>
                 <textarea
                   value={childNotes[child.id] ?? ""}

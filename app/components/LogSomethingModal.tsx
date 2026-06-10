@@ -135,7 +135,7 @@ export default function LogSomethingModal({
           <div className="px-4 pb-6 pt-1">
             {lists.length === 0 ? (
               <p className="text-sm text-[#7a6f65] text-center py-6">
-                No lists yet — create one from the My Lists section.
+                No lists yet, create one from the My Lists section.
               </p>
             ) : (
               <div className="space-y-2">

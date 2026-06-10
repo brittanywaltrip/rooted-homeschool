@@ -60,6 +60,7 @@ function resolveFirstName(
 
 async function sendTemplate(
   to: string,
+  subject: string,
   templateId: string,
   variables: Record<string, string>,
   headers?: Record<string, string>,
@@ -67,6 +68,7 @@ async function sendTemplate(
   const payload: Record<string, unknown> = {
     from: FROM,
     to,
+    subject,
     template_id: templateId,
     template_variables: variables,
   }
@@ -132,7 +134,7 @@ export async function GET(req: NextRequest) {
     if (!email) { skipped++; continue }
 
     const firstName = resolveFirstName(user.first_name, authData.user)
-    const result = await sendTemplate(email, TEMPLATE_IDS.reengagement_1, {
+    const result = await sendTemplate(email, 'One memory is all it takes 🌿', TEMPLATE_IDS.reengagement_1, {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
       email,
@@ -173,7 +175,7 @@ export async function GET(req: NextRequest) {
     if (!email) { skipped++; continue }
 
     const firstName = resolveFirstName(user.first_name, authData.user)
-    const result = await sendTemplate(email, TEMPLATE_IDS.reengagement_2, {
+    const result = await sendTemplate(email, 'Your garden is still waiting 🌱', TEMPLATE_IDS.reengagement_2, {
       firstName,
       planUrl: 'https://rootedhomeschoolapp.com/dashboard/plan',
       email,
@@ -214,7 +216,7 @@ export async function GET(req: NextRequest) {
     if (!email) { skipped++; continue }
 
     const firstName = resolveFirstName(user.first_name, authData.user)
-    const result = await sendTemplate(email, TEMPLATE_IDS.reengagement_3, {
+    const result = await sendTemplate(email, 'We miss you at Rooted 🌿', TEMPLATE_IDS.reengagement_3, {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
       email,
@@ -258,7 +260,7 @@ export async function GET(req: NextRequest) {
     if (!email) { skipped++; continue }
 
     const firstName = resolveFirstName(user.first_name, authData.user)
-    const result = await sendTemplate(email, TEMPLATE_IDS.reengagement_1, {
+    const result = await sendTemplate(email, 'One memory is all it takes 🌿', TEMPLATE_IDS.reengagement_1, {
       firstName,
       dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
       email,

@@ -647,7 +647,7 @@ function LessonList(props: {
   if (lessons.length === 0) {
     return (
       <p className="px-4 pb-3 text-[12px] text-[#9a8e84]">
-        No lessons in view yet — they&apos;ll appear here once scheduled.
+        No lessons in view yet, they&apos;ll appear here once scheduled.
       </p>
     );
   }
