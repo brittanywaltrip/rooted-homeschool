@@ -526,7 +526,7 @@ export default function DailyListCard(props: DailyListCardProps) {
             <p className="text-[12px] text-[#a07000] italic py-3">Loading…</p>
           ) : items.length === 0 ? (
             <p className="text-[12px] text-[#a07000] italic py-3">
-              Nothing yet — add a reminder, prep item, or prayer.
+              Nothing yet, add a reminder, prep item, or prayer.
             </p>
           ) : (
             <ul className="flex flex-col gap-1 pt-2">

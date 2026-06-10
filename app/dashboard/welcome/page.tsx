@@ -154,7 +154,7 @@ export default function WelcomePage() {
           </div>
           <p className="text-sm text-[var(--g-deep)] leading-relaxed italic">
             &ldquo;You just made my day. As a homeschool mom who built this for families exactly like yours,
-            your support means everything to me. I poured my heart into every part of this app — I hope
+            your support means everything to me. I poured my heart into every part of this app, I hope
             it gives your family a little more calm, a little more joy, and a lot more confidence.
             Welcome to the Rooted family. 🌿&rdquo;
           </p>

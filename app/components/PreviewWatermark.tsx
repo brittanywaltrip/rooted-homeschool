@@ -28,7 +28,7 @@ export default function PreviewWatermark() {
       {/* Bottom banner strip */}
       <div className="absolute bottom-0 left-0 right-0 bg-[#f5f0e8] border-t border-[#e0d8cc] py-2 px-4 text-center">
         <p className="text-[#8b7e6e] text-xs font-medium tracking-wide">
-          PREVIEW — Upgrade to Rooted+ for a clean, official version
+          PREVIEW, Upgrade to Rooted+ for a clean, official version
         </p>
       </div>
     </div>

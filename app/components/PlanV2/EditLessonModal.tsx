@@ -203,7 +203,7 @@ export default function EditLessonModal(props: EditLessonModalProps) {
                 onChange={(e) => setGoalId(e.target.value)}
                 className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
               >
-                <option value="">(no goal — one-off lesson)</option>
+                <option value="">(no goal, one-off lesson)</option>
                 {goalsForChild.map((g) => (
                   <option key={g.id} value={g.id}>{g.curriculum_name}</option>
                 ))}

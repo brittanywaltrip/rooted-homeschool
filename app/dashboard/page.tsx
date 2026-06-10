@@ -169,7 +169,7 @@ function buildGreeting(firstName: string, opts: { allDone?: boolean; isSchoolDay
 
   // Friday
   if (day === 5) {
-    if (hour < 12) return `Last day of the week — finish strong${name ? `, ${name}` : ""}! 🌟`;
+    if (hour < 12) return `Last day of the week, finish strong${name ? `, ${name}` : ""}! 🌟`;
     if (hour < 17) return `Almost there${name ? `, ${name}` : ""} 🌱`;
     return `What a week${name ? `, ${name}` : ""} 🌿`;
   }
@@ -2613,7 +2613,7 @@ export default function TodayPage() {
           curriculum_goal_id: g.goal_id,
           lesson_number: g.current_lesson,
           queue_position: g.current_lesson,
-          title: `${g.curriculum_name} — Lesson ${g.current_lesson}`,
+          title: `${g.curriculum_name}, Lesson ${g.current_lesson}`,
           scheduled_date: today,
           date: today,
           completed: true,
@@ -3391,7 +3391,7 @@ export default function TodayPage() {
                 {activeVacation.name}
               </p>
               <p className="text-[12px] text-[#7a6f65] mt-0.5 leading-snug">
-                Enjoy your break — school resumes {resumeLabel}
+                Enjoy your break, school resumes {resumeLabel}
               </p>
             </div>
           </div>
@@ -3719,7 +3719,7 @@ export default function TodayPage() {
               Capture your first memory
             </h2>
             <p className="text-[13px] text-[#5C5346] max-w-[260px] mx-auto mb-5">
-              A photo, a book they read, a win, a field trip — anything worth remembering.
+              A photo, a book they read, a win, a field trip, anything worth remembering.
             </p>
             <button
               type="button"
@@ -3883,7 +3883,7 @@ export default function TodayPage() {
           <span className="text-lg shrink-0">📋</span>
           <div className="flex-1 min-w-0">
             <p className="text-[13px] font-semibold text-[#7a4a1a]">{totalToday} lesson{totalToday !== 1 ? "s were" : " was"} scheduled today</p>
-            <p className="text-[11px] text-[#b5944a]">No pressure — pick up in Plan →</p>
+            <p className="text-[11px] text-[#b5944a]">No pressure, pick up in Plan →</p>
           </div>
         </Link>
       )}
@@ -4274,7 +4274,7 @@ export default function TodayPage() {
 
                 {/* Helper text */}
                 <p className="text-xs text-[#5c7f63] text-center mb-5">
-                  {defaultMinutes} min is your default — change it if today was different
+                  {defaultMinutes} min is your default, change it if today was different
                 </p>
 
                 {/* Log it button */}
@@ -4608,7 +4608,7 @@ export default function TodayPage() {
             )}
             {/* Time spent (optional) */}
             <div className="flex items-center gap-2">
-              <label className="text-xs text-[#7a6f65] shrink-0">Time spent — logged in your Hours &amp; Attendance Log</label>
+              <label className="text-xs text-[#7a6f65] shrink-0">Time spent, logged in your Hours &amp; Attendance Log</label>
               <input type="number" min="1" max="999" value={ftMinutes} onChange={(e) => setFtMinutes(e.target.value)}
                 placeholder="e.g. 45"
                 className="w-20 px-2.5 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] text-center" />
@@ -5073,7 +5073,7 @@ export default function TodayPage() {
         const tmrw = new Date(); tmrw.setDate(tmrw.getDate() + 1);
         const tmrwStr = localDateStr(tmrw);
         const tmrwLabel = tmrw.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
-        const curricName = rl.title?.replace(/ — Lesson.*$/, "") ?? "";
+        const curricName = rl.title?.replace(/, Lesson.*$/, "") ?? "";
         return (
           <>
             <div className="fixed inset-0 bg-black/30 z-[80]" onClick={() => setRescheduleLesson(null)} />
@@ -5161,7 +5161,7 @@ export default function TodayPage() {
                         <span className="text-lg shrink-0">2️⃣</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-[#2d3a2e]">Double up tomorrow</p>
-                          <p className="text-xs text-[#9a8e84] mt-0.5">Do 2 lessons on {tmrwLabel.split(",")[0]} — stay on track</p>
+                          <p className="text-xs text-[#9a8e84] mt-0.5">Do 2 lessons on {tmrwLabel.split(",")[0]}, stay on track</p>
                         </div>
                         <span className="text-[#c8bfb5] text-base shrink-0">›</span>
                       </button>
@@ -5455,7 +5455,7 @@ export default function TodayPage() {
 
               {/* Time spent (optional) */}
               <div className="flex items-center gap-2">
-                <label className="text-xs text-[#7a6f65] shrink-0">Time spent — logged in your Hours &amp; Attendance Log</label>
+                <label className="text-xs text-[#7a6f65] shrink-0">Time spent, logged in your Hours &amp; Attendance Log</label>
                 <input type="number" min="1" max="999" value={winMinutes} onChange={(e) => setWinMinutes(e.target.value)}
                   placeholder="e.g. 45"
                   className="w-20 px-2.5 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] text-center" />
@@ -5485,13 +5485,13 @@ export default function TodayPage() {
                     console.log("[Win save] result:", { data: ins, error });
                     if (error) {
                       console.error("[Win save] FAILED:", error.message, error.code, error.details, error.hint);
-                      showCaptureToast("Save failed — try again", null);
+                      showCaptureToast("Save failed, try again", null);
                       setSavingWin(false);
                       return;
                     }
                     if (!ins) {
                       console.error("[Win save] No data returned — likely RLS policy blocking insert. Check that 'Users can insert own memories' policy exists on memories table.");
-                      showCaptureToast("Save failed — try again", null);
+                      showCaptureToast("Save failed, try again", null);
                       setSavingWin(false);
                       return;
                     }
@@ -5512,7 +5512,7 @@ export default function TodayPage() {
                     await refreshTodayStory();
                   } catch (err) {
                     console.error("Win save error:", err);
-                    showCaptureToast("Save failed — try again", null);
+                    showCaptureToast("Save failed, try again", null);
                     setSavingWin(false);
                   }
                 }}
@@ -5616,7 +5616,7 @@ export default function TodayPage() {
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-xl" onClick={e => e.stopPropagation()}>
             <div className="text-3xl mb-3">📷</div>
             <h2 className="text-lg font-bold text-[#2d2926] mb-2">You&apos;ve reached 50 photos</h2>
-            <p className="text-sm text-[#7a6f65] mb-5">Upgrade to Rooted+ to keep saving photos and drawings. Your other memories — wins, books, field trips — are always unlimited.</p>
+            <p className="text-sm text-[#7a6f65] mb-5">Upgrade to Rooted+ to keep saving photos and drawings. Your other memories, wins, books, field trips, are always unlimited.</p>
             <a href="/dashboard/settings?tab=account" className="block w-full py-3 rounded-xl text-white font-semibold text-sm bg-[#2D5A3D] hover:opacity-90 transition-opacity">
               Upgrade to Rooted+
             </a>

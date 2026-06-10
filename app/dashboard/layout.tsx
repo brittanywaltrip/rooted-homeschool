@@ -320,7 +320,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       const fileToUpload = await compressImage(fabFile);
       const path = `${user.id}/${Date.now()}-${fileToUpload.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
       const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fileToUpload, { contentType: "image/jpeg", upsert: false });
-      if (upErr) { setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
+      if (upErr) { setFabSaving(false); setFabToast("Upload failed, check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
       // 10-year signed URL so photo_url stays accessible long after upload.
       // Bucket is private; signed URLs are the only way to read.
       const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
@@ -337,7 +337,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         date: today,
         include_in_book: false,
       });
-      if (insErr) { setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
+      if (insErr) { setFabSaving(false); setFabToast("Upload failed, check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
       setFabSaving(false); closeFabSheet();
       window.dispatchEvent(new CustomEvent("rooted:memory-saved", { detail: { type: "photo" } }));
       setLeafBurst(true); setTimeout(() => setLeafBurst(false), 1200);
@@ -346,7 +346,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       checkAndAwardBadges(user.id);
       onLogAction({ userId: user.id, childId: fabChildId || undefined, actionType: "memory" });
     } catch {
-      setFabSaving(false); setFabToast("Upload failed — check your connection and try again"); setTimeout(() => setFabToast(null), 3000);
+      setFabSaving(false); setFabToast("Upload failed, check your connection and try again"); setTimeout(() => setFabToast(null), 3000);
     }
   }
 

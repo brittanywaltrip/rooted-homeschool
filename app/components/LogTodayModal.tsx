@@ -354,7 +354,7 @@ export default function LogTodayModal({
                   : "bg-[#f8f7f4] border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63]"
               }`}
             >
-              {"\uD83D\uDCAD"} {isReflection ? "Writing a reflection — this saves to your journal" : "Or write a private reflection instead"}
+              {"\uD83D\uDCAD"} {isReflection ? "Writing a reflection, this saves to your journal" : "Or write a private reflection instead"}
             </button>
 
             {isReflection && (

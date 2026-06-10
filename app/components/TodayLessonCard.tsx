@@ -388,7 +388,7 @@ export default function TodayLessonCard({
             Cancel
           </button>
           {noteSaveState === "error" && (
-            <span className="text-[11px] text-[#b91c1c]">Couldn&apos;t save — try again</span>
+            <span className="text-[11px] text-[#b91c1c]">Couldn&apos;t save, try again</span>
           )}
         </div>
       </div>

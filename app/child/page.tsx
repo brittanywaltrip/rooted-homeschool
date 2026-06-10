@@ -15,13 +15,13 @@ type Child = { id: string; name: string; color: string | null; birthday?: string
 // ─── 8-stage system (synced with garden page) ─────────────────────────────────
 
 const GROWTH_STAGES = [
-  { name: "Seed",          emoji: "🫘", min: 0,   color: "#c4956a", msg: "You're just getting started — and that's amazing!" },
+  { name: "Seed",          emoji: "🫘", min: 0,   color: "#c4956a", msg: "You're just getting started, and that's amazing!" },
   { name: "Sprouting",     emoji: "🌱", min: 1,   color: "#5c7f63", msg: "A tiny shoot appears!" },
   { name: "Seedling",      emoji: "🪴", min: 10,  color: "#e8927c", msg: "Look at you grow!" },
   { name: "Growing",       emoji: "🌿", min: 25,  color: "#5c7f63", msg: "Growing stronger every single day!" },
   { name: "Young Tree",    emoji: "🌳", min: 50,  color: "#2d5c38", msg: "Standing tall!" },
   { name: "Flourishing",   emoji: "🌲", min: 100, color: "#1e4828", msg: "Strong and steady!" },
-  { name: "Blossoming",    emoji: "🌸", min: 200, color: "#d4789c", msg: "In full bloom — so beautiful!" },
+  { name: "Blossoming",    emoji: "🌸", min: 200, color: "#d4789c", msg: "In full bloom, so beautiful!" },
   { name: "Bearing Fruit", emoji: "🍎", min: 500, color: "#c0392b", msg: "The harvest of all your hard work!" },
 ];
 
@@ -64,7 +64,7 @@ function ChildPageInner() {
     `${childName}, you're growing SO fast! 🌟`,
     `Every lesson is a new leaf, ${childName}! 🍃`,
     `${childName}, you're an amazing learner! ✨`,
-    `Keep going, ${childName} — you're doing great! 💪`,
+    `Keep going, ${childName}, you're doing great! 💪`,
     `Look how tall your tree is, ${childName}! 🌳`,
     `${childName}, you're a superstar! ⭐`,
     `Learning is YOUR superpower, ${childName}! ⚡`,
