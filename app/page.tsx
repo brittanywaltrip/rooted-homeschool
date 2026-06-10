@@ -1250,6 +1250,36 @@ function HomeInner() {
                 📌 Pinterest
               </a>
             </div>
+            <div className="flex items-center justify-center gap-3 mt-3">
+              <a
+                href="https://apps.apple.com/app/id6769627145"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Download on the App Store"
+              >
+                <img
+                  src="https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg"
+                  alt="Download on the App Store"
+                  height={36}
+                  width={120}
+                  style={{ height: '36px', width: 'auto' }}
+                />
+              </a>
+              <a
+                href="https://play.google.com/store/apps/details?id=com.rootedhomeschoolapp.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Get it on Google Play"
+              >
+                <img
+                  src="https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png"
+                  alt="Get it on Google Play"
+                  height={36}
+                  width={120}
+                  style={{ height: '36px', width: 'auto' }}
+                />
+              </a>
+            </div>
 
             {/* Copyright */}
             <div className="text-center sm:text-right space-y-1">
