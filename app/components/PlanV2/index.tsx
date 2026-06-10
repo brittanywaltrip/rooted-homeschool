@@ -4562,6 +4562,7 @@ export default function PlanV2() {
                   child_ids: apptEditTarget.appt.child_ids,
                   is_recurring: apptEditTarget.appt.is_recurring,
                   recurrence_rule: apptEditTarget.appt.recurrence_rule,
+                  is_school_activity: apptEditTarget.appt.is_school_activity ?? false,
                 }
               : null
           }

@@ -715,10 +715,16 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     //      save settle wait.
     await previewAndSave(page);
 
-    // Save returns to /dashboard/plan. Wait for the Plan header to render.
-    await expect(page).toHaveURL(/\/dashboard\/plan(\?|$|\/)/, { timeout: 20_000 });
+    // Wait for the Plan page to render after save. The heavy backfill save
+    // (generate + insert ~30 lessons, recompute, overcapacity check) can take a
+    // while on a cold/contended serverless start. We key off the Plan page's
+    // own h1 ("Plan") rather than the URL: the post-save soft navigation renders
+    // the Plan content while page.url() can still briefly report the builder
+    // path (/dashboard/plan/schedule), so a strict URL assertion flakes even
+    // though the page has navigated. The heading is the reliable "save landed"
+    // signal — the builder's h1 is "Your Schedule", so it can't false-match.
     await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({
-      timeout: 20_000,
+      timeout: 90_000,
     });
 
     // ── 8b. Wait for the save's server-side lesson generation to land before

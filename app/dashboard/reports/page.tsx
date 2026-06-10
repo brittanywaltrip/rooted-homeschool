@@ -31,6 +31,7 @@ type ReportAppointment = {
   duration_minutes: number | null;
   location: string | null;
   child_ids: string[];
+  is_school_activity: boolean;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -45,7 +46,7 @@ function schoolYearStart() {
 // ─── Print Report Component ───────────────────────────────────────────────────
 
 function PrintReport({
-  child, children: allKids, dateFrom, dateTo, lessons, books, activities, appointments, includeAppointments,
+  child, children: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
 }: {
   child: Child | null;
   children: Child[];
@@ -54,7 +55,6 @@ function PrintReport({
   books: BookEvent[];
   activities: MemoryActivity[];
   appointments: ReportAppointment[];
-  includeAppointments: boolean;
 }) {
   const filteredLessons = lessons.filter((l) => {
     const d = l.date ?? l.scheduled_date;
@@ -88,16 +88,13 @@ function PrintReport({
     subjectMap[key].hours += (l.minutes_spent ?? 30) / 60;
   });
 
-  // Appointments included in the report only when the toggle is on. For a
-  // single-child report, whole-family appointments (empty child_ids) are
-  // counted toward that child; appointments explicitly tagged to other kids
-  // are excluded. "All Children" includes everything.
-  const filteredAppointments: ReportAppointment[] = !includeAppointments
-    ? []
-    : appointments.filter((a) => {
-        if (child && a.child_ids.length > 0 && !a.child_ids.includes(child.id)) return false;
-        return a.date >= dateFrom && a.date <= dateTo;
-      });
+  // For a single-child report, whole-family appointments (empty child_ids)
+  // are counted toward that child; appointments explicitly tagged to other
+  // kids are excluded. "All Children" includes everything.
+  const filteredAppointments: ReportAppointment[] = appointments.filter((a) => {
+    if (child && a.child_ids.length > 0 && !a.child_ids.includes(child.id)) return false;
+    return a.date >= dateFrom && a.date <= dateTo;
+  });
 
   // Days Present unions completed-lesson dates with completed-appointment
   // dates so co-op or activity days without a curriculum lesson still count.
@@ -175,7 +172,7 @@ function PrintReport({
       )}
 
       {/* Activities and appointments */}
-      {includeAppointments && filteredAppointments.length > 0 && (
+      {filteredAppointments.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
             Activities and Appointments
@@ -272,7 +269,6 @@ export default function ReportsPage() {
   const [selectedChild, setSelectedChild] = useState<string>("all");
   const [dateFrom,      setDateFrom]      = useState(schoolYearStart());
   const [dateTo,        setDateTo]        = useState(toDateStr(new Date()));
-  const [includeAppointments, setIncludeAppointments] = useState(true);
   const [showPreview,   setShowPreview]   = useState(false);
   const [showExportGate, setShowExportGate] = useState(false);
   const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
@@ -299,17 +295,19 @@ export default function ReportsPage() {
         // One-time completed appointments: completion lives on the base row.
         supabase
           .from("appointments")
-          .select("id, title, emoji, date, duration_minutes, location, child_ids")
+          .select("id, title, emoji, date, duration_minutes, location, child_ids, is_school_activity")
           .eq("user_id", effectiveUserId)
           .eq("is_recurring", false)
-          .eq("completed", true),
+          .eq("completed", true)
+          .eq("is_school_activity", true),
         // Per-occurrence completions for recurring appointments live on
         // appointment_exceptions; join the parent for display fields.
         supabase
           .from("appointment_exceptions")
-          .select("exception_date, appointments!inner(id, title, emoji, duration_minutes, location, child_ids, user_id)")
+          .select("exception_date, appointments!inner(id, title, emoji, duration_minutes, location, child_ids, user_id, is_school_activity)")
           .eq("completed", true)
-          .eq("appointments.user_id", effectiveUserId),
+          .eq("appointments.user_id", effectiveUserId)
+          .eq("appointments.is_school_activity", true),
       ]);
 
       setChildren(capitalizeChildNames(kids ?? []));
@@ -317,7 +315,7 @@ export default function ReportsPage() {
       setBooks((bookEvts as unknown as BookEvent[]) ?? []);
       setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
 
-      type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null };
+      type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null; is_school_activity: boolean };
       type ExceptionRow = {
         exception_date: string;
         appointments: {
@@ -328,6 +326,7 @@ export default function ReportsPage() {
           location: string | null;
           child_ids: string[] | null;
           user_id: string;
+          is_school_activity: boolean;
         } | null;
       };
       const merged: ReportAppointment[] = [
@@ -339,6 +338,7 @@ export default function ReportsPage() {
           duration_minutes: r.duration_minutes,
           location: r.location,
           child_ids: r.child_ids ?? [],
+          is_school_activity: r.is_school_activity,
         })),
         ...(((exceptionAppts ?? []) as unknown as ExceptionRow[])
           .filter((r) => r.appointments !== null)
@@ -352,6 +352,7 @@ export default function ReportsPage() {
               duration_minutes: a.duration_minutes,
               location: a.location,
               child_ids: a.child_ids ?? [],
+              is_school_activity: a.is_school_activity,
             };
           })),
       ];
@@ -483,20 +484,6 @@ export default function ReportsPage() {
           ))}
         </div>
 
-        {/* Include activities and appointments */}
-        <div className="flex items-center gap-2">
-          <input
-            id="include-appts"
-            type="checkbox"
-            checked={includeAppointments}
-            onChange={(e) => setIncludeAppointments(e.target.checked)}
-            className="w-4 h-4 accent-[#5c7f63] cursor-pointer"
-          />
-          <label htmlFor="include-appts" className="text-sm text-[#2d2926] cursor-pointer select-none">
-            Include activities and appointments
-          </label>
-        </div>
-
         {/* Quick stats preview */}
         <div className="grid grid-cols-4 gap-2 pt-1">
           {[
@@ -545,7 +532,6 @@ export default function ReportsPage() {
           books={books}
           activities={activities}
           appointments={appointments}
-          includeAppointments={includeAppointments}
         />
       )}
 

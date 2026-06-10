@@ -33,6 +33,7 @@ type AppointmentRow = {
   is_recurring: boolean
   recurrence_rule: RecurrenceRule | null
   completed: boolean
+  is_school_activity: boolean
   created_at: string
 }
 
@@ -69,6 +70,7 @@ function dayBefore(dateStr: string): string {
 const ALLOWED_FIELDS = [
   'title', 'emoji', 'date', 'time', 'duration_minutes',
   'location', 'notes', 'child_ids', 'is_recurring', 'recurrence_rule', 'completed',
+  'is_school_activity',
 ] as const
 
 type EditableKey = (typeof ALLOWED_FIELDS)[number]
@@ -310,6 +312,7 @@ export async function POST(req: NextRequest) {
       child_ids: body.child_ids ?? [],
       is_recurring: body.is_recurring ?? false,
       recurrence_rule: body.recurrence_rule ?? null,
+      is_school_activity: body.is_school_activity ?? false,
     })
     .select()
     .single()
