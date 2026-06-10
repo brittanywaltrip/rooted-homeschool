@@ -1292,7 +1292,7 @@ export default function ScheduleBuilderPage() {
               curriculum_goal_id: goalId,
               lesson_number: p.lesson_number,
               queue_position: p.lesson_number,
-              title: `${row.name.trim()}, Lesson ${p.lesson_number}`,
+              title: `${row.name.trim()} — Lesson ${p.lesson_number}`,
               scheduled_date: p.date,
               date: p.date,
               // `wizard_create` covers both forward AND backfill rows per
@@ -1340,7 +1340,7 @@ export default function ScheduleBuilderPage() {
             lesson_number: l.lesson_number,
             // queue_position must match lesson_number per Path A invariant.
             queue_position: l.lesson_number,
-            title: `${row.name.trim()}, Lesson ${l.lesson_number}`,
+            title: `${row.name.trim()} — Lesson ${l.lesson_number}`,
             scheduled_date: l.date,
             date: l.date,
             scheduled_source: "wizard_create",

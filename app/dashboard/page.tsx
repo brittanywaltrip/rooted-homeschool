@@ -2613,7 +2613,7 @@ export default function TodayPage() {
           curriculum_goal_id: g.goal_id,
           lesson_number: g.current_lesson,
           queue_position: g.current_lesson,
-          title: `${g.curriculum_name}, Lesson ${g.current_lesson}`,
+          title: `${g.curriculum_name} — Lesson ${g.current_lesson}`,
           scheduled_date: today,
           date: today,
           completed: true,
