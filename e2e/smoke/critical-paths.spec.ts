@@ -604,6 +604,15 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
   });
 
   test('Past start_date populates is_backfill rows on the Plan calendar', async ({ page }) => {
+    // This is the heaviest smoke test: it drives the Schedule Builder, runs a
+    // backfill save that generates + inserts ~30 lessons, recomputes, and runs
+    // an overcapacity check, then navigates the Plan calendar across weeks. On a
+    // cold/contended staging serverless start that whole flow regularly exceeds
+    // the default 30s per-test budget (the save alone can take 60s+), so give it
+    // a generous timeout. Without this, the per-test timeout fires before the
+    // post-save assertions can resolve, masking a passing flow as a failure.
+    test.setTimeout(150_000);
+
     const sb = adminClient();
     if (!sb) {
       test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY not set; backfill cleanup unavailable.');
