@@ -229,38 +229,11 @@ export default function AdminPage() {
     const json = await res.json();
     setData(json);
 
-    // Single client-side memory query — drives Near Gate + Re-engagement
-    const { data: allMems } = await supabase.from("memories").select("user_id");
-    const userMemCounts: Record<string, number> = {};
-    (allMems ?? []).forEach((m: { user_id: string }) => {
-      userMemCounts[m.user_id] = (userMemCounts[m.user_id] ?? 0) + 1;
-    });
-
-    // ── Near freemium gate ────────────────────────────────
-    const { data: freeProfiles } = await supabase
-      .from("profiles")
-      .select("id, display_name, email, first_name")
-      .or("subscription_status.eq.free,subscription_status.is.null")
-      .not("plan_type", "in", "(founding_family,standard,monthly)");
-    const gateUsers: { name: string; email: string; count: number }[] = [];
-    for (const p of (freeProfiles ?? []) as { id: string; display_name?: string; email?: string; first_name?: string }[]) {
-      const cnt = userMemCounts[p.id] ?? 0;
-      if (cnt >= 40) {
-        gateUsers.push({ name: p.display_name || p.first_name || "Unknown", email: p.email || "", count: cnt });
-      }
-    }
-    gateUsers.sort((a, b) => b.count - a.count);
-    setNearGate(gateUsers);
-
-    // ── Re-engagement count ───────────────────────────────
-    const threeDaysAgo = new Date(); threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-    const { data: allProfiles } = await supabase
-      .from("profiles")
-      .select("id")
-      .or("re_engagement_sent.eq.false,re_engagement_sent.is.null")
-      .lte("created_at", threeDaysAgo.toISOString());
-    const noMemoryCount = (allProfiles ?? []).filter((p: { id: string }) => !userMemCounts[p.id]).length;
-    setReengageCount(noMemoryCount);
+    // Near Gate + Re-engagement are computed server-side in /api/admin/summary
+    // (service-role, all rows). The old client-side queries here only ever saw
+    // Brittany's own rows under RLS, so they never showed real data.
+    setNearGate(json.nearGate ?? []);
+    setReengageCount(json.reengageCount ?? 0);
 
     // ── Affiliate payouts ────────────────────────────────
     setPayoutsLoading(true);
@@ -827,8 +800,11 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="📬" title="Re-engagement" />
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-            <p className="text-sm text-[#2d2926] mb-3">
-              <span className="font-semibold">{reengageCount}</span> users qualify (signed up 3+ days ago, 0 memories, not yet emailed)
+            <p className="text-sm text-[#2d2926] mb-1">
+              <span className="font-semibold">{reengageCount}</span> users with 0 memories, 3+ days old, never emailed
+            </p>
+            <p className="text-xs text-[#7a6f65] mb-3">
+              Send targets recent signups only (the cron emails its own 2-3 day and 10 day windows), so it will not email this whole backlog.
             </p>
             {reengageSent ? (
               <p className="text-sm text-[#5c7f63] font-medium">Re-engagement emails sent!</p>

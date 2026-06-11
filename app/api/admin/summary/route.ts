@@ -45,7 +45,7 @@ export async function GET(req: Request) {
   const todayStart = todayMidnight;
 
   type AuthUser = Awaited<ReturnType<typeof supabaseAdmin.auth.admin.listUsers>>['data']['users'][number];
-  type Profile = { id: string; display_name: string | null; first_name: string | null; last_name: string | null; plan_type: string | null; subscription_status: string | null; is_pro: boolean; partner_email: string | null; stripe_subscription_id: string | null; created_at: string };
+  type Profile = { id: string; display_name: string | null; first_name: string | null; last_name: string | null; plan_type: string | null; subscription_status: string | null; is_pro: boolean; partner_email: string | null; stripe_subscription_id: string | null; created_at: string; re_engagement_sent: boolean | null };
 
   const PAGE_SIZE = 1000;
   const FETCH_CONCURRENCY = 10;
@@ -125,7 +125,7 @@ export async function GET(req: Request) {
     // Profiles
     fetchAllRows<Profile>(
       "profiles",
-      "id, display_name, first_name, last_name, plan_type, subscription_status, is_pro, partner_email, stripe_subscription_id, created_at"
+      "id, display_name, first_name, last_name, plan_type, subscription_status, is_pro, partner_email, stripe_subscription_id, created_at, re_engagement_sent"
     ),
     // Affiliates
     supabaseAdmin.from("affiliates").select("user_id, is_active, was_comped"),
@@ -141,8 +141,8 @@ export async function GET(req: Request) {
     fetchAllRows<{ user_id: string }>("curriculum_goals", "user_id"),
     // App events
     fetchAllRows<{ user_id: string; created_at: string | null }>("app_events", "user_id, created_at"),
-    // Memories (user_id + created_at for adoption + activity chart)
-    fetchAllRows<{ user_id: string; created_at: string }>("memories", "user_id, created_at"),
+    // Memories (user_id + created_at for adoption + activity chart; type for the near-gate photo count)
+    fetchAllRows<{ user_id: string; created_at: string; type: string | null }>("memories", "user_id, created_at, type"),
     // Vacation blocks (user_id only — for adoption)
     fetchAllRows<{ user_id: string }>("vacation_blocks", "user_id"),
     // Count queries
@@ -276,6 +276,51 @@ export async function GET(req: Request) {
 
   const profileMap    = new Map(profiles.map(p => [p.id, p]));
   const TEST_EMAILS   = ["test@", "example.com"];
+
+  // ── Near freemium gate + Re-engagement backlog ───────────────────────
+  // Both tiles used to be computed in the browser with the anon key. RLS
+  // limited that client to Brittany's own rows, the Near Gate query also
+  // selected a non-existent profiles.email column, and supabase-js capped
+  // un-ranged selects at 1000 rows, so the tiles never showed real data.
+  // Computed here instead, server-side, over every row.
+  const authEmailById = new Map(allUsers.map(u => [u.id, u.email ?? ""]));
+
+  // Photo counts per user. The free plan caps PHOTOS at 50 (other memory
+  // types are unlimited), so the gate counts type='photo' only, not all
+  // memory types, which is what the old client code got wrong.
+  const photoCountByUser = new Map<string, number>();
+  for (const m of memoryUserRows) {
+    if (m.type !== "photo") continue;
+    photoCountByUser.set(m.user_id, (photoCountByUser.get(m.user_id) ?? 0) + 1);
+  }
+
+  // Not-paying mirrors the freeUsers definition: plan_type not in the paid
+  // set (a missing profile is treated as free).
+  const PAID_PLAN_TYPES = new Set(["founding_family", "standard", "monthly"]);
+  const nearGate: { name: string; email: string; count: number }[] = [];
+  for (const [userId, count] of photoCountByUser) {
+    if (count < 40) continue;
+    const profile = profileMap.get(userId);
+    if (profile && PAID_PLAN_TYPES.has(profile.plan_type ?? "")) continue;
+    nearGate.push({
+      name: profile?.display_name || profile?.first_name || "Unknown",
+      email: authEmailById.get(userId) ?? "",
+      count,
+    });
+  }
+  nearGate.sort((a, b) => b.count - a.count);
+
+  // Re-engagement backlog: real families that were never sent the
+  // re-engagement email, signed up 3+ days ago, and have logged zero
+  // memories. Excludes test/whitelist/incomplete accounts so the count
+  // reflects genuinely dormant families.
+  const threeDaysAgo = new Date(now.getTime() - 3 * 86400000);
+  const reengageCount = profiles.filter(p =>
+    (p.re_engagement_sent === false || p.re_engagement_sent == null) &&
+    new Date(p.created_at).getTime() <= threeDaysAgo.getTime() &&
+    !memoryByUser.has(p.id) &&
+    !exclusions.excludedFromRealFamilies.has(p.id)
+  ).length;
 
   // Helper — compute last active from lesson and event dates
   function getLastActive(userId: string): string | null {
@@ -606,5 +651,7 @@ export async function GET(req: Request) {
     churnRisk,
     newUserHealth,
     activityChart14,
+    nearGate,
+    reengageCount,
   });
 }
