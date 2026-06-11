@@ -34,6 +34,7 @@ import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
+import { isSchoolDayDate } from "@/lib/school-days";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { useIsNativeApp } from "@/lib/platform";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
@@ -813,8 +814,10 @@ export default function TodayPage() {
     setSchoolDaysArr(schoolDays);
     setSchoolStartTime((profile as { school_start_time?: string } | null)?.school_start_time ?? null);
     if (schoolDays.length > 0) {
-      const todayDayName = new Date().toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-      setIsSchoolDay(schoolDays.includes(todayDayName));
+      // school_days stores short-form labels ("Mon".."Sun"); isSchoolDayDate
+      // normalizes either format before comparing, so this works for both the
+      // canonical short form and any legacy long-form profile rows.
+      setIsSchoolDay(isSchoolDayDate(today, schoolDays));
     }
 
     // Milestone
@@ -849,8 +852,7 @@ export default function TodayPage() {
     cursor.setDate(cursor.getDate() - 1);
     for (let i = 0; i < 60; i++) {
       const dateStr = localDateStr(cursor);
-      const dayName = cursor.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
-      if (schoolDays.length > 0 && !schoolDays.includes(dayName)) {
+      if (schoolDays.length > 0 && !isSchoolDayDate(dateStr, schoolDays)) {
         cursor.setDate(cursor.getDate() - 1);
         continue;
       }
@@ -876,10 +878,9 @@ export default function TodayPage() {
       const d = new Date(monday);
       d.setDate(d.getDate() + i);
       const dateStr = localDateStr(d);
-      const dayName = d.toLocaleDateString("en-US", { weekday: "long" }).toLowerCase();
       if (dateStr > today) {
         dots.push("future");
-      } else if (schoolDays.length > 0 && !schoolDays.includes(dayName)) {
+      } else if (schoolDays.length > 0 && !isSchoolDayDate(dateStr, schoolDays)) {
         dots.push("off");
       } else {
         const entry = lessonsByDate.get(dateStr);

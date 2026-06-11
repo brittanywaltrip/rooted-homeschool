@@ -80,6 +80,36 @@ test('isSchoolDayDate: canonical profile matches the same Monday', () => {
   )
 })
 
+// Regression: the dashboard Today page built a long-form lookup key
+// (toLocaleDateString weekday:"long" → "monday") and tested it against
+// school_days, which stores SHORT form ("Mon".."Sun") for every live
+// profile. That made isSchoolDay always false. The dashboard now routes
+// through isSchoolDayDate, so these pin the short-form behavior it relies
+// on. See app/dashboard/page.tsx loadData().
+test('isSchoolDayDate: short-form Mon-Fri profile matches a Wednesday', () => {
+  // Jun 24 2026 is a Wednesday.
+  assert.equal(
+    isSchoolDayDate('2026-06-24', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']),
+    true,
+  )
+})
+
+test('isSchoolDayDate: short-form Mon-Fri profile rejects a Sunday', () => {
+  // Jun 21 2026 is a Sunday.
+  assert.equal(
+    isSchoolDayDate('2026-06-21', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']),
+    false,
+  )
+})
+
+test('isSchoolDayDate: short-form partial-week profile rejects its off day', () => {
+  // Mon/Wed/Fri profile. Jun 23 2026 is a Tuesday (off); Jun 24 is a
+  // Wednesday (on).
+  const mwf = ['Mon', 'Wed', 'Fri']
+  assert.equal(isSchoolDayDate('2026-06-23', mwf), false)
+  assert.equal(isSchoolDayDate('2026-06-24', mwf), true)
+})
+
 // ── countSchoolDaysInRange ────────────────────────────────────────────
 
 test('countSchoolDaysInRange: lowercase profile counts 5 weekdays Mon-Fri', () => {
