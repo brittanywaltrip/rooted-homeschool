@@ -96,6 +96,24 @@ const COUNTRIES = [
   "Zimbabwe","Other",
 ];
 
+// A child row in the kids step. `id` is filled in after the row is persisted so
+// repeat submits update by id (idempotency) instead of inserting again.
+type ChildRow = { id?: string | null; name: string; color: string; grade: string };
+
+// Defensive cleanup for a restored draft name. Trims whitespace and collapses
+// an exact-doubled value (e.g. "BrittanyBrittany" → "Brittany") that a prior
+// corrupted draft may have persisted, so restoring assigns a clean value rather
+// than carrying the doubling forward. Real first/last names are never their own
+// exact concatenation, so this is safe.
+function cleanName(raw: string | null | undefined): string {
+  const s = (raw ?? "").trim();
+  if (s.length >= 4 && s.length % 2 === 0) {
+    const half = s.length / 2;
+    if (s.slice(0, half) === s.slice(half)) return s.slice(0, half);
+  }
+  return s;
+}
+
 // ─── Shared UI ────────────────────────────────────────────────────────────────
 
 function ProgressDots({ current, total }: { current: number; total: number }) {
@@ -512,7 +530,7 @@ export default function OnboardingPage() {
   const datesTouchedRef = useRef(false);
   const schoolYearSavedRef = useRef(false);
   const schoolYearIdRef = useRef<string | null>(null);
-  const [childRows, setChildRows] = useState([{ name: "", color: CHILD_COLORS[0], grade: "" }]);
+  const [childRows, setChildRows] = useState<ChildRow[]>([{ name: "", color: CHILD_COLORS[0], grade: "" }]);
   const [celebrationReady, setCelebrationReady] = useState(false);
   const celebrationReadyRef = useRef(false);
   const authCheckDone = useRef(false);
@@ -546,14 +564,18 @@ export default function OnboardingPage() {
 
       setUserId(user.id);
 
-      const fn = profile?.first_name || user.user_metadata?.first_name || "";
-      const ln = profile?.last_name || user.user_metadata?.last_name || "";
+      // Restore (assign, never append) the saved draft, collapsing any
+      // exact-doubled value a prior corrupted draft may have persisted so the
+      // name fields don't prefill as "BrittanyBrittany".
+      const fn = cleanName(profile?.first_name || user.user_metadata?.first_name || "");
+      const ln = cleanName(profile?.last_name || user.user_metadata?.last_name || "");
       const dn = profile?.display_name || "";
 
       setFirstName(fn);
       setLastName(ln);
-      // Family name is auto-derived from the last name (no dedicated step now).
-      const effectiveDn = dn || (ln ? `The ${ln.charAt(0).toUpperCase() + ln.slice(1)} Family` : "");
+      // Family name is auto-derived from the (cleaned) last name (no dedicated
+      // step now). Derive from ln rather than trusting a possibly-doubled dn.
+      const effectiveDn = ln ? `The ${ln.charAt(0).toUpperCase() + ln.slice(1)} Family` : (dn || "");
       setDisplayName(effectiveDn);
       if (profile?.state) setSelectedState(profile.state);
       const savedCountry = (profile as { country?: string } | null)?.country;
@@ -591,17 +613,25 @@ export default function OnboardingPage() {
   // ── Step handlers ──────────────────────────────────────────────────────
 
   async function saveStep1() {
-    if (!firstName.trim()) { setError("Please enter your first name to continue"); return; }
+    // Trim the name inputs at submit and reflect the clean values back into the
+    // fields so the UI matches exactly what we persist.
+    const fn = firstName.trim();
+    const ln = lastName.trim();
+    if (!fn) { setError("Please enter your first name to continue"); return; }
+    if (fn !== firstName) setFirstName(fn);
+    if (ln !== lastName) setLastName(ln);
     setSaving(true);
-    const derivedName = displayName.trim()
-      || (lastName.trim() ? `The ${lastName.trim().charAt(0).toUpperCase() + lastName.trim().slice(1)} Family` : "");
+    // Build display_name from the EXACT last name being submitted in this same
+    // payload (not from possibly-stale displayName draft state), so correcting
+    // a doubled last name also fixes the family name.
+    const derivedName = ln ? `The ${ln.charAt(0).toUpperCase() + ln.slice(1)} Family` : "";
     const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
     await fetch("/api/profile/update", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({
-        first_name: firstName.trim(),
-        ...(lastName.trim() ? { last_name: lastName.trim() } : {}),
+        first_name: fn,
+        ...(ln ? { last_name: ln } : {}),
         ...(derivedName ? { display_name: derivedName } : {}),
       }),
     });
@@ -687,24 +717,75 @@ export default function OnboardingPage() {
     const filled = childRows.filter(r => r.name.trim());
     if (filled.length === 0) { setError("Please add your child's name to continue"); return; }
     setSaving(true);
-    for (let i = 0; i < filled.length; i++) {
-      const { error: childErr } = await supabase
-        .from("children")
-        .insert({
-          user_id: userId,
-          name: capitalizeName(filled[i].name),
-          color: filled[i].color,
-          sort_order: i + 1,
-          archived: false,
-          name_key: filled[i].name.trim().toLowerCase().replace(/\s+/g, "_"),
-          grade_level: filled[i].grade || null,
-        });
-      if (childErr) {
-        setError("Something went wrong. Please try again.");
-        setSaving(false);
-        return;
+
+    // Idempotent submit: going Back from the school-year step and tapping
+    // Continue again must not 409 on the (user_id, name_key) / (user_id,
+    // lower(name)) unique indexes. Fetch existing children and UPDATE matches
+    // (by stored id, then by name) instead of inserting; only INSERT new names.
+    const { data: existing, error: fetchErr } = await supabase
+      .from("children")
+      .select("id, name, name_key")
+      .eq("user_id", userId)
+      .eq("archived", false);
+    if (fetchErr) {
+      setError("Something went wrong. Please try again.");
+      setSaving(false);
+      return;
+    }
+    const existingByKey = new Map<string, string>();
+    const existingByName = new Map<string, string>();
+    for (const c of (existing ?? []) as { id: string; name: string | null; name_key: string | null }[]) {
+      if (c.name_key) existingByKey.set(c.name_key, c.id);
+      if (c.name) existingByName.set(c.name.trim().toLowerCase(), c.id);
+    }
+
+    // Update childRows with persisted ids so subsequent submits update by id.
+    const nextRows = [...childRows];
+    let sortOrder = 0;
+    for (let i = 0; i < childRows.length; i++) {
+      const row = childRows[i];
+      const trimmed = row.name.trim();
+      if (!trimmed) continue;
+      sortOrder += 1;
+      const nameKey = trimmed.toLowerCase().replace(/\s+/g, "_");
+      const lowerName = trimmed.toLowerCase();
+      const payload = {
+        name: capitalizeName(trimmed),
+        color: row.color,
+        sort_order: sortOrder,
+        grade_level: row.grade || null,
+      };
+      const targetId = row.id || existingByKey.get(nameKey) || existingByName.get(lowerName) || null;
+      if (targetId) {
+        const { error: updErr } = await supabase.from("children").update(payload).eq("id", targetId);
+        if (updErr) {
+          setError("Something went wrong. Please try again.");
+          setSaving(false);
+          return;
+        }
+        nextRows[i] = { ...row, id: targetId };
+        existingByKey.set(nameKey, targetId);
+        existingByName.set(lowerName, targetId);
+      } else {
+        const { data: inserted, error: insErr } = await supabase
+          .from("children")
+          .insert({ user_id: userId, ...payload, archived: false, name_key: nameKey })
+          .select("id")
+          .single();
+        if (insErr) {
+          setError("Something went wrong. Please try again.");
+          setSaving(false);
+          return;
+        }
+        const newId = (inserted as { id?: string } | null)?.id ?? null;
+        nextRows[i] = { ...row, id: newId };
+        if (newId) {
+          existingByKey.set(nameKey, newId);
+          existingByName.set(lowerName, newId);
+        }
       }
     }
+    setChildRows(nextRows);
     setSaving(false);
     goTo(4);
   }
