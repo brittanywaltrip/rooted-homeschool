@@ -48,8 +48,53 @@ export async function GET(req: Request) {
   type Profile = { id: string; display_name: string | null; first_name: string | null; last_name: string | null; plan_type: string | null; subscription_status: string | null; is_pro: boolean; partner_email: string | null; stripe_subscription_id: string | null; created_at: string };
 
   const PAGE_SIZE = 1000;
+  const FETCH_CONCURRENCY = 10;
 
-  // All independent data fetches run in parallel — dramatically faster than sequential awaits
+  // Fetch every row of a table using count-first parallel pagination.
+  // Previously each table was walked page-by-page in a sequential loop,
+  // so big tables (lessons is ~96k rows) cost dozens of serial round
+  // trips and pushed this route toward its timeout. Now: one COUNT
+  // query, then all pages fetched concurrently (bounded), order kept.
+  async function fetchAllRows<T>(
+    table: string,
+    select: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    modify?: (q: any) => any
+  ): Promise<T[]> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let countQuery: any = supabaseAdmin.from(table).select("*", { count: "exact", head: true });
+    if (modify) countQuery = modify(countQuery);
+    const { count } = await countQuery;
+    const total = count ?? 0;
+    if (total === 0) return [];
+
+    const ranges: { from: number; to: number }[] = [];
+    for (let from = 0; from < total; from += PAGE_SIZE) {
+      ranges.push({ from, to: Math.min(from + PAGE_SIZE, total) - 1 });
+    }
+
+    const pages: T[][] = new Array(ranges.length);
+    let next = 0;
+    async function worker() {
+      while (next < ranges.length) {
+        const i = next++;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let q: any = supabaseAdmin.from(table).select(select);
+        if (modify) q = modify(q);
+        // Stable order is required for correct parallel pagination:
+        // without it Postgres gives no row-order guarantee, so pages
+        // could overlap or miss rows. Every table here has an id PK.
+        const { data } = await q.order("id", { ascending: true }).range(ranges[i].from, ranges[i].to);
+        pages[i] = (data ?? []) as T[];
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(FETCH_CONCURRENCY, ranges.length) }, () => worker())
+    );
+    return pages.flat();
+  }
+
+  // All independent data fetches run in parallel, dramatically faster than sequential awaits
   const [
     allUsers,
     profiles,
@@ -63,9 +108,8 @@ export async function GET(req: Request) {
     vacationBlocksResult,
     booksLoggedResult,
     memoriesCreatedResult,
-    memoriesTodayResult,
   ] = await Promise.all([
-    // Auth users
+    // Auth users: listUsers has no count-first equivalent; ~3 pages, sequential is fine
     (async (): Promise<AuthUser[]> => {
       const users: AuthUser[] = [];
       let page = 1;
@@ -79,120 +123,38 @@ export async function GET(req: Request) {
       return users;
     })(),
     // Profiles
-    (async (): Promise<Profile[]> => {
-      const rows: Profile[] = [];
-      let from = 0;
-      while (true) {
-        const { data } = await supabaseAdmin
-          .from("profiles")
-          .select("id, display_name, first_name, last_name, plan_type, subscription_status, is_pro, partner_email, stripe_subscription_id, created_at")
-          .range(from, from + PAGE_SIZE - 1);
-        const batch = (data ?? []) as Profile[];
-        rows.push(...batch);
-        if (batch.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      return rows;
-    })(),
+    fetchAllRows<Profile>(
+      "profiles",
+      "id, display_name, first_name, last_name, plan_type, subscription_status, is_pro, partner_email, stripe_subscription_id, created_at"
+    ),
     // Affiliates
     supabaseAdmin.from("affiliates").select("user_id, is_active, was_comped"),
     // Completed lessons
-    (async (): Promise<{ user_id: string; completed_at: string | null; date: string | null }[]> => {
-      const rows: { user_id: string; completed_at: string | null; date: string | null }[] = [];
-      let from = 0;
-      while (true) {
-        const { data } = await supabaseAdmin
-          .from("lessons")
-          .select("user_id, completed_at, date")
-          .not("completed_at", "is", null)
-          .range(from, from + PAGE_SIZE - 1);
-        const batch = (data ?? []) as typeof rows;
-        rows.push(...batch);
-        if (batch.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      return rows;
-    })(),
+    fetchAllRows<{ user_id: string; completed_at: string | null; date: string | null }>(
+      "lessons",
+      "user_id, completed_at, date",
+      q => q.not("completed_at", "is", null)
+    ),
     // Children
-    (async (): Promise<{ user_id: string }[]> => {
-      const rows: { user_id: string }[] = [];
-      let from = 0;
-      while (true) {
-        const { data } = await supabaseAdmin.from("children").select("user_id").range(from, from + PAGE_SIZE - 1);
-        const batch = (data ?? []) as { user_id: string }[];
-        rows.push(...batch);
-        if (batch.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      return rows;
-    })(),
+    fetchAllRows<{ user_id: string }>("children", "user_id"),
     // Curricula
-    (async (): Promise<{ user_id: string }[]> => {
-      const rows: { user_id: string }[] = [];
-      let from = 0;
-      while (true) {
-        const { data } = await supabaseAdmin.from("curriculum_goals").select("user_id").range(from, from + PAGE_SIZE - 1);
-        const batch = (data ?? []) as { user_id: string }[];
-        rows.push(...batch);
-        if (batch.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      return rows;
-    })(),
+    fetchAllRows<{ user_id: string }>("curriculum_goals", "user_id"),
     // App events
-    (async (): Promise<{ user_id: string; created_at: string | null }[]> => {
-      const rows: { user_id: string; created_at: string | null }[] = [];
-      let from = 0;
-      while (true) {
-        const { data } = await supabaseAdmin.from("app_events").select("user_id, created_at").range(from, from + PAGE_SIZE - 1);
-        const batch = (data ?? []) as { user_id: string; created_at: string | null }[];
-        rows.push(...batch);
-        if (batch.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      return rows;
-    })(),
+    fetchAllRows<{ user_id: string; created_at: string | null }>("app_events", "user_id, created_at"),
     // Memories (user_id + created_at for adoption + activity chart)
-    (async (): Promise<{ user_id: string; created_at: string }[]> => {
-      const rows: { user_id: string; created_at: string }[] = [];
-      let from = 0;
-      while (true) {
-        const { data } = await supabaseAdmin.from("memories").select("user_id, created_at").range(from, from + PAGE_SIZE - 1);
-        const batch = (data ?? []) as { user_id: string; created_at: string }[];
-        rows.push(...batch);
-        if (batch.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      return rows;
-    })(),
+    fetchAllRows<{ user_id: string; created_at: string }>("memories", "user_id, created_at"),
     // Vacation blocks (user_id only — for adoption)
-    (async (): Promise<{ user_id: string }[]> => {
-      const rows: { user_id: string }[] = [];
-      let from = 0;
-      while (true) {
-        const { data } = await supabaseAdmin.from("vacation_blocks").select("user_id").range(from, from + PAGE_SIZE - 1);
-        const batch = (data ?? []) as { user_id: string }[];
-        rows.push(...batch);
-        if (batch.length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      return rows;
-    })(),
+    fetchAllRows<{ user_id: string }>("vacation_blocks", "user_id"),
     // Count queries
     supabaseAdmin.from("vacation_blocks").select("*", { count: "exact", head: true }),
     supabaseAdmin.from("memories").select("*", { count: "exact", head: true }).eq("type", "book"),
     supabaseAdmin.from("memories").select("*", { count: "exact", head: true }),
-    // Placeholder — memoriesTodayCount is derived in-memory below so we can
-    // apply test/whitelist/incomplete-signup exclusions consistently.
-    Promise.resolve({ count: 0 } as { count: number | null }),
   ]);
 
   const affiliateRows = affiliateResult.data;
   const vacationBlocks = vacationBlocksResult.count;
   const booksLogged = booksLoggedResult.count;
   const memoriesCreated = memoriesCreatedResult.count;
-  // memoriesTodayResult is unused; see derivation below after exclusions are built.
-  void memoriesTodayResult;
 
   // ── Centralized exclusions ────────────────────────────────────────────
   // Every "real families" / signup / activity tile must filter through
@@ -367,28 +329,21 @@ export async function GET(req: Request) {
       supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }).eq('onboarded', true),
     ]);
 
-    // For unique user counts, paginate tables that might exceed 1000 rows
-    async function fetchUniqueUserIds(table: string): Promise<number> {
-      const userIds = new Set<string>();
-      let from = 0;
-      const PAGE = 1000;
-      while (true) {
-        const { data } = await supabaseAdmin.from(table).select('user_id').range(from, from + PAGE - 1);
-        const rows = (data ?? []) as { user_id: string }[];
-        for (const r of rows) userIds.add(r.user_id);
-        if (rows.length < PAGE) break;
-        from += PAGE;
-      }
-      return userIds.size;
+    // Unique-user counts. children + vacation_blocks rows are already in
+    // memory from the main fetch above, so reuse them instead of re-querying.
+    // The rest go through the shared parallel fetcher (user_id column only).
+    async function countUniqueUsers(table: string): Promise<number> {
+      const rows = await fetchAllRows<{ user_id: string }>(table, "user_id");
+      return new Set(rows.map(r => r.user_id)).size;
     }
 
-    const [addedChild, loggedLesson, addedSubject, createdReflection, usedVacation] = await Promise.all([
-      fetchUniqueUserIds('children'),
-      fetchUniqueUserIds('lessons'),
-      fetchUniqueUserIds('subjects'),
-      fetchUniqueUserIds('daily_reflections'),
-      fetchUniqueUserIds('vacation_blocks'),
+    const [loggedLesson, addedSubject, createdReflection] = await Promise.all([
+      countUniqueUsers('lessons'),
+      countUniqueUsers('subjects'),
+      countUniqueUsers('daily_reflections'),
     ]);
+    const addedChild = childrenByUser.size;
+    const usedVacation = vacationByUser.size;
     const addedResource = 0; // resources table is admin-managed links, has no user_id
 
     funnel = {
