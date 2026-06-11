@@ -25,14 +25,17 @@ const SOUTHERN_HEMISPHERE = new Set([
   "Australia", "New Zealand", "South Africa", "Argentina", "Chile", "Uruguay", "Brazil",
 ]);
 
+// value MUST be the short form ("Mon".."Sun") to match profiles.school_days
+// across every existing profile and what the scheduler reads. Saving the long
+// form ("monday"..) breaks lesson pacing for new users.
 const DAYS = [
-  { label: "Mon", value: "monday" },
-  { label: "Tue", value: "tuesday" },
-  { label: "Wed", value: "wednesday" },
-  { label: "Thu", value: "thursday" },
-  { label: "Fri", value: "friday" },
-  { label: "Sat", value: "saturday" },
-  { label: "Sun", value: "sunday" },
+  { label: "Mon", value: "Mon" },
+  { label: "Tue", value: "Tue" },
+  { label: "Wed", value: "Wed" },
+  { label: "Thu", value: "Thu" },
+  { label: "Fri", value: "Fri" },
+  { label: "Sat", value: "Sat" },
+  { label: "Sun", value: "Sun" },
 ];
 
 // Smart default school-year window. Southern hemisphere: Feb 1 to Dec 15 of the
@@ -505,7 +508,7 @@ export default function OnboardingPage() {
   const [goals, setGoals] = useState<string[]>([]);
   const [schoolYearStart, setSchoolYearStart] = useState("");
   const [schoolYearEnd, setSchoolYearEnd] = useState("");
-  const [schoolDays, setSchoolDays] = useState<string[]>(["monday", "tuesday", "wednesday", "thursday", "friday"]);
+  const [schoolDays, setSchoolDays] = useState<string[]>(["Mon", "Tue", "Wed", "Thu", "Fri"]);
   const datesTouchedRef = useRef(false);
   const schoolYearSavedRef = useRef(false);
   const schoolYearIdRef = useRef<string | null>(null);
