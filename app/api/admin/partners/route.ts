@@ -11,6 +11,16 @@ const supabaseAdmin = createClient(
 
 export const dynamic = "force-dynamic";
 
+// YYYY-MM key in UTC — matches to_char(created_at, 'YYYY-MM') closely enough
+// for the monthly ledger, and is internally consistent for earned vs paid vs
+// current-month comparisons (all derived the same way on the server).
+function ymUTC(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 async function verifyAdmin(req: Request) {
   const token = req.headers.get("authorization")?.replace("Bearer ", "");
   if (!token) return null;
@@ -52,6 +62,14 @@ export async function GET(req: Request) {
     .order("created_at", { ascending: false })
     .limit(100);
 
+  // ALL converted referrals (lifetime, no 100-row cap) — the source of truth
+  // for earned commission. refRows above is only the recent Referral Activity
+  // feed; using it for earned totals would silently truncate past 100 rows.
+  const { data: convertedRefRows } = await supabaseAdmin
+    .from("referrals")
+    .select("affiliate_code, commission_amount, created_at")
+    .eq("converted", true);
+
   // Fetch profiles for referral user_ids
   const refUserIds = (refRows ?? []).map((r) => r.user_id).filter(Boolean);
   const allUserIds = [...new Set([...refUserIds, ...(referredProfiles ?? []).map((p) => p.id)])];
@@ -69,33 +87,23 @@ export async function GET(req: Request) {
     allProfiles.map((p) => [p.id, p])
   );
 
-  // Commission owed = sum of per-referral stored amounts (webhook writes the
-  // actual post-coupon commission at conversion time), with pre-migration
-  // rows falling back to the $6.63 legacy default via displayCommission.
+  // Per-affiliate base fields. commission_owed / owed_now / total_earned /
+  // monthly_ledger are computed below once payments + lifetime earnings are
+  // aggregated (the old per-100-row 7.80-style math lived here and is gone).
   const affiliates = (affRows ?? []).map((a) => {
+    const codeUpper = (a.code ?? "").toUpperCase();
     const referred = (referredProfiles ?? []).filter(
-      (p) => p.referred_by?.toUpperCase() === a.code?.toUpperCase()
+      (p) => p.referred_by?.toUpperCase() === codeUpper
     );
-    const convertedReferrals = (refRows ?? []).filter(
-      (r) => r.affiliate_code?.toUpperCase() === a.code?.toUpperCase() && r.converted === true
-    );
-    const commissionOwed =
-      Math.round(
-        convertedReferrals.reduce(
-          (sum, r) => sum + displayCommission({
-            converted: true,
-            commission_amount: (r as { commission_amount?: number | string | null }).commission_amount ?? null,
-          }),
-          0,
-        ) * 100,
-      ) / 100;
+    const payingCount = (convertedRefRows ?? []).filter(
+      (r) => (r.affiliate_code ?? "").toUpperCase() === codeUpper
+    ).length;
 
     return {
       ...a,
       account_email: a.user_id ? accountEmailMap.get(a.user_id) ?? null : null,
       signups_referred: referred.length,
-      paying_customers: convertedReferrals.length,
-      commission_owed: commissionOwed,
+      paying_customers: payingCount,
     };
   });
 
@@ -155,84 +163,128 @@ export async function GET(req: Request) {
     .select("*")
     .order("paid_at", { ascending: false });
 
-  // Per-affiliate aggregates from commission_payments — this is the
-  // source of truth for "lifetime paid" and "last paid month".
+  // Per-affiliate aggregates from commission_payments — source of truth for
+  // "lifetime paid" and "last paid month". Keyed by UPPERCASE code so it lines
+  // up with the earnings buckets below (affiliate codes are uppercase, but
+  // referral rows can carry mixed case).
   const paidMap = new Map<string, number>();
   const lastPaidMonthMap = new Map<string, string>();
-  // Set of affiliate codes that have been paid in the CURRENT cycle
-  // (current calendar month, YYYY-MM format). Once paid this month,
-  // the partner's "owed this cycle" drops to $0 and the Mark-as-Paid
-  // button is disabled with a "Paid {Month YYYY}" label.
-  const paidThisCycleMap = new Map<string, string>();
-  const currentMonth = (() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  })();
   for (const p of payments ?? []) {
-    const code = p.affiliate_code;
+    const code = (p.affiliate_code ?? "").toUpperCase();
     paidMap.set(code, (paidMap.get(code) ?? 0) + Number(p.amount));
-    const month = p.month;
-    if (month) {
+    if (p.month) {
       const prev = lastPaidMonthMap.get(code);
-      if (!prev || month > prev) lastPaidMonthMap.set(code, month);
-      if (month === currentMonth) paidThisCycleMap.set(code, month);
+      if (!prev || p.month > prev) lastPaidMonthMap.set(code, p.month);
     }
   }
 
-  // Look up paying status of every referred user — needed for the
-  // "real paying refs THIS CYCLE" count. A "real paying ref" has an
-  // active Stripe sub on profiles. Once the affiliate has been paid
-  // this cycle, real_paying_refs_this_cycle drops to 0 (the just-paid
-  // customers are excluded going forward this month).
-  const refUserIdsForPayingCheck = (refRows ?? [])
-    .map((r) => r.user_id)
-    .filter((id): id is string => Boolean(id));
-  const payingProfileIds = new Set<string>();
-  if (refUserIdsForPayingCheck.length > 0) {
-    const { data: payingRows } = await supabaseAdmin
-      .from("profiles")
-      .select("id, stripe_subscription_id, subscription_status")
-      .in("id", refUserIdsForPayingCheck);
-    for (const p of payingRows ?? []) {
-      if (p.stripe_subscription_id && p.subscription_status === "active") {
-        payingProfileIds.add(p.id);
-      }
-    }
-  }
-
-  // Per-cycle referral name lists — used to pre-fill the Mark as Paid
-  // notes box ("…— referrals: Amber Smith, Kendra Poole").
-  const referralsByCode = new Map<string, { name: string; user_id: string }[]>();
-  for (const r of refRows ?? []) {
-    if (!r.user_id || !r.converted) continue;
-    if (!payingProfileIds.has(r.user_id)) continue;
+  // Earned commission grouped by affiliate code → earning month
+  // (to_char(created_at, 'YYYY-MM')). This bucket is the source of truth for
+  // what each affiliate has earned, replacing the legacy "this cycle" model.
+  const earnedByCodeMonth = new Map<string, Map<string, { earned: number; conversions: number }>>();
+  for (const r of convertedRefRows ?? []) {
     const code = (r.affiliate_code ?? "").toUpperCase();
-    const prof = profileMap.get(r.user_id);
-    const fullName = prof
-      ? (prof.first_name ? `${prof.first_name} ${prof.last_name ?? ""}`.trim() : prof.display_name ?? "Unknown")
-      : "Unknown";
-    const list = referralsByCode.get(code) ?? [];
-    list.push({ name: fullName, user_id: r.user_id });
-    referralsByCode.set(code, list);
+    if (!code || !r.created_at) continue;
+    const m = ymUTC(new Date(r.created_at as string));
+    const amt = displayCommission({
+      converted: true,
+      commission_amount: (r as { commission_amount?: number | string | null }).commission_amount ?? null,
+    });
+    let byMonth = earnedByCodeMonth.get(code);
+    if (!byMonth) { byMonth = new Map(); earnedByCodeMonth.set(code, byMonth); }
+    const agg = byMonth.get(m) ?? { earned: 0, conversions: 0 };
+    agg.earned += amt;
+    agg.conversions += 1;
+    byMonth.set(m, agg);
   }
 
-  // Attach computed fields to each affiliate
-  for (const a of affiliates) {
-    const code = a.code;
-    const codeUpper = (code ?? "").toUpperCase();
-    const paidThisCycle = paidThisCycleMap.has(code);
-    const cycleRefs = paidThisCycle ? [] : (referralsByCode.get(codeUpper) ?? []);
-    const cycleCount = cycleRefs.length;
-    // $7.80 = $39 founding-family annual × 20% commission rate.
-    const owedThisCycle = Math.round(cycleCount * 7.80 * 100) / 100;
-    const ax = a as Record<string, unknown>;
-    ax.total_paid = paidMap.get(code) ?? 0;
-    ax.last_paid_month = lastPaidMonthMap.get(code) ?? null;
-    ax.paid_this_cycle = paidThisCycle;
-    ax.real_paying_refs_this_cycle = cycleCount;
-    ax.owed_this_cycle = owedThisCycle;
-    ax.cycle_referrals = cycleRefs.map((r) => r.name);
+  // Payments grouped by affiliate code → COVERING month. Going forward,
+  // commission_payments.month is the earning month being covered (paid_at is
+  // when it was actually sent).
+  const paidByCodeMonth = new Map<string, Map<string, { paid: number; paidAt: string | null }>>();
+  for (const p of payments ?? []) {
+    const code = (p.affiliate_code ?? "").toUpperCase();
+    if (!code || !p.month) continue;
+    let byMonth = paidByCodeMonth.get(code);
+    if (!byMonth) { byMonth = new Map(); paidByCodeMonth.set(code, byMonth); }
+    const cur = byMonth.get(p.month) ?? { paid: 0, paidAt: null };
+    cur.paid += Number(p.amount);
+    if (p.paid_at && (!cur.paidAt || p.paid_at > cur.paidAt)) cur.paidAt = p.paid_at;
+    byMonth.set(p.month, cur);
   }
+
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
+  const currentYM = ymUTC(now);
+
+  // Attach earned-vs-paid fields to each affiliate.
+  for (const a of affiliates) {
+    const codeUpper = (a.code ?? "").toUpperCase();
+    const earnedMonths = earnedByCodeMonth.get(codeUpper) ?? new Map<string, { earned: number; conversions: number }>();
+    const paidMonths = paidByCodeMonth.get(codeUpper) ?? new Map<string, { paid: number; paidAt: string | null }>();
+
+    let totalEarned = 0;
+    let completedEarned = 0; // earned in months strictly before the current one
+    for (const [m, agg] of earnedMonths) {
+      totalEarned += agg.earned;
+      if (m < currentYM) completedEarned += agg.earned;
+    }
+    const totalPaid = paidMap.get(codeUpper) ?? 0;
+
+    // 12-month grid (Jan..Dec of the current year).
+    const monthlyLedger: { month: string; earned: number; conversions: number; paid: number; paid_at: string | null }[] = [];
+    for (let mo = 1; mo <= 12; mo++) {
+      const m = `${currentYear}-${String(mo).padStart(2, "0")}`;
+      const e = earnedMonths.get(m);
+      const pd = paidMonths.get(m);
+      monthlyLedger.push({
+        month: m,
+        earned: round2(e?.earned ?? 0),
+        conversions: e?.conversions ?? 0,
+        paid: round2(pd?.paid ?? 0),
+        paid_at: pd?.paidAt ?? null,
+      });
+    }
+
+    const ax = a as Record<string, unknown>;
+    ax.total_earned = round2(totalEarned);
+    ax.total_paid = round2(totalPaid);
+    // Lifetime balance still outstanding (earned minus everything paid).
+    ax.commission_owed = Math.max(0, round2(totalEarned - totalPaid));
+    // Owed right now = everything from COMPLETED months minus all payments.
+    // Current-month earnings are pending (payouts happen on the 1st for the
+    // prior month), so they are excluded here.
+    ax.owed_now = Math.max(0, round2(completedEarned - totalPaid));
+    ax.last_paid_month = lastPaidMonthMap.get(codeUpper) ?? null;
+    ax.monthly_ledger = monthlyLedger;
+  }
+
+  // Payout summary across all affiliates — the upcoming payout (1st of next
+  // month) covering the current month's earnings. Computed from the current
+  // date, so it rolls forward automatically each month.
+  const payoutMonth = currentYM;
+  const payoutPerAffiliate: { code: string; name: string; amount: number; payment_method: string | null; payment_notes: string | null }[] = [];
+  let payoutTotalDue = 0;
+  for (const a of affiliates) {
+    const ax = a as { code: string; name: string; payment_method?: string | null; payment_notes?: string | null; monthly_ledger?: { month: string; earned: number; paid: number }[] };
+    const row = (ax.monthly_ledger ?? []).find((m) => m.month === payoutMonth);
+    const due = row ? Math.max(0, round2(row.earned - row.paid)) : 0;
+    if (due > 0) {
+      payoutPerAffiliate.push({
+        code: ax.code,
+        name: ax.name,
+        amount: due,
+        payment_method: ax.payment_method ?? null,
+        payment_notes: ax.payment_notes ?? null,
+      });
+      payoutTotalDue += due;
+    }
+  }
+  const payout_summary = {
+    payout_month: payoutMonth,
+    total_due: round2(payoutTotalDue),
+    per_affiliate: payoutPerAffiliate,
+  };
 
   // Fetch pending partner applications
   const { data: applications } = await supabaseAdmin
@@ -240,7 +292,7 @@ export async function GET(req: Request) {
     .select("*")
     .order("created_at", { ascending: false });
 
-  return NextResponse.json({ affiliates, referrals, payments: payments ?? [], applications: applications ?? [] });
+  return NextResponse.json({ affiliates, referrals, payments: payments ?? [], applications: applications ?? [], payout_summary });
 }
 
 export async function PATCH(req: Request) {

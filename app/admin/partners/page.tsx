@@ -11,6 +11,14 @@ const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.co
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
+interface LedgerMonth {
+  month: string;          // YYYY-MM
+  earned: number;         // commission earned in this earning month
+  conversions: number;    // # conversions in this earning month
+  paid: number;           // payments whose covering month == this month
+  paid_at: string | null; // most recent paid_at for that covering month
+}
+
 interface Affiliate {
   id: string; name: string; code: string;
   contact_email: string | null; paypal_email: string | null;
@@ -18,17 +26,25 @@ interface Affiliate {
   commission_rate: number | null; is_active: boolean; clicks: number;
   notes: string | null; created_at: string; account_email: string | null;
   signups_referred: number; paying_customers: number;
-  commission_owed: number; total_paid: number;
-  // Channel + cycle fields. payment_method/payment_notes are admin-only
-  // partner-payment routing; the rest are cycle aggregates from
-  // commission_payments computed in /api/admin/partners.
+  // Earned-vs-paid fields from /api/admin/partners. payment_method/
+  // payment_notes are admin-only partner-payment routing.
+  commission_owed: number;   // lifetime earned - paid (>= 0)
+  total_earned: number;      // lifetime earned
+  total_paid: number;        // lifetime paid
+  owed_now: number;          // completed-months earned - total paid (>= 0)
   payment_method: string | null;
   payment_notes: string | null;
   last_paid_month: string | null;
-  paid_this_cycle: boolean;
-  real_paying_refs_this_cycle: number;
-  owed_this_cycle: number;
-  cycle_referrals: string[];
+  monthly_ledger: LedgerMonth[];
+}
+
+interface PayoutSummary {
+  payout_month: string; // YYYY-MM being covered (the current month)
+  total_due: number;
+  per_affiliate: {
+    code: string; name: string; amount: number;
+    payment_method: string | null; payment_notes: string | null;
+  }[];
 }
 
 interface Referral {
@@ -84,6 +100,7 @@ export default function AdminPartnersPage() {
   const [referrals, setReferrals] = useState<Referral[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [applications, setApplications] = useState<Application[]>([]);
+  const [payoutSummary, setPayoutSummary] = useState<PayoutSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Expanded roster row
@@ -139,6 +156,7 @@ export default function AdminPartnersPage() {
     setReferrals(json.referrals ?? []);
     setPayments(json.payments ?? []);
     setApplications(json.applications ?? []);
+    setPayoutSummary(json.payout_summary ?? null);
   }, []);
 
   useEffect(() => {
@@ -174,20 +192,30 @@ export default function AdminPartnersPage() {
   function openPayModal(a: Affiliate, isGoodwill = false) {
     const method = (a.payment_method ?? "").trim();
     const isPayPal = !method || /paypal/i.test(method);
-    const now = new Date();
-    const monthYM = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-    const monthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    const refs = a.cycle_referrals.join(", ");
-    const baseSuggestion = isGoodwill
-      ? `${monthLabel} — goodwill bonus`
-      : refs
-        ? `${monthLabel} — referrals: ${refs}`
-        : monthLabel;
+    const curYM = payoutSummary?.payout_month ?? clientCurrentYM();
+
+    // Completed months (before the current one) that still have an unpaid
+    // earned balance. Default the covering month to the most recent of these
+    // (or the current month for goodwill / nothing owed) and pre-fill the
+    // amount from that month's unpaid balance.
+    const completedUnpaid = a.monthly_ledger.filter(
+      (m) => m.month < curYM && roundCents(m.earned - m.paid) > 0,
+    );
+    const defaultMonth = !isGoodwill && completedUnpaid.length > 0
+      ? completedUnpaid[completedUnpaid.length - 1].month
+      : curYM;
+    const defaultLedger = a.monthly_ledger.find((m) => m.month === defaultMonth);
+    const defaultAmount = !isGoodwill && defaultLedger
+      ? Math.max(0, roundCents(defaultLedger.earned - defaultLedger.paid))
+      : 0;
+
+    const monthLabel = formatMonthYM(defaultMonth);
+    const baseSuggestion = isGoodwill ? `${monthLabel} goodwill bonus` : `${monthLabel} commission`;
     const suggestedNotes = isPayPal ? baseSuggestion : `[${method}] ${baseSuggestion}`;
 
     setPayIsGoodwill(isGoodwill);
-    setPayAmount(isGoodwill ? "" : a.owed_this_cycle.toFixed(2));
-    setPayMonth(monthYM);
+    setPayAmount(!isGoodwill && defaultAmount > 0 ? defaultAmount.toFixed(2) : "");
+    setPayMonth(defaultMonth);
     setPayNotes(suggestedNotes);
     setPayError(null);
     setPayModal(a);
@@ -365,10 +393,9 @@ export default function AdminPartnersPage() {
     );
   }
 
-  // "Owed" in the summary card is the sum of owed_this_cycle across
-  // partners not yet paid this cycle — the live total Brittany still
-  // needs to send out this month.
-  const netOwed = affiliates.reduce((s, a) => s + (a.paid_this_cycle ? 0 : a.owed_this_cycle), 0);
+  // "Owed" in the summary card = total currently-overdue balance across
+  // partners (completed-month earnings not yet paid).
+  const netOwed = affiliates.reduce((s, a) => s + a.owed_now, 0);
   const pendingApps = applications.filter((a) => a.status === "pending");
   const IC = "w-full px-3 py-2 text-sm rounded-lg border border-[#e8e2d9] bg-white text-[#2d2926] focus:outline-none focus:border-[#5c7f63]";
 
@@ -403,6 +430,53 @@ export default function AdminPartnersPage() {
           <StatCard label="Conversions" value={referrals.filter((r) => r.converted).length} />
           <StatCard label="Owed" value={formatCurrency(netOwed)} />
         </div>
+
+        {/* ── Upcoming Payout Summary ───────────────────────────────────── */}
+        {payoutSummary && (() => {
+          const affByCode = new Map(affiliates.map((a) => [a.code, a]));
+          return (
+            <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-base font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+                  {nextPayoutLabel(payoutSummary.payout_month)} Payout
+                </h2>
+                <span className="text-lg font-bold text-[#2d2926]">{formatCurrency(payoutSummary.total_due)}</span>
+              </div>
+              <p className="text-[11px] text-[#7a6f65] mt-0.5 mb-3">
+                Next payout, covering {formatMonthYM(payoutSummary.payout_month)} earnings
+              </p>
+              {payoutSummary.per_affiliate.length === 0 ? (
+                <div className="flex items-center gap-2 text-sm font-medium text-[#4a7c59]">
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
+                    <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="#4a7c59" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                  All caught up, nothing owed
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {payoutSummary.per_affiliate.map((p) => {
+                    const aff = affByCode.get(p.code);
+                    const method = (p.payment_method ?? "").trim();
+                    const isPayPal = !method || /paypal/i.test(method);
+                    const channelLabel = isPayPal ? "PayPal" : method;
+                    const handle = isPayPal ? (aff?.paypal_email ?? "") : (aff?.contact_email ?? "");
+                    return (
+                      <div key={p.code} className="flex items-center justify-between gap-3 text-sm border-t border-[#f0ede8] pt-1.5 first:border-t-0 first:pt-0">
+                        <div className="min-w-0">
+                          <span className="font-medium text-[#2d2926]">{p.name}</span>
+                          <span className="text-[11px] text-[#7a6f65] ml-2">
+                            {channelLabel}{handle ? ` · ${handle}` : ""}
+                          </span>
+                        </div>
+                        <span className="font-semibold text-[#2d2926] shrink-0">{formatCurrency(p.amount)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── Pending Applications ──────────────────────────────────────── */}
         {pendingApps.length > 0 && (
@@ -532,7 +606,6 @@ export default function AdminPartnersPage() {
               const lastPaidLabel = a.last_paid_month
                 ? formatMonthYM(a.last_paid_month)
                 : null;
-              const cycleMonthLabel = formatCurrentMonthLabel();
               return (
                 <div key={a.id} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden">
                   <button
@@ -558,15 +631,15 @@ export default function AdminPartnersPage() {
                       </div>
                     </div>
 
-                    {/* Stats row — cycle-aware */}
+                    {/* Stats row */}
                     <div className="grid grid-cols-4 gap-2 mt-3 bg-[#f8f7f4] rounded-xl px-3 py-2.5">
                       <MiniStat label="Lifetime clicks" value={a.clicks} />
-                      <MiniStat label="Lifetime signups" value={a.signups_referred} />
-                      <MiniStat label="Refs / cycle" value={a.real_paying_refs_this_cycle} accent />
+                      <MiniStat label="Paying refs" value={a.paying_customers} />
+                      <MiniStat label="Earned" value={formatCurrency(a.total_earned)} />
                       <MiniStat
-                        label="Owed / cycle"
-                        value={formatCurrency(a.owed_this_cycle)}
-                        accent={a.owed_this_cycle > 0 && !a.paid_this_cycle}
+                        label="Owed now"
+                        value={formatCurrency(a.owed_now)}
+                        accent={a.owed_now > 0}
                       />
                     </div>
 
@@ -600,14 +673,7 @@ export default function AdminPartnersPage() {
                       )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
-                      {a.paid_this_cycle ? (
-                        <button
-                          disabled
-                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#e8e2d9] text-[#7a6f65] cursor-not-allowed"
-                        >
-                          Paid {cycleMonthLabel}
-                        </button>
-                      ) : a.owed_this_cycle <= 0 ? (
+                      {a.owed_now <= 0 ? (
                         <div className="flex items-center gap-2">
                           <button
                             disabled
@@ -636,7 +702,7 @@ export default function AdminPartnersPage() {
                           onClick={(e) => { e.stopPropagation(); openPayModal(a, false); }}
                           className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white transition-colors"
                         >
-                          Mark as Paid · {formatCurrency(a.owed_this_cycle)}
+                          Mark as Paid · {formatCurrency(a.owed_now)}
                         </button>
                       )}
                     </div>
@@ -674,12 +740,23 @@ export default function AdminPartnersPage() {
                         </div>
                       )}
 
-                      {a.cycle_referrals.length > 0 && !a.paid_this_cycle && (
-                        <div>
-                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Cycle referrals ({a.cycle_referrals.length})</p>
-                          <p className="text-xs text-[#2d2926]">{a.cycle_referrals.join(", ")}</p>
+                      {/* Monthly earned-vs-paid ledger (current year) */}
+                      <div>
+                        <div className="flex items-baseline justify-between mb-1.5">
+                          <p className="text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">
+                            {a.monthly_ledger[0]?.month.slice(0, 4)} ledger
+                          </p>
+                          <p className="text-[10px] text-[#7a6f65]">
+                            Earned <b className="text-[#2d2926]">{formatCurrency(a.total_earned)}</b>
+                            {" · "}Paid <b className="text-[#2d2926]">{formatCurrency(a.total_paid)}</b>
+                          </p>
                         </div>
-                      )}
+                        <div className="flex flex-wrap gap-1.5">
+                          {a.monthly_ledger.map((m) => (
+                            <MonthCell key={m.month} cell={m} currentYM={payoutSummary?.payout_month ?? clientCurrentYM()} />
+                          ))}
+                        </div>
+                      </div>
 
                       {/* Edit fields */}
                       <div>
@@ -808,6 +885,15 @@ export default function AdminPartnersPage() {
         const isPayPal = !method || /paypal/i.test(method);
         const channelLabel = isPayPal ? "PayPal" : method;
         const channelEmail = isPayPal ? payModal.paypal_email : payModal.contact_email;
+        const curYM = payoutSummary?.payout_month ?? clientCurrentYM();
+        // Covering-month options: this year's months up to (and including) the
+        // current one. The select writes the chosen earning month into
+        // commission_payments.month.
+        const monthOptions = payModal.monthly_ledger.filter((m) => m.month <= curYM);
+        const unpaidFor = (ym: string) => {
+          const row = payModal.monthly_ledger.find((m) => m.month === ym);
+          return row ? Math.max(0, roundCents(row.earned - row.paid)) : 0;
+        };
         return (
           <Modal onClose={() => !paying && setPayModal(null)} title={`Mark Payment \u2014 ${payModal.name}`}>
             <div className="space-y-4">
@@ -838,6 +924,31 @@ export default function AdminPartnersPage() {
               </div>
 
               <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Covering month</label>
+                <select
+                  value={payMonth}
+                  onChange={(e) => {
+                    const m = e.target.value;
+                    setPayMonth(m);
+                    if (!payIsGoodwill) {
+                      const u = unpaidFor(m);
+                      setPayAmount(u > 0 ? u.toFixed(2) : "");
+                    }
+                  }}
+                  className={IC}
+                >
+                  {monthOptions.map((m) => (
+                    <option key={m.month} value={m.month}>
+                      {formatMonthYM(m.month)} · earned {formatCurrency(m.earned)} · unpaid {formatCurrency(Math.max(0, roundCents(m.earned - m.paid)))}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-[#7a6f65] mt-1">
+                  The earning month this payment covers (saved to the payout record).
+                </p>
+              </div>
+
+              <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Amount (USD)</label>
                 <input
                   type="number"
@@ -848,22 +959,11 @@ export default function AdminPartnersPage() {
                   onChange={(e) => setPayAmount(e.target.value)}
                   className={IC}
                 />
-                {!payIsGoodwill && payModal.cycle_referrals.length > 0 && (
+                {!payIsGoodwill && (
                   <p className="text-[11px] text-[#7a6f65] mt-1">
-                    Suggested: {formatCurrency(payModal.owed_this_cycle)} for {payModal.real_paying_refs_this_cycle} referral{payModal.real_paying_refs_this_cycle === 1 ? "" : "s"} this cycle.
+                    Unpaid balance for {formatMonthYM(payMonth)}: {formatCurrency(unpaidFor(payMonth))}.
                   </p>
                 )}
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65] mb-1">Month (YYYY-MM)</label>
-                <input
-                  type="text"
-                  value={payMonth}
-                  onChange={(e) => setPayMonth(e.target.value)}
-                  placeholder="2026-04"
-                  className={IC}
-                />
               </div>
 
               <div>
@@ -1089,6 +1189,57 @@ function AppField({ label, children }: { label: string; children: React.ReactNod
   );
 }
 
+// One month cell in the per-affiliate earned-vs-paid grid. Square/rounded
+// rectangle (no round elements). States:
+//   gray $0        — nothing earned
+//   green + check  — earned and fully paid (paid date shown beneath + on hover)
+//   amber          — earned, unpaid, month completed (OWED)
+//   neutral outline— current month, pending (not yet owed)
+function MonthCell({ cell, currentYM }: { cell: LedgerMonth; currentYM: string }) {
+  const { earned, paid } = cell;
+  const completed = cell.month < currentYM;
+  const isCurrent = cell.month === currentYM;
+  const paidFully = earned > 0 && paid + 0.005 >= earned;
+  const label = monthShort(cell.month);
+  const paidDate = cell.paid_at
+    ? new Date(cell.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })
+    : null;
+
+  let cls = "border-[#e8e2d9] bg-[#f5f3f0] text-[#b5aca4]"; // gray $0
+  let showCheck = false;
+  let title = `${label}: earned ${formatCurrency(earned)}`;
+  if (earned <= 0) {
+    // gray default
+  } else if (paidFully) {
+    cls = "border-[#bfe0c6] bg-[#eaf5ec] text-[#2d5c38]";
+    showCheck = true;
+    title = `${label}: earned ${formatCurrency(earned)}, paid${paidDate ? ` ${paidDate}` : ""}`;
+  } else if (isCurrent) {
+    cls = "border-[#d8d2c8] bg-white text-[#2d2926]";
+    title = `${label}: earned ${formatCurrency(earned)} (current month, pending)`;
+  } else if (completed) {
+    cls = "border-[#f0d9a8] bg-[#fdf3e0] text-[#8b6820]";
+    title = `${label}: earned ${formatCurrency(earned)}, unpaid (owed)`;
+  }
+
+  return (
+    <div className={`rounded-md border px-2 py-1.5 text-center min-w-[54px] ${cls}`} title={title}>
+      <p className="text-[9px] font-semibold uppercase tracking-wide leading-none">{label}</p>
+      <p className="text-[11px] font-bold leading-none mt-1 flex items-center justify-center gap-0.5">
+        {showCheck && (
+          <svg width="9" height="9" viewBox="0 0 12 12" fill="none" className="shrink-0">
+            <path d="M2.5 6.2L5 8.7L9.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        )}
+        {formatCurrency(earned)}
+      </p>
+      {paidFully && paidDate && (
+        <p className="text-[8px] leading-none mt-0.5 opacity-70">{paidDate}</p>
+      )}
+    </div>
+  );
+}
+
 function MiniStat({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
   return (
     <div className="text-center">
@@ -1146,8 +1297,31 @@ function formatMonthYM(ym: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-function formatCurrentMonthLabel(): string {
-  return new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" });
+// Current earning month (YYYY-MM, UTC) — matches the server's currentYM so
+// completed-vs-current comparisons line up.
+function clientCurrentYM(): string {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function roundCents(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// Short month name for a YYYY-MM, e.g. "2026-06" → "Jun".
+function monthShort(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  if (!y || !m) return ym;
+  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "short" });
+}
+
+// Label for the next payout (1st of the month AFTER the covered month),
+// e.g. covered "2026-06" → "July 1".
+function nextPayoutLabel(coveredYM: string): string {
+  const [y, m] = coveredYM.split("-").map(Number);
+  if (!y || !m) return "Next";
+  const d = new Date(y, m, 1); // m is 1-based covered month → 0-based next month
+  return `${d.toLocaleDateString("en-US", { month: "long" })} 1`;
 }
 
 function SetupStep({ n, title, checked, canCheck = true, onToggle, children }: {

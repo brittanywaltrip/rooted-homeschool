@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
 
   // Accept any subset of updatable profile fields
-  const allowed = ['family_photo_url', 'state', 'onboarded', 'display_name', 'partner_email', 'family_name', 'avatar_url', 'first_name', 'last_name', 'referred_by', 'onboarded_at', 'school_days', 'school_start_time'] as const
+  const allowed = ['family_photo_url', 'state', 'country', 'onboarded', 'display_name', 'partner_email', 'family_name', 'avatar_url', 'first_name', 'last_name', 'referred_by', 'onboarded_at', 'school_days', 'school_start_time', 'homeschool_experience', 'primary_goal', 'school_year_start', 'school_year_end'] as const
   const patch: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in body) patch[key] = body[key]

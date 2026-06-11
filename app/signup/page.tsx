@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -14,6 +14,43 @@ export default function SignupPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Email-confirmation flow. When Supabase email confirmation is ON, signUp()
+  // returns a user but NO session, so we cannot redirect — we show a
+  // "Check your email" state instead. Detected by session presence in the
+  // signUp response (not an env flag), so it works correctly before AND after
+  // the confirmation flip ships.
+  const [confirmSent, setConfirmSent] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resendStatus, setResendStatus] = useState<"idle" | "sent" | "error">("idle");
+  const [resendError, setResendError] = useState("");
+
+  // Countdown tick: re-schedules itself once per second while a cooldown is
+  // active, then stops (returns early at 0). clearTimeout on each change keeps
+  // exactly one pending tick.
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const id = setTimeout(() => setResendCooldown((s) => (s <= 1 ? 0 : s - 1)), 1000);
+    return () => clearTimeout(id);
+  }, [resendCooldown]);
+
+  async function handleResend() {
+    if (resending || resendCooldown > 0) return;
+    setResending(true);
+    setResendStatus("idle");
+    setResendError("");
+    const { error: resendErr } = await supabase.auth.resend({ type: "signup", email });
+    setResending(false);
+    if (resendErr) {
+      setResendStatus("error");
+      setResendError("We couldn't resend the email just now. Please try again in a moment.");
+      return;
+    }
+    // Success — confirm inline and start the 60s anti-spam cooldown.
+    setResendStatus("sent");
+    setResendCooldown(60);
+  }
 
   function capitalize(str: string) {
     return str.trim()
@@ -58,9 +95,12 @@ export default function SignupPage() {
       return;
     }
 
-    // Save name to profiles via server-side API (bypasses RLS)
     const session = data?.session;
+
     if (session?.access_token) {
+      // Confirmation OFF: signUp returned a live session. Keep current
+      // behavior exactly — save name to profiles via the server-side API
+      // (bypasses RLS), then redirect to onboarding.
       await fetch("/api/profile/update", {
         method: "POST",
         headers: {
@@ -72,9 +112,16 @@ export default function SignupPage() {
           last_name: capLast,
         }),
       });
+      router.push("/onboarding");
+      return;
     }
 
-    router.push("/onboarding");
+    // Confirmation ON: signUp returned a user but NO session. Do not redirect.
+    // Show the "Check your email" state. The profile row is created later by
+    // /auth/callback when the confirmation link is clicked (it reads
+    // first_name/last_name from user_metadata, set in signUp options above).
+    setLoading(false);
+    setConfirmSent(true);
   }
 
   async function handleAppleLogin() {
@@ -136,6 +183,48 @@ export default function SignupPage() {
         {/* Form area */}
         <div className="flex-1 bg-[#f8f7f4] flex flex-col items-center justify-center px-6 py-12">
           <div className="w-full max-w-sm bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl shadow-sm p-8">
+          {confirmSent ? (
+            <div>
+              <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-2">Check your email</h1>
+              <p className="text-sm text-[#7a6f65] leading-relaxed mb-2">
+                We sent a confirmation link to{" "}
+                <span className="font-semibold text-[#2d2926]">{email}</span>. Click it to finish creating your account.
+              </p>
+              <p className="text-sm text-[#7a6f65] mb-6">
+                Already confirmed?{" "}
+                <Link href="/login" className="text-[#5c7f63] font-medium hover:underline">
+                  Sign in instead
+                </Link>
+              </p>
+
+              <div className="border-t border-[#e8e2d9] pt-5">
+                <p className="text-sm text-[#7a6f65] mb-2">Didn&apos;t get the email? Check your spam folder.</p>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResend}
+                    disabled={resending || resendCooldown > 0}
+                    className="text-sm text-[#5c7f63] font-medium hover:underline disabled:text-[#b5aca4] disabled:no-underline disabled:cursor-not-allowed transition-colors"
+                  >
+                    {resending
+                      ? "Sending…"
+                      : resendCooldown > 0
+                        ? `Resend in ${resendCooldown}s`
+                        : "Resend email"}
+                  </button>
+                  {resendStatus === "sent" && (
+                    <span className="text-sm font-medium text-[#2d5a3d]">Sent!</span>
+                  )}
+                </div>
+                {resendStatus === "error" && (
+                  <p className="text-sm text-red-600 bg-red-50 border border-red-100 rounded-lg px-3 py-2 mt-2">
+                    {resendError}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : (
+          <>
             <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Create your account</h1>
             <p className="text-sm text-[#7a6f65] mb-5">Start your family&apos;s learning journey.</p>
 
@@ -247,6 +336,8 @@ export default function SignupPage() {
                 Log in
               </Link>
             </p>
+          </>
+          )}
           </div>
         </div>
       </div>

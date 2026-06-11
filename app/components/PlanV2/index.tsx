@@ -570,6 +570,23 @@ export default function PlanV2() {
   const { kids, lessons, appointments, vacationBlocks, activities: calendarActivities, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
 
+  // Post-save landing from the Schedule Builder. The builder commits the new
+  // curriculum_goals + lessons (awaited) then soft-navigates here with
+  // `?saved=1`. The first data load on this fresh mount can paint before those
+  // just-written rows are reflected in state — observed on staging as a week
+  // view with day rows but zero lessons until any interaction forced a
+  // re-render. Force one explicit reload on arrival so the new schedule shows
+  // with no clicks, then strip the flag (via history.replaceState so it
+  // doesn't remount the tree or re-run this effect). Runs once on mount.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("saved") !== "1") return;
+    reload();
+    window.history.replaceState(null, "", "/dashboard/plan");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // School years — drives milestone markers + the "Create next year" CTA.
   const schoolYears = useSchoolYears(effectiveUserId ?? null);
 
@@ -3715,7 +3732,10 @@ export default function PlanV2() {
 
         {/* Year filter chip — toggles between active-year view and all-time.
             yearFilterAll is wired into queries in a future pass; for now this
-            just renders the chips. */}
+            just renders the chips. When wiring the active-year view, scope
+            goals through goalBelongsToActiveYear() from lib/school-year-filter
+            so goals with a NULL school_year_id are treated as the active year
+            and never silently vanish (the 2026-06 unlinked-goals bug). */}
         {schoolYears.active && (
           <div style={{ display: "flex", gap: 8 }}>
             <button

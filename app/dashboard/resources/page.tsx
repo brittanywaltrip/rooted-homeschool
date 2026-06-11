@@ -340,6 +340,7 @@ export default function ResourcesPage() {
   const [dbResources,    setDbResources]    = useState<DbResource[]>([]);
   const [dbLoading,      setDbLoading]      = useState(true);
   const [userState,      setUserState]      = useState<string | null>(null);
+  const [userCountry,    setUserCountry]    = useState<string | null>(null);
   const [stateLoaded,    setStateLoaded]    = useState(false);
   const [selectedTour,   setSelectedTour]   = useState<{ title: string; url: string } | null>(null);
 
@@ -364,9 +365,13 @@ export default function ResourcesPage() {
   // Load user state
   useEffect(() => {
     if (!effectiveUserId) return;
-    supabase.from("profiles").select("state").eq("id", effectiveUserId).maybeSingle()
+    supabase.from("profiles").select("state, country").eq("id", effectiveUserId).maybeSingle()
       .then(({ data, error }) => {
-        if (!error) setUserState((data as { state?: string } | null)?.state ?? null);
+        if (!error) {
+          const row = data as { state?: string; country?: string } | null;
+          setUserState(row?.state ?? null);
+          setUserCountry(row?.country ?? null);
+        }
         setStateLoaded(true);
       });
   }, [effectiveUserId]);
@@ -441,6 +446,11 @@ export default function ResourcesPage() {
   );
 
   const savedItems = dbResources.filter((r) => savedMap[r.id]);
+
+  // The "By State" section covers US state homeschool regulations, so only show
+  // it to US users with a specific state set. International users (or anyone
+  // without a US state) get an irrelevant or empty section otherwise.
+  const showStateSection = userCountry === "United States" && !!userState && userState !== "Outside the US";
 
   function getEmbedUrl(url: string): string {
     const match = url.match(/[?&]v=([^&]+)/);
@@ -645,7 +655,7 @@ export default function ResourcesPage() {
 
         {/* ── Filter pills ──────────────────────────────────────── */}
         <div className="flex gap-2 flex-wrap pb-1">
-          {BROWSE_CATS.map((cat) => (
+          {BROWSE_CATS.filter((cat) => cat.id !== "states" || showStateSection).map((cat) => (
             <button
               key={cat.id}
               onClick={() => { setBrowseFilter(cat.id); if (!["states", "saved"].includes(cat.id)) setSearchQuery(""); }}
@@ -717,7 +727,7 @@ export default function ResourcesPage() {
         )}
 
         {/* ── By State ────────────────────────────────────────── */}
-        {browseFilter === "states" && (
+        {browseFilter === "states" && showStateSection && (
           <div className="space-y-4">
             <p className="text-xs text-[#7a6f65]">
               Requirements vary widely. Always verify with your state homeschool association or{" "}

@@ -851,3 +851,178 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     }
   });
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Schedule Builder → active school year link + post-save visibility
+//
+// Two regressions, one flow (2026-06):
+//   1. curriculum_goals created by the Schedule Builder had school_year_id =
+//      NULL. Anything that scopes goals to the active year could hide them.
+//   2. After "Save & build schedule" the Plan week view rendered with day rows
+//      but ZERO lessons until an interaction forced a re-render — the new
+//      schedule wasn't visible on the post-save landing.
+//
+// This test drives the real UI save flow and asserts both fixes:
+//   - the new goal carries school_year_id = the user's active school year, and
+//   - a lesson card for the new curriculum is visible on /dashboard/plan with
+//     NO clicks after save, while the default (active-year) filter is selected
+//     — not after switching to "All time".
+//
+// Determinism: default schedule is Mon-Fri, 1/day. start_date is set to the
+// MONDAY of the current week, so on Mon the first forward lesson (Tue) lands in
+// this week's view, and on Tue-Sun the backfilled completed lessons land on
+// earlier weekdays of this same week. Either way at least one lesson card for
+// the goal sits in the default week view on every day of the week — no
+// week navigation needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Schedule Builder links goals to active year + shows them post-save', () => {
+  const createdCurriculumNames: string[] = [];
+  // Only the school year THIS test created (if any) is torn down; a
+  // pre-existing active year belongs to the account and is left alone.
+  let createdSchoolYearId: string | null = null;
+
+  test.afterEach(async () => {
+    const sb = adminClient();
+    if (!sb) return;
+    for (const name of createdCurriculumNames.splice(0)) {
+      const { data: goals } = await sb
+        .from('curriculum_goals')
+        .select('id')
+        .eq('curriculum_name', name);
+      const ids = (goals ?? []).map((g) => (g as { id: string }).id);
+      if (ids.length === 0) continue;
+      await sb.from('lessons').delete().in('curriculum_goal_id', ids);
+      await sb.from('curriculum_goals').delete().in('id', ids);
+    }
+    if (createdSchoolYearId) {
+      await sb.from('school_years').delete().eq('id', createdSchoolYearId);
+      createdSchoolYearId = null;
+    }
+  });
+
+  test('new curriculum links to active year and its lesson shows on Plan with no clicks', async ({ page }) => {
+    // Heavy flow: builder save generates + inserts lessons, recomputes, runs an
+    // overcapacity check, then soft-navigates to Plan. Cold staging can exceed
+    // the default budget; match the backfill test's generous timeout.
+    test.setTimeout(150_000);
+
+    const sb = adminClient();
+    const ctx = await resolveTestUserAndFirstChild();
+    if (!sb || !ctx) {
+      test.skip(true, 'Admin client + test user + first child required (set SUPABASE_SERVICE_ROLE_KEY, PLAYWRIGHT_EMAIL).');
+      return;
+    }
+
+    // ── Ensure the account has an ACTIVE school year. Use the existing one if
+    //    present; otherwise create one and remember it for teardown so we never
+    //    delete data the account already had.
+    const { data: existingActive } = await sb
+      .from('school_years')
+      .select('id')
+      .eq('user_id', ctx.userId)
+      .eq('status', 'active')
+      .maybeSingle();
+    let activeYearId = (existingActive as { id?: string } | null)?.id ?? null;
+    if (!activeYearId) {
+      const now = new Date();
+      const start = `${now.getFullYear()}-01-01`;
+      const end = `${now.getFullYear()}-12-31`;
+      const { data: createdYear, error: yearErr } = await sb
+        .from('school_years')
+        .insert({ user_id: ctx.userId, name: `E2E Year ${STAMP()}`, start_date: start, end_date: end, status: 'active' })
+        .select('id')
+        .single();
+      if (yearErr || !createdYear) {
+        test.skip(true, `Could not create an active school year for the test: ${yearErr?.message ?? 'unknown'}`);
+        return;
+      }
+      activeYearId = (createdYear as { id: string }).id;
+      createdSchoolYearId = activeYearId;
+    }
+
+    const curriculumName = `Test Year Link E2E ${STAMP()}`;
+    createdCurriculumNames.push(curriculumName);
+
+    // Defensive pre-clean of this run's (unique) name.
+    await sb.from('curriculum_goals').delete().eq('curriculum_name', curriculumName);
+
+    // start_date = Monday of the current week (local).
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const monday = new Date(today);
+    monday.setDate(monday.getDate() - ((today.getDay() + 6) % 7)); // Mon=0..Sun=6
+    const startDateStr =
+      `${monday.getFullYear()}-` +
+      `${String(monday.getMonth() + 1).padStart(2, '0')}-` +
+      `${String(monday.getDate()).padStart(2, '0')}`;
+
+    // ── 1. Open the Schedule Builder.
+    await page.goto('/dashboard/plan/schedule');
+    await expect(
+      page.getByRole('heading', { name: /Your Schedule/i }).first(),
+    ).toBeVisible({ timeout: 15_000 });
+
+    // ── 2. Add a curriculum row under the FIRST child; scope every field lookup
+    //      to that child's card (see backfill test for the rationale).
+    const addCurriculumBtn = page.getByRole('button', { name: /\+ Add curriculum/i }).first();
+    await expect(addCurriculumBtn).toBeVisible({ timeout: 10_000 });
+    const firstChildCard = addCurriculumBtn.locator(
+      'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " rounded-2xl ")][1]',
+    );
+    await addCurriculumBtn.click();
+
+    // ── 3. Fill name + subject + total lessons + start date on the new row.
+    await firstChildCard.locator('input[placeholder^="e.g. The Good and the Beautiful"]').last().fill(curriculumName);
+    await firstChildCard.locator('input[placeholder="Subject (e.g. Math)"]').last().fill('Math');
+    await firstChildCard.locator('input[placeholder="e.g. 120"]').last().fill('14');
+    const startDateInput = firstChildCard.locator('input[type="date"]').last();
+    await startDateInput.fill(startDateStr);
+    await startDateInput.blur();
+
+    // ── 4. Preview + Save. Default Mon-Fri / 1-per-day are already seeded.
+    await previewAndSave(page);
+
+    // ── 5. We land on the Plan page via a soft navigation (router.push with the
+    //      ?saved=1 flag). Key off the Plan h1, not the URL (the builder's soft
+    //      nav can briefly still report the builder path; the builder's own h1
+    //      is "Your Schedule" so it can't false-match).
+    await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({
+      timeout: 90_000,
+    });
+
+    // ── 6. The active-year filter chip is the DEFAULT selection (yearFilterAll
+    //      starts false). Assert it's present so the visibility assertion below
+    //      is made under the active-year view, NOT "All time". We never click it.
+    await expect(
+      page.getByRole('button', { name: 'All time' }),
+      'the year filter chips should render (active-year is selected by default)',
+    ).toBeVisible({ timeout: 15_000 });
+
+    // ── 7. THE REGRESSION ASSERTION: a lesson card for the new curriculum is
+    //      visible with NO interaction. Before the fix the week showed day rows
+    //      but zero lessons until a re-render. The ?saved=1 reload makes the
+    //      just-built schedule paint on arrival.
+    const lessonCard = page
+      .locator('div.rounded-xl')
+      .filter({ hasText: curriculumName })
+      .filter({ hasText: /Lesson\s*\d+/i });
+    await expect(
+      lessonCard.first(),
+      'a lesson for the freshly built schedule must be visible on Plan immediately after save, with no clicks',
+    ).toBeVisible({ timeout: 25_000 });
+
+    // ── 8. DB-side: the new goal is linked to the active school year (item 1).
+    const { data: goalRows } = await sb
+      .from('curriculum_goals')
+      .select('id, school_year_id')
+      .eq('curriculum_name', curriculumName);
+    expect((goalRows ?? []).length, 'the curriculum row should exist after save').toBeGreaterThan(0);
+    for (const g of (goalRows ?? []) as Array<{ school_year_id: string | null }>) {
+      expect(
+        g.school_year_id,
+        'Schedule Builder must stamp the active school year on new goals (not NULL)',
+      ).toBe(activeYearId);
+    }
+  });
+});
