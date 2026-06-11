@@ -2240,8 +2240,9 @@ export default function SettingsPage() {
                       <p className="text-[11px] text-[#7a6f65] mt-0.5">Now paying</p>
                     </div>
                     <div className="px-3 py-4 text-center">
-                      <p className="text-2xl font-bold text-[#2d2926]">${previewStats ? ((previewStats.revenueDriven * 0.20).toFixed(2)) : '—'}</p>
-                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Earned</p>
+                      <p className="text-2xl font-bold text-[#2d2926]">${previewStats ? previewStats.amountOwed.toFixed(2) : '—'}</p>
+                      <p className="text-[11px] text-[#7a6f65] mt-0.5">Pending payout</p>
+                      <p className="text-[9px] text-[#a09080] mt-0.5">pays on the 1st</p>
                     </div>
                   </div>
                   {/* QR Code */}
@@ -2528,9 +2529,9 @@ export default function SettingsPage() {
                 <p className="text-[9px] text-[#a09080] mt-0.5">{affiliateStats ? `${affiliateStats.payingThisMonth} this month` : '—'}</p>
               </div>
               <div className="px-3 py-4 text-center">
-                <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats?.commissionEarned.toFixed(2) ?? '—'}</p>
-                <p className="text-[11px] text-[#7a6f65] mt-0.5">Earned</p>
-                <p className="text-[9px] text-[#a09080] mt-0.5">to date</p>
+                <p className="text-2xl font-bold text-[#2d2926]">${affiliateStats?.amountOwed.toFixed(2) ?? '—'}</p>
+                <p className="text-[11px] text-[#7a6f65] mt-0.5">Pending payout</p>
+                <p className="text-[9px] text-[#a09080] mt-0.5">pays on the 1st</p>
               </div>
             </div>
 
@@ -2586,6 +2587,7 @@ export default function SettingsPage() {
                     </tbody>
                   </table>
                 </div>
+                <p className="text-[10px] text-[#7a6f65] mt-2">Unpaid commissions are included in your next payout.</p>
               </div>
             )}
 
@@ -2617,6 +2619,9 @@ export default function SettingsPage() {
                       <p className="text-[10px] text-[#7a6f65] mt-0.5">All-time paid</p>
                     </div>
                   </div>
+                  <p className="text-[11px] text-[#7a6f65] mb-3">
+                    All-time earned: ${affiliateStats?.commissionEarned.toFixed(2) ?? '—'} (paid out: ${allTimePaid.toFixed(2)})
+                  </p>
                   {affiliatePayments.length > 0 && (
                     <div className="bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
                       <table className="w-full text-sm">
