@@ -2264,7 +2264,7 @@ export default function SettingsPage() {
                   {/* Earnings */}
                   <div>
                     <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your Earnings</p>
-                    {(previewStats?.revenueDriven ?? 0) > 0 && (
+                    {(previewStats?.revenueDriven ?? 0) > 0 && previewPayments.reduce((s, p) => s + Number(p.amount), 0) === 0 && (
                       <div className="bg-[#fef9ee] border border-[#f0d68a] rounded-xl px-4 py-3 text-center mb-3">
                         <p className="text-2xl font-bold text-[#b8860b]">${((previewStats?.revenueDriven ?? 0) * 0.20).toFixed(2)}</p>
                         <p className="text-[10px] text-[#7a6f65] mt-0.5">Estimated commission (20%)</p>
