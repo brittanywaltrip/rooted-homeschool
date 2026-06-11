@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { goalBelongsToActiveYear } from "@/lib/school-year-filter";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -209,7 +210,9 @@ export default function ActivitySetupModal({ onClose, onSaved, schoolYearId, edi
       const activeChildIds = new Set(activeKids.map(c => c.id));
       const activeGoals = ((goals as CurriculumGoal[]) ?? []).filter(g => {
         if (g.child_id && !activeChildIds.has(g.child_id)) return false;
-        if (scopedYearId && g.school_year_id && g.school_year_id !== scopedYearId) return false;
+        // NULL-safe year scope: unlinked goals (school_year_id IS NULL) are
+        // treated as belonging to the active year so they never vanish here.
+        if (!goalBelongsToActiveYear(g.school_year_id, scopedYearId)) return false;
         if (g.total_lessons != null && (g.current_lesson ?? 0) >= g.total_lessons) return false;
         return true;
       });

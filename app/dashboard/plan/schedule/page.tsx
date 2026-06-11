@@ -941,6 +941,21 @@ export default function ScheduleBuilderPage() {
       const localCurriculumIds = new Set<string>();
       const localActivityIds = new Set<string>();
 
+      // Resolve the user's active school year ONCE so brand-new curriculum_goals
+      // are linked to it. Goals created here with school_year_id = NULL became
+      // invisible to surfaces that scope by the active year (year-end / close
+      // flows, and the Plan page's year filter), so a brand-new user who just
+      // built their first schedule could see an empty plan (2026-06 unlinked-
+      // goals bug; 39 existing rows were backfilled directly in the DB). If the
+      // user somehow has no active year, fall back to NULL — same as before.
+      const { data: activeYearRow } = await supabase
+        .from("school_years")
+        .select("id")
+        .eq("user_id", effectiveUserId)
+        .eq("status", "active")
+        .maybeSingle();
+      const activeSchoolYearId = (activeYearRow as { id?: string } | null)?.id ?? null;
+
       // 1. Per-row writes via the (previouslySavedAs, type, pendingDelete) matrix.
       for (const row of rows) {
         if (row.readOnly) {
@@ -1017,6 +1032,7 @@ export default function ScheduleBuilderPage() {
             // inconsistent and stuck behind the "save again" notice.
             const insertPayload = {
               ...payload,
+              school_year_id: activeSchoolYearId,
               current_lesson: Math.max(0, row.start_at_lesson - 1),
             };
             const { data: inserted, error: insErr } = await supabase
@@ -1033,6 +1049,7 @@ export default function ScheduleBuilderPage() {
             // consistent before Phase 2 runs.
             const insertPayload = {
               ...payload,
+              school_year_id: activeSchoolYearId,
               current_lesson: Math.max(0, row.start_at_lesson - 1),
             };
             const { data: inserted, error } = await supabase
@@ -1462,7 +1479,13 @@ export default function ScheduleBuilderPage() {
       }
 
       setDirty(false);
-      router.push("/dashboard/plan");
+      // `?saved=1` tells the Plan page to force one fresh data load on arrival.
+      // The schedule + lessons are committed above (awaited), but the Plan
+      // page's first load on this soft navigation could render before the
+      // just-written lessons landed in component state — staging showed the
+      // week view with day rows but zero lessons until any re-render. PlanV2
+      // consumes the flag, calls reload(), and strips it from the URL.
+      router.push("/dashboard/plan?saved=1");
     } catch (err) {
       const raw = err as { message?: string; code?: string };
       const msg = raw?.message ?? String(err);
