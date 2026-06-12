@@ -400,6 +400,27 @@ async function handlePaymentEmail(body: Record<string, unknown>) {
   return NextResponse.json({ ok: true })
 }
 
+// ── TOGGLE ACTIVE ────────────────────────────────────────────────────────────
+
+// Flip an affiliate's is_active flag. affiliates has SELECT-only RLS, so the
+// admin partners page can't write this from the browser, so the write belongs
+// here on the service-role client.
+async function handleToggleActive(body: Record<string, unknown>) {
+  const { affiliateId, isActive } = body as { affiliateId?: string; isActive?: boolean }
+
+  if (!affiliateId || typeof isActive !== 'boolean') {
+    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  }
+
+  const { error } = await supabaseAdmin
+    .from('affiliates')
+    .update({ is_active: isActive })
+    .eq('id', affiliateId)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  return NextResponse.json({ ok: true, is_active: isActive })
+}
+
 // ── POST handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -415,6 +436,7 @@ export async function POST(req: NextRequest) {
   if (action === 'payment_email') return handlePaymentEmail(body)
   if (action === 'lookup_profile') return handleLookupProfile(body)
   if (action === 'complete_setup') return handleCompleteSetup(body)
+  if (action === 'toggle_active') return handleToggleActive(body)
 
   return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
 }

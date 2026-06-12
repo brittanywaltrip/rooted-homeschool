@@ -274,8 +274,18 @@ export default function AdminPartnersPage() {
   }
 
   async function toggleActive(id: string, active: boolean) {
-    await supabase.from("affiliates").update({ is_active: !active }).eq("id", id);
-    setAffiliates((prev) => prev.map((a) => (a.id === id ? { ...a, is_active: !active } : a)));
+    // affiliates has no UPDATE RLS policy, so a direct browser-client write
+    // is silently dropped. Route the change through the service-role
+    // partner-action endpoint and only flip local state once it succeeds, so
+    // the toggle reflects the real DB value.
+    const next = !active;
+    const res = await fetch("/api/admin/partner-action", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ action: "toggle_active", affiliateId: id, isActive: next }),
+    });
+    if (!res.ok) return;
+    setAffiliates((prev) => prev.map((a) => (a.id === id ? { ...a, is_active: next } : a)));
   }
 
   // Derived referral code — first name uppercased, stripped of non-letters

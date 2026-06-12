@@ -12,7 +12,7 @@ Hero copy: "The homeschool years go by so fast. Rooted helps you plan your days,
 
 The Google OAuth flow broke multiple times because these rules weren't documented. If you are touching ANY file that deals with auth, sessions, cookies, or Supabase clients, read this first.
 
-1. NEVER import `{ supabase }` from `@/lib/supabase` in a new client component. That client uses implicit flow (localStorage). Our auth uses PKCE (cookies). ALWAYS use: `import { createSupabaseBrowserClient } from "@/lib/supabase-browser"` and then `const supabase = useMemo(() => createSupabaseBrowserClient(), [])`.
+1. The browser Supabase client must always be the PKCE (cookie) flow. `@/lib/supabase-browser` exposes `createSupabaseBrowserClient()`, and `@/lib/supabase` now re-exports that SAME PKCE client as its `supabase` singleton, so both imports are safe — importing `{ supabase }` from `@/lib/supabase` no longer means implicit/localStorage flow. Use whichever fits: `import { supabase } from "@/lib/supabase"` for the shared singleton, or `import { createSupabaseBrowserClient } from "@/lib/supabase-browser"` with `const supabase = useMemo(() => createSupabaseBrowserClient(), [])` when a component wants its own instance. Never construct a browser client with implicit flow.
 
 2. NEVER hardcode `https://www.rootedhomeschoolapp.com` in OAuth redirects. ALWAYS use `${window.location.origin}/auth/callback` on the client. On the server, derive BASE_URL from the incoming request.
 
