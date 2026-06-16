@@ -3,11 +3,13 @@
 // Missed Lesson Recovery modal. Shown on Today when overdueLessonCount > 0
 // under Path A queue scheduling. Binary YES/NO: mark missed lessons done on
 // their gap dates, or leave them and let the queue projector absorb them
-// going forward from today. No close X — the user picks one. Caller
+// going forward from today. A top-right X dismisses without changing any
+// lesson (onDismiss), same intent as "Not now". Caller
 // (app/dashboard/page.tsx) is responsible for sessionStorage gating and
 // data refresh after either choice.
 
 import { useState } from "react";
+import { X } from "lucide-react";
 
 export type MissedGoal = {
   id: string;
@@ -32,9 +34,11 @@ type Props = {
   entriesByGoal: Map<string, MissedEntry[]>;
   onYes: () => Promise<void>;
   onNo: () => Promise<void>;
+  // Dismiss without changing any lesson. Leaves every lesson exactly as is.
+  onDismiss: () => void;
 };
 
-export default function MissedLessonRecoveryModal({ goals, entriesByGoal, onYes, onNo }: Props) {
+export default function MissedLessonRecoveryModal({ goals, entriesByGoal, onYes, onNo, onDismiss }: Props) {
   const [submitting, setSubmitting] = useState<"yes" | "no" | null>(null);
 
   const goalsWithEntries = goals.filter((g) => (entriesByGoal.get(g.id) ?? []).length > 0);
@@ -69,6 +73,15 @@ export default function MissedLessonRecoveryModal({ goals, entriesByGoal, onYes,
         aria-modal="true"
         aria-labelledby="missed-recovery-title"
       >
+        <button
+          type="button"
+          onClick={onDismiss}
+          disabled={submitting !== null}
+          aria-label="Close"
+          className="absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center text-[#7a6f65] hover:bg-[#f0ede8] transition-colors disabled:opacity-60 disabled:pointer-events-none"
+        >
+          <X size={18} />
+        </button>
         <div className="p-5">
           <h3
             id="missed-recovery-title"
