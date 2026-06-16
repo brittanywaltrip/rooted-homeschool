@@ -1628,6 +1628,17 @@ export default function TodayPage() {
     await refreshTodayStory();
   }
 
+  // X / dismiss: close the prompt without touching any lesson. Same session
+  // gating as YES/NO (markMissedRecoveryShown + missedRecoveryDismissed hide
+  // the prompt and the overdue banner for the rest of this session), but no
+  // DB writes and no data refresh. Nothing changed, so there is nothing to
+  // reload.
+  function handleMissedRecoveryDismiss() {
+    markMissedRecoveryShown();
+    setMissedRecoveryDismissed(true);
+    setShowMissedRecovery(false);
+  }
+
   async function refreshTodayStory() {
     if (!effectiveUserId) return;
     const { data } = await supabase
@@ -5267,6 +5278,7 @@ export default function TodayPage() {
           entriesByGoal={missedEntriesByGoal}
           onYes={handleMissedRecoveryYes}
           onNo={handleMissedRecoveryNo}
+          onDismiss={handleMissedRecoveryDismiss}
         />
       )}
       {recoveryToast && (
