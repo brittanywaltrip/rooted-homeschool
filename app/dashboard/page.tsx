@@ -438,6 +438,8 @@ export default function TodayPage() {
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
   const [firstMemoryToast, setFirstMemoryToast] = useState<string | null>(null);
   const prevTotalMemoriesRef = useRef<number | null>(null);
+  // Fire the first-memory activation impression once per page load (analytics only).
+  const firstMemoryShownFiredRef = useRef(false);
   const [, forceUpdate] = useState(0);
   const [editSheet, setEditSheet] = useState<{ id: string; title: string; caption: string; child_id: string; type: string } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
@@ -1507,6 +1509,40 @@ export default function TodayPage() {
     return () => window.removeEventListener("rooted:photo-limit-reached", handler);
   }, []);
 
+  // Shared properties for the first-memory activation funnel (analytics only —
+  // shown → capture_clicked → captured). Keep these keys identical across all
+  // three events so PostHog can build the funnel cleanly.
+  const firstMemoryFunnelProps = useCallback(() => ({
+    account_age_days: profileCreatedAt
+      ? Math.floor((Date.now() - new Date(profileCreatedAt).getTime()) / (1000 * 60 * 60 * 24))
+      : null,
+    child_count: children.length,
+    has_curriculum: curriculumGoalsCount > 0,
+    user_plan: isPro ? 'paid' : 'free',
+  }), [profileCreatedAt, children.length, curriculumGoalsCount, isPro]);
+
+  // ── First-memory activation impression (funnel top) ─────────────────────────
+  // Fires once per page load when a new family (onboarded → on the dashboard,
+  // at least one child, zero memories) sees the first-memory capture surfaces.
+  // Both the zero-memory "Capture your first memory" card and the Getting
+  // Started card render for this state; this single impression marks that the
+  // surfaces were shown. Partners are read-only and excluded.
+  useEffect(() => {
+    if (loading || isPartner) return;
+    if (firstMemoryShownFiredRef.current) return;
+    if (children.length >= 1 && totalMemories === 0) {
+      firstMemoryShownFiredRef.current = true;
+      const props = firstMemoryFunnelProps();
+      posthog.capture('first_memory_card_shown', {
+        ...props,
+        // Which surfaces are visible for this new family (both reuse the same
+        // capture flow). Getting Started shows in the first 30 days.
+        getting_started_visible: (props.account_age_days ?? Infinity) < 30,
+        capture_card_visible: true,
+      });
+    }
+  }, [loading, isPartner, children.length, totalMemories, firstMemoryFunnelProps]);
+
   // ── First memory magic moment ──────────────────────────────────────────────
   useEffect(() => {
     if (loading) return;
@@ -1514,13 +1550,16 @@ export default function TodayPage() {
     prevTotalMemoriesRef.current = totalMemories;
     if (prev === 0 && totalMemories === 1 && !localStorage.getItem("rooted_first_memory_celebrated")) {
       localStorage.setItem("rooted_first_memory_celebrated", "1");
+      // Funnel bottom: the family captured their very first memory. This is the
+      // first 0→1 transition, distinct from the generic `memory_captured` event.
+      posthog.capture('first_memory_captured', firstMemoryFunnelProps());
       const childName = children.length > 0 ? children[0].name : null;
       setFirstMemoryToast(
         childName ? `${childName}'s tree just grew its first leaf!` : "Your garden just grew its first leaf!"
       );
       setTimeout(() => setFirstMemoryToast(null), 4000);
     }
-  }, [totalMemories, loading, children]);
+  }, [totalMemories, loading, children, firstMemoryFunnelProps]);
 
   const getToken = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -3425,7 +3464,10 @@ export default function TodayPage() {
             hasCurriculum={hasCurriculum}
             hasMemory={hasMemory}
             onAddCurriculum={() => router.push("/dashboard/plan")}
-            onCaptureMemory={() => setShowMemoryPicker(true)}
+            onCaptureMemory={() => {
+              posthog.capture('first_memory_capture_clicked', { ...firstMemoryFunnelProps(), source: 'getting_started_card' });
+              setShowMemoryPicker(true);
+            }}
           />
         );
       })()}
@@ -3735,7 +3777,7 @@ export default function TodayPage() {
             </p>
             <button
               type="button"
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMemoryPicker(true); }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); posthog.capture('first_memory_capture_clicked', { ...firstMemoryFunnelProps(), source: 'zero_memory_card' }); setShowMemoryPicker(true); }}
               className="w-full py-3 rounded-xl text-sm font-semibold text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
             >
               ✚ Capture a memory
