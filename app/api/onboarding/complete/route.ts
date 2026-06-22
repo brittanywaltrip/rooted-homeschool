@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
 import { capitalizeName } from '@/lib/utils'
 
 export async function POST(req: NextRequest) {
@@ -43,18 +42,12 @@ export async function POST(req: NextRequest) {
     if (rows.length > 0) await supabase.from('children').insert(rows)
   }
 
-  // Send free welcome email (fire-and-forget — don't block onboarding)
-  const firstName = user.user_metadata?.first_name
-    || user.user_metadata?.full_name?.split(' ')[0]
-    || 'there'
-  if (user.email) {
-    sendResendTemplate(user.email, TEMPLATES.welcomeFree, {
-      firstName,
-      dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
-    }).then(async () => {
-      try { await supabase.from('email_log').insert({ user_id: user.id, email_type: 'welcome_free' }) } catch {}
-    }).catch((err) => console.error('[onboarding] welcome email failed:', err))
-  }
+  // RETIRED: the free welcome email used to send from here, but nothing calls
+  // this route — onboarding actually completes via /api/profile/update
+  // ({ onboarded: true }), which is now the single place welcome_free sends
+  // (deduped via email_log). Do NOT re-add the send here, and do NOT call this
+  // route from the onboarding page: it also inserts children, which the page
+  // already does, so calling it would double-insert.
 
   return NextResponse.json({ ok: true })
 }
