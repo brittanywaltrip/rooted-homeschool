@@ -821,6 +821,29 @@ export default function PrintablesPage() {
         </div>
       </section>
 
+      {/* ── First Day Photo ──────────────────────────────────────── */}
+      <section>
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Keepsakes</p>
+        <h2 className="text-[13px] font-medium text-[#5C5346] mb-0.5">📷 First Day Photo</h2>
+        <p className="text-xs text-[#b5aca4] mb-4">A first day keepsake you can fill in and share, free.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Link
+            href="/dashboard/printables/first-day"
+            className="flex items-start gap-3 bg-white border border-[#e8e5e0] rounded-2xl p-4 hover:border-[#2D5A3D] hover:shadow-sm transition-all group"
+          >
+            <span className="shrink-0 w-10 h-10 rounded-xl bg-[#e8f0e9] flex items-center justify-center text-lg">📷</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#2d2926] group-hover:text-[#2D5A3D] transition-colors">
+                First Day Photo
+              </p>
+              <p className="text-[11px] text-[#b5aca4] mt-0.5 leading-relaxed">
+                Drop in a photo, add their grade, age &amp; goals, then share a beautiful first day keepsake.
+              </p>
+            </div>
+          </Link>
+        </div>
+      </section>
+
       {/* ── Your Certificates (child awards) ─────────────────────── */}
       {children.length > 0 && (
         <section>
