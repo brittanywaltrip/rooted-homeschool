@@ -1427,7 +1427,17 @@ export default function TodayPage() {
         const accountAge = Date.now() - new Date(user.created_at).getTime();
         const FIVE_MINUTES = 5 * 60 * 1000;
 
-        if (newAwards.length > 0 && accountAge > FIVE_MINUTES) {
+        // Keep the first session calm: never let an achievement banner greet an
+        // empty account. founding_homeschooler is granted unconditionally (see
+        // lib/award-unlocks.ts), so a family with zero memories AND zero completed
+        // lessons would otherwise be pulled to Printables before capturing their
+        // first memory. Awards are still granted silently above — this only gates
+        // the banner. Active families (any memory or completed lesson) are unaffected.
+        const hasMemories = (memories?.length ?? 0) > 0;
+        const hasCompletedLessons = (lessons?.length ?? 0) > 0;
+        const isEmptyAccount = !hasMemories && !hasCompletedLessons;
+
+        if (newAwards.length > 0 && accountAge > FIVE_MINUTES && !isEmptyAccount) {
           const first = newAwards[0];
           const meta = AWARD_META[first.award_type as keyof typeof AWARD_META];
           setAchievementBanner({
