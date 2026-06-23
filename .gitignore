@@ -59,3 +59,6 @@ android/captures
 playwright-report/
 test-results/
 e2e/.auth/
+
+# Email template audit dumps — review-only, may contain template HTML; never commit
+email-audit/
