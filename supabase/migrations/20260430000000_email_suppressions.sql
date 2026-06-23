@@ -7,3 +7,5 @@ CREATE TABLE IF NOT EXISTS public.email_suppressions (
 );
 
 CREATE INDEX IF NOT EXISTS email_suppressions_email_idx ON public.email_suppressions (email);
+
+ALTER TABLE public.email_suppressions ENABLE ROW LEVEL SECURITY;

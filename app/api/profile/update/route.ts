@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { attributeReferral } from '@/lib/referrals'
+import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
 
 export async function POST(req: NextRequest) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
@@ -68,6 +69,41 @@ export async function POST(req: NextRequest) {
     if (patch.first_name !== undefined) metaUpdate.first_name = patch.first_name
     if (patch.last_name !== undefined) metaUpdate.last_name = patch.last_name
     await supabase.auth.admin.updateUserById(user.id, { user_metadata: metaUpdate })
+  }
+
+  // Free welcome email — sent when a family finishes onboarding. AWAITED before
+  // the response returns (matching the Stripe webhook's welcome sends): Vercel's
+  // serverless runtime can freeze the function the moment the response is sent,
+  // dropping any detached background work — which is why the prior fire-and-forget
+  // version never logged welcome_free. The email_log dedup below guarantees at
+  // most one send, so re-running on a later profile write is harmless (no
+  // wasOnboarded read needed). Wrapped in try/catch so an email failure can never
+  // break onboarding or change the { ok: true } response.
+  if (patch.onboarded === true && user.email) {
+    try {
+      // Dedup guard: skip if a free welcome was already logged for this user.
+      const { data: alreadySent } = await supabase
+        .from('email_log')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('email_type', 'welcome_free')
+        .maybeSingle()
+      if (!alreadySent) {
+        const firstName =
+          user.user_metadata?.first_name
+          || user.user_metadata?.full_name?.split(' ')[0]
+          || 'there'
+        const result = await sendResendTemplate(user.email, TEMPLATES.welcomeFree, {
+          firstName,
+          dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
+        })
+        if (result.ok) {
+          await supabase.from('email_log').insert({ user_id: user.id, email_type: 'welcome_free' })
+        }
+      }
+    } catch (err) {
+      console.error('[profile/update] welcome_free failed:', err)
+    }
   }
 
   return NextResponse.json({ ok: true })
