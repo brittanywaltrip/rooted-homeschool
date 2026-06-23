@@ -37,21 +37,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No valid fields provided' }, { status: 400 })
   }
 
-  // Detect the onboarding transition (false → true) BEFORE the write, so we can
-  // fire the free welcome email exactly once when a family finishes onboarding.
-  // The onboarding page completes by POSTing { onboarded: true, onboarded_at }
-  // here, so this is the real completion signal (see /api/onboarding/complete,
-  // which is now retired and unused).
-  let wasOnboarded = true
-  if (patch.onboarded === true) {
-    const { data: existingProfile } = await supabase
-      .from('profiles')
-      .select('onboarded')
-      .eq('id', user.id)
-      .maybeSingle()
-    wasOnboarded = (existingProfile as { onboarded?: boolean | null } | null)?.onboarded === true
-  }
-
   // Ensure the profile row exists before the RPC runs — the RPC assumes it
   // can UPDATE profiles by id, and new accounts may not have a row yet.
   const { error } = Object.keys(patch).length > 0
@@ -86,39 +71,39 @@ export async function POST(req: NextRequest) {
     await supabase.auth.admin.updateUserById(user.id, { user_metadata: metaUpdate })
   }
 
-  // Free welcome email — fire exactly once when a family finishes onboarding
-  // (onboarded just flipped false → true). Transactional like the paid welcomes
-  // in the Stripe webhook: sent without the marketing gate, but deduped via
-  // email_log so it can never go out twice. Fire-and-forget so a slow or failing
-  // email never blocks or breaks the onboarding write above.
-  if (patch.onboarded === true && !wasOnboarded && user.email) {
-    const recipient = user.email
-    const firstName =
-      user.user_metadata?.first_name
-      || user.user_metadata?.full_name?.split(' ')[0]
-      || 'there'
-    void (async () => {
-      try {
-        // Dedup guard: skip if a free welcome was already logged for this user.
-        const { data: alreadySent } = await supabase
-          .from('email_log')
-          .select('id')
-          .eq('user_id', user.id)
-          .eq('email_type', 'welcome_free')
-          .maybeSingle()
-        if (alreadySent) return
-
-        const result = await sendResendTemplate(recipient, TEMPLATES.welcomeFree, {
+  // Free welcome email — sent when a family finishes onboarding. AWAITED before
+  // the response returns (matching the Stripe webhook's welcome sends): Vercel's
+  // serverless runtime can freeze the function the moment the response is sent,
+  // dropping any detached background work — which is why the prior fire-and-forget
+  // version never logged welcome_free. The email_log dedup below guarantees at
+  // most one send, so re-running on a later profile write is harmless (no
+  // wasOnboarded read needed). Wrapped in try/catch so an email failure can never
+  // break onboarding or change the { ok: true } response.
+  if (patch.onboarded === true && user.email) {
+    try {
+      // Dedup guard: skip if a free welcome was already logged for this user.
+      const { data: alreadySent } = await supabase
+        .from('email_log')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('email_type', 'welcome_free')
+        .maybeSingle()
+      if (!alreadySent) {
+        const firstName =
+          user.user_metadata?.first_name
+          || user.user_metadata?.full_name?.split(' ')[0]
+          || 'there'
+        const result = await sendResendTemplate(user.email, TEMPLATES.welcomeFree, {
           firstName,
           dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard',
         })
         if (result.ok) {
-          try { await supabase.from('email_log').insert({ user_id: user.id, email_type: 'welcome_free' }) } catch {}
+          await supabase.from('email_log').insert({ user_id: user.id, email_type: 'welcome_free' })
         }
-      } catch (err) {
-        console.error('[profile/update] welcome_free email failed:', err)
       }
-    })()
+    } catch (err) {
+      console.error('[profile/update] welcome_free failed:', err)
+    }
   }
 
   return NextResponse.json({ ok: true })
