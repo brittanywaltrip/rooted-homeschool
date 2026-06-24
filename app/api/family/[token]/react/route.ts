@@ -39,14 +39,33 @@ export async function POST(
     .maybeSingle();
 
   if (existing) {
-    await supabaseAdmin.from("memory_reactions").delete().eq("id", existing.id);
+    const { error: deleteErr } = await supabaseAdmin
+      .from("memory_reactions")
+      .delete()
+      .eq("id", existing.id);
+    if (deleteErr) {
+      console.error("memory_reactions delete failed", {
+        token,
+        memory_id,
+        reactor_key,
+        emoji,
+        code: deleteErr.code,
+        message: deleteErr.message,
+        details: deleteErr.details,
+        hint: deleteErr.hint,
+      });
+      return NextResponse.json({ error: deleteErr.message }, { status: 500 });
+    }
     return NextResponse.json({ action: "removed" });
   }
 
-  // Insert reaction
-  await supabaseAdmin.from("memory_reactions").upsert(
+  // Upsert reaction. family_token is NOT NULL in the live schema even though
+  // invite_token is the canonical FK now. Set both to the same value until
+  // the catch-up migration drops family_token.
+  const { error: upsertErr } = await supabaseAdmin.from("memory_reactions").upsert(
     {
       memory_id,
+      family_token: token,
       invite_token: token,
       reactor_name,
       reactor_key,
@@ -55,6 +74,19 @@ export async function POST(
     },
     { onConflict: "memory_id,reactor_key,emoji" }
   );
+  if (upsertErr) {
+    console.error("memory_reactions upsert failed", {
+      token,
+      memory_id,
+      reactor_key,
+      emoji,
+      code: upsertErr.code,
+      message: upsertErr.message,
+      details: upsertErr.details,
+      hint: upsertErr.hint,
+    });
+    return NextResponse.json({ error: upsertErr.message }, { status: 500 });
+  }
 
   // Create notification for mom
   await supabaseAdmin.from("family_notifications").insert({
