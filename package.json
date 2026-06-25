@@ -12,6 +12,7 @@
     "test:e2e:ui": "node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test e2e/smoke/ --ui",
     "audit:stripe-linkage": "node --env-file=.env.local scripts/audit-stripe-linkage.ts",
     "backfill:commission-amounts": "node --env-file=.env.local scripts/backfill-commission-amounts.ts",
+    "backfill:photo-dimensions": "node --env-file=.env.local scripts/backfill-photo-dimensions.ts",
     "cleanup:bunched": "node --env-file=.env.local scripts/cleanup-bunched-lessons.ts",
     "cap:sync": "npx cap sync",
     "cap:ios": "npx cap open ios",

@@ -989,7 +989,9 @@ export type Database = {
           include_in_book: boolean | null
           lesson_id: string | null
           page_order: number | null
+          photo_height: number | null
           photo_url: string | null
+          photo_width: number | null
           title: string | null
           type: string
           updated_at: string | null
@@ -1008,7 +1010,9 @@ export type Database = {
           include_in_book?: boolean | null
           lesson_id?: string | null
           page_order?: number | null
+          photo_height?: number | null
           photo_url?: string | null
+          photo_width?: number | null
           title?: string | null
           type?: string
           updated_at?: string | null
@@ -1027,7 +1031,9 @@ export type Database = {
           include_in_book?: boolean | null
           lesson_id?: string | null
           page_order?: number | null
+          photo_height?: number | null
           photo_url?: string | null
+          photo_width?: number | null
           title?: string | null
           type?: string
           updated_at?: string | null

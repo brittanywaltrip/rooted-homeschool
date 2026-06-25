@@ -16,6 +16,7 @@ import {
   buildFavoriteThingsSpread,
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
+import { buildPhotoPages, type PhotoPage } from "@/lib/yearbook-photo-pages";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
@@ -85,6 +86,8 @@ type MemoryRow = {
   caption: string | null;
   photo_url: string | null;
   include_in_book: boolean;
+  photo_width: number | null;
+  photo_height: number | null;
 };
 
 type YearbookContentRow = {
@@ -141,57 +144,94 @@ function PageShell({ children, bg = "#FAFAF7" }: {
   );
 }
 
-// ─── Photo Grid — adaptive layout ────────────────────────────────────────────
+// ─── Collage pages (aspect-aware, no crop) ───────────────────────────────────
+// A chapter's photos are paged by buildPhotoPages (wide photos tile up to 6;
+// tall photos are lifted to their own hero/pair page). Each cell sits on the
+// #f5f0e8 mat and is aspect-aware: tall photos render object-contain (shown in
+// full), wide/square cover their cell. The fit is read from the image's natural
+// dimensions on load — the safety net that prevents any crop even if a photo's
+// stored dimensions were missing when it landed in a grid.
 
-function PhotoGrid({ photos }: { photos: MemoryRow[] }) {
-  if (photos.length === 0) return null;
-
-  if (photos.length === 1) {
-    return (
-      <div className="w-full rounded-md overflow-hidden bg-[#f5f0e8]" style={{ aspectRatio: "4/3" }}>
-        <SignedImage src={photos[0].photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
-      </div>
-    );
-  }
-
-  if (photos.length === 2) {
-    return (
-      <div className="grid grid-cols-2 gap-1.5">
-        {photos.map((p) => (
-          <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
-            <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  if (photos.length === 3) {
-    return (
-      <div className="space-y-1.5">
-        <div className="w-full rounded-md overflow-hidden bg-[#f5f0e8]" style={{ aspectRatio: "16/9" }}>
-          <SignedImage src={photos[0].photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {photos.slice(1).map((p) => (
-            <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
-              <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
+function MatPhoto({ src }: { src: string }) {
+  const [fit, setFit] = useState<"cover" | "contain">("cover");
   return (
-    <div className="grid grid-cols-2 gap-1.5">
-      {photos.slice(0, 4).map((p) => (
-        <div key={p.id} className="aspect-square rounded overflow-hidden bg-[#f5f0e8]">
-          <SignedImage src={p.photo_url!} bucket="memory-photos" className="w-full h-full object-cover" />
-        </div>
-      ))}
+    <div className="w-full h-full overflow-hidden rounded bg-[#f5f0e8]">
+      <SignedImage
+        src={src}
+        bucket="memory-photos"
+        onLoad={(e) => {
+          const img = e.currentTarget;
+          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+            setFit(img.naturalWidth / img.naturalHeight < 0.9 ? "contain" : "cover");
+          }
+        }}
+        className={`w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
+      />
     </div>
   );
+}
+
+function CollageGrid({ photos }: { photos: { id: string; photo_url: string | null }[] }) {
+  const cell = (p: { id: string; photo_url: string | null }) => <MatPhoto key={p.id} src={p.photo_url!} />;
+  const n = photos.length;
+  if (n <= 1) return <div className="w-full h-full">{photos[0] ? cell(photos[0]) : null}</div>;
+  if (n === 2) return <div className="grid grid-cols-2 gap-2 w-full h-full">{photos.map(cell)}</div>;
+  if (n === 3) {
+    return (
+      <div className="grid grid-cols-2 grid-rows-2 gap-2 w-full h-full">
+        <div className="row-span-2 min-h-0">{cell(photos[0])}</div>
+        <div className="min-h-0">{cell(photos[1])}</div>
+        <div className="min-h-0">{cell(photos[2])}</div>
+      </div>
+    );
+  }
+  if (n === 4) return <div className="grid grid-cols-2 grid-rows-2 gap-2 w-full h-full">{photos.map(cell)}</div>;
+  // 5–6 → 2×3
+  return <div className="grid grid-cols-2 grid-rows-3 gap-1.5 w-full h-full">{photos.map(cell)}</div>;
+}
+
+function CollagePage({ page }: { page: PhotoPage }) {
+  const photos = page.photos.filter((p) => p.photo_url);
+  if (photos.length === 0) return <FillerPage />;
+  return (
+    <PageShell>
+      <div className="flex-1 min-h-0">
+        <CollageGrid photos={photos} />
+      </div>
+    </PageShell>
+  );
+}
+
+// Quiet right page used when a chapter's collage pages are odd in number.
+function FillerPage() {
+  return (
+    <PageShell>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="w-9 h-px bg-[#ddd5c0]" />
+      </div>
+    </PageShell>
+  );
+}
+
+function toPhotoItem(m: MemoryRow) {
+  return { id: m.id, photo_url: m.photo_url, photo_width: m.photo_width, photo_height: m.photo_height };
+}
+
+// Group a chapter's photo pages into book spreads (2 pages per spread, with a
+// quiet filler on a trailing odd page).
+function photoPagesToSpreads(pages: PhotoPage[], idPrefix: string, label: string): SpreadDef[] {
+  const out: SpreadDef[] = [];
+  for (let i = 0; i < pages.length; i += 2) {
+    const left = pages[i];
+    const right = pages[i + 1];
+    out.push({
+      id: `${idPrefix}-${i / 2}`,
+      label,
+      leftContent: <CollagePage page={left} />,
+      rightContent: right ? <CollagePage page={right} /> : <FillerPage />,
+    });
+  }
+  return out;
 }
 
 // ─── Page header mapping ─────────────────────────────────────────────────────
@@ -204,9 +244,11 @@ function getPageHeaders(spreadId: string, spreadLabel: string): [string, string]
     const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
     if (spreadId.includes("-books")) return [`${name}\u2019S BOOKS`, `${name}\u2019S BOOKS`];
     if (spreadId.includes("-favorites")) return [`${name}\u2019S FAVORITES`, `${name}\u2019S FAVORITES`];
+    if (spreadId.includes("-photos")) return [`${name}\u2019S CHAPTER`, `${name}\u2019S CHAPTER`];
     if (spreadId.includes("-spread-")) return [`${name}\u2019S CHAPTER`, `${name}\u2019S CHAPTER`];
     return [`${name}\u2019S CHAPTER`, "IN THEIR OWN WORDS"];
   }
+  if (spreadId.startsWith("family-photos")) return ["TOGETHER", "TOGETHER"];
   if (spreadId === "family") return ["TOGETHER", "TOGETHER"];
   if (spreadId === "family-books") return ["OUR BOOKS", "OUR BOOKS"];
   if (spreadId === "village") return ["FROM THE VILLAGE", "FROM THE VILLAGE"];
@@ -307,7 +349,7 @@ export default function YearbookReadPage() {
 
       let memsQuery = supabase
         .from("memories")
-        .select("id, child_id, date, type, title, caption, photo_url, include_in_book")
+        .select("id, child_id, date, type, title, caption, photo_url, include_in_book, photo_width, photo_height")
         .eq("user_id", effectiveUserId)
         .eq("include_in_book", true)
         .gte("date", openedAt.slice(0, 10))
@@ -423,19 +465,13 @@ export default function YearbookReadPage() {
 
   const familyMemories = memories.filter((m) => !m.child_id);
 
-  let pageCounter = 4;
-  const childPageMap: Record<string, number> = {};
-  for (const c of children) {
-    childPageMap[c.id] = pageCounter + 1;
-    pageCounter += 2;
-  }
-  const familyPageNum = pageCounter + 1;
-  const villagePageNum = familyPageNum + 2;
-
   const spreads: SpreadDef[] = [];
 
-  // 1. COVER SPREAD
-  spreads.push({
+  // COVER SPREAD — built as a function and prepended LAST (after the body
+  // spreads exist) so its table of contents can cite true page numbers
+  // (option a). The body spreads are pushed below; pageNumberForId is derived
+  // from their real positions, then the cover is unshift()ed to the front.
+  const buildCoverSpread = (pageNumberForId: (id: string) => number | null): SpreadDef => ({
     id: "cover",
     label: "Cover",
     leftContent: coverPhotoUrl ? (
@@ -518,12 +554,12 @@ export default function YearbookReadPage() {
           </p>
           <div className="w-9 h-px bg-[#ddd5c0] my-4" />
           <div className="space-y-1 text-[10px] text-[#9a8f85]" style={{ lineHeight: 2.0 }}>
-            <p>A letter from home · p. 2</p>
+            <p>A letter from home · p. {pageNumberForId("letter") ?? "–"}</p>
             {children.map((c) => (
-              <p key={c.id}>{c.name}&apos;s chapter · p. {childPageMap[c.id] ?? "–"}</p>
+              <p key={c.id}>{c.name}&apos;s chapter · p. {pageNumberForId(`child-${c.id}`) ?? "–"}</p>
             ))}
-            <p>Our family · p. {familyPageNum}</p>
-            <p>From the village · p. {villagePageNum}</p>
+            <p>Our family · p. {pageNumberForId("family") ?? "–"}</p>
+            <p>From the village · p. {pageNumberForId("village") ?? "–"}</p>
           </div>
         </div>
       </PageShell>
@@ -692,11 +728,7 @@ export default function YearbookReadPage() {
             </div>
           )}
 
-          {childPhotos.length > 0 && (
-            <div className="mb-2 shrink-0">
-              <PhotoGrid photos={childPhotos.slice(0, 4)} />
-            </div>
-          )}
+          {/* Photos moved to dedicated collage spreads below (all of them). */}
 
           {latestWin && (
             <div className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[rgba(254, 252, 249, 0.55)] mb-2 shrink-0">
@@ -778,6 +810,17 @@ export default function YearbookReadPage() {
       ),
     });
 
+    // 3a. PHOTO COLLAGE SPREADS — flow ALL of this child's photos across as many
+    // collage pages as needed. Tall/full-length photos are lifted to their own
+    // hero/pair page so they're shown in full and never cropped.
+    for (const sp of photoPagesToSpreads(
+      buildPhotoPages(childPhotos.map(toPhotoItem)),
+      `child-${child.id}-photos`,
+      `${child.name}'s chapter`,
+    )) {
+      spreads.push(sp);
+    }
+
     // 3b. FAVORITE THINGS SPREAD
     if (ybSettings.show_favorite_things) {
       const favMemories: YearbookMemory[] = childMems.map((m) => ({
@@ -844,14 +887,7 @@ export default function YearbookReadPage() {
 
         {familyMemories.length > 0 ? (
           <div className="space-y-2">
-            {famPhotos.length > 0 && (
-              <>
-                <PhotoGrid photos={famPhotos.slice(0, 3)} />
-                <p className="text-[8px] italic text-[#9a8f85]" style={{ fontFamily: "Georgia, serif" }}>
-                  {safeParseDateStr(famPhotos[0].date)?.toLocaleDateString("en-US", { month: "long", day: "numeric" }) ?? ""}
-                </p>
-              </>
-            )}
+            {/* Family photos flow to collage spreads below (all of them). */}
             {famWins.map((w) => (
               <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[rgba(254, 252, 249, 0.55)]">
                 <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] flex items-center gap-1">
@@ -879,22 +915,23 @@ export default function YearbookReadPage() {
     ),
     rightContent: (
       <PageShell>
-        {famPhotos.length > 3 ? (
-          <div className="flex flex-col justify-center">
-            <PhotoGrid photos={famPhotos.slice(3, 7)} />
-          </div>
-        ) : (
-          <div className="flex flex-col items-center justify-center text-center px-4">
-            <div className="w-9 h-px bg-[#ddd5c0] mb-4" />
-            <p className="italic text-[10px] text-[#c4b89a] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
-              More family photos will appear here as you add them.
-            </p>
-            <div className="w-9 h-px bg-[#ddd5c0] mt-4" />
-          </div>
-        )}
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+          <div className="w-9 h-px bg-[#ddd5c0] mb-4" />
+          <p className="italic text-[10px] text-[#c4b89a] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
+            Our days, together.
+          </p>
+          <div className="w-9 h-px bg-[#ddd5c0] mt-4" />
+        </div>
       </PageShell>
     ),
   });
+
+  // 4a. FAMILY PHOTO COLLAGE SPREADS — all family photos, collaged (tall ones lifted).
+  if (ybSettings.show_family_chapter) {
+    for (const sp of photoPagesToSpreads(buildPhotoPages(famPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
+      spreads.push(sp);
+    }
+  }
 
   // 4b. FAMILY BOOKS SPREAD (books without a child_id)
   const familyBooks = familyMemories.filter((m) => m.type === "book");
@@ -992,15 +1029,29 @@ export default function YearbookReadPage() {
     ),
   });
 
+  // Prepend the cover now that every body spread exists, so its table of
+  // contents cites real page numbers. A body spread at index i ends up at array
+  // index i+1 after the unshift → human page number (i+1)*2 + 1.
+  const pageNumberForId = (id: string): number | null => {
+    const idx = spreads.findIndex((s) => s.id === id);
+    return idx === -1 ? null : (idx + 1) * 2 + 1;
+  };
+  spreads.unshift(buildCoverSpread(pageNumberForId));
+
   // ── Build flat pages array with headers + edit links ──────────────────────
 
   function getEditHrefs(spreadId: string): [string | null, string | null] {
     const base = "/dashboard/memories/yearbook/edit";
     if (spreadId === "letter") return [`${base}#letter`, `${base}#favorites`];
     if (spreadId.startsWith("child-")) {
-      // Extract actual child ID (format: child-<id>, child-<id>-spread-N, child-<id>-books)
-      const childId = spreadId.replace("child-", "").replace(/-spread-\d+$/, "").replace(/-books$/, "");
-      if (spreadId.includes("-books") || spreadId.includes("-spread-")) {
+      // Extract actual child ID (child-<id>, child-<id>-photos-N, child-<id>-favorites, child-<id>-books)
+      const childId = spreadId
+        .replace("child-", "")
+        .replace(/-spread-\d+$/, "")
+        .replace(/-photos-\d+$/, "")
+        .replace(/-favorites$/, "")
+        .replace(/-books$/, "");
+      if (spreadId.includes("-books") || spreadId.includes("-spread-") || spreadId.includes("-photos") || spreadId.includes("-favorites")) {
         return [`${base}#${childId}-photos`, null];
       }
       return [`${base}#${childId}-photos`, `${base}#${childId}-interview`];
