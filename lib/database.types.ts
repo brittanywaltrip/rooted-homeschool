@@ -987,6 +987,7 @@ export type Database = {
           favorite: boolean | null
           id: string
           include_in_book: boolean | null
+          lesson_id: string | null
           page_order: number | null
           photo_url: string | null
           title: string | null
@@ -1005,6 +1006,7 @@ export type Database = {
           favorite?: boolean | null
           id?: string
           include_in_book?: boolean | null
+          lesson_id?: string | null
           page_order?: number | null
           photo_url?: string | null
           title?: string | null
@@ -1023,6 +1025,7 @@ export type Database = {
           favorite?: boolean | null
           id?: string
           include_in_book?: boolean | null
+          lesson_id?: string | null
           page_order?: number | null
           photo_url?: string | null
           title?: string | null
@@ -1037,6 +1040,13 @@ export type Database = {
             columns: ["child_id"]
             isOneToOne: false
             referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "memories_lesson_id_fkey"
+            columns: ["lesson_id"]
+            isOneToOne: false
+            referencedRelation: "lessons"
             referencedColumns: ["id"]
           },
           {

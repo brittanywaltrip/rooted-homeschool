@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import LessonPhotoButton from "@/app/components/LessonPhotoButton";
 
 /* TodayLessonCard — lesson row with inline check-off, particle burst on
  * completion, minutes editor, notes editor, and a 3-dot menu.
@@ -348,6 +349,11 @@ export default function TodayLessonCard({
         </div>
       )}
     </div>
+    {!isEditingNote && (
+      <div className="px-4 pb-2">
+        <LessonPhotoButton lessonId={lesson.id} isPartner={isPartner} />
+      </div>
+    )}
     {/* Inline note editor (parity with Plan page) */}
     {isEditingNote && (
       <div
