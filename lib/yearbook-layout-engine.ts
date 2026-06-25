@@ -115,20 +115,30 @@ function photoSpreads(photos: YearbookMemory[]): YearbookSpread[] {
   const result: YearbookSpread[] = [];
   let remaining = [...photos];
 
+  // Let pages breathe: prefer 1–2 photos per page and add more spreads instead
+  // of packing four into a dense 2x2 grid. The 4-up "grid" layout stays
+  // available in the renderer but is no longer produced by the auto-layout.
   while (remaining.length > 0) {
-    if (remaining.length === 1) {
+    const n = remaining.length;
+    if (n === 1) {
       result.push({ layoutType: "hero", memories: [remaining[0]] });
       remaining = [];
-    } else if (remaining.length === 2) {
+    } else if (n === 2) {
       result.push({ layoutType: "side_by_side", memories: remaining.slice(0, 2) });
       remaining = [];
-    } else if (remaining.length === 3) {
+    } else if (n === 3) {
       result.push({ layoutType: "editorial", memories: remaining.slice(0, 3) });
       remaining = [];
+    } else if (n === 4) {
+      // Two calm pairs instead of a packed grid.
+      result.push({ layoutType: "side_by_side", memories: remaining.slice(0, 2) });
+      result.push({ layoutType: "side_by_side", memories: remaining.slice(2, 4) });
+      remaining = [];
     } else {
-      // 4+ → grid of 4, remainder continues
-      result.push({ layoutType: "grid", memories: remaining.slice(0, 4) });
-      remaining = remaining.slice(4);
+      // 5+ → peel a calm pair off and keep going, so a busy day becomes
+      // several breathing spreads with an editorial/hero on the 1–3 photo tail.
+      result.push({ layoutType: "side_by_side", memories: remaining.slice(0, 2) });
+      remaining = remaining.slice(2);
     }
   }
 
