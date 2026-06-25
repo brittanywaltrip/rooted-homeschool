@@ -190,8 +190,10 @@ Step 5: Done + Brittany founder closing moment
 - affiliates: partner tracking, referral codes
 
 ## Storage buckets (Supabase)
-- memory-photos: user photo memories (public)
-- family-photos: family profile photos (public)
+- memory-photos: user photo memories (PRIVATE — access via signed URLs, e.g.
+  `signedPhotoUrlsAdmin` in lib/photo-url.ts. Raw `photo_url` values render
+  blank.)
+- family-photos: family profile photos (PRIVATE — signed URLs, same as above)
 
 ## Plan system (as of April 14, 2026)
 Display names: "Rooted" (free), "Rooted+" (all paid tiers). Use + symbol, never "Plus".

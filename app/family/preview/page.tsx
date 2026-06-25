@@ -2,52 +2,29 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
-
-type Memory = {
-  id: string;
-  type: string;
-  title: string | null;
-  caption: string | null;
-  photo_url: string | null;
-  date: string;
-  child_id: string | null;
-};
-
-type Child = { id: string; name: string; color: string | null };
-
-const TYPE_EMOJI: Record<string, string> = {
-  photo: "📷", drawing: "🎨", book: "📖", win: "🏆",
-  quote: "🗒️", project: "🔬", field_trip: "🗺️", activity: "🎵", moment: "✨",
-};
-
-const TYPE_GRADIENT: Record<string, string> = {
-  book: "linear-gradient(135deg, #F5E6C8, #E8C87A)",
-  win: "linear-gradient(135deg, #FDE8A0, #F5C842)",
-  drawing: "linear-gradient(135deg, #E8D5F5, #C9A8E8)",
-  quote: "linear-gradient(135deg, #F0E4F8, #D4B8E8)",
-  project: "linear-gradient(135deg, #C8E6C8, #7BAE7F)",
-  field_trip: "linear-gradient(135deg, #C8E6C8, #7BAE7F)",
-  activity: "linear-gradient(135deg, #C8E6C8, #7BAE7F)",
-  moment: "linear-gradient(135deg, #e8f0e9, #b8d4ba)",
-};
-
-const REACTION_EMOJIS = ["🥹", "❤️", "😂", "🙌", "😍"];
+import FamilyFeed from "@/components/family/FamilyFeed";
+import type {
+  FamilyChild,
+  FamilyComment,
+  FamilyData,
+  FamilyMemory,
+  ReactionCount,
+} from "@/lib/family-feed";
 
 /* ── Public-demo placeholder data ───────────────────────────────────────────
    Rendered when the visitor is NOT signed in, so the URL is shareable to
-   anyone who doesn't have a Rooted account. Logged-in users still see their
-   own real memories below. Kept inline (no DB row, nothing to deactivate)
-   so the demo can't be turned off by user action. */
+   anyone who doesn't have a Rooted account. Logged-in users see their own real
+   feed (fetched from /api/family/preview). Kept inline (no DB row, nothing to
+   deactivate) so the demo can't be turned off by user action. */
 const DEMO_FAMILY_NAME = "The Bennett Family";
 
-const DEMO_CHILDREN: Child[] = [
+const DEMO_CHILDREN: FamilyChild[] = [
   { id: "demo-kid-1", name: "Eleanor", color: "#7a4a7e" },
   { id: "demo-kid-2", name: "Henry",   color: "#c4863a" },
   { id: "demo-kid-3", name: "Wren",    color: "#a8576f" },
 ];
 
-const DEMO_MEMORIES: Memory[] = [
+const DEMO_MEMORIES: FamilyMemory[] = [
   {
     id: "demo-mem-1",
     type: "book",
@@ -56,6 +33,8 @@ const DEMO_MEMORIES: Memory[] = [
     photo_url: null,
     date: "2026-05-14",
     child_id: "demo-kid-1",
+    child_name: "Eleanor",
+    child_color: "#7a4a7e",
   },
   {
     id: "demo-mem-2",
@@ -65,6 +44,8 @@ const DEMO_MEMORIES: Memory[] = [
     photo_url: null,
     date: "2026-05-13",
     child_id: "demo-kid-2",
+    child_name: "Henry",
+    child_color: "#c4863a",
   },
   {
     id: "demo-mem-3",
@@ -74,6 +55,8 @@ const DEMO_MEMORIES: Memory[] = [
     photo_url: null,
     date: "2026-05-11",
     child_id: "demo-kid-3",
+    child_name: "Wren",
+    child_color: "#a8576f",
   },
   {
     id: "demo-mem-4",
@@ -83,6 +66,8 @@ const DEMO_MEMORIES: Memory[] = [
     photo_url: null,
     date: "2026-05-09",
     child_id: null,
+    child_name: null,
+    child_color: null,
   },
   {
     id: "demo-mem-5",
@@ -92,6 +77,8 @@ const DEMO_MEMORIES: Memory[] = [
     photo_url: null,
     date: "2026-05-07",
     child_id: "demo-kid-1",
+    child_name: "Eleanor",
+    child_color: "#7a4a7e",
   },
   {
     id: "demo-mem-6",
@@ -101,66 +88,48 @@ const DEMO_MEMORIES: Memory[] = [
     photo_url: null,
     date: "2026-05-05",
     child_id: null,
+    child_name: null,
+    child_color: null,
   },
 ];
-
-function formatDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-");
-  return new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString(
-    "en-US", { month: "long", day: "numeric" }
-  );
-}
 
 export default function FamilyPreviewPage() {
   const [loading, setLoading] = useState(true);
   const [isDemo, setIsDemo] = useState(false);
   const [familyName, setFamilyName] = useState("");
-  const [children, setChildren] = useState<Child[]>([]);
-  const [memories, setMemories] = useState<Memory[]>([]);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [childrenList, setChildrenList] = useState<FamilyChild[]>([]);
+  const [memories, setMemories] = useState<FamilyMemory[]>([]);
+  const [reactions, setReactions] = useState<Record<string, ReactionCount[]>>({});
+  const [comments, setComments] = useState<Record<string, FamilyComment[]>>({});
 
   useEffect(() => {
     (async () => {
-      // Public-demo path: anyone who hits /family/preview without a session
-      // (incl. a session-fetch error) sees the hardcoded demo. Logged-in
-      // users keep seeing their own real family view below.
-      let userId: string | null = null;
+      // Ask the session-auth endpoint for the real feed. A 401 (no session)
+      // means an anonymous visitor → show the shareable public demo. The
+      // endpoint signs photo URLs and never records a visit or notification.
       try {
-        const { data } = await supabase.auth.getUser();
-        userId = data.user?.id ?? null;
+        const res = await fetch("/api/family/preview");
+        if (res.ok) {
+          const data: FamilyData = await res.json();
+          setFamilyName(data.familyName);
+          setChildrenList(data.children);
+          setMemories(data.memories);
+          setReactions(data.reactions);
+          setComments(data.comments);
+          setLoading(false);
+          return;
+        }
       } catch {
-        userId = null;
+        // fall through to demo
       }
 
-      if (!userId) {
-        setIsDemo(true);
-        setFamilyName(DEMO_FAMILY_NAME);
-        setChildren(DEMO_CHILDREN);
-        setMemories(DEMO_MEMORIES);
-        setLoading(false);
-        return;
-      }
-
-      const [{ data: profile }, { data: kids }, { data: mems }] = await Promise.all([
-        supabase.from("profiles").select("display_name, family_photo_url").eq("id", userId).single(),
-        supabase.from("children").select("id, name, color").eq("user_id", userId).eq("archived", false).order("sort_order"),
-        supabase.from("memories")
-          .select("id, type, title, caption, photo_url, date, child_id")
-          .eq("user_id", userId)
-          .eq("family_visible", true)
-          .order("date", { ascending: false })
-          .limit(50),
-      ]);
-
-      setFamilyName(profile?.display_name ?? "Our Family");
-      setChildren((kids ?? []) as Child[]);
-      setMemories((mems ?? []) as Memory[]);
+      setIsDemo(true);
+      setFamilyName(DEMO_FAMILY_NAME);
+      setChildrenList(DEMO_CHILDREN);
+      setMemories(DEMO_MEMORIES);
       setLoading(false);
     })();
   }, []);
-
-  const childName = (id: string | null) =>
-    id ? children.find((c) => c.id === id)?.name ?? "" : "";
 
   if (loading) {
     return (
@@ -207,100 +176,15 @@ export default function FamilyPreviewPage() {
         </div>
       )}
 
-      {/* ── Header (same as real portal) ────────────────────────────── */}
-      <header className="w-full" style={{ backgroundColor: "var(--g-brand)", padding: "32px 20px 24px" }}>
-        <div className="max-w-[480px] mx-auto">
-          <h1 className="text-2xl text-white leading-tight" style={{ fontFamily: "var(--font-display)", fontWeight: 500 }}>
-            {familyName} 🌿
-          </h1>
-          {children.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mt-3">
-              {children.map((c) => (
-                <span key={c.id} className="px-2.5 py-0.5 rounded-full text-xs text-white/80 bg-white/15">
-                  {c.name}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      </header>
-
-      {/* ── Memory Feed ─────────────────────────────────────────────── */}
-      <div className="max-w-[480px] mx-auto px-4 pt-5 space-y-4">
-        {memories.length === 0 ? (
-          <div className="py-16 text-center">
-            <div className="text-4xl mb-3">📸</div>
-            <p className="text-sm text-[#7a6f65]">No family-visible memories yet.</p>
-            <p className="text-xs text-[#b5aca4] mt-1">Memories are visible by default — check your privacy settings.</p>
-          </div>
-        ) : (
-          memories.map((mem) => (
-            <div key={mem.id} className="bg-[#fefcf9] rounded-2xl border border-[#e8e2d9] overflow-hidden shadow-sm">
-              {/* Photo or type tile */}
-              {mem.photo_url ? (
-                <button className="w-full" onClick={() => setLightboxUrl(mem.photo_url)}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={mem.photo_url} alt={mem.title ?? "Memory"} className="w-full object-cover" loading="lazy" style={{ maxHeight: 400 }} />
-                </button>
-              ) : (
-                <div
-                  className="w-full flex flex-col items-center justify-center py-12 relative"
-                  style={{
-                    background: TYPE_GRADIENT[mem.type] ?? TYPE_GRADIENT.moment,
-                    backgroundImage: `radial-gradient(circle, rgba(0,0,0,0.04) 0.5px, transparent 0.5px), ${TYPE_GRADIENT[mem.type] ?? TYPE_GRADIENT.moment}`,
-                    backgroundSize: "8px 8px, 100% 100%",
-                  }}
-                >
-                  <span className="text-5xl mb-2">{TYPE_EMOJI[mem.type] ?? "📷"}</span>
-                  {mem.title && (
-                    <p className="text-sm font-medium text-[#2d2926] text-center px-4">{mem.title}</p>
-                  )}
-                </div>
-              )}
-
-              {/* Content */}
-              <div className="px-4 py-3 space-y-2">
-                <p className="text-xs text-[#7a6f65]">
-                  {childName(mem.child_id) && <><span className="font-medium text-[#2d2926]">{childName(mem.child_id)}</span> · </>}
-                  {formatDate(mem.date)}
-                </p>
-
-                {mem.caption && <p className="text-sm text-[#2d2926] leading-relaxed">{mem.caption}</p>}
-
-                {/* Reaction bar — visible but disabled */}
-                <div className="flex items-center gap-1.5 pt-1 opacity-60 pointer-events-none">
-                  {REACTION_EMOJIS.map((emoji) => (
-                    <span
-                      key={emoji}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg text-sm"
-                      style={{ backgroundColor: "#f5f3f0", border: "1.5px solid transparent" }}
-                    >
-                      {emoji}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Comment input — visible but disabled */}
-                <div className="flex gap-2 pt-1 opacity-60 pointer-events-none">
-                  <input
-                    type="text" readOnly placeholder="Leave a comment..."
-                    className="flex-1 px-3 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-xs text-[#2d2926] placeholder:text-[#c8bfb5]"
-                  />
-                </div>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
-
-      {/* ── Lightbox ────────────────────────────────────────────────── */}
-      {lightboxUrl && (
-        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4" onClick={() => setLightboxUrl(null)}>
-          <button className="absolute top-4 right-4 text-white/70 hover:text-white text-2xl z-10" onClick={() => setLightboxUrl(null)}>×</button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightboxUrl} alt="" className="max-w-full max-h-[90vh] rounded-xl object-contain" onClick={(e) => e.stopPropagation()} />
-        </div>
-      )}
+      {/* ── Shared feed, read-only (header + cards + lightbox) ───────── */}
+      <FamilyFeed
+        familyName={familyName}
+        childrenList={childrenList}
+        memories={memories}
+        reactions={reactions}
+        comments={comments}
+        readOnly
+      />
 
       {/* ── Footer ──────────────────────────────────────────────────── */}
       <div className="fixed bottom-0 left-0 right-0 bg-[#fefcf9] border-t border-[#e8e2d9] py-2.5 px-4 z-30" style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}>
@@ -314,7 +198,7 @@ export default function FamilyPreviewPage() {
             </p>
           ) : (
             <p className="text-xs text-[#7a6f65]">
-              You&apos;re previewing {familyName}&apos;s family view 🌿
+              Everyone you invite sees this same feed 🌿
             </p>
           )}
         </div>
