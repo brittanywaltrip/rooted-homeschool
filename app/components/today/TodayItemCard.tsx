@@ -19,6 +19,7 @@ import { useState, useRef } from "react";
 import { Pencil, Trash2, Calendar, X } from "lucide-react";
 import type { TodayItem } from "./groupItems";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
+import LessonPhotoButton from "@/app/components/LessonPhotoButton";
 
 export type CardSkin = {
   /** Card background. Caller computes this (kid tint or neutral). */
@@ -473,6 +474,7 @@ export default function TodayItemCard({
                 </div>
                 {renderNoteEditor()}
                 {renderLessonActions()}
+                <LessonPhotoButton lessonId={item.id} isPartner={isPartner} />
               </>
             )}
             {item.kind === "appointment" && renderAppointmentExpanded()}

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useState } from "react";
 import type { YearbookSpread } from "@/lib/yearbook-layout-engine";
 import SignedImage from "@/components/SignedImage";
 
@@ -20,8 +20,27 @@ function shortDate(d: string | null | undefined): string {
   return dt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
+// Aspect-aware photo. Portrait / full-length photos are shown in full
+// (object-contain) on the soft #f5f0e8 photo-mat that the slot containers
+// already provide, so heads and feet are never cropped. Landscape and
+// near-square photos still cover their slot. The natural ratio is read from the
+// image's own load event (SignedImage forwards onLoad to the underlying <img>).
 function Photo({ src, className = "", style, bucket = "memory-photos" }: { src: string; className?: string; style?: React.CSSProperties; bucket?: string }) {
-  return <SignedImage src={src} bucket={bucket} className={`object-cover ${className}`} style={style} />;
+  const [fit, setFit] = useState<"cover" | "contain">("cover");
+  return (
+    <SignedImage
+      src={src}
+      bucket={bucket}
+      onLoad={(e) => {
+        const img = e.currentTarget;
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+          setFit(img.naturalWidth / img.naturalHeight < 0.9 ? "contain" : "cover");
+        }
+      }}
+      className={`w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"} ${className}`}
+      style={style}
+    />
+  );
 }
 
 // ─── Shell (matches yearbook page dimensions) ────────────────────────────────

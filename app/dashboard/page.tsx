@@ -19,6 +19,7 @@ import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
+import { LESSON_PHOTO_SAVED_EVENT } from "@/lib/lesson-photo";
 import SignedImage from "@/components/SignedImage";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
@@ -1502,6 +1503,20 @@ export default function TodayPage() {
     const handler = () => { loadData(); };
     window.addEventListener("rooted:children-updated", handler);
     return () => window.removeEventListener("rooted:children-updated", handler);
+  }, [loadData]);
+
+  // A photo was attached to a lesson (LessonPhotoButton). Refresh Today's Story
+  // and the memories grid without a reload — regression guard: await both.
+  useEffect(() => {
+    const handler = async () => {
+      loadDataBusy.current = false;
+      await loadData();
+      await refreshTodayStory();
+    };
+    window.addEventListener(LESSON_PHOTO_SAVED_EVENT, handler);
+    return () => window.removeEventListener(LESSON_PHOTO_SAVED_EVENT, handler);
+  // refreshTodayStory is a stable hoisted function declaration in this component.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadData]);
 
   // Re-fetch when a lesson is rescheduled/moved on the Plan page so the

@@ -32,6 +32,9 @@ type MemoryRow = {
   page_order: number | null;
   created_at: string;
   updated_at: string;
+  lesson_id?: string | null;
+  /** Title of the linked lesson, resolved after load (for the "from your … lesson" label). */
+  lessonTitle?: string | null;
 };
 
 type LegacyEvent = {
@@ -296,7 +299,16 @@ export default function MemoriesPage() {
 
     // If memories table has data, use it. Otherwise fall back to app_events.
     if (memRows && memRows.length > 0) {
-      setMemories(memRows as MemoryRow[]);
+      let mems = memRows as MemoryRow[];
+      // Resolve linked-lesson titles so lesson photos can show a "from your
+      // {lesson} lesson" label. One batched lookup; degrades silently.
+      const lessonIds = [...new Set(mems.map((m) => m.lesson_id).filter(Boolean))] as string[];
+      if (lessonIds.length > 0) {
+        const { data: linkedLessons } = await supabase.from("lessons").select("id, title").in("id", lessonIds);
+        const titleById = new Map((linkedLessons ?? []).map((l) => [l.id as string, l.title as string]));
+        mems = mems.map((m) => (m.lesson_id ? { ...m, lessonTitle: titleById.get(m.lesson_id) ?? null } : m));
+      }
+      setMemories(mems);
     } else {
       const { data: events } = await supabase
         .from("app_events")
@@ -1159,6 +1171,11 @@ export default function MemoriesPage() {
               {/* Caption */}
               {selectedMemory.caption && (
                 <p className="text-sm text-[#7a6f65] leading-relaxed">{selectedMemory.caption}</p>
+              )}
+
+              {/* Linked-lesson label for lesson photos */}
+              {selectedMemory.lessonTitle && (
+                <p className="text-xs text-[#b5aca4] italic">📚 from your {selectedMemory.lessonTitle} lesson</p>
               )}
 
               {/* Family reactions */}
