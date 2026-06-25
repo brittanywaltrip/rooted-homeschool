@@ -55,13 +55,13 @@ export const FIRST_DAY_THEMES: Record<string, FirstDayTheme> = {
     arch: { xPct: 0.12, yPct: 0.15, wPct: 0.76, hPct: 0.58 },
     fields: [
       // Row 1 — NAME / GRADE LEVEL / SCHOOL YEAR / AGE (baseline on the line)
-      { key: "name",    xPct: 0.185, yPct: 0.780, align: "center", maxWidthPct: 0.15, fontPx: 30 },
-      { key: "grade",   xPct: 0.395, yPct: 0.780, align: "center", maxWidthPct: 0.17, fontPx: 27 },
-      { key: "year",    xPct: 0.625, yPct: 0.780, align: "center", maxWidthPct: 0.16, fontPx: 27 },
-      { key: "age",     xPct: 0.86,  yPct: 0.780, align: "center", maxWidthPct: 0.10, fontPx: 28 },
+      { key: "name",    xPct: 0.161, yPct: 0.780, align: "center", maxWidthPct: 0.15, fontPx: 30 },
+      { key: "grade",   xPct: 0.354, yPct: 0.780, align: "center", maxWidthPct: 0.17, fontPx: 27 },
+      { key: "year",    xPct: 0.568, yPct: 0.780, align: "center", maxWidthPct: 0.16, fontPx: 27 },
+      { key: "age",     xPct: 0.805, yPct: 0.780, align: "center", maxWidthPct: 0.10, fontPx: 28 },
       // Row 2 — FAVORITE SUBJECT / GOAL THIS YEAR
-      { key: "subject", xPct: 0.305, yPct: 0.833, align: "center", maxWidthPct: 0.26, fontPx: 27 },
-      { key: "goal",    xPct: 0.63,  yPct: 0.833, align: "center", maxWidthPct: 0.34, fontPx: 27 },
+      { key: "subject", xPct: 0.284, yPct: 0.833, align: "center", maxWidthPct: 0.26, fontPx: 27 },
+      { key: "goal",    xPct: 0.719, yPct: 0.833, align: "center", maxWidthPct: 0.34, fontPx: 27 },
     ],
   },
 };
