@@ -188,6 +188,73 @@ export function splitBalanced(total: number, parts: number): number[] {
   return range(parts).map((i) => base + (i < extra ? 1 : 0));
 }
 
+// ─── Chapter photo allocation ────────────────────────────────────────────────
+// A chapter wants to spend its photos on three things: a full-bleed feature
+// divider (section opener), a "favorite things" photo, and the collage. But
+// reservations must never starve the collage: after reserving, the collage has
+// to be able to FILL its spread with no blank facing page. buildMosaicPages
+// gives an even (blank-free) page count for any collage of ≥2 photos and a lone
+// full page for exactly 1 — so the one count we must avoid for the collage is
+// exactly 1 (a lonely page leaves its facing page blank).
+//
+// Rules (see planChapterPhotos):
+//  - Photo-poor chapters keep their photos in the collage and use the designed
+//    title-panel divider; a full-bleed PHOTO divider is used only when the
+//    chapter has a photo to spare (≥ PHOTO_DIVIDER_MIN) so the collage still
+//    fills.
+//  - The favorite-things photo is reserved only if what's left still fills.
+//  - If an allocation would leave the collage at exactly 1, a reserved photo is
+//    handed back (or the lone photo is promoted to a single feature divider).
+
+/** A chapter needs at least this many photos to spare one for a full-bleed feature divider. */
+export const PHOTO_DIVIDER_MIN = 5;
+
+export interface ChapterPhotoPlan {
+  /** Use the most-recent spare photo as a full-bleed feature divider (else a title panel). */
+  useFeaturePhoto: boolean;
+  /** Reserve a photo for the "favorite things" slot (else a designed panel). */
+  useFavPhoto: boolean;
+  /** Photos left for the collage — always 0 or ≥2, never exactly 1. */
+  collageCount: number;
+}
+
+export function planChapterPhotos(available: number, showFav: boolean): ChapterPhotoPlan {
+  if (available <= 0) return { useFeaturePhoto: false, useFavPhoto: false, collageCount: 0 };
+
+  // Spare a photo for a full-bleed feature divider only when the chapter is
+  // photo-rich enough that the remaining photos still fill the collage.
+  let useFeaturePhoto = available >= PHOTO_DIVIDER_MIN;
+  let remaining = available - (useFeaturePhoto ? 1 : 0);
+
+  // Take a favorites photo only if what's left still fills (0 or ≥2, never 1).
+  let useFavPhoto = false;
+  if (showFav && remaining >= 1) {
+    const after = remaining - 1;
+    if (after === 0 || after >= 2) {
+      useFavPhoto = true;
+      remaining = after;
+    }
+  }
+
+  // A collage of exactly 1 can't fill its spread. Yield to page-fill: hand a
+  // reserved photo back, or — if there's nothing to reclaim — make the lone
+  // photo a single full-bleed feature divider so the collage empties cleanly.
+  if (remaining === 1) {
+    if (useFavPhoto) {
+      useFavPhoto = false;
+      remaining = 2;
+    } else if (!useFeaturePhoto) {
+      useFeaturePhoto = true;
+      remaining = 0;
+    } else {
+      useFeaturePhoto = false;
+      remaining = 2;
+    }
+  }
+
+  return { useFeaturePhoto, useFavPhoto, collageCount: remaining };
+}
+
 export function buildMosaicPages(photos: PhotoItem[], opts: MosaicOpts = DEFAULT_MOSAIC_OPTS): MosaicPage[] {
   if (photos.length === 0) return [];
   const sizes = splitBalanced(photos.length, pageCountFor(photos.length, opts.maxPerPage));

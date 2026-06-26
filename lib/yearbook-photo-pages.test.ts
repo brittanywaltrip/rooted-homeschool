@@ -15,6 +15,8 @@ import {
   cellAspect,
   cropCost,
   isPortrait,
+  planChapterPhotos,
+  PHOTO_DIVIDER_MIN,
   TEMPLATES,
   DEFAULT_MOSAIC_OPTS,
   DEFAULT_ASPECT,
@@ -153,6 +155,95 @@ test("buildMosaicPages: empty → [], all photos kept, pages are sequential slic
     const expected = input.slice(idx, idx + pg.cells.length).map((p) => p.id).sort();
     assert.deepEqual(ids, expected);
     idx += pg.cells.length;
+  }
+});
+
+// ─── planChapterPhotos — reservations must not starve the collage ────────────
+
+test("planChapterPhotos: no photos → title panel, no fav, empty collage", () => {
+  for (const showFav of [true, false]) {
+    assert.deepEqual(planChapterPhotos(0, showFav), {
+      useFeaturePhoto: false,
+      useFavPhoto: false,
+      collageCount: 0,
+    });
+  }
+});
+
+test("planChapterPhotos: 1 photo never lands a lonely collage page", () => {
+  // with favorites on, the single photo goes to favorites; collage stays empty
+  assert.deepEqual(planChapterPhotos(1, true), {
+    useFeaturePhoto: false,
+    useFavPhoto: true,
+    collageCount: 0,
+  });
+  // with favorites off there's nothing to reclaim → the lone photo becomes a
+  // single full-bleed feature divider, not a 1-photo collage (blank facing page)
+  assert.deepEqual(planChapterPhotos(1, false), {
+    useFeaturePhoto: true,
+    useFavPhoto: false,
+    collageCount: 0,
+  });
+});
+
+test("planChapterPhotos: 2 photos stay in the collage behind a title panel", () => {
+  // taking a favorites photo would leave collage=1 (blank facing) → don't
+  assert.deepEqual(planChapterPhotos(2, true), {
+    useFeaturePhoto: false,
+    useFavPhoto: false,
+    collageCount: 2,
+  });
+  assert.deepEqual(planChapterPhotos(2, false), {
+    useFeaturePhoto: false,
+    useFavPhoto: false,
+    collageCount: 2,
+  });
+});
+
+test("planChapterPhotos: Zoe's 3-photo chapter never leaves a blank facing page", () => {
+  // 3 photos, favorites on: title-panel divider + 1 favorites photo + collage 2
+  const withFav = planChapterPhotos(3, true);
+  assert.equal(withFav.useFeaturePhoto, false, "photo-poor → title panel divider");
+  assert.equal(withFav.collageCount, 2, "collage fills both pages");
+  assert.notEqual(withFav.collageCount, 1);
+  // favorites off → all three stay in the collage (2 + 1, both pages used)
+  assert.deepEqual(planChapterPhotos(3, false), {
+    useFeaturePhoto: false,
+    useFavPhoto: false,
+    collageCount: 3,
+  });
+});
+
+test("planChapterPhotos: a photo-rich chapter spares one for a full-bleed divider", () => {
+  const p = planChapterPhotos(PHOTO_DIVIDER_MIN, true);
+  assert.equal(p.useFeaturePhoto, true, "≥ PHOTO_DIVIDER_MIN → photo divider");
+  assert.equal(p.useFeaturePhoto && p.useFavPhoto, true);
+  assert.equal(p.collageCount, PHOTO_DIVIDER_MIN - 2);
+  assert.ok(p.collageCount >= 2, "collage still fills");
+  // just below the threshold keeps the title panel + photos in the collage
+  assert.equal(planChapterPhotos(PHOTO_DIVIDER_MIN - 1, false).useFeaturePhoto, false);
+});
+
+test("planChapterPhotos: invariants hold for every chapter size, and the collage never blanks", () => {
+  for (let n = 0; n <= 30; n++) {
+    for (const showFav of [true, false]) {
+      const p = planChapterPhotos(n, showFav);
+      // every photo is accounted for exactly once
+      assert.equal(
+        (p.useFeaturePhoto ? 1 : 0) + (p.useFavPhoto ? 1 : 0) + p.collageCount,
+        n,
+        `n=${n} showFav=${showFav}: counts add up`,
+      );
+      // the collage is never the lonely 1 that leaves a blank facing page
+      assert.ok(p.collageCount === 0 || p.collageCount >= 2, `n=${n} showFav=${showFav}: collage 0 or ≥2`);
+      // and the actual mosaic it produces has an even (blank-free) page count
+      const pages = buildMosaicPages(Array.from({ length: p.collageCount }, landscape), DEFAULT_MOSAIC_OPTS);
+      assert.equal(pages.length % 2, 0, `n=${n} showFav=${showFav}: collage pages fill spreads`);
+      // a full-bleed photo divider is only spent when there's a photo to spare
+      if (p.useFeaturePhoto) {
+        assert.ok(n >= PHOTO_DIVIDER_MIN || (n === 1 && !showFav), `n=${n}: photo divider only with a spare (or lone fallback)`);
+      }
+    }
   }
 });
 

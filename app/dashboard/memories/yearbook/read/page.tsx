@@ -16,7 +16,7 @@ import {
   buildFavoriteThingsSpread,
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
-import { buildMosaicPages, photoAspect, type MosaicPage, type PlacedCell } from "@/lib/yearbook-photo-pages";
+import { buildMosaicPages, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell } from "@/lib/yearbook-photo-pages";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
@@ -652,17 +652,12 @@ export default function YearbookReadPage() {
         {/* Favorite moment */}
         <div className="mb-3">
           <p className="text-[9px] uppercase tracking-[0.12em] text-[#7a6f65] font-semibold mb-2">Favorite moment</p>
-          {favMemory ? (
+          {favMemory?.photo_url ? (
+            // A real favorite moment — photo, with its date and caption beneath.
             <div>
-              {favMemory.photo_url ? (
-                <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "4/3" }}>
-                  <FocalPhoto src={favMemory.photo_url} aspect={photoAspect(toPhotoItem(favMemory))} />
-                </div>
-              ) : (
-                <div className="w-full rounded-md bg-[#eaf3de] flex items-center justify-center p-4" style={{ aspectRatio: "4/3" }}>
-                  <p className="text-sm font-medium text-[var(--g-deep)] text-center line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favMemory.title}</p>
-                </div>
-              )}
+              <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "4/3" }}>
+                <FocalPhoto src={favMemory.photo_url} aspect={photoAspect(toPhotoItem(favMemory))} />
+              </div>
               <p className="text-[9px] text-[#7a6f65] mt-1.5">
                 {safeParseDateStr(favMemory.date)?.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) ?? ""}
               </p>
@@ -671,9 +666,11 @@ export default function YearbookReadPage() {
               )}
             </div>
           ) : (
+            // No photo to show — a clean designed panel, never an empty image
+            // slot with an orphaned date/caption hanging beneath it.
             <div className="w-full rounded-md bg-[#eef3e6] flex items-center justify-center px-5 py-8" style={{ aspectRatio: "4/3" }}>
-              <p className="text-[14px] italic text-[#5c7f63] text-center leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-                A moment worth<br />remembering.
+              <p className="text-[14px] italic text-[#5c7f63] text-center leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
+                {favMemory?.title ? favMemory.title : <>A moment worth<br />remembering.</>}
               </p>
             </div>
           )}
@@ -717,17 +714,24 @@ export default function YearbookReadPage() {
   if (ybSettings.show_child_chapters) children.forEach((child, ci) => {
     const childMems = memories.filter((m) => m.child_id === child.id);
     const childPhotos = childMems.filter((m) => m.photo_url);
-    // Reserve the most-recent unused photo as the chapter's full-bleed feature
-    // (section opener), then reserve the next-most-recent for "favorite things".
-    // The collage uses whatever is left, so no photo is ever shown twice. A
-    // one-photo chapter spends its photo on the opener and has no lonely collage.
-    const featurePhoto = [...childPhotos].reverse().find((m) => !reservedPhotoIds.has(m.id)) ?? null;
+    // Allocate this chapter's still-unused photos across the feature divider,
+    // the "favorite things" slot, and the collage WITHOUT starving the collage:
+    // planChapterPhotos guarantees the collage is left at 0 or ≥2 photos (never
+    // a lonely 1 that would leave a blank facing page), prefers the designed
+    // title-panel divider on photo-poor chapters, and only spends a full-bleed
+    // photo divider when there's one to spare. Most-recent photos fill the
+    // prominent slots; the rest flow to the collage. No photo is shown twice.
+    const available = childPhotos.filter((m) => !reservedPhotoIds.has(m.id));
+    const plan = planChapterPhotos(available.length, ybSettings.show_favorite_things);
+    const byRecent = [...available].reverse();
+    let pick = 0;
+    const featurePhoto = plan.useFeaturePhoto ? byRecent[pick++] : null;
+    const favThingsPhoto = plan.useFavPhoto ? byRecent[pick++] : null;
     if (featurePhoto) reservedPhotoIds.add(featurePhoto.id);
-    const favThingsPhoto = ybSettings.show_favorite_things
-      ? ([...childPhotos].reverse().find((m) => !reservedPhotoIds.has(m.id)) ?? null)
-      : null;
     if (favThingsPhoto) reservedPhotoIds.add(favThingsPhoto.id);
-    const collageChildPhotos = childPhotos.filter((m) => !reservedPhotoIds.has(m.id));
+    const collageChildPhotos = available.filter(
+      (m) => m.id !== featurePhoto?.id && m.id !== favThingsPhoto?.id,
+    );
 
     spreads.push({
       id: `child-${child.id}`,
