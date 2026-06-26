@@ -204,14 +204,19 @@ function CollagePage({ page }: { page: MosaicPage }) {
   );
 }
 
-// Quiet right page used when a chapter's collage pages are odd in number.
+// Soft breather page that faces a lone-photo full-page feature (the only case a
+// chapter has an odd page count). A designed page on the warm background — not
+// an empty mat — so the feature never sits next to a blank.
 function FillerPage() {
   return (
-    <PageShell>
-      <div className="flex-1 flex items-center justify-center">
-        <div className="w-9 h-px bg-[#ddd5c0]" />
-      </div>
-    </PageShell>
+    <div
+      className="w-full h-full overflow-hidden flex flex-col items-center justify-center"
+      style={{ background: "#FAFAF7" }}
+    >
+      <div className="w-10 h-px bg-[#ddd5c0]" />
+      <span className="text-[30px] my-3 opacity-20 select-none" aria-hidden>🌿</span>
+      <div className="w-10 h-px bg-[#ddd5c0]" />
+    </div>
   );
 }
 

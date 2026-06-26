@@ -9,7 +9,8 @@ import assert from "node:assert/strict";
 import {
   selectTemplate,
   buildMosaicPages,
-  balancedChunks,
+  pageCountFor,
+  splitBalanced,
   photoAspect,
   cellAspect,
   cropCost,
@@ -98,29 +99,61 @@ test("portraits are placed in cells no wider than themselves (no head/feet crop)
   });
 });
 
-test("balancedChunks: ≤ max, evenly split, no lonely trailing page", () => {
-  assert.deepEqual(balancedChunks(1, 6), [1]);
-  assert.deepEqual(balancedChunks(6, 6), [6]);
-  assert.deepEqual(balancedChunks(7, 6), [4, 3]);
-  assert.deepEqual(balancedChunks(13, 6), [5, 4, 4]);
-  assert.deepEqual(balancedChunks(0, 6), []);
-  for (const n of [1, 2, 5, 6, 7, 8, 11, 19, 24]) {
-    const sizes = balancedChunks(n, 6);
-    assert.equal(sizes.reduce((s, x) => s + x, 0), n);
-    assert.ok(Math.max(...sizes) <= 6);
-    assert.ok(Math.min(...sizes) >= 1);
+test("pageCountFor / splitBalanced", () => {
+  assert.equal(pageCountFor(0, 6), 0);
+  assert.equal(pageCountFor(1, 6), 1); // lone photo → single feature page
+  assert.equal(pageCountFor(2, 6), 2);
+  assert.equal(pageCountFor(3, 6), 2);
+  assert.equal(pageCountFor(6, 6), 2); // split across both pages, not one crammed page
+  assert.equal(pageCountFor(12, 6), 2);
+  assert.equal(pageCountFor(13, 6), 4); // ceil(13/6)=3 → bumped to even 4
+  assert.deepEqual(splitBalanced(3, 2), [2, 1]); // 3 → 2 left, 1 right
+  assert.deepEqual(splitBalanced(6, 2), [3, 3]);
+  assert.deepEqual(splitBalanced(13, 4), [4, 3, 3, 3]);
+});
+
+test("3 photos fill BOTH pages of the spread (2 left, 1 right) — no blank facing page", () => {
+  const pages = buildMosaicPages(many(landscape, 3), DEFAULT_MOSAIC_OPTS);
+  assert.equal(pages.length, 2);
+  assert.deepEqual(pages.map((p) => p.cells.length), [2, 1]);
+});
+
+test("1 photo → a single full-page feature (one page, not paired into a 2-page split)", () => {
+  const pages = buildMosaicPages([landscape()], DEFAULT_MOSAIC_OPTS);
+  assert.equal(pages.length, 1);
+  assert.equal(pages[0].cells.length, 1);
+});
+
+test("6 photos split across both pages of one spread, not one crammed page", () => {
+  const pages = buildMosaicPages(many(landscape, 6), DEFAULT_MOSAIC_OPTS);
+  assert.equal(pages.length, 2);
+  assert.deepEqual(pages.map((p) => p.cells.length), [3, 3]);
+});
+
+test("every chapter of ≥2 photos has an EVEN page count (so a spread never leaves a blank)", () => {
+  for (let t = 2; t <= 30; t++) {
+    const pages = buildMosaicPages(many(landscape, t), DEFAULT_MOSAIC_OPTS);
+    assert.equal(pages.length % 2, 0, `T=${t} → even pages`);
+    assert.equal(pages.reduce((s, p) => s + p.cells.length, 0), t, "all photos kept");
+    for (const p of pages) assert.ok(p.cells.length >= 1 && p.cells.length <= DEFAULT_MOSAIC_OPTS.maxPerPage);
   }
 });
 
-test("buildMosaicPages: empty → [], keeps ALL photos, splits across pages", () => {
+test("buildMosaicPages: empty → [], all photos kept, pages are sequential slices", () => {
   assert.deepEqual(buildMosaicPages([], DEFAULT_MOSAIC_OPTS), []);
-  const input = [...many(landscape, 7), ...many(portrait, 6)]; // 13
+  const input = [...many(landscape, 5), ...many(portrait, 8)]; // 13
   const pages = buildMosaicPages(input, DEFAULT_MOSAIC_OPTS);
-  assert.ok(pages.length >= 2, "spills onto multiple pages");
   const flat = pages.flatMap((pg) => pg.cells.map((c) => c.photo.id));
   assert.equal(flat.length, input.length);
   assert.deepEqual([...flat].sort(), input.map((p) => p.id).sort());
-  for (const pg of pages) assert.ok(pg.cells.length <= DEFAULT_MOSAIC_OPTS.maxPerPage);
+  // Within a page assignment may reorder for crop, but pages are chronological slices.
+  let idx = 0;
+  for (const pg of pages) {
+    const ids = pg.cells.map((c) => c.photo.id).sort();
+    const expected = input.slice(idx, idx + pg.cells.length).map((p) => p.id).sort();
+    assert.deepEqual(ids, expected);
+    idx += pg.cells.length;
+  }
 });
 
 test("missing-dimension photos behave as landscape (wide template for a pair)", () => {

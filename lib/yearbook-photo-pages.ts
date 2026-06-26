@@ -169,18 +169,28 @@ export function selectTemplate(photos: PhotoItem[], pageAspect: number): MosaicP
   return { cols: v.cols, rows: v.rows, cells };
 }
 
-/** Split N into balanced page sizes (≤ maxPerPage, no lonely trailing page). */
-export function balancedChunks(total: number, maxPerPage: number): number[] {
-  if (total <= 0) return [];
-  const pages = Math.ceil(total / maxPerPage);
-  const base = Math.floor(total / pages);
-  const extra = total % pages;
-  return range(pages).map((i) => base + (i < extra ? 1 : 0));
+// How many mosaic PAGES a chapter's photos should occupy. A photo spread is two
+// facing pages, so the count is kept EVEN (≥ 2) — a small chapter is split
+// across both pages of its spread so a facing page is never left blank. A lone
+// photo is the one exception: a single full-page feature.
+export function pageCountFor(total: number, maxPerPage: number): number {
+  if (total <= 1) return total;
+  const min = Math.ceil(total / maxPerPage);
+  return Math.max(2, min % 2 === 0 ? min : min + 1);
+}
+
+// Split `total` into `parts` balanced page sizes (bigger pages first). Each size
+// is ≤ ceil(total/parts) ≤ maxPerPage, and ≥ 1.
+export function splitBalanced(total: number, parts: number): number[] {
+  if (parts <= 0) return [];
+  const base = Math.floor(total / parts);
+  const extra = total % parts;
+  return range(parts).map((i) => base + (i < extra ? 1 : 0));
 }
 
 export function buildMosaicPages(photos: PhotoItem[], opts: MosaicOpts = DEFAULT_MOSAIC_OPTS): MosaicPage[] {
   if (photos.length === 0) return [];
-  const sizes = balancedChunks(photos.length, opts.maxPerPage);
+  const sizes = splitBalanced(photos.length, pageCountFor(photos.length, opts.maxPerPage));
   const pages: MosaicPage[] = [];
   let idx = 0;
   for (const size of sizes) {
