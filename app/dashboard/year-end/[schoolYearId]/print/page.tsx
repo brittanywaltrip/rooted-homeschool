@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import AspectPhoto from "@/components/AspectPhoto";
 
 type Photo = {
   id: string;
@@ -394,16 +395,10 @@ export default function YearEndPrintPage() {
                 Moment of the year
               </p>
               {mostLoved.photo_url && !mostLovedImageErrored && (
-                <img
+                <AspectPhoto
                   src={mostLoved.photo_url}
                   alt={mostLoved.title ?? ""}
-                  style={{
-                    width: "100%",
-                    height: "120px",
-                    objectFit: "cover",
-                    borderRadius: "0.5rem",
-                    marginBottom: "0.5rem",
-                  }}
+                  style={{ width: "100%", height: "120px", marginBottom: "0.5rem" }}
                   onError={() => setMostLovedImageErrored(true)}
                 />
               )}
@@ -503,16 +498,11 @@ export default function YearEndPrintPage() {
               }}
             >
               {photoGrid.map((p) => (
-                <img
+                <AspectPhoto
                   key={p.id}
-                  src={p.photo_url ?? undefined}
+                  src={p.photo_url!}
                   alt={p.title ?? p.caption ?? ""}
-                  style={{
-                    aspectRatio: "1 / 1",
-                    width: "100%",
-                    objectFit: "cover",
-                    borderRadius: "0.5rem",
-                  }}
+                  style={{ aspectRatio: "1 / 1", width: "100%" }}
                   onError={() => setErroredPhotos((prev) => {
                     if (prev.has(p.id)) return prev;
                     const next = new Set(prev);

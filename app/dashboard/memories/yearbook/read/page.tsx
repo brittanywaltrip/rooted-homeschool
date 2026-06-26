@@ -625,7 +625,9 @@ export default function YearbookReadPage() {
           {favMemory ? (
             <div>
               {favMemory.photo_url ? (
-                <SignedImage src={favMemory.photo_url} bucket="memory-photos" className="w-full rounded-md object-cover" style={{ aspectRatio: "4/3" }} />
+                <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "4/3" }}>
+                  <MatPhoto src={favMemory.photo_url} />
+                </div>
               ) : (
                 <div className="w-full rounded-md bg-[#eaf3de] flex items-center justify-center p-4" style={{ aspectRatio: "4/3" }}>
                   <p className="text-sm font-medium text-[var(--g-deep)] text-center line-clamp-2">{favMemory.title}</p>

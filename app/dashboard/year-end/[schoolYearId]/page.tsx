@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import AspectPhoto from "@/components/AspectPhoto";
 
 type SchoolYear = {
   id: string;
@@ -392,11 +393,11 @@ export default function YearEndSummaryPage() {
             return (
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                 {visiblePhotos.map((p) => (
-                  <img
+                  <AspectPhoto
                     key={p.id}
-                    src={p.photo_url ?? undefined}
+                    src={p.photo_url!}
                     alt={p.title ?? p.caption ?? ""}
-                    className="aspect-square object-cover rounded-lg w-full"
+                    className="aspect-square w-full"
                     onError={() => setErroredPhotos((prev) => {
                       if (prev.has(p.id)) return prev;
                       const next = new Set(prev);
@@ -414,10 +415,10 @@ export default function YearEndSummaryPage() {
           <section>
             <p className={SECTION_LABEL}>Your family&apos;s most loved moment</p>
             <div className="bg-white rounded-lg border border-gray-200 p-4 flex flex-col md:flex-row gap-5">
-              <img
+              <AspectPhoto
                 src={familyStats.most_loved_memory.photo_url}
                 alt={familyStats.most_loved_memory.title ?? ""}
-                className="rounded-lg max-w-[280px] w-full object-cover"
+                className="max-w-[280px] w-full aspect-[4/3]"
                 onError={() => setMostLovedImageErrored(true)}
               />
               <div className="flex-1 min-w-0 flex flex-col justify-center gap-3">

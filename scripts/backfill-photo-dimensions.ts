@@ -9,7 +9,7 @@
 // and skips any row that fails to load instead of crashing.
 
 import sharp from "sharp";
-import { getSupabaseAdmin } from "../lib/supabase-admin";
+import { getSupabaseAdmin } from "../lib/supabase-admin.ts";
 
 const BUCKET = "memory-photos";
 const PAGE = 1000;
