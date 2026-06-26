@@ -129,6 +129,16 @@ function Spine() {
   );
 }
 
+// A true section break: a small centered eucalyptus sprig (brand leaf motif),
+// used instead of a mechanical 1px rule.
+function Sprig({ className = "my-2.5" }: { className?: string }) {
+  return (
+    <div className={`flex justify-center select-none ${className}`} aria-hidden>
+      <span className="text-[13px] opacity-45">🌿</span>
+    </div>
+  );
+}
+
 // ─── Page Shell — fixed height, no scroll ────────────────────────────────────
 
 function PageShell({ children, bg = "#FAFAF7" }: {
@@ -204,18 +214,16 @@ function CollagePage({ page }: { page: MosaicPage }) {
   );
 }
 
-// Soft breather page that faces a lone-photo full-page feature (the only case a
-// chapter has an odd page count). A designed page on the warm background — not
-// an empty mat — so the feature never sits next to a blank.
+// Soft breather page that faces a lone collage feature (the only case a chapter
+// has an odd collage page count). A single brand sprig on the warm background —
+// no mechanical rules.
 function FillerPage() {
   return (
     <div
-      className="w-full h-full overflow-hidden flex flex-col items-center justify-center"
+      className="w-full h-full overflow-hidden flex items-center justify-center"
       style={{ background: "#FAFAF7" }}
     >
-      <div className="w-10 h-px bg-[#ddd5c0]" />
-      <span className="text-[30px] my-3 opacity-20 select-none" aria-hidden>🌿</span>
-      <div className="w-10 h-px bg-[#ddd5c0]" />
+      <span className="text-[34px] opacity-25 select-none" aria-hidden>🌿</span>
     </div>
   );
 }
@@ -472,6 +480,13 @@ export default function YearbookReadPage() {
 
   const familyMemories = memories.filter((m) => !m.child_id);
 
+  // De-dup: a photo shown in a chapter's collage is never reused for that
+  // chapter's "favorite things" slot or the letter's "favorite moment". Those
+  // slots reserve their photo here (and per-child below) so the collages
+  // exclude it — every photo appears exactly once.
+  const reservedPhotoIds = new Set<string>();
+  if (favMemory?.photo_url) reservedPhotoIds.add(favMemory.id);
+
   const spreads: SpreadDef[] = [];
 
   // COVER SPREAD — built as a function and prepended LAST (after the body
@@ -555,12 +570,12 @@ export default function YearbookReadPage() {
     rightContent: (
       <PageShell>
         <div className="flex flex-col items-center justify-center text-center px-4">
-          <span className="text-[48px] font-serif text-[rgba(254, 252, 249, 0.55)] leading-none">&ldquo;</span>
-          <p className="italic text-[11px] text-[#5a5048] leading-relaxed max-w-[200px] mt-1 line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
+          <span className="text-[44px] font-serif text-[#b9c4ad] leading-none">&ldquo;</span>
+          <p className="italic text-[12px] text-[#4a4540] leading-relaxed max-w-[210px] mt-1" style={{ fontFamily: "Georgia, serif" }}>
             Every lesson, every photo, every little moment. Rooted holds onto it all.
           </p>
-          <div className="w-9 h-px bg-[#ddd5c0] my-4" />
-          <div className="space-y-1 text-[10px] text-[#9a8f85]" style={{ lineHeight: 2.0 }}>
+          <Sprig className="my-4" />
+          <div className="space-y-1.5 text-[11px] text-[#6f655c]" style={{ lineHeight: 1.8 }}>
             <p>A letter from home · p. {pageNumberForId("letter") ?? "–"}</p>
             {children.map((c) => (
               <p key={c.id}>{c.name}&apos;s chapter · p. {pageNumberForId(`child-${c.id}`) ?? "–"}</p>
@@ -580,34 +595,29 @@ export default function YearbookReadPage() {
     leftContent: (
       <PageShell>
         <div className="shrink-0">
-          <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[rgba(254, 252, 249, 0.55)]">Written for our family</p>
-          <h2 className="text-[16px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>A letter from home</h2>
-          <p className="text-[9px] text-[#b5aca4] mt-0.5">A message from the heart</p>
-          <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5c7f63]">Written for our family</p>
+          <h2 className="text-[17px] font-bold text-[#2d2926] mt-1.5" style={{ fontFamily: "var(--font-display)" }}>A letter from home</h2>
+          <p className="text-[10px] text-[#7a6f65] mt-1">A message from the heart</p>
         </div>
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-3">
           {letterText.trim() ? (
             <>
-              <p className="text-[10px] italic text-[#4a4540] leading-relaxed whitespace-pre-wrap line-clamp-[10]" style={{ fontFamily: "Georgia, serif" }}>
+              <p className="text-[11.5px] italic text-[#3a352f] leading-relaxed whitespace-pre-wrap line-clamp-[11]" style={{ fontFamily: "Georgia, serif" }}>
                 {letterText}
               </p>
-              <p className="italic text-[11px] text-[#5c7f63] mt-2 shrink-0" style={{ fontFamily: "Georgia, serif" }}>— {familyName}</p>
+              <p className="italic text-[12px] text-[#5c7f63] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>— {familyName}</p>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
-              <span className="text-[36px] mb-3 opacity-50">✉️</span>
-              <p className="text-[12px] italic text-[#c4b89a] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-                Your letter will go here:<br />a message to your family, from the heart.
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-3">
+              <span className="text-[40px] mb-3 opacity-60">✉️</span>
+              <p className="text-[13px] italic text-[#8a7d70] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+                A letter to your family,<br />from the heart.
               </p>
-              <Link href="/dashboard/memories/yearbook/edit" className="mt-3 text-[10px] text-[rgba(254, 252, 249, 0.55)] font-medium">
-                Write your letter →
-              </Link>
             </div>
           )}
         </div>
-        <div className="shrink-0">
-          <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
-          <p className="text-[8px] uppercase tracking-wider text-[#9a8f85] mb-1.5">Our year</p>
+        <div className="shrink-0 mt-3">
+          <p className="text-[9px] uppercase tracking-[0.12em] text-[#7a6f65] mb-1.5 font-semibold">Our year</p>
           <div className="flex gap-2">
             {[
               { n: photoCount, l: "photos" },
@@ -615,9 +625,9 @@ export default function YearbookReadPage() {
               { n: bookCount, l: "books" },
               { n: quoteCount, l: "quotes" },
             ].map((s) => (
-              <div key={s.l} className="bg-[#eeeade] rounded px-2 py-1 text-center flex-1">
-                <p className="text-[14px] font-bold text-[var(--g-deep)]">{s.n}</p>
-                <p className="text-[7px] text-[#9a8f85]">{s.l}</p>
+              <div key={s.l} className="bg-[#eeeade] rounded px-2 py-1.5 text-center flex-1">
+                <p className="text-[15px] font-bold text-[var(--g-deep)]">{s.n}</p>
+                <p className="text-[8px] text-[#7a6f65]">{s.l}</p>
               </div>
             ))}
           </div>
@@ -628,7 +638,7 @@ export default function YearbookReadPage() {
       <PageShell>
         {/* Favorite moment */}
         <div className="mb-3">
-          <p className="text-[8px] uppercase tracking-wider text-[#9a8f85] mb-2">Favorite moment</p>
+          <p className="text-[9px] uppercase tracking-[0.12em] text-[#7a6f65] font-semibold mb-2">Favorite moment</p>
           {favMemory ? (
             <div>
               {favMemory.photo_url ? (
@@ -637,52 +647,38 @@ export default function YearbookReadPage() {
                 </div>
               ) : (
                 <div className="w-full rounded-md bg-[#eaf3de] flex items-center justify-center p-4" style={{ aspectRatio: "4/3" }}>
-                  <p className="text-sm font-medium text-[var(--g-deep)] text-center line-clamp-2">{favMemory.title}</p>
+                  <p className="text-sm font-medium text-[var(--g-deep)] text-center line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favMemory.title}</p>
                 </div>
               )}
-              <p className="text-[8px] text-[#9a8f85] mt-1">
-                {safeParseDateStr(favMemory.date)?.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) ?? "Unknown date"}
+              <p className="text-[9px] text-[#7a6f65] mt-1.5">
+                {safeParseDateStr(favMemory.date)?.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) ?? ""}
               </p>
               {favCaption && (
-                <p className="italic text-[9px] text-[#4a4540] mt-1 line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favCaption}</p>
+                <p className="italic text-[11px] text-[#3a352f] mt-1 line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favCaption}</p>
               )}
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center text-center py-4">
-              <span className="text-[32px] mb-2 opacity-40">📷</span>
-              <p className="text-[10px] italic text-[#c4b89a]" style={{ fontFamily: "Georgia, serif" }}>
-                Your favorite moment will shine here
+            <div className="w-full rounded-md bg-[#eef3e6] flex items-center justify-center px-5 py-8" style={{ aspectRatio: "4/3" }}>
+              <p className="text-[14px] italic text-[#5c7f63] text-center leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+                A moment worth<br />remembering.
               </p>
-              <Link href="/dashboard/memories/yearbook/edit" className="mt-2 text-[9px] text-[rgba(254, 252, 249, 0.55)] font-medium">
-                Choose in editor →
-              </Link>
             </div>
           )}
         </div>
-
-        <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
 
         {/* Favorite quote */}
-        <div>
-          {favQuoteText ? (
-            <div>
-              <span className="text-[28px] font-serif text-[#c4b0e0] leading-none">&ldquo;</span>
-              <p className="italic text-[9px] text-[#2d2926] line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>{favQuoteText}</p>
-              {favQuoteMemory?.child_id && (
-                <p className="text-[8px] text-[#9a8f85] mt-1">
-                  — {children.find((c) => c.id === favQuoteMemory.child_id)?.name ?? ""}
-                </p>
-              )}
-            </div>
-          ) : (
-            <div className="text-center py-2">
-              <span className="text-[28px] font-serif text-[#c4b0e0]/30 leading-none">&ldquo;</span>
-              <p className="italic text-[10px] text-[#c4b89a]" style={{ fontFamily: "Georgia, serif" }}>
-                A favorite quote will live here
+        {favQuoteText && (
+          <div>
+            <Sprig className="mb-3 mt-1" />
+            <span className="text-[30px] font-serif text-[#b9a8d6] leading-none">&ldquo;</span>
+            <p className="italic text-[12px] text-[#2d2926] line-clamp-4 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{favQuoteText}</p>
+            {favQuoteMemory?.child_id && (
+              <p className="text-[10px] text-[#7a6f65] mt-1.5">
+                — {children.find((c) => c.id === favQuoteMemory.child_id)?.name ?? ""}
               </p>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </PageShell>
     ),
   });
@@ -708,6 +704,15 @@ export default function YearbookReadPage() {
   if (ybSettings.show_child_chapters) children.forEach((child, ci) => {
     const childMems = memories.filter((m) => m.child_id === child.id);
     const childPhotos = childMems.filter((m) => m.photo_url);
+    // Reserve the most-recent still-unused photo for "favorite things"; the
+    // collage below uses the rest, so no photo is shown twice. A one-photo
+    // chapter therefore puts its photo on the favorites page (paired with the
+    // prompts) and has no lonely collage page.
+    const favThingsPhoto = ybSettings.show_favorite_things
+      ? ([...childPhotos].reverse().find((m) => !reservedPhotoIds.has(m.id)) ?? null)
+      : null;
+    if (favThingsPhoto) reservedPhotoIds.add(favThingsPhoto.id);
+    const collageChildPhotos = childPhotos.filter((m) => !reservedPhotoIds.has(m.id));
     const childQuotes = childMems.filter((m) => m.type === "quote");
     const childWins = childMems.filter((m) => m.type === "win");
     const latestQuote = childQuotes[childQuotes.length - 1];
@@ -719,38 +724,37 @@ export default function YearbookReadPage() {
       leftContent: (
         <PageShell>
           <div className="shrink-0">
-            <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)]">Chapter {ci + 1}</p>
-            <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5c7f63]">Chapter {ci + 1}</p>
+            <h2 className="text-[18px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>
               {child.name}&apos;s year
             </h2>
-            <p className="text-[9px] text-[#b5aca4] mt-0.5">{childMems.length} memories</p>
-            <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+            <p className="text-[10px] text-[#7a6f65] mt-0.5">{childMems.length} memories</p>
           </div>
 
           {latestQuote && (
-            <div className="mb-2 shrink-0">
-              <span className="text-[24px] font-serif text-[#c4b0e0] leading-none">&ldquo;</span>
-              <p className="italic text-[9px] text-[#2d2926] line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>{latestQuote.title}</p>
-              <p className="text-[8px] text-[#9a8f85] mt-0.5">
+            <div className="mt-4 mb-2 shrink-0">
+              <span className="text-[26px] font-serif text-[#b9a8d6] leading-none">&ldquo;</span>
+              <p className="italic text-[12px] text-[#2d2926] line-clamp-3 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{latestQuote.title}</p>
+              <p className="text-[9px] text-[#7a6f65] mt-1">
                 {safeParseDateStr(latestQuote.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? ""}
               </p>
             </div>
           )}
 
-          {/* Photos moved to dedicated collage spreads below (all of them). */}
+          {/* Photos flow to the collage spreads below (all of them). */}
 
           {latestWin && (
-            <div className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[rgba(254, 252, 249, 0.55)] mb-2 shrink-0">
-              <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] mb-0.5 flex items-center gap-1">
+            <div className="bg-[#f0ede5] rounded-lg p-2.5 border-l-2 border-[#c8b86a] mb-2 shrink-0">
+              <p className="text-[8px] uppercase tracking-[0.1em] text-[#5c7f63] font-semibold mb-1 flex items-center gap-1">
                 <span>⭐</span>
                 <span>Win</span>
                 {latestWin.date && (
-                  <span className="text-[#9a8f85] font-normal normal-case tracking-normal ml-auto">
+                  <span className="text-[#7a6f65] font-normal normal-case tracking-normal ml-auto">
                     {safeParseDateStr(latestWin.date)?.toLocaleDateString("en-US", { month: "short", year: "numeric" }) ?? ""}
                   </span>
                 )}
               </p>
-              <p className="text-[9px] text-[#2d2926] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{latestWin.title}</p>
+              <p className="text-[11px] text-[#2d2926] line-clamp-2 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{latestWin.title}</p>
             </div>
           )}
 
@@ -759,9 +763,9 @@ export default function YearbookReadPage() {
               { n: childWins.length, l: "wins" },
               { n: childMems.filter((m) => m.type === "book").length, l: "books" },
             ].map((s) => (
-              <div key={s.l} className="bg-[#eeeade] rounded px-2 py-1 text-center flex-1">
-                <p className="text-[13px] font-bold text-[var(--g-deep)]">{s.n}</p>
-                <p className="text-[7px] text-[#9a8f85]">{s.l}</p>
+              <div key={s.l} className="bg-[#eeeade] rounded px-2 py-1.5 text-center flex-1">
+                <p className="text-[15px] font-bold text-[var(--g-deep)]">{s.n}</p>
+                <p className="text-[8px] text-[#7a6f65]">{s.l}</p>
               </div>
             ))}
           </div>
@@ -770,48 +774,38 @@ export default function YearbookReadPage() {
       rightContent: (
         <PageShell>
           <div className="shrink-0">
-            <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)]">{child.name} in their own words</p>
-            <h3 className="text-[14px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5c7f63]">{child.name} in their own words</p>
+            <h3 className="text-[16px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>
               Year-end interview
             </h3>
-            <div className="h-px bg-[#ddd5c0] my-1.5" style={{ height: 0.5 }} />
           </div>
 
-          <div className="space-y-2 flex-1 min-h-0 overflow-hidden">
+          <div className="space-y-3 flex-1 min-h-0 overflow-hidden mt-3">
             {INTERVIEW_QUESTIONS.slice(0, 4).map((q) => {
               const answer = contentMap[ck("child_interview", child.id, q.key)] ?? "";
               return (
                 <div key={q.key}>
-                  <p className="italic text-[8px] text-[#9a8f85]">{q.label}</p>
+                  <p className="italic text-[10px] text-[#7a6f65] leading-snug">{q.label}</p>
                   {answer.trim() ? (
-                    <p className="text-[9px] text-[#2d2926] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>{answer}</p>
+                    <p className="text-[11.5px] text-[#2d2926] leading-relaxed line-clamp-3 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{answer}</p>
                   ) : (
-                    <p className="italic text-[9px] text-[#c4b89a] leading-relaxed">—</p>
+                    <p className="italic text-[11px] text-[#a99f93] leading-relaxed mt-0.5">Not answered yet</p>
                   )}
                 </div>
               );
             })}
           </div>
 
-          <div className="h-px bg-[#ddd5c0] my-1.5" style={{ height: 0.5 }} />
-
           {(() => {
             const note = contentMap[ck("child_future_note", child.id)] ?? "";
+            if (!note.trim()) return null;
             return (
-              <div className="bg-[#faf6ec] border-l-2 border-[#e8c44a] rounded-r-lg p-2 shrink-0">
-                <p className="text-[7px] uppercase tracking-wider text-[#ba9a2e] font-semibold mb-0.5">
+              <div className="bg-[#faf6ec] border-l-2 border-[#e8c44a] rounded-r-lg p-2.5 shrink-0 mt-3">
+                <p className="text-[8px] uppercase tracking-[0.1em] text-[#b08e1e] font-semibold mb-1">
                   A note to future {child.name}
                 </p>
-                {note.trim() ? (
-                  <>
-                    <p className="italic text-[9px] text-[#2d2926] line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>{note}</p>
-                    <p className="text-[8px] text-[#9a8f85] mt-1">{child.name}</p>
-                  </>
-                ) : (
-                  <p className="italic text-[9px] text-[#c4b89a]">
-                    Ask {child.name} to write a note to their future self
-                  </p>
-                )}
+                <p className="italic text-[11px] text-[#2d2926] line-clamp-3 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{note}</p>
+                <p className="text-[9px] text-[#7a6f65] mt-1">{child.name}</p>
               </div>
             );
           })()}
@@ -819,11 +813,11 @@ export default function YearbookReadPage() {
       ),
     });
 
-    // 3a. PHOTO COLLAGE SPREADS — flow ALL of this child's photos across as many
-    // justified-row collage pages as needed. Every photo keeps its true aspect
-    // ratio, so nothing is cropped and the page fills edge to edge.
+    // 3a. PHOTO COLLAGE SPREADS — the chapter's photos (minus the one reserved
+    // for "favorite things"), tiled into full-page mosaics across both pages of
+    // each spread.
     for (const sp of collagePagesToSpreads(
-      buildMosaicPages(childPhotos.map(toPhotoItem)),
+      buildMosaicPages(collageChildPhotos.map(toPhotoItem)),
       `child-${child.id}-photos`,
       `${child.name}'s chapter`,
     )) {
@@ -832,14 +826,19 @@ export default function YearbookReadPage() {
 
     // 3b. FAVORITE THINGS SPREAD
     if (ybSettings.show_favorite_things) {
-      const favMemories: YearbookMemory[] = childMems.map((m) => ({
-        id: m.id,
-        type: (m.type as YearbookMemory["type"]) ?? "photo",
-        title: m.title,
-        photo_url: m.photo_url,
-        created_at: m.date,
-        child_name: child.name,
-      }));
+      // Only the reserved photo feeds the favorites page (so it's never a
+      // collage repeat); if the chapter has no spare photo, the page is the
+      // text-only prompts treatment.
+      const favMemories: YearbookMemory[] = favThingsPhoto
+        ? [{
+            id: favThingsPhoto.id,
+            type: (favThingsPhoto.type as YearbookMemory["type"]) ?? "photo",
+            title: favThingsPhoto.title,
+            photo_url: favThingsPhoto.photo_url,
+            created_at: favThingsPhoto.date,
+            child_name: child.name,
+          }]
+        : [];
       const favAnswers: Record<string, string> = {
         fav_loved: contentMap[ck("child_interview", child.id, "q_loved_learning")] ?? "",
         fav_book: contentMap[ck("child_interview", child.id, "q_favorite_book")] ?? "",
@@ -888,35 +887,34 @@ export default function YearbookReadPage() {
     leftContent: (
       <PageShell>
         <div className="shrink-0">
-          <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)]">Together</p>
-          <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>Our family</h2>
-          <p className="text-[9px] text-[#b5aca4] mt-0.5">{familyMemories.length} shared memories</p>
-          <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5c7f63]">Together</p>
+          <h2 className="text-[18px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>Our family</h2>
+          <p className="text-[10px] text-[#7a6f65] mt-0.5">{familyMemories.length} shared memories</p>
         </div>
 
         {familyMemories.length > 0 ? (
-          <div className="space-y-2">
-            {/* Family photos flow to collage spreads below (all of them). */}
+          <div className="space-y-2.5 mt-4">
+            {/* Family photos flow to the collage spreads below (all of them). */}
             {famWins.map((w) => (
-              <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[rgba(254, 252, 249, 0.55)]">
-                <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] flex items-center gap-1">
+              <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2.5 border-l-2 border-[#cdd9bf]">
+                <p className="text-[8px] uppercase tracking-[0.1em] text-[#5c7f63] font-semibold flex items-center gap-1 mb-1">
                   <span>{w.type === "field_trip" ? "🗺️" : "⭐"}</span>
                   <span>{w.type === "field_trip" ? "Trip" : "Win"}</span>
                   {w.date && (
-                    <span className="text-[#9a8f85] font-normal normal-case tracking-normal ml-auto">
+                    <span className="text-[#7a6f65] font-normal normal-case tracking-normal ml-auto">
                       {safeParseDateStr(w.date)?.toLocaleDateString("en-US", { month: "short", year: "numeric" }) ?? ""}
                     </span>
                   )}
                 </p>
-                <p className="text-[9px] text-[#2d2926] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{w.title}</p>
+                <p className="text-[11px] text-[#2d2926] line-clamp-2 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{w.title}</p>
               </div>
             ))}
           </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-            <span className="text-[36px] mb-3 opacity-40">👨‍👩‍👧‍👦</span>
-            <p className="text-[11px] italic text-[#c4b89a] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
-              Family memories will fill these pages. Add memories without choosing a specific child.
+            <span className="text-[40px] mb-3 opacity-60">👨‍👩‍👧‍👦</span>
+            <p className="text-[13px] italic text-[#8a7d70] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+              The moments we shared,<br />all together.
             </p>
           </div>
         )}
@@ -924,20 +922,22 @@ export default function YearbookReadPage() {
     ),
     rightContent: (
       <PageShell>
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-          <div className="w-9 h-px bg-[#ddd5c0] mb-4" />
-          <p className="italic text-[10px] text-[#c4b89a] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
-            Our days, together.
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+          <Sprig className="mb-5" />
+          <p className="text-[24px] italic text-[#2d4a35] leading-snug" style={{ fontFamily: "Georgia, serif" }}>
+            Our days,<br />together.
           </p>
-          <div className="w-9 h-px bg-[#ddd5c0] mt-4" />
+          <Sprig className="mt-5" />
         </div>
       </PageShell>
     ),
   });
 
-  // 4a. FAMILY PHOTO COLLAGE SPREADS — all family photos, collaged (tall ones lifted).
+  // 4a. FAMILY PHOTO COLLAGE SPREADS — all family photos (minus any reserved for
+  // the letter's favorite moment), tiled into mosaics.
+  const collageFamPhotos = famPhotos.filter((m) => !reservedPhotoIds.has(m.id));
   if (ybSettings.show_family_chapter) {
-    for (const sp of collagePagesToSpreads(buildMosaicPages(famPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
+    for (const sp of collagePagesToSpreads(buildMosaicPages(collageFamPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
       spreads.push(sp);
     }
   }
@@ -964,45 +964,31 @@ export default function YearbookReadPage() {
     });
   }
 
-  // 5. FROM THE VILLAGE SPREAD
+  // 5. FROM THE VILLAGE SPREAD — a keepsake signing page (warm write-on lines)
+  // for family to handwrite in. No in-app CTAs are printed into the book.
+  const SigningLines = ({ count }: { count: number }) => (
+    <div className="flex-1 flex flex-col justify-center gap-[26px]">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="border-b border-[#e2d9c7]" />
+      ))}
+    </div>
+  );
   if (ybSettings.show_village) spreads.push({
     id: "village",
     label: "From the village",
     leftContent: (
       <PageShell>
         <div className="shrink-0">
-          <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)]">The people who love you</p>
-          <h2 className="text-[16px] font-bold text-[#2d2926] mt-0.5" style={{ fontFamily: "var(--font-display)" }}>From the village</h2>
-          <p className="text-[9px] text-[#b5aca4] mt-0.5">0 messages</p>
-          <div className="h-px bg-[#ddd5c0] my-2" style={{ height: 0.5 }} />
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5c7f63]">The people who love you</p>
+          <h2 className="text-[18px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>From the village</h2>
+          <p className="italic text-[11px] text-[#7a6f65] mt-1.5" style={{ fontFamily: "Georgia, serif" }}>A page for the people who love you to sign.</p>
         </div>
-
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
-          <p className="italic text-[10px] text-[#9a8f85] leading-relaxed line-clamp-4" style={{ fontFamily: "Georgia, serif" }}>
-            Messages from family will appear here once family members sign your yearbook.
-          </p>
-          <Link
-            href="/dashboard/settings"
-            className="mt-4 inline-flex items-center gap-1 text-[11px] text-[var(--g-deep)] font-medium border border-[#c0dd97] rounded-lg px-3 py-2 hover:bg-[#eaf3de] transition-colors"
-          >
-            Invite family to sign →
-          </Link>
-        </div>
+        <SigningLines count={5} />
       </PageShell>
     ),
     rightContent: (
       <PageShell>
-        <div className="flex flex-col items-center justify-center text-center">
-          <p className="italic text-[9px] text-[#9a8f85]" style={{ fontFamily: "Georgia, serif" }}>
-            Have something to say?
-          </p>
-          <Link
-            href="/dashboard/settings"
-            className="mt-3 bg-[var(--g-deep)] text-[#eaf3de] text-[9px] rounded-lg px-3 py-2"
-          >
-            Add your message →
-          </Link>
-        </div>
+        <SigningLines count={7} />
       </PageShell>
     ),
   });
@@ -1013,14 +999,14 @@ export default function YearbookReadPage() {
     label: "Back cover",
     leftContent: (
       <PageShell>
-        <div className="flex flex-col items-center justify-center text-center px-4">
-          <p className="text-[9px] text-[#9a8f85] tracking-wider uppercase">{yearLabel}</p>
-          <div className="w-9 h-px bg-[#ddd5c0] my-3" />
-          <p className="italic text-[10px] text-[#5a5048] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
+        <div className="flex flex-col items-center justify-center text-center px-5">
+          <p className="text-[10px] text-[#7a6f65] tracking-[0.18em] uppercase">{yearLabel}</p>
+          <Sprig className="my-3" />
+          <p className="italic text-[13px] text-[#3a352f] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
             {letterText.trim() ? letterText.slice(0, 80) + (letterText.length > 80 ? "…" : "") : "Our story, beautifully kept."}
           </p>
-          <div className="w-9 h-px bg-[#ddd5c0] my-3" />
-          <p className="text-[8px] text-[#b5aca4]">
+          <Sprig className="my-3" />
+          <p className="text-[9px] text-[#7a6f65]">
             {memories.length} memories · {bookCount} books · {winCount} wins
           </p>
         </div>
@@ -1233,7 +1219,7 @@ export default function YearbookReadPage() {
             >
               {/* Page header */}
               <div className="shrink-0 pt-4 pb-1.5 text-center relative" style={{ background: isDark ? "transparent" : undefined }}>
-                <p className="text-[8px] font-medium tracking-[0.15em] uppercase text-[rgba(254, 252, 249, 0.55)]">
+                <p className="text-[9px] font-semibold tracking-[0.15em] uppercase text-[#9a8a7c]">
                   {displayPages[safePage]?.header}
                 </p>
                 {/* Edit shortcut */}
