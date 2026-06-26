@@ -584,7 +584,7 @@ export default function YearbookReadPage() {
               <p className="text-[10px] italic text-[#4a4540] leading-relaxed whitespace-pre-wrap line-clamp-[10]" style={{ fontFamily: "Georgia, serif" }}>
                 {letterText}
               </p>
-              <p className="italic text-[11px] text-[#5c7f63] mt-2 shrink-0" style={{ fontFamily: "Georgia, serif" }}>With love</p>
+              <p className="italic text-[11px] text-[#5c7f63] mt-2 shrink-0" style={{ fontFamily: "Georgia, serif" }}>— {familyName}</p>
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-center px-2">
