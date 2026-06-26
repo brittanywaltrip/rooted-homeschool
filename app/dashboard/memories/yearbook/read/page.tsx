@@ -154,6 +154,26 @@ function PageShell({ children, bg = "#FAFAF7" }: {
   );
 }
 
+// Wraps a page's content with a discreet book folio (page number) in the muted
+// brand tone, sitting in the bottom margin. The mid-tone reads on both cream
+// pages and the dark scrim of a full-bleed feature page. Cover/back pass no
+// number. Rendered identically by the reader (mobile + desktop) and the print
+// path because it wraps the shared page content.
+function PageWithNumber({ n, children }: { n: number; children: ReactNode }) {
+  return (
+    <div className="relative w-full h-full">
+      {children}
+      <span
+        className="absolute bottom-[3px] left-1/2 -translate-x-1/2 text-[8px] tracking-[0.1em] text-[#b3a596] select-none pointer-events-none z-20"
+        style={{ fontVariantNumeric: "tabular-nums" }}
+        aria-hidden
+      >
+        {n}
+      </span>
+    </div>
+  );
+}
+
 // ─── Smart mosaic collage ────────────────────────────────────────────────────
 // buildMosaicPages tiles each page with a curated template (chosen by photo
 // count) and assigns photos to cells to minimize cropping — portraits into tall
@@ -540,23 +560,16 @@ export default function YearbookReadPage() {
         <span className="absolute top-1/3 left-1/2 -translate-x-1/2 text-[160px] opacity-[0.03] select-none pointer-events-none">🌱</span>
 
         <div className="flex-1 flex flex-col items-center justify-center p-6 relative z-10 text-center">
-          <div className="w-12 h-px bg-[rgba(254, 252, 249, 0.55)]/40 mb-5" />
-          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[rgba(254, 252, 249, 0.55)] mb-3">
+          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#c8e6c4] mb-4">
             {yearLabel}
           </p>
           <h1 className="text-[28px] leading-snug text-[#fefcf9]" style={{ fontFamily: "Georgia, serif" }}>
             {coverTitle}<br />Yearbook
           </h1>
-          <div className="w-9 h-px bg-[rgba(254, 252, 249, 0.55)]/30 my-5" />
-          <p className="text-[11px] text-white/45 italic max-w-[220px] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
+          <span className="text-[22px] mt-5 mb-4 opacity-70 select-none" aria-hidden>🌿</span>
+          <p className="text-[11px] text-white/60 italic max-w-[220px] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
             A year of learning, growing, and making memories
           </p>
-          <Link
-            href="/dashboard/memories/yearbook/edit"
-            className="mt-6 inline-flex items-center gap-1.5 bg-white/10 text-[11px] text-[#c8e6c4] font-medium px-4 py-2 rounded-lg transition-colors active:bg-white/15"
-          >
-            ✚ Add a cover photo
-          </Link>
         </div>
 
         <div className="flex justify-between items-center px-5 pb-4 relative z-10">
@@ -704,72 +717,52 @@ export default function YearbookReadPage() {
   if (ybSettings.show_child_chapters) children.forEach((child, ci) => {
     const childMems = memories.filter((m) => m.child_id === child.id);
     const childPhotos = childMems.filter((m) => m.photo_url);
-    // Reserve the most-recent still-unused photo for "favorite things"; the
-    // collage below uses the rest, so no photo is shown twice. A one-photo
-    // chapter therefore puts its photo on the favorites page (paired with the
-    // prompts) and has no lonely collage page.
+    // Reserve the most-recent unused photo as the chapter's full-bleed feature
+    // (section opener), then reserve the next-most-recent for "favorite things".
+    // The collage uses whatever is left, so no photo is ever shown twice. A
+    // one-photo chapter spends its photo on the opener and has no lonely collage.
+    const featurePhoto = [...childPhotos].reverse().find((m) => !reservedPhotoIds.has(m.id)) ?? null;
+    if (featurePhoto) reservedPhotoIds.add(featurePhoto.id);
     const favThingsPhoto = ybSettings.show_favorite_things
       ? ([...childPhotos].reverse().find((m) => !reservedPhotoIds.has(m.id)) ?? null)
       : null;
     if (favThingsPhoto) reservedPhotoIds.add(favThingsPhoto.id);
     const collageChildPhotos = childPhotos.filter((m) => !reservedPhotoIds.has(m.id));
-    const childQuotes = childMems.filter((m) => m.type === "quote");
-    const childWins = childMems.filter((m) => m.type === "win");
-    const latestQuote = childQuotes[childQuotes.length - 1];
-    const latestWin = childWins[childWins.length - 1];
 
     spreads.push({
       id: `child-${child.id}`,
       label: `${child.name}'s chapter`,
-      leftContent: (
-        <PageShell>
-          <div className="shrink-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5c7f63]">Chapter {ci + 1}</p>
-            <h2 className="text-[18px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>
+      // Chapter divider — a real yearbook section opener: a full-bleed feature
+      // photo with the chapter title set over a soft scrim. No photo → a
+      // designed title panel on the brand color (never empty cream).
+      leftContent: featurePhoto?.photo_url ? (
+        <div className="relative w-full h-full overflow-hidden" style={{ background: "#FAFAF7" }}>
+          <FocalPhoto src={featurePhoto.photo_url} aspect={photoAspect(toPhotoItem(featurePhoto))} />
+          <div
+            className="absolute inset-x-0 bottom-0 px-6 pt-16 pb-7"
+            style={{ background: "linear-gradient(to top, rgba(22,32,24,0.82), rgba(22,32,24,0))" }}
+          >
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#cfe3c9]">Chapter {ci + 1}</p>
+            <h2 className="text-[26px] font-bold text-white leading-tight mt-1" style={{ fontFamily: "var(--font-display)" }}>
               {child.name}&apos;s year
             </h2>
-            <p className="text-[10px] text-[#7a6f65] mt-0.5">{childMems.length} memories</p>
+            <p className="text-[10px] text-white/75 mt-1">{childMems.length} memories</p>
           </div>
-
-          {latestQuote && (
-            <div className="mt-4 mb-2 shrink-0">
-              <span className="text-[26px] font-serif text-[#b9a8d6] leading-none">&ldquo;</span>
-              <p className="italic text-[12px] text-[#2d2926] line-clamp-3 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{latestQuote.title}</p>
-              <p className="text-[9px] text-[#7a6f65] mt-1">
-                {safeParseDateStr(latestQuote.date)?.toLocaleDateString("en-US", { month: "short", day: "numeric" }) ?? ""}
-              </p>
-            </div>
-          )}
-
-          {/* Photos flow to the collage spreads below (all of them). */}
-
-          {latestWin && (
-            <div className="bg-[#f0ede5] rounded-lg p-2.5 border-l-2 border-[#c8b86a] mb-2 shrink-0">
-              <p className="text-[8px] uppercase tracking-[0.1em] text-[#5c7f63] font-semibold mb-1 flex items-center gap-1">
-                <span>⭐</span>
-                <span>Win</span>
-                {latestWin.date && (
-                  <span className="text-[#7a6f65] font-normal normal-case tracking-normal ml-auto">
-                    {safeParseDateStr(latestWin.date)?.toLocaleDateString("en-US", { month: "short", year: "numeric" }) ?? ""}
-                  </span>
-                )}
-              </p>
-              <p className="text-[11px] text-[#2d2926] line-clamp-2 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{latestWin.title}</p>
-            </div>
-          )}
-
-          <div className="flex gap-2 mt-auto shrink-0">
-            {[
-              { n: childWins.length, l: "wins" },
-              { n: childMems.filter((m) => m.type === "book").length, l: "books" },
-            ].map((s) => (
-              <div key={s.l} className="bg-[#eeeade] rounded px-2 py-1.5 text-center flex-1">
-                <p className="text-[15px] font-bold text-[var(--g-deep)]">{s.n}</p>
-                <p className="text-[8px] text-[#7a6f65]">{s.l}</p>
-              </div>
-            ))}
-          </div>
-        </PageShell>
+        </div>
+      ) : (
+        <div
+          className="relative w-full h-full overflow-hidden flex flex-col items-center justify-center text-center px-7"
+          style={{ background: "var(--g-brand)" }}
+        >
+          <span className="absolute top-6 right-5 text-[120px] opacity-[0.06] select-none pointer-events-none" style={{ transform: "rotate(-12deg)" }}>🌿</span>
+          <span className="absolute bottom-8 left-4 text-[96px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(18deg)" }}>🍃</span>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#cfe3c9] relative z-10">Chapter {ci + 1}</p>
+          <h2 className="text-[27px] font-bold text-[#fefcf9] leading-tight mt-2 relative z-10" style={{ fontFamily: "var(--font-display)" }}>
+            {child.name}&apos;s year
+          </h2>
+          <span className="text-[20px] my-4 opacity-70 select-none relative z-10" aria-hidden>🌿</span>
+          <p className="text-[10px] text-white/70 relative z-10">{childMems.length} memories</p>
+        </div>
       ),
       rightContent: (
         <PageShell>
@@ -1032,6 +1025,17 @@ export default function YearbookReadPage() {
     return idx === -1 ? null : (idx + 1) * 2 + 1;
   };
   spreads.unshift(buildCoverSpread(pageNumberForId));
+
+  // ── Stamp discreet page numbers on every content page ─────────────────────
+  // Folios count the cover as pages 1-2 (so a body spread's left page is
+  // si*2+1), which is exactly what the cover's table of contents cites via
+  // pageNumberForId — the two always agree. The cover (si 0) and back cover
+  // (last spread) are intentionally left unnumbered.
+  spreads.forEach((s, si) => {
+    if (si === 0 || si === spreads.length - 1) return;
+    s.leftContent = <PageWithNumber n={si * 2 + 1}>{s.leftContent}</PageWithNumber>;
+    s.rightContent = <PageWithNumber n={si * 2 + 2}>{s.rightContent}</PageWithNumber>;
+  });
 
   // ── Build flat pages array with headers + edit links ──────────────────────
 
