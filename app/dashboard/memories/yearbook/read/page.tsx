@@ -18,6 +18,7 @@ import {
 } from "@/lib/yearbook-layout-engine";
 import { buildMosaicPages, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell } from "@/lib/yearbook-photo-pages";
 import { focalObjectPosition } from "@/lib/focal-point";
+import { orderPhotos } from "@/lib/photo-order";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
@@ -91,6 +92,8 @@ type MemoryRow = {
   photo_height: number | null;
   focal_x: number | null;
   focal_y: number | null;
+  page_order: number | null;
+  created_at: string | null;
 };
 
 type YearbookContentRow = {
@@ -407,7 +410,7 @@ export default function YearbookReadPage() {
 
       let memsQuery = supabase
         .from("memories")
-        .select("id, child_id, date, type, title, caption, photo_url, include_in_book, photo_width, photo_height, focal_x, focal_y")
+        .select("id, child_id, date, type, title, caption, photo_url, include_in_book, photo_width, photo_height, focal_x, focal_y, page_order, created_at")
         .eq("user_id", effectiveUserId)
         .eq("include_in_book", true)
         .gte("date", openedAt.slice(0, 10))
@@ -746,7 +749,10 @@ export default function YearbookReadPage() {
   // 3. PER-CHILD SPREADS
   if (ybSettings.show_child_chapters) children.forEach((child, ci) => {
     const childMems = memories.filter((m) => m.child_id === child.id);
-    const childPhotos = childMems.filter((m) => m.photo_url);
+    // Photos flow through the chapter in the family's chosen order (page_order),
+    // falling back to date when un-ordered. The mosaic builder consumes this
+    // sequence, so reordering changes which photos group onto which pages.
+    const childPhotos = orderPhotos(childMems.filter((m) => m.photo_url));
     // Allocate this chapter's still-unused photos across the feature divider,
     // the "favorite things" slot, and the collage WITHOUT starving the collage:
     // planChapterPhotos guarantees the collage is left at 0 or ≥2 photos (never
@@ -908,7 +914,7 @@ export default function YearbookReadPage() {
   });
 
   // 4. FAMILY MEMORIES SPREAD
-  const famPhotos = familyMemories.filter((m) => m.photo_url);
+  const famPhotos = orderPhotos(familyMemories.filter((m) => m.photo_url));
   const famWins = familyMemories.filter((m) => m.type === "win" || m.type === "field_trip");
 
   if (ybSettings.show_family_chapter) spreads.push({

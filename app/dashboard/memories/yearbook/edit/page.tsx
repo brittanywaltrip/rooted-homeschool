@@ -7,6 +7,17 @@ import { capitalizeChildNames } from "@/lib/utils";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import { clampFocal } from "@/lib/focal-point";
+import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, useSortable, rectSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import SignedImage from "@/components/SignedImage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -33,10 +44,14 @@ type MemoryRow = {
   photo_url: string | null;
   focal_x?: number | null;
   focal_y?: number | null;
+  page_order?: number | null;
+  created_at?: string | null;
 };
 
 type Focal = { x: number; y: number };
 type ReposTarget = { kind: "memory" | "cover"; id: string; url: string; bucket: string };
+
+const FAMILY_GROUP_KEY = "family";
 
 type YearbookContentRow = {
   content_type: string;
@@ -227,6 +242,54 @@ function RepositionModal({
   );
 }
 
+// One reorderable + tappable photo in the reposition grid. Drag (past the
+// sensor's activation distance) reorders within its chapter; a tap with no drag
+// opens the reposition modal.
+function SortablePhoto({
+  id,
+  url,
+  focal,
+  disabled,
+  onTap,
+}: {
+  id: string;
+  url: string;
+  focal: Focal | null;
+  disabled: boolean;
+  onTap: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      style={style}
+      onClick={onTap}
+      disabled={disabled}
+      className="relative aspect-square rounded-lg overflow-hidden border border-[#e8e3dc] touch-none disabled:opacity-60"
+      {...attributes}
+      {...listeners}
+    >
+      <SignedImage
+        src={url}
+        bucket="memory-photos"
+        alt=""
+        className="w-full h-full object-cover pointer-events-none"
+        style={{ objectPosition: focal ? `${(focal.x * 100).toFixed(2)}% ${(focal.y * 100).toFixed(2)}%` : "center" }}
+      />
+      {focal && (
+        <span className="absolute bottom-1 right-1 text-[8px] bg-[#5c7f63] text-white px-1.5 py-0.5 rounded">Set</span>
+      )}
+    </button>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function YearbookEditPage() {
@@ -243,6 +306,10 @@ export default function YearbookEditPage() {
   // Per-photo focal points, keyed by memory id (and "cover" for the cover photo).
   const [focalMap, setFocalMap] = useState<Record<string, Focal | null>>({});
   const [reposTarget, setReposTarget] = useState<ReposTarget | null>(null);
+  // Ordered photo ids per chapter group (child id, or FAMILY_GROUP_KEY).
+  const [repoOrder, setRepoOrder] = useState<Record<string, string[]>>({});
+  // Distance constraint keeps tap (reposition) distinct from drag (reorder).
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   // Cover / meta state
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
@@ -331,6 +398,38 @@ export default function YearbookEditPage() {
     setReposTarget(null);
   }, [reposTarget, isReadOnly, saveContent]);
 
+  // ── Reorder photos within a chapter → normalized 0..n page_order ────────────
+  const groupKeyOfId = useCallback((id: string): string | null => {
+    for (const [gk, ids] of Object.entries(repoOrder)) {
+      if (ids.includes(id)) return gk;
+    }
+    return null;
+  }, [repoOrder]);
+
+  const onPhotoDragEnd = useCallback((e: DragEndEvent) => {
+    if (isReadOnly) return;
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const gk = groupKeyOfId(activeId);
+    // Reordering stays within a chapter; ignore drops onto another group.
+    if (!gk || gk !== groupKeyOfId(overId)) return;
+    setRepoOrder((prev) => {
+      const ids = prev[gk] ?? [];
+      const oldI = ids.indexOf(activeId);
+      const newI = ids.indexOf(overId);
+      if (oldI < 0 || newI < 0) return prev;
+      const next = arrayMove(ids, oldI, newI);
+      void Promise.all(
+        normalizedPageOrders(next).map(({ id, page_order }) =>
+          supabase.from("memories").update({ page_order }).eq("id", id),
+        ),
+      );
+      return { ...prev, [gk]: next };
+    });
+  }, [isReadOnly, groupKeyOfId]);
+
   // ── Load data ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -369,7 +468,7 @@ export default function YearbookEditPage() {
           .eq("user_id", effectiveUserId).eq("yearbook_key", key),
         supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url")
           .eq("user_id", effectiveUserId).eq("type", "quote").order("date", { ascending: false }),
-        supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url, focal_x, focal_y")
+        supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url, focal_x, focal_y, page_order, created_at")
           .eq("user_id", effectiveUserId).eq("include_in_book", true).order("date", { ascending: false }),
       ]);
 
@@ -379,7 +478,7 @@ export default function YearbookEditPage() {
       const bookmarkedRows = (bookmarked ?? []) as MemoryRow[];
       setBookmarkedMemories(bookmarkedRows);
 
-      // Hydrate focal points for the reposition grid.
+      // Hydrate focal points + per-chapter photo order for the reposition grid.
       const fMap: Record<string, Focal | null> = {};
       for (const m of bookmarkedRows) {
         fMap[m.id] = (typeof m.focal_x === "number" && typeof m.focal_y === "number")
@@ -387,6 +486,13 @@ export default function YearbookEditPage() {
           : null;
       }
       setFocalMap(fMap);
+
+      const groups: Record<string, string[]> = {};
+      for (const m of orderPhotos(bookmarkedRows.filter((r) => r.photo_url))) {
+        const gk = m.child_id ?? FAMILY_GROUP_KEY;
+        (groups[gk] ??= []).push(m.id);
+      }
+      setRepoOrder(groups);
 
       // Build content map
       const rows = (ybRows ?? []) as YearbookContentRow[];
@@ -644,56 +750,83 @@ export default function YearbookEditPage() {
           {coverSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
         </div>
 
-        {/* ── Reposition photos ──────────────────────────────── */}
+        {/* ── Reposition & reorder photos ────────────────────── */}
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
-          <p className="text-[13px] font-semibold text-[#2d2926]">Reposition photos</p>
+          <p className="text-[13px] font-semibold text-[#2d2926]">Reposition &amp; reorder photos</p>
           <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
-            Tap a photo to aim what shows when it fills a frame on the cover or a collage. Pull faces into view.
+            Drag to reorder photos within a chapter. Tap a photo to aim what shows when it fills a frame.
           </p>
           {(() => {
-            const items: ReposTarget[] = [];
-            if (coverPhotoUrl) {
-              items.push({
-                kind: "cover",
-                id: "cover",
-                url: coverPhotoUrl,
-                bucket: coverPhotoUrl.includes("/family-photos/") ? "family-photos" : "yearbook-covers",
-              });
-            }
-            for (const m of bookmarkedMemories) {
-              if (m.photo_url) items.push({ kind: "memory", id: m.id, url: m.photo_url, bucket: "memory-photos" });
-            }
-            if (items.length === 0) {
+            const memById: Record<string, MemoryRow> = {};
+            for (const m of bookmarkedMemories) memById[m.id] = m;
+
+            const childGroups = children
+              .map((c) => ({ key: c.id, label: c.name, ids: repoOrder[c.id] ?? [] }))
+              .filter((g) => g.ids.length > 0);
+            const familyIds = repoOrder[FAMILY_GROUP_KEY] ?? [];
+            const groups = [
+              ...childGroups,
+              ...(familyIds.length ? [{ key: FAMILY_GROUP_KEY, label: "Family", ids: familyIds }] : []),
+            ];
+
+            const coverBucket = coverPhotoUrl.includes("/family-photos/") ? "family-photos" : "yearbook-covers";
+            const coverFocal = focalMap["cover"] ?? null;
+
+            if (!coverPhotoUrl && groups.length === 0) {
               return <p className="text-[11px] text-[#9a8f85]">Add photos to your yearbook to reposition them here.</p>;
             }
+
             return (
-              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                {items.map((it) => {
-                  const f = focalMap[it.id] ?? null;
-                  return (
+              <div className="space-y-4">
+                {coverPhotoUrl && (
+                  <div>
+                    <p className="text-[11px] font-medium text-[#7a6f65] mb-1.5">Cover</p>
                     <button
-                      key={it.id}
                       type="button"
-                      onClick={() => { if (!isReadOnly) setReposTarget(it); }}
+                      onClick={() => { if (!isReadOnly) setReposTarget({ kind: "cover", id: "cover", url: coverPhotoUrl, bucket: coverBucket }); }}
                       disabled={isReadOnly}
-                      className="relative aspect-square rounded-lg overflow-hidden border border-[#e8e3dc] disabled:opacity-60"
+                      className="relative w-[68px] aspect-[3/4] rounded-lg overflow-hidden border border-[#e8e3dc] disabled:opacity-60"
                     >
                       <SignedImage
-                        src={it.url}
-                        bucket={it.bucket}
+                        src={coverPhotoUrl}
+                        bucket={coverBucket}
                         alt=""
                         className="w-full h-full object-cover"
-                        style={{ objectPosition: f ? `${(f.x * 100).toFixed(2)}% ${(f.y * 100).toFixed(2)}%` : "center" }}
+                        style={{ objectPosition: coverFocal ? `${(coverFocal.x * 100).toFixed(2)}% ${(coverFocal.y * 100).toFixed(2)}%` : "center" }}
                       />
-                      {it.kind === "cover" && (
-                        <span className="absolute top-1 left-1 text-[8px] bg-black/55 text-white px-1.5 py-0.5 rounded">Cover</span>
-                      )}
-                      {f && (
+                      {coverFocal && (
                         <span className="absolute bottom-1 right-1 text-[8px] bg-[#5c7f63] text-white px-1.5 py-0.5 rounded">Set</span>
                       )}
                     </button>
-                  );
-                })}
+                  </div>
+                )}
+
+                <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={onPhotoDragEnd}>
+                  {groups.map((g) => (
+                    <div key={g.key}>
+                      <p className="text-[11px] font-medium text-[#7a6f65] mb-1.5">{g.label}</p>
+                      <SortableContext items={g.ids} strategy={rectSortingStrategy}>
+                        <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                          {g.ids.map((id) => {
+                            const m = memById[id];
+                            if (!m?.photo_url) return null;
+                            const url = m.photo_url;
+                            return (
+                              <SortablePhoto
+                                key={id}
+                                id={id}
+                                url={url}
+                                focal={focalMap[id] ?? null}
+                                disabled={isReadOnly}
+                                onTap={() => setReposTarget({ kind: "memory", id, url, bucket: "memory-photos" })}
+                              />
+                            );
+                          })}
+                        </div>
+                      </SortableContext>
+                    </div>
+                  ))}
+                </DndContext>
               </div>
             );
           })()}
