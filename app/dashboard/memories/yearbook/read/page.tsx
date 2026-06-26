@@ -16,7 +16,7 @@ import {
   buildFavoriteThingsSpread,
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
-import { buildPhotoPages, type PhotoPage } from "@/lib/yearbook-photo-pages";
+import { buildCollagePages, DEFAULT_JUSTIFIED_OPTS, type CollagePageRows, type CollageRow } from "@/lib/yearbook-photo-pages";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
@@ -144,13 +144,10 @@ function PageShell({ children, bg = "#FAFAF7" }: {
   );
 }
 
-// ─── Collage pages (aspect-aware, no crop) ───────────────────────────────────
-// A chapter's photos are paged by buildPhotoPages (wide photos tile up to 6;
-// tall photos are lifted to their own hero/pair page). Each cell sits on the
-// #f5f0e8 mat and is aspect-aware: tall photos render object-contain (shown in
-// full), wide/square cover their cell. The fit is read from the image's natural
-// dimensions on load — the safety net that prevents any crop even if a photo's
-// stored dimensions were missing when it landed in a grid.
+// ─── Single highlighted photo (favorite moment) — aspect-aware on the mat ────
+// Used only for the one fixed-slot photo on the letter spread, where the slot
+// can't match the photo's ratio. The collage path below uses justified rows
+// (no mat) instead.
 
 function MatPhoto({ src }: { src: string }) {
   const [fit, setFit] = useState<"cover" | "contain">("cover");
@@ -171,34 +168,69 @@ function MatPhoto({ src }: { src: string }) {
   );
 }
 
-function CollageGrid({ photos }: { photos: { id: string; photo_url: string | null }[] }) {
-  const cell = (p: { id: string; photo_url: string | null }) => <MatPhoto key={p.id} src={p.photo_url!} />;
-  const n = photos.length;
-  if (n <= 1) return <div className="w-full h-full">{photos[0] ? cell(photos[0]) : null}</div>;
-  if (n === 2) return <div className="grid grid-cols-2 gap-2 w-full h-full">{photos.map(cell)}</div>;
-  if (n === 3) {
+// ─── Collage pages — justified rows (Google Photos / photo-book style) ───────
+// buildCollagePages packs each chapter's photos into justified rows: every photo
+// keeps its true aspect ratio and rows fill the page width edge to edge, so
+// nothing is cropped and there's no letterbox mat. Row breaks + pagination are
+// deterministic (stored photo_width/height + a fixed logical page), so the
+// reader and the PDF print path render identically — no container measurement.
+
+const COLLAGE_GAP_PX = 4;
+const COLLAGE_MAX_ROW_H = DEFAULT_JUSTIFIED_OPTS.maxRowH;
+
+// One photo cell. Its box already matches the photo's aspect ratio, so
+// object-cover shows the whole photo — no crop, no mat.
+function CellImg({ src }: { src: string | null }) {
+  if (!src) return <div className="w-full h-full bg-[#efeae0]" />;
+  return <SignedImage src={src} bucket="memory-photos" className="block w-full h-full object-cover" />;
+}
+
+function JustifiedRow({ row }: { row: CollageRow }) {
+  if (!row.justified) {
+    // Too-sparse trailing row (e.g. a lone portrait): keep its real shape at
+    // maxRowH and center it — don't stretch it across the whole page.
     return (
-      <div className="grid grid-cols-2 grid-rows-2 gap-2 w-full h-full">
-        <div className="row-span-2 min-h-0">{cell(photos[0])}</div>
-        <div className="min-h-0">{cell(photos[1])}</div>
-        <div className="min-h-0">{cell(photos[2])}</div>
+      <div className="flex justify-center" style={{ gap: COLLAGE_GAP_PX }}>
+        {row.photos.map((p, i) => (
+          <div
+            key={p.id}
+            className="overflow-hidden rounded-[3px]"
+            style={{ width: `${row.aspects[i] * COLLAGE_MAX_ROW_H * 100}%`, aspectRatio: `${row.aspects[i]}` }}
+          >
+            <CellImg src={p.photo_url} />
+          </div>
+        ))}
       </div>
     );
   }
-  if (n === 4) return <div className="grid grid-cols-2 grid-rows-2 gap-2 w-full h-full">{photos.map(cell)}</div>;
-  // 5–6 → 2×3
-  return <div className="grid grid-cols-2 grid-rows-3 gap-1.5 w-full h-full">{photos.map(cell)}</div>;
+  // Justified row: each cell grows by its aspect ratio, so the row fills the
+  // page width and every cell resolves to the same height.
+  return (
+    <div className="flex" style={{ gap: COLLAGE_GAP_PX }}>
+      {row.photos.map((p, i) => (
+        <div
+          key={p.id}
+          className="overflow-hidden rounded-[3px] min-w-0"
+          style={{ flexGrow: row.aspects[i], flexShrink: row.aspects[i], flexBasis: 0, aspectRatio: `${row.aspects[i]}` }}
+        >
+          <CellImg src={p.photo_url} />
+        </div>
+      ))}
+    </div>
+  );
 }
 
-function CollagePage({ page }: { page: PhotoPage }) {
-  const photos = page.photos.filter((p) => p.photo_url);
-  if (photos.length === 0) return <FillerPage />;
+function CollagePage({ page }: { page: CollagePageRows }) {
+  if (!page || page.rows.length === 0) return <FillerPage />;
   return (
-    <PageShell>
-      <div className="flex-1 min-h-0">
-        <CollageGrid photos={photos} />
-      </div>
-    </PageShell>
+    <div
+      className="w-full h-full overflow-hidden flex flex-col px-6 py-3"
+      style={{ background: "#FAFAF7", gap: COLLAGE_GAP_PX }}
+    >
+      {page.rows.map((row, i) => (
+        <JustifiedRow key={i} row={row} />
+      ))}
+    </div>
   );
 }
 
@@ -217,9 +249,9 @@ function toPhotoItem(m: MemoryRow) {
   return { id: m.id, photo_url: m.photo_url, photo_width: m.photo_width, photo_height: m.photo_height };
 }
 
-// Group a chapter's photo pages into book spreads (2 pages per spread, with a
+// Group a chapter's collage pages into book spreads (2 pages per spread, with a
 // quiet filler on a trailing odd page).
-function photoPagesToSpreads(pages: PhotoPage[], idPrefix: string, label: string): SpreadDef[] {
+function collagePagesToSpreads(pages: CollagePageRows[], idPrefix: string, label: string): SpreadDef[] {
   const out: SpreadDef[] = [];
   for (let i = 0; i < pages.length; i += 2) {
     const left = pages[i];
@@ -813,10 +845,10 @@ export default function YearbookReadPage() {
     });
 
     // 3a. PHOTO COLLAGE SPREADS — flow ALL of this child's photos across as many
-    // collage pages as needed. Tall/full-length photos are lifted to their own
-    // hero/pair page so they're shown in full and never cropped.
-    for (const sp of photoPagesToSpreads(
-      buildPhotoPages(childPhotos.map(toPhotoItem)),
+    // justified-row collage pages as needed. Every photo keeps its true aspect
+    // ratio, so nothing is cropped and the page fills edge to edge.
+    for (const sp of collagePagesToSpreads(
+      buildCollagePages(childPhotos.map(toPhotoItem)),
       `child-${child.id}-photos`,
       `${child.name}'s chapter`,
     )) {
@@ -930,7 +962,7 @@ export default function YearbookReadPage() {
 
   // 4a. FAMILY PHOTO COLLAGE SPREADS — all family photos, collaged (tall ones lifted).
   if (ybSettings.show_family_chapter) {
-    for (const sp of photoPagesToSpreads(buildPhotoPages(famPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
+    for (const sp of collagePagesToSpreads(buildCollagePages(famPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
       spreads.push(sp);
     }
   }

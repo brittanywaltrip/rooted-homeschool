@@ -1,80 +1,139 @@
-// ─── Yearbook photo paging ───────────────────────────────────────────────────
-// Pure TypeScript (no React) so it's unit-testable. Turns a chapter's photos
-// into a sequence of "photo pages" for the reader:
+// ─── Yearbook justified-rows packing ─────────────────────────────────────────
+// Pure TypeScript (no React) so it's unit-testable. Lays a chapter's photos out
+// in justified rows — Google-Photos / photo-book style — then paginates the
+// rows down each page.
 //
-//   - Wide / square photos (w/h >= 0.9, or dimensions unknown) tile into collage
-//     pages of up to 6 (rendered 4 -> 2x2, 5-6 -> 2x3, 3 -> 1-big-2, 2 -> pair,
-//     1 -> hero).
-//   - Tall / full-length photos (w/h < 0.9) are lifted out of the grid so they
-//     are never crammed into a small cell: consecutive talls pair up
-//     (side-by-side), a lone tall gets its own hero page.
-//
-// Chronological order is preserved as much as possible: photos stream in order,
-// the wide buffer flushes whenever a tall photo interrupts it.
+// Within a justified row every photo shares one height and its width scales by
+// its true aspect ratio, so the row fills the page width edge to edge with a
+// small uniform gap and NOTHING is cropped (each photo's box matches its own
+// ratio — no letterbox mat). Layout is computed deterministically from a fixed
+// LOGICAL page (width = 1 unit, height = `pageH` units) + the stored aspect
+// ratios, so the on-screen reader and the PDF print path render identically (no
+// runtime container measurement).
 
-export interface PhotoPageItem {
+export interface PhotoItem {
   id: string;
   photo_url: string | null;
   photo_width?: number | null;
   photo_height?: number | null;
 }
 
-export type PhotoPageKind = "hero" | "pair" | "grid";
-
-export interface PhotoPage {
-  kind: PhotoPageKind;
-  photos: PhotoPageItem[];
+export interface CollageRow {
+  photos: PhotoItem[];
+  /** Aspect ratio (width / height) per photo, defaulted for missing dims. */
+  aspects: number[];
+  /** true → justify to full page width (flex-grow). false → a too-sparse row
+   *  (e.g. a lone portrait) rendered at `maxRowH` with natural widths, centered,
+   *  so it doesn't blow up to full width. */
+  justified: boolean;
+  /** Row height as a fraction of page width (used for pagination + tests). */
+  height: number;
 }
 
-/** Tall only when both dimensions are present and width/height < 0.9. Unknown
- *  dimensions are treated as wide (so the photo tiles; the renderer's load-time
- *  contain-fit is the safety net that still prevents any crop). */
-export function isTallPhoto(p: PhotoPageItem): boolean {
-  return (
+export interface CollagePageRows {
+  rows: CollageRow[];
+}
+
+export interface JustifiedOpts {
+  /** Close a row once justifying it to full width drops to this height (fraction of page width). */
+  targetRowH: number;
+  /** A trailing row taller than this when justified is rendered un-justified at this height. */
+  maxRowH: number;
+  /** Uniform gap as a fraction of page width (affects row breaks; render gap is a small px value). */
+  gap: number;
+  /** Page content height as a fraction of page width (pagination fills to here). */
+  pageH: number;
+}
+
+// Tuned for the reader's book-page proportions. Adjust here to make pages denser
+// or roomier — both the reader and the PDF read from these same numbers.
+export const DEFAULT_JUSTIFIED_OPTS: JustifiedOpts = {
+  targetRowH: 0.58,
+  maxRowH: 0.92,
+  gap: 0.008,
+  pageH: 1.5,
+};
+
+/** Missing dimensions → assume a 3:2 landscape so the photo tiles normally. */
+export const DEFAULT_ASPECT = 3 / 2;
+
+export function photoAspect(p: PhotoItem): number {
+  if (
     typeof p.photo_width === "number" &&
     typeof p.photo_height === "number" &&
-    p.photo_height > 0 &&
-    p.photo_width / p.photo_height < 0.9
-  );
+    p.photo_width > 0 &&
+    p.photo_height > 0
+  ) {
+    return p.photo_width / p.photo_height;
+  }
+  return DEFAULT_ASPECT;
 }
 
-const MAX_PER_GRID = 6;
-
-function wideChunkKind(n: number): PhotoPageKind {
-  if (n === 1) return "hero";
-  if (n === 2) return "pair";
-  return "grid"; // 3-6
+// Height (fraction of page width) a row of `count` photos with aspect-sum
+// `aspectSum` takes when justified to full width with (count-1) gaps.
+function justifiedHeight(count: number, aspectSum: number, gap: number): number {
+  return (1 - (count - 1) * gap) / aspectSum;
 }
 
-export function buildPhotoPages(photos: PhotoPageItem[]): PhotoPage[] {
-  const pages: PhotoPage[] = [];
-  let wide: PhotoPageItem[] = [];
+/** Greedily break photos into justified rows (chronological order preserved). */
+export function buildRows(photos: PhotoItem[], opts: JustifiedOpts = DEFAULT_JUSTIFIED_OPTS): CollageRow[] {
+  const rows: CollageRow[] = [];
+  let cur: PhotoItem[] = [];
+  let aspects: number[] = [];
+  let sum = 0;
 
-  const flushWide = () => {
-    while (wide.length > 0) {
-      const chunk = wide.slice(0, MAX_PER_GRID);
-      wide = wide.slice(MAX_PER_GRID);
-      pages.push({ kind: wideChunkKind(chunk.length), photos: chunk });
-    }
-  };
-
-  for (let i = 0; i < photos.length; i++) {
-    const p = photos[i];
-    if (isTallPhoto(p)) {
-      // A tall photo interrupts the wide run — flush it first so order holds.
-      flushWide();
-      const next = photos[i + 1];
-      if (next && isTallPhoto(next)) {
-        pages.push({ kind: "pair", photos: [p, next] });
-        i++; // consumed the pair
-      } else {
-        pages.push({ kind: "hero", photos: [p] });
-      }
-    } else {
-      wide.push(p);
+  for (const p of photos) {
+    const r = photoAspect(p);
+    cur.push(p);
+    aspects.push(r);
+    sum += r;
+    const h = justifiedHeight(cur.length, sum, opts.gap);
+    if (h <= opts.targetRowH) {
+      rows.push({ photos: cur, aspects, justified: true, height: h });
+      cur = [];
+      aspects = [];
+      sum = 0;
     }
   }
-  flushWide();
+
+  // Trailing leftover row.
+  if (cur.length > 0) {
+    const h = justifiedHeight(cur.length, sum, opts.gap);
+    if (h <= opts.maxRowH) {
+      rows.push({ photos: cur, aspects, justified: true, height: h });
+    } else {
+      // Too sparse to justify (a lone portrait, say) — keep its real shape at
+      // maxRowH instead of stretching it across the whole page.
+      rows.push({ photos: cur, aspects, justified: false, height: opts.maxRowH });
+    }
+  }
+
+  return rows;
+}
+
+/** Stack rows down each page until the page height is filled, then continue. */
+export function paginateRows(rows: CollageRow[], opts: JustifiedOpts = DEFAULT_JUSTIFIED_OPTS): CollagePageRows[] {
+  const pages: CollagePageRows[] = [];
+  let cur: CollageRow[] = [];
+  let curH = 0;
+
+  for (const row of rows) {
+    const gapBefore = cur.length > 0 ? opts.gap : 0;
+    if (cur.length > 0 && curH + gapBefore + row.height > opts.pageH) {
+      pages.push({ rows: cur });
+      cur = [row];
+      curH = row.height;
+    } else {
+      cur.push(row);
+      curH += gapBefore + row.height;
+    }
+  }
+  if (cur.length > 0) pages.push({ rows: cur });
 
   return pages;
+}
+
+export function buildCollagePages(photos: PhotoItem[], opts: JustifiedOpts = DEFAULT_JUSTIFIED_OPTS): CollagePageRows[] {
+  if (photos.length === 0) return [];
+  return paginateRows(buildRows(photos, opts), opts);
 }
