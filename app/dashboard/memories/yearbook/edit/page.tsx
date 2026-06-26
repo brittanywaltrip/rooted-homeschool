@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
+import { clampFocal } from "@/lib/focal-point";
 import SignedImage from "@/components/SignedImage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -30,7 +31,12 @@ type MemoryRow = {
   title: string | null;
   caption: string | null;
   photo_url: string | null;
+  focal_x?: number | null;
+  focal_y?: number | null;
 };
+
+type Focal = { x: number; y: number };
+type ReposTarget = { kind: "memory" | "cover"; id: string; url: string; bucket: string };
 
 type YearbookContentRow = {
   content_type: string;
@@ -103,6 +109,124 @@ function SaveStatus({ status }: { status: "idle" | "saving" | "saved" | "error" 
   );
 }
 
+// ─── Reposition modal ──────────────────────────────────────────────────────────
+// Touch-friendly focal-point editor: the photo fills a representative cover-fit
+// frame and the family drags it to choose what stays in view. Live preview is
+// the frame itself (object-position follows the drag). Saves a normalized 0..1
+// focal point, or clears it ("Reset to auto") to fall back to the default crop.
+
+function RepositionModal({
+  url,
+  bucket,
+  initialFocal,
+  onCancel,
+  onCommit,
+}: {
+  url: string;
+  bucket: string;
+  initialFocal: Focal | null;
+  onCancel: () => void;
+  onCommit: (focal: Focal | null) => Promise<void>;
+}) {
+  const [focal, setFocal] = useState<Focal>(initialFocal ?? { x: 0.5, y: 0.5 });
+  const [saving, setSaving] = useState(false);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ sx: number; sy: number; fx: number; fy: number } | null>(null);
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (saving) return;
+    frameRef.current?.setPointerCapture(e.pointerId);
+    drag.current = { sx: e.clientX, sy: e.clientY, fx: focal.x, fy: focal.y };
+  };
+  const onPointerMove = (e: ReactPointerEvent) => {
+    const el = frameRef.current;
+    const d = drag.current;
+    if (!el || !d) return;
+    const r = el.getBoundingClientRect();
+    // Drag the image: moving down/right reveals the top/left → focal decreases.
+    setFocal({
+      x: clampFocal(d.fx - (e.clientX - d.sx) / r.width),
+      y: clampFocal(d.fy - (e.clientY - d.sy) / r.height),
+    });
+  };
+  const onPointerUp = (e: ReactPointerEvent) => {
+    drag.current = null;
+    try { frameRef.current?.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+  };
+
+  const commit = async (f: Focal | null) => {
+    setSaving(true);
+    try { await onCommit(f); } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-[14px] font-semibold text-[#2d2926]">Reposition photo</p>
+        <p className="text-[11px] text-[#9a8f85] mt-0.5 mb-3">
+          Drag the photo to choose what stays in view when it fills a frame.
+        </p>
+
+        <div
+          ref={frameRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          className="relative w-full overflow-hidden rounded-lg border border-[#e8e3dc] bg-[#f0ede5] cursor-grab active:cursor-grabbing touch-none select-none"
+          style={{ aspectRatio: "3 / 4" }}
+        >
+          <SignedImage
+            src={url}
+            bucket={bucket}
+            alt=""
+            className="block w-full h-full object-cover pointer-events-none"
+            style={{ objectPosition: `${(focal.x * 100).toFixed(2)}% ${(focal.y * 100).toFixed(2)}%` }}
+          />
+          <div
+            className="absolute w-7 h-7 rounded-full border-2 border-white pointer-events-none"
+            style={{
+              left: `${focal.x * 100}%`,
+              top: `${focal.y * 100}%`,
+              transform: "translate(-50%, -50%)",
+              boxShadow: "0 0 0 1.5px rgba(0,0,0,0.4)",
+            }}
+          />
+        </div>
+
+        <div className="flex items-center justify-between mt-4">
+          <button
+            type="button"
+            onClick={() => commit(null)}
+            disabled={saving}
+            className="text-[11px] text-[#9a8f85] underline disabled:opacity-50"
+          >
+            Reset to auto
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={saving}
+              className="text-[12px] text-[#7a6f65] px-3 py-2 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => commit(focal)}
+              disabled={saving}
+              className="text-[12px] bg-[var(--g-deep)] text-white px-4 py-2 rounded-lg disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function YearbookEditPage() {
@@ -116,6 +240,9 @@ export default function YearbookEditPage() {
   const [updatedMap, setUpdatedMap] = useState<Record<string, string>>({});
   const [bookmarkedMemories, setBookmarkedMemories] = useState<MemoryRow[]>([]);
   const [quoteMemories, setQuoteMemories] = useState<MemoryRow[]>([]);
+  // Per-photo focal points, keyed by memory id (and "cover" for the cover photo).
+  const [focalMap, setFocalMap] = useState<Record<string, Focal | null>>({});
+  const [reposTarget, setReposTarget] = useState<ReposTarget | null>(null);
 
   // Cover / meta state
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
@@ -188,6 +315,22 @@ export default function YearbookEditPage() {
     }, { onConflict: "user_id,yearbook_key,content_type,child_id,question_key" });
   }, [effectiveUserId, yearbookKey, isReadOnly]);
 
+  // ── Save a photo's focal point (memory row, or the cover's content key) ──────
+  const commitFocal = useCallback(async (focal: Focal | null) => {
+    const t = reposTarget;
+    if (!t || isReadOnly) { setReposTarget(null); return; }
+    if (t.kind === "cover") {
+      await saveContent("cover_photo_focal", focal ? `${focal.x},${focal.y}` : "");
+    } else {
+      await supabase
+        .from("memories")
+        .update({ focal_x: focal?.x ?? null, focal_y: focal?.y ?? null })
+        .eq("id", t.id);
+    }
+    setFocalMap((prev) => ({ ...prev, [t.id]: focal }));
+    setReposTarget(null);
+  }, [reposTarget, isReadOnly, saveContent]);
+
   // ── Load data ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -226,14 +369,24 @@ export default function YearbookEditPage() {
           .eq("user_id", effectiveUserId).eq("yearbook_key", key),
         supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url")
           .eq("user_id", effectiveUserId).eq("type", "quote").order("date", { ascending: false }),
-        supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url")
+        supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url, focal_x, focal_y")
           .eq("user_id", effectiveUserId).eq("include_in_book", true).order("date", { ascending: false }),
       ]);
 
       const childList = (kids ?? []) as Child[];
       setChildren(capitalizeChildNames(childList));
       setQuoteMemories((quotes ?? []) as MemoryRow[]);
-      setBookmarkedMemories((bookmarked ?? []) as MemoryRow[]);
+      const bookmarkedRows = (bookmarked ?? []) as MemoryRow[];
+      setBookmarkedMemories(bookmarkedRows);
+
+      // Hydrate focal points for the reposition grid.
+      const fMap: Record<string, Focal | null> = {};
+      for (const m of bookmarkedRows) {
+        fMap[m.id] = (typeof m.focal_x === "number" && typeof m.focal_y === "number")
+          ? { x: m.focal_x, y: m.focal_y }
+          : null;
+      }
+      setFocalMap(fMap);
 
       // Build content map
       const rows = (ybRows ?? []) as YearbookContentRow[];
@@ -249,6 +402,16 @@ export default function YearbookEditPage() {
 
       // Hydrate state
       setCoverPhotoUrl(cMap[ck("cover_photo")] ?? "");
+      // Cover focal point (stored as "x,y" in the content map).
+      {
+        const parts = (cMap[ck("cover_photo_focal")] ?? "").split(",");
+        const cx = parseFloat(parts[0]);
+        const cy = parseFloat(parts[1]);
+        const coverFocal: Focal | null = (parts.length === 2 && Number.isFinite(cx) && Number.isFinite(cy))
+          ? { x: cx, y: cy }
+          : null;
+        setFocalMap((prev) => ({ ...prev, cover: coverFocal }));
+      }
       setFamilyName(cMap[ck("family_name")] ?? "");
       setSchoolYear(cMap[ck("school_year")] ?? "");
       setLetter(cMap[ck("letter_from_home")] ?? "");
@@ -480,6 +643,72 @@ export default function YearbookEditPage() {
           )}
           {coverSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
         </div>
+
+        {/* ── Reposition photos ──────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Reposition photos</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            Tap a photo to aim what shows when it fills a frame on the cover or a collage. Pull faces into view.
+          </p>
+          {(() => {
+            const items: ReposTarget[] = [];
+            if (coverPhotoUrl) {
+              items.push({
+                kind: "cover",
+                id: "cover",
+                url: coverPhotoUrl,
+                bucket: coverPhotoUrl.includes("/family-photos/") ? "family-photos" : "yearbook-covers",
+              });
+            }
+            for (const m of bookmarkedMemories) {
+              if (m.photo_url) items.push({ kind: "memory", id: m.id, url: m.photo_url, bucket: "memory-photos" });
+            }
+            if (items.length === 0) {
+              return <p className="text-[11px] text-[#9a8f85]">Add photos to your yearbook to reposition them here.</p>;
+            }
+            return (
+              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                {items.map((it) => {
+                  const f = focalMap[it.id] ?? null;
+                  return (
+                    <button
+                      key={it.id}
+                      type="button"
+                      onClick={() => { if (!isReadOnly) setReposTarget(it); }}
+                      disabled={isReadOnly}
+                      className="relative aspect-square rounded-lg overflow-hidden border border-[#e8e3dc] disabled:opacity-60"
+                    >
+                      <SignedImage
+                        src={it.url}
+                        bucket={it.bucket}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        style={{ objectPosition: f ? `${(f.x * 100).toFixed(2)}% ${(f.y * 100).toFixed(2)}%` : "center" }}
+                      />
+                      {it.kind === "cover" && (
+                        <span className="absolute top-1 left-1 text-[8px] bg-black/55 text-white px-1.5 py-0.5 rounded">Cover</span>
+                      )}
+                      {f && (
+                        <span className="absolute bottom-1 right-1 text-[8px] bg-[#5c7f63] text-white px-1.5 py-0.5 rounded">Set</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+
+        {reposTarget && (
+          <RepositionModal
+            key={reposTarget.id}
+            url={reposTarget.url}
+            bucket={reposTarget.bucket}
+            initialFocal={focalMap[reposTarget.id] ?? null}
+            onCancel={() => setReposTarget(null)}
+            onCommit={commitFocal}
+          />
+        )}
 
         {/* ── Family name ────────────────────────────────────── */}
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">

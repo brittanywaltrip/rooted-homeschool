@@ -19,6 +19,9 @@ export interface PhotoItem {
   photo_url: string | null;
   photo_width?: number | null;
   photo_height?: number | null;
+  /** Normalized 0..1 focal point for cover-fit cropping (null → default heuristic). */
+  focal_x?: number | null;
+  focal_y?: number | null;
 }
 
 /** A cell's placement in the template's grid (0-based start, span counts). */

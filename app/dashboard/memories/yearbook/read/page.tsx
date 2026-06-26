@@ -17,6 +17,7 @@ import {
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
 import { buildMosaicPages, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell } from "@/lib/yearbook-photo-pages";
+import { focalObjectPosition } from "@/lib/focal-point";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
@@ -88,6 +89,8 @@ type MemoryRow = {
   include_in_book: boolean;
   photo_width: number | null;
   photo_height: number | null;
+  focal_x: number | null;
+  focal_y: number | null;
 };
 
 type YearbookContentRow = {
@@ -185,21 +188,29 @@ function PageWithNumber({ n, children }: { n: number; children: ReactNode }) {
 
 const GUTTER_PX = 4;
 
-// Bias the visible crop window: portraits show more of the top (heads/faces);
-// landscapes/squares stay centered.
-function focalPosition(aspect: number): string {
-  return aspect < 0.9 ? "center 35%" : "center";
-}
-
 // One photo, filling its box with a focal-aware cover crop (no gaps, no mat).
-function FocalPhoto({ src, aspect, className = "" }: { src: string | null; aspect: number; className?: string }) {
+// A stored focal point (focalX/focalY, normalized 0..1) aims what shows; with
+// none set it falls back to the orientation heuristic (portraits bias up).
+function FocalPhoto({
+  src,
+  aspect,
+  focalX,
+  focalY,
+  className = "",
+}: {
+  src: string | null;
+  aspect: number;
+  focalX?: number | null;
+  focalY?: number | null;
+  className?: string;
+}) {
   if (!src) return <div className={`w-full h-full bg-[#efeae0] ${className}`} />;
   return (
     <SignedImage
       src={src}
       bucket="memory-photos"
       className={`block w-full h-full object-cover ${className}`}
-      style={{ objectPosition: focalPosition(aspect) }}
+      style={{ objectPosition: focalObjectPosition(focalX, focalY, aspect) }}
     />
   );
 }
@@ -210,7 +221,12 @@ function MosaicCell({ cell }: { cell: PlacedCell }) {
       className="overflow-hidden rounded-[3px]"
       style={{ gridColumn: `${cell.c + 1} / span ${cell.cs}`, gridRow: `${cell.r + 1} / span ${cell.rs}` }}
     >
-      <FocalPhoto src={cell.photo.photo_url} aspect={photoAspect(cell.photo)} />
+      <FocalPhoto
+        src={cell.photo.photo_url}
+        aspect={photoAspect(cell.photo)}
+        focalX={cell.photo.focal_x}
+        focalY={cell.photo.focal_y}
+      />
     </div>
   );
 }
@@ -249,7 +265,14 @@ function FillerPage() {
 }
 
 function toPhotoItem(m: MemoryRow) {
-  return { id: m.id, photo_url: m.photo_url, photo_width: m.photo_width, photo_height: m.photo_height };
+  return {
+    id: m.id,
+    photo_url: m.photo_url,
+    photo_width: m.photo_width,
+    photo_height: m.photo_height,
+    focal_x: m.focal_x,
+    focal_y: m.focal_y,
+  };
 }
 
 // Group a chapter's collage pages into book spreads (2 pages per spread, with a
@@ -384,7 +407,7 @@ export default function YearbookReadPage() {
 
       let memsQuery = supabase
         .from("memories")
-        .select("id, child_id, date, type, title, caption, photo_url, include_in_book, photo_width, photo_height")
+        .select("id, child_id, date, type, title, caption, photo_url, include_in_book, photo_width, photo_height, focal_x, focal_y")
         .eq("user_id", effectiveUserId)
         .eq("include_in_book", true)
         .gte("date", openedAt.slice(0, 10))
@@ -490,6 +513,15 @@ export default function YearbookReadPage() {
   const quoteCount = memories.filter((m) => m.type === "quote").length;
 
   const coverPhotoUrl = contentMap[ck("cover_photo")] || profile.family_photo_url || "";
+  // Cover focal point lives in the yearbook content (the cover photo isn't a
+  // memory row). Stored as "x,y"; absent → centered crop (current default).
+  const [coverFocalX, coverFocalY] = ((): [number | null, number | null] => {
+    const parts = (contentMap[ck("cover_photo_focal")] ?? "").split(",");
+    if (parts.length !== 2) return [null, null];
+    const x = parseFloat(parts[0]);
+    const y = parseFloat(parts[1]);
+    return [Number.isFinite(x) ? x : null, Number.isFinite(y) ? y : null];
+  })();
   const letterText = contentMap[ck("letter_from_home")] ?? "";
   const favMemId = contentMap[ck("letter_favorite_memory_id")] ?? "";
   const favCaption = contentMap[ck("letter_favorite_caption")] ?? "";
@@ -537,6 +569,7 @@ export default function YearbookReadPage() {
               src={coverPhotoUrl}
               bucket={coverPhotoUrl.includes("/yearbook-covers/") ? "yearbook-covers" : "family-photos"}
               className="w-full h-full object-cover"
+              style={{ objectPosition: focalObjectPosition(coverFocalX, coverFocalY, 1.5) }}
             />
           </div>
 
@@ -656,7 +689,7 @@ export default function YearbookReadPage() {
             // A real favorite moment — photo, with its date and caption beneath.
             <div>
               <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "4/3" }}>
-                <FocalPhoto src={favMemory.photo_url} aspect={photoAspect(toPhotoItem(favMemory))} />
+                <FocalPhoto src={favMemory.photo_url} aspect={photoAspect(toPhotoItem(favMemory))} focalX={favMemory.focal_x} focalY={favMemory.focal_y} />
               </div>
               <p className="text-[9px] text-[#7a6f65] mt-1.5">
                 {safeParseDateStr(favMemory.date)?.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) ?? ""}
@@ -741,7 +774,7 @@ export default function YearbookReadPage() {
       // designed title panel on the brand color (never empty cream).
       leftContent: featurePhoto?.photo_url ? (
         <div className="relative w-full h-full overflow-hidden" style={{ background: "#FAFAF7" }}>
-          <FocalPhoto src={featurePhoto.photo_url} aspect={photoAspect(toPhotoItem(featurePhoto))} />
+          <FocalPhoto src={featurePhoto.photo_url} aspect={photoAspect(toPhotoItem(featurePhoto))} focalX={featurePhoto.focal_x} focalY={featurePhoto.focal_y} />
           <div
             className="absolute inset-x-0 bottom-0 px-6 pt-16 pb-7"
             style={{ background: "linear-gradient(to top, rgba(22,32,24,0.82), rgba(22,32,24,0))" }}
