@@ -16,7 +16,7 @@ import {
   buildFavoriteThingsSpread,
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
-import { buildCollagePages, DEFAULT_JUSTIFIED_OPTS, type CollagePageRows, type CollageRow } from "@/lib/yearbook-photo-pages";
+import { buildMosaicPages, photoAspect, type MosaicPage, type PlacedCell } from "@/lib/yearbook-photo-pages";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
@@ -144,91 +144,61 @@ function PageShell({ children, bg = "#FAFAF7" }: {
   );
 }
 
-// ─── Single highlighted photo (favorite moment) — aspect-aware on the mat ────
-// Used only for the one fixed-slot photo on the letter spread, where the slot
-// can't match the photo's ratio. The collage path below uses justified rows
-// (no mat) instead.
+// ─── Smart mosaic collage ────────────────────────────────────────────────────
+// buildMosaicPages tiles each page with a curated template (chosen by photo
+// count) and assigns photos to cells to minimize cropping — portraits into tall
+// cells, landscapes into wide cells. Each cell is filled object-cover with a
+// focal object-position (portraits biased toward the top so heads/faces aren't
+// cut), so the page fills edge to edge with small uniform gutters: no gaps, no
+// empty space, no head/feet chopping. Templates + assignment are deterministic
+// and rendered in pure CSS grid, so the reader and the PDF print path match.
 
-function MatPhoto({ src }: { src: string }) {
-  const [fit, setFit] = useState<"cover" | "contain">("cover");
+const GUTTER_PX = 4;
+
+// Bias the visible crop window: portraits show more of the top (heads/faces);
+// landscapes/squares stay centered.
+function focalPosition(aspect: number): string {
+  return aspect < 0.9 ? "center 35%" : "center";
+}
+
+// One photo, filling its box with a focal-aware cover crop (no gaps, no mat).
+function FocalPhoto({ src, aspect, className = "" }: { src: string | null; aspect: number; className?: string }) {
+  if (!src) return <div className={`w-full h-full bg-[#efeae0] ${className}`} />;
   return (
-    <div className="w-full h-full overflow-hidden rounded bg-[#f5f0e8]">
-      <SignedImage
-        src={src}
-        bucket="memory-photos"
-        onLoad={(e) => {
-          const img = e.currentTarget;
-          if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-            setFit(img.naturalWidth / img.naturalHeight < 0.9 ? "contain" : "cover");
-          }
-        }}
-        className={`w-full h-full ${fit === "contain" ? "object-contain" : "object-cover"}`}
-      />
-    </div>
+    <SignedImage
+      src={src}
+      bucket="memory-photos"
+      className={`block w-full h-full object-cover ${className}`}
+      style={{ objectPosition: focalPosition(aspect) }}
+    />
   );
 }
 
-// ─── Collage pages — justified rows (Google Photos / photo-book style) ───────
-// buildCollagePages packs each chapter's photos into justified rows: every photo
-// keeps its true aspect ratio and rows fill the page width edge to edge, so
-// nothing is cropped and there's no letterbox mat. Row breaks + pagination are
-// deterministic (stored photo_width/height + a fixed logical page), so the
-// reader and the PDF print path render identically — no container measurement.
-
-const COLLAGE_GAP_PX = 4;
-const COLLAGE_MAX_ROW_H = DEFAULT_JUSTIFIED_OPTS.maxRowH;
-
-// One photo cell. Its box already matches the photo's aspect ratio, so
-// object-cover shows the whole photo — no crop, no mat.
-function CellImg({ src }: { src: string | null }) {
-  if (!src) return <div className="w-full h-full bg-[#efeae0]" />;
-  return <SignedImage src={src} bucket="memory-photos" className="block w-full h-full object-cover" />;
-}
-
-function JustifiedRow({ row }: { row: CollageRow }) {
-  if (!row.justified) {
-    // Too-sparse trailing row (e.g. a lone portrait): keep its real shape at
-    // maxRowH and center it — don't stretch it across the whole page.
-    return (
-      <div className="flex justify-center" style={{ gap: COLLAGE_GAP_PX }}>
-        {row.photos.map((p, i) => (
-          <div
-            key={p.id}
-            className="overflow-hidden rounded-[3px]"
-            style={{ width: `${row.aspects[i] * COLLAGE_MAX_ROW_H * 100}%`, aspectRatio: `${row.aspects[i]}` }}
-          >
-            <CellImg src={p.photo_url} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-  // Justified row: each cell grows by its aspect ratio, so the row fills the
-  // page width and every cell resolves to the same height.
-  return (
-    <div className="flex" style={{ gap: COLLAGE_GAP_PX }}>
-      {row.photos.map((p, i) => (
-        <div
-          key={p.id}
-          className="overflow-hidden rounded-[3px] min-w-0"
-          style={{ flexGrow: row.aspects[i], flexShrink: row.aspects[i], flexBasis: 0, aspectRatio: `${row.aspects[i]}` }}
-        >
-          <CellImg src={p.photo_url} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function CollagePage({ page }: { page: CollagePageRows }) {
-  if (!page || page.rows.length === 0) return <FillerPage />;
+function MosaicCell({ cell }: { cell: PlacedCell }) {
   return (
     <div
-      className="w-full h-full overflow-hidden flex flex-col px-6 py-3"
-      style={{ background: "#FAFAF7", gap: COLLAGE_GAP_PX }}
+      className="overflow-hidden rounded-[3px]"
+      style={{ gridColumn: `${cell.c + 1} / span ${cell.cs}`, gridRow: `${cell.r + 1} / span ${cell.rs}` }}
     >
-      {page.rows.map((row, i) => (
-        <JustifiedRow key={i} row={row} />
+      <FocalPhoto src={cell.photo.photo_url} aspect={photoAspect(cell.photo)} />
+    </div>
+  );
+}
+
+function CollagePage({ page }: { page: MosaicPage }) {
+  if (!page || page.cells.length === 0) return <FillerPage />;
+  return (
+    <div
+      className="w-full h-full overflow-hidden grid p-3"
+      style={{
+        background: "#FAFAF7",
+        gap: GUTTER_PX,
+        gridTemplateColumns: `repeat(${page.cols}, 1fr)`,
+        gridTemplateRows: `repeat(${page.rows}, 1fr)`,
+      }}
+    >
+      {page.cells.map((cell) => (
+        <MosaicCell key={cell.photo.id} cell={cell} />
       ))}
     </div>
   );
@@ -251,7 +221,7 @@ function toPhotoItem(m: MemoryRow) {
 
 // Group a chapter's collage pages into book spreads (2 pages per spread, with a
 // quiet filler on a trailing odd page).
-function collagePagesToSpreads(pages: CollagePageRows[], idPrefix: string, label: string): SpreadDef[] {
+function collagePagesToSpreads(pages: MosaicPage[], idPrefix: string, label: string): SpreadDef[] {
   const out: SpreadDef[] = [];
   for (let i = 0; i < pages.length; i += 2) {
     const left = pages[i];
@@ -658,7 +628,7 @@ export default function YearbookReadPage() {
             <div>
               {favMemory.photo_url ? (
                 <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "4/3" }}>
-                  <MatPhoto src={favMemory.photo_url} />
+                  <FocalPhoto src={favMemory.photo_url} aspect={photoAspect(toPhotoItem(favMemory))} />
                 </div>
               ) : (
                 <div className="w-full rounded-md bg-[#eaf3de] flex items-center justify-center p-4" style={{ aspectRatio: "4/3" }}>
@@ -848,7 +818,7 @@ export default function YearbookReadPage() {
     // justified-row collage pages as needed. Every photo keeps its true aspect
     // ratio, so nothing is cropped and the page fills edge to edge.
     for (const sp of collagePagesToSpreads(
-      buildCollagePages(childPhotos.map(toPhotoItem)),
+      buildMosaicPages(childPhotos.map(toPhotoItem)),
       `child-${child.id}-photos`,
       `${child.name}'s chapter`,
     )) {
@@ -962,7 +932,7 @@ export default function YearbookReadPage() {
 
   // 4a. FAMILY PHOTO COLLAGE SPREADS — all family photos, collaged (tall ones lifted).
   if (ybSettings.show_family_chapter) {
-    for (const sp of collagePagesToSpreads(buildCollagePages(famPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
+    for (const sp of collagePagesToSpreads(buildMosaicPages(famPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
       spreads.push(sp);
     }
   }

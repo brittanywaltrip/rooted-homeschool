@@ -1,43 +1,43 @@
-// Tests for lib/yearbook-photo-pages.ts — justified-rows packing (Google-Photos
-// / photo-book style). Photos fill rows edge-to-edge by scaling widths to their
-// true aspect ratios; tall photos are never cropped and a too-sparse trailing
-// row (e.g. a lone portrait) is not stretched to full width.
+// Tests for lib/yearbook-photo-pages.ts — smart mosaic collage. Templates are
+// chosen by photo count and photos are assigned to cells to minimize cropping:
+// portraits land in tall cells, landscapes in wide cells, with top/bottom
+// (head/feet) crops penalized over side crops.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  buildRows,
-  paginateRows,
-  buildCollagePages,
+  selectTemplate,
+  buildMosaicPages,
+  balancedChunks,
   photoAspect,
-  DEFAULT_JUSTIFIED_OPTS,
+  cellAspect,
+  cropCost,
+  isPortrait,
+  TEMPLATES,
+  DEFAULT_MOSAIC_OPTS,
   DEFAULT_ASPECT,
   type PhotoItem,
-  type JustifiedOpts,
 } from "./yearbook-photo-pages.ts";
 
-const OPTS: JustifiedOpts = DEFAULT_JUSTIFIED_OPTS;
+const PA = DEFAULT_MOSAIC_OPTS.pageAspect;
 
 let seq = 0;
 function photo(w: number, h: number): PhotoItem {
   return { id: `p${seq++}`, photo_url: "x", photo_width: w, photo_height: h };
 }
-const landscape = () => photo(1500, 1000); // 3:2 → 1.5
-const portrait = () => photo(1000, 1500); // 2:3 → 0.667
+const landscape = () => photo(1500, 1000); // 1.5
+const portrait = () => photo(1000, 1500); // 0.667
 const square = () => photo(1000, 1000); // 1.0
 const noDims = (): PhotoItem => ({ id: `m${seq++}`, photo_url: "x" });
 const many = (make: () => PhotoItem, n: number) => Array.from({ length: n }, () => make());
 
-// A justified row, by construction, fills the page width: the sum of each
-// photo's width (aspect × row height) plus the inter-photo gaps equals 1.
-function rowFillsWidth(aspects: number[], height: number, gap: number): boolean {
-  const widths = aspects.reduce((s, a) => s + a * height, 0);
-  const gaps = (aspects.length - 1) * gap;
-  return Math.abs(widths + gaps - 1) < 1e-9;
+// Aspect of the cell a given photo was placed in.
+function placedCellAspect(page: { cols: number; rows: number; cells: { c: number; r: number; cs: number; rs: number }[] }, i: number): number {
+  return cellAspect(page.cells[i], page.cols, page.rows, PA);
 }
 
-test("photoAspect: real dims, square, and missing dims (→ 3:2)", () => {
+test("photoAspect: real, square, missing (→ 1.5 landscape)", () => {
   assert.equal(photoAspect(landscape()), 1.5);
   assert.equal(photoAspect(square()), 1);
   assert.ok(Math.abs(photoAspect(portrait()) - 2 / 3) < 1e-9);
@@ -45,70 +45,87 @@ test("photoAspect: real dims, square, and missing dims (→ 3:2)", () => {
   assert.equal(DEFAULT_ASPECT, 1.5);
 });
 
-test("landscapes pack ~2 per justified row, each row fills the width edge to edge", () => {
-  const rows = buildRows(many(landscape, 6), OPTS);
-  assert.ok(rows.length >= 2);
-  for (const row of rows) {
-    assert.equal(row.justified, true);
-    assert.ok(row.height <= OPTS.targetRowH + 1e-9, "closed rows are no taller than target");
-    assert.ok(rowFillsWidth(row.aspects, row.height, OPTS.gap), "row fills full page width");
+test("cropCost: vertical (top/bottom) crop costs more than the same side crop", () => {
+  // portrait (0.667) into a wide cell (1.5) → vertical crop (head/feet)
+  const vertical = cropCost(2 / 3, 1.5);
+  // landscape (1.5) into a tall cell (0.667) → horizontal crop (sides)
+  const horizontal = cropCost(1.5, 2 / 3);
+  assert.ok(vertical > horizontal);
+});
+
+test("every template tiles its grid exactly (no gaps, no overlap)", () => {
+  for (const [count, variants] of Object.entries(TEMPLATES)) {
+    for (const v of variants) {
+      const filled = Array.from({ length: v.rows }, () => Array(v.cols).fill(0));
+      for (const cell of v.cells) {
+        for (let r = cell.r; r < cell.r + cell.rs; r++) {
+          for (let c = cell.c; c < cell.c + cell.cs; c++) {
+            filled[r][c] += 1;
+          }
+        }
+      }
+      const flat = filled.flat();
+      assert.ok(flat.every((x) => x === 1), `template ${count} tiles exactly`);
+      assert.equal(v.cells.length, Number(count), `template ${count} has ${count} cells`);
+    }
   }
-  // all 6 photos accounted for, in order
-  assert.equal(rows.flatMap((r) => r.photos).length, 6);
 });
 
-test("a lone portrait is NOT stretched to full width (capped, un-justified)", () => {
-  const rows = buildRows([portrait()], OPTS);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].justified, false);
-  assert.equal(rows[0].height, OPTS.maxRowH);
+test("2 portraits → two tall halves, each portrait in a tall (aspect<1) cell", () => {
+  const page = selectTemplate(many(portrait, 2), PA);
+  assert.equal(page.cols, 2);
+  assert.equal(page.rows, 1);
+  page.cells.forEach((_, i) => assert.ok(placedCellAspect(page, i) < 1, "tall cell"));
 });
 
-test("a lone landscape becomes a justified full-width banner", () => {
-  const rows = buildRows([landscape()], OPTS);
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].justified, true);
-  // single photo justified to width 1 → height = 1 / aspect
-  assert.ok(Math.abs(rows[0].height - 1 / 1.5) < 1e-9);
+test("2 landscapes → two wide stacked halves (each cell aspect>1)", () => {
+  const page = selectTemplate(many(landscape, 2), PA);
+  assert.equal(page.cols, 1);
+  assert.equal(page.rows, 2);
+  page.cells.forEach((_, i) => assert.ok(placedCellAspect(page, i) > 1, "wide cell"));
 });
 
-test("portraits make taller rows than landscapes (still justified, no crop)", () => {
-  const pRows = buildRows(many(portrait, 4), OPTS);
-  const lRows = buildRows(many(landscape, 4), OPTS);
-  for (const r of [...pRows, ...lRows]) {
-    if (r.justified) assert.ok(rowFillsWidth(r.aspects, r.height, OPTS.gap));
+test("portraits are placed in cells no wider than themselves (no head/feet crop)", () => {
+  // mix of portraits + landscapes; each portrait should land in a cell whose
+  // aspect is <= the photo's aspect, so any crop is on the sides, not top/bottom.
+  const photos = [portrait(), landscape(), portrait(), landscape(), square()];
+  const page = selectTemplate(photos, PA);
+  page.cells.forEach((cell, i) => {
+    const a = photoAspect(cell.photo);
+    if (isPortrait(a)) {
+      assert.ok(placedCellAspect(page, i) <= a + 1e-9, "portrait not in a wider cell");
+    }
+  });
+});
+
+test("balancedChunks: ≤ max, evenly split, no lonely trailing page", () => {
+  assert.deepEqual(balancedChunks(1, 6), [1]);
+  assert.deepEqual(balancedChunks(6, 6), [6]);
+  assert.deepEqual(balancedChunks(7, 6), [4, 3]);
+  assert.deepEqual(balancedChunks(13, 6), [5, 4, 4]);
+  assert.deepEqual(balancedChunks(0, 6), []);
+  for (const n of [1, 2, 5, 6, 7, 8, 11, 19, 24]) {
+    const sizes = balancedChunks(n, 6);
+    assert.equal(sizes.reduce((s, x) => s + x, 0), n);
+    assert.ok(Math.max(...sizes) <= 6);
+    assert.ok(Math.min(...sizes) >= 1);
   }
-  // a justified portrait row is taller than a justified landscape row
-  const pH = pRows.find((r) => r.justified)!.height;
-  const lH = lRows.find((r) => r.justified)!.height;
-  assert.ok(pH > lH);
 });
 
-test("paginateRows splits rows across pages when the page height fills", () => {
-  // 30 landscapes → many short rows → must span multiple pages
-  const rows = buildRows(many(landscape, 30), OPTS);
-  const pages = paginateRows(rows, OPTS);
+test("buildMosaicPages: empty → [], keeps ALL photos, splits across pages", () => {
+  assert.deepEqual(buildMosaicPages([], DEFAULT_MOSAIC_OPTS), []);
+  const input = [...many(landscape, 7), ...many(portrait, 6)]; // 13
+  const pages = buildMosaicPages(input, DEFAULT_MOSAIC_OPTS);
   assert.ok(pages.length >= 2, "spills onto multiple pages");
-  for (const pg of pages) {
-    const total = pg.rows.reduce((s, r) => s + r.height, 0) + (pg.rows.length - 1) * OPTS.gap;
-    assert.ok(total <= OPTS.pageH + 1e-9, "no page exceeds the page height");
-    assert.ok(pg.rows.length >= 1);
-  }
-});
-
-test("buildCollagePages: empty in → empty out, and every photo is kept in order", () => {
-  assert.deepEqual(buildCollagePages([], OPTS), []);
-  const input = [...many(landscape, 5), ...many(portrait, 3), ...many(square, 2)];
-  const pages = buildCollagePages(input, OPTS);
-  const flat = pages.flatMap((pg) => pg.rows.flatMap((r) => r.photos));
+  const flat = pages.flatMap((pg) => pg.cells.map((c) => c.photo.id));
   assert.equal(flat.length, input.length);
-  assert.deepEqual(flat.map((p) => p.id), input.map((p) => p.id));
+  assert.deepEqual([...flat].sort(), input.map((p) => p.id).sort());
+  for (const pg of pages) assert.ok(pg.cells.length <= DEFAULT_MOSAIC_OPTS.maxPerPage);
 });
 
-test("missing dimensions are treated as 3:2 landscape (tile, never capped alone-as-portrait)", () => {
-  const rows = buildRows(many(noDims, 2), OPTS);
-  // two 1.5-aspect photos → one justified row that fills width
-  assert.equal(rows.length, 1);
-  assert.equal(rows[0].justified, true);
-  assert.ok(rowFillsWidth(rows[0].aspects, rows[0].height, OPTS.gap));
+test("missing-dimension photos behave as landscape (wide template for a pair)", () => {
+  const page = selectTemplate(many(noDims, 2), PA);
+  // two landscapes → two wide stacked
+  assert.equal(page.cols, 1);
+  assert.equal(page.rows, 2);
 });

@@ -1,15 +1,18 @@
-// ─── Yearbook justified-rows packing ─────────────────────────────────────────
-// Pure TypeScript (no React) so it's unit-testable. Lays a chapter's photos out
-// in justified rows — Google-Photos / photo-book style — then paginates the
-// rows down each page.
+// ─── Yearbook smart mosaic collage ───────────────────────────────────────────
+// Pure TypeScript (no React), so it's unit-testable. Tiles each page with a
+// curated template chosen by photo count, then assigns photos to cells to
+// minimize cropping — portraits into tall cells, landscapes into wide cells —
+// using simple orientation heuristics (NO AI / face detection).
 //
-// Within a justified row every photo shares one height and its width scales by
-// its true aspect ratio, so the row fills the page width edge to edge with a
-// small uniform gap and NOTHING is cropped (each photo's box matches its own
-// ratio — no letterbox mat). Layout is computed deterministically from a fixed
-// LOGICAL page (width = 1 unit, height = `pageH` units) + the stored aspect
-// ratios, so the on-screen reader and the PDF print path render identically (no
-// runtime container measurement).
+// Cropping is direction-aware: a cell crop along the photo's SIDES (horizontal)
+// is gentle, but a crop along the TOP/BOTTOM (vertical) risks chopping
+// heads/feet, so it's penalized heavily. The renderer fills each cell with
+// object-cover plus a focal object-position (portraits biased toward the top),
+// so the page fills edge to edge with no gaps and faces are kept.
+//
+// Templates + assignment are computed deterministically from stored aspect
+// ratios + a fixed logical page aspect, and rendered in pure CSS grid, so the
+// on-screen reader and the PDF print path render identically.
 
 export interface PhotoItem {
   id: string;
@@ -18,44 +21,43 @@ export interface PhotoItem {
   photo_height?: number | null;
 }
 
-export interface CollageRow {
-  photos: PhotoItem[];
-  /** Aspect ratio (width / height) per photo, defaulted for missing dims. */
-  aspects: number[];
-  /** true → justify to full page width (flex-grow). false → a too-sparse row
-   *  (e.g. a lone portrait) rendered at `maxRowH` with natural widths, centered,
-   *  so it doesn't blow up to full width. */
-  justified: boolean;
-  /** Row height as a fraction of page width (used for pagination + tests). */
-  height: number;
+/** A cell's placement in the template's grid (0-based start, span counts). */
+export interface CellRect {
+  c: number;
+  r: number;
+  cs: number;
+  rs: number;
 }
 
-export interface CollagePageRows {
-  rows: CollageRow[];
+export interface TemplateVariant {
+  cols: number;
+  rows: number;
+  cells: CellRect[];
 }
 
-export interface JustifiedOpts {
-  /** Close a row once justifying it to full width drops to this height (fraction of page width). */
-  targetRowH: number;
-  /** A trailing row taller than this when justified is rendered un-justified at this height. */
-  maxRowH: number;
-  /** Uniform gap as a fraction of page width (affects row breaks; render gap is a small px value). */
-  gap: number;
-  /** Page content height as a fraction of page width (pagination fills to here). */
-  pageH: number;
+export interface PlacedCell extends CellRect {
+  photo: PhotoItem;
 }
 
-// Tuned for the reader's book-page proportions. Adjust here to make pages denser
-// or roomier — both the reader and the PDF read from these same numbers.
-export const DEFAULT_JUSTIFIED_OPTS: JustifiedOpts = {
-  targetRowH: 0.58,
-  maxRowH: 0.92,
-  gap: 0.008,
-  pageH: 1.5,
+export interface MosaicPage {
+  cols: number;
+  rows: number;
+  cells: PlacedCell[];
+}
+
+export interface MosaicOpts {
+  /** Page content aspect (width / height). The reader page is portrait-ish. */
+  pageAspect: number;
+  maxPerPage: number;
+}
+
+export const DEFAULT_MOSAIC_OPTS: MosaicOpts = {
+  pageAspect: 0.66,
+  maxPerPage: 6,
 };
 
-/** Missing dimensions → assume a 3:2 landscape so the photo tiles normally. */
-export const DEFAULT_ASPECT = 3 / 2;
+/** Missing dimensions → assume a 3:2 landscape (per project rule). */
+export const DEFAULT_ASPECT = 1.5;
 
 export function photoAspect(p: PhotoItem): number {
   if (
@@ -69,71 +71,121 @@ export function photoAspect(p: PhotoItem): number {
   return DEFAULT_ASPECT;
 }
 
-// Height (fraction of page width) a row of `count` photos with aspect-sum
-// `aspectSum` takes when justified to full width with (count-1) gaps.
-function justifiedHeight(count: number, aspectSum: number, gap: number): number {
-  return (1 - (count - 1) * gap) / aspectSum;
+export function isPortrait(aspect: number): boolean {
+  return aspect < 0.9;
 }
 
-/** Greedily break photos into justified rows (chronological order preserved). */
-export function buildRows(photos: PhotoItem[], opts: JustifiedOpts = DEFAULT_JUSTIFIED_OPTS): CollageRow[] {
-  const rows: CollageRow[] = [];
-  let cur: PhotoItem[] = [];
-  let aspects: number[] = [];
-  let sum = 0;
+/** Rendered aspect (w/h) of a cell, given the template grid + page aspect. */
+export function cellAspect(cell: CellRect, cols: number, rows: number, pageAspect: number): number {
+  return ((cell.cs * rows) / (cell.rs * cols)) * pageAspect;
+}
 
-  for (const p of photos) {
-    const r = photoAspect(p);
-    cur.push(p);
-    aspects.push(r);
-    sum += r;
-    const h = justifiedHeight(cur.length, sum, opts.gap);
-    if (h <= opts.targetRowH) {
-      rows.push({ photos: cur, aspects, justified: true, height: h });
-      cur = [];
-      aspects = [];
-      sum = 0;
+// Cost of cover-fitting a photo (aspect Ap) into a cell (aspect Ac). When the
+// photo is relatively WIDER than the cell it's cropped on the sides (gentle);
+// when it's relatively TALLER it's cropped top/bottom — heads/feet — which we
+// weight heavily so portraits avoid wide cells.
+const VERTICAL_CROP_WEIGHT = 3;
+export function cropCost(Ap: number, Ac: number): number {
+  if (Ap >= Ac) {
+    // photo wider than cell → horizontal (side) crop, gentle
+    return 1 - Ac / Ap;
+  }
+  // photo taller than cell → vertical (top/bottom) crop, penalized
+  return (1 - Ap / Ac) * VERTICAL_CROP_WEIGHT;
+}
+
+// ─── Curated templates by photo count (each tiles its grid exactly) ──────────
+
+export const TEMPLATES: Record<number, TemplateVariant[]> = {
+  1: [{ cols: 1, rows: 1, cells: [{ c: 0, r: 0, cs: 1, rs: 1 }] }],
+  2: [
+    // two tall halves (portraits)
+    { cols: 2, rows: 1, cells: [{ c: 0, r: 0, cs: 1, rs: 1 }, { c: 1, r: 0, cs: 1, rs: 1 }] },
+    // two wide halves stacked (landscapes)
+    { cols: 1, rows: 2, cells: [{ c: 0, r: 0, cs: 1, rs: 1 }, { c: 0, r: 1, cs: 1, rs: 1 }] },
+  ],
+  3: [
+    // tall feature left + two stacked right
+    { cols: 2, rows: 2, cells: [{ c: 0, r: 0, cs: 1, rs: 2 }, { c: 1, r: 0, cs: 1, rs: 1 }, { c: 1, r: 1, cs: 1, rs: 1 }] },
+    // three wide stacked
+    { cols: 1, rows: 3, cells: [{ c: 0, r: 0, cs: 1, rs: 1 }, { c: 0, r: 1, cs: 1, rs: 1 }, { c: 0, r: 2, cs: 1, rs: 1 }] },
+    // wide top + two tall bottom
+    { cols: 2, rows: 2, cells: [{ c: 0, r: 0, cs: 2, rs: 1 }, { c: 0, r: 1, cs: 1, rs: 1 }, { c: 1, r: 1, cs: 1, rs: 1 }] },
+  ],
+  4: [
+    // 2x2
+    { cols: 2, rows: 2, cells: [{ c: 0, r: 0, cs: 1, rs: 1 }, { c: 1, r: 0, cs: 1, rs: 1 }, { c: 0, r: 1, cs: 1, rs: 1 }, { c: 1, r: 1, cs: 1, rs: 1 }] },
+    // tall feature left + three stacked right
+    { cols: 3, rows: 3, cells: [{ c: 0, r: 0, cs: 2, rs: 3 }, { c: 2, r: 0, cs: 1, rs: 1 }, { c: 2, r: 1, cs: 1, rs: 1 }, { c: 2, r: 2, cs: 1, rs: 1 }] },
+  ],
+  5: [
+    // big feature top-left + three down the right + one wide along the bottom
+    { cols: 3, rows: 3, cells: [{ c: 0, r: 0, cs: 2, rs: 2 }, { c: 2, r: 0, cs: 1, rs: 1 }, { c: 2, r: 1, cs: 1, rs: 1 }, { c: 2, r: 2, cs: 1, rs: 1 }, { c: 0, r: 2, cs: 2, rs: 1 }] },
+  ],
+  6: [
+    // 3 x 2
+    { cols: 3, rows: 2, cells: [{ c: 0, r: 0, cs: 1, rs: 1 }, { c: 1, r: 0, cs: 1, rs: 1 }, { c: 2, r: 0, cs: 1, rs: 1 }, { c: 0, r: 1, cs: 1, rs: 1 }, { c: 1, r: 1, cs: 1, rs: 1 }, { c: 2, r: 1, cs: 1, rs: 1 }] },
+    // feature top-left + five around
+    { cols: 3, rows: 3, cells: [{ c: 0, r: 0, cs: 2, rs: 2 }, { c: 2, r: 0, cs: 1, rs: 1 }, { c: 2, r: 1, cs: 1, rs: 1 }, { c: 2, r: 2, cs: 1, rs: 1 }, { c: 0, r: 2, cs: 1, rs: 1 }, { c: 1, r: 2, cs: 1, rs: 1 }] },
+  ],
+};
+
+function range(n: number): number[] {
+  return Array.from({ length: n }, (_, i) => i);
+}
+
+function permutations(items: number[]): number[][] {
+  if (items.length <= 1) return [items];
+  const out: number[][] = [];
+  for (let i = 0; i < items.length; i++) {
+    const rest = [...items.slice(0, i), ...items.slice(i + 1)];
+    for (const p of permutations(rest)) out.push([items[i], ...p]);
+  }
+  return out;
+}
+
+/**
+ * Pick the template variant + photo→cell assignment with the least total crop
+ * cost. Deterministic (brute force over ≤6 photos; first minimum wins).
+ */
+export function selectTemplate(photos: PhotoItem[], pageAspect: number): MosaicPage {
+  const n = photos.length;
+  const variants = TEMPLATES[n] ?? TEMPLATES[Math.min(Math.max(n, 1), 6)];
+  const aspects = photos.map(photoAspect);
+  const perms = permutations(range(n));
+
+  let best: { cost: number; variant: TemplateVariant; order: number[] } | null = null;
+  for (const variant of variants) {
+    const cellAspects = variant.cells.map((cell) => cellAspect(cell, variant.cols, variant.rows, pageAspect));
+    for (const perm of perms) {
+      let cost = 0;
+      for (let i = 0; i < n; i++) cost += cropCost(aspects[perm[i]], cellAspects[i]);
+      if (!best || cost < best.cost - 1e-12) best = { cost, variant, order: perm };
     }
   }
 
-  // Trailing leftover row.
-  if (cur.length > 0) {
-    const h = justifiedHeight(cur.length, sum, opts.gap);
-    if (h <= opts.maxRowH) {
-      rows.push({ photos: cur, aspects, justified: true, height: h });
-    } else {
-      // Too sparse to justify (a lone portrait, say) — keep its real shape at
-      // maxRowH instead of stretching it across the whole page.
-      rows.push({ photos: cur, aspects, justified: false, height: opts.maxRowH });
-    }
-  }
-
-  return rows;
+  const v = best!.variant;
+  const cells: PlacedCell[] = v.cells.map((cell, i) => ({ ...cell, photo: photos[best!.order[i]] }));
+  return { cols: v.cols, rows: v.rows, cells };
 }
 
-/** Stack rows down each page until the page height is filled, then continue. */
-export function paginateRows(rows: CollageRow[], opts: JustifiedOpts = DEFAULT_JUSTIFIED_OPTS): CollagePageRows[] {
-  const pages: CollagePageRows[] = [];
-  let cur: CollageRow[] = [];
-  let curH = 0;
-
-  for (const row of rows) {
-    const gapBefore = cur.length > 0 ? opts.gap : 0;
-    if (cur.length > 0 && curH + gapBefore + row.height > opts.pageH) {
-      pages.push({ rows: cur });
-      cur = [row];
-      curH = row.height;
-    } else {
-      cur.push(row);
-      curH += gapBefore + row.height;
-    }
-  }
-  if (cur.length > 0) pages.push({ rows: cur });
-
-  return pages;
+/** Split N into balanced page sizes (≤ maxPerPage, no lonely trailing page). */
+export function balancedChunks(total: number, maxPerPage: number): number[] {
+  if (total <= 0) return [];
+  const pages = Math.ceil(total / maxPerPage);
+  const base = Math.floor(total / pages);
+  const extra = total % pages;
+  return range(pages).map((i) => base + (i < extra ? 1 : 0));
 }
 
-export function buildCollagePages(photos: PhotoItem[], opts: JustifiedOpts = DEFAULT_JUSTIFIED_OPTS): CollagePageRows[] {
+export function buildMosaicPages(photos: PhotoItem[], opts: MosaicOpts = DEFAULT_MOSAIC_OPTS): MosaicPage[] {
   if (photos.length === 0) return [];
-  return paginateRows(buildRows(photos, opts), opts);
+  const sizes = balancedChunks(photos.length, opts.maxPerPage);
+  const pages: MosaicPage[] = [];
+  let idx = 0;
+  for (const size of sizes) {
+    pages.push(selectTemplate(photos.slice(idx, idx + size), opts.pageAspect));
+    idx += size;
+  }
+  return pages;
 }
