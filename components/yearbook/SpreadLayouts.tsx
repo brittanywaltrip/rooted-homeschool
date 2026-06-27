@@ -45,7 +45,7 @@ function Photo({ src, className = "", style, bucket = "memory-photos" }: { src: 
 
 // ─── Shell (matches yearbook page dimensions) ────────────────────────────────
 
-function Shell({ children, bg = "#FAFAF7" }: { children: React.ReactNode; bg?: string }) {
+function Shell({ children, bg = "var(--yb-bg)" }: { children: React.ReactNode; bg?: string }) {
   return (
     <div className="w-full h-full overflow-hidden" style={{ background: bg }}>
       <div className="h-full overflow-hidden px-7 py-2 flex flex-col justify-center">
@@ -156,7 +156,7 @@ function MilestoneLayout({ spread }: { spread: YearbookSpread }) {
 
           {/* Win/quote title */}
           <p
-            className={`${isQuote ? "italic" : ""} text-[18px] text-[#2d2926] leading-relaxed max-w-[240px] line-clamp-6 -mt-3`}
+            className={`${isQuote ? "italic" : ""} text-[18px] text-[var(--yb-body)] leading-relaxed max-w-[240px] line-clamp-6 -mt-3`}
             style={{ fontFamily: "Georgia, serif" }}
           >
             {m.title}
@@ -198,7 +198,7 @@ function MilestoneRightPage({ spread }: { spread: YearbookSpread }) {
 
         {/* Child name large */}
         {m?.child_name && (
-          <p className="text-[20px] text-[#2d2926] mb-1" style={{ fontFamily: "Georgia, serif" }}>
+          <p className="text-[20px] text-[var(--yb-body)] mb-1" style={{ fontFamily: "Georgia, serif" }}>
             {m.child_name}
           </p>
         )}
@@ -215,7 +215,7 @@ function MilestoneRightPage({ spread }: { spread: YearbookSpread }) {
                 <div key={a.id} className="flex items-start gap-1.5">
                   <span className="text-[8px] text-[rgba(254, 252, 249, 0.55)] mt-0.5">•</span>
                   <div>
-                    <p className="text-[9px] text-[#2d2926] line-clamp-1" style={{ fontFamily: "Georgia, serif" }}>
+                    <p className="text-[9px] text-[var(--yb-body)] line-clamp-1" style={{ fontFamily: "Georgia, serif" }}>
                       {a.title}
                     </p>
                     <p className="text-[7px] text-[#b5aca4]">{shortDate(a.created_at)}</p>
@@ -252,7 +252,7 @@ function MilestoneWithPhotoLayout({ spread }: { spread: YearbookSpread }) {
         )}
         {/* Win title + date below photo */}
         <div className="mt-3 px-1">
-          <p className="text-[12px] text-[#2d2926] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
+          <p className="text-[12px] text-[var(--yb-body)] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
             {m.title}
           </p>
           <p className="text-[8px] text-[#9a8f85] mt-1">{safeDateStr(m.created_at)}</p>
@@ -267,7 +267,7 @@ function MilestoneWithPhotoLayout({ spread }: { spread: YearbookSpread }) {
 function MonthDividerLeftPage({ spread }: { spread: YearbookSpread }) {
   const md = spread.metadata!;
   return (
-    <div className="w-full h-full overflow-hidden relative" style={{ background: "#FAFAF7" }}>
+    <div className="w-full h-full overflow-hidden relative" style={{ background: "var(--yb-bg)" }}>
       {/* Botanical watermarks */}
       <span className="absolute top-6 right-4 text-[80px] opacity-[0.04] select-none pointer-events-none" style={{ transform: "rotate(-20deg)" }}>🌿</span>
       <span className="absolute bottom-8 left-3 text-[60px] opacity-[0.03] select-none pointer-events-none" style={{ transform: "rotate(15deg)" }}>🍃</span>
@@ -275,7 +275,7 @@ function MonthDividerLeftPage({ spread }: { spread: YearbookSpread }) {
 
       <div className="h-full flex flex-col items-center justify-center text-center px-8 relative z-10">
         <div className="w-12 h-px bg-[rgba(254, 252, 249, 0.55)]/40 mb-5" />
-        <p className="text-[36px] font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+        <p className="text-[36px] font-bold text-[var(--yb-body)]" style={{ fontFamily: "Georgia, serif" }}>
           {md.monthName}
         </p>
         <p className="text-[10px] text-[#9a8f85] mt-2 tracking-[0.15em] uppercase">
@@ -294,8 +294,8 @@ function BooksLeftPage({ spread }: { spread: YearbookSpread }) {
   return (
     <Shell>
       <div className="shrink-0">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[#5c7f63]">Reading list</p>
-        <h2 className="text-[16px] font-bold text-[#2d2926] mt-1" style={{ fontFamily: "var(--font-display)" }}>
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Reading list</p>
+        <h2 className="text-[16px] font-bold text-[var(--yb-body)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
           Books {childName} read this year
         </h2>
       </div>
@@ -304,10 +304,10 @@ function BooksLeftPage({ spread }: { spread: YearbookSpread }) {
           <div key={m.id} className="flex items-start gap-2">
             <span className="text-[13px] shrink-0 mt-0.5">📖</span>
             <div>
-              <p className="text-[11px] text-[#2d2926] line-clamp-1" style={{ fontFamily: "Georgia, serif" }}>
+              <p className="text-[11px] text-[var(--yb-body)] line-clamp-1" style={{ fontFamily: "Georgia, serif" }}>
                 {m.title ?? "Untitled"}
               </p>
-              <p className="text-[9px] text-[#7a6f65]">{shortDate(m.created_at)}</p>
+              <p className="text-[9px] text-[var(--yb-muted)]">{shortDate(m.created_at)}</p>
             </div>
           </div>
         ))}
@@ -323,7 +323,7 @@ function BooksRightPage({ spread }: { spread: YearbookSpread }) {
         <p className="text-[48px] font-bold text-[var(--g-deep)]" style={{ fontFamily: "Georgia, serif" }}>
           {spread.memories.length}
         </p>
-        <p className="text-[11px] text-[#7a6f65] mt-1">books read this year</p>
+        <p className="text-[11px] text-[var(--yb-muted)] mt-1">books read this year</p>
         <div className="text-[13px] opacity-45 select-none my-4" aria-hidden>🌿</div>
         <p className="italic text-[12px] text-[#3a352f] leading-relaxed max-w-[210px]" style={{ fontFamily: "Georgia, serif" }}>
           Every book is a window into a new world.
@@ -348,10 +348,10 @@ function YearInNumbersLeftPage({ spread }: { spread: YearbookSpread }) {
   return (
     <Shell>
       <div className="shrink-0 mb-3">
-        <h2 className="text-[16px] font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+        <h2 className="text-[16px] font-bold text-[var(--yb-body)]" style={{ fontFamily: "Georgia, serif" }}>
           Our year in numbers
         </h2>
-        <p className="text-[10px] text-[#7a6f65] mt-0.5">{md.familyName}</p>
+        <p className="text-[10px] text-[var(--yb-muted)] mt-0.5">{md.familyName}</p>
       </div>
       <div className="grid grid-cols-2 gap-3 flex-1 min-h-0">
         {stats.map((s) => (
@@ -360,7 +360,7 @@ function YearInNumbersLeftPage({ spread }: { spread: YearbookSpread }) {
             <p className="text-[28px] font-bold text-[var(--g-deep)] leading-none" style={{ fontFamily: "Georgia, serif" }}>
               {s.value}
             </p>
-            <p className="text-[9px] text-[#7a6f65] mt-1">{s.label}</p>
+            <p className="text-[9px] text-[var(--yb-muted)] mt-1">{s.label}</p>
           </div>
         ))}
       </div>
@@ -380,7 +380,7 @@ function YearInNumbersRightPage({ spread }: { spread: YearbookSpread }) {
 
         <div className="relative z-10">
           <div className="text-[13px] opacity-45 select-none mb-4" aria-hidden>🌿</div>
-          <p className="text-[20px] font-bold text-[#2d2926]" style={{ fontFamily: "Georgia, serif" }}>
+          <p className="text-[20px] font-bold text-[var(--yb-body)]" style={{ fontFamily: "Georgia, serif" }}>
             {md.yearLabel}
           </p>
           <div className="text-[13px] opacity-45 select-none my-4" aria-hidden>🌿</div>
@@ -423,7 +423,7 @@ function FavoriteThingsLeftPage({ spread }: { spread: YearbookSpread }) {
                   {p.prompt}
                 </p>
                 {answer ? (
-                  <p className="text-[12px] text-[#2d2926] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+                  <p className="text-[12px] text-[var(--yb-body)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
                     {answer}
                   </p>
                 ) : (
@@ -461,7 +461,7 @@ function FavoriteThingsRightPage({ spread }: { spread: YearbookSpread }) {
   return (
     <Shell bg="#FAF6EC">
       <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-        <p className="text-[24px] text-[#2d2926] mb-2" style={{ fontFamily: "Georgia, serif" }}>
+        <p className="text-[24px] text-[var(--yb-body)] mb-2" style={{ fontFamily: "Georgia, serif" }}>
           {md.childName}
         </p>
         <div className="w-9 h-px bg-[#ddd5c0] my-3" />
@@ -483,10 +483,10 @@ function MixedLayout({ spread }: { spread: YearbookSpread }) {
       <div className="space-y-2 flex-1 min-h-0 overflow-hidden">
         {spread.memories.map((m) => (
           <div key={m.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[rgba(254, 252, 249, 0.55)]">
-            <p className="text-[7px] uppercase tracking-wider text-[#5c7f63] mb-0.5">
+            <p className="text-[7px] uppercase tracking-wider text-[var(--yb-accent)] mb-0.5">
               {m.type === "field_trip" ? "🗺️ Trip" : m.type === "project" ? "🎨 Project" : "📝 Memory"}
             </p>
-            <p className="text-[9px] text-[#2d2926] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{m.title}</p>
+            <p className="text-[9px] text-[var(--yb-body)] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{m.title}</p>
             <p className="text-[8px] text-[#9a8f85] mt-0.5">{shortDate(m.created_at)}</p>
           </div>
         ))}
@@ -571,7 +571,7 @@ export const SpreadRightPage = memo(function SpreadRightPage({ spread }: { sprea
         <Shell>
           <div className="flex-1 flex flex-col items-center justify-center text-center px-5">
             <span className="text-[24px] mb-2">{m.type === "win" ? "⭐" : m.type === "quote" ? "💬" : "📝"}</span>
-            <p className="text-[11px] text-[#2d2926] leading-relaxed line-clamp-4" style={{ fontFamily: "Georgia, serif" }}>
+            <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-4" style={{ fontFamily: "Georgia, serif" }}>
               {m.title}
             </p>
             {m.child_name && <p className="text-[8px] text-[#9a8f85] mt-2">— {m.child_name}</p>}

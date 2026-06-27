@@ -8,6 +8,7 @@ import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
+import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
 import {
   DndContext,
   PointerSensor,
@@ -410,6 +411,7 @@ export default function YearbookEditPage() {
     show_books_section: boolean;
     show_family_chapter: boolean;
     show_village: boolean;
+    theme?: string;
   };
   const DEFAULT_YB_SETTINGS: YearbookSettings = {
     show_letter: true,
@@ -419,6 +421,7 @@ export default function YearbookEditPage() {
     show_books_section: true,
     show_family_chapter: true,
     show_village: true,
+    theme: "garden",
   };
   const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
 
@@ -709,6 +712,56 @@ export default function YearbookEditPage() {
           </div>
           <div className="h-[5px] bg-[#e8e3dc] rounded-full overflow-hidden">
             <div className="h-full bg-[var(--g-deep)] rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+
+        {/* ── Theme ────────────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Theme</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            A look for your whole yearbook. Applies to the reader and the PDF.
+          </p>
+          <div className="grid grid-cols-3 gap-2.5">
+            {([
+              { key: "garden", label: "The Garden" },
+              { key: "heirloom", label: "Heirloom" },
+              { key: "gallery", label: "The Gallery" },
+            ] as const).map((opt) => {
+              const t = THEMES[opt.key];
+              const selected = resolveThemeName(ybSettings.theme) === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={async () => {
+                    if (isReadOnly) return;
+                    const next = { ...ybSettings, theme: opt.key };
+                    setYbSettings(next);
+                    if (effectiveUserId) {
+                      await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
+                    }
+                  }}
+                  disabled={isReadOnly}
+                  className={`rounded-xl border-2 p-1.5 text-left transition-colors disabled:opacity-60 ${
+                    selected ? "border-[#5c7f63]" : "border-[#e8e3dc] hover:border-[#cdd9bf]"
+                  }`}
+                >
+                  <div
+                    className="rounded-lg overflow-hidden h-16 flex flex-col items-center justify-center border border-black/5"
+                    style={{ background: t.bg }}
+                  >
+                    <span style={{ fontFamily: t.headingFont, color: t.heading, fontWeight: 600, fontSize: 15, lineHeight: 1 }}>
+                      Aa
+                    </span>
+                    <span className="mt-1.5 inline-block rounded-full" style={{ width: 22, height: 5, background: t.accent }} />
+                  </div>
+                  <div className="flex items-center justify-between mt-1.5 px-0.5">
+                    <span className="text-[11px] text-[#2d2926]">{opt.label}</span>
+                    {selected && <span className="text-[10px] text-[#5c7f63]">✓</span>}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
