@@ -8,6 +8,38 @@ import { ChevronLeft } from "lucide-react";
 
 const UPDATES = [
   {
+    date: "June 2026",
+    emoji: "📖",
+    title: "A more beautiful yearbook",
+    description:
+      "Your yearbook got a full redesign. Full-page photo collages fill every page, with chapter dividers, page numbers, and a warmer, more readable look throughout. Photos are framed to fit beautifully, so nothing important gets cropped out.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "June 2026",
+    emoji: "🎨",
+    title: "Make your yearbook yours",
+    description:
+      "You're in control of how your yearbook looks. Reorder photos within a chapter, reposition any photo to keep faces in view, feature a favorite as its own full page, or hide a photo from the book. It's all in the yearbook editor.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "June 2026",
+    emoji: "📸",
+    title: "First Day Photo",
+    description:
+      "Capture that first-day-of-school moment with a special framed photo. It flows straight into your Memories and your yearbook.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "June 2026",
+    emoji: "🍎",
+    title: "Attach a photo to a lesson",
+    description:
+      "Snap a photo while you're learning and attach it right to a lesson. Your lesson photos show up in Memories and your yearbook automatically.",
+    inspiredByFamily: true,
+  },
+  {
     date: "April 2026",
     emoji: "📖",
     title: "Yearbook",
