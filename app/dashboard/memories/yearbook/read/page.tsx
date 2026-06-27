@@ -16,7 +16,7 @@ import {
   buildFavoriteThingsSpread,
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
-import { buildMosaicPages, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell } from "@/lib/yearbook-photo-pages";
+import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell, type PhotoItem, type ChapterPhotoUnit } from "@/lib/yearbook-photo-pages";
 import { focalObjectPosition } from "@/lib/focal-point";
 import { orderPhotos } from "@/lib/photo-order";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
@@ -94,6 +94,7 @@ type MemoryRow = {
   focal_y: number | null;
   page_order: number | null;
   created_at: string | null;
+  featured: boolean | null;
 };
 
 type YearbookContentRow = {
@@ -267,7 +268,7 @@ function FillerPage() {
   );
 }
 
-function toPhotoItem(m: MemoryRow) {
+function toPhotoItem(m: MemoryRow): PhotoItem {
   return {
     id: m.id,
     photo_url: m.photo_url,
@@ -275,21 +276,42 @@ function toPhotoItem(m: MemoryRow) {
     photo_height: m.photo_height,
     focal_x: m.focal_x,
     focal_y: m.focal_y,
+    featured: m.featured,
+    include_in_book: m.include_in_book,
   };
 }
 
-// Group a chapter's collage pages into book spreads (2 pages per spread, with a
-// quiet filler on a trailing odd page).
-function collagePagesToSpreads(pages: MosaicPage[], idPrefix: string, label: string): SpreadDef[] {
+// A featured photo on its own full-bleed page — like a chapter divider, but no
+// title overlay. Focal-aware cover fill, identical in reader and print.
+function FeaturePhotoPage({ photo }: { photo: PhotoItem }) {
+  return (
+    <div className="w-full h-full overflow-hidden" style={{ background: "#FAFAF7" }}>
+      <FocalPhoto
+        src={photo.photo_url}
+        aspect={photoAspect(photo)}
+        focalX={photo.focal_x}
+        focalY={photo.focal_y}
+      />
+    </div>
+  );
+}
+
+function renderChapterUnit(u: ChapterPhotoUnit): ReactNode {
+  return u.kind === "feature" ? <FeaturePhotoPage photo={u.photo} /> : <CollagePage page={u.page} />;
+}
+
+// Pair a chapter's ordered page units (mosaic pages + solo feature pages) into
+// book spreads, 2 pages each, with a quiet filler on a trailing odd page.
+function chapterUnitsToSpreads(units: ChapterPhotoUnit[], idPrefix: string, label: string): SpreadDef[] {
   const out: SpreadDef[] = [];
-  for (let i = 0; i < pages.length; i += 2) {
-    const left = pages[i];
-    const right = pages[i + 1];
+  for (let i = 0; i < units.length; i += 2) {
+    const left = units[i];
+    const right = units[i + 1];
     out.push({
       id: `${idPrefix}-${i / 2}`,
       label,
-      leftContent: <CollagePage page={left} />,
-      rightContent: right ? <CollagePage page={right} /> : <FillerPage />,
+      leftContent: renderChapterUnit(left),
+      rightContent: right ? renderChapterUnit(right) : <FillerPage />,
     });
   }
   return out;
@@ -410,7 +432,7 @@ export default function YearbookReadPage() {
 
       let memsQuery = supabase
         .from("memories")
-        .select("id, child_id, date, type, title, caption, photo_url, include_in_book, photo_width, photo_height, focal_x, focal_y, page_order, created_at")
+        .select("id, child_id, date, type, title, caption, photo_url, include_in_book, photo_width, photo_height, focal_x, focal_y, page_order, created_at, featured")
         .eq("user_id", effectiveUserId)
         .eq("include_in_book", true)
         .gte("date", openedAt.slice(0, 10))
@@ -750,9 +772,9 @@ export default function YearbookReadPage() {
   if (ybSettings.show_child_chapters) children.forEach((child, ci) => {
     const childMems = memories.filter((m) => m.child_id === child.id);
     // Photos flow through the chapter in the family's chosen order (page_order),
-    // falling back to date when un-ordered. The mosaic builder consumes this
-    // sequence, so reordering changes which photos group onto which pages.
-    const childPhotos = orderPhotos(childMems.filter((m) => m.photo_url));
+    // falling back to date when un-ordered. Hidden photos are excluded; the
+    // mosaic builder consumes this sequence, so reordering changes grouping.
+    const childPhotos = orderPhotos(keepInBook(childMems.filter((m) => m.photo_url)));
     // Allocate this chapter's still-unused photos across the feature divider,
     // the "favorite things" slot, and the collage WITHOUT starving the collage:
     // planChapterPhotos guarantees the collage is left at 0 or ≥2 photos (never
@@ -761,14 +783,19 @@ export default function YearbookReadPage() {
     // photo divider when there's one to spare. Most-recent photos fill the
     // prominent slots; the rest flow to the collage. No photo is shown twice.
     const available = childPhotos.filter((m) => !reservedPhotoIds.has(m.id));
-    const plan = planChapterPhotos(available.length, ybSettings.show_favorite_things);
-    const byRecent = [...available].reverse();
+    // Featured photos get their own full-bleed pages and are NOT eligible for
+    // the divider opener or the favorites slot; the divider/favorites are
+    // planned from the non-featured photos so the collage still fills.
+    const nonFeatured = available.filter((m) => !m.featured);
+    const plan = planChapterPhotos(nonFeatured.length, ybSettings.show_favorite_things);
+    const byRecent = [...nonFeatured].reverse();
     let pick = 0;
     const featurePhoto = plan.useFeaturePhoto ? byRecent[pick++] : null;
     const favThingsPhoto = plan.useFavPhoto ? byRecent[pick++] : null;
     if (featurePhoto) reservedPhotoIds.add(featurePhoto.id);
     if (favThingsPhoto) reservedPhotoIds.add(favThingsPhoto.id);
-    const collageChildPhotos = available.filter(
+    // Chapter body in order: featured photos stay (→ solo pages), the rest mosaic.
+    const bodyChildPhotos = available.filter(
       (m) => m.id !== featurePhoto?.id && m.id !== favThingsPhoto?.id,
     );
 
@@ -852,8 +879,8 @@ export default function YearbookReadPage() {
     // 3a. PHOTO COLLAGE SPREADS — the chapter's photos (minus the one reserved
     // for "favorite things"), tiled into full-page mosaics across both pages of
     // each spread.
-    for (const sp of collagePagesToSpreads(
-      buildMosaicPages(collageChildPhotos.map(toPhotoItem)),
+    for (const sp of chapterUnitsToSpreads(
+      buildChapterPhotoUnits(bodyChildPhotos.map(toPhotoItem)),
       `child-${child.id}-photos`,
       `${child.name}'s chapter`,
     )) {
@@ -914,7 +941,7 @@ export default function YearbookReadPage() {
   });
 
   // 4. FAMILY MEMORIES SPREAD
-  const famPhotos = orderPhotos(familyMemories.filter((m) => m.photo_url));
+  const famPhotos = orderPhotos(keepInBook(familyMemories.filter((m) => m.photo_url)));
   const famWins = familyMemories.filter((m) => m.type === "win" || m.type === "field_trip");
 
   if (ybSettings.show_family_chapter) spreads.push({
@@ -973,7 +1000,7 @@ export default function YearbookReadPage() {
   // the letter's favorite moment), tiled into mosaics.
   const collageFamPhotos = famPhotos.filter((m) => !reservedPhotoIds.has(m.id));
   if (ybSettings.show_family_chapter) {
-    for (const sp of collagePagesToSpreads(buildMosaicPages(collageFamPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
+    for (const sp of chapterUnitsToSpreads(buildChapterPhotoUnits(collageFamPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
       spreads.push(sp);
     }
   }

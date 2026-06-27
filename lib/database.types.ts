@@ -985,6 +985,7 @@ export type Database = {
           duration_minutes: number | null
           family_visible: boolean | null
           favorite: boolean | null
+          featured: boolean | null
           focal_x: number | null
           focal_y: number | null
           id: string
@@ -1008,6 +1009,7 @@ export type Database = {
           duration_minutes?: number | null
           family_visible?: boolean | null
           favorite?: boolean | null
+          featured?: boolean | null
           focal_x?: number | null
           focal_y?: number | null
           id?: string
@@ -1031,6 +1033,7 @@ export type Database = {
           duration_minutes?: number | null
           family_visible?: boolean | null
           favorite?: boolean | null
+          featured?: boolean | null
           focal_x?: number | null
           focal_y?: number | null
           id?: string

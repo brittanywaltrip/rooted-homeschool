@@ -22,6 +22,10 @@ export interface PhotoItem {
   /** Normalized 0..1 focal point for cover-fit cropping (null → default heuristic). */
   focal_x?: number | null;
   focal_y?: number | null;
+  /** A featured photo gets its own full-bleed page instead of a mosaic cell. */
+  featured?: boolean | null;
+  /** false = hidden from the book (excluded everywhere). */
+  include_in_book?: boolean | null;
 }
 
 /** A cell's placement in the template's grid (0-based start, span counts). */
@@ -268,4 +272,44 @@ export function buildMosaicPages(photos: PhotoItem[], opts: MosaicOpts = DEFAULT
     idx += size;
   }
   return pages;
+}
+
+// ─── Hide + feature ──────────────────────────────────────────────────────────
+
+/** Photos that belong in the book — hidden (include_in_book === false) are dropped. */
+export function keepInBook<T extends { include_in_book?: boolean | null }>(photos: T[]): T[] {
+  return photos.filter((p) => p.include_in_book !== false);
+}
+
+// A chapter's photo flow as an ordered list of page UNITS: a featured photo
+// becomes its own solo full-bleed page at its ordered position, while each
+// maximal run of non-featured photos is mosaicked into one or more pages. With
+// nothing featured this is exactly buildMosaicPages wrapped as mosaic units, so
+// chapters without features render unchanged. Featuring many photos just yields
+// many solo pages in order (no silliness, no cell resizing).
+export type ChapterPhotoUnit =
+  | { kind: "mosaic"; page: MosaicPage }
+  | { kind: "feature"; photo: PhotoItem };
+
+export function buildChapterPhotoUnits(
+  photos: PhotoItem[],
+  opts: MosaicOpts = DEFAULT_MOSAIC_OPTS,
+): ChapterPhotoUnit[] {
+  const units: ChapterPhotoUnit[] = [];
+  let run: PhotoItem[] = [];
+  const flushRun = () => {
+    if (run.length === 0) return;
+    for (const page of buildMosaicPages(run, opts)) units.push({ kind: "mosaic", page });
+    run = [];
+  };
+  for (const p of photos) {
+    if (p.featured) {
+      flushRun();
+      units.push({ kind: "feature", photo: p });
+    } else {
+      run.push(p);
+    }
+  }
+  flushRun();
+  return units;
 }

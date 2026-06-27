@@ -17,6 +17,8 @@ import {
   isPortrait,
   planChapterPhotos,
   PHOTO_DIVIDER_MIN,
+  buildChapterPhotoUnits,
+  keepInBook,
   TEMPLATES,
   DEFAULT_MOSAIC_OPTS,
   DEFAULT_ASPECT,
@@ -245,6 +247,82 @@ test("planChapterPhotos: invariants hold for every chapter size, and the collage
       }
     }
   }
+});
+
+// ─── keepInBook — hidden photos are excluded ─────────────────────────────────
+
+test("keepInBook: drops include_in_book === false, keeps true / null / undefined", () => {
+  const rows = [
+    { id: "a", include_in_book: true },
+    { id: "b", include_in_book: false },
+    { id: "c", include_in_book: null },
+    { id: "d" },
+  ];
+  assert.deepEqual(keepInBook(rows).map((r) => r.id), ["a", "c", "d"]);
+});
+
+test("keepInBook: a hidden photo never reaches the collage", () => {
+  const photos: PhotoItem[] = [
+    { id: "p0", photo_url: "x", include_in_book: true },
+    { id: "p1", photo_url: "x", include_in_book: false },
+    { id: "p2", photo_url: "x", include_in_book: true },
+  ];
+  const visible = keepInBook(photos);
+  const units = buildChapterPhotoUnits(visible);
+  const idsInPages = units.flatMap((u) => (u.kind === "mosaic" ? u.page.cells.map((c) => c.photo.id) : [u.photo.id]));
+  assert.ok(!idsInPages.includes("p1"), "hidden photo excluded from rendered pages");
+  assert.deepEqual([...idsInPages].sort(), ["p0", "p2"]);
+});
+
+// ─── buildChapterPhotoUnits — featured photos get their own page ─────────────
+
+const featured = (): PhotoItem => ({ id: `f${seq++}`, photo_url: "x", photo_width: 1500, photo_height: 1000, featured: true });
+
+test("buildChapterPhotoUnits: no featured photos → mosaic units only (unchanged flow)", () => {
+  const photos = many(landscape, 4);
+  const units = buildChapterPhotoUnits(photos);
+  assert.ok(units.every((u) => u.kind === "mosaic"));
+  // same pages as buildMosaicPages directly
+  const direct = buildMosaicPages(photos);
+  assert.equal(units.length, direct.length);
+});
+
+test("buildChapterPhotoUnits: a featured photo becomes its own solo feature page at its position", () => {
+  const a = landscape(), b = featured(), c = landscape(), d = landscape();
+  const units = buildChapterPhotoUnits([a, b, c, d]);
+  // a → mosaic run [a]; b → feature; [c,d] → mosaic run
+  assert.equal(units[0].kind, "mosaic");
+  assert.equal(units[1].kind, "feature");
+  assert.equal(units[1].kind === "feature" && units[1].photo.id, b.id);
+  assert.equal(units[2].kind, "mosaic");
+  // the featured photo is NOT in any mosaic cell
+  const inMosaic = units.flatMap((u) => (u.kind === "mosaic" ? u.page.cells.map((c2) => c2.photo.id) : []));
+  assert.ok(!inMosaic.includes(b.id));
+});
+
+test("buildChapterPhotoUnits: featured photos keep their ordered position", () => {
+  const f1 = featured(), f2 = featured();
+  const units = buildChapterPhotoUnits([f1, landscape(), landscape(), f2]);
+  const featureIds = units.filter((u) => u.kind === "feature").map((u) => (u as { photo: PhotoItem }).photo.id);
+  assert.deepEqual(featureIds, [f1.id, f2.id]); // order preserved, f1 before the run, f2 after
+  assert.equal(units[0].kind, "feature");
+  assert.equal(units[units.length - 1].kind, "feature");
+});
+
+test("buildChapterPhotoUnits: featuring everything → all solo pages, in order, every photo kept", () => {
+  const fs = [featured(), featured(), featured()];
+  const units = buildChapterPhotoUnits(fs);
+  assert.equal(units.length, 3);
+  assert.ok(units.every((u) => u.kind === "feature"));
+  assert.deepEqual(units.map((u) => (u as { photo: PhotoItem }).photo.id), fs.map((f) => f.id));
+});
+
+test("buildChapterPhotoUnits: every photo appears exactly once across all units", () => {
+  const photos = [featured(), landscape(), landscape(), featured(), landscape(), portrait()];
+  const units = buildChapterPhotoUnits(photos);
+  const seen = units.flatMap((u) => (u.kind === "feature" ? [u.photo.id] : u.page.cells.map((c) => c.photo.id)));
+  assert.equal(seen.length, photos.length);
+  assert.deepEqual([...seen].sort(), photos.map((p) => p.id).sort());
 });
 
 test("missing-dimension photos behave as landscape (wide template for a pair)", () => {

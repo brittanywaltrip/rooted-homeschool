@@ -46,6 +46,7 @@ type MemoryRow = {
   focal_y?: number | null;
   page_order?: number | null;
   created_at?: string | null;
+  featured?: boolean | null;
 };
 
 type Focal = { x: number; y: number };
@@ -136,15 +137,24 @@ function RepositionModal({
   initialFocal,
   onCancel,
   onCommit,
+  memoryActions,
 }: {
   url: string;
   bucket: string;
   initialFocal: Focal | null;
   onCancel: () => void;
   onCommit: (focal: Focal | null) => Promise<void>;
+  // Present for memory photos (not the cover): feature + hide toggles.
+  memoryActions?: {
+    featured: boolean;
+    hidden: boolean;
+    onToggleFeatured: () => Promise<void>;
+    onToggleHidden: () => Promise<void>;
+  } | null;
 }) {
   const [focal, setFocal] = useState<Focal>(initialFocal ?? { x: 0.5, y: 0.5 });
   const [saving, setSaving] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const frameRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ sx: number; sy: number; fx: number; fy: number } | null>(null);
 
@@ -174,10 +184,15 @@ function RepositionModal({
     try { await onCommit(f); } finally { setSaving(false); }
   };
 
+  const runAction = async (fn: () => Promise<void>) => {
+    setActionBusy(true);
+    try { await fn(); } finally { setActionBusy(false); }
+  };
+
   return (
     <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4" onClick={onCancel}>
       <div className="bg-white rounded-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
-        <p className="text-[14px] font-semibold text-[#2d2926]">Reposition photo</p>
+        <p className="text-[14px] font-semibold text-[#2d2926]">Photo options</p>
         <p className="text-[11px] text-[#9a8f85] mt-0.5 mb-3">
           Drag the photo to choose what stays in view when it fills a frame.
         </p>
@@ -208,6 +223,36 @@ function RepositionModal({
             }}
           />
         </div>
+
+        {memoryActions && (
+          <div className="mt-3 space-y-2">
+            <button
+              type="button"
+              onClick={() => runAction(memoryActions.onToggleFeatured)}
+              disabled={actionBusy}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-[12px] disabled:opacity-50 ${
+                memoryActions.featured ? "border-[#5c7f63] bg-[#eef3e6] text-[var(--g-deep)]" : "border-[#e8e3dc] text-[#2d2926]"
+              }`}
+            >
+              <span>⭐ Feature &mdash; its own full page</span>
+              <span className="text-[11px]">{memoryActions.featured ? "On" : "Off"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => runAction(memoryActions.onToggleHidden)}
+              disabled={actionBusy}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-[12px] disabled:opacity-50 ${
+                memoryActions.hidden ? "border-[#c98a8a] bg-[#f6ecec] text-[#9a4a4a]" : "border-[#e8e3dc] text-[#2d2926]"
+              }`}
+            >
+              <span>{memoryActions.hidden ? "Hidden from book" : "Hide from book"}</span>
+              <span className="text-[11px]">{memoryActions.hidden ? "Hidden" : "Visible"}</span>
+            </button>
+            {memoryActions.hidden && (
+              <p className="text-[10px] text-[#9a8f85]">This photo won&apos;t appear in the yearbook.</p>
+            )}
+          </div>
+        )}
 
         <div className="flex items-center justify-between mt-4">
           <button
@@ -249,12 +294,16 @@ function SortablePhoto({
   id,
   url,
   focal,
+  featured,
+  hidden,
   disabled,
   onTap,
 }: {
   id: string;
   url: string;
   focal: Focal | null;
+  featured: boolean;
+  hidden: boolean;
   disabled: boolean;
   onTap: () => void;
 }) {
@@ -272,7 +321,9 @@ function SortablePhoto({
       style={style}
       onClick={onTap}
       disabled={disabled}
-      className="relative aspect-square rounded-lg overflow-hidden border border-[#e8e3dc] touch-none disabled:opacity-60"
+      className={`relative aspect-square rounded-lg overflow-hidden touch-none disabled:opacity-60 ${
+        featured ? "border-2 border-[#e8c44a]" : "border border-[#e8e3dc]"
+      }`}
       {...attributes}
       {...listeners}
     >
@@ -281,9 +332,21 @@ function SortablePhoto({
         bucket="memory-photos"
         alt=""
         className="w-full h-full object-cover pointer-events-none"
-        style={{ objectPosition: focal ? `${(focal.x * 100).toFixed(2)}% ${(focal.y * 100).toFixed(2)}%` : "center" }}
+        style={{
+          objectPosition: focal ? `${(focal.x * 100).toFixed(2)}% ${(focal.y * 100).toFixed(2)}%` : "center",
+          opacity: hidden ? 0.35 : 1,
+          filter: hidden ? "grayscale(0.6)" : undefined,
+        }}
       />
-      {focal && (
+      {hidden && (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="text-[9px] font-medium bg-black/60 text-white px-1.5 py-0.5 rounded">Hidden</span>
+        </span>
+      )}
+      {featured && !hidden && (
+        <span className="absolute top-1 left-1 text-[10px] leading-none" aria-label="Featured">⭐</span>
+      )}
+      {focal && !hidden && (
         <span className="absolute bottom-1 right-1 text-[8px] bg-[#5c7f63] text-white px-1.5 py-0.5 rounded">Set</span>
       )}
     </button>
@@ -308,6 +371,9 @@ export default function YearbookEditPage() {
   const [reposTarget, setReposTarget] = useState<ReposTarget | null>(null);
   // Ordered photo ids per chapter group (child id, or FAMILY_GROUP_KEY).
   const [repoOrder, setRepoOrder] = useState<Record<string, string[]>>({});
+  // Featured photos (own full-bleed page) and session-hidden photos (excluded).
+  const [featuredSet, setFeaturedSet] = useState<Set<string>>(new Set());
+  const [hiddenSet, setHiddenSet] = useState<Set<string>>(new Set());
   // Distance constraint keeps tap (reposition) distinct from drag (reorder).
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -406,6 +472,32 @@ export default function YearbookEditPage() {
     return null;
   }, [repoOrder]);
 
+  // ── Feature a photo (own full-bleed page) ───────────────────────────────────
+  const toggleFeatured = useCallback(async (id: string) => {
+    if (isReadOnly) return;
+    let next = false;
+    setFeaturedSet((prev) => {
+      const s = new Set(prev);
+      next = !s.has(id);
+      if (next) s.add(id); else s.delete(id);
+      return s;
+    });
+    await supabase.from("memories").update({ featured: next }).eq("id", id);
+  }, [isReadOnly]);
+
+  // ── Hide a photo from the book (toggles include_in_book) ────────────────────
+  const toggleHidden = useCallback(async (id: string) => {
+    if (isReadOnly) return;
+    let nextHidden = false;
+    setHiddenSet((prev) => {
+      const s = new Set(prev);
+      nextHidden = !s.has(id);
+      if (nextHidden) s.add(id); else s.delete(id);
+      return s;
+    });
+    await supabase.from("memories").update({ include_in_book: !nextHidden }).eq("id", id);
+  }, [isReadOnly]);
+
   const onPhotoDragEnd = useCallback((e: DragEndEvent) => {
     if (isReadOnly) return;
     const { active, over } = e;
@@ -468,7 +560,7 @@ export default function YearbookEditPage() {
           .eq("user_id", effectiveUserId).eq("yearbook_key", key),
         supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url")
           .eq("user_id", effectiveUserId).eq("type", "quote").order("date", { ascending: false }),
-        supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url, focal_x, focal_y, page_order, created_at")
+        supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url, focal_x, focal_y, page_order, created_at, featured")
           .eq("user_id", effectiveUserId).eq("include_in_book", true).order("date", { ascending: false }),
       ]);
 
@@ -488,11 +580,15 @@ export default function YearbookEditPage() {
       setFocalMap(fMap);
 
       const groups: Record<string, string[]> = {};
+      const feat = new Set<string>();
       for (const m of orderPhotos(bookmarkedRows.filter((r) => r.photo_url))) {
         const gk = m.child_id ?? FAMILY_GROUP_KEY;
         (groups[gk] ??= []).push(m.id);
+        if (m.featured) feat.add(m.id);
       }
       setRepoOrder(groups);
+      setFeaturedSet(feat);
+      setHiddenSet(new Set());
 
       // Build content map
       const rows = (ybRows ?? []) as YearbookContentRow[];
@@ -817,6 +913,8 @@ export default function YearbookEditPage() {
                                 id={id}
                                 url={url}
                                 focal={focalMap[id] ?? null}
+                                featured={featuredSet.has(id)}
+                                hidden={hiddenSet.has(id)}
                                 disabled={isReadOnly}
                                 onTap={() => setReposTarget({ kind: "memory", id, url, bucket: "memory-photos" })}
                               />
@@ -840,6 +938,12 @@ export default function YearbookEditPage() {
             initialFocal={focalMap[reposTarget.id] ?? null}
             onCancel={() => setReposTarget(null)}
             onCommit={commitFocal}
+            memoryActions={reposTarget.kind === "memory" ? {
+              featured: featuredSet.has(reposTarget.id),
+              hidden: hiddenSet.has(reposTarget.id),
+              onToggleFeatured: () => toggleFeatured(reposTarget.id),
+              onToggleHidden: () => toggleHidden(reposTarget.id),
+            } : null}
           />
         )}
 
