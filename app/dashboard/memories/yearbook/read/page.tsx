@@ -19,6 +19,7 @@ import {
 import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell, type PhotoItem, type ChapterPhotoUnit } from "@/lib/yearbook-photo-pages";
 import { focalObjectPosition } from "@/lib/focal-point";
 import { orderPhotos } from "@/lib/photo-order";
+import { featureCaptionText } from "@/lib/photo-caption";
 import { SpreadLeftPage, SpreadRightPage } from "@/components/yearbook/SpreadLayouts";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
@@ -278,20 +279,43 @@ function toPhotoItem(m: MemoryRow): PhotoItem {
     focal_y: m.focal_y,
     featured: m.featured,
     include_in_book: m.include_in_book,
+    caption: m.caption,
+    title: m.title,
+    date: m.date,
   };
 }
 
 // A featured photo on its own full-bleed page — like a chapter divider, but no
-// title overlay. Focal-aware cover fill, identical in reader and print.
+// title overlay. A small caption (caption, else title) sits at the bottom over a
+// soft scrim, with the date beneath it; the date always shows, the caption only
+// when there's real text. Positioned low so it never covers faces. Focal-aware
+// cover fill, identical in reader and print.
 function FeaturePhotoPage({ photo }: { photo: PhotoItem }) {
+  const caption = featureCaptionText(photo);
+  const dateLabel = safeParseDateStr(photo.date)?.toLocaleDateString("en-US", {
+    month: "long", day: "numeric", year: "numeric",
+  }) ?? "";
   return (
-    <div className="w-full h-full overflow-hidden" style={{ background: "#FAFAF7" }}>
+    <div className="relative w-full h-full overflow-hidden" style={{ background: "#FAFAF7" }}>
       <FocalPhoto
         src={photo.photo_url}
         aspect={photoAspect(photo)}
         focalX={photo.focal_x}
         focalY={photo.focal_y}
       />
+      {(caption || dateLabel) && (
+        <div
+          className="absolute inset-x-0 bottom-0 px-6 pt-14 pb-5"
+          style={{ background: "linear-gradient(to top, rgba(22,32,24,0.7), rgba(22,32,24,0))" }}
+        >
+          {caption && (
+            <p className="italic text-[12px] text-white/90 leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
+              {caption}
+            </p>
+          )}
+          {dateLabel && <p className="text-[9px] text-white/70 mt-1">{dateLabel}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -817,6 +841,11 @@ export default function YearbookReadPage() {
               {child.name}&apos;s year
             </h2>
             <p className="text-[10px] text-white/75 mt-1">{childMems.length} memories</p>
+            {featurePhoto.date && (
+              <p className="text-[9px] text-white/60 mt-0.5">
+                {safeParseDateStr(featurePhoto.date)?.toLocaleDateString("en-US", { month: "long", year: "numeric" }) ?? ""}
+              </p>
+            )}
           </div>
         </div>
       ) : (

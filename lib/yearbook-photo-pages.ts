@@ -26,6 +26,10 @@ export interface PhotoItem {
   featured?: boolean | null;
   /** false = hidden from the book (excluded everywhere). */
   include_in_book?: boolean | null;
+  /** Content for a featured photo's caption (mosaic cells never show these). */
+  caption?: string | null;
+  title?: string | null;
+  date?: string | null;
 }
 
 /** A cell's placement in the template's grid (0-based start, span counts). */
