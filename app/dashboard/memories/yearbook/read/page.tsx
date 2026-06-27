@@ -12,9 +12,9 @@ import PreviewWatermark from "@/app/components/PreviewWatermark";
 import Link from "next/link";
 import {
   buildBooksSpread,
-  buildFavoriteThingsSpread,
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW } from "@/lib/yearbook-prompts";
 import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell, type PhotoItem, type ChapterPhotoUnit } from "@/lib/yearbook-photo-pages";
 import { focalObjectPosition } from "@/lib/focal-point";
 import { orderPhotos } from "@/lib/photo-order";
@@ -135,15 +135,6 @@ interface SpreadDef {
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const INTERVIEW_QUESTIONS = [
-  { key: "q_loved_learning", label: "What did you love learning about this year?" },
-  { key: "q_favorite_book", label: "What book did you love most?" },
-  { key: "q_got_easier", label: "What got easier this year?" },
-  { key: "q_learn_next_year", label: "What do you want to learn next year?" },
-  { key: "q_favorite_adventure", label: "What was your favorite adventure?" },
-  { key: "q_surprised_you", label: "What surprised you this year?" },
-] as const;
 
 // ─── Spine (desktop spread view only) ────────────────────────────────────────
 
@@ -424,6 +415,54 @@ function buildRecapSpreads(recapPages: RecapPageContent[]): SpreadDef[] {
   return out;
 }
 
+// ─── Favorite things ─────────────────────────────────────────────────────────
+
+function FavoritesLeftPage({ childName, items }: { childName: string; items: { label: string; value: string }[] }) {
+  return (
+    <PageShell>
+      <div className="shrink-0 mb-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">
+          {childName}&apos;s favorite things
+        </p>
+      </div>
+      {items.length > 0 ? (
+        <div className="flex-1 min-h-0 overflow-hidden" style={{ columnCount: 2, columnGap: "1rem" }}>
+          {items.map((it, i) => (
+            <div key={i} className="mb-2.5" style={{ breakInside: "avoid" }}>
+              <p className="text-[8px] uppercase tracking-[0.08em] text-[var(--yb-muted)]">{it.label}</p>
+              <p className="text-[11px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{it.value}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+          <Sprig className="mb-3" />
+          <p className="italic text-[13px] text-[var(--yb-muted)]" style={{ fontFamily: "Georgia, serif" }}>A few favorite things.</p>
+        </div>
+      )}
+    </PageShell>
+  );
+}
+
+function FavoritesRightPage({ photo, childName }: { photo: PhotoItem | null; childName: string }) {
+  if (photo?.photo_url) {
+    return (
+      <div className="w-full h-full overflow-hidden" style={{ background: "var(--yb-bg)" }}>
+        <FocalPhoto src={photo.photo_url} aspect={photoAspect(photo)} focalX={photo.focal_x} focalY={photo.focal_y} />
+      </div>
+    );
+  }
+  return (
+    <PageShell>
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+        <p className="text-[20px] text-[var(--yb-heading)]" style={{ fontFamily: "var(--yb-heading-font)" }}>{childName}</p>
+        <Sprig className="my-3" />
+        <p className="italic text-[11px] text-[var(--yb-muted)]" style={{ fontFamily: "Georgia, serif" }}>A few favorite things.</p>
+      </div>
+    </PageShell>
+  );
+}
+
 // ─── Page header mapping ─────────────────────────────────────────────────────
 
 function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
@@ -658,6 +697,9 @@ export default function YearbookReadPage() {
   const letterText = contentMap[ck("letter_from_home")] ?? "";
   const favMemId = contentMap[ck("letter_favorite_memory_id")] ?? "";
   const favCaption = contentMap[ck("letter_favorite_caption")] ?? "";
+  const favLocation = contentMap[ck("letter_favorite_location")] ?? "";
+  const favWhat = contentMap[ck("letter_favorite_what")] ?? "";
+  const favWhy = contentMap[ck("letter_favorite_why")] ?? "";
   const favQuoteVal = contentMap[ck("letter_favorite_quote")] ?? "";
   const favMemory = favMemId ? memories.find((m) => m.id === favMemId) : null;
   const favQuoteMemory = favQuoteVal && !favQuoteVal.startsWith("text:") ? memories.find((m) => m.id === favQuoteVal) : null;
@@ -785,7 +827,7 @@ export default function YearbookReadPage() {
                 {letterText}
               </p>
               <p className="italic text-[12px] text-[var(--yb-accent)] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>
-                Love, The {familyName.replace(/^[Tt]he\s+/, "")} Family
+                Love, {familyName}
               </p>
             </>
           ) : (
@@ -805,21 +847,35 @@ export default function YearbookReadPage() {
         <div className="mb-3">
           <p className="text-[9px] uppercase tracking-[0.12em] text-[var(--yb-accent)] font-semibold mb-2">A Day We&apos;ll Never Forget</p>
           {favMemory?.photo_url ? (
-            // A real favorite moment — photo, with its date and caption beneath.
+            // A real day — its photo, then the day's details (date · location,
+            // what happened, why we'll remember it, caption). The details only
+            // ride along with a real photo.
             <div>
               <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "4/3" }}>
                 <FocalPhoto src={favMemory.photo_url} aspect={photoAspect(toPhotoItem(favMemory))} focalX={favMemory.focal_x} focalY={favMemory.focal_y} />
               </div>
               <p className="text-[9px] text-[var(--yb-muted)] mt-1.5">
-                {safeParseDateStr(favMemory.date)?.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) ?? ""}
+                {[safeParseDateStr(favMemory.date)?.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }), favLocation.trim()].filter(Boolean).join(" · ")}
               </p>
-              {favCaption && (
-                <p className="italic text-[11px] text-[#3a352f] mt-1 line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favCaption}</p>
+              {favWhat.trim() && (
+                <div className="mt-1.5">
+                  <p className="text-[7.5px] uppercase tracking-[0.1em] text-[var(--yb-muted)] font-semibold">What happened</p>
+                  <p className="text-[10.5px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favWhat}</p>
+                </div>
+              )}
+              {favWhy.trim() && (
+                <div className="mt-1.5">
+                  <p className="text-[7.5px] uppercase tracking-[0.1em] text-[var(--yb-muted)] font-semibold">Why we&apos;ll always remember it</p>
+                  <p className="text-[10.5px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favWhy}</p>
+                </div>
+              )}
+              {favCaption.trim() && (
+                <p className="italic text-[10.5px] text-[#3a352f] mt-1.5 line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favCaption}</p>
               )}
             </div>
           ) : (
-            // No photo to show — a clean designed panel, never an empty image
-            // slot with an orphaned date/caption hanging beneath it.
+            // No photo to show (none chosen, or reserved away) — a clean designed
+            // panel, never date/caption/details floating where the photo should be.
             <div className="w-full rounded-md bg-[#eef3e6] flex items-center justify-center px-5 py-8" style={{ aspectRatio: "4/3" }}>
               <p className="text-[14px] italic text-[var(--yb-accent)] text-center leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
                 {favMemory?.title ? favMemory.title : <>A moment worth<br />remembering.</>}
@@ -923,25 +979,37 @@ export default function YearbookReadPage() {
           <div className="shrink-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">{child.name} in their own words</p>
             <h3 className="text-[16px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
-              Year-end interview
+              Year-End Conversation
             </h3>
           </div>
 
-          <div className="space-y-3 flex-1 min-h-0 overflow-hidden mt-3">
-            {INTERVIEW_QUESTIONS.slice(0, 4).map((q) => {
-              const answer = contentMap[ck("child_interview", child.id, q.key)] ?? "";
+          {(() => {
+            // Only the answered new questions are shown — no empty prompts, and
+            // no orphaned answers from the old (removed) questions.
+            const answered = YEAR_END_QUESTIONS
+              .map((q) => ({ q, a: (contentMap[ck("child_interview", child.id, q.key)] ?? "").trim() }))
+              .filter((x) => x.a);
+            if (answered.length === 0) {
               return (
-                <div key={q.key}>
-                  <p className="italic text-[10px] text-[var(--yb-muted)] leading-snug">{q.label}</p>
-                  {answer.trim() ? (
-                    <p className="text-[11.5px] text-[var(--yb-body)] leading-relaxed line-clamp-3 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{answer}</p>
-                  ) : (
-                    <p className="italic text-[11px] text-[#a99f93] leading-relaxed mt-0.5">Not answered yet</p>
-                  )}
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-3">
+                  <Sprig className="mb-3" />
+                  <p className="italic text-[12px] text-[var(--yb-muted)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+                    {child.name}&apos;s year, in their own words.
+                  </p>
                 </div>
               );
-            })}
-          </div>
+            }
+            return (
+              <div className="space-y-2.5 flex-1 min-h-0 overflow-hidden mt-3">
+                {answered.slice(0, 6).map(({ q, a }) => (
+                  <div key={q.key}>
+                    <p className="italic text-[9.5px] text-[var(--yb-muted)] leading-snug">{q.label}</p>
+                    <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-2 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{a}</p>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
 
           {(() => {
             const note = contentMap[ck("child_future_note", child.id)] ?? "";
@@ -971,34 +1039,28 @@ export default function YearbookReadPage() {
       spreads.push(sp);
     }
 
-    // 3b. FAVORITE THINGS SPREAD
+    // 3b. FAVORITE THINGS SPREAD — the expanded favorites, in the family's own
+    // words. Each favorite reads its own child_favorite key; the two that used to
+    // borrow interview answers fall back to those (also backfilled), so nothing
+    // a family wrote is lost. Only answered favorites are shown — never an empty
+    // prompt. The reserved photo (if any) faces the list.
     if (ybSettings.show_favorite_things) {
-      // Only the reserved photo feeds the favorites page (so it's never a
-      // collage repeat); if the chapter has no spare photo, the page is the
-      // text-only prompts treatment.
-      const favMemories: YearbookMemory[] = favThingsPhoto
-        ? [{
-            id: favThingsPhoto.id,
-            type: (favThingsPhoto.type as YearbookMemory["type"]) ?? "photo",
-            title: favThingsPhoto.title,
-            photo_url: favThingsPhoto.photo_url,
-            created_at: favThingsPhoto.date,
-            child_name: child.name,
-          }]
-        : [];
-      const favAnswers: Record<string, string> = {
-        fav_loved: contentMap[ck("child_interview", child.id, "q_loved_learning")] ?? "",
-        fav_book: contentMap[ck("child_interview", child.id, "q_favorite_book")] ?? "",
-        fav_surprised: contentMap[ck("child_interview", child.id, "q_surprised_you")] ?? "",
-        fav_next_year: contentMap[ck("child_interview", child.id, "q_learn_next_year")] ?? "",
-      };
-      const favSpread = buildFavoriteThingsSpread(favMemories, child.name, favAnswers);
-      spreads.push({
-        id: `child-${child.id}-favorites`,
-        label: `${child.name}'s chapter`,
-        leftContent: <SpreadLeftPage spread={favSpread} />,
-        rightContent: <SpreadRightPage spread={favSpread} />,
-      });
+      const favItems = FAVORITES.map((f) => {
+        const direct = (contentMap[ck("child_favorite", child.id, f.key)] ?? "").trim();
+        const oldKey = FAVORITES_FROM_INTERVIEW[f.key];
+        const fallback = oldKey ? (contentMap[ck("child_interview", child.id, oldKey)] ?? "").trim() : "";
+        const value = direct || fallback;
+        return value ? { label: f.label, value } : null;
+      }).filter((x): x is { label: string; value: string } => x !== null);
+      const favPhoto = favThingsPhoto ? toPhotoItem(favThingsPhoto) : null;
+      if (favItems.length > 0 || favPhoto) {
+        spreads.push({
+          id: `child-${child.id}-favorites`,
+          label: `${child.name}'s chapter`,
+          leftContent: <FavoritesLeftPage childName={child.name} items={favItems} />,
+          rightContent: <FavoritesRightPage photo={favPhoto} childName={child.name} />,
+        });
+      }
     }
 
     // 3d. BOOKS SPREAD for this child
