@@ -15,6 +15,7 @@ import {
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
 import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW } from "@/lib/yearbook-prompts";
+import { partitionDrawings, tinyMasterpieceCaption, chunk } from "@/lib/tiny-masterpieces";
 import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell, type PhotoItem, type ChapterPhotoUnit } from "@/lib/yearbook-photo-pages";
 import { focalObjectPosition } from "@/lib/focal-point";
 import { orderPhotos } from "@/lib/photo-order";
@@ -463,6 +464,60 @@ function FavoritesRightPage({ photo, childName }: { photo: PhotoItem | null; chi
   );
 }
 
+// ─── Tiny Masterpieces (drawings, not photos) ────────────────────────────────
+
+// One gallery page of drawings (up to 4 in a 2×2), each shown whole (no crop) on
+// a soft mat with its "This piece reminds me of…" caption when the family wrote
+// one. The first page carries the title.
+function TinyMasterpiecesPage({ items, showTitle }: { items: MemoryRow[]; showTitle: boolean }) {
+  return (
+    <PageShell>
+      {showTitle && (
+        <div className="shrink-0 mb-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Made by hand</p>
+          <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+            Tiny Masterpieces
+          </h2>
+        </div>
+      )}
+      <div className="flex-1 min-h-0 overflow-hidden grid grid-cols-2 gap-3 content-start">
+        {items.map((m) => {
+          const caption = tinyMasterpieceCaption(m.caption);
+          return (
+            <div key={m.id} className="flex flex-col">
+              <div
+                className="w-full rounded-md overflow-hidden border border-black/5 flex items-center justify-center"
+                style={{ aspectRatio: "1", background: "#f5f0e8" }}
+              >
+                <SignedImage src={m.photo_url} bucket="memory-photos" alt="" className="max-w-full max-h-full object-contain" />
+              </div>
+              {caption && (
+                <p className="text-[8px] text-[var(--yb-muted)] mt-1 leading-snug">
+                  This piece reminds me of <span className="italic text-[var(--yb-body)]">{caption}</span>
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </PageShell>
+  );
+}
+
+function buildTinyMasterpiecesSpreads(drawings: MemoryRow[], idPrefix: string, label: string): SpreadDef[] {
+  const pages = chunk(drawings, 4);
+  const out: SpreadDef[] = [];
+  for (let i = 0; i < pages.length; i += 2) {
+    out.push({
+      id: i === 0 ? idPrefix : `${idPrefix}-${i / 2}`,
+      label,
+      leftContent: <TinyMasterpiecesPage items={pages[i]} showTitle={i === 0} />,
+      rightContent: pages[i + 1] ? <TinyMasterpiecesPage items={pages[i + 1]} showTitle={false} /> : <FillerPage />,
+    });
+  }
+  return out;
+}
+
 // ─── Page header mapping ─────────────────────────────────────────────────────
 
 function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
@@ -472,6 +527,7 @@ function getPageHeaders(spreadId: string, spreadLabel: string): [string, string]
   if (spreadId === "until-next-year") return ["UNTIL NEXT YEAR", "UNTIL NEXT YEAR"];
   if (spreadId.startsWith("child-")) {
     const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
+    if (spreadId.includes("-art")) return ["TINY MASTERPIECES", "TINY MASTERPIECES"];
     if (spreadId.includes("-books")) return [`${name}\u2019S BOOKS`, `${name}\u2019S BOOKS`];
     if (spreadId.includes("-favorites")) return [`${name}\u2019S FAVORITES`, `${name}\u2019S FAVORITES`];
     if (spreadId.includes("-photos")) return [`${name}\u2019S STORY`, `${name}\u2019S STORY`];
@@ -481,6 +537,7 @@ function getPageHeaders(spreadId: string, spreadLabel: string): [string, string]
   if (spreadId.startsWith("family-photos")) return ["TOGETHER", "TOGETHER"];
   if (spreadId === "family") return ["TOGETHER", "TOGETHER"];
   if (spreadId === "family-books") return ["OUR BOOKS", "OUR BOOKS"];
+  if (spreadId.startsWith("family-art")) return ["TINY MASTERPIECES", "TINY MASTERPIECES"];
   if (spreadId === "village") return ["FROM THE VILLAGE", "FROM THE VILLAGE"];
   if (spreadId === "back") return ["ROOTED HOMESCHOOL", "ROOTED HOMESCHOOL"];
   return ["", ""];
@@ -911,7 +968,9 @@ export default function YearbookReadPage() {
     // Photos flow through the chapter in the family's chosen order (page_order),
     // falling back to date when un-ordered. Hidden photos are excluded; the
     // mosaic builder consumes this sequence, so reordering changes grouping.
-    const childPhotos = orderPhotos(keepInBook(childMems.filter((m) => m.photo_url)));
+    // Drawings are pulled OUT of the collage onto their own Tiny Masterpieces page.
+    const childPhotoMems = orderPhotos(keepInBook(childMems.filter((m) => m.photo_url)));
+    const { drawings: childDrawings, photos: childPhotos } = partitionDrawings(childPhotoMems);
     // Allocate this chapter's still-unused photos across the feature divider,
     // the "favorite things" slot, and the collage WITHOUT starving the collage:
     // planChapterPhotos guarantees the collage is left at 0 or ≥2 photos (never
@@ -951,7 +1010,7 @@ export default function YearbookReadPage() {
           >
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#cfe3c9]">Chapter {ci + 1}</p>
             <h2 className="text-[26px] font-bold text-white leading-tight mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
-              {child.name}&apos;s year
+              {child.name}&apos;s Story
             </h2>
             {featurePhoto.date && (
               <p className="text-[10px] text-white/70 mt-1">
@@ -969,7 +1028,7 @@ export default function YearbookReadPage() {
           <span className="absolute bottom-8 left-4 text-[96px] opacity-[0.05] select-none pointer-events-none" style={{ transform: "rotate(18deg)" }}>🍃</span>
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-[#cfe3c9] relative z-10">Chapter {ci + 1}</p>
           <h2 className="text-[27px] font-bold text-[var(--yb-cover-fg)] leading-tight mt-2 relative z-10" style={{ fontFamily: "var(--yb-heading-font)" }}>
-            {child.name}&apos;s year
+            {child.name}&apos;s Story
           </h2>
           <span className="text-[20px] mt-4 opacity-70 select-none relative z-10" aria-hidden>🌿</span>
         </div>
@@ -1084,10 +1143,16 @@ export default function YearbookReadPage() {
         rightContent: <SpreadRightPage spread={booksSpread} />,
       });
     }
+
+    // 3e. TINY MASTERPIECES — the child's drawings, on their own gallery page(s).
+    for (const sp of buildTinyMasterpiecesSpreads(childDrawings, `child-${child.id}-art`, `${child.name}'s chapter`)) {
+      spreads.push(sp);
+    }
   });
 
   // 4. FAMILY MEMORIES SPREAD
-  const famPhotos = orderPhotos(keepInBook(familyMemories.filter((m) => m.photo_url)));
+  const famPhotoMems = orderPhotos(keepInBook(familyMemories.filter((m) => m.photo_url)));
+  const { drawings: famDrawings, photos: famPhotos } = partitionDrawings(famPhotoMems);
   const famWins = familyMemories.filter((m) => m.type === "win" || m.type === "field_trip");
 
   if (ybSettings.show_family_chapter) spreads.push({
@@ -1170,6 +1235,11 @@ export default function YearbookReadPage() {
       leftContent: <SpreadLeftPage spread={famBooksSpread} />,
       rightContent: <SpreadRightPage spread={famBooksSpread} />,
     });
+  }
+
+  // 4c. TINY MASTERPIECES — family drawings (no child_id), their own gallery.
+  if (ybSettings.show_family_chapter) {
+    for (const sp of buildTinyMasterpiecesSpreads(famDrawings, "family-art", "Our family")) spreads.push(sp);
   }
 
   // 5. FROM THE VILLAGE SPREAD — a keepsake signing page (warm write-on lines)

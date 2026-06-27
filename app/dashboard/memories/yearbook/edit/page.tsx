@@ -371,6 +371,8 @@ export default function YearbookEditPage() {
   // Featured photos (own full-bleed page) and session-hidden photos (excluded).
   const [featuredSet, setFeaturedSet] = useState<Set<string>>(new Set());
   const [hiddenSet, setHiddenSet] = useState<Set<string>>(new Set());
+  // Tiny Masterpieces captions ("This piece reminds me of…"), keyed by memory id.
+  const [drawingCaptions, setDrawingCaptions] = useState<Record<string, string>>({});
   // Distance constraint keeps tap (reposition) distinct from drag (reorder).
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -595,6 +597,12 @@ export default function YearbookEditPage() {
       setRepoOrder(groups);
       setFeaturedSet(feat);
       setHiddenSet(new Set());
+
+      const caps: Record<string, string> = {};
+      for (const m of bookmarkedRows) {
+        if (m.type === "drawing") caps[m.id] = m.caption ?? "";
+      }
+      setDrawingCaptions(caps);
 
       // Build content map
       const rows = (ybRows ?? []) as YearbookContentRow[];
@@ -1457,6 +1465,46 @@ export default function YearbookEditPage() {
                   ))}
                 </div>
               </div>
+
+              {/* Tiny Masterpieces — caption each drawing */}
+              {(() => {
+                const drawings = bookmarkedMemories.filter((m) => m.type === "drawing" && m.child_id === child.id && m.photo_url);
+                if (drawings.length === 0) return null;
+                return (
+                  <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
+                    <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">{child.name}&apos;s tiny masterpieces</p>
+                    <p className="text-[11px] text-[#9a8f85] italic mb-3">
+                      For each drawing: &ldquo;This piece reminds me of…&rdquo; Leave blank to show the art on its own.
+                    </p>
+                    <div className="space-y-3">
+                      {drawings.map((m) => (
+                        <div key={m.id} className="flex items-start gap-3">
+                          <SignedImage src={m.photo_url!} bucket="memory-photos" alt="" className="w-12 h-12 rounded-md object-cover shrink-0 border border-[#e8e3dc]" />
+                          <div className="flex-1 min-w-0">
+                            <label className="text-[10px] text-[#9a8f85]">This piece reminds me of…</label>
+                            <input
+                              value={drawingCaptions[m.id] ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setDrawingCaptions((prev) => ({ ...prev, [m.id]: v }));
+                                if (isReadOnly) return;
+                                clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_art_${m.id}`]);
+                                (window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_art_${m.id}`] = setTimeout(() => {
+                                  supabase.from("memories").update({ caption: v }).eq("id", m.id);
+                                }, 800);
+                              }}
+                              disabled={isReadOnly}
+                              placeholder="a rainbow over our house…"
+                              className="w-full mt-0.5 px-2.5 py-1.5 text-[12px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+                              style={{ fontFamily: "Georgia, serif" }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           );
         })}
