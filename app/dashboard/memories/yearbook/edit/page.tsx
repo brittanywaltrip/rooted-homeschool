@@ -386,6 +386,8 @@ export default function YearbookEditPage() {
   const [familyNameSaved, setFamilyNameSaved] = useState(false);
   const [schoolYear, setSchoolYear] = useState("");
   const [schoolYearSaved, setSchoolYearSaved] = useState(false);
+  const [coverSubtitle, setCoverSubtitle] = useState("");
+  const [coverSubtitleSaved, setCoverSubtitleSaved] = useState(false);
 
   // Letter state
   const [letter, setLetter] = useState("");
@@ -619,6 +621,7 @@ export default function YearbookEditPage() {
       }
       setFamilyName(cMap[ck("family_name")] ?? "");
       setSchoolYear(cMap[ck("school_year")] ?? "");
+      setCoverSubtitle(cMap[ck("cover_subtitle")] ?? "");
       setLetter(cMap[ck("letter_from_home")] ?? "");
       setFavMemoryId(cMap[ck("letter_favorite_memory_id")] ?? "");
       setFavCaption(cMap[ck("letter_favorite_caption")] ?? "");
@@ -1038,18 +1041,41 @@ export default function YearbookEditPage() {
           {schoolYearSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
         </div>
 
+        {/* ── Cover subtitle ──────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <label className="text-[13px] font-semibold text-[#2d2926] block mb-1">Cover subtitle</label>
+          <p className="text-[11px] text-[#9a8f85] italic mb-2">
+            An evocative line for the cover. Leave blank to use “A year of growing, wondering, and becoming.”
+          </p>
+          <input
+            value={coverSubtitle}
+            onChange={(e) => { setCoverSubtitle(e.target.value); setCoverSubtitleSaved(false); }}
+            onBlur={async () => {
+              if (isReadOnly || !effectiveUserId || !yearbookKey) return;
+              await saveContent("cover_subtitle", coverSubtitle);
+              setCoverSubtitleSaved(true);
+              setTimeout(() => setCoverSubtitleSaved(false), 3000);
+            }}
+            disabled={isReadOnly}
+            placeholder="A year of growing, wondering, and becoming."
+            className="w-full px-3 py-2 text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+            style={{ fontFamily: "Georgia, serif" }}
+          />
+          {coverSubtitleSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+        </div>
+
         {/* ── Letter from home ────────────────────────────────── */}
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
           <p className="text-[13px] font-semibold text-[#2d2926]">Letter from home</p>
           <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
-            Write a letter to your family about this year, what you noticed,
-            what you&apos;re proud of, what you want to remember.
+            Dear Future Us… imagine reading this in five or ten years. What surprised you?
+            What challenged your family? What made you proud? What do you never want to forget?
           </p>
           <textarea
             value={letter}
             onChange={(e) => setLetter(e.target.value)}
             disabled={isReadOnly}
-            placeholder="Dear family…"
+            placeholder="Dear Future Us…"
             className="w-full min-h-[140px] text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] resize-y disabled:opacity-60"
             style={{ fontFamily: "Georgia, serif" }}
           />
@@ -1058,7 +1084,7 @@ export default function YearbookEditPage() {
 
         {/* ── Favorite moment picker ──────────────────────────── */}
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
-          <p className="text-[13px] font-semibold text-[#2d2926] mb-2">Favorite moment this year</p>
+          <p className="text-[13px] font-semibold text-[#2d2926] mb-2">A Day We&apos;ll Never Forget</p>
           {favMemory ? (
             <div className="flex items-center gap-3 bg-[#fefcf9] rounded-lg p-3 border border-[#e8e3dc]">
               {favMemory.photo_url && (
@@ -1088,12 +1114,12 @@ export default function YearbookEditPage() {
           {/* Caption for favorite moment */}
           {favMemoryId && (
             <div className="mt-3">
-              <label className="text-[11px] text-[#9a8f85]">Caption for this moment</label>
+              <label className="text-[11px] text-[#9a8f85]">What made today special?</label>
               <input
                 value={favCaption}
                 onChange={(e) => setFavCaption(e.target.value)}
                 disabled={isReadOnly}
-                placeholder="Why this moment matters…"
+                placeholder="What happened that made everyone smile?"
                 className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
                 style={{ fontFamily: "Georgia, serif" }}
               />
@@ -1145,7 +1171,7 @@ export default function YearbookEditPage() {
 
         {/* ── Favorite quote picker ───────────────────────────── */}
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
-          <p className="text-[13px] font-semibold text-[#2d2926] mb-2">Favorite quote this year</p>
+          <p className="text-[13px] font-semibold text-[#2d2926] mb-2">Favorite quote from that day</p>
 
           {quoteMode === "pick" && favQuoteMemory ? (
             <div className="bg-[#fefcf9] rounded-lg p-3 border border-[#e8e3dc]">

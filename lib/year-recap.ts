@@ -67,3 +67,58 @@ export function buildYearRecap(memories: RecapMemory[]): YearRecap {
 export function isRecapEmpty(recap: YearRecap): boolean {
   return recap.books.length === 0 && recap.places.length === 0 && recap.moments.length === 0;
 }
+
+// ─── Pagination (spill to more pages, never clip) ────────────────────────────
+// A long recap flows across as many pages as it needs instead of clipping. Each
+// page holds a deterministic line budget (a section header costs HEADER_LINES,
+// each item one line); a section that overflows continues on the next page with
+// its header repeated. Deterministic → reader and PDF paginate identically.
+
+export interface RecapBlock {
+  label: string;
+  items: string[];
+  /** true when this block continues a section split from the previous page. */
+  continued: boolean;
+}
+export type RecapPageContent = RecapBlock[];
+
+const HEADER_LINES = 2;
+
+export function paginateRecap(recap: YearRecap, linesPerPage = 15): RecapPageContent[] {
+  const sections = [
+    { label: "Books we read", items: recap.books },
+    { label: "Places we explored", items: recap.places },
+    { label: "Moments we celebrated", items: recap.moments },
+  ].filter((s) => s.items.length > 0);
+
+  const pages: RecapPageContent[] = [];
+  let page: RecapBlock[] = [];
+  let used = 0;
+  const flush = () => {
+    if (page.length > 0) {
+      pages.push(page);
+      page = [];
+      used = 0;
+    }
+  };
+
+  for (const sec of sections) {
+    let i = 0;
+    let continued = false;
+    while (i < sec.items.length) {
+      // A header plus at least one item must fit; otherwise start a new page.
+      if (used + HEADER_LINES + 1 > linesPerPage && page.length > 0) flush();
+      const room = Math.max(1, linesPerPage - used - HEADER_LINES);
+      const take = Math.min(sec.items.length - i, room);
+      page.push({ label: sec.label, items: sec.items.slice(i, i + take), continued });
+      used += HEADER_LINES + take;
+      i += take;
+      if (i < sec.items.length) {
+        flush(); // section spilled → continue on the next page
+        continued = true;
+      }
+    }
+  }
+  flush();
+  return pages;
+}

@@ -20,7 +20,7 @@ import { focalObjectPosition } from "@/lib/focal-point";
 import { orderPhotos } from "@/lib/photo-order";
 import { featureCaptionText } from "@/lib/photo-caption";
 import { resolveTheme, themeCssVars, THEMES, type YearbookTheme } from "@/lib/yearbook-theme";
-import { buildYearRecap, isRecapEmpty, type YearRecap } from "@/lib/year-recap";
+import { buildYearRecap, paginateRecap, type RecapPageContent } from "@/lib/year-recap";
 
 // Theme flows to the motif components (sprig vs rule) via context; colors/fonts
 // flow via the --yb-* CSS variables set on the book wrapper.
@@ -365,11 +365,13 @@ function chapterUnitsToSpreads(units: ChapterPhotoUnit[], idPrefix: string, labe
 
 // ─── Year recap (named lists, no counts) ─────────────────────────────────────
 
-function RecapSection({ label, items }: { label: string; items: string[] }) {
+function RecapSection({ label, items, continued }: { label: string; items: string[]; continued?: boolean }) {
   if (items.length === 0) return null;
   return (
     <div className="mb-4">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--yb-accent)] mb-1.5">{label}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--yb-accent)] mb-1.5">
+        {label}{continued ? " (continued)" : ""}
+      </p>
       <ul className="space-y-1">
         {items.map((it, i) => (
           <li
@@ -385,57 +387,41 @@ function RecapSection({ label, items }: { label: string; items: string[] }) {
   );
 }
 
-function RecapLeftPage({ recap }: { recap: YearRecap }) {
-  const empty = isRecapEmpty(recap);
-  const hasLists = recap.books.length > 0 || recap.places.length > 0;
+// One recap page — the first carries the "Looking back / Our year" title; the
+// blocks are pre-paginated so long lists spill across pages and never clip.
+function RecapPage({ blocks, showTitle }: { blocks: RecapPageContent; showTitle: boolean }) {
   return (
     <PageShell>
-      <div className="shrink-0 mb-4">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Looking back</p>
-        <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
-          Our year
-        </h2>
-      </div>
-      {empty || !hasLists ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-          <MotifMark size={28} opacity={0.3} />
-          <p className="italic text-[13px] text-[var(--yb-muted)] mt-4 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-            {empty ? "Your year is still being written." : "The things we did, together."}
-          </p>
-        </div>
-      ) : (
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <RecapSection label="Books we read" items={recap.books} />
-          <RecapSection label="Places we explored" items={recap.places} />
+      {showTitle && (
+        <div className="shrink-0 mb-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Looking back</p>
+          <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+            Our year
+          </h2>
         </div>
       )}
+      <div className="flex-1 min-h-0 overflow-hidden">
+        {blocks.map((b, i) => (
+          <RecapSection key={i} label={b.label} items={b.items} continued={b.continued} />
+        ))}
+      </div>
     </PageShell>
   );
 }
 
-function RecapRightPage({ recap }: { recap: YearRecap }) {
-  if (recap.moments.length === 0) {
-    // No wins to list — a quiet closing page rather than an empty list.
-    return (
-      <PageShell>
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-          <Sprig className="mb-4" />
-          <p className="italic text-[14px] text-[var(--yb-muted)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-            A year worth<br />remembering.
-          </p>
-          <Sprig className="mt-4" />
-        </div>
-      </PageShell>
-    );
+// Pair paginated recap pages into book spreads (2 per spread); a trailing odd
+// page faces a quiet filler so nothing is left blank.
+function buildRecapSpreads(recapPages: RecapPageContent[]): SpreadDef[] {
+  const out: SpreadDef[] = [];
+  for (let i = 0; i < recapPages.length; i += 2) {
+    out.push({
+      id: i === 0 ? "year-in-numbers" : `year-in-numbers-${i / 2}`,
+      label: "Our year",
+      leftContent: <RecapPage blocks={recapPages[i]} showTitle={i === 0} />,
+      rightContent: recapPages[i + 1] ? <RecapPage blocks={recapPages[i + 1]} showTitle={false} /> : <FillerPage />,
+    });
   }
-  return (
-    <PageShell>
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <RecapSection label="Moments we celebrated" items={recap.moments} />
-      </div>
-      <Sprig className="mt-2 mb-1" />
-    </PageShell>
-  );
+  return out;
 }
 
 // ─── Page header mapping ─────────────────────────────────────────────────────
@@ -443,14 +429,15 @@ function RecapRightPage({ recap }: { recap: YearRecap }) {
 function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
   if (spreadId === "cover") return ["ROOTED YEARBOOK", "TABLE OF CONTENTS"];
   if (spreadId === "letter") return ["A LETTER FROM HOME", "A LETTER FROM HOME"];
-  if (spreadId === "year-in-numbers") return ["OUR YEAR", "OUR YEAR"];
+  if (spreadId.startsWith("year-in-numbers")) return ["LOOKING BACK", "LOOKING BACK"];
+  if (spreadId === "until-next-year") return ["UNTIL NEXT YEAR", "UNTIL NEXT YEAR"];
   if (spreadId.startsWith("child-")) {
     const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
     if (spreadId.includes("-books")) return [`${name}\u2019S BOOKS`, `${name}\u2019S BOOKS`];
     if (spreadId.includes("-favorites")) return [`${name}\u2019S FAVORITES`, `${name}\u2019S FAVORITES`];
-    if (spreadId.includes("-photos")) return [`${name}\u2019S CHAPTER`, `${name}\u2019S CHAPTER`];
-    if (spreadId.includes("-spread-")) return [`${name}\u2019S CHAPTER`, `${name}\u2019S CHAPTER`];
-    return [`${name}\u2019S CHAPTER`, "IN THEIR OWN WORDS"];
+    if (spreadId.includes("-photos")) return [`${name}\u2019S STORY`, `${name}\u2019S STORY`];
+    if (spreadId.includes("-spread-")) return [`${name}\u2019S STORY`, `${name}\u2019S STORY`];
+    return [`${name}\u2019S STORY`, "IN THEIR OWN WORDS"];
   }
   if (spreadId.startsWith("family-photos")) return ["TOGETHER", "TOGETHER"];
   if (spreadId === "family") return ["TOGETHER", "TOGETHER"];
@@ -666,6 +653,8 @@ export default function YearbookReadPage() {
     const y = parseFloat(parts[1]);
     return [Number.isFinite(x) ? x : null, Number.isFinite(y) ? y : null];
   })();
+  // Cover subtitle — an evocative line the family can edit; the year is kept small.
+  const coverSubtitle = (contentMap[ck("cover_subtitle")] ?? "").trim() || "A year of growing, wondering, and becoming.";
   const letterText = contentMap[ck("letter_from_home")] ?? "";
   const favMemId = contentMap[ck("letter_favorite_memory_id")] ?? "";
   const favCaption = contentMap[ck("letter_favorite_caption")] ?? "";
@@ -717,8 +706,11 @@ export default function YearbookReadPage() {
             />
           </div>
 
-          {/* Year label */}
-          <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-[rgba(254, 252, 249, 0.55)] mt-4">
+          {/* Evocative subtitle (lead), with the year small beneath it */}
+          <p className="italic text-[11px] text-white/80 text-center max-w-[230px] leading-snug mt-4" style={{ fontFamily: "Georgia, serif" }}>
+            {coverSubtitle}
+          </p>
+          <p className="text-[8px] font-semibold tracking-[0.2em] uppercase text-[rgba(254, 252, 249, 0.55)] mt-2">
             {yearLabel}
           </p>
         </div>
@@ -734,15 +726,15 @@ export default function YearbookReadPage() {
         <span className="absolute top-1/3 left-1/2 -translate-x-1/2 text-[160px] opacity-[0.03] select-none pointer-events-none">🌱</span>
 
         <div className="flex-1 flex flex-col items-center justify-center p-6 relative z-10 text-center">
-          <p className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#c8e6c4] mb-4">
+          <p className="text-[9px] font-semibold tracking-[0.2em] uppercase text-[#c8e6c4] mb-4">
             {yearLabel}
           </p>
           <h1 className="text-[28px] leading-snug text-[var(--yb-cover-fg)]" style={{ fontFamily: "Georgia, serif" }}>
             {coverTitle}<br />Yearbook
           </h1>
           <span className="text-[22px] mt-5 mb-4 opacity-70 select-none" aria-hidden>🌿</span>
-          <p className="text-[11px] text-white/60 italic max-w-[220px] line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
-            A year of learning, growing, and making memories
+          <p className="text-[12px] text-white/75 italic max-w-[230px] leading-snug" style={{ fontFamily: "Georgia, serif" }}>
+            {coverSubtitle}
           </p>
         </div>
 
@@ -760,12 +752,15 @@ export default function YearbookReadPage() {
           </p>
           <Sprig className="my-4" />
           <div className="space-y-1.5 text-[11px] text-[#6f655c]" style={{ lineHeight: 1.8 }}>
-            <p>A letter from home · p. {pageNumberForId("letter") ?? "–"}</p>
+            <p>A Letter From Home · p. {pageNumberForId("letter") ?? "–"}</p>
             {children.map((c) => (
-              <p key={c.id}>{c.name}&apos;s chapter · p. {pageNumberForId(`child-${c.id}`) ?? "–"}</p>
+              <p key={c.id}>{c.name}&apos;s Story · p. {pageNumberForId(`child-${c.id}`) ?? "–"}</p>
             ))}
-            <p>Our family · p. {pageNumberForId("family") ?? "–"}</p>
-            <p>From the village · p. {pageNumberForId("village") ?? "–"}</p>
+            <p>Adventures Together · p. {pageNumberForId("family") ?? "–"}</p>
+            <p>Family Traditions · p. {pageNumberForId("village") ?? "–"}</p>
+            {pageNumberForId("year-in-numbers") != null && (
+              <p>Looking Back · p. {pageNumberForId("year-in-numbers")}</p>
+            )}
           </div>
         </div>
       </PageShell>
@@ -781,7 +776,7 @@ export default function YearbookReadPage() {
         <div className="shrink-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Written for our family</p>
           <h2 className="text-[17px] font-bold text-[var(--yb-heading)] mt-1.5" style={{ fontFamily: "var(--yb-heading-font)" }}>A letter from home</h2>
-          <p className="text-[10px] text-[var(--yb-muted)] mt-1">A message from the heart</p>
+          <p className="text-[10px] text-[var(--yb-muted)] mt-1">Dear Future Us…</p>
         </div>
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-3">
           {letterText.trim() ? (
@@ -789,13 +784,15 @@ export default function YearbookReadPage() {
               <p className="text-[11.5px] italic text-[#3a352f] leading-relaxed whitespace-pre-wrap line-clamp-[11]" style={{ fontFamily: "Georgia, serif" }}>
                 {letterText}
               </p>
-              <p className="italic text-[12px] text-[var(--yb-accent)] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>— {familyName}</p>
+              <p className="italic text-[12px] text-[var(--yb-accent)] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>
+                Love, The {familyName.replace(/^[Tt]he\s+/, "")} Family
+              </p>
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-center px-3">
               <span className="text-[40px] mb-3 opacity-60">✉️</span>
               <p className="text-[13px] italic text-[#8a7d70] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-                A letter to your family,<br />from the heart.
+                Dear Future Us… the story of this year,<br />in your own words.
               </p>
             </div>
           )}
@@ -804,9 +801,9 @@ export default function YearbookReadPage() {
     ),
     rightContent: (
       <PageShell>
-        {/* Favorite moment */}
+        {/* A Day We'll Never Forget */}
         <div className="mb-3">
-          <p className="text-[9px] uppercase tracking-[0.12em] text-[var(--yb-muted)] font-semibold mb-2">Favorite moment</p>
+          <p className="text-[9px] uppercase tracking-[0.12em] text-[var(--yb-accent)] font-semibold mb-2">A Day We&apos;ll Never Forget</p>
           {favMemory?.photo_url ? (
             // A real favorite moment — photo, with its date and caption beneath.
             <div>
@@ -831,10 +828,11 @@ export default function YearbookReadPage() {
           )}
         </div>
 
-        {/* Favorite quote */}
+        {/* Favorite quote from that day */}
         {favQuoteText && (
           <div>
             <Sprig className="mb-3 mt-1" />
+            <p className="text-[8px] uppercase tracking-[0.12em] text-[var(--yb-muted)] font-semibold mb-1">Favorite quote from that day</p>
             <span className="text-[30px] font-serif text-[#b9a8d6] leading-none">&ldquo;</span>
             <p className="italic text-[12px] text-[var(--yb-body)] line-clamp-4 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{favQuoteText}</p>
             {favQuoteMemory?.child_id && (
@@ -848,15 +846,8 @@ export default function YearbookReadPage() {
     ),
   });
 
-  // 2.5. YEAR RECAP — named lists (books, places, moments), no counts. The whole
-  // page is omitted when there's nothing to recap, so it's never an empty/0 state.
-  const yearRecap = buildYearRecap(memories);
-  if (ybSettings.show_year_in_numbers && !isRecapEmpty(yearRecap)) spreads.push({
-    id: "year-in-numbers",
-    label: "Our year",
-    leftContent: <RecapLeftPage recap={yearRecap} />,
-    rightContent: <RecapRightPage recap={yearRecap} />,
-  });
+  // The "Looking Back" recap now reflects at the END of the book (built below,
+  // after the chapters/family/village), so it reads as a year-end recap.
 
   // 3. PER-CHILD SPREADS
   if (ybSettings.show_child_chapters) children.forEach((child, ci) => {
@@ -1144,6 +1135,49 @@ export default function YearbookReadPage() {
     rightContent: (
       <PageShell>
         <SigningLines count={7} />
+      </PageShell>
+    ),
+  });
+
+  // 5.5. LOOKING BACK — the year recap (named lists, no counts), paginated so a
+  // long recap spills across spreads and never clips. Omitted when empty.
+  const yearRecap = buildYearRecap(memories);
+  const recapPages = paginateRecap(yearRecap);
+  if (ybSettings.show_year_in_numbers && recapPages.length > 0) {
+    for (const sp of buildRecapSpreads(recapPages)) spreads.push(sp);
+  }
+
+  // 5.6. UNTIL NEXT YEAR — a warm closing page before the back cover.
+  spreads.push({
+    id: "until-next-year",
+    label: "Until next year",
+    leftContent: (
+      <PageShell>
+        <div className="flex-1 flex flex-col justify-center px-2">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">A year together</p>
+          <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1 mb-3" style={{ fontFamily: "var(--yb-heading-font)" }}>
+            Until next year…
+          </h2>
+          <p className="text-[11.5px] text-[var(--yb-body)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+            Every homeschool year is different. Some lessons were easy. Some were messy.
+            Some happened around the kitchen table. Some happened outside under the sky.
+            Some weren&apos;t in any curriculum at all.
+          </p>
+        </div>
+      </PageShell>
+    ),
+    rightContent: (
+      <PageShell>
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+          <Sprig className="mb-5" />
+          <p className="italic text-[13px] text-[var(--yb-body)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+            Thank you for filling these pages with laughter, curiosity, kindness, and love.
+          </p>
+          <p className="italic text-[14px] text-[var(--yb-heading)] leading-relaxed mt-4" style={{ fontFamily: "Georgia, serif" }}>
+            Here&apos;s to another year of growing together.
+          </p>
+          <Sprig className="mt-5" />
+        </div>
       </PageShell>
     ),
   });

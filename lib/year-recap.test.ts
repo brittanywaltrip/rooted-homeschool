@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildYearRecap, isRecapEmpty, type RecapMemory } from "./year-recap.ts";
+import { buildYearRecap, isRecapEmpty, paginateRecap, type RecapMemory, type YearRecap } from "./year-recap.ts";
 
 test("groups by type into named lists of titles", () => {
   const mems: RecapMemory[] = [
@@ -47,6 +47,41 @@ test("empty input → empty lists, isRecapEmpty true", () => {
 
 test("isRecapEmpty is false when any list has items", () => {
   assert.equal(isRecapEmpty(buildYearRecap([{ type: "win", title: "Did it!" }])), false);
+});
+
+const recapOf = (books: number, places: number, moments: number): YearRecap => ({
+  books: Array.from({ length: books }, (_, i) => `Book ${i + 1}`),
+  places: Array.from({ length: places }, (_, i) => `Place ${i + 1}`),
+  moments: Array.from({ length: moments }, (_, i) => `Win ${i + 1}`),
+});
+
+test("paginateRecap: a short recap fits on one page", () => {
+  const pages = paginateRecap(recapOf(3, 2, 2));
+  assert.equal(pages.length, 1);
+  assert.deepEqual(pages[0].map((b) => b.label), ["Books we read", "Places we explored", "Moments we celebrated"]);
+});
+
+test("paginateRecap: a long recap spills to more pages and never drops items", () => {
+  const recap = recapOf(40, 12, 20);
+  const pages = paginateRecap(recap);
+  assert.ok(pages.length > 1, "spilled to multiple pages");
+  // every item appears exactly once across all pages, in order, no clipping
+  const flat = pages.flatMap((p) => p.flatMap((b) => b.items));
+  const expected = [...recap.books, ...recap.places, ...recap.moments];
+  assert.equal(flat.length, expected.length, "no items dropped");
+  assert.deepEqual(flat, expected);
+});
+
+test("paginateRecap: a split section repeats its label and marks continued", () => {
+  const pages = paginateRecap(recapOf(40, 0, 0), 15);
+  const bookBlocks = pages.flatMap((p) => p.filter((b) => b.label === "Books we read"));
+  assert.ok(bookBlocks.length > 1, "books split across pages");
+  assert.equal(bookBlocks[0].continued, false);
+  assert.ok(bookBlocks.slice(1).every((b) => b.continued === true), "continuations flagged");
+});
+
+test("paginateRecap: empty recap → no pages", () => {
+  assert.deepEqual(paginateRecap(recapOf(0, 0, 0)), []);
 });
 
 test("no numbers/counts are produced — recap is purely string lists", () => {
