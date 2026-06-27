@@ -1667,8 +1667,9 @@ export default function SettingsPage() {
           {/* Preview button */}
           <button
             onClick={() => {
-              const token = familyInvites[0]?.token;
-              window.open(token ? `/family/${token}` : "/family/preview", "_blank");
+              // Always open the owner preview — never a live family token, which
+              // would record a visit + fire a first_visit notification.
+              window.open("/family/preview", "_blank");
             }}
             className="w-full border border-[#c8dfc8] bg-[#f0f7f0] text-[var(--g-deep)] rounded-xl py-2.5 mb-4 text-sm font-medium flex items-center justify-center gap-2"
           >

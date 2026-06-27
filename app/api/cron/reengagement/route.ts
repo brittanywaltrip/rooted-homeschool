@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { canSendMarketingEmail, type MarketingEmailType } from '@/lib/email/can-send'
 import { buildUserListUnsubscribeHeaders, ensureUnsubscribeToken } from '@/lib/email/list-unsubscribe'
 import { loadSuppressedEmails } from '@/lib/email/resend-suppression'
+import { sendResendTemplate } from '@/lib/resend-template'
 
 export const dynamic = 'force-dynamic'
 
@@ -69,40 +70,6 @@ function resolveFirstName(
     || authUser?.user_metadata?.full_name?.split(' ')[0]
     || authUser?.user_metadata?.name?.split(' ')[0]
     || 'there'
-}
-
-async function sendTemplate(
-  to: string,
-  subject: string,
-  templateId: string,
-  variables: Record<string, string>,
-  headers?: Record<string, string>,
-): Promise<{ ok: boolean; status?: number; error?: string }> {
-  const payload: Record<string, unknown> = {
-    from: FROM,
-    to,
-    subject,
-    template_id: templateId,
-    template_variables: variables,
-  }
-  if (headers && Object.keys(headers).length > 0) payload.headers = headers
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      return { ok: false, status: res.status, error: err.message ?? JSON.stringify(err) }
-    }
-    return { ok: true, status: res.status }
-  } catch (err) {
-    return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) }
-  }
 }
 
 async function gateAndHeaders(
@@ -220,7 +187,18 @@ export async function GET(req: NextRequest) {
       ? { firstName, planUrl: 'https://rootedhomeschoolapp.com/dashboard/plan', email }
       : { firstName, dashboardUrl: 'https://rootedhomeschoolapp.com/dashboard', email }
 
-    const result = await sendTemplate(email, SUBJECTS[type], TEMPLATE_IDS[type], variables, gate.headers)
+    // Shared helper posts the correct nested `template: { id, variables }`
+    // payload (the flat template_id shape 422'd the whole drip Apr to Jun 2026).
+    // FROM matches the helper default; pass it explicitly so the sender stays
+    // pinned to Brittany's address regardless of helper-default changes.
+    const result = await sendResendTemplate(
+      email,
+      TEMPLATE_IDS[type],
+      variables,
+      FROM,
+      SUBJECTS[type],
+      gate.headers,
+    )
     if (!result.ok) {
       errors++
       failures.push({ type, email, status: result.status, error: result.error })

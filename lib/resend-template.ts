@@ -9,10 +9,14 @@ export async function sendResendTemplate(
   from?: string,
   subject?: string,
   headers?: Record<string, string>,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; status?: number; error?: string }> {
   const payload: Record<string, unknown> = {
     from: from ?? FROM,
     to,
+    // Resend's /emails API requires the nested `template: { id, variables }`
+    // shape. A flat `template_id` + `template_variables` returns a 422
+    // "Missing html or text" (this regression silently killed the
+    // re-engagement drip from April to June 2026). Do not flatten this.
     template: {
       id: templateId,
       variables,
@@ -21,20 +25,24 @@ export async function sendResendTemplate(
   if (subject) payload.subject = subject
   if (headers && Object.keys(headers).length > 0) payload.headers = headers
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ message: 'Unknown error' }))
-    console.error('Resend template error:', err)
-    return { ok: false, error: err.message ?? JSON.stringify(err) }
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ message: 'Unknown error' }))
+      console.error('Resend template error:', err)
+      return { ok: false, status: res.status, error: err.message ?? JSON.stringify(err) }
+    }
+    return { ok: true, status: res.status }
+  } catch (err) {
+    return { ok: false, status: 0, error: err instanceof Error ? err.message : String(err) }
   }
-  return { ok: true }
 }
 
 // All Resend template IDs

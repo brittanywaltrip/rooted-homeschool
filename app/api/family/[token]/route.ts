@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { signedPhotoUrlsAdmin } from "@/lib/photo-url";
+import { buildFamilyFeed } from "@/lib/family-feed";
 
 export async function GET(
   _req: NextRequest,
@@ -43,132 +43,17 @@ export async function GET(
     });
   }
 
-  // Check mom's subscription status for trial logic
-  const { data: profile } = await supabaseAdmin
-    .from("profiles")
-    .select("display_name, first_name, is_pro, subscription_status")
-    .eq("id", userId)
-    .maybeSingle();
+  // Trial gating is per-invite. Decide here, let the shared builder assemble
+  // the rest (children, signed memories, reactions, comments).
+  const trialEnded = invite.trial_ends_at
+    ? new Date(invite.trial_ends_at) < new Date()
+    : false;
 
-  const momPaid = profile?.is_pro === true && profile?.subscription_status === "active";
-  const trialEnded = invite.trial_ends_at ? new Date(invite.trial_ends_at) < new Date() : false;
-  const trialActive = !trialEnded;
-
-  // Fetch children
-  const { data: children } = await supabaseAdmin
-    .from("children")
-    .select("id, name, color")
-    .eq("user_id", userId)
-    .eq("archived", false)
-    .order("sort_order");
-
-  const childMap: Record<string, { name: string; color: string }> = {};
-  (children ?? []).forEach((c: { id: string; name: string; color: string }) => {
-    childMap[c.id] = { name: c.name, color: c.color };
-  });
-
-  // If trial ended and mom hasn't paid, return limited data
-  if (trialEnded && !momPaid) {
-    // Still fetch a few memories for the blurred preview
-    const { data: mems } = await supabaseAdmin
-      .from("memories")
-      .select("id, type, title, caption, photo_url, date, child_id")
-      .eq("user_id", userId)
-      .eq("family_visible", true)
-      .order("date", { ascending: false })
-      .limit(3);
-
-    const rawMemories = (mems ?? []) as { id: string; type: string; title: string | null; caption: string | null; photo_url: string | null; date: string; child_id: string | null }[];
-    const signedTrial = await signedPhotoUrlsAdmin("memory-photos", rawMemories.map((m) => m.photo_url ?? ""), 3600);
-    const memories = rawMemories.map((m, i) => ({
-      ...m,
-      photo_url: m.photo_url ? signedTrial[i] : null,
-      child_name: m.child_id ? childMap[m.child_id]?.name ?? null : null,
-      child_color: m.child_id ? childMap[m.child_id]?.color ?? null : null,
-    }));
-
-    return NextResponse.json({
-      familyName: profile?.display_name ?? profile?.first_name ?? "Your Family",
-      children: children ?? [],
-      memories,
-      reactions: {},
-      comments: {},
-      trialEnded: true,
-      momPaid: false,
-      trialEndsAt: invite.trial_ends_at,
-      viewerName: invite.viewer_name,
-    });
-  }
-
-  // Fetch all family-visible memories
-  const { data: mems } = await supabaseAdmin
-    .from("memories")
-    .select("id, type, title, caption, photo_url, date, child_id, created_at")
-    .eq("user_id", userId)
-    .eq("family_visible", true)
-    .order("created_at", { ascending: false });
-
-  const rawMems = (mems ?? []) as { id: string; type: string; title: string | null; caption: string | null; photo_url: string | null; date: string; child_id: string | null; created_at: string }[];
-  const signedMain = await signedPhotoUrlsAdmin("memory-photos", rawMems.map((m) => m.photo_url ?? ""), 3600);
-  const memories = rawMems.map((m, i) => ({
-    ...m,
-    photo_url: m.photo_url ? signedMain[i] : null,
-    child_name: m.child_id ? childMap[m.child_id]?.name ?? null : null,
-    child_color: m.child_id ? childMap[m.child_id]?.color ?? null : null,
-  }));
-
-  // Fetch reactions + comments
-  const memIds = memories.map((m: { id: string }) => m.id);
-  let reactions: Record<string, { emoji: string; count: number }[]> = {};
-  let comments: Record<string, { id: string; name: string; text: string; created_at: string }[]> = {};
-
-  if (memIds.length > 0) {
-    const [{ data: rxns }, { data: cmts }] = await Promise.all([
-      supabaseAdmin
-        .from("memory_reactions")
-        .select("memory_id, emoji, reactor_key")
-        .in("memory_id", memIds),
-      supabaseAdmin
-        .from("memory_comments")
-        .select("id, memory_id, commenter_name, body, created_at")
-        .in("memory_id", memIds)
-        .order("created_at", { ascending: true }),
-    ]);
-
-    // Group reactions by memory_id + emoji
-    const grouped: Record<string, Record<string, number>> = {};
-    (rxns ?? []).forEach((r: { memory_id: string; emoji: string }) => {
-      if (!grouped[r.memory_id]) grouped[r.memory_id] = {};
-      grouped[r.memory_id][r.emoji] = (grouped[r.memory_id][r.emoji] ?? 0) + 1;
-    });
-    for (const [memId, types] of Object.entries(grouped)) {
-      reactions[memId] = Object.entries(types)
-        .map(([emoji, count]) => ({ emoji, count }))
-        .sort((a, b) => b.count - a.count);
-    }
-
-    // Group comments
-    (cmts ?? []).forEach((c: { id: string; memory_id: string; commenter_name: string; body: string; created_at: string }) => {
-      if (!comments[c.memory_id]) comments[c.memory_id] = [];
-      comments[c.memory_id].push({
-        id: c.id,
-        name: c.commenter_name,
-        text: c.body,
-        created_at: c.created_at,
-      });
-    });
-  }
-
-  return NextResponse.json({
-    familyName: profile?.display_name ?? profile?.first_name ?? "Your Family",
-    children: children ?? [],
-    memories,
-    reactions,
-    comments,
-    trialEnded: false,
-    momPaid,
-    trialActive,
+  const data = await buildFamilyFeed(userId, {
+    trialEnded,
     trialEndsAt: invite.trial_ends_at,
     viewerName: invite.viewer_name,
   });
+
+  return NextResponse.json(data);
 }

@@ -1,6 +1,13 @@
 // ─── Yearbook Layout Engine ──────────────────────────────────────────────────
 // Pure TypeScript — no React dependencies.
-// Groups memories into spreads with layout hints for the renderer.
+//
+// NOTE (2026-06): the day-by-day spread engine (buildYearbookSpreads,
+// photoSpreads, the milestone + month-divider builders, and their date/month
+// grouping helpers) was RETIRED. It was never wired into the reader — the
+// reader lays its own photos out via `buildPhotoPages` in
+// lib/yearbook-photo-pages.ts. What remains here are the shared types and the
+// three spread builders the reader still uses (year-in-numbers, books,
+// favorite-things), rendered by components/yearbook/SpreadLayouts.tsx.
 
 export type YearbookMemoryType =
   | "photo"
@@ -61,186 +68,6 @@ export interface YearbookSpread {
 
 function dateOnly(iso: string): string {
   return iso.slice(0, 10);
-}
-
-function monthKey(iso: string): string {
-  return iso.slice(0, 7); // "2025-09"
-}
-
-function monthName(iso: string): string {
-  const dt = new Date(iso.slice(0, 10) + "T12:00:00");
-  return dt.toLocaleDateString("en-US", { month: "long" });
-}
-
-function monthYear(iso: string): string {
-  const dt = new Date(iso.slice(0, 10) + "T12:00:00");
-  return dt.toLocaleDateString("en-US", { year: "numeric" });
-}
-
-function groupByDate(memories: YearbookMemory[]): Map<string, YearbookMemory[]> {
-  const groups = new Map<string, YearbookMemory[]>();
-  for (const m of memories) {
-    const d = dateOnly(m.created_at);
-    const arr = groups.get(d) ?? [];
-    arr.push(m);
-    groups.set(d, arr);
-  }
-  return groups;
-}
-
-function groupByMonth(memories: YearbookMemory[]): Map<string, YearbookMemory[]> {
-  const groups = new Map<string, YearbookMemory[]>();
-  for (const m of memories) {
-    const mk = monthKey(m.created_at);
-    const arr = groups.get(mk) ?? [];
-    arr.push(m);
-    groups.set(mk, arr);
-  }
-  return groups;
-}
-
-function isPhoto(m: YearbookMemory): boolean {
-  return m.type === "photo" || m.type === "drawing" || !!m.photo_url;
-}
-
-function isMilestone(m: YearbookMemory): boolean {
-  return m.type === "win" || m.type === "quote";
-}
-
-// ─── Photo spread assignment ─────────────────────────────────────────────────
-
-function photoSpreads(photos: YearbookMemory[]): YearbookSpread[] {
-  if (photos.length === 0) return [];
-
-  const result: YearbookSpread[] = [];
-  let remaining = [...photos];
-
-  // Let pages breathe: prefer 1–2 photos per page and add more spreads instead
-  // of packing four into a dense 2x2 grid. The 4-up "grid" layout stays
-  // available in the renderer but is no longer produced by the auto-layout.
-  while (remaining.length > 0) {
-    const n = remaining.length;
-    if (n === 1) {
-      result.push({ layoutType: "hero", memories: [remaining[0]] });
-      remaining = [];
-    } else if (n === 2) {
-      result.push({ layoutType: "side_by_side", memories: remaining.slice(0, 2) });
-      remaining = [];
-    } else if (n === 3) {
-      result.push({ layoutType: "editorial", memories: remaining.slice(0, 3) });
-      remaining = [];
-    } else if (n === 4) {
-      // Two calm pairs instead of a packed grid.
-      result.push({ layoutType: "side_by_side", memories: remaining.slice(0, 2) });
-      result.push({ layoutType: "side_by_side", memories: remaining.slice(2, 4) });
-      remaining = [];
-    } else {
-      // 5+ → peel a calm pair off and keep going, so a busy day becomes
-      // several breathing spreads with an editorial/hero on the 1–3 photo tail.
-      result.push({ layoutType: "side_by_side", memories: remaining.slice(0, 2) });
-      remaining = remaining.slice(2);
-    }
-  }
-
-  return result;
-}
-
-// ─── Milestone spread assignment ─────────────────────────────────────────────
-
-function milestoneSpreads(milestones: YearbookMemory[], allMilestonesInMonth: YearbookMemory[]): YearbookSpread[] {
-  return milestones.map((m) => {
-    // Find other wins/quotes in the same month (excluding this one)
-    const alsoThisMonth = allMilestonesInMonth.filter((o) => o.id !== m.id);
-    return {
-      layoutType: (m.photo_url ? "milestone_with_photo" : "milestone") as SpreadLayoutType,
-      memories: [m],
-      metadata: {
-        alsoThisMonth: alsoThisMonth.length > 0 ? alsoThisMonth : undefined,
-        childName: m.child_name ?? undefined,
-      },
-    };
-  });
-}
-
-// ─── Build spreads for a single date group ───────────────────────────────────
-
-function buildDateGroupSpreads(
-  group: YearbookMemory[],
-  allMilestonesInMonth: YearbookMemory[],
-): YearbookSpread[] {
-  const spreads: YearbookSpread[] = [];
-  const photos = group.filter((m) => isPhoto(m) && !isMilestone(m));
-  const milestones = group.filter((m) => isMilestone(m));
-  const others = group.filter((m) => !isPhoto(m) && !isMilestone(m) && m.type !== "book");
-
-  spreads.push(...photoSpreads(photos));
-  spreads.push(...milestoneSpreads(milestones, allMilestonesInMonth));
-
-  if (others.length > 0) {
-    spreads.push({ layoutType: "mixed", memories: others });
-  }
-
-  return spreads;
-}
-
-// ─── Main export ─────────────────────────────────────────────────────────────
-
-export function buildYearbookSpreads(memories: YearbookMemory[]): YearbookSpread[] {
-  const monthGroups = groupByMonth(memories);
-  const sortedMonths = Array.from(monthGroups.keys()).sort();
-  const multipleMonths = sortedMonths.length > 1;
-
-  const spreads: YearbookSpread[] = [];
-
-  for (const mk of sortedMonths) {
-    const monthMems = monthGroups.get(mk)!;
-    const allMilestonesInMonth = monthMems.filter((m) => isMilestone(m));
-
-    // Insert month divider if spanning multiple months
-    if (multipleMonths) {
-      const firstMem = monthMems[0];
-      const mName = monthName(firstMem.created_at);
-      const mYear = monthYear(firstMem.created_at);
-
-      // Build the first spread of this month to use as the right page of the divider
-      const dateGroups = groupByDate(monthMems);
-      const sortedDates = Array.from(dateGroups.keys()).sort();
-      const firstDateGroup = dateGroups.get(sortedDates[0])!;
-      const firstDateSpreads = buildDateGroupSpreads(firstDateGroup, allMilestonesInMonth);
-      const firstSpreadMemories = firstDateSpreads.length > 0 ? firstDateSpreads[0].memories : [];
-
-      spreads.push({
-        layoutType: "month_divider",
-        memories: firstSpreadMemories,
-        metadata: {
-          monthName: mName,
-          monthYear: mYear,
-        },
-      });
-
-      // Add remaining spreads from first date (skip the one used in divider)
-      for (let i = 1; i < firstDateSpreads.length; i++) {
-        spreads.push(firstDateSpreads[i]);
-      }
-
-      // Process remaining dates in this month
-      for (let di = 1; di < sortedDates.length; di++) {
-        const group = dateGroups.get(sortedDates[di])!;
-        spreads.push(...buildDateGroupSpreads(group, allMilestonesInMonth));
-      }
-    } else {
-      // Single month — no divider needed
-      const dateGroups = groupByDate(monthMems);
-      const sortedDates = Array.from(dateGroups.keys()).sort();
-
-      for (const date of sortedDates) {
-        const group = dateGroups.get(date)!;
-        spreads.push(...buildDateGroupSpreads(group, allMilestonesInMonth));
-      }
-    }
-  }
-
-  return spreads;
 }
 
 // ─── Year in Numbers spread builder ──────────────────────────────────────────

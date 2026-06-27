@@ -985,11 +985,16 @@ export type Database = {
           duration_minutes: number | null
           family_visible: boolean | null
           favorite: boolean | null
+          featured: boolean | null
+          focal_x: number | null
+          focal_y: number | null
           id: string
           include_in_book: boolean | null
           lesson_id: string | null
           page_order: number | null
+          photo_height: number | null
           photo_url: string | null
+          photo_width: number | null
           title: string | null
           type: string
           updated_at: string | null
@@ -1004,11 +1009,16 @@ export type Database = {
           duration_minutes?: number | null
           family_visible?: boolean | null
           favorite?: boolean | null
+          featured?: boolean | null
+          focal_x?: number | null
+          focal_y?: number | null
           id?: string
           include_in_book?: boolean | null
           lesson_id?: string | null
           page_order?: number | null
+          photo_height?: number | null
           photo_url?: string | null
+          photo_width?: number | null
           title?: string | null
           type?: string
           updated_at?: string | null
@@ -1023,11 +1033,16 @@ export type Database = {
           duration_minutes?: number | null
           family_visible?: boolean | null
           favorite?: boolean | null
+          featured?: boolean | null
+          focal_x?: number | null
+          focal_y?: number | null
           id?: string
           include_in_book?: boolean | null
           lesson_id?: string | null
           page_order?: number | null
+          photo_height?: number | null
           photo_url?: string | null
+          photo_width?: number | null
           title?: string | null
           type?: string
           updated_at?: string | null

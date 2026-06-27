@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import { compressImage } from "@/lib/compress-image";
+import { compressImage, readImageSize } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import { getPhotoCount } from "@/app/lib/integrity-checks";
 import { posthog } from "@/lib/posthog";
@@ -54,6 +54,7 @@ export async function saveLessonPhoto(lessonId: string, file: File): Promise<{ i
     throw new PhotoLimitError("You've reached your memory limit 🤍 Upgrade to keep saving photos.");
   }
 
+  const photoDims = await readImageSize(file);
   const compressed = await compressImage(file);
   const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
   const { error: upErr } = await supabase.storage
@@ -73,6 +74,7 @@ export async function saveLessonPhoto(lessonId: string, file: File): Promise<{ i
       title: lesson.title ?? "",
       caption: lesson.title ?? null,
       photo_url: photoUrl,
+      ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
       child_id: lesson.child_id,
       date: lesson.date,
       lesson_id: lessonId,

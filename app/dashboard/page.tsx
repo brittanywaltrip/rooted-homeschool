@@ -17,7 +17,7 @@ import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib
 import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
 import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
-import { compressImage } from "@/lib/compress-image";
+import { compressImage, readImageSize } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import { LESSON_PHOTO_SAVED_EVENT } from "@/lib/lesson-photo";
 import SignedImage from "@/components/SignedImage";
@@ -3112,7 +3112,9 @@ export default function TodayPage() {
 
     // Upload cover photo if provided
     let photoUrl: string | null = null;
+    let photoDims: { width: number; height: number } | null = null;
     if (bookPhotoFile) {
+      photoDims = await readImageSize(bookPhotoFile);
       const compressed = await compressImage(bookPhotoFile);
       const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
       const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
@@ -3133,6 +3135,7 @@ export default function TodayPage() {
       user_id: user.id, type: "book", title: bookTitle.trim(),
       caption,
       photo_url: photoUrl,
+      ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
       child_id: bookChild || null, date: today, include_in_book: true,
       created_at: nowB, updated_at: nowB,
     }).select("id").single();
@@ -3163,7 +3166,9 @@ export default function TodayPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingDrawing(false); return; }
     let photoUrl: string | null = null;
+    let photoDims: { width: number; height: number } | null = null;
     if (drawingFile) {
+      photoDims = await readImageSize(drawingFile);
       const compressed = await compressImage(drawingFile);
       const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
       const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
@@ -3175,7 +3180,9 @@ export default function TodayPage() {
     const nowD = new Date().toISOString();
     const { data: inserted, error: drawErr } = await supabase.from("memories").insert({
       user_id: user.id, type: "drawing", title: drawingTitle.trim(),
-      photo_url: photoUrl, child_id: drawingChild || null, date: today, include_in_book: true,
+      photo_url: photoUrl,
+      ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
+      child_id: drawingChild || null, date: today, include_in_book: true,
       created_at: nowD, updated_at: nowD,
     }).select("id").single();
     if (drawErr) { console.error("[Rooted] Drawing save failed:", drawErr.message); setSavingDrawing(false); showCaptureToast("Save failed — try again", null); return; }
@@ -4163,6 +4170,7 @@ export default function TodayPage() {
               try {
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) { console.error("[Photo capture] No user session"); return; }
+                const photoDims = await readImageSize(file);
                 const compressed = await compressImage(file);
                 const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
                 const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
@@ -4174,6 +4182,7 @@ export default function TodayPage() {
                 const { data: ins, error: insErr } = await supabase.from("memories").insert({
                   user_id: user.id, type: memType, title: '',
                   photo_url: photoUrl, child_id: null,
+                  ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
                   date: today, include_in_book: false,
                   created_at: now, updated_at: now,
                 }).select("id").single();

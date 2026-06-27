@@ -1,11 +1,23 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
+import { clampFocal } from "@/lib/focal-point";
+import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
+import {
+  DndContext,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import { SortableContext, useSortable, rectSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import SignedImage from "@/components/SignedImage";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -30,7 +42,17 @@ type MemoryRow = {
   title: string | null;
   caption: string | null;
   photo_url: string | null;
+  focal_x?: number | null;
+  focal_y?: number | null;
+  page_order?: number | null;
+  created_at?: string | null;
+  featured?: boolean | null;
 };
+
+type Focal = { x: number; y: number };
+type ReposTarget = { kind: "memory" | "cover"; id: string; url: string; bucket: string };
+
+const FAMILY_GROUP_KEY = "family";
 
 type YearbookContentRow = {
   content_type: string;
@@ -103,6 +125,234 @@ function SaveStatus({ status }: { status: "idle" | "saving" | "saved" | "error" 
   );
 }
 
+// ─── Reposition modal ──────────────────────────────────────────────────────────
+// Touch-friendly focal-point editor: the photo fills a representative cover-fit
+// frame and the family drags it to choose what stays in view. Live preview is
+// the frame itself (object-position follows the drag). Saves a normalized 0..1
+// focal point, or clears it ("Reset to auto") to fall back to the default crop.
+
+function RepositionModal({
+  url,
+  bucket,
+  initialFocal,
+  onCancel,
+  onCommit,
+  memoryActions,
+}: {
+  url: string;
+  bucket: string;
+  initialFocal: Focal | null;
+  onCancel: () => void;
+  onCommit: (focal: Focal | null) => Promise<void>;
+  // Present for memory photos (not the cover): feature + hide toggles.
+  memoryActions?: {
+    featured: boolean;
+    hidden: boolean;
+    onToggleFeatured: () => Promise<void>;
+    onToggleHidden: () => Promise<void>;
+  } | null;
+}) {
+  const [focal, setFocal] = useState<Focal>(initialFocal ?? { x: 0.5, y: 0.5 });
+  const [saving, setSaving] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ sx: number; sy: number; fx: number; fy: number } | null>(null);
+
+  const onPointerDown = (e: ReactPointerEvent) => {
+    if (saving) return;
+    frameRef.current?.setPointerCapture(e.pointerId);
+    drag.current = { sx: e.clientX, sy: e.clientY, fx: focal.x, fy: focal.y };
+  };
+  const onPointerMove = (e: ReactPointerEvent) => {
+    const el = frameRef.current;
+    const d = drag.current;
+    if (!el || !d) return;
+    const r = el.getBoundingClientRect();
+    // Drag the image: moving down/right reveals the top/left → focal decreases.
+    setFocal({
+      x: clampFocal(d.fx - (e.clientX - d.sx) / r.width),
+      y: clampFocal(d.fy - (e.clientY - d.sy) / r.height),
+    });
+  };
+  const onPointerUp = (e: ReactPointerEvent) => {
+    drag.current = null;
+    try { frameRef.current?.releasePointerCapture(e.pointerId); } catch { /* noop */ }
+  };
+
+  const commit = async (f: Focal | null) => {
+    setSaving(true);
+    try { await onCommit(f); } finally { setSaving(false); }
+  };
+
+  const runAction = async (fn: () => Promise<void>) => {
+    setActionBusy(true);
+    try { await fn(); } finally { setActionBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-[14px] font-semibold text-[#2d2926]">Photo options</p>
+        <p className="text-[11px] text-[#9a8f85] mt-0.5 mb-3">
+          Drag the photo to choose what stays in view when it fills a frame.
+        </p>
+
+        <div
+          ref={frameRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          className="relative w-full overflow-hidden rounded-lg border border-[#e8e3dc] bg-[#f0ede5] cursor-grab active:cursor-grabbing touch-none select-none"
+          style={{ aspectRatio: "3 / 4" }}
+        >
+          <SignedImage
+            src={url}
+            bucket={bucket}
+            alt=""
+            className="block w-full h-full object-cover pointer-events-none"
+            style={{ objectPosition: `${(focal.x * 100).toFixed(2)}% ${(focal.y * 100).toFixed(2)}%` }}
+          />
+          <div
+            className="absolute w-7 h-7 rounded-full border-2 border-white pointer-events-none"
+            style={{
+              left: `${focal.x * 100}%`,
+              top: `${focal.y * 100}%`,
+              transform: "translate(-50%, -50%)",
+              boxShadow: "0 0 0 1.5px rgba(0,0,0,0.4)",
+            }}
+          />
+        </div>
+
+        {memoryActions && (
+          <div className="mt-3 space-y-2">
+            <button
+              type="button"
+              onClick={() => runAction(memoryActions.onToggleFeatured)}
+              disabled={actionBusy}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-[12px] disabled:opacity-50 ${
+                memoryActions.featured ? "border-[#5c7f63] bg-[#eef3e6] text-[var(--g-deep)]" : "border-[#e8e3dc] text-[#2d2926]"
+              }`}
+            >
+              <span>⭐ Feature &mdash; its own full page</span>
+              <span className="text-[11px]">{memoryActions.featured ? "On" : "Off"}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => runAction(memoryActions.onToggleHidden)}
+              disabled={actionBusy}
+              className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-[12px] disabled:opacity-50 ${
+                memoryActions.hidden ? "border-[#c98a8a] bg-[#f6ecec] text-[#9a4a4a]" : "border-[#e8e3dc] text-[#2d2926]"
+              }`}
+            >
+              <span>{memoryActions.hidden ? "Hidden from book" : "Hide from book"}</span>
+              <span className="text-[11px]">{memoryActions.hidden ? "Hidden" : "Visible"}</span>
+            </button>
+            {memoryActions.hidden && (
+              <p className="text-[10px] text-[#9a8f85]">This photo won&apos;t appear in the yearbook.</p>
+            )}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between mt-4">
+          <button
+            type="button"
+            onClick={() => commit(null)}
+            disabled={saving}
+            className="text-[11px] text-[#9a8f85] underline disabled:opacity-50"
+          >
+            Reset to auto
+          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={saving}
+              className="text-[12px] text-[#7a6f65] px-3 py-2 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => commit(focal)}
+              disabled={saving}
+              className="text-[12px] bg-[var(--g-deep)] text-white px-4 py-2 rounded-lg disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// One reorderable + tappable photo in the reposition grid. Drag (past the
+// sensor's activation distance) reorders within its chapter; a tap with no drag
+// opens the reposition modal.
+function SortablePhoto({
+  id,
+  url,
+  focal,
+  featured,
+  hidden,
+  disabled,
+  onTap,
+}: {
+  id: string;
+  url: string;
+  focal: Focal | null;
+  featured: boolean;
+  hidden: boolean;
+  disabled: boolean;
+  onTap: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, disabled });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+    zIndex: isDragging ? 10 : undefined,
+  };
+  return (
+    <button
+      ref={setNodeRef}
+      type="button"
+      style={style}
+      onClick={onTap}
+      disabled={disabled}
+      className={`relative aspect-square rounded-lg overflow-hidden touch-none disabled:opacity-60 ${
+        featured ? "border-2 border-[#e8c44a]" : "border border-[#e8e3dc]"
+      }`}
+      {...attributes}
+      {...listeners}
+    >
+      <SignedImage
+        src={url}
+        bucket="memory-photos"
+        alt=""
+        className="w-full h-full object-cover pointer-events-none"
+        style={{
+          objectPosition: focal ? `${(focal.x * 100).toFixed(2)}% ${(focal.y * 100).toFixed(2)}%` : "center",
+          opacity: hidden ? 0.35 : 1,
+          filter: hidden ? "grayscale(0.6)" : undefined,
+        }}
+      />
+      {hidden && (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <span className="text-[9px] font-medium bg-black/60 text-white px-1.5 py-0.5 rounded">Hidden</span>
+        </span>
+      )}
+      {featured && !hidden && (
+        <span className="absolute top-1 left-1 text-[10px] leading-none" aria-label="Featured">⭐</span>
+      )}
+      {focal && !hidden && (
+        <span className="absolute bottom-1 right-1 text-[8px] bg-[#5c7f63] text-white px-1.5 py-0.5 rounded">Set</span>
+      )}
+    </button>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function YearbookEditPage() {
@@ -116,6 +366,16 @@ export default function YearbookEditPage() {
   const [updatedMap, setUpdatedMap] = useState<Record<string, string>>({});
   const [bookmarkedMemories, setBookmarkedMemories] = useState<MemoryRow[]>([]);
   const [quoteMemories, setQuoteMemories] = useState<MemoryRow[]>([]);
+  // Per-photo focal points, keyed by memory id (and "cover" for the cover photo).
+  const [focalMap, setFocalMap] = useState<Record<string, Focal | null>>({});
+  const [reposTarget, setReposTarget] = useState<ReposTarget | null>(null);
+  // Ordered photo ids per chapter group (child id, or FAMILY_GROUP_KEY).
+  const [repoOrder, setRepoOrder] = useState<Record<string, string[]>>({});
+  // Featured photos (own full-bleed page) and session-hidden photos (excluded).
+  const [featuredSet, setFeaturedSet] = useState<Set<string>>(new Set());
+  const [hiddenSet, setHiddenSet] = useState<Set<string>>(new Set());
+  // Distance constraint keeps tap (reposition) distinct from drag (reorder).
+  const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   // Cover / meta state
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
@@ -188,6 +448,80 @@ export default function YearbookEditPage() {
     }, { onConflict: "user_id,yearbook_key,content_type,child_id,question_key" });
   }, [effectiveUserId, yearbookKey, isReadOnly]);
 
+  // ── Save a photo's focal point (memory row, or the cover's content key) ──────
+  const commitFocal = useCallback(async (focal: Focal | null) => {
+    const t = reposTarget;
+    if (!t || isReadOnly) { setReposTarget(null); return; }
+    if (t.kind === "cover") {
+      await saveContent("cover_photo_focal", focal ? `${focal.x},${focal.y}` : "");
+    } else {
+      await supabase
+        .from("memories")
+        .update({ focal_x: focal?.x ?? null, focal_y: focal?.y ?? null })
+        .eq("id", t.id);
+    }
+    setFocalMap((prev) => ({ ...prev, [t.id]: focal }));
+    setReposTarget(null);
+  }, [reposTarget, isReadOnly, saveContent]);
+
+  // ── Reorder photos within a chapter → normalized 0..n page_order ────────────
+  const groupKeyOfId = useCallback((id: string): string | null => {
+    for (const [gk, ids] of Object.entries(repoOrder)) {
+      if (ids.includes(id)) return gk;
+    }
+    return null;
+  }, [repoOrder]);
+
+  // ── Feature a photo (own full-bleed page) ───────────────────────────────────
+  const toggleFeatured = useCallback(async (id: string) => {
+    if (isReadOnly) return;
+    let next = false;
+    setFeaturedSet((prev) => {
+      const s = new Set(prev);
+      next = !s.has(id);
+      if (next) s.add(id); else s.delete(id);
+      return s;
+    });
+    await supabase.from("memories").update({ featured: next }).eq("id", id);
+  }, [isReadOnly]);
+
+  // ── Hide a photo from the book (toggles include_in_book) ────────────────────
+  const toggleHidden = useCallback(async (id: string) => {
+    if (isReadOnly) return;
+    let nextHidden = false;
+    setHiddenSet((prev) => {
+      const s = new Set(prev);
+      nextHidden = !s.has(id);
+      if (nextHidden) s.add(id); else s.delete(id);
+      return s;
+    });
+    await supabase.from("memories").update({ include_in_book: !nextHidden }).eq("id", id);
+  }, [isReadOnly]);
+
+  const onPhotoDragEnd = useCallback((e: DragEndEvent) => {
+    if (isReadOnly) return;
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const activeId = String(active.id);
+    const overId = String(over.id);
+    const gk = groupKeyOfId(activeId);
+    // Reordering stays within a chapter; ignore drops onto another group.
+    if (!gk || gk !== groupKeyOfId(overId)) return;
+    setRepoOrder((prev) => {
+      const ids = prev[gk] ?? [];
+      const oldI = ids.indexOf(activeId);
+      const newI = ids.indexOf(overId);
+      if (oldI < 0 || newI < 0) return prev;
+      const next = arrayMove(ids, oldI, newI);
+      void Promise.all(
+        normalizedPageOrders(next).map(({ id, page_order }) =>
+          supabase.from("memories").update({ page_order }).eq("id", id),
+        ),
+      );
+      return { ...prev, [gk]: next };
+    });
+  }, [isReadOnly, groupKeyOfId]);
+
   // ── Load data ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -226,14 +560,35 @@ export default function YearbookEditPage() {
           .eq("user_id", effectiveUserId).eq("yearbook_key", key),
         supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url")
           .eq("user_id", effectiveUserId).eq("type", "quote").order("date", { ascending: false }),
-        supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url")
+        supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url, focal_x, focal_y, page_order, created_at, featured")
           .eq("user_id", effectiveUserId).eq("include_in_book", true).order("date", { ascending: false }),
       ]);
 
       const childList = (kids ?? []) as Child[];
       setChildren(capitalizeChildNames(childList));
       setQuoteMemories((quotes ?? []) as MemoryRow[]);
-      setBookmarkedMemories((bookmarked ?? []) as MemoryRow[]);
+      const bookmarkedRows = (bookmarked ?? []) as MemoryRow[];
+      setBookmarkedMemories(bookmarkedRows);
+
+      // Hydrate focal points + per-chapter photo order for the reposition grid.
+      const fMap: Record<string, Focal | null> = {};
+      for (const m of bookmarkedRows) {
+        fMap[m.id] = (typeof m.focal_x === "number" && typeof m.focal_y === "number")
+          ? { x: m.focal_x, y: m.focal_y }
+          : null;
+      }
+      setFocalMap(fMap);
+
+      const groups: Record<string, string[]> = {};
+      const feat = new Set<string>();
+      for (const m of orderPhotos(bookmarkedRows.filter((r) => r.photo_url))) {
+        const gk = m.child_id ?? FAMILY_GROUP_KEY;
+        (groups[gk] ??= []).push(m.id);
+        if (m.featured) feat.add(m.id);
+      }
+      setRepoOrder(groups);
+      setFeaturedSet(feat);
+      setHiddenSet(new Set());
 
       // Build content map
       const rows = (ybRows ?? []) as YearbookContentRow[];
@@ -249,6 +604,16 @@ export default function YearbookEditPage() {
 
       // Hydrate state
       setCoverPhotoUrl(cMap[ck("cover_photo")] ?? "");
+      // Cover focal point (stored as "x,y" in the content map).
+      {
+        const parts = (cMap[ck("cover_photo_focal")] ?? "").split(",");
+        const cx = parseFloat(parts[0]);
+        const cy = parseFloat(parts[1]);
+        const coverFocal: Focal | null = (parts.length === 2 && Number.isFinite(cx) && Number.isFinite(cy))
+          ? { x: cx, y: cy }
+          : null;
+        setFocalMap((prev) => ({ ...prev, cover: coverFocal }));
+      }
       setFamilyName(cMap[ck("family_name")] ?? "");
       setSchoolYear(cMap[ck("school_year")] ?? "");
       setLetter(cMap[ck("letter_from_home")] ?? "");
@@ -480,6 +845,107 @@ export default function YearbookEditPage() {
           )}
           {coverSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
         </div>
+
+        {/* ── Reposition & reorder photos ────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Reposition &amp; reorder photos</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            Drag to reorder photos within a chapter. Tap a photo to aim what shows when it fills a frame.
+          </p>
+          {(() => {
+            const memById: Record<string, MemoryRow> = {};
+            for (const m of bookmarkedMemories) memById[m.id] = m;
+
+            const childGroups = children
+              .map((c) => ({ key: c.id, label: c.name, ids: repoOrder[c.id] ?? [] }))
+              .filter((g) => g.ids.length > 0);
+            const familyIds = repoOrder[FAMILY_GROUP_KEY] ?? [];
+            const groups = [
+              ...childGroups,
+              ...(familyIds.length ? [{ key: FAMILY_GROUP_KEY, label: "Family", ids: familyIds }] : []),
+            ];
+
+            const coverBucket = coverPhotoUrl.includes("/family-photos/") ? "family-photos" : "yearbook-covers";
+            const coverFocal = focalMap["cover"] ?? null;
+
+            if (!coverPhotoUrl && groups.length === 0) {
+              return <p className="text-[11px] text-[#9a8f85]">Add photos to your yearbook to reposition them here.</p>;
+            }
+
+            return (
+              <div className="space-y-4">
+                {coverPhotoUrl && (
+                  <div>
+                    <p className="text-[11px] font-medium text-[#7a6f65] mb-1.5">Cover</p>
+                    <button
+                      type="button"
+                      onClick={() => { if (!isReadOnly) setReposTarget({ kind: "cover", id: "cover", url: coverPhotoUrl, bucket: coverBucket }); }}
+                      disabled={isReadOnly}
+                      className="relative w-[68px] aspect-[3/4] rounded-lg overflow-hidden border border-[#e8e3dc] disabled:opacity-60"
+                    >
+                      <SignedImage
+                        src={coverPhotoUrl}
+                        bucket={coverBucket}
+                        alt=""
+                        className="w-full h-full object-cover"
+                        style={{ objectPosition: coverFocal ? `${(coverFocal.x * 100).toFixed(2)}% ${(coverFocal.y * 100).toFixed(2)}%` : "center" }}
+                      />
+                      {coverFocal && (
+                        <span className="absolute bottom-1 right-1 text-[8px] bg-[#5c7f63] text-white px-1.5 py-0.5 rounded">Set</span>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={onPhotoDragEnd}>
+                  {groups.map((g) => (
+                    <div key={g.key}>
+                      <p className="text-[11px] font-medium text-[#7a6f65] mb-1.5">{g.label}</p>
+                      <SortableContext items={g.ids} strategy={rectSortingStrategy}>
+                        <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                          {g.ids.map((id) => {
+                            const m = memById[id];
+                            if (!m?.photo_url) return null;
+                            const url = m.photo_url;
+                            return (
+                              <SortablePhoto
+                                key={id}
+                                id={id}
+                                url={url}
+                                focal={focalMap[id] ?? null}
+                                featured={featuredSet.has(id)}
+                                hidden={hiddenSet.has(id)}
+                                disabled={isReadOnly}
+                                onTap={() => setReposTarget({ kind: "memory", id, url, bucket: "memory-photos" })}
+                              />
+                            );
+                          })}
+                        </div>
+                      </SortableContext>
+                    </div>
+                  ))}
+                </DndContext>
+              </div>
+            );
+          })()}
+        </div>
+
+        {reposTarget && (
+          <RepositionModal
+            key={reposTarget.id}
+            url={reposTarget.url}
+            bucket={reposTarget.bucket}
+            initialFocal={focalMap[reposTarget.id] ?? null}
+            onCancel={() => setReposTarget(null)}
+            onCommit={commitFocal}
+            memoryActions={reposTarget.kind === "memory" ? {
+              featured: featuredSet.has(reposTarget.id),
+              hidden: hiddenSet.has(reposTarget.id),
+              onToggleFeatured: () => toggleFeatured(reposTarget.id),
+              onToggleHidden: () => toggleHidden(reposTarget.id),
+            } : null}
+          />
+        )}
 
         {/* ── Family name ────────────────────────────────────── */}
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
