@@ -848,9 +848,10 @@ export default function YearbookReadPage() {
     ),
   });
 
-  // 2.5. YEAR RECAP — named lists (books, places, moments), no counts.
+  // 2.5. YEAR RECAP — named lists (books, places, moments), no counts. The whole
+  // page is omitted when there's nothing to recap, so it's never an empty/0 state.
   const yearRecap = buildYearRecap(memories);
-  if (ybSettings.show_year_in_numbers) spreads.push({
+  if (ybSettings.show_year_in_numbers && !isRecapEmpty(yearRecap)) spreads.push({
     id: "year-in-numbers",
     label: "Our year",
     leftContent: <RecapLeftPage recap={yearRecap} />,
