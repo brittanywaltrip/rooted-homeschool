@@ -10,6 +10,7 @@ import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
 import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
 import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS } from "@/lib/yearbook-prompts";
+import { yearbookMonths, questionForMonth, monthLabel } from "@/lib/monthly-questions";
 import {
   DndContext,
   PointerSensor,
@@ -443,6 +444,8 @@ export default function YearbookEditPage() {
   const [favWhy, setFavWhy] = useState("");
   // Per-child favorite things, keyed by child id then favorite key.
   const [favoriteAnswers, setFavoriteAnswers] = useState<Record<string, Record<string, string>>>({});
+  // One Question a Month answers, keyed by "YYYY-MM".
+  const [monthlyAnswers, setMonthlyAnswers] = useState<Record<string, string>>({});
   // Wave 2 keepsake pages, keyed by child id then field/prompt key.
   const [snapshotAnswers, setSnapshotAnswers] = useState<Record<string, Record<string, string>>>({});
   const [neverForgetAnswers, setNeverForgetAnswers] = useState<Record<string, Record<string, string>>>({});
@@ -556,6 +559,19 @@ export default function YearbookEditPage() {
     });
     await supabase.from("memories").update({ include_in_book: !nextHidden }).eq("id", id);
   }, [isReadOnly]);
+
+  // Debounced upsert for a One Question a Month answer.
+  const saveMonthly = useCallback((month: string, v: string) => {
+    if (isReadOnly || !effectiveUserId) return;
+    const id = `_ybsave_month_${month}`;
+    clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[id]);
+    (window as unknown as Record<string, NodeJS.Timeout | undefined>)[id] = setTimeout(() => {
+      supabase.from("monthly_reflections").upsert(
+        { user_id: effectiveUserId, month, question: questionForMonth(month), answer: v.trim(), updated_at: new Date().toISOString() },
+        { onConflict: "user_id,month" },
+      );
+    }, 800);
+  }, [isReadOnly, effectiveUserId]);
 
   // Debounced save for a per-child keepsake field (snapshot / never-forget / open-when).
   const saveKeepsake = useCallback((contentType: string, childId: string, key: string, v: string) => {
@@ -735,6 +751,17 @@ export default function YearbookEditPage() {
       setOpenWhenAnswers(opens);
       setChildAnswers(answers);
       setChildNotes(notes);
+
+      // One Question a Month answers (separate per-user store).
+      const { data: monthlyRows } = await supabase
+        .from("monthly_reflections")
+        .select("month, answer")
+        .eq("user_id", effectiveUserId);
+      const mMap: Record<string, string> = {};
+      for (const r of (monthlyRows ?? []) as { month: string; answer: string }[]) {
+        mMap[r.month] = r.answer ?? "";
+      }
+      setMonthlyAnswers(mMap);
 
       setLoading(false);
     })();
@@ -1411,6 +1438,36 @@ export default function YearbookEditPage() {
             </div>
           </div>
         )}
+
+        {/* ── Our year, month by month (One Question a Month) ──── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Our year, month by month</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            One question a month, in your own words. We&apos;ll ask gently on your Today page each month; view or edit any month here. Blank months are skipped in the book.
+          </p>
+          <div className="space-y-3">
+            {yearbookMonths(yearbookKey).map((month) => (
+              <div key={month}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <label className="text-[11px] font-medium text-[#2d2926]">{monthLabel(month)}</label>
+                  <span className="text-[10px] text-[#9a8f85] italic text-right truncate">{questionForMonth(month)}</span>
+                </div>
+                <input
+                  value={monthlyAnswers[month] ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setMonthlyAnswers((prev) => ({ ...prev, [month]: v }));
+                    saveMonthly(month, v);
+                  }}
+                  disabled={isReadOnly}
+                  placeholder="In your own words…"
+                  className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+                  style={{ fontFamily: "Georgia, serif" }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
 
         {/* ── Per-child sections ───────────────────────────────── */}
         {children.map((child) => {
