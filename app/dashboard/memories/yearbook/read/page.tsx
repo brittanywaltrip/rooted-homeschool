@@ -11,7 +11,6 @@ import { useIsNativeApp } from "@/lib/platform";
 import PreviewWatermark from "@/app/components/PreviewWatermark";
 import Link from "next/link";
 import {
-  buildYearInNumbersSpread,
   buildBooksSpread,
   buildFavoriteThingsSpread,
   type YearbookMemory,
@@ -21,6 +20,7 @@ import { focalObjectPosition } from "@/lib/focal-point";
 import { orderPhotos } from "@/lib/photo-order";
 import { featureCaptionText } from "@/lib/photo-caption";
 import { resolveTheme, themeCssVars, THEMES, type YearbookTheme } from "@/lib/yearbook-theme";
+import { buildYearRecap, isRecapEmpty, type YearRecap } from "@/lib/year-recap";
 
 // Theme flows to the motif components (sprig vs rule) via context; colors/fonts
 // flow via the --yb-* CSS variables set on the book wrapper.
@@ -363,12 +363,87 @@ function chapterUnitsToSpreads(units: ChapterPhotoUnit[], idPrefix: string, labe
   return out;
 }
 
+// ─── Year recap (named lists, no counts) ─────────────────────────────────────
+
+function RecapSection({ label, items }: { label: string; items: string[] }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mb-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--yb-accent)] mb-1.5">{label}</p>
+      <ul className="space-y-1">
+        {items.map((it, i) => (
+          <li
+            key={i}
+            className="text-[11.5px] text-[var(--yb-body)] leading-snug line-clamp-1"
+            style={{ fontFamily: "Georgia, serif" }}
+          >
+            {it}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function RecapLeftPage({ recap }: { recap: YearRecap }) {
+  const empty = isRecapEmpty(recap);
+  const hasLists = recap.books.length > 0 || recap.places.length > 0;
+  return (
+    <PageShell>
+      <div className="shrink-0 mb-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Looking back</p>
+        <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+          Our year
+        </h2>
+      </div>
+      {empty || !hasLists ? (
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+          <MotifMark size={28} opacity={0.3} />
+          <p className="italic text-[13px] text-[var(--yb-muted)] mt-4 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+            {empty ? "Your year is still being written." : "The things we did, together."}
+          </p>
+        </div>
+      ) : (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <RecapSection label="Books we read" items={recap.books} />
+          <RecapSection label="Places we explored" items={recap.places} />
+        </div>
+      )}
+    </PageShell>
+  );
+}
+
+function RecapRightPage({ recap }: { recap: YearRecap }) {
+  if (recap.moments.length === 0) {
+    // No wins to list — a quiet closing page rather than an empty list.
+    return (
+      <PageShell>
+        <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+          <Sprig className="mb-4" />
+          <p className="italic text-[14px] text-[var(--yb-muted)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+            A year worth<br />remembering.
+          </p>
+          <Sprig className="mt-4" />
+        </div>
+      </PageShell>
+    );
+  }
+  return (
+    <PageShell>
+      <div className="flex-1 min-h-0 overflow-hidden">
+        <RecapSection label="Moments we celebrated" items={recap.moments} />
+      </div>
+      <Sprig className="mt-2 mb-1" />
+    </PageShell>
+  );
+}
+
 // ─── Page header mapping ─────────────────────────────────────────────────────
 
 function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
   if (spreadId === "cover") return ["ROOTED YEARBOOK", "TABLE OF CONTENTS"];
   if (spreadId === "letter") return ["A LETTER FROM HOME", "A LETTER FROM HOME"];
-  if (spreadId === "year-in-numbers") return ["OUR YEAR IN NUMBERS", "OUR YEAR IN NUMBERS"];
+  if (spreadId === "year-in-numbers") return ["OUR YEAR", "OUR YEAR"];
   if (spreadId.startsWith("child-")) {
     const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
     if (spreadId.includes("-books")) return [`${name}\u2019S BOOKS`, `${name}\u2019S BOOKS`];
@@ -580,10 +655,6 @@ export default function YearbookReadPage() {
   const yearLabel = yearbookKey
     ? `${yearbookKey.split("-")[0]}\u201320${yearbookKey.split("-")[1]}`
     : "";
-  const photoCount = memories.filter((m) => m.type === "photo" || m.type === "drawing").length;
-  const bookCount = memories.filter((m) => m.type === "book").length;
-  const winCount = memories.filter((m) => m.type === "win").length;
-  const quoteCount = memories.filter((m) => m.type === "quote").length;
 
   const coverPhotoUrl = contentMap[ck("cover_photo")] || profile.family_photo_url || "";
   // Cover focal point lives in the yearbook content (the cover photo isn't a
@@ -652,11 +723,8 @@ export default function YearbookReadPage() {
           </p>
         </div>
 
-        <div className="flex justify-between items-center w-full px-5 pb-3 relative z-10">
+        <div className="flex justify-center items-center w-full px-5 pb-3 relative z-10">
           <span className="text-[9px] tracking-[0.18em] text-[rgba(254, 252, 249, 0.55)]/50">ROOTED</span>
-          <span className="bg-white/10 text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full">
-            {memories.length} memories
-          </span>
         </div>
       </div>
     ) : (
@@ -678,11 +746,8 @@ export default function YearbookReadPage() {
           </p>
         </div>
 
-        <div className="flex justify-between items-center px-5 pb-4 relative z-10">
+        <div className="flex justify-center items-center px-5 pb-4 relative z-10">
           <span className="text-[9px] tracking-[0.18em] text-[rgba(254, 252, 249, 0.55)]/60">ROOTED</span>
-          <span className="bg-white/10 text-[9px] text-[#c8e6c4] px-3 py-1 rounded-full">
-            {memories.length} memories
-          </span>
         </div>
       </div>
     ),
@@ -735,22 +800,6 @@ export default function YearbookReadPage() {
             </div>
           )}
         </div>
-        <div className="shrink-0 mt-3">
-          <p className="text-[9px] uppercase tracking-[0.12em] text-[var(--yb-muted)] mb-1.5 font-semibold">Our year</p>
-          <div className="flex gap-2">
-            {[
-              { n: photoCount, l: "photos" },
-              { n: winCount, l: "wins" },
-              { n: bookCount, l: "books" },
-              { n: quoteCount, l: "quotes" },
-            ].map((s) => (
-              <div key={s.l} className="bg-[#eeeade] rounded px-2 py-1.5 text-center flex-1">
-                <p className="text-[15px] font-bold text-[var(--g-deep)]">{s.n}</p>
-                <p className="text-[8px] text-[var(--yb-muted)]">{s.l}</p>
-              </div>
-            ))}
-          </div>
-        </div>
       </PageShell>
     ),
     rightContent: (
@@ -799,21 +848,13 @@ export default function YearbookReadPage() {
     ),
   });
 
-  // 2.5. YEAR IN NUMBERS SPREAD
-  const allYearbookMemories: YearbookMemory[] = memories.map((m) => ({
-    id: m.id,
-    type: (m.type as YearbookMemory["type"]) ?? "photo",
-    title: m.title,
-    photo_url: m.photo_url,
-    created_at: m.date,
-    child_name: children.find((c) => c.id === m.child_id)?.name ?? null,
-  }));
-  const yearInNumbersSpread = buildYearInNumbersSpread(allYearbookMemories, familyName, yearLabel);
+  // 2.5. YEAR RECAP — named lists (books, places, moments), no counts.
+  const yearRecap = buildYearRecap(memories);
   if (ybSettings.show_year_in_numbers) spreads.push({
     id: "year-in-numbers",
-    label: "Year in numbers",
-    leftContent: <SpreadLeftPage spread={yearInNumbersSpread} />,
-    rightContent: <SpreadRightPage spread={yearInNumbersSpread} />,
+    label: "Our year",
+    leftContent: <RecapLeftPage recap={yearRecap} />,
+    rightContent: <RecapRightPage recap={yearRecap} />,
   });
 
   // 3. PER-CHILD SPREADS
@@ -864,9 +905,8 @@ export default function YearbookReadPage() {
             <h2 className="text-[26px] font-bold text-white leading-tight mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
               {child.name}&apos;s year
             </h2>
-            <p className="text-[10px] text-white/75 mt-1">{childMems.length} memories</p>
             {featurePhoto.date && (
-              <p className="text-[9px] text-white/60 mt-0.5">
+              <p className="text-[10px] text-white/70 mt-1">
                 {safeParseDateStr(featurePhoto.date)?.toLocaleDateString("en-US", { month: "long", year: "numeric" }) ?? ""}
               </p>
             )}
@@ -883,8 +923,7 @@ export default function YearbookReadPage() {
           <h2 className="text-[27px] font-bold text-[var(--yb-cover-fg)] leading-tight mt-2 relative z-10" style={{ fontFamily: "var(--yb-heading-font)" }}>
             {child.name}&apos;s year
           </h2>
-          <span className="text-[20px] my-4 opacity-70 select-none relative z-10" aria-hidden>🌿</span>
-          <p className="text-[10px] text-white/70 relative z-10">{childMems.length} memories</p>
+          <span className="text-[20px] mt-4 opacity-70 select-none relative z-10" aria-hidden>🌿</span>
         </div>
       ),
       rightContent: (
@@ -1005,7 +1044,6 @@ export default function YearbookReadPage() {
         <div className="shrink-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Together</p>
           <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>Our family</h2>
-          <p className="text-[10px] text-[var(--yb-muted)] mt-0.5">{familyMemories.length} shared memories</p>
         </div>
 
         {familyMemories.length > 0 ? (
@@ -1122,9 +1160,6 @@ export default function YearbookReadPage() {
             {letterText.trim() ? letterText.slice(0, 80) + (letterText.length > 80 ? "…" : "") : "Our story, beautifully kept."}
           </p>
           <Sprig className="my-3" />
-          <p className="text-[9px] text-[var(--yb-muted)]">
-            {memories.length} memories · {bookCount} books · {winCount} wins
-          </p>
         </div>
       </PageShell>
     ),

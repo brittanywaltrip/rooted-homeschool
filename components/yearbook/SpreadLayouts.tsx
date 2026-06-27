@@ -320,12 +320,9 @@ function BooksRightPage({ spread }: { spread: YearbookSpread }) {
   return (
     <Shell>
       <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-        <p className="text-[48px] font-bold text-[var(--g-deep)]" style={{ fontFamily: "Georgia, serif" }}>
-          {spread.memories.length}
-        </p>
-        <p className="text-[11px] text-[var(--yb-muted)] mt-1">books read this year</p>
+        <p className="text-[13px] uppercase tracking-[0.16em] text-[var(--yb-muted)]">Books we read</p>
         <div className="text-[13px] opacity-45 select-none my-4" aria-hidden>🌿</div>
-        <p className="italic text-[12px] text-[#3a352f] leading-relaxed max-w-[210px]" style={{ fontFamily: "Georgia, serif" }}>
+        <p className="italic text-[14px] text-[#3a352f] leading-relaxed max-w-[210px]" style={{ fontFamily: "Georgia, serif" }}>
           Every book is a window into a new world.
         </p>
       </div>
