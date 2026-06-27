@@ -60,6 +60,30 @@ export function monthLabel(month: string): string {
  * order. yearbookKey is "2025-26"; the homeschool year runs Aug → Jul, matching
  * the reader's school-year-start (month index >= 7) convention.
  */
+export interface MonthEntry {
+  month: string;
+  question: string;
+  answer: string;
+}
+
+/**
+ * The "Our year, month by month" entries for a yearbook: each school-year month
+ * that has a non-empty answer, in order. Uses the stored question if present,
+ * else the deterministic one. Months with no answer are skipped.
+ */
+export function monthEntriesFor(
+  yearbookKey: string,
+  answers: Record<string, { question?: string | null; answer?: string | null } | undefined>,
+): MonthEntry[] {
+  return yearbookMonths(yearbookKey)
+    .map((m) => ({
+      month: m,
+      question: (answers[m]?.question ?? "").trim() || questionForMonth(m),
+      answer: (answers[m]?.answer ?? "").trim(),
+    }))
+    .filter((e) => e.answer.length > 0);
+}
+
 export function yearbookMonths(yearbookKey: string): string[] {
   const m = /^(\d{4})-(\d{2})$/.exec(yearbookKey ?? "");
   if (!m) return [];

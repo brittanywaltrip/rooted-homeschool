@@ -16,6 +16,7 @@ import {
 } from "@/lib/yearbook-layout-engine";
 import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS } from "@/lib/yearbook-prompts";
 import { partitionDrawings, tinyMasterpieceCaption, chunk } from "@/lib/tiny-masterpieces";
+import { monthEntriesFor, monthLabel, type MonthEntry } from "@/lib/monthly-questions";
 import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell, type PhotoItem, type ChapterPhotoUnit } from "@/lib/yearbook-photo-pages";
 import { focalObjectPosition } from "@/lib/focal-point";
 import { orderPhotos } from "@/lib/photo-order";
@@ -586,12 +587,53 @@ function OpenWhenPage({ childName, parts }: { childName: string; parts: { prompt
   );
 }
 
+// ─── Our year, month by month (One Question a Month) ─────────────────────────
+
+function MonthByMonthPage({ entries, showTitle }: { entries: MonthEntry[]; showTitle: boolean }) {
+  return (
+    <PageShell>
+      {showTitle && (
+        <div className="shrink-0 mb-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">In your own words</p>
+          <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+            Our year, month by month
+          </h2>
+        </div>
+      )}
+      <div className="flex-1 min-h-0 overflow-hidden space-y-3">
+        {entries.map((e) => (
+          <div key={e.month}>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--yb-accent)]">{monthLabel(e.month)}</p>
+            <p className="italic text-[9.5px] text-[var(--yb-muted)] leading-snug">{e.question}</p>
+            <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-2 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{e.answer}</p>
+          </div>
+        ))}
+      </div>
+    </PageShell>
+  );
+}
+
+function buildMonthByMonthSpreads(entries: MonthEntry[]): SpreadDef[] {
+  const pages = chunk(entries, 6);
+  const out: SpreadDef[] = [];
+  for (let i = 0; i < pages.length; i += 2) {
+    out.push({
+      id: i === 0 ? "month-by-month" : `month-by-month-${i / 2}`,
+      label: "Our year",
+      leftContent: <MonthByMonthPage entries={pages[i]} showTitle={i === 0} />,
+      rightContent: pages[i + 1] ? <MonthByMonthPage entries={pages[i + 1]} showTitle={false} /> : <FillerPage />,
+    });
+  }
+  return out;
+}
+
 // ─── Page header mapping ─────────────────────────────────────────────────────
 
 function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
   if (spreadId === "cover") return ["ROOTED YEARBOOK", "TABLE OF CONTENTS"];
   if (spreadId === "letter") return ["A LETTER FROM HOME", "A LETTER FROM HOME"];
   if (spreadId.startsWith("year-in-numbers")) return ["LOOKING BACK", "LOOKING BACK"];
+  if (spreadId.startsWith("month-by-month")) return ["MONTH BY MONTH", "MONTH BY MONTH"];
   if (spreadId === "until-next-year") return ["UNTIL NEXT YEAR", "UNTIL NEXT YEAR"];
   if (spreadId.startsWith("child-")) {
     const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
@@ -640,6 +682,7 @@ export default function YearbookReadPage() {
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [children, setChildren] = useState<Child[]>([]);
   const [contentMap, setContentMap] = useState<Record<string, string>>({});
+  const [monthly, setMonthly] = useState<Record<string, { question: string; answer: string }>>({});
   const [profile, setProfile] = useState<{ display_name?: string; yearbook_opened_at?: string; yearbook_closed_at?: string; family_photo_url?: string | null; plan_type?: string | null; is_pro?: boolean | null; trial_started_at?: string | null }>({});
   const [yearbookKey, setYearbookKey] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
@@ -765,6 +808,18 @@ export default function YearbookReadPage() {
         cMap[ck(r.content_type, r.child_id, r.question_key)] = r.content;
       }
       setContentMap(cMap);
+
+      // One Question a Month answers (NO AI — the family's real words).
+      const { data: monthlyRows } = await supabase
+        .from("monthly_reflections")
+        .select("month, question, answer")
+        .eq("user_id", effectiveUserId);
+      const mMap: Record<string, { question: string; answer: string }> = {};
+      for (const r of (monthlyRows ?? []) as { month: string; question: string; answer: string }[]) {
+        mMap[r.month] = { question: r.question, answer: r.answer ?? "" };
+      }
+      setMonthly(mMap);
+
       setLoading(false);
       posthog.capture('yearbook_opened');
     })();
@@ -928,6 +983,9 @@ export default function YearbookReadPage() {
             <p>Family Traditions · p. {pageNumberForId("village") ?? "–"}</p>
             {pageNumberForId("year-in-numbers") != null && (
               <p>Looking Back · p. {pageNumberForId("year-in-numbers")}</p>
+            )}
+            {pageNumberForId("month-by-month") != null && (
+              <p>Our year, month by month · p. {pageNumberForId("month-by-month")}</p>
             )}
           </div>
         </div>
@@ -1376,6 +1434,14 @@ export default function YearbookReadPage() {
     for (const sp of buildRecapSpreads(recapPages)) spreads.push(sp);
   }
 
+  // 5.55. OUR YEAR, MONTH BY MONTH — the One Question a Month answers, in the
+  // family's own words (NO AI). Months with no answer are skipped; omitted when
+  // none. Lives in the Looking Back section.
+  const monthEntries = monthEntriesFor(yearbookKey, monthly);
+  if (monthEntries.length > 0) {
+    for (const sp of buildMonthByMonthSpreads(monthEntries)) spreads.push(sp);
+  }
+
   // 5.6. UNTIL NEXT YEAR — a warm closing page before the back cover.
   spreads.push({
     id: "until-next-year",
@@ -1493,7 +1559,7 @@ export default function YearbookReadPage() {
 
   return { spreads, pages, familyName };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memories, children, contentMap, profile, yearbookKey, ybSettings]);
+  }, [memories, children, contentMap, monthly, profile, yearbookKey, ybSettings]);
 
   const accessLevel = getUserAccess(profile);
   const FREE_SPREAD_LIMIT = 4;
