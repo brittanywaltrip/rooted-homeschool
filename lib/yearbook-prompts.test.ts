@@ -3,7 +3,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW } from "./yearbook-prompts.ts";
+import {
+  YEAR_END_QUESTIONS,
+  FAVORITES,
+  FAVORITES_FROM_INTERVIEW,
+  SNAPSHOT_FIELDS,
+  NEVER_FORGET_LINES,
+  OPEN_WHEN_PROMPTS,
+} from "./yearbook-prompts.ts";
 
 test("Year-End Conversation has the 11 questions with unique keys", () => {
   assert.equal(YEAR_END_QUESTIONS.length, 11);
@@ -26,6 +33,24 @@ test("Favorites expanded to ~20 with unique keys, includes Bible verse", () => {
   for (const need of ["book", "movie", "song", "thing_learned", "field_trip", "dream_vacation"]) {
     assert.ok(FAVORITES.some((f) => f.key === need), `has ${need}`);
   }
+});
+
+test("Wave 2 keepsake prompts: complete sets with unique keys", () => {
+  const sets: [string, { key: string; label: string }[], number][] = [
+    ["snapshot", SNAPSHOT_FIELDS, 10],
+    ["never-forget", NEVER_FORGET_LINES, 9],
+    ["open-when", OPEN_WHEN_PROMPTS, 4],
+  ];
+  for (const [name, list, expected] of sets) {
+    assert.equal(list.length, expected, `${name} has ${expected} entries`);
+    const keys = list.map((p) => p.key);
+    assert.equal(new Set(keys).size, keys.length, `${name} keys unique`);
+    assert.ok(list.every((p) => p.label.trim().length > 0), `${name} labels non-empty`);
+  }
+  // a few anchors from the doc
+  assert.ok(SNAPSHOT_FIELDS.some((f) => f.key === "signature_phrase"));
+  assert.ok(NEVER_FORGET_LINES.some((l) => l.label === "The missing tooth…"));
+  assert.ok(OPEN_WHEN_PROMPTS.some((p) => p.key === "chase"));
 });
 
 test("favorites migration maps the two old interview-fed favorites to real keys", () => {

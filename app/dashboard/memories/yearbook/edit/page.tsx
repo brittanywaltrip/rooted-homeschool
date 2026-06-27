@@ -9,7 +9,7 @@ import { signedPhotoUrl } from "@/lib/photo-url";
 import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
 import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
-import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW } from "@/lib/yearbook-prompts";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS } from "@/lib/yearbook-prompts";
 import {
   DndContext,
   PointerSensor,
@@ -350,6 +350,53 @@ function SortablePhoto({
   );
 }
 
+// A per-child set of keepsake inputs (snapshot fields, "never forget" lines, or
+// the "open when" letter prompts). Shared so the three Wave 2 captures stay
+// consistent. Each value autosaves via the onChange the page passes in.
+function KeepsakeFieldGroup({
+  prompts,
+  values,
+  multiline,
+  twoCol,
+  disabled,
+  onChange,
+}: {
+  prompts: { key: string; label: string }[];
+  values: Record<string, string>;
+  multiline?: boolean;
+  twoCol?: boolean;
+  disabled: boolean;
+  onChange: (key: string, value: string) => void;
+}) {
+  const inputClass = "w-full mt-0.5 px-2.5 py-1.5 text-[12px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60";
+  return (
+    <div className={twoCol ? "grid grid-cols-2 gap-2.5" : "space-y-2.5"}>
+      {prompts.map((p) => (
+        <div key={p.key}>
+          <label className="text-[10px] text-[#9a8f85]">{p.label}</label>
+          {multiline ? (
+            <textarea
+              value={values[p.key] ?? ""}
+              onChange={(e) => onChange(p.key, e.target.value)}
+              disabled={disabled}
+              className={`${inputClass} min-h-[44px] resize-y`}
+              style={{ fontFamily: "Georgia, serif" }}
+            />
+          ) : (
+            <input
+              value={values[p.key] ?? ""}
+              onChange={(e) => onChange(p.key, e.target.value)}
+              disabled={disabled}
+              className={inputClass}
+              style={{ fontFamily: "Georgia, serif" }}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function YearbookEditPage() {
@@ -396,6 +443,10 @@ export default function YearbookEditPage() {
   const [favWhy, setFavWhy] = useState("");
   // Per-child favorite things, keyed by child id then favorite key.
   const [favoriteAnswers, setFavoriteAnswers] = useState<Record<string, Record<string, string>>>({});
+  // Wave 2 keepsake pages, keyed by child id then field/prompt key.
+  const [snapshotAnswers, setSnapshotAnswers] = useState<Record<string, Record<string, string>>>({});
+  const [neverForgetAnswers, setNeverForgetAnswers] = useState<Record<string, Record<string, string>>>({});
+  const [openWhenAnswers, setOpenWhenAnswers] = useState<Record<string, Record<string, string>>>({});
   const [favQuote, setFavQuote] = useState("");
   const [quoteMode, setQuoteMode] = useState<"pick" | "type">("pick");
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
@@ -505,6 +556,16 @@ export default function YearbookEditPage() {
     });
     await supabase.from("memories").update({ include_in_book: !nextHidden }).eq("id", id);
   }, [isReadOnly]);
+
+  // Debounced save for a per-child keepsake field (snapshot / never-forget / open-when).
+  const saveKeepsake = useCallback((contentType: string, childId: string, key: string, v: string) => {
+    if (isReadOnly) return;
+    const id = `_ybsave_${contentType}_${childId}_${key}`;
+    clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[id]);
+    (window as unknown as Record<string, NodeJS.Timeout | undefined>)[id] = setTimeout(() => {
+      saveContent(contentType, v, childId, key);
+    }, 800);
+  }, [isReadOnly, saveContent]);
 
   const onPhotoDragEnd = useCallback((e: DragEndEvent) => {
     if (isReadOnly) return;
@@ -645,6 +706,9 @@ export default function YearbookEditPage() {
       const answers: Record<string, Record<string, string>> = {};
       const notes: Record<string, string> = {};
       const favs: Record<string, Record<string, string>> = {};
+      const snaps: Record<string, Record<string, string>> = {};
+      const nevers: Record<string, Record<string, string>> = {};
+      const opens: Record<string, Record<string, string>> = {};
       for (const child of childList) {
         answers[child.id] = {};
         for (const q of INTERVIEW_QUESTIONS) {
@@ -658,8 +722,17 @@ export default function YearbookEditPage() {
           const fallback = oldKey ? (cMap[ck("child_interview", child.id, oldKey)] ?? "") : "";
           favs[child.id][f.key] = direct || fallback;
         }
+        snaps[child.id] = {};
+        for (const f of SNAPSHOT_FIELDS) snaps[child.id][f.key] = cMap[ck("child_snapshot", child.id, f.key)] ?? "";
+        nevers[child.id] = {};
+        for (const l of NEVER_FORGET_LINES) nevers[child.id][l.key] = cMap[ck("child_never_forget", child.id, l.key)] ?? "";
+        opens[child.id] = {};
+        for (const p of OPEN_WHEN_PROMPTS) opens[child.id][p.key] = cMap[ck("child_open_when", child.id, p.key)] ?? "";
       }
       setFavoriteAnswers(favs);
+      setSnapshotAnswers(snaps);
+      setNeverForgetAnswers(nevers);
+      setOpenWhenAnswers(opens);
       setChildAnswers(answers);
       setChildNotes(notes);
 
@@ -1505,6 +1578,53 @@ export default function YearbookEditPage() {
                   </div>
                 );
               })()}
+
+              {/* This Was {child} — snapshot */}
+              <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
+                <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">This was {child.name}</p>
+                <p className="text-[11px] text-[#9a8f85] italic mb-3">A snapshot to look back on. Fill in any that fit.</p>
+                <KeepsakeFieldGroup
+                  prompts={SNAPSHOT_FIELDS}
+                  values={snapshotAnswers[child.id] ?? {}}
+                  twoCol
+                  disabled={isReadOnly}
+                  onChange={(key, v) => {
+                    setSnapshotAnswers((prev) => ({ ...prev, [child.id]: { ...prev[child.id], [key]: v } }));
+                    saveKeepsake("child_snapshot", child.id, key, v);
+                  }}
+                />
+              </div>
+
+              {/* Things I never want to forget */}
+              <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
+                <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">Things I never want to forget about you right now</p>
+                <p className="text-[11px] text-[#9a8f85] italic mb-3">Finish each line. Blank lines won&apos;t appear.</p>
+                <KeepsakeFieldGroup
+                  prompts={NEVER_FORGET_LINES}
+                  values={neverForgetAnswers[child.id] ?? {}}
+                  disabled={isReadOnly}
+                  onChange={(key, v) => {
+                    setNeverForgetAnswers((prev) => ({ ...prev, [child.id]: { ...prev[child.id], [key]: v } }));
+                    saveKeepsake("child_never_forget", child.id, key, v);
+                  }}
+                />
+              </div>
+
+              {/* Open When You're Grown */}
+              <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
+                <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">Open when you&apos;re grown</p>
+                <p className="text-[11px] text-[#9a8f85] italic mb-3">A letter to future {child.name}. Signed &ldquo;Love, Mom &amp; Dad.&rdquo;</p>
+                <KeepsakeFieldGroup
+                  prompts={OPEN_WHEN_PROMPTS}
+                  values={openWhenAnswers[child.id] ?? {}}
+                  multiline
+                  disabled={isReadOnly}
+                  onChange={(key, v) => {
+                    setOpenWhenAnswers((prev) => ({ ...prev, [child.id]: { ...prev[child.id], [key]: v } }));
+                    saveKeepsake("child_open_when", child.id, key, v);
+                  }}
+                />
+              </div>
             </div>
           );
         })}
@@ -1534,6 +1654,18 @@ export default function YearbookEditPage() {
                   for (const f of FAVORITES) {
                     const val = favoriteAnswers[child.id]?.[f.key] ?? "";
                     if (val.trim()) await saveContent("child_favorite", val, child.id, f.key);
+                  }
+                  for (const f of SNAPSHOT_FIELDS) {
+                    const val = snapshotAnswers[child.id]?.[f.key] ?? "";
+                    if (val.trim()) await saveContent("child_snapshot", val, child.id, f.key);
+                  }
+                  for (const l of NEVER_FORGET_LINES) {
+                    const val = neverForgetAnswers[child.id]?.[l.key] ?? "";
+                    if (val.trim()) await saveContent("child_never_forget", val, child.id, l.key);
+                  }
+                  for (const p of OPEN_WHEN_PROMPTS) {
+                    const val = openWhenAnswers[child.id]?.[p.key] ?? "";
+                    if (val.trim()) await saveContent("child_open_when", val, child.id, p.key);
                   }
                   const note = childNotes[child.id] ?? "";
                   if (note.trim()) await saveContent("child_future_note", note, child.id);

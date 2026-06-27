@@ -58,3 +58,44 @@ export const FAVORITES_FROM_INTERVIEW: Record<string, string> = {
   book: "q_favorite_book", // old "My favorite book was…"
   thing_learned: "q_loved_learning", // old "This year I loved…"
 };
+
+// ─── Wave 2 keepsake pages (per-child) ───────────────────────────────────────
+
+// "This Was {Child}" — a per-child snapshot for year-over-year comparison.
+// Stored under content_type 'child_snapshot'.
+export const SNAPSHOT_FIELDS: Prompt[] = [
+  { key: "age", label: "Age" },
+  { key: "grade", label: "Grade" },
+  { key: "height", label: "Height" },
+  { key: "favorite_color", label: "Favorite color" },
+  { key: "dream_job", label: "Dream job" },
+  { key: "current_obsession", label: "Current obsession" },
+  { key: "favorite_snack", label: "Favorite snack" },
+  { key: "best_friend", label: "Best friend" },
+  { key: "signature_phrase", label: "Signature phrase" },
+  { key: "what_makes_me_laugh", label: "What makes me laugh" },
+];
+
+// "Things I Never Want to Forget About You Right Now" — parent-written. The
+// label is the lead-in; the parent completes the line. Stored under
+// content_type 'child_never_forget'.
+export const NEVER_FORGET_LINES: Prompt[] = [
+  { key: "laugh", label: "Your laugh…" },
+  { key: "pronounce", label: "The way you pronounce…" },
+  { key: "bedtime", label: "Your bedtime questions…" },
+  { key: "stuffed_animal", label: "Your favorite stuffed animal…" },
+  { key: "songs", label: "The songs you sing…" },
+  { key: "voice", label: "Your little voice…" },
+  { key: "hugs", label: "The hugs…" },
+  { key: "freckles", label: "The freckles…" },
+  { key: "missing_tooth", label: "The missing tooth…" },
+];
+
+// "Open When You're Grown" — a letter to the future child. Stored under
+// content_type 'child_open_when'.
+export const OPEN_WHEN_PROMPTS: Prompt[] = [
+  { key: "right_now", label: "Right now you are…" },
+  { key: "never_changes", label: "One thing I hope never changes…" },
+  { key: "always_remember", label: "One thing I hope you always remember…" },
+  { key: "chase", label: "One thing I hope you chase…" },
+];

@@ -14,7 +14,7 @@ import {
   buildBooksSpread,
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
-import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW } from "@/lib/yearbook-prompts";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS } from "@/lib/yearbook-prompts";
 import { partitionDrawings, tinyMasterpieceCaption, chunk } from "@/lib/tiny-masterpieces";
 import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell, type PhotoItem, type ChapterPhotoUnit } from "@/lib/yearbook-photo-pages";
 import { focalObjectPosition } from "@/lib/focal-point";
@@ -518,6 +518,74 @@ function buildTinyMasterpiecesSpreads(drawings: MemoryRow[], idPrefix: string, l
   return out;
 }
 
+// ─── Wave 2 keepsake pages (per-child, omitted when empty) ───────────────────
+
+// "This Was {Child}" — a snapshot for year-over-year comparison. Answered fields only.
+function SnapshotPage({ childName, items }: { childName: string; items: { label: string; value: string }[] }) {
+  return (
+    <PageShell>
+      <div className="shrink-0 mb-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">A snapshot</p>
+        <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+          This Was {childName}
+        </h2>
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden" style={{ columnCount: 2, columnGap: "1rem" }}>
+        {items.map((it, i) => (
+          <div key={i} className="mb-2.5" style={{ breakInside: "avoid" }}>
+            <p className="text-[8px] uppercase tracking-[0.08em] text-[var(--yb-muted)]">{it.label}</p>
+            <p className="text-[12px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{it.value}</p>
+          </div>
+        ))}
+      </div>
+    </PageShell>
+  );
+}
+
+// "Things I Never Want to Forget About You Right Now" — parent-written; only the
+// completed lines are shown (lead-in + what the parent wrote).
+function NeverForgetPage({ childName, lines }: { childName: string; lines: { prompt: string; value: string }[] }) {
+  return (
+    <PageShell>
+      <div className="shrink-0 mb-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">For {childName}, from us</p>
+        <h2 className="text-[16px] font-bold text-[var(--yb-heading)] mt-1 leading-tight" style={{ fontFamily: "var(--yb-heading-font)" }}>
+          Things I never want to forget about you right now
+        </h2>
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden space-y-2">
+        {lines.map((l, i) => (
+          <p key={i} className="text-[11.5px] text-[var(--yb-body)] leading-relaxed line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
+            <span className="text-[var(--yb-muted)]">{l.prompt}</span> {l.value}
+          </p>
+        ))}
+      </div>
+    </PageShell>
+  );
+}
+
+// "Open When You're Grown" — a letter to the future child; written prompts only.
+function OpenWhenPage({ childName, parts }: { childName: string; parts: { prompt: string; value: string }[] }) {
+  return (
+    <PageShell>
+      <div className="shrink-0 mb-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Open when you&apos;re grown</p>
+        <h2 className="text-[16px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+          Dear Future {childName},
+        </h2>
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden space-y-2.5">
+        {parts.map((p, i) => (
+          <p key={i} className="text-[11.5px] text-[var(--yb-body)] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
+            <span className="italic text-[var(--yb-muted)]">{p.prompt}</span> {p.value}
+          </p>
+        ))}
+      </div>
+      <p className="italic text-[12px] text-[var(--yb-accent)] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>Love, Mom &amp; Dad</p>
+    </PageShell>
+  );
+}
+
 // ─── Page header mapping ─────────────────────────────────────────────────────
 
 function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
@@ -527,6 +595,7 @@ function getPageHeaders(spreadId: string, spreadLabel: string): [string, string]
   if (spreadId === "until-next-year") return ["UNTIL NEXT YEAR", "UNTIL NEXT YEAR"];
   if (spreadId.startsWith("child-")) {
     const name = spreadLabel.replace(/'s chapter$/i, "").toUpperCase();
+    if (spreadId.includes("-keepsake")) return [`${name}’S STORY`, `${name}’S STORY`];
     if (spreadId.includes("-art")) return ["TINY MASTERPIECES", "TINY MASTERPIECES"];
     if (spreadId.includes("-books")) return [`${name}\u2019S BOOKS`, `${name}\u2019S BOOKS`];
     if (spreadId.includes("-favorites")) return [`${name}\u2019S FAVORITES`, `${name}\u2019S FAVORITES`];
@@ -1147,6 +1216,34 @@ export default function YearbookReadPage() {
     // 3e. TINY MASTERPIECES — the child's drawings, on their own gallery page(s).
     for (const sp of buildTinyMasterpiecesSpreads(childDrawings, `child-${child.id}-art`, `${child.name}'s chapter`)) {
       spreads.push(sp);
+    }
+
+    // 3f. WAVE 2 KEEPSAKE PAGES — snapshot, "never want to forget", letter to the
+    // future child. Each renders only its filled-in fields and is built only when
+    // it has content; the pages pack into spreads so there are never empty pages.
+    const keepsakePages: ReactNode[] = [];
+    const snapItems = SNAPSHOT_FIELDS
+      .map((f) => ({ label: f.label, value: (contentMap[ck("child_snapshot", child.id, f.key)] ?? "").trim() }))
+      .filter((x) => x.value);
+    if (snapItems.length > 0) keepsakePages.push(<SnapshotPage childName={child.name} items={snapItems} />);
+
+    const nfLines = NEVER_FORGET_LINES
+      .map((l) => ({ prompt: l.label, value: (contentMap[ck("child_never_forget", child.id, l.key)] ?? "").trim() }))
+      .filter((x) => x.value);
+    if (nfLines.length > 0) keepsakePages.push(<NeverForgetPage childName={child.name} lines={nfLines} />);
+
+    const owParts = OPEN_WHEN_PROMPTS
+      .map((p) => ({ prompt: p.label, value: (contentMap[ck("child_open_when", child.id, p.key)] ?? "").trim() }))
+      .filter((x) => x.value);
+    if (owParts.length > 0) keepsakePages.push(<OpenWhenPage childName={child.name} parts={owParts} />);
+
+    for (let i = 0; i < keepsakePages.length; i += 2) {
+      spreads.push({
+        id: i === 0 ? `child-${child.id}-keepsake` : `child-${child.id}-keepsake-${i / 2}`,
+        label: `${child.name}'s chapter`,
+        leftContent: keepsakePages[i],
+        rightContent: keepsakePages[i + 1] ?? <FillerPage />,
+      });
     }
   });
 
