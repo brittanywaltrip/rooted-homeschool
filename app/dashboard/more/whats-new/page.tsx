@@ -9,6 +9,22 @@ import { ChevronLeft } from "lucide-react";
 const UPDATES = [
   {
     date: "June 2026",
+    emoji: "💬",
+    title: "One question a month",
+    description:
+      "Once a month, answer one gentle question about your family's life right now. Your answers become an 'Our year, month by month' page in your yearbook, in your own words. No pressure and no nagging, just a small moment worth keeping.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "June 2026",
+    emoji: "💌",
+    title: "New keepsake pages for each child",
+    description:
+      "Three new pages in every child's chapter: a snapshot of who they are this year, the little things you never want to forget, and a letter for them to open when they're grown. Fill in as much or as little as you like. Anything left blank simply doesn't show.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "June 2026",
     emoji: "📖",
     title: "A more beautiful yearbook",
     description:
