@@ -8,6 +8,9 @@ import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
+import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS } from "@/lib/yearbook-prompts";
+import { yearbookMonths, questionForMonth, monthLabel } from "@/lib/monthly-questions";
 import {
   DndContext,
   PointerSensor,
@@ -64,14 +67,9 @@ type YearbookContentRow = {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const INTERVIEW_QUESTIONS = [
-  { key: "q_loved_learning", label: "What did you love learning about this year?" },
-  { key: "q_favorite_book", label: "What book did you love most?" },
-  { key: "q_got_easier", label: "What got easier this year?" },
-  { key: "q_learn_next_year", label: "What do you want to learn next year?" },
-  { key: "q_favorite_adventure", label: "What was your favorite adventure?" },
-  { key: "q_surprised_you", label: "What surprised you this year?" },
-] as const;
+// Year-End Conversation questions + the expanded favorites live in the shared
+// prompts module so the editor and the reader never drift.
+const INTERVIEW_QUESTIONS = YEAR_END_QUESTIONS;
 
 // ─── Autosave Hook ────────────────────────────────────────────────────────────
 
@@ -353,6 +351,53 @@ function SortablePhoto({
   );
 }
 
+// A per-child set of keepsake inputs (snapshot fields, "never forget" lines, or
+// the "open when" letter prompts). Shared so the three Wave 2 captures stay
+// consistent. Each value autosaves via the onChange the page passes in.
+function KeepsakeFieldGroup({
+  prompts,
+  values,
+  multiline,
+  twoCol,
+  disabled,
+  onChange,
+}: {
+  prompts: { key: string; label: string }[];
+  values: Record<string, string>;
+  multiline?: boolean;
+  twoCol?: boolean;
+  disabled: boolean;
+  onChange: (key: string, value: string) => void;
+}) {
+  const inputClass = "w-full mt-0.5 px-2.5 py-1.5 text-[12px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60";
+  return (
+    <div className={twoCol ? "grid grid-cols-2 gap-2.5" : "space-y-2.5"}>
+      {prompts.map((p) => (
+        <div key={p.key}>
+          <label className="text-[10px] text-[#9a8f85]">{p.label}</label>
+          {multiline ? (
+            <textarea
+              value={values[p.key] ?? ""}
+              onChange={(e) => onChange(p.key, e.target.value)}
+              disabled={disabled}
+              className={`${inputClass} min-h-[44px] resize-y`}
+              style={{ fontFamily: "Georgia, serif" }}
+            />
+          ) : (
+            <input
+              value={values[p.key] ?? ""}
+              onChange={(e) => onChange(p.key, e.target.value)}
+              disabled={disabled}
+              className={inputClass}
+              style={{ fontFamily: "Georgia, serif" }}
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function YearbookEditPage() {
@@ -374,6 +419,8 @@ export default function YearbookEditPage() {
   // Featured photos (own full-bleed page) and session-hidden photos (excluded).
   const [featuredSet, setFeaturedSet] = useState<Set<string>>(new Set());
   const [hiddenSet, setHiddenSet] = useState<Set<string>>(new Set());
+  // Tiny Masterpieces captions ("This piece reminds me of…"), keyed by memory id.
+  const [drawingCaptions, setDrawingCaptions] = useState<Record<string, string>>({});
   // Distance constraint keeps tap (reposition) distinct from drag (reorder).
   const dndSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
@@ -385,11 +432,24 @@ export default function YearbookEditPage() {
   const [familyNameSaved, setFamilyNameSaved] = useState(false);
   const [schoolYear, setSchoolYear] = useState("");
   const [schoolYearSaved, setSchoolYearSaved] = useState(false);
+  const [coverSubtitle, setCoverSubtitle] = useState("");
+  const [coverSubtitleSaved, setCoverSubtitleSaved] = useState(false);
 
   // Letter state
   const [letter, setLetter] = useState("");
   const [favMemoryId, setFavMemoryId] = useState("");
   const [favCaption, setFavCaption] = useState("");
+  const [favLocation, setFavLocation] = useState("");
+  const [favWhat, setFavWhat] = useState("");
+  const [favWhy, setFavWhy] = useState("");
+  // Per-child favorite things, keyed by child id then favorite key.
+  const [favoriteAnswers, setFavoriteAnswers] = useState<Record<string, Record<string, string>>>({});
+  // One Question a Month answers, keyed by "YYYY-MM".
+  const [monthlyAnswers, setMonthlyAnswers] = useState<Record<string, string>>({});
+  // Wave 2 keepsake pages, keyed by child id then field/prompt key.
+  const [snapshotAnswers, setSnapshotAnswers] = useState<Record<string, Record<string, string>>>({});
+  const [neverForgetAnswers, setNeverForgetAnswers] = useState<Record<string, Record<string, string>>>({});
+  const [openWhenAnswers, setOpenWhenAnswers] = useState<Record<string, Record<string, string>>>({});
   const [favQuote, setFavQuote] = useState("");
   const [quoteMode, setQuoteMode] = useState<"pick" | "type">("pick");
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
@@ -410,6 +470,7 @@ export default function YearbookEditPage() {
     show_books_section: boolean;
     show_family_chapter: boolean;
     show_village: boolean;
+    theme?: string;
   };
   const DEFAULT_YB_SETTINGS: YearbookSettings = {
     show_letter: true,
@@ -419,6 +480,7 @@ export default function YearbookEditPage() {
     show_books_section: true,
     show_family_chapter: true,
     show_village: true,
+    theme: "garden",
   };
   const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
 
@@ -497,6 +559,29 @@ export default function YearbookEditPage() {
     });
     await supabase.from("memories").update({ include_in_book: !nextHidden }).eq("id", id);
   }, [isReadOnly]);
+
+  // Debounced upsert for a One Question a Month answer.
+  const saveMonthly = useCallback((month: string, v: string) => {
+    if (isReadOnly || !effectiveUserId) return;
+    const id = `_ybsave_month_${month}`;
+    clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[id]);
+    (window as unknown as Record<string, NodeJS.Timeout | undefined>)[id] = setTimeout(() => {
+      supabase.from("monthly_reflections").upsert(
+        { user_id: effectiveUserId, month, question: questionForMonth(month), answer: v.trim(), updated_at: new Date().toISOString() },
+        { onConflict: "user_id,month" },
+      );
+    }, 800);
+  }, [isReadOnly, effectiveUserId]);
+
+  // Debounced save for a per-child keepsake field (snapshot / never-forget / open-when).
+  const saveKeepsake = useCallback((contentType: string, childId: string, key: string, v: string) => {
+    if (isReadOnly) return;
+    const id = `_ybsave_${contentType}_${childId}_${key}`;
+    clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[id]);
+    (window as unknown as Record<string, NodeJS.Timeout | undefined>)[id] = setTimeout(() => {
+      saveContent(contentType, v, childId, key);
+    }, 800);
+  }, [isReadOnly, saveContent]);
 
   const onPhotoDragEnd = useCallback((e: DragEndEvent) => {
     if (isReadOnly) return;
@@ -590,6 +675,12 @@ export default function YearbookEditPage() {
       setFeaturedSet(feat);
       setHiddenSet(new Set());
 
+      const caps: Record<string, string> = {};
+      for (const m of bookmarkedRows) {
+        if (m.type === "drawing") caps[m.id] = m.caption ?? "";
+      }
+      setDrawingCaptions(caps);
+
       // Build content map
       const rows = (ybRows ?? []) as YearbookContentRow[];
       const cMap: Record<string, string> = {};
@@ -616,9 +707,13 @@ export default function YearbookEditPage() {
       }
       setFamilyName(cMap[ck("family_name")] ?? "");
       setSchoolYear(cMap[ck("school_year")] ?? "");
+      setCoverSubtitle(cMap[ck("cover_subtitle")] ?? "");
       setLetter(cMap[ck("letter_from_home")] ?? "");
       setFavMemoryId(cMap[ck("letter_favorite_memory_id")] ?? "");
       setFavCaption(cMap[ck("letter_favorite_caption")] ?? "");
+      setFavLocation(cMap[ck("letter_favorite_location")] ?? "");
+      setFavWhat(cMap[ck("letter_favorite_what")] ?? "");
+      setFavWhy(cMap[ck("letter_favorite_why")] ?? "");
       const fq = cMap[ck("letter_favorite_quote")] ?? "";
       setFavQuote(fq);
       setQuoteMode(fq.startsWith("text:") ? "type" : "pick");
@@ -626,15 +721,47 @@ export default function YearbookEditPage() {
       // Per-child
       const answers: Record<string, Record<string, string>> = {};
       const notes: Record<string, string> = {};
+      const favs: Record<string, Record<string, string>> = {};
+      const snaps: Record<string, Record<string, string>> = {};
+      const nevers: Record<string, Record<string, string>> = {};
+      const opens: Record<string, Record<string, string>> = {};
       for (const child of childList) {
         answers[child.id] = {};
         for (const q of INTERVIEW_QUESTIONS) {
           answers[child.id][q.key] = cMap[ck("child_interview", child.id, q.key)] ?? "";
         }
         notes[child.id] = cMap[ck("child_future_note", child.id)] ?? "";
+        favs[child.id] = {};
+        for (const f of FAVORITES) {
+          const direct = cMap[ck("child_favorite", child.id, f.key)] ?? "";
+          const oldKey = FAVORITES_FROM_INTERVIEW[f.key];
+          const fallback = oldKey ? (cMap[ck("child_interview", child.id, oldKey)] ?? "") : "";
+          favs[child.id][f.key] = direct || fallback;
+        }
+        snaps[child.id] = {};
+        for (const f of SNAPSHOT_FIELDS) snaps[child.id][f.key] = cMap[ck("child_snapshot", child.id, f.key)] ?? "";
+        nevers[child.id] = {};
+        for (const l of NEVER_FORGET_LINES) nevers[child.id][l.key] = cMap[ck("child_never_forget", child.id, l.key)] ?? "";
+        opens[child.id] = {};
+        for (const p of OPEN_WHEN_PROMPTS) opens[child.id][p.key] = cMap[ck("child_open_when", child.id, p.key)] ?? "";
       }
+      setFavoriteAnswers(favs);
+      setSnapshotAnswers(snaps);
+      setNeverForgetAnswers(nevers);
+      setOpenWhenAnswers(opens);
       setChildAnswers(answers);
       setChildNotes(notes);
+
+      // One Question a Month answers (separate per-user store).
+      const { data: monthlyRows } = await supabase
+        .from("monthly_reflections")
+        .select("month, answer")
+        .eq("user_id", effectiveUserId);
+      const mMap: Record<string, string> = {};
+      for (const r of (monthlyRows ?? []) as { month: string; answer: string }[]) {
+        mMap[r.month] = r.answer ?? "";
+      }
+      setMonthlyAnswers(mMap);
 
       setLoading(false);
     })();
@@ -665,6 +792,9 @@ export default function YearbookEditPage() {
 
   const letterStatus = useAutosave(letter, useCallback((v: string) => saveContent("letter_from_home", v), [saveContent]));
   const captionStatus = useAutosave(favCaption, useCallback((v: string) => saveContent("letter_favorite_caption", v), [saveContent]));
+  const favLocationStatus = useAutosave(favLocation, useCallback((v: string) => saveContent("letter_favorite_location", v), [saveContent]));
+  const favWhatStatus = useAutosave(favWhat, useCallback((v: string) => saveContent("letter_favorite_what", v), [saveContent]));
+  const favWhyStatus = useAutosave(favWhy, useCallback((v: string) => saveContent("letter_favorite_why", v), [saveContent]));
 
   if (loading) {
     return (
@@ -709,6 +839,56 @@ export default function YearbookEditPage() {
           </div>
           <div className="h-[5px] bg-[#e8e3dc] rounded-full overflow-hidden">
             <div className="h-full bg-[var(--g-deep)] rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+
+        {/* ── Theme ────────────────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Theme</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            A look for your whole yearbook. Applies to the reader and the PDF.
+          </p>
+          <div className="grid grid-cols-3 gap-2.5">
+            {([
+              { key: "garden", label: "The Garden" },
+              { key: "heirloom", label: "Heirloom" },
+              { key: "gallery", label: "The Gallery" },
+            ] as const).map((opt) => {
+              const t = THEMES[opt.key];
+              const selected = resolveThemeName(ybSettings.theme) === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={async () => {
+                    if (isReadOnly) return;
+                    const next = { ...ybSettings, theme: opt.key };
+                    setYbSettings(next);
+                    if (effectiveUserId) {
+                      await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
+                    }
+                  }}
+                  disabled={isReadOnly}
+                  className={`rounded-xl border-2 p-1.5 text-left transition-colors disabled:opacity-60 ${
+                    selected ? "border-[#5c7f63]" : "border-[#e8e3dc] hover:border-[#cdd9bf]"
+                  }`}
+                >
+                  <div
+                    className="rounded-lg overflow-hidden h-16 flex flex-col items-center justify-center border border-black/5"
+                    style={{ background: t.bg }}
+                  >
+                    <span style={{ fontFamily: t.headingFont, color: t.heading, fontWeight: 600, fontSize: 15, lineHeight: 1 }}>
+                      Aa
+                    </span>
+                    <span className="mt-1.5 inline-block rounded-full" style={{ width: 22, height: 5, background: t.accent }} />
+                  </div>
+                  <div className="flex items-center justify-between mt-1.5 px-0.5">
+                    <span className="text-[11px] text-[#2d2926]">{opt.label}</span>
+                    {selected && <span className="text-[10px] text-[#5c7f63]">✓</span>}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -985,18 +1165,41 @@ export default function YearbookEditPage() {
           {schoolYearSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
         </div>
 
+        {/* ── Cover subtitle ──────────────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <label className="text-[13px] font-semibold text-[#2d2926] block mb-1">Cover subtitle</label>
+          <p className="text-[11px] text-[#9a8f85] italic mb-2">
+            An evocative line for the cover. Leave blank to use “A year of growing, wondering, and becoming.”
+          </p>
+          <input
+            value={coverSubtitle}
+            onChange={(e) => { setCoverSubtitle(e.target.value); setCoverSubtitleSaved(false); }}
+            onBlur={async () => {
+              if (isReadOnly || !effectiveUserId || !yearbookKey) return;
+              await saveContent("cover_subtitle", coverSubtitle);
+              setCoverSubtitleSaved(true);
+              setTimeout(() => setCoverSubtitleSaved(false), 3000);
+            }}
+            disabled={isReadOnly}
+            placeholder="A year of growing, wondering, and becoming."
+            className="w-full px-3 py-2 text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+            style={{ fontFamily: "Georgia, serif" }}
+          />
+          {coverSubtitleSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+        </div>
+
         {/* ── Letter from home ────────────────────────────────── */}
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
           <p className="text-[13px] font-semibold text-[#2d2926]">Letter from home</p>
           <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
-            Write a letter to your family about this year, what you noticed,
-            what you&apos;re proud of, what you want to remember.
+            Dear Future Us… imagine reading this in five or ten years. What surprised you?
+            What challenged your family? What made you proud? What do you never want to forget?
           </p>
           <textarea
             value={letter}
             onChange={(e) => setLetter(e.target.value)}
             disabled={isReadOnly}
-            placeholder="Dear family…"
+            placeholder="Dear Future Us…"
             className="w-full min-h-[140px] text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] resize-y disabled:opacity-60"
             style={{ fontFamily: "Georgia, serif" }}
           />
@@ -1005,7 +1208,7 @@ export default function YearbookEditPage() {
 
         {/* ── Favorite moment picker ──────────────────────────── */}
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
-          <p className="text-[13px] font-semibold text-[#2d2926] mb-2">Favorite moment this year</p>
+          <p className="text-[13px] font-semibold text-[#2d2926] mb-2">A Day We&apos;ll Never Forget</p>
           {favMemory ? (
             <div className="flex items-center gap-3 bg-[#fefcf9] rounded-lg p-3 border border-[#e8e3dc]">
               {favMemory.photo_url && (
@@ -1032,19 +1235,57 @@ export default function YearbookEditPage() {
             )
           )}
 
-          {/* Caption for favorite moment */}
+          {/* The day's details */}
           {favMemoryId && (
-            <div className="mt-3">
-              <label className="text-[11px] text-[#9a8f85]">Caption for this moment</label>
-              <input
-                value={favCaption}
-                onChange={(e) => setFavCaption(e.target.value)}
-                disabled={isReadOnly}
-                placeholder="Why this moment matters…"
-                className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
-                style={{ fontFamily: "Georgia, serif" }}
-              />
-              <SaveStatus status={captionStatus} />
+            <div className="mt-3 space-y-3">
+              <div>
+                <label className="text-[11px] text-[#9a8f85]">Location</label>
+                <input
+                  value={favLocation}
+                  onChange={(e) => setFavLocation(e.target.value)}
+                  disabled={isReadOnly}
+                  placeholder="Where were you?"
+                  className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+                  style={{ fontFamily: "Georgia, serif" }}
+                />
+                <SaveStatus status={favLocationStatus} />
+              </div>
+              <div>
+                <label className="text-[11px] text-[#9a8f85]">What happened?</label>
+                <input
+                  value={favWhat}
+                  onChange={(e) => setFavWhat(e.target.value)}
+                  disabled={isReadOnly}
+                  placeholder="What happened that made everyone smile?"
+                  className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+                  style={{ fontFamily: "Georgia, serif" }}
+                />
+                <SaveStatus status={favWhatStatus} />
+              </div>
+              <div>
+                <label className="text-[11px] text-[#9a8f85]">Why we&apos;ll always remember it</label>
+                <input
+                  value={favWhy}
+                  onChange={(e) => setFavWhy(e.target.value)}
+                  disabled={isReadOnly}
+                  placeholder="What made this day unforgettable?"
+                  className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+                  style={{ fontFamily: "Georgia, serif" }}
+                />
+                <SaveStatus status={favWhyStatus} />
+              </div>
+              <div>
+                <label className="text-[11px] text-[#9a8f85]">What made today special?</label>
+                <input
+                  value={favCaption}
+                  onChange={(e) => setFavCaption(e.target.value)}
+                  disabled={isReadOnly}
+                  placeholder="A caption for the photo…"
+                  className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+                  style={{ fontFamily: "Georgia, serif" }}
+                />
+                <SaveStatus status={captionStatus} />
+              </div>
             </div>
           )}
         </div>
@@ -1092,7 +1333,7 @@ export default function YearbookEditPage() {
 
         {/* ── Favorite quote picker ───────────────────────────── */}
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
-          <p className="text-[13px] font-semibold text-[#2d2926] mb-2">Favorite quote this year</p>
+          <p className="text-[13px] font-semibold text-[#2d2926] mb-2">Favorite quote from that day</p>
 
           {quoteMode === "pick" && favQuoteMemory ? (
             <div className="bg-[#fefcf9] rounded-lg p-3 border border-[#e8e3dc]">
@@ -1198,6 +1439,36 @@ export default function YearbookEditPage() {
           </div>
         )}
 
+        {/* ── Our year, month by month (One Question a Month) ──── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Our year, month by month</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            One question a month, in your own words. We&apos;ll ask gently on your Today page each month; view or edit any month here. Blank months are skipped in the book.
+          </p>
+          <div className="space-y-3">
+            {yearbookMonths(yearbookKey).map((month) => (
+              <div key={month}>
+                <div className="flex items-baseline justify-between gap-2">
+                  <label className="text-[11px] font-medium text-[#2d2926]">{monthLabel(month)}</label>
+                  <span className="text-[10px] text-[#9a8f85] italic text-right truncate">{questionForMonth(month)}</span>
+                </div>
+                <input
+                  value={monthlyAnswers[month] ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setMonthlyAnswers((prev) => ({ ...prev, [month]: v }));
+                    saveMonthly(month, v);
+                  }}
+                  disabled={isReadOnly}
+                  placeholder="In your own words…"
+                  className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+                  style={{ fontFamily: "Georgia, serif" }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* ── Per-child sections ───────────────────────────────── */}
         {children.map((child) => {
           const answers = childAnswers[child.id] ?? {};
@@ -1212,9 +1483,12 @@ export default function YearbookEditPage() {
                   {child.name}
                 </p>
                 <span className="text-[11px] text-[#9a8f85] bg-[#f0ede5] px-2 py-0.5 rounded-full">
-                  {answeredCount}/6 answered
+                  {answeredCount}/{INTERVIEW_QUESTIONS.length} answered
                 </span>
               </div>
+
+              {/* Year-End Conversation */}
+              <p className="text-[12px] font-semibold text-[#2d2926] mb-2">Year-End Conversation</p>
 
               {/* Interview questions */}
               <div className="space-y-4">
@@ -1289,6 +1563,125 @@ export default function YearbookEditPage() {
                   style={{ fontFamily: "Georgia, serif" }}
                 />
               </div>
+
+              {/* Favorite things */}
+              <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
+                <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">{child.name}&apos;s favorite things</p>
+                <p className="text-[11px] text-[#9a8f85] italic mb-3">
+                  Fill in any that fit. Blank ones simply won&apos;t appear in the book.
+                </p>
+                <div className="grid grid-cols-2 gap-2.5">
+                  {FAVORITES.map((f) => (
+                    <div key={f.key}>
+                      <label className="text-[10px] text-[#9a8f85]">{f.label}</label>
+                      <input
+                        value={favoriteAnswers[child.id]?.[f.key] ?? ""}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setFavoriteAnswers((prev) => ({
+                            ...prev,
+                            [child.id]: { ...prev[child.id], [f.key]: v },
+                          }));
+                          clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_fav_${child.id}_${f.key}`]);
+                          (window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_fav_${child.id}_${f.key}`] = setTimeout(() => {
+                            saveContent("child_favorite", v, child.id, f.key);
+                          }, 800);
+                        }}
+                        disabled={isReadOnly}
+                        className="w-full mt-0.5 px-2.5 py-1.5 text-[12px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+                        style={{ fontFamily: "Georgia, serif" }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tiny Masterpieces — caption each drawing */}
+              {(() => {
+                const drawings = bookmarkedMemories.filter((m) => m.type === "drawing" && m.child_id === child.id && m.photo_url);
+                if (drawings.length === 0) return null;
+                return (
+                  <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
+                    <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">{child.name}&apos;s tiny masterpieces</p>
+                    <p className="text-[11px] text-[#9a8f85] italic mb-3">
+                      For each drawing: &ldquo;This piece reminds me of…&rdquo; Leave blank to show the art on its own.
+                    </p>
+                    <div className="space-y-3">
+                      {drawings.map((m) => (
+                        <div key={m.id} className="flex items-start gap-3">
+                          <SignedImage src={m.photo_url!} bucket="memory-photos" alt="" className="w-12 h-12 rounded-md object-cover shrink-0 border border-[#e8e3dc]" />
+                          <div className="flex-1 min-w-0">
+                            <label className="text-[10px] text-[#9a8f85]">This piece reminds me of…</label>
+                            <input
+                              value={drawingCaptions[m.id] ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setDrawingCaptions((prev) => ({ ...prev, [m.id]: v }));
+                                if (isReadOnly) return;
+                                clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_art_${m.id}`]);
+                                (window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_art_${m.id}`] = setTimeout(() => {
+                                  supabase.from("memories").update({ caption: v }).eq("id", m.id);
+                                }, 800);
+                              }}
+                              disabled={isReadOnly}
+                              placeholder="a rainbow over our house…"
+                              className="w-full mt-0.5 px-2.5 py-1.5 text-[12px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
+                              style={{ fontFamily: "Georgia, serif" }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* This Was {child} — snapshot */}
+              <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
+                <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">This was {child.name}</p>
+                <p className="text-[11px] text-[#9a8f85] italic mb-3">A snapshot to look back on. Fill in any that fit.</p>
+                <KeepsakeFieldGroup
+                  prompts={SNAPSHOT_FIELDS}
+                  values={snapshotAnswers[child.id] ?? {}}
+                  twoCol
+                  disabled={isReadOnly}
+                  onChange={(key, v) => {
+                    setSnapshotAnswers((prev) => ({ ...prev, [child.id]: { ...prev[child.id], [key]: v } }));
+                    saveKeepsake("child_snapshot", child.id, key, v);
+                  }}
+                />
+              </div>
+
+              {/* Things I never want to forget */}
+              <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
+                <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">Things I never want to forget about you right now</p>
+                <p className="text-[11px] text-[#9a8f85] italic mb-3">Finish each line. Blank lines won&apos;t appear.</p>
+                <KeepsakeFieldGroup
+                  prompts={NEVER_FORGET_LINES}
+                  values={neverForgetAnswers[child.id] ?? {}}
+                  disabled={isReadOnly}
+                  onChange={(key, v) => {
+                    setNeverForgetAnswers((prev) => ({ ...prev, [child.id]: { ...prev[child.id], [key]: v } }));
+                    saveKeepsake("child_never_forget", child.id, key, v);
+                  }}
+                />
+              </div>
+
+              {/* Open When You're Grown */}
+              <div className="mt-5 pt-4 border-t border-[#e8e3dc]">
+                <p className="text-[13px] font-semibold text-[#2d2926] mb-0.5">Open when you&apos;re grown</p>
+                <p className="text-[11px] text-[#9a8f85] italic mb-3">A letter to future {child.name}. Signed &ldquo;Love, Mom &amp; Dad.&rdquo;</p>
+                <KeepsakeFieldGroup
+                  prompts={OPEN_WHEN_PROMPTS}
+                  values={openWhenAnswers[child.id] ?? {}}
+                  multiline
+                  disabled={isReadOnly}
+                  onChange={(key, v) => {
+                    setOpenWhenAnswers((prev) => ({ ...prev, [child.id]: { ...prev[child.id], [key]: v } }));
+                    saveKeepsake("child_open_when", child.id, key, v);
+                  }}
+                />
+              </div>
             </div>
           );
         })}
@@ -1303,13 +1696,33 @@ export default function YearbookEditPage() {
                 await saveContent("family_name", familyName);
                 await saveContent("school_year", schoolYear);
                 await saveContent("letter_from_home", letter);
+                await saveContent("cover_subtitle", coverSubtitle);
                 if (favMemoryId) await saveContent("letter_favorite_memory_id", favMemoryId);
                 if (favCaption) await saveContent("letter_favorite_caption", favCaption);
+                if (favLocation) await saveContent("letter_favorite_location", favLocation);
+                if (favWhat) await saveContent("letter_favorite_what", favWhat);
+                if (favWhy) await saveContent("letter_favorite_why", favWhy);
                 if (favQuote) await saveContent("letter_favorite_quote", favQuote);
                 for (const child of children) {
                   for (const q of INTERVIEW_QUESTIONS) {
                     const val = childAnswers[child.id]?.[q.key] ?? "";
                     if (val.trim()) await saveContent("child_interview", val, child.id, q.key);
+                  }
+                  for (const f of FAVORITES) {
+                    const val = favoriteAnswers[child.id]?.[f.key] ?? "";
+                    if (val.trim()) await saveContent("child_favorite", val, child.id, f.key);
+                  }
+                  for (const f of SNAPSHOT_FIELDS) {
+                    const val = snapshotAnswers[child.id]?.[f.key] ?? "";
+                    if (val.trim()) await saveContent("child_snapshot", val, child.id, f.key);
+                  }
+                  for (const l of NEVER_FORGET_LINES) {
+                    const val = neverForgetAnswers[child.id]?.[l.key] ?? "";
+                    if (val.trim()) await saveContent("child_never_forget", val, child.id, l.key);
+                  }
+                  for (const p of OPEN_WHEN_PROMPTS) {
+                    const val = openWhenAnswers[child.id]?.[p.key] ?? "";
+                    if (val.trim()) await saveContent("child_open_when", val, child.id, p.key);
                   }
                   const note = childNotes[child.id] ?? "";
                   if (note.trim()) await saveContent("child_future_note", note, child.id);

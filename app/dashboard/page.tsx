@@ -40,6 +40,7 @@ import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { useIsNativeApp } from "@/lib/platform";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
+import MonthlyQuestionCard from "@/app/components/MonthlyQuestionCard";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -3503,6 +3504,9 @@ export default function TodayPage() {
           />
         );
       })()}
+
+      {/* One Question a Month — gentle, dismissible, re-surfaces next month */}
+      {!loading && !isPartner && <MonthlyQuestionCard userId={effectiveUserId} />}
 
       {/* Achievement banner */}
       {achievementBanner && (
