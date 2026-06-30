@@ -73,7 +73,7 @@ export default function UnsubscribePage() {
             href="https://www.rootedhomeschoolapp.com"
             className="text-xs text-[#b5aca4] hover:text-[#7a6f65] transition-colors"
           >
-            🌿 Rooted — the homeschool memory book
+            🌿 Rooted, the homeschool memory book
           </a>
         </div>
       </div>

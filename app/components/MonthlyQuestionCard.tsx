@@ -79,7 +79,7 @@ export default function MonthlyQuestionCard({ userId }: { userId: string | null 
           <textarea
             value={answer}
             onChange={(e) => setAnswer(e.target.value)}
-            placeholder="A sentence or two — in your own words."
+            placeholder="A sentence or two, in your own words."
             className="w-full mt-2.5 min-h-[64px] text-[14px] text-[#2d2926] bg-white border border-[#e8e2d9] rounded-xl p-3 focus:outline-none focus:ring-1 focus:ring-[#5c7f63] resize-y"
             style={{ fontFamily: "Georgia, serif" }}
           />

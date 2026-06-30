@@ -13,11 +13,11 @@ const sections = [
     items: [
       {
         q: "How do I create an account?",
-        a: "Head to rootedhomeschoolapp.com and click Sign Up. Enter your family name, email address, and a password. Once you're in, you'll be prompted to add your children and choose your state — that's it! Your account is ready to use.",
+        a: "Head to rootedhomeschoolapp.com and click Sign Up. Enter your family name, email address, and a password. Once you're in, you'll be prompted to add your children and choose your state, that's it! Your account is ready to use.",
       },
       {
         q: "Is Rooted free?",
-        a: "Yes! Every new user gets a 30-day free trial with full access to everything — yearbook, transcripts, family sharing, reports, badges, unlimited photos. After 30 days, you can keep using Rooted free (with a 50 photo limit and basic features) or upgrade to Rooted+ to keep all premium features.",
+        a: "Yes! Every new user gets a 30-day free trial with full access to everything: yearbook, transcripts, family sharing, reports, badges, unlimited photos. After 30 days, you can keep using Rooted free (with a 50 photo limit and basic features) or upgrade to Rooted+ to keep all premium features.",
       },
       {
         q: "How do I set up my curriculum?",
@@ -29,7 +29,7 @@ const sections = [
       },
       {
         q: "Does Rooted work with our curriculum?",
-        a: "Yes — Rooted works alongside any curriculum. We don't replace what you're already using, we just help you track it, remember it, and see how far you've come.",
+        a: "Yes, Rooted works alongside any curriculum. We don't replace what you're already using, we just help you track it, remember it, and see how far you've come.",
       },
       {
         q: "How do I add my children?",
@@ -37,7 +37,7 @@ const sections = [
       },
       {
         q: "Can I use Rooted on my phone?",
-        a: "Yes — Rooted is designed mobile-first. You can add it to your home screen from your browser for quick daily access.",
+        a: "Yes, Rooted is designed mobile-first. You can add it to your home screen from your browser for quick daily access.",
       },
       {
         q: "What is the curriculum planner?",
@@ -55,11 +55,11 @@ const sections = [
       },
       {
         q: "What happens when I check off a lesson?",
-        a: "When you complete a lesson, it's recorded in your progress log and counts toward your curriculum goals. If the lesson is tied to a curriculum item, Rooted updates your pacing automatically. Your child's Garden tree also grows a little — it's a small celebration of every learning moment.",
+        a: "When you complete a lesson, it's recorded in your progress log and counts toward your curriculum goals. If the lesson is tied to a curriculum item, Rooted updates your pacing automatically. Your child's Garden tree also grows a little, it's a small celebration of every learning moment.",
       },
       {
         q: "What if we skip a school day?",
-        a: "No problem at all — life happens! Rooted doesn't penalize missed days. Unfinished lessons simply remain on your list. You can reschedule them, mark them as skipped, or just pick back up the next day. The curriculum planner adjusts your pacing automatically when you get back on track.",
+        a: "No problem at all, life happens! Rooted doesn't penalize missed days. Unfinished lessons simply remain on your list. You can reschedule them, mark them as skipped, or just pick back up the next day. The curriculum planner adjusts your pacing automatically when you get back on track.",
       },
       {
         q: "How do I reschedule my curriculum?",
@@ -73,7 +73,7 @@ const sections = [
     items: [
       {
         q: "What is the Garden?",
-        a: "The Garden is Rooted's visual progress tracker — a living forest that grows as your children learn. Each child has their own tree that reflects their learning journey. It's designed to make progress feel tangible, beautiful, and worth celebrating, rather than just a number on a report.",
+        a: "The Garden is Rooted's visual progress tracker, a living forest that grows as your children learn. Each child has their own tree that reflects their learning journey. It's designed to make progress feel tangible, beautiful, and worth celebrating, rather than just a number on a report.",
       },
       {
         q: "How does my child's tree grow?",
@@ -85,11 +85,11 @@ const sections = [
           <span>
             Each stage represents a milestone in your child&apos;s learning journey:
             <ul className="mt-3 space-y-1.5 list-none">
-              <li><strong>🌱 Seed</strong> — Just getting started (0–24 lessons)</li>
-              <li><strong>🌿 Sprout</strong> — Finding their rhythm (25–49 lessons)</li>
-              <li><strong>🪴 Sapling</strong> — Growing with purpose (50–99 lessons)</li>
-              <li><strong>🌲 Growing</strong> — Deep roots forming (100–199 lessons)</li>
-              <li><strong>🌳 Thriving</strong> — A flourishing learner (200+ lessons)</li>
+              <li><strong>🌱 Seed</strong>: just getting started (0–24 lessons)</li>
+              <li><strong>🌿 Sprout</strong>: finding their rhythm (25–49 lessons)</li>
+              <li><strong>🪴 Sapling</strong>: growing with purpose (50–99 lessons)</li>
+              <li><strong>🌲 Growing</strong>: deep roots forming (100–199 lessons)</li>
+              <li><strong>🌳 Thriving</strong>: a flourishing learner (200+ lessons)</li>
             </ul>
           </span>
         ),
@@ -106,7 +106,7 @@ const sections = [
       },
       {
         q: "Which states does Rooted support?",
-        a: "Rooted currently supports all 50 U.S. states. Each state has different homeschool requirements — some require annual notification, others require portfolio review or hours tracking. Rooted's report format is tailored to match what your state typically expects. If you're unsure of your state's requirements, your state's homeschool association is a great resource.",
+        a: "Rooted currently supports all 50 U.S. states. Each state has different homeschool requirements, some require annual notification, others require portfolio review or hours tracking. Rooted's report format is tailored to match what your state typically expects. If you're unsure of your state's requirements, your state's homeschool association is a great resource.",
       },
       {
         q: "Where do I set my state?",
@@ -122,7 +122,7 @@ const sections = [
         q: "What does the free plan include?",
         a: (
           <span>
-            <strong>During your 30-day trial:</strong> full access to everything — yearbook, transcripts, family sharing, PDF exports, badges & certificates, unlimited photos.
+            <strong>During your 30-day trial:</strong> full access to everything: yearbook, transcripts, family sharing, PDF exports, badges & certificates, unlimited photos.
             <br /><br />
             <strong>After trial:</strong> lesson tracking & curriculum planning, scheduling, memories (50 photo limit), attendance tracking, garden, and curated resources.
             <br /><br />
@@ -192,7 +192,7 @@ const sections = [
     items: [
       {
         q: "Who built Rooted?",
-        a: "Brittany Waltrip — a homeschool mom who built the app she wished existed. Questions? Email hello@rootedhomeschoolapp.com",
+        a: "Brittany Waltrip, a homeschool mom who built the app she wished existed. Questions? Email hello@rootedhomeschoolapp.com",
       },
     ],
   },
@@ -202,39 +202,39 @@ const sections = [
     items: [
       {
         q: "What is the family yearbook?",
-        a: "The family yearbook is a living book that builds automatically throughout your school year. Every win, quote, and book you log is added to it automatically. You can bookmark any photo to include it too. At the end of the year you have a beautiful book — a cover page, a letter from home, each child\u2019s chapter with their interview answers and a note to their future self, and messages from your family. You can flip through it page by page right on your phone.",
+        a: "The family yearbook is a living book that builds automatically throughout your school year. Every win, quote, and book you log is added to it automatically. You can bookmark any photo to include it too. At the end of the year you have a beautiful book, a cover page, a letter from home, each child\u2019s chapter with their interview answers and a note to their future self, and messages from your family. You can flip through it page by page right on your phone.",
       },
       {
         q: "Do I have to do anything to fill the yearbook?",
-        a: "Wins, quotes, and books are added automatically every time you log them — you don\u2019t have to do anything extra. For photos, tap the bookmark icon \uD83D\uDD16 on any memory to add it to the yearbook. You can add or remove photos any time during the year.",
+        a: "Wins, quotes, and books are added automatically every time you log them, you don\u2019t have to do anything extra. For photos, tap the bookmark icon \uD83D\uDD16 on any memory to add it to the yearbook. You can add or remove photos any time during the year.",
       },
       {
         q: "How do I write the letter from home and child interviews?",
-        a: "Tap \u2018Edit your book\u2019 on the yearbook page. You\u2019ll find a letter field where you can write to your family about the year — as little or as much as you want. Each child has 6 interview questions you can answer any time during the year (their answers get better the closer to year-end you ask!). Everything autosaves as you type.",
+        a: "Tap \u2018Edit your book\u2019 on the yearbook page. You\u2019ll find a letter field where you can write to your family about the year, as little or as much as you want. Each child has 6 interview questions you can answer any time during the year (their answers get better the closer to year-end you ask!). Everything autosaves as you type.",
       },
       {
         q: "What is the \u2018note to future self\u2019?",
-        a: "Each child\u2019s chapter includes a special section where they write a message to themselves to be read next year. Your child dictates it, you type it — or an older child can type it themselves. It seals into the archived yearbook and appears at the start of next year. It\u2019s one of the most special parts of the book.",
+        a: "Each child\u2019s chapter includes a special section where they write a message to themselves to be read next year. Your child dictates it, you type it, or an older child can type it themselves. It seals into the archived yearbook and appears at the start of next year. It\u2019s one of the most special parts of the book.",
       },
       {
         q: "Can family members see the yearbook?",
-        a: "Yes — anyone you\u2019ve shared your family link with can tap \u2018View yearbook\u2019 to see the book reader. It\u2019s the same beautiful page-by-page experience, read only. They can\u2019t edit anything.",
+        a: "Yes, anyone you\u2019ve shared your family link with can tap \u2018View yearbook\u2019 to see the book reader. It\u2019s the same beautiful page-by-page experience, read only. They can\u2019t edit anything.",
       },
       {
         q: "Can grandparents and family leave messages in the yearbook?",
-        a: "Yes. Family viewers can write a short message addressed to a specific child, the whole family, or you. You see it first and approve it before it appears in the book. It shows up in the \u2018From the village\u2019 section at the end of the yearbook — like signing a real yearbook.",
+        a: "Yes. Family viewers can write a short message addressed to a specific child, the whole family, or you. You see it first and approve it before it appears in the book. It shows up in the \u2018From the village\u2019 section at the end of the yearbook, like signing a real yearbook.",
       },
       {
         q: "What happens to my yearbook at the end of the school year?",
         a: "When you\u2019re ready, tap \u2018Close this school year\u2019 in Settings. You\u2019ll choose a cover photo, and the yearbook is saved as a beautiful read-only book. A new yearbook starts automatically for next year. Your archived yearbooks are always there to open and read.",
       },
       {
-        q: "What if I start Rooted mid-year — does my yearbook still work?",
-        a: "Absolutely. Your yearbook starts from the beginning of your current school year (August 1st) so any memories you add for the year — even ones you backfill with an earlier date — will appear in the right place. Starting in January or March is completely fine.",
+        q: "What if I start Rooted mid-year, does my yearbook still work?",
+        a: "Absolutely. Your yearbook starts from the beginning of your current school year (August 1st) so any memories you add for the year, even ones you backfill with an earlier date, will appear in the right place. Starting in January or March is completely fine.",
       },
       {
         q: "Do free users get a yearbook?",
-        a: "During your 30-day free trial, you have full access to the yearbook. After the trial, free users see a watermarked preview. Upgrade to Rooted+ for the full yearbook without watermarks — download it as a PDF anytime to print at home or send to a print shop.",
+        a: "During your 30-day free trial, you have full access to the yearbook. After the trial, free users see a watermarked preview. Upgrade to Rooted+ for the full yearbook without watermarks, download it as a PDF anytime to print at home or send to a print shop.",
       },
       {
         q: "Are my archived yearbooks saved if I cancel my subscription?",
@@ -248,11 +248,11 @@ const sections = [
     items: [
       {
         q: "What is Share With Family?",
-        a: "Share With Family is a Rooted+ feature that lets you give grandparents, family, and friends a private link to view your memories and yearbook. They can see your photos and memories, react with emojis, and leave comments — without downloading any app.",
+        a: "Share With Family is a Rooted+ feature that lets you give grandparents, family, and friends a private link to view your memories and yearbook. They can see your photos and memories, react with emojis, and leave comments, without downloading any app.",
       },
       {
         q: "Who can I share with?",
-        a: "Anyone you choose — grandparents, extended family, a co-parent, or a close friend. You control the list. Each person gets the same private link. You can revoke access for any individual at any time from Settings.",
+        a: "Anyone you choose: grandparents, extended family, a co-parent, or a close friend. You control the list. Each person gets the same private link. You can revoke access for any individual at any time from Settings.",
       },
       {
         q: "Do family members need to create an account?",
@@ -260,11 +260,11 @@ const sections = [
       },
       {
         q: "Can family members see everything in my account?",
-        a: "They can only see what you\u2019ve shared — your memories and yearbook. They cannot see your curriculum, lesson plans, progress reports, or any account settings. You stay in full control.",
+        a: "They can only see what you\u2019ve shared, your memories and yearbook. They cannot see your curriculum, lesson plans, progress reports, or any account settings. You stay in full control.",
       },
       {
         q: "Can family members add messages to the yearbook?",
-        a: "Yes — from the family viewer, they can write a message addressed to a specific child or the whole family. You see it first and approve it before it appears in the yearbook.",
+        a: "Yes, from the family viewer, they can write a message addressed to a specific child or the whole family. You see it first and approve it before it appears in the yearbook.",
       },
       {
         q: "How do I set up Share With Family?",

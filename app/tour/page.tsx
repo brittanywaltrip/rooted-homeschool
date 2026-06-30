@@ -23,11 +23,11 @@ const FEATURES: {
     label: "Memories",
     emoji: "📸",
     headline: "Capture every learning moment",
-    sub: "The years go by so fast. Rooted helps you hold onto them — photos, quotes, books, and moments you'd otherwise forget.",
+    sub: "The years go by so fast. Rooted helps you hold onto them: photos, quotes, books, and moments you'd otherwise forget.",
     bullets: [
-      "Save photos, field trip moments, and little things they said — it takes 10 seconds",
-      "Build a book log as you go — a record of everything they've ever read",
-      "Share a private link with grandparents, aunts, uncles, and cousins — no app needed",
+      "Save photos, field trip moments, and little things they said, it takes 10 seconds",
+      "Build a book log as you go, a record of everything they've ever read",
+      "Share a private link with grandparents, aunts, uncles, and cousins, no app needed",
     ],
     note: "Shareable link, no app download needed 🔗",
   },
@@ -36,10 +36,10 @@ const FEATURES: {
     label: "Today",
     emoji: "☀️",
     headline: "Your daily command center",
-    sub: "Know exactly what to teach each morning — no guessing, no planning stress.",
+    sub: "Know exactly what to teach each morning, no guessing, no planning stress.",
     bullets: [
-      "See exactly what's planned for today — lesson by lesson, in order",
-      "Check off lessons with one tap — each one grows your child's garden tree",
+      "See exactly what's planned for today, lesson by lesson, in order",
+      "Check off lessons with one tap, each one grows your child's garden tree",
       "Smart Finish Line shows if you're on track to finish your curriculum on time",
     ],
     note: "Every lesson earns a leaf 🍃",
@@ -49,11 +49,11 @@ const FEATURES: {
     label: "Plan",
     emoji: "📅",
     headline: "Curriculum that plans itself",
-    sub: "Tell Rooted your goal date and school days — it builds the whole schedule.",
+    sub: "Tell Rooted your goal date and school days, it builds the whole schedule.",
     bullets: [
-      "Auto-schedules your entire curriculum — just enter your lessons and goal date",
+      "Auto-schedules your entire curriculum, just enter your lessons and goal date",
       "Pick your school days: any combination Mon–Sun that fits your family",
-      "Reschedule instantly if you get ahead or fall behind — one tap to recalculate",
+      "Reschedule instantly if you get ahead or fall behind, one tap to recalculate",
     ],
     note: "Lessons auto-schedule to your school days 📆",
   },
@@ -66,7 +66,7 @@ const FEATURES: {
     bullets: [
       "Every completed lesson earns your child a leaf toward their growing tree",
       "Watch their tree grow: Seed → Sprout → Sapling → Growing → Thriving",
-      "Kids race to finish lessons just to see their tree grow — it actually works",
+      "Kids race to finish lessons just to see their tree grow, it actually works",
     ],
     note: "200+ lessons to reach Thriving 🌳",
   },
@@ -75,52 +75,52 @@ const FEATURES: {
     label: "Reports",
     emoji: "📋",
     headline: "See how far they've come",
-    sub: "At the end of a homeschool year it's easy to wonder — did we do enough? Rooted answers that beautifully.",
+    sub: "At the end of a homeschool year it's easy to wonder, did we do enough? Rooted answers that beautifully.",
     bullets: [
-      "Every lesson logged becomes part of a beautiful record — print it, share it, or save it forever",
+      "Every lesson logged becomes part of a beautiful record, print it, share it, or save it forever",
       "Share a PDF with grandparents showing exactly what your kids learned this year",
     ],
-    note: "A keepsake and a progress record — all in one 🌿",
+    note: "A keepsake and a progress record, all in one 🌿",
   },
   {
     id: "resources",
     label: "Resources",
     emoji: "📚",
     headline: "Curated resources, just for you",
-    sub: "Free picks filtered for your state — zero prep required.",
+    sub: "Free picks filtered for your state, zero prep required.",
     bullets: [
-      "Free picks — textbooks, activities, and virtual field trips",
+      "Free picks: textbooks, activities, and virtual field trips",
       "Filtered for your state's requirements automatically",
       "Field trips, printables, and zero-prep activities ready to use today",
     ],
-    note: "Works for all 50 states — always free 🗺️",
+    note: "Works for all 50 states, always free 🗺️",
   },
   {
     id: "insights",
     label: "Insights",
     emoji: "📊",
     headline: "See your family's momentum",
-    sub: "Celebrate consistency — not perfection. Rooted shows you the whole picture.",
+    sub: "Celebrate consistency, not perfection. Rooted shows you the whole picture.",
     bullets: [
       "See your learning streak, most active days, and total hours logged this month",
       "Week-over-week comparison shows whether your family's momentum is growing",
-      "Celebrate consistency — not perfection. Every streak is worth celebrating",
+      "Celebrate consistency, not perfection. Every streak is worth celebrating",
     ],
-    note: "Streaks reset weekly — low pressure, real progress 🔥",
+    note: "Streaks reset weekly, low pressure, real progress 🔥",
   },
   {
     id: "yearbook",
     label: "Yearbook",
     emoji: "📖",
     headline: "Your family yearbook",
-    sub: "Every win, quote, and book fills your yearbook automatically as you go. Add photos you love. At year-end, flip through a beautiful book — with your letter, each child\u2019s chapter and interview, and messages from family.",
+    sub: "Every win, quote, and book fills your yearbook automatically as you go. Add photos you love. At year-end, flip through a beautiful book, with your letter, each child\u2019s chapter and interview, and messages from family.",
     bullets: [
       "📖 Wins, quotes & books added automatically",
       "📸 Bookmark any photo to add it",
       "✍️ Each child gets their own chapter with interview Q&A",
-      "💌 Family can leave messages — you approve what appears",
+      "💌 Family can leave messages, you approve what appears",
     ],
-    note: "Builds itself all year — flip through it any time 📖",
+    note: "Builds itself all year, flip through it any time 📖",
   },
 ];
 
@@ -288,9 +288,9 @@ function PlanMockup() {
           ))}
         </div>
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3 space-y-2">
-          <p className="text-[11px] font-semibold text-[#2d2926]">🌿 Finish Line — pacing this week</p>
+          <p className="text-[11px] font-semibold text-[#2d2926]">🌿 Finish Line, pacing this week</p>
           {[
-            { label: "Math — Saxon 5/4", pct: 68 },
+            { label: "Math, Saxon 5/4", pct: 68 },
             { label: "All About Reading", pct: 55 },
           ].map((item) => (
             <div key={item.label} className="space-y-1">
@@ -323,7 +323,7 @@ function MemoriesMockup() {
             🦋
           </div>
           <div className="bg-white px-3 py-2.5">
-            <p className="text-xs font-semibold text-[#2d2926]">Butterfly lifecycle — backyard science!</p>
+            <p className="text-xs font-semibold text-[#2d2926]">Butterfly lifecycle, backyard science!</p>
             <p className="text-[10px] text-[#b5aca4] mt-0.5">March 14 · Science</p>
           </div>
         </div>
@@ -391,7 +391,7 @@ function InsightsMockup() {
           ))}
         </div>
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
-          <p className="text-[11px] font-semibold text-[#2d2926] mb-3">Hours by day — this week</p>
+          <p className="text-[11px] font-semibold text-[#2d2926] mb-3">Hours by day, this week</p>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 60 }}>
             {[
               { day: "Mon", h: 32 }, { day: "Tue", h: 42 }, { day: "Wed", h: 0 },
@@ -406,7 +406,7 @@ function InsightsMockup() {
         </div>
         <div className="bg-gradient-to-r from-[#fef9e8] to-[#fef6d8] border border-[#f0e4b0] rounded-xl px-3 py-2 flex items-center gap-2">
           <span className="text-base">🌟</span>
-          <p className="text-[10px] text-[#7a5a10] font-medium">5 out of 7 days — you&apos;re building a real rhythm!</p>
+          <p className="text-[10px] text-[#7a5a10] font-medium">5 out of 7 days, you&apos;re building a real rhythm!</p>
         </div>
       </div>
     </MockupShell>
@@ -761,11 +761,11 @@ export default function TourPage() {
                 <em className="not-italic" style={{ color: "#5c7f63" }}>Hold onto them.</em>
               </h2>
               <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                Between the lessons, the field trips, the little things they said that made you laugh — so much gets forgotten. Rooted gives you a beautiful, simple place to save it all. It takes 10 seconds.
+                Between the lessons, the field trips, the little things they said that made you laugh, so much gets forgotten. Rooted gives you a beautiful, simple place to save it all. It takes 10 seconds.
               </p>
               <ul className="space-y-4 mb-8">
                 {[
-                  { emoji: "📸", title: "Photos from your day", desc: "Snap and save moments as they happen — field trips, projects, backyard science." },
+                  { emoji: "📸", title: "Photos from your day", desc: "Snap and save moments as they happen, field trips, projects, backyard science." },
                   { emoji: "✍️", title: "Little notes & quotes", desc: "Write down what they said, what clicked, what made them proud. You'll want these later." },
                   { emoji: "📖", title: "Books they loved", desc: "Build a reading log automatically as you go. A record of their whole reading life." },
                   { emoji: "🌿", title: "Look back and see it", desc: "Your whole homeschool journey, month by month. Proof you're doing something beautiful." },
@@ -854,12 +854,12 @@ export default function TourPage() {
                 See how far they&apos;ve come.
               </h2>
               <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                At the end of a homeschool year it&apos;s easy to wonder — did we do enough? Rooted answers that question beautifully. Every lesson, every book, every subject — all in one place you can print, share, or save forever.
+                At the end of a homeschool year it&apos;s easy to wonder, did we do enough? Rooted answers that question beautifully. Every lesson, every book, every subject, all in one place you can print, share, or save forever.
               </p>
               <ul className="space-y-4 mb-8">
                 {[
-                  { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook — a living record of their whole learning life." },
-                  { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles — anyone you choose. No app download needed." },
+                  { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook, a living record of their whole learning life." },
+                  { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles, anyone you choose. No app download needed." },
                   { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
@@ -892,7 +892,7 @@ export default function TourPage() {
             I built Rooted for families like mine. I hope it brings your homeschool a little more calm and a lot more joy.
           </p>
           <p className="text-sm font-semibold text-[#5c7f63]">
-            — Brittany W., homeschool mom of 2
+            Brittany W., homeschool mom of 2
           </p>
         </div>
       </section>

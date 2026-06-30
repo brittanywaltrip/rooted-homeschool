@@ -170,7 +170,7 @@ export default function FamilyPreviewPage() {
             ← Back to Settings
           </Link>
           <span className="text-xs text-white/70 text-center flex-1 px-2">
-            👁 Preview — this is what your family sees
+            👁 Preview, this is what your family sees
           </span>
           <div className="w-20 shrink-0" />
         </div>

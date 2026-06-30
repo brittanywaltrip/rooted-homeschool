@@ -901,7 +901,7 @@ export default function YearbookEditPage() {
           <div className="space-y-1">
             {([
               { key: "show_letter" as const, emoji: "📝", label: "Letter from home" },
-              { key: "show_year_in_numbers" as const, emoji: "📊", label: "Year in Numbers" },
+              { key: "show_year_in_numbers" as const, emoji: "🌿", label: "Looking back" },
               { key: "show_child_chapters" as const, emoji: "👧", label: "Child chapters" },
               { key: "show_favorite_things" as const, emoji: "💛", label: "Favorite things pages" },
               { key: "show_books_section" as const, emoji: "📚", label: "Books sections" },

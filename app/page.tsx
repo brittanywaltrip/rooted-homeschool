@@ -101,7 +101,7 @@ function ReferralBanner() {
     >
       <span>
         {name
-          ? `You're using ${name}'s link — use code ${code} at checkout for 15% off 🌿`
+          ? `You're using ${name}'s link, use code ${code} at checkout for 15% off 🌿`
           : `Use code ${code} at checkout for 15% off 🌿`}
       </span>
       <button
@@ -511,7 +511,7 @@ function HomeInner() {
         <div className="max-w-3xl mx-auto text-center">
           <p className="text-sm sm:text-base text-[#7a6f65] leading-relaxed">
             <span className="font-semibold text-[#2d2926]">Rooted isn&apos;t a curriculum</span>
-            {" "}— it&apos;s the joyful companion that works{" "}
+            , it&apos;s the joyful companion that works{" "}
             <em className="not-italic font-semibold text-[#5c7f63]">alongside</em>
             {" "}the one you already love. 🌿
           </p>
@@ -658,7 +658,7 @@ function HomeInner() {
                 title: "Hours & Attendance",
                 color: "#eef0e6",
                 border: "#bdc6a6",
-                desc: "Track learning hours and attendance automatically as you check off lessons. Export PDF reports for state requirements — or your own peace of mind.",
+                desc: "Track learning hours and attendance automatically as you check off lessons. Export PDF reports for state requirements, or your own peace of mind.",
               },
               {
                 emoji: "📚",
@@ -713,11 +713,11 @@ function HomeInner() {
                 <em className="not-italic" style={{ color: "#5c7f63" }}>You&apos;ll want to remember them.</em>
               </h2>
               <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                Between the lessons, the field trips, the little things they said that made you laugh — so much gets forgotten. Rooted gives you a beautiful, simple place to save it all.
+                Between the lessons, the field trips, the little things they said that made you laugh, so much gets forgotten. Rooted gives you a beautiful, simple place to save it all.
               </p>
               <ul className="space-y-4 mb-8">
                 {[
-                  { emoji: "📸", title: "Photos from your day", desc: "Snap and save moments as they happen — field trips, projects, backyard science." },
+                  { emoji: "📸", title: "Photos from your day", desc: "Snap and save moments as they happen, field trips, projects, backyard science." },
                   { emoji: "✍️", title: "Little notes & quotes", desc: "Write down what they said, what clicked, what made them proud. You'll want these later." },
                   { emoji: "📖", title: "Books they loved", desc: "Build a reading log automatically as you go. A record of their whole reading life." },
                   { emoji: "🌿", title: "Look back and see it", desc: "Your whole homeschool journey, month by month. Proof you're doing something beautiful." },
@@ -754,7 +754,7 @@ function HomeInner() {
                       🦋
                     </div>
                     <div className="bg-white px-3 py-2.5">
-                      <p className="text-xs font-semibold text-[#2d2926]">Butterfly lifecycle — backyard science!</p>
+                      <p className="text-xs font-semibold text-[#2d2926]">Butterfly lifecycle, backyard science!</p>
                       <p className="text-[10px] text-[#b5aca4] mt-0.5">March 14 · Science</p>
                     </div>
                   </div>
@@ -853,7 +853,7 @@ function HomeInner() {
                 See how far they&apos;ve come.
               </h2>
               <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                At the end of a homeschool year it&apos;s easy to wonder — did we do enough? Rooted answers that question beautifully. Every lesson, every book, every subject — all in one place you can print, share, or save forever.
+                At the end of a homeschool year it&apos;s easy to wonder, did we do enough? Rooted answers that question beautifully. Every lesson, every book, every subject, all in one place you can print, share, or save forever.
               </p>
               <ul className="space-y-4 mb-8">
                 {[
@@ -892,7 +892,7 @@ function HomeInner() {
               The people who love your kids will love this too.
             </h2>
             <p className="text-[#7a6f65] leading-relaxed text-base max-w-2xl mx-auto">
-              Share a private link with grandparents, aunts, uncles — anyone you choose. They can see memories as you add them, react, and leave messages for the kids. No app download. No account needed.
+              Share a private link with grandparents, aunts, uncles, anyone you choose. They can see memories as you add them, react, and leave messages for the kids. No app download. No account needed.
             </p>
           </div>
           <div className="flex justify-center mb-10">
@@ -935,7 +935,7 @@ function HomeInner() {
             Start free. Grow with Rooted.
           </h2>
           <p className="text-[#7a6f65] max-w-lg mx-auto">
-            Try everything free for 30 days — no credit card needed. After your trial,
+            Try everything free for 30 days, no credit card needed. After your trial,
             keep using Rooted free or upgrade to keep all your premium features.
           </p>
         </div>
@@ -951,7 +951,7 @@ function HomeInner() {
               boxShadow: "inset 0 0 0 2px rgba(196,150,42,0.08)",
             }}
           >
-            🌱 <strong style={{ color: "#5a4612" }}>Founding Family pricing locks in forever — ends April 30.</strong>
+            🌱 <strong style={{ color: "#5a4612" }}>Founding Family pricing locks in forever, ends April 30.</strong>
           </div>
         )}
 
@@ -972,7 +972,7 @@ function HomeInner() {
             <p className="text-xs text-[#b5aca4] mb-6">No credit card needed</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
-                "30-day free trial — full access to everything",
+                "30-day free trial, full access to everything",
                 "After trial: lesson tracking & curriculum planning",
                 "After trial: garden, badges, & scheduling",
                 "After trial: memories (50 photo limit)",
@@ -1009,13 +1009,13 @@ function HomeInner() {
               {[
                 "Unlimited children",
                 "Unlimited photo memories",
-                "Complete memory timeline — every moment, forever",
-                "Full yearbook — no watermark, download anytime",
-                "Transcripts & PDF reports — export anytime",
+                "Complete memory timeline, every moment, forever",
+                "Full yearbook, no watermark, download anytime",
+                "Transcripts & PDF reports, export anytime",
                 "Badges & certificates",
-                "Hours & Attendance Log — track and export your learning hours",
-                "Curriculum progress tracking — stay on track all year without the stress",
-                "Share with family — send grandparents a private link to follow along in real time",
+                "Hours & Attendance Log, track and export your learning hours",
+                "Curriculum progress tracking, stay on track all year without the stress",
+                "Share with family, send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -1048,11 +1048,11 @@ function HomeInner() {
               {[
                 "Unlimited children",
                 "Unlimited photo memories",
-                "Complete memory timeline — every moment, forever",
-                "Hours & Attendance Log — track and export your learning hours",
-                "Curriculum progress tracking — stay on track all year without the stress",
-                "Full yearbook — no watermark, download anytime",
-                "Share with family — send grandparents a private link to follow along in real time",
+                "Complete memory timeline, every moment, forever",
+                "Hours & Attendance Log, track and export your learning hours",
+                "Curriculum progress tracking, stay on track all year without the stress",
+                "Full yearbook, no watermark, download anytime",
+                "Share with family, send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -1091,7 +1091,7 @@ function HomeInner() {
                 { feature: "Curriculum planning",       free: "✓",            founding: "✓"               },
                 { feature: "Scheduling",                free: "✓",            founding: "✓"               },
                 { feature: "Photos",                    free: "50 (unlimited during trial)", founding: "✓ Unlimited" },
-                { feature: "Yearbook",                  free: "Full during trial · Preview after", founding: "✓ Full — no watermark + PDF download" },
+                { feature: "Yearbook",                  free: "Full during trial · Preview after", founding: "✓ Full, no watermark + PDF download" },
                 { feature: "Transcript builder",        free: "Full during trial · Preview after", founding: "✓ Full + export" },
                 { feature: "PDF exports (transcripts, hours, reports)", free: "During trial only", founding: "✓" },
                 { feature: "Family sharing",            free: "During trial only", founding: "✓"          },
@@ -1136,9 +1136,9 @@ function HomeInner() {
               Built by a homeschool mom, for homeschool families.
             </h2>
             <p className="text-[#7a6f65] leading-relaxed text-sm mb-4">
-              Hi, I&apos;m Brittany — a homeschool mom who got tired of feeling unorganized and wondering if we were falling behind. So I built Rooted. Plan your days, track learning, capture memories, see your child&apos;s growth — without the complicated apps and spreadsheets. From our family to yours, we&apos;d love to have you.
+              Hi, I&apos;m Brittany, a homeschool mom who got tired of feeling unorganized and wondering if we were falling behind. So I built Rooted. Plan your days, track learning, capture memories, see your child&apos;s growth, without the complicated apps and spreadsheets. From our family to yours, we&apos;d love to have you.
             </p>
-            <p className="text-sm font-semibold text-[#5c7f63]">— Brittany, founder &amp; homeschool mom 🌱</p>
+            <p className="text-sm font-semibold text-[#5c7f63]">Brittany, founder &amp; homeschool mom 🌱</p>
           </div>
         </div>
       </section>

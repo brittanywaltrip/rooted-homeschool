@@ -150,7 +150,7 @@ function UpgradePageInner() {
           <p className="text-[#5c7f63] font-medium max-w-md mx-auto text-sm">
             {trialAlreadyUsed
               ? 'Your free trial has ended. Upgrade to keep everything you built.'
-              : 'Start with 30 days free — full access to every feature, no credit card needed.'}
+              : 'Start with 30 days free, full access to every feature, no credit card needed.'}
           </p>
         </div>
 
@@ -162,7 +162,7 @@ function UpgradePageInner() {
         {/* Referral discount banner */}
         {refCode && refAffiliateName && (
           <div className="mb-6 bg-green-50 border border-green-200 text-green-800 text-sm rounded-xl px-4 py-3 max-w-lg mx-auto text-center">
-            🎁 15% off applied — referred by {refAffiliateName}. Use code <span className="font-bold font-mono tracking-wider">{refCode}</span> at checkout.
+            🎁 15% off applied, referred by {refAffiliateName}. Use code <span className="font-bold font-mono tracking-wider">{refCode}</span> at checkout.
           </div>
         )}
 
@@ -195,7 +195,7 @@ function UpgradePageInner() {
             </div>
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                ...(trialAlreadyUsed ? [] : ['30-day free trial — full access to everything']),
+                ...(trialAlreadyUsed ? [] : ['30-day free trial, full access to everything']),
                 'After trial: lesson logging & curriculum planning',
                 'After trial: garden & scheduling',
                 'After trial: memories (50 photo limit)',
@@ -249,11 +249,11 @@ function UpgradePageInner() {
 
             <ul className="space-y-2 mb-6 flex-1">
               {[
-                'Unlimited photos — keep every memory',
-                'Full yearbook — no watermark, download anytime',
-                'Transcripts & PDF reports — export anytime',
-                'Family sharing — invite grandparents & family',
-                'Hours & attendance log — track and export',
+                'Unlimited photos, keep every memory',
+                'Full yearbook, no watermark, download anytime',
+                'Transcripts & PDF reports, export anytime',
+                'Family sharing, invite grandparents & family',
+                'Hours & attendance log, track and export',
                 'Badges & certificates',
                 'All PDF exports',
                 'Priority support from Brittany',
@@ -270,7 +270,7 @@ function UpgradePageInner() {
                 href="/dashboard"
                 className="w-full bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-bold py-3 rounded-xl transition-colors text-sm shadow-sm text-center block"
               >
-                ✓ You&apos;re already a member — Go to app →
+                ✓ You&apos;re already a member. Go to app →
               </Link>
             ) : (
               <button

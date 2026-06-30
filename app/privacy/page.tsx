@@ -14,7 +14,7 @@ export default function PrivacyPage() {
         <div className="prose prose-sm max-w-none space-y-8 text-[#5c5248]">
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">1. Information We Collect</h2>
-            <p className="leading-relaxed">We collect information you provide directly to us when you create an account, including your family name, email address, and password. We also collect information about your children (first names and avatar colors only, entered by you as a parent or guardian) and the educational content you log within the app — lessons, books, memories, reflections, and photos. We do not collect sensitive personal information such as Social Security numbers, financial data, or government IDs.</p>
+            <p className="leading-relaxed">We collect information you provide directly to us when you create an account, including your family name, email address, and password. We also collect information about your children (first names and avatar colors only, entered by you as a parent or guardian) and the educational content you log within the app: lessons, books, memories, reflections, and photos. We do not collect sensitive personal information such as Social Security numbers, financial data, or government IDs.</p>
           </section>
 
           <section>
@@ -42,7 +42,7 @@ export default function PrivacyPage() {
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">5. Data Storage and Security</h2>
             <p className="leading-relaxed">Your data is stored securely using Supabase, a trusted database platform with industry-standard encryption at rest and in transit. We use row-level security policies on our database so your family&apos;s lessons, memories, and account data are accessible only to you.</p>
-            <p className="leading-relaxed mt-2">Photos and media you upload are stored in private cloud storage. Photo URLs require authentication and expire on a rolling basis — they cannot be viewed by anyone outside the app without a fresh, time-limited token issued for that specific request.</p>
+            <p className="leading-relaxed mt-2">Photos and media you upload are stored in private cloud storage. Photo URLs require authentication and expire on a rolling basis, they cannot be viewed by anyone outside the app without a fresh, time-limited token issued for that specific request.</p>
             <p className="leading-relaxed mt-2">In the event of a data breach that affects your personal information, we will notify affected users within 72 hours of discovering the breach via the email address associated with your account.</p>
           </section>
 
@@ -55,12 +55,12 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">7. Third-Party Services</h2>
             <p className="leading-relaxed">We use the following third-party services to operate Rooted. Each has its own privacy policy, and we share only the minimum data necessary for each service to function:</p>
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
-              <li><strong>Supabase</strong> — database, authentication, and file storage</li>
-              <li><strong>Vercel</strong> — application hosting, deployment, and basic performance analytics (page load times)</li>
-              <li><strong>Stripe</strong> — payment processing for Pro subscriptions. Stripe handles all payment data directly; we never store your full card number or payment credentials.</li>
-              <li><strong>Resend</strong> — sending transactional emails (welcome, receipts, account notifications)</li>
-              <li><strong>PostHog</strong> — product analytics (anonymous usage data such as page views and clicks) so we can understand how families use Rooted and improve the experience. PostHog does not access your photos, memory content, or children&apos;s information.</li>
-              <li><strong>Google Analytics</strong> — aggregate usage statistics. Google Analytics does not access your photos, memory content, or children&apos;s information.</li>
+              <li><strong>Supabase</strong>: database, authentication, and file storage</li>
+              <li><strong>Vercel</strong>: application hosting, deployment, and basic performance analytics (page load times)</li>
+              <li><strong>Stripe</strong>: payment processing for Pro subscriptions. Stripe handles all payment data directly; we never store your full card number or payment credentials.</li>
+              <li><strong>Resend</strong>: sending transactional emails (welcome, receipts, account notifications)</li>
+              <li><strong>PostHog</strong>: product analytics (anonymous usage data such as page views and clicks) so we can understand how families use Rooted and improve the experience. PostHog does not access your photos, memory content, or children&apos;s information.</li>
+              <li><strong>Google Analytics</strong>: aggregate usage statistics. Google Analytics does not access your photos, memory content, or children&apos;s information.</li>
             </ul>
             <p className="leading-relaxed mt-3"><strong>None of our analytics or third-party services are used for advertising. We do not sell, share, or rent your personal information to anyone, ever.</strong></p>
           </section>
