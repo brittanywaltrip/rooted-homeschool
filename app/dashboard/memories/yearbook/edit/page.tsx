@@ -9,7 +9,7 @@ import { signedPhotoUrl } from "@/lib/photo-url";
 import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
 import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
-import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS } from "@/lib/yearbook-prompts";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES } from "@/lib/yearbook-prompts";
 import { yearbookMonths, questionForMonth, monthLabel } from "@/lib/monthly-questions";
 import {
   DndContext,
@@ -450,6 +450,9 @@ export default function YearbookEditPage() {
   const [snapshotAnswers, setSnapshotAnswers] = useState<Record<string, Record<string, string>>>({});
   const [neverForgetAnswers, setNeverForgetAnswers] = useState<Record<string, Record<string, string>>>({});
   const [openWhenAnswers, setOpenWhenAnswers] = useState<Record<string, Record<string, string>>>({});
+  // Family-level content pages
+  const [tinyMomentsText, setTinyMomentsText] = useState("");
+  const [adventureAnswers, setAdventureAnswers] = useState<Record<string, string>>({});
   const [favQuote, setFavQuote] = useState("");
   const [quoteMode, setQuoteMode] = useState<"pick" | "type">("pick");
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
@@ -580,6 +583,16 @@ export default function YearbookEditPage() {
     clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[id]);
     (window as unknown as Record<string, NodeJS.Timeout | undefined>)[id] = setTimeout(() => {
       saveContent(contentType, v, childId, key);
+    }, 800);
+  }, [isReadOnly, saveContent]);
+
+  // Debounced save for a family-level Adventure category (child_id null).
+  const saveAdventure = useCallback((key: string, v: string) => {
+    if (isReadOnly) return;
+    const id = `_ybsave_adventure_${key}`;
+    clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[id]);
+    (window as unknown as Record<string, NodeJS.Timeout | undefined>)[id] = setTimeout(() => {
+      saveContent("adventure_categories", v, undefined, key);
     }, 800);
   }, [isReadOnly, saveContent]);
 
@@ -752,6 +765,12 @@ export default function YearbookEditPage() {
       setChildAnswers(answers);
       setChildNotes(notes);
 
+      // Family-level content pages
+      setTinyMomentsText(cMap[ck("tiny_moments")] ?? "");
+      const advs: Record<string, string> = {};
+      for (const cat of ADVENTURE_CATEGORIES) advs[cat.key] = cMap[ck("adventure_categories", null, cat.key)] ?? "";
+      setAdventureAnswers(advs);
+
       // One Question a Month answers (separate per-user store).
       const { data: monthlyRows } = await supabase
         .from("monthly_reflections")
@@ -791,6 +810,7 @@ export default function YearbookEditPage() {
   // ── Autosave wrappers ──────────────────────────────────────────────────────
 
   const letterStatus = useAutosave(letter, useCallback((v: string) => saveContent("letter_from_home", v), [saveContent]));
+  const tinyMomentsStatus = useAutosave(tinyMomentsText, useCallback((v: string) => saveContent("tiny_moments", v), [saveContent]));
   const captionStatus = useAutosave(favCaption, useCallback((v: string) => saveContent("letter_favorite_caption", v), [saveContent]));
   const favLocationStatus = useAutosave(favLocation, useCallback((v: string) => saveContent("letter_favorite_location", v), [saveContent]));
   const favWhatStatus = useAutosave(favWhat, useCallback((v: string) => saveContent("letter_favorite_what", v), [saveContent]));
@@ -1686,6 +1706,41 @@ export default function YearbookEditPage() {
           );
         })}
 
+        {/* ── Tiny moments (family) ───────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Tiny moments</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            Little one-liners, one per line. Not every memory needs a whole page.
+          </p>
+          <textarea
+            value={tinyMomentsText}
+            onChange={(e) => setTinyMomentsText(e.target.value)}
+            disabled={isReadOnly}
+            placeholder={"Lost a tooth\nCaught a butterfly\nBuilt a fort\nMade pancakes in our pajamas"}
+            className="w-full min-h-[140px] px-3 py-2 text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60 resize-y"
+            style={{ fontFamily: "Georgia, serif" }}
+          />
+          <SaveStatus status={tinyMomentsStatus} />
+        </div>
+
+        {/* ── Our adventures (family) ─────────────────────────── */}
+        <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
+          <p className="text-[13px] font-semibold text-[#2d2926]">Our adventures</p>
+          <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
+            Fill in any that fit. Anything blank simply doesn&apos;t show.
+          </p>
+          <KeepsakeFieldGroup
+            prompts={ADVENTURE_CATEGORIES}
+            values={adventureAnswers}
+            multiline
+            disabled={isReadOnly}
+            onChange={(key, v) => {
+              setAdventureAnswers((prev) => ({ ...prev, [key]: v }));
+              saveAdventure(key, v);
+            }}
+          />
+        </div>
+
         {/* ── Save all button ─────────────────────────────────── */}
         {!isReadOnly && (
           <button
@@ -1726,6 +1781,12 @@ export default function YearbookEditPage() {
                   }
                   const note = childNotes[child.id] ?? "";
                   if (note.trim()) await saveContent("child_future_note", note, child.id);
+                }
+                // Family-level content pages
+                if (tinyMomentsText.trim()) await saveContent("tiny_moments", tinyMomentsText);
+                for (const cat of ADVENTURE_CATEGORIES) {
+                  const val = adventureAnswers[cat.key] ?? "";
+                  if (val.trim()) await saveContent("adventure_categories", val, undefined, cat.key);
                 }
                 setSaveAllStatus("saved");
                 setTimeout(() => router.push("/dashboard/memories/yearbook/read"), 1500);

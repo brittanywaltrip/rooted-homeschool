@@ -10,6 +10,8 @@ import {
   SNAPSHOT_FIELDS,
   NEVER_FORGET_LINES,
   OPEN_WHEN_PROMPTS,
+  ADVENTURE_CATEGORIES,
+  tinyMomentLines,
 } from "./yearbook-prompts.ts";
 
 test("Year-End Conversation has the 11 questions with unique keys", () => {
@@ -51,6 +53,34 @@ test("Wave 2 keepsake prompts: complete sets with unique keys", () => {
   assert.ok(SNAPSHOT_FIELDS.some((f) => f.key === "signature_phrase"));
   assert.ok(NEVER_FORGET_LINES.some((l) => l.label === "The missing tooth…"));
   assert.ok(OPEN_WHEN_PROMPTS.some((p) => p.key === "chase"));
+});
+
+test("Adventure categories: complete set of 10 with unique keys", () => {
+  assert.equal(ADVENTURE_CATEGORIES.length, 10, "10 categories");
+  const keys = ADVENTURE_CATEGORIES.map((c) => c.key);
+  assert.equal(new Set(keys).size, keys.length, "keys are unique");
+  assert.ok(ADVENTURE_CATEGORIES.every((c) => c.label.trim().length > 0), "labels non-empty");
+  // first category and a couple anchors from the doc
+  assert.equal(ADVENTURE_CATEGORIES[0].key, "favorite_field_trip");
+  for (const need of ["nature", "kitchen", "science", "christmas", "rainy_day"]) {
+    assert.ok(ADVENTURE_CATEGORIES.some((c) => c.key === need), `has ${need}`);
+  }
+});
+
+test("tinyMomentLines: splits lines, trims, drops blanks, empty for blank input", () => {
+  assert.deepEqual(tinyMomentLines("Lost a tooth\nCaught a butterfly"), [
+    "Lost a tooth",
+    "Caught a butterfly",
+  ]);
+  assert.deepEqual(
+    tinyMomentLines("  Built a fort  \n\n   \nMade pancakes\n"),
+    ["Built a fort", "Made pancakes"],
+    "trims each line and drops blank/whitespace-only lines",
+  );
+  assert.deepEqual(tinyMomentLines(""), []);
+  assert.deepEqual(tinyMomentLines("   \n  \n"), []);
+  assert.deepEqual(tinyMomentLines(null), []);
+  assert.deepEqual(tinyMomentLines(undefined), []);
 });
 
 test("favorites migration maps the two old interview-fed favorites to real keys", () => {

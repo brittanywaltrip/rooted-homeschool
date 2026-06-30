@@ -14,7 +14,7 @@ import {
   buildBooksSpread,
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
-import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS } from "@/lib/yearbook-prompts";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES, tinyMomentLines } from "@/lib/yearbook-prompts";
 import { partitionDrawings, tinyMasterpieceCaption, chunk } from "@/lib/tiny-masterpieces";
 import { monthEntriesFor, monthLabel, type MonthEntry } from "@/lib/monthly-questions";
 import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell, type PhotoItem, type ChapterPhotoUnit } from "@/lib/yearbook-photo-pages";
@@ -622,6 +622,66 @@ function buildMonthByMonthSpreads(entries: MonthEntry[]): SpreadDef[] {
       label: "Our year",
       leftContent: <MonthByMonthPage entries={pages[i]} showTitle={i === 0} />,
       rightContent: pages[i + 1] ? <MonthByMonthPage entries={pages[i + 1]} showTitle={false} /> : <FillerPage />,
+    });
+  }
+  return out;
+}
+
+// "Tiny moments" — a single page of little one-liners in the family's own words.
+function TinyMomentsPage({ lines }: { lines: string[] }) {
+  return (
+    <PageShell>
+      <div className="shrink-0 mb-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">A few little things</p>
+        <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+          Tiny moments
+        </h2>
+      </div>
+      <div className="flex-1 min-h-0 overflow-hidden space-y-1.5">
+        {lines.map((line, i) => (
+          <p key={i} className="text-[12px] text-[var(--yb-body)] leading-snug line-clamp-1" style={{ fontFamily: "Georgia, serif" }}>{line}</p>
+        ))}
+      </div>
+      <p className="italic text-[12px] text-[var(--yb-accent)] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>
+        Twenty years later, those are everything.
+      </p>
+    </PageShell>
+  );
+}
+
+// "Our adventures" — adventures grouped into named categories (parent's words).
+function AdventureCategoriesPage({ items, showTitle }: { items: { label: string; value: string }[]; showTitle: boolean }) {
+  return (
+    <PageShell>
+      {showTitle && (
+        <div className="shrink-0 mb-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Where we went</p>
+          <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+            Our adventures
+          </h2>
+        </div>
+      )}
+      <div className="flex-1 min-h-0 overflow-hidden space-y-3">
+        {items.map((it, i) => (
+          <div key={i}>
+            <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--yb-accent)]">{it.label}</p>
+            <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-3 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{it.value}</p>
+          </div>
+        ))}
+      </div>
+    </PageShell>
+  );
+}
+
+function buildAdventureSpreads(items: { label: string; value: string }[]): SpreadDef[] {
+  const pages = chunk(items, 5);
+  const out: SpreadDef[] = [];
+  for (let i = 0; i < pages.length; i += 2) {
+    out.push({
+      id: i === 0 ? "adventures" : `adventures-${i / 2}`,
+      label: "Our adventures",
+      leftContent: <AdventureCategoriesPage items={pages[i]} showTitle={i === 0} />,
+      rightContent: pages[i + 1] ? <AdventureCategoriesPage items={pages[i + 1]} showTitle={false} /> : <FillerPage />,
     });
   }
   return out;
@@ -1440,6 +1500,29 @@ export default function YearbookReadPage() {
   const monthEntries = monthEntriesFor(yearbookKey, monthly);
   if (monthEntries.length > 0) {
     for (const sp of buildMonthByMonthSpreads(monthEntries)) spreads.push(sp);
+  }
+
+  // 5.56. TINY MOMENTS — little one-liners in the family's own words (NO AI).
+  // One row, one moment per line; blank lines dropped. Its own spread with a
+  // FillerPage on the trailing page. Omitted when there are no non-empty lines.
+  const tinyMoments = tinyMomentLines(contentMap[ck("tiny_moments")]);
+  if (tinyMoments.length > 0) {
+    spreads.push({
+      id: "tiny-moments",
+      label: "Tiny moments",
+      leftContent: <TinyMomentsPage lines={tinyMoments} />,
+      rightContent: <FillerPage />,
+    });
+  }
+
+  // 5.57. OUR ADVENTURES — adventures grouped into named categories, one row per
+  // filled category (NO AI). Only filled categories show; paginated across
+  // spreads so a long list never clips. Omitted when no category is filled.
+  const adventures = ADVENTURE_CATEGORIES
+    .map((c) => ({ label: c.label, value: (contentMap[ck("adventure_categories", null, c.key)] ?? "").trim() }))
+    .filter((c) => c.value.length > 0);
+  if (adventures.length > 0) {
+    for (const sp of buildAdventureSpreads(adventures)) spreads.push(sp);
   }
 
   // 5.6. UNTIL NEXT YEAR — a warm closing page before the back cover.

@@ -99,3 +99,34 @@ export const OPEN_WHEN_PROMPTS: Prompt[] = [
   { key: "always_remember", label: "One thing I hope you always remember…" },
   { key: "chase", label: "One thing I hope you chase…" },
 ];
+
+// ─── Family-level content pages ──────────────────────────────────────────────
+
+// "Adventure Pages" — adventures grouped into named categories (parent writes a
+// short line or two under each one that applies). Family-level: stored one row
+// per filled category under content_type 'adventure_categories', child_id null,
+// question_key = the category key.
+export const ADVENTURE_CATEGORIES: Prompt[] = [
+  { key: "favorite_field_trip", label: "Our favorite field trip" },
+  { key: "nature", label: "Nature adventures" },
+  { key: "kitchen", label: "Kitchen creations" },
+  { key: "science", label: "Science experiments" },
+  { key: "books_places", label: "Books that took us somewhere" },
+  { key: "community", label: "Community days" },
+  { key: "helping", label: "Helping others" },
+  { key: "christmas", label: "Christmas memories" },
+  { key: "summer", label: "Summer adventures" },
+  { key: "rainy_day", label: "Rainy day fun" },
+];
+
+// "Tiny Moments" — a single page of little one-liners, one moment per line.
+// Family-level: stored in ONE row under content_type 'tiny_moments', child_id
+// null, question_key null, content = the moments as plain text (one per line).
+// Splits the stored text into trimmed, non-empty lines for display.
+export function tinyMomentLines(content: string | null | undefined): string[] {
+  if (!content) return [];
+  return content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+}
