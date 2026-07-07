@@ -106,7 +106,7 @@ export function usePlanV2Data(opts: {
 
     const vacReq = supabase
       .from("vacation_blocks")
-      .select("id, name, start_date, end_date")
+      .select("id, name, start_date, end_date, shift_applied")
       .eq("user_id", effectiveUserId);
 
     // Pre-fetch archived goal IDs so we can hide their lesson rows from the

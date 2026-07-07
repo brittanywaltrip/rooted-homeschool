@@ -285,15 +285,43 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
                   {rangeLabel ? ` (${rangeLabel})` : ""}?
                 </p>
                 {existing?.shift_applied ? (
-                  <label className="flex items-center gap-2 text-[12px] text-[#2d2926] bg-[#fef9e8] border border-[#f0dda8] rounded-lg px-3 py-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={deleteShiftBack}
-                      onChange={(e) => setDeleteShiftBack(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded accent-[#5c7f63]"
-                    />
-                    <span>Shift lessons back into the freed days</span>
-                  </label>
+                  <fieldset className="space-y-1.5">
+                    <legend className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-1">
+                      What about the lessons this break pushed forward?
+                    </legend>
+                    <label
+                      className="flex items-center gap-2 text-[12px] text-[#2d2926] rounded-lg px-3 py-2 cursor-pointer border"
+                      style={{
+                        background: !deleteShiftBack ? "#f2f9f3" : "#ffffff",
+                        borderColor: !deleteShiftBack ? "#5c7f63" : "#e8e2d9",
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="vac-delete-reschedule"
+                        checked={!deleteShiftBack}
+                        onChange={() => setDeleteShiftBack(false)}
+                        className="w-3.5 h-3.5 accent-[#5c7f63]"
+                      />
+                      <span>Leave them where they are</span>
+                    </label>
+                    <label
+                      className="flex items-center gap-2 text-[12px] text-[#2d2926] rounded-lg px-3 py-2 cursor-pointer border"
+                      style={{
+                        background: deleteShiftBack ? "#f2f9f3" : "#ffffff",
+                        borderColor: deleteShiftBack ? "#5c7f63" : "#e8e2d9",
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="vac-delete-reschedule"
+                        checked={deleteShiftBack}
+                        onChange={() => setDeleteShiftBack(true)}
+                        className="w-3.5 h-3.5 accent-[#5c7f63]"
+                      />
+                      <span>Move them all back into the freed days</span>
+                    </label>
+                  </fieldset>
                 ) : null}
                 {error ? <p className="text-[11px] text-[#b91c1c]">{error}</p> : null}
               </div>

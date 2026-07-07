@@ -293,7 +293,18 @@ export default function WeekListView(props: Props) {
               </div>
 
               {vac.vacation ? (
-                <p className="text-[12px] text-[#7a5000] italic mb-2 pl-1">🌴 {vac.name ?? "Break"}</p>
+                !isPartner ? (
+                  <button
+                    type="button"
+                    onClick={() => onMarkBreakForDay(key)}
+                    className="text-[12px] text-[#7a5000] italic mb-2 pl-1 text-left underline decoration-dotted underline-offset-2 hover:text-[#5a3a00] transition-colors"
+                    aria-label={`Edit break: ${vac.name ?? "Break"}`}
+                  >
+                    🌴 {vac.name ?? "Break"}
+                  </button>
+                ) : (
+                  <p className="text-[12px] text-[#7a5000] italic mb-2 pl-1">🌴 {vac.name ?? "Break"}</p>
+                )
               ) : null}
 
               {/* Lessons + appointments, or vacation marker. Non-vacation

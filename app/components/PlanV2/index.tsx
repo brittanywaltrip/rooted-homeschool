@@ -66,6 +66,7 @@ import {
   DEFAULT_SCHOOL_DAYS,
   countSchoolDaysInRange,
   nthSchoolDay,
+  nthSchoolDayBefore,
 } from "@/lib/school-days";
 import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
 import { usePlanV2Data } from "./usePlanV2Data";
@@ -3111,6 +3112,7 @@ export default function PlanV2() {
         name: activeBlock.name,
         start_date: activeBlock.start_date,
         end_date: activeBlock.end_date,
+        shift_applied: activeBlock.shift_applied,
       });
       setVacationModalActiveView(true);
       setVacationModalOpen(true);
@@ -3198,10 +3200,20 @@ export default function PlanV2() {
         if (shiftPairs.length > 0) {
           await batchUpdateScheduledDates(
             shiftPairs.map((p) => ({ id: p.id, date: p.date })),
+            "vacation_resched", // Invariant 10 (docs/CURRICULUM-SCHEDULING.md)
           );
           shiftApplied = true;
         }
       }
+    }
+
+    // Persist whether the shift ran so the delete flow can offer to reverse
+    // it later. The column defaults false, so we only need to flip it to true.
+    if (shiftApplied) {
+      await supabase
+        .from("vacation_blocks")
+        .update({ shift_applied: true })
+        .eq("id", newId);
     }
 
     recordEvent("vacation_block.created", {
@@ -3228,6 +3240,7 @@ export default function PlanV2() {
         if (shiftPairs.length > 0) {
           await batchUpdateScheduledDates(
             shiftPairs.map((p) => ({ id: p.id, date: p.fromDate })),
+            "vacation_resched", // Invariant 10 (docs/CURRICULUM-SCHEDULING.md)
           );
         }
         recordEvent("vacation_block.deleted", {
@@ -3267,30 +3280,18 @@ export default function PlanV2() {
           .gte("scheduled_date", start_date);
         const rows = (affected ?? []) as { id: string; scheduled_date: string | null; date: string | null }[];
         const blocksWithout = vacationBlocks.filter((b) => b.id !== id);
-        // Shift back = the inverse: find each lesson's scheduled_date,
-        // walk BACKWARD by shiftDays teaching days. We don't have a
-        // previousSchoolDay helper here — easy to derive by scanning
-        // one day at a time.
+        // Shift back = the exact inverse of the forward shift: walk each
+        // lesson's scheduled_date BACKWARD by shiftDays teaching days. The
+        // deleted block is excluded (blocksWithout), so its freed days count
+        // as teaching days again — which lands each lesson back on its
+        // pre-break date, for lessons that were inside the break as well as
+        // lessons that were already after it. nthSchoolDayBefore keeps the
+        // day-walk in the shared helper (Invariant 8).
         for (const l of rows) {
           const orig = l.scheduled_date ?? l.date;
           if (!orig) continue;
-          const cursor = new Date(`${orig}T12:00:00`);
-          let found = 0;
-          let iters = 0;
-          while (found < shiftDays && iters < 365) {
-            cursor.setDate(cursor.getDate() - 1);
-            const s = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}-${String(cursor.getDate()).padStart(2, "0")}`;
-            const dayIdx = cursor.getDay();
-            const dayName = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dayIdx];
-            const isSchool = schoolDays.includes(dayName);
-            const inVac = blocksWithout.some((b) => s >= b.start_date && s <= b.end_date);
-            if (isSchool && !inVac) found++;
-            iters++;
-            if (found === shiftDays) {
-              shiftBackPairs.push({ id: l.id, date: s, fromDate: orig });
-              break;
-            }
-          }
+          const back = nthSchoolDayBefore(orig, schoolDays, shiftDays, blocksWithout);
+          shiftBackPairs.push({ id: l.id, date: back, fromDate: orig });
         }
       }
     }
@@ -3301,6 +3302,7 @@ export default function PlanV2() {
     if (shiftBackPairs.length > 0) {
       await batchUpdateScheduledDates(
         shiftBackPairs.map((p) => ({ id: p.id, date: p.date })),
+        "vacation_resched", // Invariant 10 (docs/CURRICULUM-SCHEDULING.md)
       );
     }
 
@@ -3331,6 +3333,7 @@ export default function PlanV2() {
         if (shiftBackPairs.length > 0) {
           await batchUpdateScheduledDates(
             shiftBackPairs.map((p) => ({ id: p.id, date: p.fromDate })),
+            "vacation_resched", // Invariant 10 (docs/CURRICULUM-SCHEDULING.md)
           );
         }
         reload();
@@ -3422,6 +3425,7 @@ export default function PlanV2() {
         name: existing.name,
         start_date: existing.start_date,
         end_date: existing.end_date,
+        shift_applied: existing.shift_applied,
       });
     } else {
       openVacationModalCreate(dateStr);
@@ -4008,7 +4012,7 @@ export default function PlanV2() {
                     onEditLesson={(l) => setEditLessonTarget(l)}
                     onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
                     onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
-                    onMarkBreakForDay={(date) => openVacationModalCreate(date)}
+                    onMarkBreakForDay={(date) => handleMenuMarkBreak(date)}
                     onDayAdd={(date) => openUnifiedAdd(date)}
                     onEditAppointment={(appt) => setApptEditTarget({ appt })}
                     onDeleteAppointment={(appt) => setDeleteApptConfirm(appt)}
@@ -4110,7 +4114,7 @@ export default function PlanV2() {
                       onEditLesson={(l) => setEditLessonTarget(l)}
                       onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
                       onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
-                      onMarkBreakForDay={(date) => openVacationModalCreate(date)}
+                      onMarkBreakForDay={(date) => handleMenuMarkBreak(date)}
                       onDayAdd={(date) => openUnifiedAdd(date)}
                       onEditAppointment={(appt) => setApptEditTarget({ appt })}
                       onDeleteAppointment={(appt) => setDeleteApptConfirm(appt)}
@@ -5107,6 +5111,13 @@ export default function PlanV2() {
               },
             },
           ];
+          // When the sheet was opened for a day that's already inside a break,
+          // the break row edits that break instead of starting a new one.
+          const unifiedAddInBreak = unifiedAddDate
+            ? vacationBlocks.some(
+                (b) => unifiedAddDate >= b.start_date && unifiedAddDate <= b.end_date,
+              )
+            : false;
           const rowPlanSetup: AddRow[] = [
             {
               key: "activity",
@@ -5132,13 +5143,16 @@ export default function PlanV2() {
             },
             {
               key: "break",
-              label: "Schedule a break",
+              label: unifiedAddInBreak ? "Edit break" : "Schedule a break",
               emoji: "🌴",
               bg: "#fef3e3",
               color: "#7a4a1a",
               onClick: () => {
                 closeUnifiedAdd();
-                openVacationModalCreate(unifiedAddDate ?? undefined);
+                // handleMenuMarkBreak opens the existing block in edit mode
+                // when the date is inside a break, else the create form.
+                if (unifiedAddDate) handleMenuMarkBreak(unifiedAddDate);
+                else openVacationModalCreate(undefined);
               },
             },
           ];

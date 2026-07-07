@@ -53,6 +53,9 @@ export type PlanV2Vacation = {
   name: string;
   start_date: string;
   end_date: string;
+  /** True when creating this break pushed lessons forward. Read back so the
+   *  delete flow can offer to move them back. Defaults false for older rows. */
+  shift_applied?: boolean;
 };
 
 /* A recurring activity (extracurricular / co-op / lessons-outside-curriculum).

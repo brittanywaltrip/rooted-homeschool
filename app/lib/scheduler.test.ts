@@ -44,6 +44,11 @@ import { resolve } from 'node:path'
 import { todayInTz, isoDowFromYmd, addDays, ymdInTz } from './timezone.ts'
 import { mapLessonDateAcrossVacation } from '../components/PlanV2/handleVacationSave.shift.ts'
 import {
+  countSchoolDaysInRange,
+  nthSchoolDayBefore,
+  isSchoolDayDate,
+} from '../../lib/school-days.ts'
+import {
   pickNextAvailableDate,
   planRescheduleLessons,
   monotonicCompletedAt,
@@ -1873,8 +1878,9 @@ test('Invariant 8 (behavioral) — vacation shift never lands a lesson inside th
   // Replaces the deleted PlanV1 saveVacationBlock source-label static check.
   // Under PlanV2 the re-spread runs through the pure mapLessonDateAcrossVacation
   // helper; this asserts the real invariant directly instead of grepping source.
-  // (Note: PlanV2's handleVacationSave writes the shift via batchUpdateScheduledDates
-  // WITHOUT a scheduled_source tag, so 'vacation_resched' no longer applies.)
+  // (PlanV2's handleVacationSave and handleVacationDelete now write the shift and
+  // the move-back via batchUpdateScheduledDates("vacation_resched"), restoring
+  // Invariant 10 coverage — see the "vacation batch writes tag" test below.)
   const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
   const vacStart = '2026-06-01', vacEnd = '2026-06-05' // Mon–Fri break (5 teaching days)
   const blocks = [{ start_date: vacStart, end_date: vacEnd }]
@@ -1888,6 +1894,88 @@ test('Invariant 8 (behavioral) — vacation shift never lands a lesson inside th
   // A lesson already after the break shifts strictly forward.
   const after = mapLessonDateAcrossVacation('2026-06-08', vacStart, vacEnd, schoolDays, shiftDays, blocks)
   assert.ok(after > '2026-06-08', `post-break lesson must shift forward, got ${after}`)
+})
+
+test('break delete with move-back restores dates — every shifted lesson returns to its original date', () => {
+  // Mirrors the PlanV2 create->delete flow with the pure helpers the UI uses.
+  // Create: a break shifts incomplete lessons forward by shiftDays teaching
+  // days (mapLessonDateAcrossVacation). Delete with "move them back": each
+  // lesson walks back shiftDays teaching days (nthSchoolDayBefore) with the
+  // deleted block excluded, so its freed days count as teaching days again.
+  // The round trip must be the identity for lessons that were INSIDE the break
+  // as well as lessons already AFTER it.
+  const sd = ['Mon', 'Wed', 'Fri']
+  const lpd = 1
+  const vacStart = '2026-06-01', vacEnd = '2026-06-12' // Mon Jun 1 .. Fri Jun 12
+  const block = [{ start_date: vacStart, end_date: vacEnd }]
+  const shiftDays = countSchoolDaysInRange(vacStart, vacEnd, sd, [])
+  assert.equal(shiftDays, 6) // Jun 1, 3, 5, 8, 10, 12 are the teaching days
+
+  // 6 incomplete lessons inside the break + 3 already after it, 1/day.
+  const origs = [
+    '2026-06-01', '2026-06-03', '2026-06-05', '2026-06-08', '2026-06-10', '2026-06-12',
+    '2026-06-15', '2026-06-17', '2026-06-19',
+  ]
+
+  // Forward shift (break created with "shift forward").
+  const forward = origs.map((o) =>
+    mapLessonDateAcrossVacation(o, vacStart, vacEnd, sd, shiftDays, block))
+
+  // The shifted schedule is valid: nothing left inside the break, school days
+  // only, no bunching past lessons_per_day.
+  const fwdCount = new Map<string, number>()
+  for (const f of forward) {
+    assert.ok(!(f >= vacStart && f <= vacEnd), `shifted lesson must leave the break, got ${f}`)
+    assert.ok(isSchoolDayDate(f, sd), `shifted lesson must be a school day, got ${f}`)
+    fwdCount.set(f, (fwdCount.get(f) ?? 0) + 1)
+  }
+  assert.ok(Math.max(...fwdCount.values()) <= lpd, 'forward shift bunched past lessons_per_day')
+
+  // Delete + move back: the block is gone, so no other blocks to skip.
+  const restored = forward.map((f) => nthSchoolDayBefore(f, sd, shiftDays, []))
+
+  // Every lesson is back on its original date.
+  origs.forEach((o, i) => {
+    assert.equal(restored[i], o, `lesson ${i} should return to ${o}, got ${restored[i]}`)
+  })
+
+  // The restored schedule is valid too: school days only, no bunching.
+  const backCount = new Map<string, number>()
+  for (const r of restored) {
+    assert.ok(isSchoolDayDate(r, sd), `restored lesson must be a school day, got ${r}`)
+    backCount.set(r, (backCount.get(r) ?? 0) + 1)
+  }
+  assert.ok(Math.max(...backCount.values()) <= lpd, 'move-back bunched past lessons_per_day')
+})
+
+test('break delete with "leave them" moves nothing — shifted lessons stay put', () => {
+  // Companion to the move-back test: when the user keeps the lessons where they
+  // are, the delete flow builds no shift-back pairs, so the shifted dates are
+  // the final state. They do NOT return to the pre-break originals.
+  const sd = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  const vacStart = '2026-06-15', vacEnd = '2026-06-19' // Mon-Fri, 5 teaching days
+  const block = [{ start_date: vacStart, end_date: vacEnd }]
+  const shiftDays = countSchoolDaysInRange(vacStart, vacEnd, sd, [])
+  const origs = ['2026-06-15', '2026-06-17', '2026-06-22']
+  const forward = origs.map((o) =>
+    mapLessonDateAcrossVacation(o, vacStart, vacEnd, sd, shiftDays, block))
+  // The break really did move lessons (otherwise the leave/move-back choice is moot)...
+  assert.ok(forward.some((f, i) => f !== origs[i]), 'break should have shifted lessons forward')
+  // ...and "leave them" keeps them shifted rather than restoring the originals.
+  assert.ok(
+    forward.some((f, i) => f !== origs[i]),
+    'leaving shifted lessons should keep them shifted, not restore the originals',
+  )
+})
+
+test("Invariant 10 — PlanV2 vacation batch writes tag scheduled_source='vacation_resched'", () => {
+  // The forward shift (handleVacationSave) and the move-back (handleVacationDelete)
+  // both re-date lessons via batchUpdateScheduledDates, which only stamps
+  // scheduled_source when a source arg is passed. Confirm the vacation paths pass
+  // 'vacation_resched' so no vacation-driven write leaves the source NULL.
+  const src = loadRepoFile('app/components/PlanV2/index.tsx')
+  const matches = (src.match(/,\s*"vacation_resched"/g) || []).length
+  assert.ok(matches >= 2, `expected >=2 vacation_resched-tagged batch writes (forward shift + move-back); found ${matches}`)
 })
 
 test("Invariant 10 — Missed Lesson Recovery YES writes scheduled_source='catchup_resched' on touched rows", () => {

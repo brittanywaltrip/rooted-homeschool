@@ -137,6 +137,41 @@ export function nthSchoolDay(
   return toDateStr(cursor);
 }
 
+/**
+ * Return the Nth teaching day BEFORE `beforeDateStr` (1-indexed — N=1 returns
+ * the previous teaching day). The exact mirror of `nthSchoolDay`: skips
+ * weekends, non-school days, and the passed vacation blocks. Bounded by 365
+ * iterations so a pathological config never loops forever.
+ *
+ * This is the inverse used by the "delete a break, move lessons back" flow.
+ * Deleting a break that shifted lessons forward by K teaching days walks each
+ * incomplete lesson back K teaching days. Pass the OTHER vacation blocks here
+ * (never the block being deleted) so the freed days count as teaching days
+ * again — which is exactly what makes the walk-back land each lesson on its
+ * pre-break date. Keeping the day-walk in this shared helper honors Invariant 8
+ * (see docs/CURRICULUM-SCHEDULING.md): callers stay out of the loop.
+ */
+export function nthSchoolDayBefore(
+  beforeDateStr: string,
+  schoolDays: string[],
+  n: number,
+  blocks: VacationRange[] = [],
+): string {
+  if (n <= 0) return beforeDateStr;
+  const sd = normalizeSchoolDays(schoolDays);
+  const cursor = parseDateStr(beforeDateStr);
+  let found = 0;
+  for (let i = 0; i < 365; i++) {
+    cursor.setDate(cursor.getDate() - 1);
+    const s = toDateStr(cursor);
+    if (isSchoolDayDate(s, sd) && !isInVacation(s, blocks)) {
+      found++;
+      if (found === n) return s;
+    }
+  }
+  return toDateStr(cursor);
+}
+
 /** Convenience: the next teaching day strictly after `afterDateStr`. */
 export function nextSchoolDay(
   afterDateStr: string,
