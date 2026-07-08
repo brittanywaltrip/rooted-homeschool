@@ -34,6 +34,7 @@ export async function POST(
     .insert({
       memory_id,
       invite_token: token,
+      family_token: token,
       commenter_name,
       commenter_key,
       viewer_name: commenter_name,

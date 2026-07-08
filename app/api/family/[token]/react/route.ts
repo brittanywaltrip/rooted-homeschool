@@ -45,11 +45,15 @@ export async function POST(
     return NextResponse.json({ action: "removed" });
   }
 
-  // Insert reaction
-  await supabaseAdmin.from("memory_reactions").upsert(
+  // Insert reaction. Bail loudly if it fails so we never notify or email mom
+  // about a reaction that was not actually saved (the original silent bug).
+  // family_token mirrors invite_token so the legacy NOT-dropped column and the
+  // FK stay populated for any writer that still reads them.
+  const { error: reactErr } = await supabaseAdmin.from("memory_reactions").upsert(
     {
       memory_id,
       invite_token: token,
+      family_token: token,
       reactor_name,
       reactor_key,
       emoji,
@@ -57,6 +61,11 @@ export async function POST(
     },
     { onConflict: "memory_id,reactor_key,emoji" }
   );
+
+  if (reactErr) {
+    console.error("[family/react] reaction upsert failed:", reactErr);
+    return NextResponse.json({ error: "Failed to save reaction" }, { status: 500 });
+  }
 
   // Create notification for mom
   await supabaseAdmin.from("family_notifications").insert({
