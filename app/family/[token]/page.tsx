@@ -185,19 +185,28 @@ export default function FamilyViewPage() {
       return updated;
     });
 
-    try {
-      await fetch(`/api/family/${token}/react`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ memory_id: memoryId, emoji, reactor_key: key, reactor_name: name }),
-      });
-    } catch {
+    // Undo the optimistic reaction and re-sync counts from the server. Runs on
+    // BOTH a thrown fetch (network) AND a non-ok response (e.g. the API 400s a
+    // rejected emoji). Without the res.ok check, a rejected reaction looked
+    // saved and silently was not, the original bug.
+    const rollback = () => {
       setMyReactions((prev) => {
         const next = new Set(prev);
         if (alreadyReacted) next.add(reactionKey); else next.delete(reactionKey);
         return next;
       });
       fetchData();
+    };
+
+    try {
+      const res = await fetch(`/api/family/${token}/react`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ memory_id: memoryId, emoji, reactor_key: key, reactor_name: name }),
+      });
+      if (!res.ok) rollback();
+    } catch {
+      rollback();
     }
   }
 

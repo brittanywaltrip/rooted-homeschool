@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
+import { REACTION_EMOJIS } from "@/lib/family-reactions";
 
 export async function POST(
   req: NextRequest,
@@ -13,8 +14,9 @@ export async function POST(
     return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
   }
 
-  const allowedEmoji = ["❤️", "😂", "😮", "🥹", "👏"];
-  if (!allowedEmoji.includes(emoji)) {
+  // Allowlist comes from the one shared constant the viewer UI renders, so the
+  // set of emojis shown can never drift from the set the API accepts.
+  if (!REACTION_EMOJIS.includes(emoji)) {
     return NextResponse.json({ error: "Invalid emoji" }, { status: 400 });
   }
 

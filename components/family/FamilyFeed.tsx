@@ -1,16 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   FamilyChild,
   FamilyComment,
   FamilyMemory,
   ReactionCount,
 } from "@/lib/family-feed";
+import { REACTION_EMOJIS } from "@/lib/family-reactions";
 
 /* ─── Presentational constants ──────────────────────────────────────────── */
-
-const REACTION_EMOJIS = ["🥹", "❤️", "😂", "🙌", "😍"];
 
 const TYPE_EMOJI: Record<string, string> = {
   photo: "📷", drawing: "🎨", book: "📖", win: "🏆",
@@ -77,6 +76,35 @@ export default function FamilyFeed({
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [activeMemoryId, setActiveMemoryId] = useState<string | null>(null);
   const [commentDraft, setCommentDraft] = useState("");
+  // The chip currently playing its tap "pop" (memoryId:emoji), cleared shortly after.
+  const [poppedKey, setPoppedKey] = useState<string | null>(null);
+  // One-time gentle nudge above the first memory. Never in readOnly (preview).
+  const [showLoveHint, setShowLoveHint] = useState(false);
+
+  // localStorage is client-only, so read the seen flag in an effect. Only for
+  // interactive viewers; the owner preview (readOnly) never shows the hint.
+  useEffect(() => {
+    if (readOnly || typeof window === "undefined") return;
+    if (localStorage.getItem("rooted_love_hint_seen")) return;
+    // Client-only localStorage read on mount (SSR renders it hidden to avoid a
+    // hydration mismatch); runs once, so no cascading-render concern.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShowLoveHint(true);
+  }, [readOnly]);
+
+  function dismissLoveHint() {
+    setShowLoveHint(false);
+    try { localStorage.setItem("rooted_love_hint_seen", "1"); } catch { /* ignore */ }
+  }
+
+  function handleReactTap(memoryId: string, emoji: string) {
+    if (readOnly) return;
+    const key = `${memoryId}:${emoji}`;
+    setPoppedKey(key);
+    setTimeout(() => setPoppedKey((cur) => (cur === key ? null : cur)), 200);
+    if (showLoveHint) dismissLoveHint(); // reacting once retires the hint forever
+    onReact?.(memoryId, emoji);
+  }
 
   const reactionsOf = myReactions ?? new Set<string>();
 
@@ -141,7 +169,7 @@ export default function FamilyFeed({
             )}
           </div>
         ) : (
-          memories.map((mem) => {
+          memories.map((mem, memIdx) => {
             const memComments = comments[mem.id] ?? [];
             return (
               <div key={mem.id} className="bg-[#fefcf9] rounded-2xl border border-[#e8e2d9] overflow-hidden shadow-sm">
@@ -178,25 +206,43 @@ export default function FamilyFeed({
                   {/* Caption */}
                   {mem.caption && <p className="text-sm text-[#2d2926] leading-relaxed">{mem.caption}</p>}
 
+                  {/* One-time gentle nudge, above the first memory's reactions only */}
+                  {!readOnly && showLoveHint && memIdx === 0 && (
+                    <div className="flex items-start gap-2 pt-1">
+                      <p className="text-[12px] text-[#5c7f63] leading-snug flex-1">
+                        Tap an emoji to send some love. {familyName} will see it.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={dismissLoveHint}
+                        aria-label="Dismiss"
+                        className="shrink-0 text-[#b5aca4] hover:text-[#7a6f65] text-base leading-none px-1 -mt-0.5"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  )}
+
                   {/* Reaction bar */}
                   <div className={`flex items-center gap-1.5 pt-1${readOnly ? " opacity-60 pointer-events-none" : ""}`}>
                     {REACTION_EMOJIS.map((emoji) => {
                       const count = getReactionCount(mem.id, emoji);
                       const isSelected = !readOnly && reactionsOf.has(`${mem.id}:${emoji}`);
+                      const isPopped = poppedKey === `${mem.id}:${emoji}`;
                       return (
                         <button
                           key={emoji}
                           type="button"
                           disabled={readOnly}
-                          onClick={readOnly ? undefined : () => onReact?.(mem.id, emoji)}
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg transition-all text-sm"
+                          onClick={readOnly ? undefined : () => handleReactTap(mem.id, emoji)}
+                          className={`flex items-center justify-center gap-1 min-h-[44px] min-w-[44px] px-2.5 rounded-xl transition-all${isPopped ? " react-pop" : ""}`}
                           style={{
                             backgroundColor: isSelected ? "#e8f0e9" : "#f5f3f0",
                             border: isSelected ? "1.5px solid #5c7f63" : "1.5px solid transparent",
                           }}
                         >
-                          <span>{emoji}</span>
-                          {count > 0 && <span className="text-[10px] text-[#7a6f65] font-medium">{count}</span>}
+                          <span className="text-xl leading-none">{emoji}</span>
+                          {count > 0 && <span className="text-[11px] text-[#7a6f65] font-medium">{count}</span>}
                         </button>
                       );
                     })}
