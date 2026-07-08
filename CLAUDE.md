@@ -121,9 +121,13 @@ NEVER show hello.rootedapp@gmail.com to users.
 - Rooted (free): lessons, garden, resources, memories 30 days
 - Rooted+ Founding Family $39/yr (ends April 30 2026): everything unlimited + yearbook PDF
 - Rooted+ Standard $59/yr: same as Founding Family
-- Rooted+ Monthly $6.99/mo: same features (hidden during Founding Family window)
+- Rooted+ Monthly $9.99/mo: same features (LIVE as of July 2026; was $6.99 and hidden
+  during the Founding Family window. Do not revert to $6.99 or re-hide it)
 - Stripe Founding price ID: price_1TCVWDLP14EaoUlTNwZFGS8A
 - Stripe Standard price ID: price_1TCVWgLP14EaoUlT25totKGW
+- Stripe Monthly price ID: via STRIPE_MONTHLY_PRICE_ID env var only, never hardcoded
+  (current: price_1Tqk81LP14EaoUlTBLucUTSD, $9.99/mo). The old $6.99 price
+  (price_1TDwyALP14EaoUlTRKgMiqtf) is unreferenced; do not reuse it.
 - Display name convention: free tier = "Rooted", all paid tiers = "Rooted+" (always use + symbol, never "Plus")
 
 ## Features BUILT (can mention to users)
