@@ -7,7 +7,7 @@ import { useIsNativeApp } from "@/lib/platform";
 
 // ─── Feature Data (preserving best copy from original tour) ──────────────────
 
-type FeatureId = "memories" | "today" | "plan" | "garden" | "reports" | "resources" | "insights" | "yearbook";
+type FeatureId = "memories" | "today" | "plan" | "garden" | "reports" | "resources" | "yearbook";
 
 const FEATURES: {
   id: FeatureId;
@@ -94,19 +94,6 @@ const FEATURES: {
       "Field trips, printables, and zero-prep activities ready to use today",
     ],
     note: "Works for all 50 states, always free 🗺️",
-  },
-  {
-    id: "insights",
-    label: "Insights",
-    emoji: "📊",
-    headline: "See your family's momentum",
-    sub: "Celebrate consistency, not perfection. Rooted shows you the whole picture.",
-    bullets: [
-      "See your learning streak, most active days, and total hours logged this month",
-      "Week-over-week comparison shows whether your family's momentum is growing",
-      "Celebrate consistency, not perfection. Every streak is worth celebrating",
-    ],
-    note: "Streaks reset weekly, low pressure, real progress 🔥",
   },
   {
     id: "yearbook",
@@ -373,46 +360,6 @@ function ResourcesMockup() {
   );
 }
 
-function InsightsMockup() {
-  return (
-    <MockupShell title="Insights" dot="#7a6f8a">
-      <div className="p-4 space-y-3">
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { emoji: "🔥", value: "12", label: "Day streak" },
-            { emoji: "⏱️", value: "47.5h", label: "This month" },
-            { emoji: "⭐", value: "Tue", label: "Best day" },
-          ].map((s) => (
-            <div key={s.label} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-2.5 text-center">
-              <p className="text-lg">{s.emoji}</p>
-              <p className="text-sm font-bold text-[#2d2926]">{s.value}</p>
-              <p className="text-[9px] text-[#7a6f65]">{s.label}</p>
-            </div>
-          ))}
-        </div>
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3">
-          <p className="text-[11px] font-semibold text-[#2d2926] mb-3">Hours by day, this week</p>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 60 }}>
-            {[
-              { day: "Mon", h: 32 }, { day: "Tue", h: 42 }, { day: "Wed", h: 0 },
-              { day: "Thu", h: 52 }, { day: "Fri", h: 32 }, { day: "Sat", h: 12 }, { day: "Sun", h: 0 },
-            ].map(({ day, h }) => (
-              <div key={day} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", flex: 1, height: "100%" }}>
-                {h > 0 && <div style={{ width: 24, height: h, backgroundColor: "var(--g-brand)", borderRadius: "3px 3px 0 0" }} />}
-                <span style={{ fontSize: 8, color: "#7a6f65", marginTop: 3 }}>{day}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="bg-gradient-to-r from-[#fef9e8] to-[#fef6d8] border border-[#f0e4b0] rounded-xl px-3 py-2 flex items-center gap-2">
-          <span className="text-base">🌟</span>
-          <p className="text-[10px] text-[#7a5a10] font-medium">5 out of 7 days, you&apos;re building a real rhythm!</p>
-        </div>
-      </div>
-    </MockupShell>
-  );
-}
-
 function YearbookMockup() {
   return (
     <MockupShell title="Family Yearbook" dot="var(--g-deep)">
@@ -473,7 +420,6 @@ const MOCKUPS: Record<FeatureId, () => React.JSX.Element> = {
   reports: ReportMockup,
   memories: () => <MemoriesMockup />,
   resources: ResourcesMockup,
-  insights: InsightsMockup,
   yearbook: YearbookMockup,
 };
 

@@ -77,22 +77,11 @@ const sections = [
       },
       {
         q: "How does my child's tree grow?",
-        a: "Your child's tree grows based on completed lessons. Every lesson logged adds to their total count, which determines their growth stage. The tree advances through five stages as they reach new milestones. The Garden view shows all your children's trees side by side so you can see the whole family's progress at a glance.",
+        a: "Your child's tree grows based on completed lessons. Every lesson logged adds to their total count, which determines their growth stage. The tree advances through ten growth stages as they reach new milestones. The Garden view shows all your children's trees side by side so you can see the whole family's progress at a glance.",
       },
       {
-        q: "What are the five growth stages?",
-        a: (
-          <span>
-            Each stage represents a milestone in your child&apos;s learning journey:
-            <ul className="mt-3 space-y-1.5 list-none">
-              <li><strong>🌱 Seed</strong>: just getting started (0–24 lessons)</li>
-              <li><strong>🌿 Sprout</strong>: finding their rhythm (25–49 lessons)</li>
-              <li><strong>🪴 Sapling</strong>: growing with purpose (50–99 lessons)</li>
-              <li><strong>🌲 Growing</strong>: deep roots forming (100–199 lessons)</li>
-              <li><strong>🌳 Thriving</strong>: a flourishing learner (200+ lessons)</li>
-            </ul>
-          </span>
-        ),
+        q: "How many growth stages are there?",
+        a: "Your parent Garden has ten growth stages, so there's always a next milestone to watch for as your children log more lessons and their trees fill in. The kids view keeps things simpler with five stages, gentle enough for little ones to follow their own tree. Either way, every lesson nudges the tree a little further along.",
       },
     ],
   },
@@ -132,19 +121,27 @@ const sections = [
       },
       {
         q: "How much does Rooted+ cost?",
-        a: "Rooted+ is $59/year. Founding Family members who joined during our launch period (before April 30, 2026) keep their $39/year rate forever.",
+        a: "Rooted+ is $9.99/month or $59/year. The annual plan is the best value, saving you about $61 a year over paying monthly. Founding Family members who joined before April 30, 2026 keep their $39/year rate forever.",
       },
       {
         q: "Is Founding Family pricing still available?",
-        a: "No. Founding Family pricing closed on April 30, 2026. Standard Rooted+ pricing is $59/year. Existing Founding Family members keep their $39/year rate permanently.",
+        a: "No. Founding Family pricing closed on April 30, 2026. Standard Rooted+ pricing is $9.99/month or $59/year. Existing Founding Family members keep their $39/year rate permanently.",
       },
       {
         q: "How do I upgrade to a paid plan?",
-        a: 'Tap "Get Rooted+" in the app or visit the upgrade page. Rooted+ is $59/year. You\'ll be taken to a secure Stripe checkout. Once payment is complete, your account upgrades instantly.',
+        a: 'Tap "Get Rooted+" in the app or visit the upgrade page. You can choose $9.99/month or $59/year, whichever suits your family. You\'ll be taken to a secure Stripe checkout, and once payment is complete your account upgrades instantly.',
       },
       {
         q: "How do I cancel?",
-        a: "Go to Settings → Account → Cancel subscription. Your access continues until the end of your billing period.",
+        a: "Go to Settings → Account → Cancel subscription. You can cancel anytime, monthly or annual, and your access continues through the end of your paid period.",
+      },
+      {
+        q: "Can I switch from monthly to annual?",
+        a: "Yes, anytime from the upgrade page. Stripe prorates the change automatically, so nothing you have already paid is lost.",
+      },
+      {
+        q: "What happens to my memories if I cancel?",
+        a: "Nothing is deleted, ever. Your memories stay saved. The free plan simply shows your most recent 30 days and up to 50 photos until you come back to Rooted+.",
       },
     ],
   },
@@ -162,7 +159,7 @@ const sections = [
       },
       {
         q: "What if I missed the Founding Family deadline?",
-        a: "Standard pricing is $59/year. Founding Family was a launch-period offer that closed April 30, 2026.",
+        a: "You have not missed out on Rooted+. Standard pricing is $9.99/month or $59/year, and monthly is the easy way to start with no big commitment. Founding Family was a launch-period offer that closed April 30, 2026.",
       },
       {
         q: "What happens at renewal?",
