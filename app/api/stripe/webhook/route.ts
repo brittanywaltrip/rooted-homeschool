@@ -30,7 +30,7 @@ const MONTHLY_PRICE_ID  = process.env.STRIPE_MONTHLY_PRICE_ID
 function planLabel(priceId: string | undefined): string {
   if (priceId === FOUNDING_PRICE_ID) return 'Rooted+ Founding Family ($39/yr)'
   if (priceId === STANDARD_PRICE_ID) return 'Rooted+ ($59/yr)'
-  if (priceId === MONTHLY_PRICE_ID)  return 'Rooted+ Monthly ($6.99/mo)'
+  if (priceId === MONTHLY_PRICE_ID)  return 'Rooted+ Monthly ($9.99/mo)'
   return 'Unknown plan'
 }
 

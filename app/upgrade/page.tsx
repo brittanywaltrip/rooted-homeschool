@@ -19,8 +19,12 @@ export default function UpgradePage() {
 function UpgradePageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [loadingPlan, setLoadingPlan] = useState<'standard' | null>(null)
+  const [loadingPlan, setLoadingPlan] = useState<'standard' | 'monthly' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Whether the Monthly plan's Stripe price is configured in this environment.
+  // Defaults false so a missing price hides the option rather than showing a
+  // button that would fail at checkout. /api/stripe/plans reports it.
+  const [monthlyAvailable, setMonthlyAvailable] = useState(false)
   const [isPaying, setIsPaying] = useState(false)
   const [planType, setPlanType] = useState<string | null>(null)
   const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null)
@@ -41,6 +45,13 @@ function UpgradePageInner() {
   const [refAffiliateName, setRefAffiliateName] = useState<string | null>(null)
 
   useEffect(() => { posthog.capture('upgrade_page_viewed') }, [])
+
+  useEffect(() => {
+    fetch('/api/stripe/plans')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.monthly) setMonthlyAvailable(true) })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!refCode) return
@@ -88,7 +99,7 @@ function UpgradePageInner() {
     }
   }, [refParam, refCode])
 
-  async function handleClick(plan: 'standard') {
+  async function handleClick(plan: 'standard' | 'monthly') {
     posthog.capture('upgrade_clicked', { plan })
     setError(null)
     setLoadingPlan(plan)
@@ -174,7 +185,7 @@ function UpgradePageInner() {
         )}
 
         {/* Pricing cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-10 max-w-2xl mx-auto">
+        <div className={`grid grid-cols-1 ${monthlyAvailable ? 'md:grid-cols-3 max-w-4xl' : 'md:grid-cols-2 max-w-2xl'} gap-4 mb-10 mx-auto`}>
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col">
@@ -198,7 +209,7 @@ function UpgradePageInner() {
                 ...(trialAlreadyUsed ? [] : ['30-day free trial, full access to everything']),
                 'After trial: lesson logging & curriculum planning',
                 'After trial: garden & scheduling',
-                'After trial: memories (50 photo limit)',
+                'After trial: up to 50 photos, other memories unlimited, last 30 days',
                 'After trial: curated resources',
               ].map(f => (
                 <li key={f} className="flex items-start gap-2 text-sm text-[#7a6f65]">
@@ -214,8 +225,73 @@ function UpgradePageInner() {
             </button>
           </div>
 
-          {/* Rooted+ featured card */}
-          <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#cfe8d2] border-2 border-[#5c7f63] rounded-2xl p-6 flex flex-col shadow-md">
+          {/* Monthly, the on-ramp. Hidden when its Stripe price isn't set. */}
+          {monthlyAvailable && (
+          <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 flex flex-col">
+            <div className="mb-5">
+              <div className="flex items-center gap-2 mb-1">
+                <p className="text-base font-bold text-[#2d2926]">Rooted+ Monthly</p>
+              </div>
+              <div className="flex items-baseline gap-1 my-3">
+                <span className="text-3xl font-bold text-[#2d2926]">$9.99</span>
+                <span className="text-sm text-[#5c7f63] font-semibold">/month</span>
+              </div>
+              <p className="text-sm text-[#7a6f65] leading-relaxed">
+                Everything in Rooted+, billed monthly.
+              </p>
+            </div>
+
+            <ul className="space-y-2 mb-6 flex-1">
+              {[
+                'Unlimited photos, keep every memory',
+                'Full yearbook, download anytime',
+                'Transcripts & PDF reports',
+                'Family sharing',
+                'Cancel anytime',
+              ].map((label) => (
+                <li key={label} className="flex items-start gap-2 text-sm text-[#7a6f65]">
+                  <span className="text-[#5c7f63] shrink-0 mt-0.5">✓</span>
+                  {label}
+                </li>
+              ))}
+            </ul>
+
+            {isPaying ? (
+              <Link
+                href="/dashboard"
+                className="w-full border border-[#5c7f63] text-[#5c7f63] font-bold py-3 rounded-xl transition-colors text-sm text-center block hover:bg-[#eef4ef]"
+              >
+                ✓ You&apos;re already a member
+              </Link>
+            ) : (
+              <button
+                onClick={() => handleClick('monthly')}
+                disabled={loadingPlan !== null}
+                className="w-full border border-[#5c7f63] text-[#5c7f63] hover:bg-[#eef4ef] disabled:opacity-60 font-bold py-3 rounded-xl transition-colors text-sm flex items-center justify-center gap-2"
+              >
+                {loadingPlan === 'monthly' ? (
+                  <>
+                    <span className="w-4 h-4 border-2 border-[#5c7f63]/30 border-t-[#5c7f63] rounded-full animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  'Start monthly, $9.99/mo'
+                )}
+              </button>
+            )}
+          </div>
+          )}
+
+          {/* Rooted+ featured card, the hero and best value */}
+          <div className="relative bg-gradient-to-br from-[#e8f5ea] to-[#cfe8d2] border-2 rounded-2xl p-6 flex flex-col shadow-md" style={{ borderColor: 'var(--g-gold)' }}>
+            {!isPaying && (
+              <span
+                className="absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] font-semibold text-white px-3 py-0.5 rounded-full uppercase tracking-wide shadow-sm whitespace-nowrap"
+                style={{ backgroundColor: 'var(--g-gold)' }}
+              >
+                Best value
+              </span>
+            )}
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-1">
                 <p className="text-base font-bold text-[#2d2926]">Rooted+</p>
@@ -239,6 +315,9 @@ function UpgradePageInner() {
                   </>
                 )}
               </div>
+              <p className="text-xs font-semibold mb-1" style={{ color: 'var(--g-gold)' }}>
+                Save $61 a year
+              </p>
               {refCode && refAffiliateName && (
                 <p className="text-xs text-[#5c7f63] font-medium -mt-1 mb-1">with {refAffiliateName}&apos;s referral</p>
               )}

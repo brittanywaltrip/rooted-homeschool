@@ -225,6 +225,7 @@ export async function GET(req: Request) {
     p => p.plan_type === "founding_family" && p.subscription_status === "active"
   ).length;
   const standardSubs = profiles.filter(p => p.plan_type === "standard").length;
+  const monthlySubs  = profiles.filter(p => p.plan_type === "monthly").length;
   const coTeachers   = profiles.filter(p => p.partner_email).length;
 
   // Lessons — build map + last-date + today count
@@ -408,8 +409,10 @@ export async function GET(req: Request) {
   // Revenue — live from Stripe; also sets plan on signups
   let stripeFoundingCount    = 0;
   let stripeStandardCount    = 0;
+  let stripeMonthlyCount     = 0;
   let cancelledFoundingCount = 0;
   let cancelledStandardCount = 0;
+  let cancelledMonthlyCount  = 0;
   let upgradesToday          = 0;
   try {
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -422,11 +425,13 @@ export async function GET(req: Request) {
       const priceId = sub.items.data[0]?.price.id;
       if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID)  stripeFoundingCount++;
       else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID)    stripeStandardCount++;
+      else if (priceId === process.env.STRIPE_MONTHLY_PRICE_ID)     stripeMonthlyCount++;
     }
     for (const sub of cancelledSubs.data) {
       const priceId = sub.items.data[0]?.price.id;
       if (priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID)  cancelledFoundingCount++;
       else if (priceId === process.env.STRIPE_STANDARD_PRICE_ID)    cancelledStandardCount++;
+      else if (priceId === process.env.STRIPE_MONTHLY_PRICE_ID)     cancelledMonthlyCount++;
     }
 
     const customerObjects = await Promise.all(
@@ -440,7 +445,8 @@ export async function GET(req: Request) {
       if (!email) continue;
       const priceId = sub.items.data[0]?.price.id;
       const plan    = priceId === process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID ? "Rooted+ Founding"
-        : priceId === process.env.STRIPE_STANDARD_PRICE_ID ? "Rooted+" : null;
+        : priceId === process.env.STRIPE_STANDARD_PRICE_ID ? "Rooted+"
+        : priceId === process.env.STRIPE_MONTHLY_PRICE_ID ? "Rooted+ Monthly" : null;
       if (plan) payingEmails.set(email, plan);
     }
 
@@ -458,11 +464,13 @@ export async function GET(req: Request) {
         ...signup,
         plan: planType === "founding_family" ? "Rooted+ Founding"
             : planType === "standard"        ? "Rooted+"
+            : planType === "monthly"         ? "Rooted+ Monthly"
             : "Rooted",
       };
     });
     stripeFoundingCount = foundingFamilies;
     stripeStandardCount = standardSubs;
+    stripeMonthlyCount  = monthlySubs;
   }
 
   // Upgrades today = profiles that became paid today, minus exclusions.
@@ -474,7 +482,7 @@ export async function GET(req: Request) {
   upgradesToday = profiles.filter(p =>
     p.is_pro === true &&
     !!p.stripe_subscription_id &&
-    (p.plan_type === "founding_family" || p.plan_type === "standard") &&
+    (p.plan_type === "founding_family" || p.plan_type === "standard" || p.plan_type === "monthly") &&
     p.subscription_status === "active" &&
     new Date(p.created_at) >= todayStart &&
     !exclusions.excludedFromPaying.has(p.id)
@@ -516,8 +524,16 @@ export async function GET(req: Request) {
     !exclusions.excludedFromPaying.has(p.id)
   ).length;
 
-  const stripeActiveTotal = stripeFoundingCount + stripeStandardCount;
-  const estAnnualRevenue  = Math.max(0, payingFoundingCount) * 39 + payingStandardCount * 59;
+  const payingMonthlyCount = profiles.filter(p =>
+    p.plan_type === "monthly" &&
+    p.is_pro === true &&
+    !!p.stripe_subscription_id &&
+    !exclusions.excludedFromPaying.has(p.id)
+  ).length;
+
+  const stripeActiveTotal = stripeFoundingCount + stripeStandardCount + stripeMonthlyCount;
+  // Monthly annualized at its run-rate: 12 x $9.99 = $119.88 per subscriber.
+  const estAnnualRevenue  = Math.max(0, payingFoundingCount) * 39 + payingStandardCount * 59 + payingMonthlyCount * 119.88;
 
   // Tag affiliate users as "Partner" plan
   recentSignups = recentSignups.map(signup => {
@@ -609,9 +625,10 @@ export async function GET(req: Request) {
     // New, accurate field set — every count below has the centralized
     // exclusion list applied. See lib/admin/excluded-user-ids.ts.
     realFamiliesCount,
-    payingCustomersCount: payingFoundingCount + payingStandardCount,
+    payingCustomersCount: payingFoundingCount + payingStandardCount + payingMonthlyCount,
     payingFoundingCount: Math.max(0, payingFoundingCount),
     payingStandardCount: Math.max(0, payingStandardCount),
+    payingMonthlyCount: Math.max(0, payingMonthlyCount),
     compedPartnersCount,
     testAccountsHidden:       exclusions.testAccountsHidden,
     whitelistedHidden:        exclusions.whitelistedHidden,
@@ -624,6 +641,7 @@ export async function GET(req: Request) {
     proUsers,
     foundingFamilies: stripeFoundingCount,
     standardSubs:     stripeStandardCount,
+    monthlySubs:      stripeMonthlyCount,
     freeUsers,
     activeAffiliateCount,
     affiliateUserIds: [...affiliateUserIds],
@@ -639,9 +657,11 @@ export async function GET(req: Request) {
     estAnnualRevenue,
     stripeFoundingCount,
     stripeStandardCount,
+    stripeMonthlyCount,
     stripeActiveTotal,
     cancelledFoundingCount,
     cancelledStandardCount,
+    cancelledMonthlyCount,
     funnel,
     recentSignups,
     memoriesToday: memoriesTodayCount ?? 0,

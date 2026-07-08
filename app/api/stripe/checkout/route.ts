@@ -6,10 +6,19 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
 })
 
-const PRICE_IDS: Record<string, string> = {
-  founding: process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID!,
-  standard: process.env.STRIPE_STANDARD_PRICE_ID!,
-  monthly: process.env.STRIPE_MONTHLY_PRICE_ID!,
+const PRICE_IDS: Record<string, string | undefined> = {
+  founding: process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID,
+  standard: process.env.STRIPE_STANDARD_PRICE_ID,
+  monthly: process.env.STRIPE_MONTHLY_PRICE_ID,
+}
+
+// The env var each plan reads its Stripe price id from. Named here so a
+// missing one produces a loud, specific server error instead of a vague
+// "invalid plan", and so the UI can hide any plan whose price isn't set.
+const PLAN_ENV_VAR: Record<string, string> = {
+  founding: 'STRIPE_FOUNDING_FAMILY_PRICE_ID',
+  standard: 'STRIPE_STANDARD_PRICE_ID',
+  monthly: 'STRIPE_MONTHLY_PRICE_ID',
 }
 
 export async function POST(req: NextRequest) {
@@ -35,10 +44,17 @@ export async function POST(req: NextRequest) {
   const { plan, ref } = body
   console.log('[checkout] plan:', plan, '| userId:', user.id, '| ref:', ref ?? 'none')
 
+  if (!(plan in PRICE_IDS)) {
+    console.error('[checkout] Unknown plan:', plan)
+    return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
+  }
   const priceId = PRICE_IDS[plan]
   if (!priceId) {
-    console.error('[checkout] Invalid plan or missing price ID for:', plan)
-    return NextResponse.json({ error: 'Invalid plan' }, { status: 400 })
+    // Known plan, but its Stripe price id is not configured in this
+    // environment. Fail loudly server-side; the UI hides the option so a
+    // family never sees a broken button.
+    console.error(`[checkout] ${PLAN_ENV_VAR[plan]} is not set, cannot start ${plan} checkout`)
+    return NextResponse.json({ error: 'This plan is not available right now.' }, { status: 503 })
   }
   console.log('[checkout] priceId:', priceId)
 
