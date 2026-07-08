@@ -169,7 +169,8 @@ Step 5: Done + Brittany founder closing moment
 - Warm and personal — from Brittany, not corporate
 - "families" not "users"
 - "memories" not "logs"
-- Sign-off: "With love, Brittany" or "Cheering you on, Brittany"
+- Sign-off: "Cheering you on, Brittany". NEVER "With love, Brittany" (Brittany hates it,
+  removed July 2026). Do not use "with love" in any copy anywhere.
 - No emoji overuse — meaningful only
 
 ## Database key tables
