@@ -45,6 +45,7 @@ type CurriculumWizardEditData = Record<string, unknown>;
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import { useSchoolYears } from "@/lib/useSchoolYears";
+import { deriveEndYear } from "@/lib/school-year-name";
 import { getUSHolidaysForYear } from "@/lib/us-holidays";
 import PlanPrintDialog, { type PlanPrintMode } from "./PlanPrintDialog";
 import DailyPrintSheet from "./DailyPrintSheet";
@@ -464,6 +465,25 @@ export default function PlanV2() {
     return () => { cancelled = true; };
   }, [effectiveUserId, goalsReloadNonce]);
 
+  // Recovery signal: does the user have ANY curriculum goal (archived or not)?
+  // The visible `curriculumGoals` list is filtered to archived=false, but a
+  // half-finished year close can leave goals archived AND no active year — so
+  // the recovery card keys off total curriculum, not just the visible rows.
+  const [hasAnyCurriculum, setHasAnyCurriculum] = useState(false);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const { count } = await supabase
+        .from("curriculum_goals")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", effectiveUserId);
+      if (cancelled) return;
+      setHasAnyCurriculum((count ?? 0) > 0);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, goalsReloadNonce]);
+
   // Activities — used by the ActivitiesPanel below the curriculum list.
   const [activities, setActivities] = useState<ActivityRow[]>([]);
   const [activitiesReloadNonce, setActivitiesReloadNonce] = useState(0);
@@ -638,6 +658,52 @@ export default function PlanV2() {
     }
     return m;
   }, [schoolYears.active, schoolYears.upcoming]);
+
+  // Recovery card visibility: the exact state a half-finished year close can
+  // leave behind — the user has curriculum on file and at least one school
+  // year row, but no ACTIVE year (and none queued upcoming). Without this the
+  // Plan page renders silently empty and wizard edits look like they don't
+  // save. A brand-new user (no school years, no curriculum) never trips this.
+  const showRecoveryCard = useMemo(() => {
+    if (schoolYears.loading) return false;
+    if (schoolYears.active || schoolYears.upcoming) return false;
+    return schoolYears.archived.length > 0 && hasAnyCurriculum;
+  }, [schoolYears.loading, schoolYears.active, schoolYears.upcoming, schoolYears.archived, hasAnyCurriculum]);
+
+  const [recoveryStarting, setRecoveryStarting] = useState(false);
+  const [recoveryError, setRecoveryError] = useState("");
+
+  // Reuses the existing /api/school-year/create route (the same route the
+  // new-year wizard posts to). It creates an ACTIVE year when start_date is
+  // today. The /api/school-year/new route can't be used here — it requires an
+  // existing active year and 400s when there isn't one, which is exactly this
+  // stranded state.
+  const startRecoveryYear = useCallback(async () => {
+    if (!effectiveUserId) return;
+    setRecoveryStarting(true);
+    setRecoveryError("");
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { setRecoveryStarting(false); return; }
+    // Derive the next year from the most recent archived year's name.
+    const latest = schoolYears.archived[0];
+    const now = new Date();
+    const endYear = deriveEndYear(latest?.name, now.getFullYear());
+    const name = `${endYear}-${endYear + 1}`;
+    const startDate = now.toISOString().slice(0, 10);
+    const endDate = `${endYear + 1}-05-31`;
+    const res = await fetch("/api/school-year/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+      body: JSON.stringify({ name, startDate, endDate, subjects: [] }),
+    });
+    if (!res.ok) {
+      setRecoveryError("Something went wrong starting your new year. Please try again.");
+      setRecoveryStarting(false);
+      return;
+    }
+    await schoolYears.reload();
+    setRecoveryStarting(false);
+  }, [effectiveUserId, schoolYears]);
 
   // CTA visibility: show when there's no upcoming year AND either there's
   // no active year at all or the active year ends within 60 days.
@@ -3618,6 +3684,31 @@ export default function PlanV2() {
         className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
         style={{ background: "#F8F7F4" }}
       >
+        {/* Recovery card — shown when a year close left the account without an
+            active school year. Warm, no guilt, one tap to pick back up. */}
+        {showRecoveryCard && (
+          <div className="rounded-2xl border border-[#e8e2d9] bg-[#fefcf9] p-5 shadow-sm">
+            <p className="text-[15px] font-semibold text-[#2d5a3d]" style={{ fontFamily: "var(--font-display)" }}>
+              Let&rsquo;s pick up where you left off
+            </p>
+            <p className="mt-1.5 text-[13px] leading-relaxed text-[#7a6f65]">
+              It looks like your school year didn&rsquo;t finish opening. Start your new
+              year and your curriculum will be right here waiting for you.
+            </p>
+            {recoveryError && (
+              <p className="mt-2 text-[13px] text-[#a3524a]">{recoveryError}</p>
+            )}
+            <button
+              type="button"
+              onClick={startRecoveryYear}
+              disabled={recoveryStarting}
+              className="mt-3.5 inline-flex items-center justify-center rounded-full bg-[#5c7f63] px-5 py-2.5 text-[14px] font-semibold text-white transition-colors hover:bg-[#3d5c42] disabled:opacity-60"
+            >
+              {recoveryStarting ? "Starting your year…" : "Start your new year"}
+            </button>
+          </div>
+        )}
+
         {/* View toggle — pill style, Week / Month. Hidden for zero-goal users
             since the calendar below is replaced by the empty state. */}
         {(curriculumGoals.length > 0 || loading) && (
