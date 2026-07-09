@@ -73,6 +73,7 @@ function announcementHtml(firstName: string, unsubscribeUrl: string): string {
 <tr><td align="center">
 <table width="100%" style="max-width:540px;background:#fefcf9;border-radius:16px;padding:36px 32px;border:1px solid #e8e2d9;">
 <tr><td>
+<div style="text-align:center;margin:0 0 28px;"><img src="${BASE_URL}/rooted-logo-nav.png" alt="Rooted" width="140" style="display:inline-block;width:140px;max-width:140px;height:auto;" /></div>
 <p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 16px;">Hi ${firstName},</p>
 <p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 16px;">I'm so excited to share something new with you.</p>
 <p style="font-size:16px;line-height:1.6;color:#2d5a3d;margin:0 0 16px;font-weight:500;">Rooted+ is now available for just $9.99/month!</p>
