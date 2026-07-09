@@ -12,7 +12,7 @@ import { canShareFamily, getUserAccess, getTrialDaysLeft } from "@/lib/user-acce
 import { useIsNativeApp } from "@/lib/platform";
 import { posthog } from "@/lib/posthog";
 import { capitalizeName, capitalizeChildNames } from "@/lib/utils";
-import { formatMonthKey, currentMonthKey } from "@/lib/commission-month";
+import { formatMonthKey, currentMonthKey, monthKeyFromISO, buildMonthlyEarnings } from "@/lib/commission-month";
 
 function getCurrentSchoolYearLabel(): string {
   const now = new Date();
@@ -242,6 +242,7 @@ export default function SettingsPage() {
   const [planType,            setPlanType]            = useState<string | null>(null);
   const [currentPeriodEnd,    setCurrentPeriodEnd]    = useState<string | null>(null);
   const [subscriptionStatus,  setSubscriptionStatus]  = useState<string | null>(null);
+  const [stripeCustomerId,    setStripeCustomerId]    = useState<string | null>(null);
   const [portalLoading,       setPortalLoading]       = useState(false);
 
   // Password reset
@@ -324,7 +325,7 @@ export default function SettingsPage() {
 
     const { data: profile } = await supabase
       .from("profiles")
-      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status, first_name, last_name, school_start_time, trial_started_at")
+      .select("display_name, partner_email, family_photo_url, state, is_pro, plan_type, current_period_end, subscription_status, first_name, last_name, school_start_time, trial_started_at, stripe_customer_id")
       .eq("id", user.id)
       .maybeSingle();
 
@@ -343,6 +344,7 @@ export default function SettingsPage() {
     setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
     setCurrentPeriodEnd((profile as { current_period_end?: string } | null)?.current_period_end ?? null);
     setSubscriptionStatus((profile as { subscription_status?: string } | null)?.subscription_status ?? null);
+    setStripeCustomerId((profile as { stripe_customer_id?: string | null } | null)?.stripe_customer_id ?? null);
 
     const { data: kids } = await supabase
       .from("children")
@@ -1899,7 +1901,12 @@ export default function SettingsPage() {
                 <p className="text-xs text-red-500 mt-1">Subscription cancelled</p>
               )}
             </div>
-            {(subscriptionStatus === 'active' || planType === 'founding_family' || planType === 'standard' || planType === 'monthly') ? (
+            {isPro && !stripeCustomerId ? (
+              // Comped members (admins + comped founding partners) have is_pro
+              // but no Stripe customer, so the billing portal 400s with
+              // no_customer. Show a warm line instead of a dead-end button.
+              <span className="shrink-0 text-sm font-medium text-[#7a6f65]">Your Rooted+ membership is on us.</span>
+            ) : (subscriptionStatus === 'active' || planType === 'founding_family' || planType === 'standard' || planType === 'monthly') ? (
               <button
                 onClick={handleManageSubscription}
                 disabled={portalLoading}
@@ -2600,6 +2607,14 @@ export default function SettingsPage() {
                 .filter((p) => p.month === thisMonthKey)
                 .reduce((s, p) => s + Number(p.amount), 0);
               const estimatedCommission = (affiliateStats?.revenueDriven ?? 0) * 0.20;
+              // Month-by-month record: every month from the affiliate's start
+              // to now, so the history reads at a glance (zero months included).
+              const monthly = buildMonthlyEarnings({
+                referrals: affiliateStats?.rows ?? [],
+                payments: affiliatePayments,
+                startMonthKey: monthKeyFromISO(affiliateData?.created_at) || thisMonthKey,
+                endMonthKey: thisMonthKey,
+              });
               return (
                 <div>
                   <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your Earnings</p>
@@ -2623,6 +2638,47 @@ export default function SettingsPage() {
                   <p className="text-[11px] text-[#7a6f65] mb-3">
                     All-time earned: ${affiliateStats?.commissionEarned.toFixed(2) ?? '—'} (paid out: ${allTimePaid.toFixed(2)})
                   </p>
+
+                  {/* Month-by-month record — every month since you started,
+                      so the whole history is visible at a glance. Commission
+                      figures are informational, so standard text colors (no
+                      gold, which is reserved for paid/premium accents). */}
+                  {monthly.length > 0 && (
+                    <div className="mb-3">
+                      <p className="text-[11px] text-[#7a6f65] mb-2">Month by month</p>
+                      <div className="bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="border-b border-[#c7d2fe]">
+                              <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Month</th>
+                              <th className="text-right px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Earned</th>
+                              <th className="text-left px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-[#7a6f65]">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {monthly.map((m) => (
+                              <tr key={m.monthKey} className="border-b border-[#eee] last:border-0">
+                                <td className="px-3 py-2 text-xs text-[#2d2926]">{m.label}</td>
+                                <td className="px-3 py-2 text-xs font-medium text-[#2d2926] text-right">${m.earned.toFixed(2)}</td>
+                                <td className="px-3 py-2 text-xs">
+                                  {m.status === 'paid' ? (
+                                    <span className="text-[var(--g-brand)] font-medium">
+                                      Paid{m.paidAt ? ` ${new Date(m.paidAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+                                    </span>
+                                  ) : m.status === 'pending' ? (
+                                    <span className="text-[#7a6f65]">Pays on the 1st of next month</span>
+                                  ) : (
+                                    <span className="text-[#a09080]">-</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+
                   {affiliatePayments.length > 0 && (
                     <div className="bg-white border border-[#c7d2fe] rounded-xl overflow-hidden">
                       <table className="w-full text-sm">

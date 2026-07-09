@@ -4,7 +4,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { commissionFromCents, displayCommission, LEGACY_COMMISSION_PER_PAYING } from './commission.ts'
+import { commissionFromCents, displayCommission, isFirstPaymentEvent, LEGACY_COMMISSION_PER_PAYING } from './commission.ts'
 import { attributeReferral } from './referrals.ts'
 
 // ── commissionFromCents (exercises the two spec'd webhook scenarios) ─────────
@@ -21,8 +21,13 @@ test('$39 subscription (3900 cents) → $7.80 commission (spec case 2)', () => {
   assert.equal(commissionFromCents(3900), 7.80)
 })
 
-test('monthly plan ($6.99 → 699 cents) → $1.40 commission', () => {
-  assert.equal(commissionFromCents(699), 1.40)
+test('monthly plan ($9.99 → 999 cents) → $2.00 commission (first payment only)', () => {
+  assert.equal(commissionFromCents(999), 2.00)
+})
+
+test('discounted monthly first payment ($8.49 → 849 cents) → $1.70 commission', () => {
+  // 15% affiliate discount off $9.99 = $8.49 charged; 20% of what was paid.
+  assert.equal(commissionFromCents(849), 1.70)
 })
 
 test('standard plan ($59 → 5900 cents) → $11.80 commission', () => {
@@ -94,9 +99,12 @@ function makeSupabase() {
         const chain = {
           eq: (col: string, val: unknown) => { filters[col] = val; return chain },
           ilike: (col: string, val: unknown) => { filters[`${col}.ilike`] = val; return chain },
-          then: (resolve: (v: { error: null }) => void) => {
+          // Terminal call: the first-payment lock filters on commission_amount
+          // IS NULL so a renewal can never overwrite an existing commission.
+          is: (col: string, val: unknown) => {
+            filters[`${col}.is`] = val
             updateCalls.push({ table, patch, filters })
-            resolve({ error: null })
+            return Promise.resolve({ error: null })
           },
         }
         return chain
@@ -122,15 +130,36 @@ test('attributeReferral with commissionAmount writes it via follow-up UPDATE', a
   assert.equal(updateCalls[0].table, 'referrals')
   assert.equal(updateCalls[0].patch.commission_amount, 7.80)
   assert.equal(updateCalls[0].filters.user_id, 'user-1')
+  // First-payment lock: the write is filtered on commission_amount IS NULL, so
+  // it lands exactly once and a renewal can never overwrite it.
+  assert.equal(updateCalls[0].filters['commission_amount.is'], null)
 })
 
-test('attributeReferral without commissionAmount skips the UPDATE', async () => {
+test('monthly first-payment commission ($2.00) is written with the first-payment lock', async () => {
+  const { client, updateCalls } = makeSupabase()
+  await attributeReferral({
+    supabase: client as unknown as Parameters<typeof attributeReferral>[0]['supabase'],
+    userId: 'user-monthly',
+    affiliateCode: 'blair',
+    converted: true,
+    commissionAmount: 2.00,
+  })
+  assert.equal(updateCalls.length, 1)
+  assert.equal(updateCalls[0].patch.commission_amount, 2.00)
+  assert.equal(updateCalls[0].filters['commission_amount.is'], null)
+})
+
+test('monthly renewal creates NO new commission (webhook passes null on updates)', async () => {
+  // On customer.subscription.updated the webhook passes commissionAmount=null
+  // (isFirstPaymentEvent === false), so attributeReferral issues no commission
+  // write at all — the renewal cannot add or change earnings.
   const { client, updateCalls } = makeSupabase()
   await attributeReferral({
     supabase: client as unknown as Parameters<typeof attributeReferral>[0]['supabase'],
     userId: 'user-2',
     affiliateCode: 'amber',
     converted: true,
+    commissionAmount: null,
   })
   assert.equal(updateCalls.length, 0)
 })
@@ -157,4 +186,16 @@ test('attributeReferral rounds the commission to 2 decimals before writing', asy
     commissionAmount: 7.8044, // should round to 7.80
   })
   assert.equal(updateCalls[0].patch.commission_amount, 7.80)
+})
+
+// ── isFirstPaymentEvent (the first-payment-only rule) ────────────────────────
+
+test('first-payment events earn commission; renewals and other events do not', () => {
+  assert.equal(isFirstPaymentEvent('checkout.session.completed'), true)
+  assert.equal(isFirstPaymentEvent('customer.subscription.created'), true)
+  // Renewals (monthly + annual) arrive as updates / invoice events — no commission.
+  assert.equal(isFirstPaymentEvent('customer.subscription.updated'), false)
+  assert.equal(isFirstPaymentEvent('invoice.paid'), false)
+  assert.equal(isFirstPaymentEvent('invoice.payment_succeeded'), false)
+  assert.equal(isFirstPaymentEvent('customer.subscription.deleted'), false)
 })

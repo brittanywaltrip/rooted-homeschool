@@ -11,7 +11,7 @@ import {
   planTypeForPriceId,
   type LinkedPlanType,
 } from '@/lib/link-stripe-to-profile'
-import { commissionFromCents } from '@/lib/commission'
+import { commissionFromCents, isFirstPaymentEvent } from '@/lib/commission'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
@@ -432,7 +432,13 @@ export async function POST(req: NextRequest) {
         if (couponId) couponCode = await affiliateCodeForStripeCoupon(supabase, couponId)
       }
 
-      const commissionAmount = await commissionFromSubscription(sub)
+      // First payment only: compute commission on subscription.created, never
+      // on customer.subscription.updated (monthly/annual renewals arrive as
+      // updates). attributeReferral's null-guard is the hard lock; skipping the
+      // compute here also avoids a redundant invoice fetch on every renewal.
+      const commissionAmount = isFirstPaymentEvent(event.type)
+        ? await commissionFromSubscription(sub)
+        : null
 
       await linkStripeSubscription({
         userId,

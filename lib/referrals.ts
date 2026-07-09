@@ -96,6 +96,14 @@ export async function attributeReferral({
   // UPDATE because the RPC was created before this column existed — keeps
   // the deployed function signature stable. Best-effort: a failure here
   // doesn't unwind the attribution (display falls back to $6.63).
+  //
+  // FIRST-PAYMENT LOCK: only write commission_amount when it is still NULL.
+  // The announced rule is 20% of the first payment only — no recurring
+  // commission on renewals. customer.subscription.updated fires on every
+  // monthly renewal and flows through here; without this guard it would
+  // overwrite the first-payment commission (e.g. a discounted first month of
+  // $1.70 would silently become $2.00). The `.is('commission_amount', null)`
+  // filter makes the write happen exactly once, on the first payment.
   if (
     converted &&
     typeof commissionAmount === 'number' &&
@@ -108,6 +116,7 @@ export async function attributeReferral({
       .update({ commission_amount: rounded })
       .eq('user_id', userId)
       .ilike('affiliate_code', code)
+      .is('commission_amount', null)
     if (commissionErr) {
       console.error('[referrals] commission_amount update failed', {
         userId,

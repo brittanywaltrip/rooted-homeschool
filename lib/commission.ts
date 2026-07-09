@@ -4,6 +4,20 @@
 
 export const COMMISSION_RATE = 0.20
 
+// Commission is 20% of the FIRST payment only — no recurring commission on
+// monthly (or annual) renewals. These are the Stripe events that represent a
+// first payment; every other event (customer.subscription.updated, invoice.paid,
+// etc.) is a renewal or a state change and must never earn commission again.
+// The DB-level lock lives in attributeReferral (commission_amount is stamped
+// only when NULL); this helper keeps the webhook from even recomputing it on
+// renewals.
+export function isFirstPaymentEvent(eventType: string): boolean {
+  return (
+    eventType === 'checkout.session.completed' ||
+    eventType === 'customer.subscription.created'
+  )
+}
+
 // Legacy flat-rate fallback used for rows that lack a stored
 // commission_amount. 20% × $33.15 ($39 × 0.85 coupon-discounted net) = $6.63.
 export const LEGACY_COMMISSION_PER_PAYING = 6.63
