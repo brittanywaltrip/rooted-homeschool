@@ -44,6 +44,7 @@ test("master flag blocks every type", async () => {
     "reengagement_3",
     "onboarding_reminder",
     "family_digest",
+    "announcement",
   ];
   for (const type of types) {
     const r = await canSendMarketingEmail("u1", type, makeSupabase(profile));
@@ -72,6 +73,7 @@ test("non-weekly types respect email_marketing=false", async () => {
     "reengagement_3",
     "onboarding_reminder",
     "family_digest",
+    "announcement",
   ];
   for (const type of types) {
     const r = await canSendMarketingEmail("u1", type, makeSupabase(profile));
@@ -83,6 +85,20 @@ test("non-weekly types ignore email_weekly_summary flag", async () => {
   const profile = { ...ALLOW_ALL, email_weekly_summary: false };
   const r = await canSendMarketingEmail("u1", "reengagement_1", makeSupabase(profile));
   assert.deepEqual(r, { allowed: true });
+});
+
+test("announcement respects email_marketing=false and ignores weekly flag", async () => {
+  const blocked = { ...ALLOW_ALL, email_marketing: false };
+  assert.deepEqual(
+    await canSendMarketingEmail("u1", "announcement", makeSupabase(blocked)),
+    { allowed: false, reason: "type_disabled" },
+  );
+  // Weekly-summary opt-out must NOT block the announcement.
+  const weeklyOff = { ...ALLOW_ALL, email_weekly_summary: false };
+  assert.deepEqual(
+    await canSendMarketingEmail("u1", "announcement", makeSupabase(weeklyOff)),
+    { allowed: true },
+  );
 });
 
 test("NULL granular flags are treated as opt-in", async () => {

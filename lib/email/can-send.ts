@@ -6,7 +6,8 @@ export type MarketingEmailType =
   | "reengagement_2"
   | "reengagement_3"
   | "onboarding_reminder"
-  | "family_digest";
+  | "family_digest"
+  | "announcement";
 
 export type CanSendResult =
   | { allowed: true }
@@ -21,8 +22,8 @@ export type CanSendResult =
  * Master gate: profiles.email_unsubscribed = true → blocks everything.
  * Type gates:
  *   - weekly_summary → blocked when profiles.email_weekly_summary = false
- *   - reengagement_*, onboarding_reminder, family_digest → blocked when
- *     profiles.email_marketing = false
+ *   - reengagement_*, onboarding_reminder, family_digest, announcement →
+ *     blocked when profiles.email_marketing = false
  *
  * NULL flags are treated as opt-in (DB default for legacy rows).
  */
