@@ -393,7 +393,7 @@ export async function POST(req: NextRequest) {
     const customerId = sub.customer as string
     const priceId = sub.items.data[0]?.price?.id
     const plan = planTypeForPriceId(priceId)
-    const isActive = sub.status === 'active' || sub.status === 'trialing'
+    const isActive = sub.status === 'active' || sub.status === 'trialing' || sub.status === 'past_due'
     console.log('[webhook]', event.type, '— customerId:', customerId, 'plan:', plan, 'status:', sub.status, 'subId:', sub.id)
 
     // Find the user — either by stored customerId or by email fallback.
@@ -478,7 +478,7 @@ export async function POST(req: NextRequest) {
       await supabase.from('profiles').update({
         is_pro: false,
         subscription_status: 'cancelled',
-        plan_type: 'free',
+        plan_type: null,
         subscription_end_date: new Date().toISOString(),
       }).eq('id', profile.id)
       console.log('[webhook] subscription.deleted — cancelled profile:', profile.id, 'family:', profile.display_name)
@@ -548,6 +548,15 @@ export async function POST(req: NextRequest) {
       `⚠️ Payment failed — ${familyName}`,
       `A subscription payment just failed on Rooted.\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nCustomer: ${customerId}\nSubscription: ${subId ?? '—'}\nAmount due: $${amountDue.toFixed(2)}\nAttempt #: ${invoice.attempt_count ?? '—'}\n\nStripe will retry automatically. Watch for a follow-up subscription.updated event if the retry fails.`,
     ).catch((err) => console.error('[webhook] payment_failed admin email error:', err))
+
+    if (customerEmail && customerEmail !== '—') {
+      const firstName = profile?.display_name?.split(' ')[0] ?? 'friend'
+      await sendEmail(
+        customerEmail,
+        'Heads up — your Rooted payment didn\'t go through',
+        `Hi ${firstName},\n\nWe weren't able to process your Rooted+ payment. Stripe will retry automatically, but to make sure you don't lose access, please update your payment method at:\n\nhttps://rootedhomeschoolapp.com/dashboard/settings\n\nIf you have any trouble, just reply to this email and I'll help you sort it out.\n\nCheering you on,\nBrittany`,
+      ).catch((err) => console.error('[webhook] payment_failed user email error:', err))
+    }
   }
 
   return NextResponse.json({ received: true })
