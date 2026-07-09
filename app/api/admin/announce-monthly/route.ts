@@ -31,12 +31,14 @@ const ADMIN_EMAILS = new Set([
   'christopherwaltrip@gmail.com',
 ])
 
-// Send pacing for mode:send. The audience goes out in chunks of BATCH_SIZE with
-// a short pause between chunks to respect Resend's rate limit. Any send that is
-// rate-limited comes back as a failure, its guard row is rolled back, and a
-// re-run of mode:send retries only that recipient.
-const BATCH_SIZE = 50
-const BATCH_DELAY_MS = 1000
+// Send pacing for mode:send. Resend allows 10 requests/second; a wider burst is
+// rejected with "Too many requests" (a 50-wide burst failed ~1160 sends on the
+// first run). We send in chunks of RESEND_MAX_PER_SEC and pace each chunk to
+// span at least one second so we stay under the limit. Any send that still fails
+// has its guard row rolled back, so a re-run of mode:send retries only that
+// recipient and never double-sends the ones that already went out.
+const RESEND_MAX_PER_SEC = 8
+const RATE_WINDOW_MS = 1000
 // Hard safety cap on sends per invocation so a single call can never run away.
 // The onboarded-free audience is ~1.5k, well under this; the guard lets a
 // re-run drain anything left if a run ever hits the cap.
@@ -291,9 +293,10 @@ async function runSend() {
   let already_sent = 0
   let capped = false
 
-  for (let i = 0; i < audience.eligible.length; i += BATCH_SIZE) {
+  for (let i = 0; i < audience.eligible.length; i += RESEND_MAX_PER_SEC) {
     if (sent >= MAX_SENDS_PER_RUN) { capped = true; break }
-    const batch = audience.eligible.slice(i, i + BATCH_SIZE)
+    const chunkStartedAt = Date.now()
+    const batch = audience.eligible.slice(i, i + RESEND_MAX_PER_SEC)
 
     await Promise.all(
       batch.map(async (r) => {
@@ -323,8 +326,11 @@ async function runSend() {
       }),
     )
 
-    if (i + BATCH_SIZE < audience.eligible.length) {
-      await delay(BATCH_DELAY_MS)
+    // Pace: keep each chunk to at least one second so we never exceed
+    // RESEND_MAX_PER_SEC sends per second.
+    const elapsed = Date.now() - chunkStartedAt
+    if (elapsed < RATE_WINDOW_MS && i + RESEND_MAX_PER_SEC < audience.eligible.length) {
+      await delay(RATE_WINDOW_MS - elapsed)
     }
   }
 
