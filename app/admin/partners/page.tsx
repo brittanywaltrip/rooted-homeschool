@@ -823,7 +823,7 @@ export default function AdminPartnersPage() {
           ) : (
             <div className="space-y-2">
               {referrals.map((r) => {
-                const planLabel = r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($6.99/mo)" : r.user_plan;
+                const planLabel = r.user_plan === "founding_family" ? "Founding ($39/yr)" : r.user_plan === "standard" ? "Standard ($59/yr)" : r.user_plan === "monthly" ? "Monthly ($9.99/mo)" : r.user_plan;
                 const commission = formatCurrency(r.converted ? r.commission_amount : 0);
                 const status = r.commission_note
                   ? r.commission_note

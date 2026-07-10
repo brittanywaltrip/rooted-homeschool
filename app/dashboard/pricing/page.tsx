@@ -192,17 +192,17 @@ export default function DashboardPricingPage() {
           </div>
         </div>
 
-        {/* Monthly — hidden during Founding Family window */}
-        {false && <div className="relative bg-[#fefcf9] border-2 border-[#e8e2d9] rounded-2xl p-5 flex flex-col">
+        {/* Monthly — the flexible on-ramp. Hidden for members already paying. */}
+        {loaded && !isPro && <div className="relative bg-[#fefcf9] border-2 border-[#e8e2d9] rounded-2xl p-5 flex flex-col">
           <p className="text-base font-bold text-[#2d2926] mb-1">Rooted+ Monthly</p>
-          <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Most flexible, cancel anytime</p>
+          <p className="text-xs text-[#7a6f65] mb-4 leading-relaxed">Everything in Rooted+, billed monthly.</p>
           <div className="mb-5">
-            <span className="text-3xl font-bold text-[#2d2926]">$6.99</span>
+            <span className="text-3xl font-bold text-[#2d2926]">$9.99</span>
             <span className="text-sm text-[#7a6f65]">/mo</span>
-            <p className="text-[10px] text-[#b5aca4] mt-0.5">$6.99/mo · $83.88/yr</p>
+            <p className="text-[10px] text-[#b5aca4] mt-0.5">$9.99/mo, cancel anytime</p>
           </div>
           <div className="space-y-1.5 mb-6 flex-1">
-            {["Everything in Rooted", "Unlimited photos", "Full memory timeline", "Full yearbook"].map(f => (
+            {["Unlimited photos, keep every memory", "Full yearbook, download anytime", "Transcripts & PDF reports", "Family sharing", "Cancel anytime"].map(f => (
               <div key={f} className="flex items-center gap-2 text-xs text-[#5c5248]">
                 <Check size={12} strokeWidth={2.5} className="text-[#5c7f63] shrink-0" />
                 {f}
@@ -210,11 +210,7 @@ export default function DashboardPricingPage() {
             ))}
           </div>
           <div className="mt-auto">
-            {loaded && isPro ? (
-              <div className="w-full text-center py-2.5 rounded-xl bg-[#f0ede8] text-xs font-medium text-[#b5aca4]">
-                Monthly plan
-              </div>
-            ) : isNative ? (
+            {isNative ? (
               <p className="w-full text-center py-2.5 rounded-xl bg-[#f0ede8] text-xs font-medium text-[#7a6f65]">
                 Upgrade at rootedhomeschoolapp.com
               </p>
@@ -223,7 +219,7 @@ export default function DashboardPricingPage() {
                 href="/upgrade"
                 className="block w-full text-center py-2.5 rounded-xl border border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8] text-xs font-bold transition-colors"
               >
-                Subscribe, $6.99/mo →
+                Subscribe, $9.99/mo →
               </Link>
             )}
           </div>
