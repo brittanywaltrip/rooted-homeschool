@@ -234,21 +234,21 @@ Baseline: Blair Torres (`blairkernwi@gmail.com`, code `BLAIR`) — first partner
 
 ## Security Rules
 
-### get_user_id_by_email — anon access is INTENTIONALLY revoked
-The function `public.get_user_id_by_email(text)` is a SECURITY DEFINER function that queries auth.users. It must NEVER be callable by the `anon` role — that would allow unauthenticated users to enumerate whether an email address has a Rooted account (user enumeration vulnerability).
+### get_user_id_by_email — service_role only
+The function `public.get_user_id_by_email(text)` is a SECURITY DEFINER function that queries auth.users. Any role that can execute it can enumerate whether an email address has a Rooted account (user enumeration vulnerability), so execute is locked down to `service_role` only. The sole caller is `app/api/gift/route.ts`, which uses the SUPABASE_SERVICE_ROLE_KEY, so no anon or authenticated access is needed.
 
 The correct permissions are:
 - anon: NO EXECUTE
-- authenticated: EXECUTE
+- authenticated: NO EXECUTE
 - service_role: EXECUTE
 
 If this function is ever dropped and recreated, run this immediately after:
 ```sql
-REVOKE EXECUTE ON FUNCTION public.get_user_id_by_email(text) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION public.get_user_id_by_email(text) TO authenticated, service_role;
+REVOKE EXECUTE ON FUNCTION public.get_user_id_by_email(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.get_user_id_by_email(text) TO service_role;
 ```
 
-This was patched May 4, 2026. Do not undo it.
+Originally patched May 4, 2026 (anon revoked, authenticated retained); tightened to service_role only on July 18, 2026 (migration 20260718000000_get_user_id_by_email_lockdown.sql). Do not undo it.
 
 ## Known issues
 - Google auth button hidden on main — SUPABASE_URL env var fix deployed, needs testing with fresh Gmail
