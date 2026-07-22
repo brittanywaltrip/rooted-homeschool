@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 import { buildPartnerAppRow } from '@/lib/partner-apply'
+import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -53,35 +54,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to save application' }, { status: 500 })
     }
 
-    // Confirmation email to applicant
-    const confirmHtml = `
-<div style="font-family: -apple-system, sans-serif; max-width: 520px; margin: 0 auto; color: #2d2926;">
-  <div style="text-align: center; padding: 24px 0;">
-    <img src="https://www.rootedhomeschoolapp.com/logo-white-bg.png" alt="Rooted" width="120" style="margin: 0 auto;" />
-  </div>
-  <h2 style="font-size: 20px; margin-bottom: 8px;">We got your application!</h2>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    Hi ${firstName},
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    Thank you so much for applying to the Rooted Partner Program! I personally review every single application and will be in touch within 48 hours.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
-    In the meantime, if you haven't already, sign up for a free Rooted account at
-    <a href="https://rootedhomeschoolapp.com/signup" style="color: #5c7f63; font-weight: 600;">rootedhomeschoolapp.com</a>
-    — it'll make your onboarding even faster once you're approved.
-  </p>
-  <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
-    Sincerely,<br />Brittany
-  </p>
-</div>`
-
-    await sendEmail(
-      email,
-      'We got your Rooted Partner application! \uD83C\uDF3F',
-      `Hi ${firstName},\n\nThank you so much for applying to the Rooted Partner Program! I personally review every application and will be in touch within 48 hours.\n\nIn the meantime, if you haven't already, sign up for a free Rooted account at rootedhomeschoolapp.com.\n\nSincerely,\nBrittany`,
-      confirmHtml,
-    )
+    // Confirmation email to applicant via the rooted-partner-application
+    // Resend template. Failures don't block the response: the partner_apps
+    // row is the source of truth and Brittany still gets the admin
+    // notification below either way.
+    try {
+      await sendResendTemplate(
+        email,
+        TEMPLATES.partnerApplication,
+        { firstName: firstName || 'there' },
+        'Brittany from Rooted <hello@rootedhomeschoolapp.com>',
+      )
+    } catch (err) {
+      console.error('[partners/apply] applicant confirmation send failed:', err)
+    }
 
     // Admin notification
     const adminEmailBody = `
