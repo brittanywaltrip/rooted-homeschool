@@ -250,6 +250,9 @@ GRANT EXECUTE ON FUNCTION public.get_user_id_by_email(text) TO service_role;
 
 Originally patched May 4, 2026 (anon revoked, authenticated retained); tightened to service_role only on July 18, 2026 (migration 20260718000000_get_user_id_by_email_lockdown.sql). Do not undo it.
 
+### recompute_curriculum_current_lesson — service_role / trigger only
+`public.recompute_curriculum_current_lesson(uuid)` is service_role and trigger only as of July 21, 2026 (migration 20260722000000_recompute_curriculum_current_lesson_lockdown.sql). It runs from the `lessons` trigger as SECURITY DEFINER, so the trigger path is unaffected; anon and authenticated no longer have execute, closing the `/rest/v1/rpc` path that let any signed-in user recompute an arbitrary goal_id. No app code calls it directly.
+
 ## Known issues
 - Google auth button hidden on main — SUPABASE_URL env var fix deployed, needs testing with fresh Gmail
 - CAN-SPAM: rooted-family-digest, rooted-weekly-summary, rooted-trial-warning missing unsubscribe links
