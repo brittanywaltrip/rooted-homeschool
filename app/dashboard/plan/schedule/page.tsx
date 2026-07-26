@@ -1447,7 +1447,25 @@ export default function ScheduleBuilderPage() {
           if (!r.scheduled_date) continue;
           dateMap[r.scheduled_date] = (dateMap[r.scheduled_date] ?? 0) + 1;
         }
-        const violated = Object.entries(dateMap).filter(([, count]) => count > lessons_per_day);
+        // The per-day ceiling MUST honor lessons_per_day_overrides, exactly
+        // like the pre-INSERT check above. Pre-fix, this compared every date
+        // against the flat lessons_per_day (the override AVERAGE for uneven
+        // goals), so any goal with e.g. Mon=2/Tue=1 legitimately projected
+        // 2 Monday lessons, passed the pre-check, INSERTed, then THREW here
+        // on every save attempt. The thrown error killed the phase-2 loop,
+        // so every goal after it in the same save silently got zero lessons
+        // (the July 2026 Lepior bug: all of one child's new curricula dead
+        // because her first goal had uneven per-day counts).
+        const violated = Object.entries(dateMap).filter(([dateStr, count]) => {
+          const [yy, mm, dd] = dateStr.split("-").map(Number);
+          const dateObj = new Date(yy, mm - 1, dd);
+          const dayLabel = DAY_LABEL[(dateObj.getDay() + 6) % 7];
+          const overridesMapPost = lessons_per_day_overrides ?? null;
+          const allowed = overridesMapPost && typeof overridesMapPost[dayLabel] === "number"
+            ? overridesMapPost[dayLabel]
+            : lessons_per_day;
+          return count > allowed;
+        });
         if (violated.length > 0) {
           console.error("[handleSave] Overcapacity after INSERT", violated);
           throw new Error(
@@ -1456,6 +1474,15 @@ export default function ScheduleBuilderPage() {
         }
       };
 
+      // One goal's Phase 2 failure must NOT abandon the other goals in the
+      // same save. Pre-fix, the first throw here aborted the loop, so every
+      // goal after the failing one silently got zero lessons (the July 2026
+      // Lepior bug: one child's uneven-per-day goal failed the old post-
+      // INSERT check and took her whole batch down with it, save after
+      // save). Now each goal gets its own two attempts; failures are
+      // captured per-goal and re-thrown ONCE at the end so handleSave's
+      // catch still shows the soft "save again" notice.
+      const phase2Failures: { goalId: string; err: unknown }[] = [];
       for (const { id: goalId, row } of savedCurriculumGoals) {
         let lastErr: unknown = null;
         for (let attempt = 0; attempt < 2; attempt++) {
@@ -1474,8 +1501,11 @@ export default function ScheduleBuilderPage() {
           Sentry.captureException(lastErr, {
             tags: { phase: "curriculum_save_phase2", goal_id: goalId },
           });
-          throw lastErr;
+          phase2Failures.push({ goalId, err: lastErr });
         }
+      }
+      if (phase2Failures.length > 0) {
+        throw phase2Failures[0].err;
       }
 
       setDirty(false);
