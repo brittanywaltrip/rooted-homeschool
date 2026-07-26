@@ -28,9 +28,38 @@ export async function DELETE(req: NextRequest) {
     // Fetch profile for Stripe customer ID before we delete anything
     const { data: profile } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_customer_id")
+      .select("stripe_customer_id, first_name, last_name, plan_type")
       .eq("id", userId)
       .single();
+
+    // ── 0. Log the deletion BEFORE wiping anything ──────────────
+    // deleted_accounts is the permanent forensic trail (service role
+    // only). If this insert fails we still proceed with the deletion,
+    // but the failure is logged so it can be investigated.
+    try {
+      const [memCount, lessonCount, goalCount, childCount] = await Promise.all([
+        supabaseAdmin.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId),
+        supabaseAdmin.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", userId),
+        supabaseAdmin.from("curriculum_goals").select("id", { count: "exact", head: true }).eq("user_id", userId),
+        supabaseAdmin.from("children").select("id", { count: "exact", head: true }).eq("user_id", userId),
+      ]);
+      const { error: logErr } = await supabaseAdmin.from("deleted_accounts").insert({
+        user_id: userId,
+        email: userEmail ?? null,
+        first_name: profile?.first_name ?? null,
+        last_name: profile?.last_name ?? null,
+        plan_type: profile?.plan_type ?? null,
+        account_created_at: user.created_at ?? null,
+        memories_count: memCount.count ?? null,
+        lessons_count: lessonCount.count ?? null,
+        curriculum_goals_count: goalCount.count ?? null,
+        children_count: childCount.count ?? null,
+        source: "self_serve",
+      });
+      if (logErr) console.error("deleted_accounts log insert failed:", logErr);
+    } catch (logErr) {
+      console.error("deleted_accounts logging failed:", logErr);
+    }
 
     // ── 1. Delete family_notifications ──────────────────────────
     await supabaseAdmin
