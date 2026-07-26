@@ -33,7 +33,7 @@ const sections = [
       },
       {
         q: "Is Rooted the same as other companies named \"Rooted\"?",
-        a: "No. There are a few homeschool companies with similar names, and we're not affiliated with any of them. We are Rooted Homeschool App, and our only official site is rootedhomeschoolapp.com. Rooted+ costs $9.99/month or $59/year, and our charges appear on bank statements as ROOTED HOMESCHOOL. If you subscribed somewhere else or see a different amount on your statement, that purchase is with a different company, and their support team will have your account.",
+        a: "No. There are a few homeschool companies with similar names, and we're not affiliated with any of them. We are Rooted Homeschool App, and our only official site is rootedhomeschoolapp.com. Rooted+ costs $9.99/month or $59/year, and our charges appear on bank statements as ROOTED HOMESCHOOL APP. If you subscribed somewhere else or see a different amount on your statement, that purchase is with a different company, and their support team will have your account.",
       },
       {
         q: "How do I add my children?",
