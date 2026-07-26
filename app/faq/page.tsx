@@ -32,6 +32,10 @@ const sections = [
         a: "Yes, Rooted works alongside any curriculum. We don't replace what you're already using, we just help you track it, remember it, and see how far you've come.",
       },
       {
+        q: "Is Rooted the same as other companies named \"Rooted\"?",
+        a: "No. There are a few homeschool companies with similar names, and we're not affiliated with any of them. We are Rooted Homeschool App, and our only official site is rootedhomeschoolapp.com. Rooted+ costs $9.99/month or $59/year, and our charges appear on bank statements as ROOTED HOMESCHOOL. If you subscribed somewhere else or see a different amount on your statement, that purchase is with a different company, and their support team will have your account.",
+      },
+      {
         q: "How do I add my children?",
         a: "During onboarding or anytime in Settings → Our Kids.",
       },

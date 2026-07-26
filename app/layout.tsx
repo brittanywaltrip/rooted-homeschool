@@ -31,23 +31,30 @@ const caveat = Caveat({
   display: "swap",
 });
 
+// SEO: full brand name in titles so brand searches ("rooted homeschool",
+// "rooted homeschool app") resolve to us, not similarly named companies.
 export const metadata: Metadata = {
-  title: "Rooted",
-  description: "Capture. Plan. Remember. Rooted is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all.",
+  metadataBase: new URL("https://rootedhomeschoolapp.com"),
+  applicationName: "Rooted Homeschool App",
+  title: {
+    default: "Rooted Homeschool App | Homeschool Planner, Memories & Yearbook",
+    template: "%s | Rooted Homeschool App",
+  },
+  description: "Capture. Plan. Remember. Rooted Homeschool App is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all. Official site: rootedhomeschoolapp.com.",
   manifest: '/manifest.json',
   themeColor: '#5c7f63',
   openGraph: {
-    title: "Rooted",
-    description: "Capture. Plan. Remember. Rooted is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all.",
+    title: "Rooted Homeschool App",
+    description: "Capture. Plan. Remember. Rooted Homeschool App is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all.",
     url: "https://rootedhomeschoolapp.com",
-    siteName: "Rooted",
+    siteName: "Rooted Homeschool App",
     type: "website",
     images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=4'],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Rooted",
-    description: "Capture. Plan. Remember. Rooted is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all.",
+    title: "Rooted Homeschool App",
+    description: "Capture. Plan. Remember. Rooted Homeschool App is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all.",
     images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=4'],
   },
   appleWebApp: {
@@ -90,6 +97,41 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${lora.variable} ${caveat.variable} antialiased`}
       >
+        {/* Structured data: tells Google exactly who we are, so brand
+            searches distinguish us from similarly named companies. */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify([
+              {
+                "@context": "https://schema.org",
+                "@type": "Organization",
+                name: "Rooted Homeschool App",
+                alternateName: "Rooted",
+                url: "https://rootedhomeschoolapp.com",
+                logo: "https://rootedhomeschoolapp.com/rooted-logo-nav.png",
+                email: "hello@rootedhomeschoolapp.com",
+                sameAs: [
+                  "https://apps.apple.com/us/app/rooted-homeschool-app/id6769627145",
+                  "https://www.instagram.com/rootedhomeschoolapp",
+                ],
+              },
+              {
+                "@context": "https://schema.org",
+                "@type": "SoftwareApplication",
+                name: "Rooted Homeschool App",
+                operatingSystem: "Web, iOS, Android",
+                applicationCategory: "EducationalApplication",
+                url: "https://rootedhomeschoolapp.com",
+                offers: [
+                  { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free plan" },
+                  { "@type": "Offer", price: "9.99", priceCurrency: "USD", description: "Rooted+ monthly" },
+                  { "@type": "Offer", price: "59", priceCurrency: "USD", description: "Rooted+ annual" },
+                ],
+              },
+            ]),
+          }}
+        />
         <ServiceWorkerRegistrar />
         <PostHogInit />
         {children}
