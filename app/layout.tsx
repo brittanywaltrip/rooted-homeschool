@@ -34,19 +34,19 @@ const caveat = Caveat({
 // SEO: full brand name in titles so brand searches ("rooted homeschool",
 // "rooted homeschool app") resolve to us, not similarly named companies.
 export const metadata: Metadata = {
-  metadataBase: new URL("https://rootedhomeschoolapp.com"),
+  metadataBase: new URL("https://www.rootedhomeschoolapp.com"),
   applicationName: "Rooted Homeschool App",
   title: {
     default: "Rooted Homeschool App | Homeschool Planner, Memories & Yearbook",
     template: "%s | Rooted Homeschool App",
   },
-  description: "Capture. Plan. Remember. Rooted Homeschool App is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all. Official site: rootedhomeschoolapp.com.",
+  description: "Rooted is the homeschool app that plans your days, auto-adjusts when life happens, and turns your photos into a yearbook. Plan. Capture. Remember. Official site of the Rooted Homeschool App.",
   manifest: '/manifest.json',
   themeColor: '#5c7f63',
   openGraph: {
     title: "Rooted Homeschool App",
-    description: "Capture. Plan. Remember. Rooted Homeschool App is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all.",
-    url: "https://rootedhomeschoolapp.com",
+    description: "Rooted is the homeschool app that plans your days, auto-adjusts when life happens, and turns your photos into a yearbook. Plan. Capture. Remember. Official site of the Rooted Homeschool App.",
+    url: "https://www.rootedhomeschoolapp.com",
     siteName: "Rooted Homeschool App",
     type: "website",
     images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=4'],
@@ -54,7 +54,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Rooted Homeschool App",
-    description: "Capture. Plan. Remember. Rooted Homeschool App is the homeschool companion that helps you plan your days, capture the moments, and hold onto it all.",
+    description: "Rooted is the homeschool app that plans your days, auto-adjusts when life happens, and turns your photos into a yearbook. Plan. Capture. Remember. Official site of the Rooted Homeschool App.",
     images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=4'],
   },
   appleWebApp: {
@@ -122,7 +122,10 @@ export default function RootLayout({
                 name: "Rooted Homeschool App",
                 operatingSystem: "Web, iOS, Android",
                 applicationCategory: "EducationalApplication",
-                url: "https://rootedhomeschoolapp.com",
+                url: "https://www.rootedhomeschoolapp.com",
+                sameAs: [
+                  "https://apps.apple.com/us/app/rooted-homeschool-app/id6769627145",
+                ],
                 offers: [
                   { "@type": "Offer", price: "0", priceCurrency: "USD", description: "Free plan" },
                   { "@type": "Offer", price: "9.99", priceCurrency: "USD", description: "Rooted+ monthly" },
