@@ -49,13 +49,13 @@ export const metadata: Metadata = {
     url: "https://www.rootedhomeschoolapp.com",
     siteName: "Rooted Homeschool App",
     type: "website",
-    images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=4'],
+    images: ['https://www.rootedhomeschoolapp.com/images/og-image.png?v=4'],
   },
   twitter: {
     card: "summary_large_image",
     title: "Rooted Homeschool App",
     description: "Rooted is the homeschool app that plans your days, auto-adjusts when life happens, and turns your photos into a yearbook. Plan. Capture. Remember. Official site of the Rooted Homeschool App.",
-    images: ['https://rootedhomeschoolapp.com/images/og-image.png?v=4'],
+    images: ['https://www.rootedhomeschoolapp.com/images/og-image.png?v=4'],
   },
   appleWebApp: {
     capable: true,
@@ -108,8 +108,8 @@ export default function RootLayout({
                 "@type": "Organization",
                 name: "Rooted Homeschool App",
                 alternateName: "Rooted",
-                url: "https://rootedhomeschoolapp.com",
-                logo: "https://rootedhomeschoolapp.com/rooted-logo-nav.png",
+                url: "https://www.rootedhomeschoolapp.com",
+                logo: "https://www.rootedhomeschoolapp.com/rooted-logo-nav.png",
                 email: "hello@rootedhomeschoolapp.com",
                 sameAs: [
                   "https://apps.apple.com/us/app/rooted-homeschool-app/id6769627145",
