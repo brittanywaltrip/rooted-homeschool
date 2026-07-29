@@ -113,8 +113,14 @@ export function usePlanV2Data(opts: {
     // calendar. "Mark as finished" sets curriculum_goals.archived=true but
     // intentionally leaves the lesson history in place; without this filter
     // those completed lessons keep rendering on past dates and the user
-    // can't clear them. Standalone lessons (curriculum_goal_id IS NULL)
-    // stay visible — PostgREST's `not.in` treats NULL as not-in-set.
+    // can't clear them.
+    //
+    // Standalone lessons (curriculum_goal_id IS NULL) must stay visible, and
+    // that takes an explicit IS NULL branch below. A bare `not.in` does NOT
+    // work: it compiles to `NOT (col IN (...))`, which evaluates to NULL for
+    // a NULL column and so drops the row. That was the live behavior until
+    // July 2026 and it hid 64 standalone lessons from 7 users who had at
+    // least one archived goal.
     const { data: archivedGoalsData } = await supabase
       .from("curriculum_goals")
       .select("id")
@@ -135,7 +141,9 @@ export function usePlanV2Data(opts: {
       .lte("scheduled_date", endStr)
       .order("lesson_number", { ascending: true });
     if (archivedGoalIds.length > 0) {
-      lessonReq = lessonReq.not("curriculum_goal_id", "in", `(${archivedGoalIds.join(",")})`);
+      lessonReq = lessonReq.or(
+        `curriculum_goal_id.is.null,curriculum_goal_id.not.in.(${archivedGoalIds.join(",")})`,
+      );
     }
 
     const apptReq = token

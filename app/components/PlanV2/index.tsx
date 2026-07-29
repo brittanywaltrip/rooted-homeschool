@@ -55,7 +55,7 @@ import MonthlyPrintSheet from "./MonthlyPrintSheet";
 import { CornerLeaves } from "./print-decorations";
 import { canExport } from "@/lib/user-access";
 import ShiftForwardModal, { type ShiftMove } from "./ShiftForwardModal";
-import PushBackModal, { type PushBackLesson, type PushBackMove } from "./PushBackModal";
+import PushBackModal, { type PushBackMove } from "./PushBackModal";
 import VacationBlockModal, { type VacationBlockExisting, type VacationBlockSave } from "./VacationBlockModal";
 import RecentChangesCard from "./RecentChangesCard";
 import DayCellContextMenu from "./DayCellContextMenu";
@@ -172,6 +172,14 @@ const CATCHUP_DISMISS_KEY = "rooted_planv2_catchup_dismissed_at";
 const CATCHUP_DISMISS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 type ViewMode = "week" | "month";
+
+/** The slice of a lesson the two catch-up modals need: enough to identify the
+ *  row, date it, and label it in their preview lists. Both ShiftForwardModal
+ *  and PushBackModal accept this shape, so one wide query feeds both. */
+type CatchUpRow = Pick<
+  PlanV2Lesson,
+  "id" | "title" | "lesson_number" | "scheduled_date" | "date"
+> & { child_id: string | null };
 
 export default function PlanV2() {
   const { effectiveUserId, isPartner } = usePartner();
@@ -342,14 +350,16 @@ export default function PlanV2() {
     } catch { /* ignore */ }
   }, []);
 
+  // Both catch-up modals operate on the whole schedule, so neither can read
+  // `lessons` state (capped to the visible grid window). These hold the full
+  // sets loaded from the DB when each modal opens; see loadCatchUpLessons.
   const [shiftForwardOpen, setShiftForwardOpen] = useState(false);
+  const [shiftForwardLoading, setShiftForwardLoading] = useState(false);
+  const [shiftForwardMissed, setShiftForwardMissed] = useState<CatchUpRow[]>([]);
   const [pushBackOpen, setPushBackOpen] = useState(false);
-  // Push-back operates on the whole schedule, so it can't read `lessons`
-  // state (capped to the visible grid window). These hold the full sets
-  // loaded from the DB when the modal opens; see openPushBack.
   const [pushBackLoading, setPushBackLoading] = useState(false);
-  const [pushBackFuture, setPushBackFuture] = useState<PushBackLesson[]>([]);
-  const [pushBackMissed, setPushBackMissed] = useState<PushBackLesson[]>([]);
+  const [pushBackFuture, setPushBackFuture] = useState<CatchUpRow[]>([]);
+  const [pushBackMissed, setPushBackMissed] = useState<CatchUpRow[]>([]);
 
   // Vacation modal — single instance for both create + edit. `existing` is
   // null in create mode; populated in edit mode with the block we clicked.
@@ -1759,19 +1769,67 @@ export default function PlanV2() {
   // modal moved only the loaded rows and later months doubled up underneath
   // them. openPushBack below loads the real, all-months sets from the DB.
 
-  // Push-back fires on the WHOLE schedule (every goal), so both halves of it
-  // come from the DB, not from `lessons`: the future half was silently capped
-  // at the end of the visible grid, and the missed half was capped at its
-  // start, so a mom more than a month behind never saw her older misses.
-  // Loading happens at open time rather than confirm time because the modal
-  // shows counts and a landing-date preview; a windowed count would tell her
-  // the wrong thing about what she is agreeing to.
+  // Both catch-up modals act on the WHOLE schedule (every goal), so their
+  // input comes from the DB, not from `lessons`: the future half was silently
+  // capped at the end of the visible grid, and the missed half was capped at
+  // its start, so a mom more than a month behind never saw her older misses.
   //
   // Two filters are reapplied here so the wide sets mean what the old in-view
   // lists meant: archived goals stay out (usePlanV2Data hides them, and "Mark
   // as finished" work shouldn't be rescheduled), and the active child filter
   // still scopes the action (Amanda grades one child at a time and bulk
   // actions must not leak across kids).
+  //
+  // Returns null on failure so callers can abort without writing anything.
+  const loadCatchUpLessons = useCallback(async (): Promise<
+    { missed: CatchUpRow[]; future: CatchUpRow[] } | null
+  > => {
+    if (!effectiveUserId) return null;
+
+    const { data: archivedData, error: archivedErr } = await supabase
+      .from("curriculum_goals")
+      .select("id")
+      .eq("user_id", effectiveUserId)
+      .eq("archived", true);
+    if (archivedErr) return null;
+
+    let req = supabase
+      .from("lessons")
+      .select("id, title, lesson_number, scheduled_date, date, child_id")
+      .eq("user_id", effectiveUserId)
+      .eq("completed", false)
+      .not("scheduled_date", "is", null)
+      .order("scheduled_date", { ascending: true });
+    const archivedGoalIds = ((archivedData ?? []) as { id: string }[]).map((g) => g.id);
+    if (archivedGoalIds.length > 0) {
+      // Deliberately NOT a bare `.not("curriculum_goal_id","in",...)`. That
+      // compiles to `NOT (col IN (...))`, which evaluates to NULL (and so
+      // drops the row) for standalone lessons with no goal. Verified against
+      // the DB: the bare form keeps 0 of the incomplete no-goal rows, this
+      // explicit IS NULL branch keeps all of them.
+      req = req.or(
+        `curriculum_goal_id.is.null,curriculum_goal_id.not.in.(${archivedGoalIds.join(",")})`,
+      );
+    }
+    const { data, error } = await req;
+    if (error) return null;
+
+    const rows = (data ?? []) as CatchUpRow[];
+    const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
+    const visible = rows.filter((r) => {
+      if (!(r.scheduled_date ?? r.date)) return false;
+      if (allKidsSelected) return true;
+      return r.child_id ? childFilter.has(r.child_id) : true;
+    });
+    return {
+      missed: visible.filter((r) => (r.scheduled_date ?? r.date)! < todayStr),
+      future: visible.filter((r) => (r.scheduled_date ?? r.date)! >= todayStr),
+    };
+  }, [effectiveUserId, childFilter, kids.length, todayStr]);
+
+  // Both openers load at open time rather than confirm time because each
+  // modal previews counts and landing dates; a windowed count would tell her
+  // the wrong thing about what she is agreeing to.
   const openPushBack = useCallback(async () => {
     if (!effectiveUserId) return;
     setPushBackFuture([]);
@@ -1779,33 +1837,8 @@ export default function PlanV2() {
     setPushBackLoading(true);
     setPushBackOpen(true);
 
-    const { data: archivedData, error: archivedErr } = await supabase
-      .from("curriculum_goals")
-      .select("id")
-      .eq("user_id", effectiveUserId)
-      .eq("archived", true);
-
-    let req = supabase
-      .from("lessons")
-      .select("id, scheduled_date, date, child_id")
-      .eq("user_id", effectiveUserId)
-      .eq("completed", false)
-      .not("scheduled_date", "is", null)
-      .order("scheduled_date", { ascending: true });
-    const archivedGoalIds = ((archivedData ?? []) as { id: string }[]).map((g) => g.id);
-    if (archivedGoalIds.length > 0) {
-      // Deliberately NOT the bare `.not("curriculum_goal_id","in",...)` that
-      // usePlanV2Data uses. That compiles to `NOT (col IN (...))`, which is
-      // NULL (and so drops the row) for standalone lessons with no goal.
-      // Verified against the DB: the bare form keeps 0 of the incomplete
-      // no-goal rows, the explicit IS NULL branch keeps all of them.
-      req = req.or(
-        `curriculum_goal_id.is.null,curriculum_goal_id.not.in.(${archivedGoalIds.join(",")})`,
-      );
-    }
-    const { data, error } = await req;
-
-    if (archivedErr || error) {
+    const sets = await loadCatchUpLessons();
+    if (!sets) {
       // Nothing has been written at this point, and nothing will be: close
       // the modal rather than let her confirm against a partial schedule,
       // which is the exact failure this load exists to prevent.
@@ -1814,24 +1847,42 @@ export default function PlanV2() {
       flashNotice("Couldn't load your whole schedule, nothing moved. Try again.");
       return;
     }
-
-    const rows = (data ?? []) as (PushBackLesson & { child_id: string | null })[];
-    const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
-    const visible = rows.filter((r) => {
-      if (!(r.scheduled_date ?? r.date)) return false;
-      if (allKidsSelected) return true;
-      return r.child_id ? childFilter.has(r.child_id) : true;
-    });
-    setPushBackFuture(visible.filter((r) => (r.scheduled_date ?? r.date)! >= todayStr));
-    setPushBackMissed(visible.filter((r) => (r.scheduled_date ?? r.date)! < todayStr));
+    setPushBackFuture(sets.future);
+    setPushBackMissed(sets.missed);
     setPushBackLoading(false);
-  }, [effectiveUserId, childFilter, kids.length, todayStr, flashNotice]);
+  // flashNotice is intentionally omitted: it is a plain function declaration
+  // that only closes over setNotice, so listing it would rebuild this
+  // callback every render for no behavioral gain. Matches the rest of the file.
+  }, [effectiveUserId, loadCatchUpLessons]);
 
   const closePushBack = useCallback(() => {
     setPushBackOpen(false);
     setPushBackLoading(false);
     setPushBackFuture([]);
     setPushBackMissed([]);
+  }, []);
+
+  const openShiftForward = useCallback(async () => {
+    if (!effectiveUserId) return;
+    setShiftForwardMissed([]);
+    setShiftForwardLoading(true);
+    setShiftForwardOpen(true);
+
+    const sets = await loadCatchUpLessons();
+    if (!sets) {
+      setShiftForwardOpen(false);
+      setShiftForwardLoading(false);
+      flashNotice("Couldn't load your missed lessons, nothing moved. Try again.");
+      return;
+    }
+    setShiftForwardMissed(sets.missed);
+    setShiftForwardLoading(false);
+  }, [effectiveUserId, loadCatchUpLessons]);
+
+  const closeShiftForward = useCallback(() => {
+    setShiftForwardOpen(false);
+    setShiftForwardLoading(false);
+    setShiftForwardMissed([]);
   }, []);
 
   // Catch-up threshold: 5+ past incomplete spanning 2+ distinct days AND
@@ -1887,6 +1938,11 @@ export default function PlanV2() {
     setMonthStart(firstOfMonth(now));
   }
 
+  function flashNotice(msg: string) {
+    setNotice(msg);
+    window.setTimeout(() => setNotice((n) => (n === msg ? null : n)), 3500);
+  }
+
   function toggleChild(id: string) {
     setChildFilter((prev) => {
       const next = new Set(prev);
@@ -1894,11 +1950,6 @@ export default function PlanV2() {
       else next.add(id);
       return next;
     });
-  }
-
-  function flashNotice(msg: string) {
-    setNotice(msg);
-    window.setTimeout(() => setNotice((n) => (n === msg ? null : n)), 3500);
   }
 
   const handleLessonChanged = useCallback(
@@ -3672,7 +3723,7 @@ export default function PlanV2() {
       if (wizardOpen) { setWizardOpen(false); setWizardEditData(null); return; }
       if (vacationModalOpen) { setVacationModalOpen(false); return; }
       if (pushBackOpen) { closePushBack(); return; }
-      if (shiftForwardOpen) { setShiftForwardOpen(false); return; }
+      if (shiftForwardOpen) { closeShiftForward(); return; }
       if (addLessonOpen) { setAddLessonOpen(false); return; }
       if (editLessonTarget) { setEditLessonTarget(null); return; }
       if (cascadeChoice) { setCascadeChoice(null); return; }
@@ -3687,7 +3738,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode, closePushBack]);
+  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode, closePushBack, closeShiftForward]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -3975,7 +4026,7 @@ export default function PlanV2() {
         {!loading && showCatchUpBanner ? (
           <CatchUpBanner
             count={missedLessonsInView.length}
-            onShiftForward={() => setShiftForwardOpen(true)}
+            onShiftForward={() => void openShiftForward()}
             onPushBack={() => void openPushBack()}
             onDismiss={dismissCatchUp}
           />
@@ -4832,10 +4883,11 @@ export default function PlanV2() {
         {/* Catch-up modals + vacation modal */}
         <ShiftForwardModal
           isOpen={shiftForwardOpen}
-          missed={missedLessonsInView}
+          loading={shiftForwardLoading}
+          missed={shiftForwardMissed}
           schoolDays={schoolDays}
           vacationBlocks={vacationBlocks}
-          onClose={() => setShiftForwardOpen(false)}
+          onClose={closeShiftForward}
           onConfirm={handleCatchUpShiftConfirm}
         />
         <PushBackModal

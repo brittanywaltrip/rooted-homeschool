@@ -21,15 +21,27 @@ import {
  * the helper's DEFAULT_SCHOOL_DAYS constant at the call site.
  * ==========================================================================*/
 
+/** All this modal needs of a lesson: an id to move, dates to shift from, and
+ *  a label for the preview row. Kept narrow so the parent can hand us rows
+ *  from a lean wide query (see loadCatchUpLessons) as well as calendar rows. */
+export type ShiftLesson = Pick<
+  PlanV2Lesson,
+  "id" | "title" | "lesson_number" | "scheduled_date" | "date"
+>;
+
 export type ShiftMove = {
-  lesson: PlanV2Lesson;
+  lesson: ShiftLesson;
   fromDate: string;
   toDate: string;
 };
 
 export interface ShiftForwardModalProps {
   isOpen: boolean;
-  missed: PlanV2Lesson[];
+  /** True while the parent is still loading the full, all-months missed set.
+   *  The count in the header describes what will actually move, so it must
+   *  not be shown (or confirmable) until the real set has landed. */
+  loading?: boolean;
+  missed: ShiftLesson[];
   schoolDays: string[];
   vacationBlocks: VacationRange[];
   onClose: () => void;
@@ -44,7 +56,7 @@ function formatDate(dateStr: string): string {
 }
 
 export default function ShiftForwardModal(props: ShiftForwardModalProps) {
-  const { isOpen, missed, schoolDays, vacationBlocks, onClose, onConfirm } = props;
+  const { isOpen, loading = false, missed, schoolDays, vacationBlocks, onClose, onConfirm } = props;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,8 +105,14 @@ export default function ShiftForwardModal(props: ShiftForwardModalProps) {
             <div>
               <h2 className="text-base font-bold text-[#2d2926]">Catch up</h2>
               <p className="text-xs text-[#7a6f65] mt-0.5">
-                Shifting {moves.length} missed lesson{moves.length === 1 ? "" : "s"} to the next school day
-                {moves.length === 1 ? "" : "s"}.
+                {loading ? (
+                  "Checking your whole schedule, one moment…"
+                ) : (
+                  <>
+                    Shifting {moves.length} missed lesson{moves.length === 1 ? "" : "s"} to the next school day
+                    {moves.length === 1 ? "" : "s"}.
+                  </>
+                )}
               </p>
             </div>
             <button
@@ -108,7 +126,9 @@ export default function ShiftForwardModal(props: ShiftForwardModalProps) {
           </div>
 
           <div className="px-5 pb-4 pt-1 overflow-y-auto">
-            {moves.length === 0 ? (
+            {loading ? (
+              <p className="text-sm text-[#9a8e84] py-4 text-center">Loading your missed lessons…</p>
+            ) : moves.length === 0 ? (
               <p className="text-sm text-[#9a8e84] py-4 text-center">Nothing to shift right now.</p>
             ) : (
               <ul className="space-y-1">
@@ -158,10 +178,10 @@ export default function ShiftForwardModal(props: ShiftForwardModalProps) {
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={moves.length === 0 || submitting}
+              disabled={loading || moves.length === 0 || submitting}
               className="flex-1 min-h-[44px] text-sm font-bold text-white bg-[#2D5A3D] rounded-xl hover:bg-[var(--g-deep)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? "Shifting…" : "Shift forward"}
+              {submitting ? "Shifting…" : loading ? "Loading…" : "Shift forward"}
             </button>
           </div>
         </div>
