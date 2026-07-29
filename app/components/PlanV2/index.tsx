@@ -3044,13 +3044,36 @@ export default function PlanV2() {
     // means scheduled_date strictly after the moved lesson's ORIGINAL
     // date — not after today — so the user's cascade choice ripples the
     // whole tail, not just the slice past today.
-    const futureLessons = lessons.filter((l) =>
-      l.curriculum_goal_id === c.goalId &&
-      !l.completed &&
-      l.id !== c.lessonId &&
-      (l.scheduled_date ?? l.date) !== null &&
-      ((l.scheduled_date ?? l.date)!) > c.fromDateStr,
-    );
+    //
+    // This set has to come from the DB, not from `lessons` state.
+    // usePlanV2Data only loads the visible month's 42-cell grid window, so
+    // filtering state here shifted the loaded rows and left every later
+    // month sitting on its original dates. The shifted rows then landed
+    // on top of them (the doubled-up days Viajes Homeschool reported).
+    // Same wide-load shape the vacation shift / shift-back paths use.
+    const { data: allFuture, error: futureErr } = await supabase
+      .from("lessons")
+      .select("id, scheduled_date, date")
+      .eq("curriculum_goal_id", c.goalId)
+      .eq("completed", false)
+      .neq("id", c.lessonId)
+      .gt("scheduled_date", c.fromDateStr)
+      .order("scheduled_date", { ascending: true });
+
+    if (futureErr) {
+      // Abort with nothing written. A partial shift is worse than no
+      // shift: the tail we failed to load would collide with whatever we
+      // did move, which is the exact bug this fetch exists to prevent.
+      setBulkBusy(false);
+      flashNotice("Couldn't load the rest of this curriculum, nothing moved. Try again.");
+      return;
+    }
+
+    const futureLessons = ((allFuture ?? []) as {
+      id: string;
+      scheduled_date: string | null;
+      date: string | null;
+    }[]).filter((l) => (l.scheduled_date ?? l.date) !== null);
 
     const pairs: { id: string; date: string }[] = [
       { id: c.lessonId, date: c.toDateStr },
@@ -3127,7 +3150,10 @@ export default function PlanV2() {
 
     reload();
     setBulkBusy(false);
-  }, [lessons, curriculumGoals, schoolDays, vacationBlocks, batchUpdateScheduledDates, recordEvent, reload, flagLanded, flashNotice]);
+    // `lessons` is intentionally NOT a dependency any more. The shift set
+    // is read from the DB above, so the handler no longer closes over the
+    // month-windowed state.
+  }, [curriculumGoals, schoolDays, vacationBlocks, batchUpdateScheduledDates, recordEvent, reload, flagLanded, flashNotice]);
 
   // ── Past-date move with optional completion ──────────────────────────────
   // When a mom picks a past date for a single lesson, the move itself
@@ -3954,11 +3980,25 @@ export default function PlanV2() {
                   >
                     <ChevronLeft size={16} />
                   </button>
+                  {/* Fixed-width label. A min-width let long labels
+                      ("September 2026") stretch the span and push the next
+                      chevron plus the Today pill to the right, so the nav
+                      buttons moved under the user's finger every time the
+                      month name changed length. The invisible sizer below
+                      pins the width to the widest label this view can
+                      produce, which beats a magic pixel value: it stays
+                      correct if the font or the label format changes.
+                      Font steps down on mobile so row 1 still fits 375px. */}
                   <span
-                    className="min-w-[140px] text-center"
-                    style={{ fontSize: 22, lineHeight: 1, color: "#2D2A26" }}
+                    className="relative inline-block shrink-0 text-[17px] sm:text-[22px]"
+                    style={{ lineHeight: 1, color: "#2D2A26" }}
                   >
-                    {monthLabel}
+                    <span aria-hidden className="block invisible whitespace-nowrap">
+                      {viewMode === "week" ? "Sep 30 – Oct 6, 2026" : "September 2026"}
+                    </span>
+                    <span className="absolute inset-0 flex items-center justify-center whitespace-nowrap">
+                      {monthLabel}
+                    </span>
                   </span>
                   <button
                     type="button"
@@ -3970,16 +4010,23 @@ export default function PlanV2() {
                   </button>
                 </div>
 
-                {!viewingCurrentMonth ? (
-                  <button
-                    type="button"
-                    onClick={jumpToToday}
-                    aria-label="Jump to today"
-                    className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#e8f0e9] text-[#2D5A3D] hover:bg-[#d4e8d4] transition-colors"
-                  >
-                    Today
-                  </button>
-                ) : null}
+                {/* Always mounted so the row keeps its layout box. Rendering
+                    it only on non-current months meant the pill blinked in
+                    and out as the user navigated through today, which
+                    re-flowed the rest of the row on narrow screens. */}
+                <button
+                  type="button"
+                  onClick={jumpToToday}
+                  aria-label="Jump to today"
+                  aria-hidden={viewingCurrentMonth}
+                  tabIndex={viewingCurrentMonth ? -1 : 0}
+                  disabled={viewingCurrentMonth}
+                  className={`text-[11px] font-semibold px-2.5 py-1 rounded-full bg-[#e8f0e9] text-[#2D5A3D] transition-colors ${
+                    viewingCurrentMonth ? "invisible pointer-events-none" : "hover:bg-[#d4e8d4]"
+                  }`}
+                >
+                  Today
+                </button>
 
                 <div className="flex-1" />
 
