@@ -27,16 +27,25 @@ import {
  * half of the rebalance separately.
  * ==========================================================================*/
 
+/** All this modal needs of a lesson: something to date it by and an id to
+ *  move. Kept narrow so the parent can hand us rows from a lean wide query
+ *  (see openPushBack) as well as full calendar rows. */
+export type PushBackLesson = Pick<PlanV2Lesson, "id" | "scheduled_date" | "date">;
+
 export type PushBackMove = {
-  lesson: PlanV2Lesson;
+  lesson: PushBackLesson;
   fromDate: string;
   toDate: string;
 };
 
 export interface PushBackModalProps {
   isOpen: boolean;
-  missed: PlanV2Lesson[];
-  futureLessons: PlanV2Lesson[];
+  /** True while the parent is still loading the full, all-months lesson
+   *  sets. The counts below describe what will actually move, so they must
+   *  not be shown (or confirmable) until the real sets have landed. */
+  loading?: boolean;
+  missed: PushBackLesson[];
+  futureLessons: PushBackLesson[];
   schoolDays: string[];
   vacationBlocks: VacationRange[];
   onClose: () => void;
@@ -56,7 +65,7 @@ function formatDate(dateStr: string): string {
 
 export default function PushBackModal(props: PushBackModalProps) {
   const {
-    isOpen, missed, futureLessons, schoolDays, vacationBlocks, onClose, onConfirm,
+    isOpen, loading = false, missed, futureLessons, schoolDays, vacationBlocks, onClose, onConfirm,
   } = props;
   const defaultShift = Math.max(1, missed.length);
   const [shift, setShift] = useState<number>(defaultShift);
@@ -149,27 +158,34 @@ export default function PushBackModal(props: PushBackModalProps) {
                 min={1}
                 max={90}
                 value={shift}
+                disabled={loading}
                 onChange={(e) => {
                   const n = parseInt(e.target.value || "0", 10);
                   setShift(Number.isFinite(n) ? Math.max(1, Math.min(90, n)) : 1);
                 }}
-                className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
+                className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 disabled:opacity-50"
               />
             </label>
 
-            <p className="text-[12px] text-[#2d2926] leading-relaxed">
-              <span className="font-semibold">{futureMoves.length}</span> future lesson{futureMoves.length === 1 ? "" : "s"} will move forward by <span className="font-semibold">{shift}</span> school day{shift === 1 ? "" : "s"}.
-              {missed.length > 0 && firstVacated ? (
-                <>
-                  <br />
-                  Your missed <span className="font-semibold">{missed.length}</span> lesson{missed.length === 1 ? "" : "s"} will fit into{" "}
-                  <span className="font-semibold text-[#2D5A3D]">
-                    {formatDate(firstVacated)}
-                    {lastVacated && lastVacated !== firstVacated ? ` → ${formatDate(lastVacated)}` : ""}
-                  </span>.
-                </>
-              ) : null}
-            </p>
+            {loading ? (
+              <p className="text-[12px] text-[#7a6f65] leading-relaxed">
+                Checking your whole schedule, one moment…
+              </p>
+            ) : (
+              <p className="text-[12px] text-[#2d2926] leading-relaxed">
+                <span className="font-semibold">{futureMoves.length}</span> future lesson{futureMoves.length === 1 ? "" : "s"} will move forward by <span className="font-semibold">{shift}</span> school day{shift === 1 ? "" : "s"}.
+                {missed.length > 0 && firstVacated ? (
+                  <>
+                    <br />
+                    Your missed <span className="font-semibold">{missed.length}</span> lesson{missed.length === 1 ? "" : "s"} will fit into{" "}
+                    <span className="font-semibold text-[#2D5A3D]">
+                      {formatDate(firstVacated)}
+                      {lastVacated && lastVacated !== firstVacated ? ` → ${formatDate(lastVacated)}` : ""}
+                    </span>.
+                  </>
+                ) : null}
+              </p>
+            )}
 
             {error ? <p className="text-[11px] text-[#b91c1c]">{error}</p> : null}
           </div>
@@ -186,10 +202,10 @@ export default function PushBackModal(props: PushBackModalProps) {
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={submitting || (futureMoves.length === 0 && missedMoves.length === 0)}
+              disabled={submitting || loading || (futureMoves.length === 0 && missedMoves.length === 0)}
               className="flex-1 min-h-[44px] text-sm font-bold text-white bg-[#2D5A3D] rounded-xl hover:bg-[var(--g-deep)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? "Pushing back…" : "Push schedule back"}
+              {submitting ? "Pushing back…" : loading ? "Loading…" : "Push schedule back"}
             </button>
           </div>
         </div>
