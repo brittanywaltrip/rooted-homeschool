@@ -47,19 +47,48 @@ async function fetchAllRows<T>(
   return out;
 }
 
-// Tear down a curriculum row by subject_label match. Best-effort; leaves
-// the row in place if the admin client isn't configured.
+// Tear down a curriculum row by subject_label match, scoped to the test
+// account. Best-effort in one direction only: if the admin client isn't
+// configured we leave the row in place, but if the admin client IS
+// configured and the test user can't be resolved we THROW rather than run
+// an unscoped delete.
+//
+// Why the user scope matters: this runs as service_role against the shared
+// production database, so RLS does not protect anyone here. A DELETE keyed
+// on subject_label alone would take out every family's rows carrying that
+// label. Labels are Date.now()-stamped so a collision is unlikely, but
+// "unlikely" is the wrong safety margin for an unscoped service-role
+// DELETE — one hand-edited or replayed label is all it takes. Both deletes
+// (lessons and goals) carry .eq('user_id', testUserId).
 async function cleanupCurriculumByLabel(label: string) {
   const sb = adminClient();
   if (!sb) return;
+  const testUserId = await cachedTestUserId();
+  if (!testUserId) {
+    throw new Error(
+      `cleanupCurriculumByLabel("${label}") refused to run: could not resolve the test user id ` +
+        '(PLAYWRIGHT_EMAIL missing, or no auth.users row matches it). Refusing to fall back to an ' +
+        'unscoped service-role DELETE against the shared database. Set PLAYWRIGHT_EMAIL to the ' +
+        'test account, or unset SUPABASE_SERVICE_ROLE_KEY to skip DB cleanup entirely.',
+    );
+  }
   const { data: goals } = await sb
     .from('curriculum_goals')
     .select('id')
-    .eq('subject_label', label);
+    .eq('subject_label', label)
+    .eq('user_id', testUserId);
   const ids = (goals ?? []).map((g) => (g as { id: string }).id);
   if (ids.length === 0) return;
-  await sb.from('lessons').delete().in('curriculum_goal_id', ids);
-  await sb.from('curriculum_goals').delete().in('id', ids);
+  await sb
+    .from('lessons')
+    .delete()
+    .in('curriculum_goal_id', ids)
+    .eq('user_id', testUserId);
+  await sb
+    .from('curriculum_goals')
+    .delete()
+    .in('id', ids)
+    .eq('user_id', testUserId);
 }
 
 // Resolve the test account's user_id via the Supabase admin auth API.
@@ -91,9 +120,20 @@ async function resolveTestUserId(): Promise<string | null> {
 // Builder; admin seeds need both ids to insert a row that the UI will
 // render and treat as editable. Returns null for either field when
 // unavailable so callers can skip the test cleanly.
+// Memoized resolveTestUserId. The admin listUsers walk pages 1000 accounts
+// at a time, and cleanup runs in every afterEach, so re-resolving per call
+// would add a full auth-API sweep to each teardown. Cached per worker
+// process. Null results are cached too (a missing PLAYWRIGHT_EMAIL will not
+// start existing mid-run).
+let cachedTestUserIdPromise: Promise<string | null> | null = null;
+function cachedTestUserId(): Promise<string | null> {
+  if (!cachedTestUserIdPromise) cachedTestUserIdPromise = resolveTestUserId();
+  return cachedTestUserIdPromise;
+}
+
 async function resolveTestUserAndFirstChild(): Promise<{ userId: string; childId: string } | null> {
   const sb = adminClient();
-  const userId = await resolveTestUserId();
+  const userId = await cachedTestUserId();
   if (!sb || !userId) return null;
   const { data: kids } = await sb
     .from('children')
@@ -126,9 +166,67 @@ async function previewAndSave(page: import('@playwright/test').Page) {
   await previewBtn.click();
   const saveBtn = page.getByRole('button', { name: /save & build schedule/i }).first();
   await saveBtn.click();
-  // Saving... → some success state. Wait for the button to either disappear
-  // or the URL to change (post-save flow varies by row state).
-  await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
+
+  // Wait for the DETERMINISTIC post-save signal: handleSave's final statement
+  // is router.push("/dashboard/plan?saved=1"), and it only runs after every
+  // phase-2 await has settled (lesson generation, the chunked INSERT loop, the
+  // stale-row cleanup, recompute, and the post-INSERT overcapacity check). So a
+  // pathname of exactly /dashboard/plan means phase 2 is DONE, not merely
+  // started. PlanV2 strips ?saved=1 from the URL once it consumes the flag, so
+  // we key off the pathname and never the query string.
+  //
+  // This replaces `waitForLoadState('networkidle').catch(() => {})`. That wait
+  // was wrong twice over: networkidle can go quiet between the chunked INSERT
+  // batches even though phase 2 is mid-flight, and the .catch() swallowed the
+  // timeout so the test sailed on regardless. Callers then ran their
+  // assertions — and eventually afterEach's cleanup DELETE — while lesson
+  // INSERTs were still landing. Deleting the goal row underneath in-flight
+  // lesson INSERTs is exactly what produced Sentry ROOTED-HOMESCHOOL-2: the
+  // insert hit the lessons_child_id_matches_goal trigger looking for a goal
+  // that cleanup had just removed.
+  //
+  // 120s because a cold/contended staging save legitimately takes 60s+ on the
+  // heavy backfill flow. Both heavy callers run test.setTimeout(210_000) so this
+  // wait fits inside their per-test budget instead of being cut short by it.
+  //
+  // A failed save never navigates: handleSave's catch renders either the
+  // role="alert" "Save failed: ..." box (schema write failed) or the
+  // postSaveNotice "save again to sync" box (phase 2 failed), and the page
+  // stays on the builder. We race those against the navigation so a real
+  // failure reports the actual message instead of an opaque URL timeout —
+  // and either way the test FAILS rather than silently continuing.
+  // The navigation wait owns the real deadline: if nothing at all happens, ITS
+  // rejection is what surfaces ("waiting for navigation to /dashboard/plan"),
+  // which is the most actionable failure. The two error watchers exist only to
+  // report a faster, more specific reason when the page does tell us why. Their
+  // own timeouts (and any "target closed" rejection after the race settles) are
+  // folded into a never-settling promise so a losing watcher can never raise an
+  // unhandled rejection or steal the deadline from the navigation wait.
+  const never = () => new Promise<never>(() => {});
+  const saveFailed = page.getByRole('alert').filter({ hasText: /save failed/i }).first();
+  const phase2Notice = page.getByText(/Lesson layout needs another touch/i).first();
+  const watchFor = (label: string, locator: import('@playwright/test').Locator) =>
+    locator
+      .waitFor({ state: 'visible', timeout: 120_000 })
+      .then(async () => ({
+        kind: 'error' as const,
+        detail: (await locator.textContent())?.trim() || label,
+      }))
+      .catch(never);
+
+  const outcome = await Promise.race([
+    page
+      .waitForURL((url) => url.pathname === '/dashboard/plan', { timeout: 120_000 })
+      .then(() => ({ kind: 'saved' as const, detail: '' })),
+    watchFor('Save failed', saveFailed),
+    watchFor('Lesson layout needs another touch, save again to sync', phase2Notice),
+  ]);
+  if (outcome.kind === 'error') {
+    throw new Error(
+      `Schedule Builder save did not complete — the page reported: "${outcome.detail}". ` +
+        'The save flow never navigated to /dashboard/plan, so lessons are not guaranteed to exist.',
+    );
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -611,7 +709,13 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     // the default 30s per-test budget (the save alone can take 60s+), so give it
     // a generous timeout. Without this, the per-test timeout fires before the
     // post-save assertions can resolve, masking a passing flow as a failure.
-    test.setTimeout(150_000);
+    //
+    // 210s (was 150s): previewAndSave now BLOCKS on the post-save navigation
+    // instead of a 10s swallowed networkidle, so its 120s worst case is inside
+    // this budget rather than silently skipped. The test must be allowed to
+    // reach its assertions on a slow-but-successful save — a per-test timeout
+    // here would read as a failure of the flow rather than of the environment.
+    test.setTimeout(210_000);
 
     const sb = adminClient();
     if (!sb) {
@@ -720,20 +824,18 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     const countText = (await countSpan.textContent())?.trim() ?? '';
     expect(Number(countText), `"Already completed" should auto-fill to > 0 (saw "${countText}")`).toBeGreaterThan(0);
 
-    // ── 8. Preview + Save. previewAndSave handles both clicks + the post-
-    //      save settle wait.
+    // ── 8. Preview + Save. previewAndSave handles both clicks AND the wait for
+    //      the post-save navigation, so it now returns only once handleSave has
+    //      finished every phase-2 await (or throws with the page's own error
+    //      text). It absorbs the "heavy backfill save on a cold serverless
+    //      start" budget that used to live in the heading wait below.
     await previewAndSave(page);
 
-    // Wait for the Plan page to render after save. The heavy backfill save
-    // (generate + insert ~30 lessons, recompute, overcapacity check) can take a
-    // while on a cold/contended serverless start. We key off the Plan page's
-    // own h1 ("Plan") rather than the URL: the post-save soft navigation renders
-    // the Plan content while page.url() can still briefly report the builder
-    // path (/dashboard/plan/schedule), so a strict URL assertion flakes even
-    // though the page has navigated. The heading is the reliable "save landed"
-    // signal — the builder's h1 is "Your Schedule", so it can't false-match.
+    // The Plan pathname is already confirmed by previewAndSave; this just
+    // confirms the Plan content painted. Keyed off the Plan page's own h1
+    // ("Plan") — the builder's h1 is "Your Schedule", so it can't false-match.
     await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({
-      timeout: 90_000,
+      timeout: 30_000,
     });
 
     // ── 8b. Wait for the save's server-side lesson generation to land before
@@ -904,8 +1006,9 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
   test('new curriculum links to active year and its lesson shows on Plan with no clicks', async ({ page }) => {
     // Heavy flow: builder save generates + inserts lessons, recomputes, runs an
     // overcapacity check, then soft-navigates to Plan. Cold staging can exceed
-    // the default budget; match the backfill test's generous timeout.
-    test.setTimeout(150_000);
+    // the default budget; match the backfill test's generous timeout (210s, so
+    // previewAndSave's 120s blocking post-save wait fits inside it).
+    test.setTimeout(210_000);
 
     const sb = adminClient();
     const ctx = await resolveTestUserAndFirstChild();
@@ -984,11 +1087,11 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
     await previewAndSave(page);
 
     // ── 5. We land on the Plan page via a soft navigation (router.push with the
-    //      ?saved=1 flag). Key off the Plan h1, not the URL (the builder's soft
-    //      nav can briefly still report the builder path; the builder's own h1
-    //      is "Your Schedule" so it can't false-match).
+    //      ?saved=1 flag). previewAndSave already waited for that navigation, so
+    //      this only confirms the Plan content painted (the builder's own h1 is
+    //      "Your Schedule", so it can't false-match).
     await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({
-      timeout: 90_000,
+      timeout: 30_000,
     });
 
     // ── 6. The active-year filter chip is the DEFAULT selection (yearFilterAll
