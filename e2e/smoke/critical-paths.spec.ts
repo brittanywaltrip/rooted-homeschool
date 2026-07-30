@@ -47,35 +47,48 @@ async function fetchAllRows<T>(
   return out;
 }
 
-// Tear down a curriculum row by subject_label match, scoped to the test
-// account. Best-effort in one direction only: if the admin client isn't
-// configured we leave the row in place, but if the admin client IS
-// configured and the test user can't be resolved we THROW rather than run
-// an unscoped delete.
+// ── Scoped teardown for admin-created curriculum rows ──────────────────────
 //
-// Why the user scope matters: this runs as service_role against the shared
-// production database, so RLS does not protect anyone here. A DELETE keyed
-// on subject_label alone would take out every family's rows carrying that
-// label. Labels are Date.now()-stamped so a collision is unlikely, but
-// "unlikely" is the wrong safety margin for an unscoped service-role
-// DELETE — one hand-edited or replayed label is all it takes. Both deletes
-// (lessons and goals) carry .eq('user_id', testUserId).
-async function cleanupCurriculumByLabel(label: string) {
-  const sb = adminClient();
-  if (!sb) return;
+// Every service-role DELETE in this file MUST be scoped to the test account.
+// These run as service_role against the shared production database, where RLS
+// does not protect anyone: a DELETE keyed on a subject_label or a
+// curriculum_name alone would reach every family's rows carrying that value.
+// Both values are Date.now()-stamped so a collision is unlikely, but
+// "unlikely" is the wrong safety margin for an unscoped service-role DELETE —
+// one hand-edited, replayed, or copy-pasted name is all it takes.
+//
+// requireTestUserId is the single place that enforces the rule: if we cannot
+// establish the user scope, we THROW rather than widen the blast radius. The
+// only tolerated no-op is a missing admin client (nothing to delete against),
+// which each caller checks before getting here.
+async function requireTestUserId(operation: string): Promise<string> {
   const testUserId = await cachedTestUserId();
   if (!testUserId) {
     throw new Error(
-      `cleanupCurriculumByLabel("${label}") refused to run: could not resolve the test user id ` +
+      `${operation} refused to run: could not resolve the test user id ` +
         '(PLAYWRIGHT_EMAIL missing, or no auth.users row matches it). Refusing to fall back to an ' +
         'unscoped service-role DELETE against the shared database. Set PLAYWRIGHT_EMAIL to the ' +
         'test account, or unset SUPABASE_SERVICE_ROLE_KEY to skip DB cleanup entirely.',
     );
   }
+  return testUserId;
+}
+
+// Tear down a curriculum row and its lessons, matching on `column` and scoped
+// to the test account. Lessons go first: lessons.curriculum_goal_id carries an
+// FK to curriculum_goals, so deleting the goal ahead of its lessons fails.
+// The goal lookup AND both deletes carry .eq('user_id', testUserId).
+async function cleanupCurriculumBy(
+  column: 'subject_label' | 'curriculum_name',
+  value: string,
+) {
+  const sb = adminClient();
+  if (!sb) return;
+  const testUserId = await requireTestUserId(`cleanupCurriculumBy(${column}="${value}")`);
   const { data: goals } = await sb
     .from('curriculum_goals')
     .select('id')
-    .eq('subject_label', label)
+    .eq(column, value)
     .eq('user_id', testUserId);
   const ids = (goals ?? []).map((g) => (g as { id: string }).id);
   if (ids.length === 0) return;
@@ -89,6 +102,14 @@ async function cleanupCurriculumByLabel(label: string) {
     .delete()
     .in('id', ids)
     .eq('user_id', testUserId);
+}
+
+function cleanupCurriculumByLabel(label: string) {
+  return cleanupCurriculumBy('subject_label', label);
+}
+
+function cleanupCurriculumByName(name: string) {
+  return cleanupCurriculumBy('curriculum_name', name);
 }
 
 // Resolve the test account's user_id via the Supabase admin auth API.
@@ -115,11 +136,6 @@ async function resolveTestUserId(): Promise<string | null> {
   return null;
 }
 
-// Resolve the test account's user_id + the id of their first non-archived
-// child. Curriculum goals require a child_id to be valid in the Schedule
-// Builder; admin seeds need both ids to insert a row that the UI will
-// render and treat as editable. Returns null for either field when
-// unavailable so callers can skip the test cleanly.
 // Memoized resolveTestUserId. The admin listUsers walk pages 1000 accounts
 // at a time, and cleanup runs in every afterEach, so re-resolving per call
 // would add a full auth-API sweep to each teardown. Cached per worker
@@ -131,6 +147,11 @@ function cachedTestUserId(): Promise<string | null> {
   return cachedTestUserIdPromise;
 }
 
+// Resolve the test account's user_id + the id of their first non-archived
+// child. Curriculum goals require a child_id to be valid in the Schedule
+// Builder; admin seeds need both ids to insert a row that the UI will
+// render and treat as editable. Returns null for either field when
+// unavailable so callers can skip the test cleanly.
 async function resolveTestUserAndFirstChild(): Promise<{ userId: string; childId: string } | null> {
   const sb = adminClient();
   const userId = await cachedTestUserId();
@@ -687,17 +708,8 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
   const createdCurriculumNames: string[] = [];
 
   test.afterEach(async () => {
-    const sb = adminClient();
-    if (!sb) return;
     for (const name of createdCurriculumNames.splice(0)) {
-      const { data: goals } = await sb
-        .from('curriculum_goals')
-        .select('id')
-        .eq('curriculum_name', name);
-      const ids = (goals ?? []).map((g) => (g as { id: string }).id);
-      if (ids.length === 0) continue;
-      await sb.from('lessons').delete().in('curriculum_goal_id', ids);
-      await sb.from('curriculum_goals').delete().in('id', ids);
+      await cleanupCurriculumByName(name);
     }
   });
 
@@ -740,16 +752,11 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     createdCurriculumNames.push(curriculumName);
 
     // Defensive pre-clean of this run's (unique) name, in case the same stamp
-    // is ever replayed. Normally a no-op given the timestamp suffix.
-    await sb.from('lessons').delete().in(
-      'curriculum_goal_id',
-      ((await sb
-        .from('curriculum_goals')
-        .select('id')
-        .eq('curriculum_name', curriculumName)).data ?? []
-      ).map((g) => (g as { id: string }).id),
-    );
-    await sb.from('curriculum_goals').delete().eq('curriculum_name', curriculumName);
+    // is ever replayed. Normally a no-op given the timestamp suffix. Routed
+    // through the shared helper so it is scoped to the test user like every
+    // other delete here — the hand-rolled version it replaces looked up goal
+    // ids and deleted rows with no user filter at all.
+    await cleanupCurriculumByName(curriculumName);
 
     // ── 1. Navigate to the Schedule Builder ─────────────────────────────────
     await page.goto('/dashboard/plan/schedule');
@@ -985,19 +992,13 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
   let createdSchoolYearId: string | null = null;
 
   test.afterEach(async () => {
-    const sb = adminClient();
-    if (!sb) return;
     for (const name of createdCurriculumNames.splice(0)) {
-      const { data: goals } = await sb
-        .from('curriculum_goals')
-        .select('id')
-        .eq('curriculum_name', name);
-      const ids = (goals ?? []).map((g) => (g as { id: string }).id);
-      if (ids.length === 0) continue;
-      await sb.from('lessons').delete().in('curriculum_goal_id', ids);
-      await sb.from('curriculum_goals').delete().in('id', ids);
+      await cleanupCurriculumByName(name);
     }
-    if (createdSchoolYearId) {
+    // The school year is keyed on the exact id this test created, so it is
+    // already scoped to a single self-created row (never a name match).
+    const sb = adminClient();
+    if (sb && createdSchoolYearId) {
       await sb.from('school_years').delete().eq('id', createdSchoolYearId);
       createdSchoolYearId = null;
     }
@@ -1047,8 +1048,12 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
     const curriculumName = `Test Year Link E2E ${STAMP()}`;
     createdCurriculumNames.push(curriculumName);
 
-    // Defensive pre-clean of this run's (unique) name.
-    await sb.from('curriculum_goals').delete().eq('curriculum_name', curriculumName);
+    // Defensive pre-clean of this run's (unique) name, scoped to the test user
+    // via the shared helper. This also now clears any leftover lessons first,
+    // which the previous goals-only delete did not: lessons.curriculum_goal_id
+    // has an FK to curriculum_goals, so a goal that still had lesson rows would
+    // have failed the delete (the result was never error-checked).
+    await cleanupCurriculumByName(curriculumName);
 
     // start_date = Monday of the current week (local).
     const today = new Date();
