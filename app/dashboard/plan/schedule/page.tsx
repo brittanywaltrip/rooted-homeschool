@@ -1403,6 +1403,37 @@ export default function ScheduleBuilderPage() {
           );
         }
 
+        // PRE-INSERT starting-position assertion. A save with starting position
+        // N must never insert an INCOMPLETE dated row at or below N. Those
+        // lessons are "already done before you started tracking", and the
+        // orphan-cleanup trigger auto-completes them the moment current_lesson
+        // advances — historically leaving their date caches parked on future
+        // school days that the live queue also claimed. That is exactly how
+        // kierrak745's goal came to render two lessons a day for seven school
+        // days: starting position 8 with a future start_date of Aug 10, and
+        // rows 1-7 written as wizard_create incompletes dated Aug 10-18.
+        //
+        // HEAD should already make this unreachable — `upcoming` projects from
+        // current_lesson + 1, and the historical block only runs for a
+        // past start_date and inserts completed=true rows. The assertion is
+        // here so a future regression fails loudly, per goal, instead of
+        // silently doubling a family's calendar. Backfill rows are checked
+        // separately by construction: they are completed=true, so they are
+        // legitimately at or below the floor and are not in `toInsert`.
+        const belowFloor = toInsert.filter(
+          (r) => !r.completed && r.lesson_number != null && r.lesson_number <= currentLesson,
+        );
+        if (belowFloor.length > 0) {
+          const nums = belowFloor.map((r) => r.lesson_number).join(", ");
+          console.error(
+            "[handleSave] Batch would insert incomplete rows at/below the starting position, refusing INSERT",
+            { goalId, currentLesson, lessonNumbers: belowFloor.map((r) => r.lesson_number) },
+          );
+          throw new Error(
+            `Lesson scheduling tried to schedule lesson(s) ${nums} that are at or below your starting position (${currentLesson}). The curriculum saved, but lessons were not generated. Please contact support.`,
+          );
+        }
+
         if (toInsert.length > 0) {
           for (let i = 0; i < toInsert.length; i += 100) {
             const { error: lessonErr } = await supabase

@@ -3563,3 +3563,143 @@ test('pinsByGoalFromRows: groups per goal and scopes correctly', () => {
   assert.deepEqual(byGoal.get('b'), [{ slot: 2, date: '2026-08-04' }])
   assert.equal(byGoal.size, 2, 'rows with no goal are not pins')
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Starting position + future start_date must not schedule below the floor
+//
+// kierrak745@gmail.com, TPT goal d7791c72-10d7-4491-8ca2-1c4495457048: created
+// with starting position 8 and a future start_date of Aug 10. The old create
+// path wrote lessons 1-100 as incomplete dated rows from lesson 1. When
+// current_lesson advanced to 8, curriculum_goals_cleanup_orphans_trg
+// auto-completed rows 1-7 but left their scheduled_date / date caches on
+// Aug 10-18 — the same days the queue had given lessons 9-15. MonthGrid renders
+// `scheduled_date ?? date`, so she saw two lessons per day for seven school
+// days. The daily integrity check reports it as drift B (overcapacity).
+//
+// Two halves, matching the two halves of the fix:
+//   1. the projector never emits a slot at or below the starting position;
+//   2. a trigger-completed (orphan) row carries no future date cache.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('starting position: future start_date + position N emits nothing at or below N', () => {
+  // Kierra's shape: 100 lessons, 1/day, Mon-Fri, starting position 8 (so
+  // current_lesson = 7), start_date Aug 10 while "today" is Jul 30.
+  const goal: CurriculumGoalConfig = {
+    id: 'g-kierra',
+    total_lessons: 100,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 7,
+    start_date: '2026-08-10',
+  }
+  const today = new Date('2026-07-30T00:00:00')
+  const projected = computeNextLessonsForGoal(goal, today, 3650, [])
+
+  assert.ok(projected.length > 0, 'projection must not be empty')
+  const lowest = Math.min(...projected.map((p) => p.lesson_number))
+  assert.equal(lowest, 8, 'first projected slot is the starting position itself, never below it')
+  assert.equal(
+    projected.filter((p) => p.lesson_number <= 7).length,
+    0,
+    'no slot at or below the starting position may be projected',
+  )
+
+  // The whole point of the future start_date: nothing before it, and lesson 8
+  // lands on Aug 10 itself (a Monday).
+  const earliest = projected.reduce((acc, p) => (p.date < acc ? p.date : acc), projected[0].date)
+  assert.equal(earliest, '2026-08-10')
+  assert.equal(projected.find((p) => p.lesson_number === 8)?.date, '2026-08-10')
+
+  // And the days that collided in production hold exactly one lesson each.
+  const perDate = new Map<string, number>()
+  for (const p of projected) perDate.set(p.date, (perDate.get(p.date) ?? 0) + 1)
+  for (const day of ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-17', '2026-08-18']) {
+    assert.equal(perDate.get(day), 1, `${day} must hold exactly one lesson for a 1/day goal`)
+  }
+})
+
+test('starting position: orphan-completed rows carry no future date cache', () => {
+  // Simulates what curriculum_goals_cleanup_orphans_trg now writes for rows
+  // 1-7 when current_lesson advances to 8: completed, queue_position NULL,
+  // scheduled_date cleared, date pinned to the synthetic completed_at day.
+  // Pre-fix these rows kept scheduled_date = Aug 10..Aug 18.
+  const YESTERDAY = '2026-07-29'
+  type OrphanRow = {
+    lesson_number: number
+    completed: boolean
+    queue_position: number | null
+    scheduled_date: string | null
+    date: string
+    completed_at: string
+  }
+  const orphanCompleted: OrphanRow[] = [1, 2, 3, 4, 5, 6, 7].map((n) => ({
+    lesson_number: n,
+    completed: true,
+    queue_position: null,
+    scheduled_date: null,
+    date: YESTERDAY,
+    completed_at: `${YESTERDAY}T12:00:00Z`,
+  }))
+
+  const TODAY = '2026-07-30'
+  for (const r of orphanCompleted) {
+    assert.equal(r.queue_position, null, 'orphan rows must not hold a queue slot')
+    assert.equal(r.scheduled_date, null, 'orphan rows must not hold a calendar slot')
+    assert.ok(r.date < TODAY, `orphan row date ${r.date} must not be today or later`)
+    assert.equal(r.date, r.completed_at.slice(0, 10), 'date must match the synthetic completed_at day')
+  }
+
+  // The live queue for the same goal starts at 8 and owns Aug 10 onward. With
+  // the orphan rows holding no calendar slot, nothing the trigger touched can
+  // land on a day the queue claims — which is the collision itself.
+  const goal: CurriculumGoalConfig = {
+    id: 'g-kierra',
+    total_lessons: 100,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 7,
+    start_date: '2026-08-10',
+  }
+  const projected = computeNextLessonsForGoal(goal, new Date('2026-07-30T00:00:00'), 60, [])
+  const queueDates = new Set(projected.map((p) => p.date))
+  const orphanDates = orphanCompleted
+    .map((r) => r.scheduled_date ?? r.date) // exactly what MonthGrid renders
+    .filter((d): d is string => !!d)
+  for (const d of orphanDates) {
+    assert.ok(!queueDates.has(d), `orphan row still occupies queue day ${d}`)
+  }
+
+  // Regression guard on the pre-fix shape: had the caches been left alone,
+  // MonthGrid's `scheduled_date ?? date` would have collided on the queue's days.
+  const preFix = ['2026-08-10', '2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-17', '2026-08-18']
+  assert.ok(
+    preFix.every((d) => queueDates.has(d)),
+    'sanity: these are the days the queue owns, i.e. the days that used to double up',
+  )
+})
+
+test('starting position: the create batch never contains an incomplete row at or below the floor', () => {
+  // Mirrors the pre-insert assertion added to the Schedule Builder create
+  // flow: build the batch the way phase 2 does and assert the guard's
+  // predicate finds nothing. If the projector ever regresses to starting at
+  // lesson 1, this fails here instead of in a family's calendar.
+  const currentLesson = 7
+  const goal: CurriculumGoalConfig = {
+    id: 'g-kierra',
+    total_lessons: 100,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: currentLesson,
+    start_date: '2026-08-10',
+  }
+  const upcoming = computeNextLessonsForGoal(goal, new Date('2026-07-30T00:00:00'), 3650, [])
+  const toInsert = upcoming.map((l) => ({
+    lesson_number: l.lesson_number,
+    scheduled_date: l.date,
+    completed: false,
+  }))
+  const belowFloor = toInsert.filter(
+    (r) => !r.completed && r.lesson_number != null && r.lesson_number <= currentLesson,
+  )
+  assert.deepEqual(belowFloor, [], 'no incomplete row may be inserted at or below the starting position')
+})

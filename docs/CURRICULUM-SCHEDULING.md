@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: May 18, 2026 — adds the queue_position column and the `plan_move` scheduled_source value so the Plan page's manual move reorders the queue (Ivy's bug). See "Queue position" section below.*
+*Last updated: July 30, 2026 — adds Invariant 12 (pinned manual placements) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -141,6 +141,73 @@ Every caller of `syncProjectedScheduledDates` must build `projDateByKey` from a 
 
 **Test case:** `Invariant 11 (whitley)` tests in `scheduler.test.ts` — given lpd=1, school_days=[Mon,Wed,Fri], 5 incomplete lessons whose stale cache overlaps today's projector output, a full-tail projection results in 5 distinct dates and no collisions. A companion test pins the bug shape: a 7-day projection over the same goal config reproduces the lesson 84 / lesson 85 collision on 2026-06-01.
 
+### Invariant 12 — A manual placement is never re-dated by the system
+
+When the user places a lesson on a date by hand, `lessons.queue_pinned` is set
+and that row's `scheduled_date` becomes authoritative. The projector emits
+pinned slots at their stored date; the reconciler never rewrites them.
+
+**Why:** before pins, `scheduled_date` was a pure cache of the projection, so
+`reconcileGoalScheduleCache` rewrote every manually-moved row on the next Today
+load and stamped it `queue_resync`. Manual moves reverted within a second. A
+partly-rewritten tail was worse than a full revert: luvmywk's lessons 17-37 kept
+their moved dates while 38+ resynced, so Sep 7 held both lesson 36 and lesson 38
+and the numbers ran out of order.
+
+**This is the documented exception to "scheduled_date is only a cache."** For a
+pinned row it is the source of truth. Invariant 11's full-tail rule still
+applies to the unpinned remainder.
+
+**Enforced by:** `queue_pinned` (migration `20260730000000`), set by
+`move_lesson_to_date` and by the PlanV2 manual flows (cascade shift-all-forward,
+push-back, shift-forward, bulk move). System writes — vacation re-spread,
+`queue_resync` — must NOT pin. `computeNextLessonsForGoal` takes a `pins`
+argument; `pinsFromRows` / `loadPinsByGoal` are the single derivation used by
+every projecting surface so no two can disagree. Empty pins reproduces the
+pre-pin projection exactly.
+
+**Unpin:** completing a pinned lesson retires its pin (completed rows are never
+re-dated, and `pinsFromRows` skips them). Undo of a manual flow restores each
+row's prior pin state. Re-saving the goal in the Schedule Builder regenerates
+the incomplete tail and clears pins — an explicit whole-schedule re-spread.
+
+**Test case:** the PINS block in `scheduler.test.ts` — pin honored and filled
+around in order, capacity never exceeded, fully pinned tail emitted verbatim,
+reconciler skips pinned rows, cascade+reconcile round-trip with zero writes.
+
+### Invariant 13 — A trigger-completed row holds no future calendar slot
+
+When `curriculum_goals_cleanup_orphans_trg` auto-completes orphan rows, it must
+also clear their date caches: `scheduled_date = NULL` and
+`date = (NOW() - interval '1 day')::date`, the same synthetic day as the
+`completed_at` it stamps.
+
+**Why:** kierrak745 created a curriculum with starting position 8 and a future
+start_date of Aug 10. Rows 1-100 went in as incomplete dated rows from lesson 1.
+When `current_lesson` advanced to 8 the trigger completed rows 1-7 but left their
+caches on Aug 10-18 — the days the queue had given lessons 9-15. MonthGrid reads
+`scheduled_date ?? date`, so she saw two lessons per day for seven school days.
+The daily integrity check reports this as drift B (overcapacity).
+
+**A completed row with no queue slot has no business owning a calendar day.**
+Its `completed_at` is what carries it into transcripts and progress reports.
+
+**Enforced by:** migration `20260730100000`. Note the earlier
+`20260520180000_orphan_cleanup_sync_scheduled_date.sql` attempted the same fix
+and was **never applied** — it is absent from
+`supabase_migrations.schema_migrations`, which is why the bug survived two more
+months. Verify a trigger change against `pg_get_functiondef` on the live
+database, not against the repo file.
+
+**Companion guard:** the Schedule Builder create flow asserts pre-INSERT that no
+batch contains a `completed = false` row with `lesson_number <= current_lesson`,
+so a regression that schedules below the starting position fails loudly per goal
+instead of silently doubling a calendar.
+
+**Test case:** "starting position" tests in `scheduler.test.ts` — future
+start_date with position N emits nothing at or below N, and simulated
+orphan-completed rows carry no future `scheduled_date` / `date`.
+
 ---
 
 ## Bug patterns to NEVER reintroduce
@@ -179,6 +246,15 @@ The May 3 regression was caused by a second scheduling implementation ("Path A: 
 
 Migrations are environment-shared. A migration that bulk-updates `lessons` will run against every environment (staging AND production) at deploy time and rewrite real users' schedules without warning. If you need to fix data, write a one-off script with a backup table, dry run, and explicit Brittany sign-off — not a migration.
 
+### Anti-pattern J — Trusting a migration file as evidence the database changed
+
+`20260520180000_orphan_cleanup_sync_scheduled_date.sql` sat in the repo for two
+months looking like a shipped fix. It was never applied, the live trigger never
+had the line, and kierrak745 hit the bug it was written to prevent. A file in
+`supabase/migrations/` proves someone wrote SQL, not that the database ran it.
+Before trusting any function or trigger, read it back with
+`pg_get_functiondef` and check `supabase_migrations.schema_migrations`.
+
 ### Anti-pattern I — Fixed-day projection window feeding the cache sync
 
 Any caller of `syncProjectedScheduledDates` that builds `projDateByKey` from a small fixed window (e.g. 7 days, 14 days) is broken by construction. The sync skips rows whose key is absent from the map, so in-window writes can land on dates that out-of-window rows still occupy in their stale cache. Always project until `total_lessons` is reached. See Invariant 11.
@@ -208,6 +284,8 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 15 | TZ-aware today | Same call from Pacific user and Eastern user at the same UTC instant late-evening Pacific produces different "today" dates. |
 | 16 | scheduled_source populated | After any code path runs, the lessons it touched have a non-NULL `scheduled_source` matching the originating action. |
 | 17 | queue_resync full-tail (whitley) | With lpd=1, school_days=[Mon,Wed,Fri], and 5 incomplete lessons whose stale cache overlaps today's projector output, a full-tail projection yields 5 distinct dates. Companion test pins the 7-day collision bug. |
+| 18 | Pins (Invariant 12) | Pin honored and unpinned slots filled around it in date order; pinned date consumes capacity; fully pinned tail emitted verbatim; reconciler skips pinned rows; cascade + reconcile round-trip writes nothing; empty pins projects identically to no pins. |
+| 19 | Starting position (Invariant 13) | Future start_date with starting position N projects nothing at or below N; the create batch contains no incomplete row at or below the floor; orphan-completed rows carry no future scheduled_date / date. |
 
 ---
 
