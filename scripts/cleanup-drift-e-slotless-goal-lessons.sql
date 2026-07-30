@@ -1,5 +1,22 @@
 -- ============================================================================
--- PROPOSAL — NOT RUN. Needs Brittany's sign-off before anyone executes it.
+-- EXECUTED 2026-07-30. HISTORICAL RECORD — do not run again.
+--
+-- The 6 rows were detached directly against production on the night of
+-- 2026-07-30, with the backup preserved in
+-- public.backup_drift_e_slotless_20260730 (6 rows).
+--
+-- Re-verified after the fact:
+--   * step 2's dry run, run verbatim: 0 rows.
+--   * every backed-up row still exists (0 missing) and every one is now
+--     detached (0 still carrying a curriculum_goal_id).
+--   * the completed off-queue "Log an extra lesson" rows were correctly left
+--     alone — the cleanup only ever targeted `completed = false`.
+--
+-- resolveCustomLessonGoalLink (app/lib/scheduler.ts) stops new rows entering
+-- this state, so the count should stay at zero.
+--
+-- Kept in the repo as the record of what was run and why. Step 6 (dropping the
+-- backup table) is still outstanding and deliberately so — see that step.
 --
 -- Drift E residue: 6 incomplete lessons attached to a curriculum goal with no
 -- queue slot (lesson_number IS NULL AND queue_position IS NULL). Today hydrates

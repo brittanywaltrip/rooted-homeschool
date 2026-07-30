@@ -179,6 +179,17 @@ account: sibling goal `4193f9b3`'s pinned lesson 30 was deleted and re-created
 unpinned at `05:06:23` when an e2e spec saved a different curriculum, while the
 rows below it still dated from Jul 9.
 
+**Verified against production, 2026-07-30 05:46 UTC.** Goal `4193f9b3` had
+lesson 40 (`35d7f2ab`) seeded as an incomplete pinned row at 05:41:40, dated
+Sunday 2026-08-16 with `plan_move` — above the goal's completed floor of 32, so a
+genuine deletion candidate. A save of a DIFFERENT curriculum then ran phase 2
+over it as a sibling: lessons 33 and 41 came back with fresh `created_at`
+05:46:44 and `wizard_create`, proving the floor delete ran and swept past 40 in
+both directions, while lesson 40 kept its id, `created_at`, date, source and pin,
+with an `updated_at` of 05:45:26 that predates the save entirely. Aug 16 is a
+Sunday on a Mon-Fri goal, a date the projector could not have produced — so the
+survival cannot be explained by re-projection landing on the same day.
+
 The rule now, in `scheduleFieldsChangedForRow`
 (`app/dashboard/plan/schedule/page.tsx`):
 

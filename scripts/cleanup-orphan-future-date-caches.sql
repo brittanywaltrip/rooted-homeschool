@@ -1,5 +1,21 @@
 -- ============================================================================
--- PROPOSAL — NOT RUN. Needs Brittany's sign-off before anyone executes it.
+-- EXECUTED 2026-07-30. HISTORICAL RECORD — do not run again.
+--
+-- The residue this script targets was cleaned directly against production on
+-- the night of 2026-07-30 (~470 rows), using the same filter as step 2/3 below:
+--   completed = true AND queue_position IS NULL
+--   AND (scheduled_date > completed_at::date OR date > completed_at::date)
+--
+-- Re-verified after the fact by running step 2's dry run verbatim: 0 rows,
+-- 0 goals, 0 users. The trigger fix (migration 20260730100000) stops new rows
+-- entering this state, so the count should stay at zero; if it ever climbs
+-- again, that migration is the first thing to check against the LIVE function
+-- body (anti-pattern J).
+--
+-- Kept in the repo as the record of what was run and why, and as the shape to
+-- reuse if a related residue ever needs clearing. The steps below are left
+-- exactly as written so the filter, the backup, and the verification queries
+-- are all auditable.
 --
 -- One-time cleanup of the residue left by curriculum_goals_cleanup_orphans_trg
 -- before migration 20260730100000. The trigger auto-completed orphan rows but
