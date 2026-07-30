@@ -4,6 +4,7 @@
 // DELETE FROM lessons WHERE title ILIKE '%test%' AND user_id = 'd18ca881-a776-4e82-b145-832adc88a88a';
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -1656,7 +1657,20 @@ export default function TodayPage() {
           .select("child_id, subject_label, default_minutes, subject_id")
           .eq("id", entry.goal_id)
           .maybeSingle();
+        // child_id MUST come from the goal. Pre-fix this silently fell back to
+        // null when the SELECT failed or returned nothing, inserting a lesson
+        // with no child on a goal that has one (drift F: 6 prod rows across 3
+        // families, created Jul 9-27). A lesson row with no child never renders
+        // under a kid on Today or Plan and never reaches that child's
+        // transcript, so a silent null is worse than a skipped row.
         const childId = (goalRow.data as { child_id?: string | null })?.child_id ?? null;
+        if (!childId) {
+          Sentry.captureMessage(
+            `Missed-lesson recovery: no child_id resolvable for goal ${entry.goal_id}; skipping insert`,
+            { level: "error", tags: { fn: "acceptMissedRecovery" } },
+          );
+          continue;
+        }
         const subjectId = (goalRow.data as { subject_id?: string | null })?.subject_id ?? null;
         const defaultMinutes = (goalRow.data as { default_minutes?: number | null })?.default_minutes ?? 30;
         await supabase.from("lessons").insert({

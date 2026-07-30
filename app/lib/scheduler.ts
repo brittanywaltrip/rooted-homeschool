@@ -1852,6 +1852,77 @@ export async function rescheduleLessonsInVacationBlock(
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
+ * Custom-lesson goal link (drift E, July 2026)
+ *
+ * THE BUG: 6 production rows were hand-created custom lessons — unit-study
+ * activities like "Seahorses · Seahorse Art Activity" on an "Ocean Unit" goal —
+ * with curriculum_goal_id set but lesson_number AND queue_position NULL. The
+ * queue projector only emits slots, and Today only hydrates rows by
+ * (goal_id, queue_position) plus a separate `curriculum_goal_id IS NULL` query
+ * for one-offs. A goal-attached row with no slot falls through BOTH, so it
+ * renders on the Plan calendar (which reads scheduled_date) and then never
+ * appears on Today when its day arrives. Mom plans it, sees it, and it silently
+ * fails to show up.
+ *
+ * THE CONTRACT: an INCOMPLETE lesson may not be attached to a goal without a
+ * queue slot. Give it a lesson number and it joins the queue at that number;
+ * leave the number blank and it is created standalone (curriculum_goal_id
+ * NULL), which is what AddLessonModal already advertises — its picker's empty
+ * option literally reads "(no goal, one-off lesson)" and the header comment
+ * says "Curriculum goal is optional so one-off lessons don't need setup".
+ *
+ * WHY STANDALONE RATHER THAN AUTO-ASSIGNING THE NEXT SLOT: on 4 of the 6
+ * affected goals the queue was already full — max(lesson_number) equalled
+ * total_lessons — so "the next number" would exceed the family's stated
+ * curriculum length. Worse, the Schedule Builder's phase-2 cleanup deletes
+ * incomplete rows with `lesson_number > total_lessons`, so an auto-assigned
+ * row would be silently destroyed on the goal's next save. Growing
+ * total_lessons to make room would rewrite what the family said their
+ * curriculum was because they logged one art project. Standalone loses
+ * nothing visible: the modal already bakes the subject into the title as
+ * "Subject · Title", so the pill reads identically, and standalone rows are
+ * exactly what Today's one-off query is for.
+ *
+ * COMPLETED off-queue rows are deliberately left alone. "Log an extra lesson"
+ * has always written completed=true rows with a goal and no slot
+ * (scheduled_source='extra_log', 39 such rows in production) so an extra
+ * doesn't advance current_lesson. Those are history, not plans: nothing needs
+ * to surface them in a future projection, and dropping their goal link would
+ * detach real completions from the curriculum they belong to.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface CustomLessonGoalLinkInput {
+  curriculum_goal_id: string | null;
+  /** The queue slot the user typed, if any. */
+  lesson_number: number | null;
+  /** True for the "log an extra lesson" path (off-queue history by design). */
+  completed: boolean;
+}
+
+export interface CustomLessonGoalLinkResult {
+  curriculum_goal_id: string | null;
+  /** True when the goal link was dropped so the caller can tell the user. */
+  detachedFromGoal: boolean;
+}
+
+/**
+ * Decide whether a newly created lesson keeps its goal link. Single definition
+ * so the Plan add-lesson flow and any future creation surface agree.
+ */
+export function resolveCustomLessonGoalLink(
+  input: CustomLessonGoalLinkInput,
+): CustomLessonGoalLinkResult {
+  const { curriculum_goal_id, lesson_number, completed } = input;
+  // No goal picked, or already a queue member: nothing to decide.
+  if (!curriculum_goal_id) return { curriculum_goal_id: null, detachedFromGoal: false };
+  if (lesson_number != null) return { curriculum_goal_id, detachedFromGoal: false };
+  // Completed extras keep their goal link (off-queue history, by design).
+  if (completed) return { curriculum_goal_id, detachedFromGoal: false };
+  // Incomplete + goal + no slot: the unreachable shape. Create it standalone.
+  return { curriculum_goal_id: null, detachedFromGoal: true };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
  * Queue reorder (manual move)
  *
  * When a user moves an incomplete lesson to a new date on the Plan page,

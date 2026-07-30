@@ -77,6 +77,7 @@ import {
   schoolDayDelta,
   buildPastDateCompletionPayload,
   loadPinsByGoal,
+  resolveCustomLessonGoalLink,
   type PinnedSlot,
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
@@ -893,7 +894,20 @@ export default function PlanV2() {
     // INSERT only when no row exists.
     const isExtraCompletion = addLessonAsCompleted;
     const completedAt = isExtraCompletion ? new Date().toISOString() : null;
-    const hasGoalAndNumber = !!values.curriculum_goal_id && values.lesson_number != null;
+
+    // Drift E contract (see resolveCustomLessonGoalLink in scheduler.ts): an
+    // INCOMPLETE lesson may not be attached to a goal without a queue slot,
+    // because such a row falls through both of Today's hydration queries and
+    // silently never appears on the day it was planned for. Blank lesson number
+    // means "one-off", which is what the picker already advertises.
+    const goalLink = resolveCustomLessonGoalLink({
+      curriculum_goal_id: values.curriculum_goal_id,
+      lesson_number: values.lesson_number,
+      completed: isExtraCompletion,
+    });
+    const goalIdForInsert = goalLink.curriculum_goal_id;
+
+    const hasGoalAndNumber = !!goalIdForInsert && values.lesson_number != null;
 
     let row: PlanV2Lesson;
     // True when we updated a pre-existing placeholder instead of inserting a
@@ -907,7 +921,7 @@ export default function PlanV2() {
       const { data: existing } = await supabase
         .from("lessons")
         .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("curriculum_goal_id", values.curriculum_goal_id!)
+        .eq("curriculum_goal_id", goalIdForInsert!)
         .eq("lesson_number", values.lesson_number!)
         .maybeSingle();
 
@@ -937,7 +951,7 @@ export default function PlanV2() {
           .insert({
             user_id: effectiveUserId,
             child_id: values.child_id,
-            curriculum_goal_id: values.curriculum_goal_id,
+            curriculum_goal_id: goalIdForInsert,
             title: values.title,
             lesson_number: values.lesson_number,
             minutes_spent: values.minutes_spent,
@@ -965,7 +979,7 @@ export default function PlanV2() {
         .insert({
           user_id: effectiveUserId,
           child_id: values.child_id,
-          curriculum_goal_id: values.curriculum_goal_id,
+          curriculum_goal_id: goalIdForInsert,
           title: values.title,
           lesson_number: isExtraCompletion ? null : values.lesson_number,
           minutes_spent: values.minutes_spent,
@@ -989,8 +1003,8 @@ export default function PlanV2() {
 
     // After completing a lesson tied to a curriculum goal, recompute
     // current_lesson so the queue pointer reflects the highest completed slot.
-    if (isExtraCompletion && values.curriculum_goal_id) {
-      await recomputeCurrentLesson(supabase, values.curriculum_goal_id);
+    if (isExtraCompletion && goalIdForInsert) {
+      await recomputeCurrentLesson(supabase, goalIdForInsert);
     }
 
     // Optimistic state: patch in-place if we updated a pre-existing row
@@ -1006,7 +1020,7 @@ export default function PlanV2() {
       lesson_id: row.id,
       lesson_title: row.title ?? "",
       date: values.scheduled_date,
-      curriculum_goal_id: values.curriculum_goal_id,
+      curriculum_goal_id: goalIdForInsert,
       actor: "user",
     });
 
@@ -1031,6 +1045,13 @@ export default function PlanV2() {
           reload();
         },
       });
+    }
+
+    // Be honest when we dropped the goal link: the user picked a curriculum
+    // and the row was created standalone instead. Says what happened and how
+    // to get the other behaviour, rather than silently changing her choice.
+    if (goalLink.detachedFromGoal) {
+      flashNotice("Added as a one-off lesson. Add a lesson number to place it in the curriculum's queue.");
     }
 
     reload();
@@ -1518,7 +1539,27 @@ export default function PlanV2() {
   ): Promise<void> => {
     if (!effectiveUserId) throw new Error("Not signed in");
     const goal = curriculumGoals.find((g) => g.id === goalId);
-    const childId = goal?.child_id ?? null;
+    // child_id MUST come from the goal. `curriculumGoals` is filtered to
+    // archived=false and may not have loaded yet, so `goal?.child_id ?? null`
+    // silently inserted backfill rows with no child on goals that have one
+    // (drift F: 6 prod rows, 3 families, Jul 9-27). A childless lesson row
+    // never renders under a kid on Today or Plan and never reaches that
+    // child's transcript. Fall back to a direct read, then refuse rather than
+    // write a null.
+    let childId = goal?.child_id ?? null;
+    if (!childId) {
+      const { data: goalRow } = await supabase
+        .from("curriculum_goals")
+        .select("child_id")
+        .eq("id", goalId)
+        .maybeSingle();
+      childId = (goalRow as { child_id?: string | null } | null)?.child_id ?? null;
+    }
+    if (!childId) {
+      throw new Error(
+        "This curriculum has no child assigned, so past hours can't be logged against it. Assign a child to the curriculum first.",
+      );
+    }
     const insertRows = entries.map((e) => ({
       user_id: effectiveUserId,
       child_id: childId,

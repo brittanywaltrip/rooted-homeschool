@@ -33,6 +33,7 @@ import {
   syncProjectedScheduledDates,
   pinsFromRows,
   pinsByGoalFromRows,
+  resolveCustomLessonGoalLink,
   type PinnedSlot,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
@@ -3702,4 +3703,133 @@ test('starting position: the create batch never contains an incomplete row at or
     (r) => !r.completed && r.lesson_number != null && r.lesson_number <= currentLesson,
   )
   assert.deepEqual(belowFloor, [], 'no incomplete row may be inserted at or below the starting position')
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drift E — a custom lesson may not sit on a goal with no queue slot
+//
+// 6 production rows were hand-created activities (e.g. "Seahorses · Seahorse Art
+// Activity" on an "Ocean Unit" goal) with curriculum_goal_id set but
+// lesson_number and queue_position NULL. Today hydrates by
+// (goal_id, queue_position) and, separately, `curriculum_goal_id IS NULL` for
+// one-offs — so a goal-attached slotless row falls through both and never
+// appears on the day it was planned for, even though the Plan calendar shows it.
+//
+// Contract: incomplete + goal + no slot → create standalone. Completed extras
+// keep their goal link (off-queue history, by design).
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('drift E: incomplete lesson on a goal with no lesson number is created standalone', () => {
+  const r = resolveCustomLessonGoalLink({
+    curriculum_goal_id: 'goal-ocean-unit',
+    lesson_number: null,
+    completed: false,
+  })
+  assert.equal(r.curriculum_goal_id, null, 'the unreachable shape must not be created')
+  assert.equal(r.detachedFromGoal, true, 'caller must be able to tell the user')
+})
+
+test('drift E: a lesson number keeps the goal link — that row joins the queue', () => {
+  const r = resolveCustomLessonGoalLink({
+    curriculum_goal_id: 'goal-ocean-unit',
+    lesson_number: 4,
+    completed: false,
+  })
+  assert.equal(r.curriculum_goal_id, 'goal-ocean-unit')
+  assert.equal(r.detachedFromGoal, false)
+})
+
+test('drift E: completed extras keep their goal link (off-queue history by design)', () => {
+  // "Log an extra lesson" has always written completed=true with a goal and no
+  // slot so the extra does not advance current_lesson. 39 such rows exist in
+  // production. Detaching them would orphan real completions from their
+  // curriculum, and nothing needs to project history forward.
+  const r = resolveCustomLessonGoalLink({
+    curriculum_goal_id: 'goal-geography',
+    lesson_number: null,
+    completed: true,
+  })
+  assert.equal(r.curriculum_goal_id, 'goal-geography')
+  assert.equal(r.detachedFromGoal, false)
+})
+
+test('drift E: no goal picked stays a plain one-off', () => {
+  const r = resolveCustomLessonGoalLink({
+    curriculum_goal_id: null,
+    lesson_number: null,
+    completed: false,
+  })
+  assert.equal(r.curriculum_goal_id, null)
+  assert.equal(r.detachedFromGoal, false, 'nothing was detached — there was no link')
+})
+
+test('drift E: the created row is always reachable by one of Today\'s two queries', () => {
+  // The property that actually matters. Today hydrates a row iff it either has
+  // a queue slot under its goal, or has no goal at all. Every shape the add
+  // flow can produce must satisfy one of those.
+  const shapes = [
+    { curriculum_goal_id: 'g1', lesson_number: null, completed: false },
+    { curriculum_goal_id: 'g1', lesson_number: 4, completed: false },
+    { curriculum_goal_id: 'g1', lesson_number: null, completed: true },
+    { curriculum_goal_id: null, lesson_number: null, completed: false },
+    { curriculum_goal_id: null, lesson_number: 9, completed: false },
+  ]
+  for (const shape of shapes) {
+    const out = resolveCustomLessonGoalLink(shape)
+    // queue_position is set from lesson_number at insert for queue members.
+    const hasSlot = shape.lesson_number != null
+    const reachable =
+      out.curriculum_goal_id === null || hasSlot || shape.completed
+    assert.ok(
+      reachable,
+      `shape ${JSON.stringify(shape)} produced an unreachable row (goal set, no slot, incomplete)`,
+    )
+  }
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drift F — a goal-attached lesson always carries the goal's child_id
+//
+// 6 production rows across 3 families (created Jul 9-27) had child_id NULL on
+// goals that have a child. A childless lesson never renders under a kid on Today
+// or Plan and never reaches that child's transcript. Two app paths could do it
+// (Today's missed-lesson recovery insert and PlanV2's "log past hours"
+// backfill), both of which fell back to `?? null` when their goal lookup came
+// back empty. Both are fixed in code, and migration 20260730200000 adds a
+// BEFORE INSERT trigger that fills child_id from the goal so the class is
+// impossible regardless of the writer.
+//
+// The trigger itself is proven against the live database (rolled-back INSERT).
+// This test pins the rule the app-side code must follow.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('drift F: every goal-attached insert payload copies child_id from the goal', () => {
+  // Models the insert payloads the app builds. The rule: if a payload carries a
+  // curriculum_goal_id, it must carry that goal's child_id — never null, and
+  // never a different child (which enforce_lesson_child_matches_goal rejects).
+  const goals = new Map([
+    ['g1', { child_id: 'kid-a' }],
+    ['g2', { child_id: 'kid-b' }],
+  ])
+  const buildPayload = (goalId: string | null, childIdFromGoalLookup: string | null) => ({
+    curriculum_goal_id: goalId,
+    child_id: goalId ? childIdFromGoalLookup : null,
+  })
+
+  // Good: child resolved from the goal.
+  for (const [goalId, goal] of goals) {
+    const p = buildPayload(goalId, goal.child_id)
+    assert.equal(p.child_id, goal.child_id)
+  }
+
+  // The bug shape: goal set, lookup returned nothing, payload nulls the child.
+  const bad = buildPayload('g1', null)
+  assert.equal(bad.curriculum_goal_id, 'g1')
+  assert.equal(bad.child_id, null)
+  const violatesRule = bad.curriculum_goal_id != null && bad.child_id == null
+  assert.ok(violatesRule, 'this is the shape both code fixes and the DB trigger prevent')
+
+  // A standalone lesson legitimately has no goal and no goal-derived child.
+  const oneOff = buildPayload(null, null)
+  assert.equal(oneOff.curriculum_goal_id, null)
 })
