@@ -570,7 +570,7 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     //    poisoned by this cleanup.
     const { data: cleanedRows, error: q2Err } = await sb
       .from('lessons')
-      .select('lesson_number, completed, queue_position, completed_at')
+      .select('lesson_number, completed, queue_position, completed_at, scheduled_date, date')
       .eq('curriculum_goal_id', goalId)
       .eq('completed', true)
       .order('lesson_number');
@@ -580,6 +580,8 @@ test.describe('Orphan cleanup on starting-position advance', () => {
       completed: boolean;
       queue_position: number | null;
       completed_at: string | null;
+      scheduled_date: string | null;
+      date: string | null;
     }>;
     // Rows 1, 2, 4..10 = 9 rows
     expect(cleaned.length).toBe(9);
@@ -592,6 +594,31 @@ test.describe('Orphan cleanup on starting-position advance', () => {
       // between trigger fire and this assertion.
       expect(ageDays, `row ${row.lesson_number} should be backdated ~1 day`).toBeGreaterThan(0.5);
       expect(ageDays, `row ${row.lesson_number} should not be ancient`).toBeLessThan(1.5);
+
+      // Invariant 13 (migration 20260730100000): a trigger-completed row holds
+      // no future calendar slot. Before that migration the trigger flipped the
+      // completion flags but left scheduled_date / date on whatever future
+      // school day the row had been given — so kierrak745's rows 1-7 kept
+      // Aug 10-18, the same days the live queue had assigned lessons 9-15, and
+      // MonthGrid (which renders `scheduled_date ?? date`) drew two lessons a
+      // day for seven school days. This block is why that migration exists;
+      // the seed above dates every row in the FUTURE, so a trigger that does
+      // not clear the caches fails here.
+      expect(
+        row.scheduled_date,
+        `row ${row.lesson_number}: scheduled_date must be cleared so the row owns no calendar day`,
+      ).toBeNull();
+      expect(row.date, `row ${row.lesson_number}: date is NOT NULL and must be set`).toBeTruthy();
+      const todayYmd = new Date().toISOString().slice(0, 10);
+      expect(
+        (row.date as string) < todayYmd,
+        `row ${row.lesson_number}: date ${row.date} must not be today or later — ` +
+          `it should be pinned to the synthetic completed_at day (today is ${todayYmd})`,
+      ).toBe(true);
+      expect(
+        row.date,
+        `row ${row.lesson_number}: date must match the completed_at day`,
+      ).toBe((row.completed_at as string).slice(0, 10));
     }
 
     // 5. current_lesson held (didn't get reset by the inner recompute loop)

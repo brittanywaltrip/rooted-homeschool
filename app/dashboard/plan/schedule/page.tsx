@@ -7,7 +7,7 @@ import * as Sentry from "@sentry/nextjs";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, pinsFromRows, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
@@ -72,6 +72,18 @@ type Row = {
   // load-time guards (round-trip safety, no data loss)
   readOnly: boolean;
   readOnlyReason: string | null;
+
+  // Schedule-relevant DB values as loaded, so phase 2 can tell an intentional
+  // re-spread of THIS goal from a sibling goal that is only along for the ride.
+  // Null for never-saved rows (nothing to compare against). See
+  // scheduleFieldsChangedForRow + the pin-preservation block in phase 2.
+  _originalSchedule: {
+    lessons_per_day: number | null;
+    lessons_per_day_overrides: Record<string, number> | null;
+    school_days: string[] | null;
+    start_date: string | null;
+    total_lessons: number | null;
+  } | null;
 
   // legacy DB fields preserved on UPDATE so the builder doesn't clobber them
   _legacyTargetDate: string | null;
@@ -182,6 +194,7 @@ function blankRow(child_id: string, type: RowType): Row {
     emoji: type === "curriculum" ? "" : type === "coop" ? COOP_DEFAULT_EMOJI : ACTIVITY_DEFAULT_EMOJI,
     readOnly: false,
     readOnlyReason: null,
+    _originalSchedule: null,
     _legacyTargetDate: null,
     _legacyIconEmoji: null,
     _legacyScheduledStartTime: null,
@@ -255,6 +268,13 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     emoji: "",
     readOnly: false,
     readOnlyReason: null,
+    _originalSchedule: {
+      lessons_per_day: g.lessons_per_day ?? null,
+      lessons_per_day_overrides: g.lessons_per_day_overrides ?? null,
+      school_days: g.school_days ?? null,
+      start_date: g.start_date ?? null,
+      total_lessons: g.total_lessons ?? null,
+    },
     _legacyTargetDate: g.target_date ?? null,
     _legacyIconEmoji: g.icon_emoji ?? null,
     _legacyScheduledStartTime: g.scheduled_start_time ?? null,
@@ -320,6 +340,7 @@ function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
     emoji: fallbackEmoji,
     readOnly,
     readOnlyReason: reason,
+    _originalSchedule: null,
     _legacyTargetDate: null,
     _legacyIconEmoji: null,
     _legacyScheduledStartTime: null,
@@ -374,6 +395,74 @@ function compactCurriculumPerDay(row: Row): {
   const sum = active.reduce((s, a) => s + a.count, 0);
   const avg = Math.max(1, Math.round(sum / active.length));
   return { lessons_per_day: avg, lessons_per_day_overrides: overrides, school_days };
+}
+
+/**
+ * Did THIS row's schedule shape actually change in this save?
+ *
+ * This is the one explicit exception to Invariant 12 (a manual placement is
+ * never re-dated by the system). Phase 2 re-spreads every curriculum row in the
+ * builder on every save, not just the one the user edited — so without this
+ * distinction, saving one curriculum would wipe manual moves on all the others.
+ * That is exactly what happened on the test account: an e2e spec created a new
+ * goal, and sibling goal 4193f9b3's pinned lesson 30 was deleted and re-created
+ * unpinned in the same save (created_at 2026-07-30 05:06:23, while the rows
+ * below it dated from Jul 9).
+ *
+ * THE RULE:
+ *   * schedule fields changed on this goal  → its pins are CLEARED. Changing
+ *     school_days / per-day counts / total_lessons / start_date redefines the
+ *     grid the pins were placed on. Honoring stale pins would produce a
+ *     schedule matching neither the old plan nor the new settings — lessons
+ *     stranded on days that are no longer school days, or past a reduced
+ *     total_lessons. The user just told us to re-spread this curriculum.
+ *   * schedule fields unchanged (cosmetic edit, or a sibling goal along for the
+ *     ride) → its pins are RESPECTED. Nothing about the grid moved, so there is
+ *     no honest reason to touch her placements.
+ *
+ * Reuses `hasScheduleFieldsChanged` — the same whitelist the wizard's saveEdit
+ * reshuffle gate uses — so there is one definition of "the schedule changed"
+ * rather than a second that can drift from it. The per-day overrides map is
+ * compared here because that helper predates it.
+ */
+function scheduleFieldsChangedForRow(row: Row): boolean {
+  const orig = row._originalSchedule;
+  // Brand-new row: a fresh spread by definition, and it has no pins yet.
+  if (!orig) return true;
+
+  const { lessons_per_day, lessons_per_day_overrides, school_days } =
+    compactCurriculumPerDay(row);
+
+  const changed = hasScheduleFieldsChanged(
+    {
+      lessons_per_day: orig.lessons_per_day,
+      school_days: orig.school_days,
+      start_date: orig.start_date,
+      // target_date is not editable in the builder (it round-trips via
+      // _legacyTargetDate), so feed the same value both sides rather than
+      // letting a null-vs-value mismatch fake a change.
+      target_date: row._legacyTargetDate,
+      total_lessons: orig.total_lessons,
+    },
+    {
+      lessons_per_day,
+      school_days,
+      start_date: row.start_date,
+      target_date: row._legacyTargetDate,
+      total_lessons: row.total_lessons ?? 0,
+    },
+  );
+  if (changed) return true;
+
+  // Per-day overrides: {Mon: 2, Wed: 1} → a change here re-shapes the week even
+  // when school_days and the flat lessons_per_day both hold still.
+  const a = orig.lessons_per_day_overrides ?? null;
+  const b = lessons_per_day_overrides ?? null;
+  if (a === null && b === null) return false;
+  if (a === null || b === null) return true;
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const k of keys) if (a[k] !== b[k]) return true;
+  return false;
 }
 
 function activeDayIndices(row: Row): number[] {
@@ -1196,6 +1285,53 @@ export default function ScheduleBuilderPage() {
           compactCurriculumPerDay(row);
         if (school_days.length === 0) return;
 
+        // ── Pins (Invariant 12) ──────────────────────────────────────────────
+        // Phase 2 re-spreads EVERY curriculum row in the builder on every save,
+        // not just the one the user edited. Its floor-anchored delete removes
+        // incomplete rows above the completed floor — which used to include
+        // pinned ones — so saving any curriculum silently destroyed manual moves
+        // on all the others. Proven on the test account: sibling goal 4193f9b3's
+        // pinned lesson 30 was deleted and re-created unpinned when an e2e spec
+        // saved a different curriculum.
+        //
+        // scheduleFieldsChangedForRow is the single documented exception: see
+        // its doc comment for why an intentional re-spread of THIS goal clears
+        // its pins while a sibling save must respect them.
+        const clearPins = scheduleFieldsChangedForRow(row);
+        const { data: pinnedRowsData, error: pinnedErr } = await supabase
+          .from("lessons")
+          .select("id, lesson_number, queue_position, scheduled_date, date, completed, queue_pinned, curriculum_goal_id")
+          .eq("curriculum_goal_id", goalId)
+          .eq("completed", false)
+          .eq("queue_pinned", true);
+        if (pinnedErr) throw pinnedErr;
+        const pinnedRows = (pinnedRowsData ?? []) as Array<{
+          id: string;
+          lesson_number: number | null;
+          queue_position: number | null;
+          scheduled_date: string | null;
+          date: string | null;
+          completed: boolean;
+          queue_pinned: boolean;
+          curriculum_goal_id: string | null;
+        }>;
+
+        // When the user re-spread THIS goal, release the pins explicitly rather
+        // than just ignoring them: leaving queue_pinned=true on rows we are
+        // about to re-date would freeze them at their new projector dates and
+        // make the next sibling save unable to move them either.
+        if (clearPins && pinnedRows.length > 0) {
+          const { error: unpinErr } = await supabase
+            .from("lessons")
+            .update({ queue_pinned: false })
+            .in("id", pinnedRows.map((r) => r.id));
+          if (unpinErr) throw unpinErr;
+        }
+        const survivingPins = clearPins ? [] : pinnedRows;
+        // Keyed by queue_position, which is what the projector's slots mean.
+        const pins: PinnedSlot[] = pinsFromRows(survivingPins, goalId);
+        const pinnedIdsToKeep = clearPins ? [] : survivingPins.map((r) => r.id);
+
         const goalConfig = {
           id: goalId,
           school_days,
@@ -1210,7 +1346,11 @@ export default function ScheduleBuilderPage() {
         // scheduler's internal safety bound; computeNextLessonsForGoal stops
         // earlier once the queue runs out. start_date in the future is
         // honored inside the projector.
-        const upcoming = computeNextLessonsForGoal(goalConfig, todayMid, 3650, vacations);
+        // Surviving pins are date-occupying inputs: the projector emits them
+        // where they sit and fills unpinned slots around them without stacking
+        // on their days — the same occupancy discipline the vacation re-spread
+        // relies on.
+        const upcoming = computeNextLessonsForGoal(goalConfig, todayMid, 3650, vacations, 0, pins);
         if (upcoming.length === 0) return;
 
         // Floor-anchored delete. The floor is the highest lesson_number
@@ -1234,12 +1374,20 @@ export default function ScheduleBuilderPage() {
         const completedFloor =
           (completedTop?.[0] as { lesson_number: number } | undefined)?.lesson_number ?? 0;
 
-        const { error: incompleteDeleteErr } = await supabase
+        let floorDelete = supabase
           .from("lessons")
           .delete()
           .eq("curriculum_goal_id", goalId)
           .eq("completed", false)
           .gt("lesson_number", completedFloor);
+        // Manual placements survive the re-spread (unless this goal's own
+        // schedule changed, in which case pinnedIdsToKeep is empty and they were
+        // already released above). Without this exclusion the delete wiped them
+        // and the reinsert brought them back unpinned at projector dates.
+        if (pinnedIdsToKeep.length > 0) {
+          floorDelete = floorDelete.not("id", "in", `(${pinnedIdsToKeep.join(",")})`);
+        }
+        const { error: incompleteDeleteErr } = await floorDelete;
         if (incompleteDeleteErr) throw incompleteDeleteErr;
 
         // Historical backfill: when the user enters a past start_date AND
@@ -1356,6 +1504,13 @@ export default function ScheduleBuilderPage() {
             curriculum_goal_id: goalId,
             lesson_number: l.lesson_number,
             // queue_position must match lesson_number per Path A invariant.
+            // Caveat, pre-existing: phase 2 treats a projector SLOT as a
+            // lesson_number, which they are at creation but not after a manual
+            // move has rewritten queue_position (move_lesson_to_date). On such
+            // a goal the reinsert numbering is approximate. Preserving pins
+            // (above) strictly reduces how often this matters, since the moved
+            // rows are no longer deleted and re-created — but untangling the
+            // slot/number conflation is its own change.
             queue_position: l.lesson_number,
             title: `${row.name.trim()} — Lesson ${l.lesson_number}`,
             scheduled_date: l.date,
@@ -1376,6 +1531,14 @@ export default function ScheduleBuilderPage() {
         // ceiling uses lessons_per_day_overrides when present so a
         // Tue=2/Thu=1 goal is still validated correctly.
         const toInsertByDate: Record<string, number> = {};
+        // Seed with the surviving pinned rows: they already hold their dates, so
+        // a batch that adds one more lesson to a pinned day is overcapacity even
+        // though the batch alone looks fine.
+        for (const r of survivingPins) {
+          const d = r.scheduled_date ?? r.date;
+          if (!d) continue;
+          toInsertByDate[d] = (toInsertByDate[d] ?? 0) + 1;
+        }
         for (const r of toInsert) {
           if (!r.scheduled_date) continue;
           toInsertByDate[r.scheduled_date] = (toInsertByDate[r.scheduled_date] ?? 0) + 1;
@@ -1447,6 +1610,13 @@ export default function ScheduleBuilderPage() {
         // previously inserted past the new ceiling become stale. Delete
         // only INCOMPLETE rows so historical completions are preserved
         // (Invariant 3: backfilled / completed lessons stay put).
+        //
+        // Pinned rows are deliberately NOT excluded here. A pin says "this
+        // lesson belongs on this day"; it cannot say "this lesson exists" once
+        // the user has shortened the curriculum past it. Reducing total_lessons
+        // to 100 retires lesson 120 whether or not it was hand-placed. Note
+        // that shortening total_lessons is itself a schedule-field change, so
+        // scheduleFieldsChangedForRow already released this goal's pins above.
         const { error: cleanupErr } = await supabase
           .from("lessons")
           .delete()

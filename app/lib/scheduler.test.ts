@@ -3833,3 +3833,121 @@ test('drift F: every goal-attached insert payload copies child_id from the goal'
   const oneOff = buildPayload(null, null)
   assert.equal(oneOff.curriculum_goal_id, null)
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase-2 re-spread must not destroy pins (Invariant 12's one exception)
+//
+// The Schedule Builder's phase 2 runs for EVERY curriculum row in the builder on
+// every save, and its floor-anchored delete removed incomplete rows above the
+// completed floor — pinned ones included. So saving one curriculum wiped manual
+// moves on unrelated goals. Proven on the test account: sibling goal 4193f9b3's
+// pinned lesson 30 was deleted and re-created unpinned at 05:06:23 while the
+// rows below it dated from Jul 9.
+//
+// The exception is keyed on hasScheduleFieldsChanged — the same whitelist the
+// wizard's reshuffle gate uses — so a sibling save (nothing changed) respects
+// pins while an intentional re-spread of that goal releases them.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('phase 2 exception: a sibling save changes no schedule field, so pins are respected', () => {
+  // The row the builder loaded and did not touch. Same values in and out.
+  const loaded = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2026-08-03',
+    target_date: null,
+    total_lessons: 120,
+  }
+  assert.equal(
+    hasScheduleFieldsChanged(loaded, {
+      lessons_per_day: 1,
+      school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+      start_date: '2026-08-03',
+      target_date: null,
+      total_lessons: 120,
+    }),
+    false,
+    'an untouched sibling goal must not count as a re-spread — its pins survive',
+  )
+  // Day-order differences are not changes (the helper sorts before comparing).
+  assert.equal(
+    hasScheduleFieldsChanged(loaded, {
+      lessons_per_day: 1,
+      school_days: ['Fri', 'Mon', 'Thu', 'Tue', 'Wed'],
+      start_date: '2026-08-03',
+      target_date: null,
+      total_lessons: 120,
+    }),
+    false,
+  )
+})
+
+test('phase 2 exception: editing the grid IS a re-spread, so pins are released', () => {
+  const loaded = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2026-08-03',
+    target_date: null,
+    total_lessons: 120,
+  }
+  const base = {
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: '2026-08-03',
+    target_date: null,
+    total_lessons: 120,
+  }
+  // Each of these redefines the grid the pins were placed on.
+  assert.equal(hasScheduleFieldsChanged(loaded, { ...base, lessons_per_day: 2 }), true)
+  assert.equal(hasScheduleFieldsChanged(loaded, { ...base, school_days: ['Mon', 'Wed'] }), true)
+  assert.equal(hasScheduleFieldsChanged(loaded, { ...base, start_date: '2026-09-01' }), true)
+  assert.equal(hasScheduleFieldsChanged(loaded, { ...base, total_lessons: 100 }), true)
+})
+
+test('phase 2 re-spread: a surviving pin holds its day and the tail fills around it', () => {
+  // Phase-2 shape: the incomplete tail is deleted and re-projected, except the
+  // pinned row, which stays. The re-projection must emit the pinned slot on its
+  // own date and place everything else around it without stacking.
+  const goal: CurriculumGoalConfig = {
+    id: 'g-sibling',
+    total_lessons: 8,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 2,
+    start_date: null,
+  }
+  // Slot 5 was hand-moved to Fri 2026-08-21, well past where the queue would
+  // have put it. It is the row phase 2 no longer deletes.
+  const pins: PinnedSlot[] = [{ slot: 5, date: '2026-08-21' }]
+  const projected = computeNextLessonsForGoal(
+    goal,
+    new Date('2026-08-03T00:00:00'),
+    3650,
+    [],
+    0,
+    pins,
+  )
+  const bySlot = new Map(projected.map((p) => [p.lesson_number, p.date]))
+
+  // The pin is emitted where the user put it, not where the queue wanted it.
+  assert.equal(bySlot.get(5), '2026-08-21')
+
+  // Capacity holds everywhere, including the pinned day.
+  const perDate = new Map<string, number>()
+  for (const p of projected) perDate.set(p.date, (perDate.get(p.date) ?? 0) + 1)
+  for (const [date, n] of perDate) {
+    assert.ok(n <= 1, `${date} holds ${n} lessons for a 1/day goal after a re-spread`)
+  }
+
+  // Order holds across the pinned/unpinned mix.
+  const dates = projected.map((p) => p.date)
+  for (let i = 1; i < dates.length; i++) {
+    assert.ok(dates[i] >= dates[i - 1], `slot order broken at index ${i}: ${dates[i - 1]} then ${dates[i]}`)
+  }
+
+  // Sanity: dropping the pin gives a different (earlier) date for slot 5, so the
+  // assertion above is actually testing the pin and not a coincidence.
+  const withoutPins = computeNextLessonsForGoal(goal, new Date('2026-08-03T00:00:00'), 3650, [])
+  const slot5Unpinned = withoutPins.find((p) => p.lesson_number === 5)?.date
+  assert.ok(slot5Unpinned && slot5Unpinned < '2026-08-21', 'pin must be what moves slot 5')
+})

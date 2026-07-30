@@ -137,6 +137,15 @@ test.describe('FLOW 2. Mark a lesson complete on Today', () => {
     const storyVisibleBefore = (await todaysStorySection.count()) > 0;
 
     await plantReloadSentinel(page);
+    // Hold the actual DOM element, not just the locator. React flips this same
+    // button's aria-label from "Mark lesson complete" to "Mark lesson
+    // incomplete" in place, so the handle stays valid and the restore at the end
+    // can target THE ROW WE COMPLETED. Re-querying by aria-label instead would
+    // resolve `.first()` to whichever completed card happens to sort first —
+    // which on 2026-07-30 was a different lesson entirely (one the orphan-cleanup
+    // trigger had just completed), so the restore un-completed the wrong row and
+    // left this test's own lesson completed.
+    const toggleHandle = await incompleteToggle.elementHandle();
     await incompleteToggle.click();
 
     // The check-off modal opens with the "Log it ✓" button. Confirming
@@ -164,6 +173,41 @@ test.describe('FLOW 2. Mark a lesson complete on Today', () => {
     // does not necessarily create a memory unless it tops out a goal.
     if (storyVisibleBefore) {
       await expect(todaysStorySection).toBeVisible();
+    }
+
+    // Put the lesson back. This test used to consume its own precondition: it
+    // completed Today's lesson and left it completed, so on a 1/day goal the
+    // day's quota was already met and every LATER run the same day skipped with
+    // "No incomplete lessons on Today". Observed across three runs on 2026-07-30
+    // — run 2 passed, run 3 skipped. Repeat runs quietly eroded coverage instead
+    // of confirming it, which is worse than a visible failure.
+    //
+    // Toggling back through the UI (rather than a service-role UPDATE) also
+    // exercises the un-complete path and keeps this spec free of admin
+    // credentials. Best-effort: a failure to restore must not fail the
+    // assertions above, which have already passed by this point.
+    try {
+      if (toggleHandle) {
+        // Same element, now labelled "Mark lesson incomplete".
+        const label = await toggleHandle.getAttribute('aria-label');
+        expect(
+          label,
+          'the held toggle should be the row we just completed',
+        ).toMatch(/^Mark lesson incomplete$/i);
+        await toggleHandle.click();
+        // Wait for THIS element to flip back, not for any card on the page.
+        await page.waitForFunction(
+          (el) => el.getAttribute('aria-label') === 'Mark lesson complete',
+          toggleHandle,
+          { timeout: 10_000 },
+        );
+      }
+    } catch {
+      // Leaves the account one lesson further along; the next run skips rather
+      // than fails. Surfaced here so a maintainer sees why if it recurs.
+      console.warn(
+        '[FLOW 2] could not restore the completed lesson — a same-day re-run will skip this test',
+      );
     }
   });
 });
@@ -317,19 +361,82 @@ test.describe('FLOW 4. Move a lesson on Plan', () => {
     // The Move here buttons should be gone (move mode cleared).
     await expect(moveHereButtons).toHaveCount(0, { timeout: 5_000 });
 
-    // Now go to /dashboard and confirm Today reflects the move. There
-    // are two possible outcomes:
-    //  (a) the lesson moved TO today → it should appear on Today
-    //  (b) the lesson moved OFF today → it should NOT appear on Today
-    // We don't know which without parsing the target label, but we DO
-    // know Today should render without crashing and the lesson row
-    // we care about is either present or absent in a self-consistent way.
-    // The minimum assertion: Today loads cleanly.
+    // Now go to /dashboard so the Today loader runs, then come BACK to Plan
+    // and assert the lesson is still on the day we moved it to.
+    //
+    // This round trip is the whole point of the test. Today's load fires
+    // reconcileGoalScheduleCache, which treated scheduled_date as a pure cache
+    // of the queue projection and rewrote every manually-moved row — so a move
+    // would visibly succeed and then revert within a second (luvmywk: lessons
+    // 17-37 kept their moved dates while 38+ resynced, leaving Sep 7 holding
+    // both 36 and 38). queue_pinned now protects the row; this asserts it.
+    //
+    // The second regression this guards: the Schedule Builder's phase-2
+    // floor-anchored delete used to wipe pinned rows on EVERY goal in the
+    // builder, so saving one curriculum destroyed manual moves on unrelated
+    // ones. If a sibling save ever starts clobbering pins again, the moved
+    // lesson will be gone from its target day and this fails.
     const errors = collectConsoleErrors(page);
     await page.goto('/dashboard');
     await expect(
       page.getByText(/Good morning|Good afternoon|Good evening/i).first(),
     ).toBeVisible({ timeout: 20_000 });
+
+    // targetLabel is "Move to {headerLabel}" (WeekListView.tsx:618). The header
+    // label carries the weekday, which is enough to find the day row again.
+    const targetDayLabel = targetLabel.replace(/^Move to /i, '').trim();
+
+    await page.goto('/dashboard/plan');
+    await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({
+      timeout: 20_000,
+    });
+    // Let the plan data settle before asserting on card placement.
+    await page
+      .waitForFunction(
+        () =>
+          document.querySelectorAll('button[aria-label^="Open "][aria-label$=" details"]')
+            .length > 0,
+        undefined,
+        { timeout: 15_000 },
+      )
+      .catch(() => {});
+
+    // The moved lesson must still exist on Plan. If the reconciler or a sibling
+    // save re-dated it, it will have snapped back to a projector day.
+    const movedCard = page.getByRole('button', { name: `Open ${lessonTitle} details` }).first();
+    await expect(
+      movedCard,
+      `moved lesson "${lessonTitle}" vanished from Plan after a Today load — ` +
+        'a resync or a phase-2 re-spread almost certainly re-dated or deleted it',
+    ).toBeVisible({ timeout: 15_000 });
+
+    // And it must still sit under the day we moved it to. WeekListView groups
+    // cards under a day header, so the card's own day section is the assertion:
+    // we look for a container that holds both the target day label and the card.
+    const stillOnTargetDay = await page.evaluate(
+      ({ dayLabel, title }) => {
+        const card = Array.from(
+          document.querySelectorAll('button[aria-label^="Open "][aria-label$=" details"]'),
+        ).find((el) => el.getAttribute('aria-label') === `Open ${title} details`);
+        if (!card) return { found: false, nearestDay: null as string | null };
+        // Walk up to the day group, then read whatever day heading it contains.
+        let node: HTMLElement | null = card as HTMLElement;
+        for (let i = 0; i < 8 && node; i++) {
+          const text = node.textContent ?? '';
+          if (dayLabel && text.includes(dayLabel)) {
+            return { found: true, nearestDay: dayLabel };
+          }
+          node = node.parentElement;
+        }
+        return { found: false, nearestDay: (card.closest('[data-day]') as HTMLElement | null)?.dataset?.day ?? null };
+      },
+      { dayLabel: targetDayLabel, title: lessonTitle },
+    );
+    expect(
+      stillOnTargetDay.found,
+      `moved lesson "${lessonTitle}" is on Plan but no longer grouped under "${targetDayLabel}" ` +
+        `(nearest day marker: ${stillOnTargetDay.nearestDay ?? 'none'}). The move did not survive the Today load.`,
+    ).toBe(true);
 
     expect(
       errors,

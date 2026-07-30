@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: July 30, 2026 — adds Invariant 12 (pinned manual placements) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: July 30, 2026 — adds Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -168,12 +168,49 @@ pre-pin projection exactly.
 
 **Unpin:** completing a pinned lesson retires its pin (completed rows are never
 re-dated, and `pinsFromRows` skips them). Undo of a manual flow restores each
-row's prior pin state. Re-saving the goal in the Schedule Builder regenerates
-the incomplete tail and clears pins — an explicit whole-schedule re-spread.
+row's prior pin state.
+
+**The one exception — Schedule Builder phase 2.** Phase 2 re-spreads EVERY
+curriculum row in the builder on every save, not just the one the user edited,
+and its floor-anchored delete removes incomplete rows above the completed floor.
+Until July 30 2026 that delete took pinned rows with it, so **saving any one
+curriculum destroyed manual moves on all the others**. Proven on the test
+account: sibling goal `4193f9b3`'s pinned lesson 30 was deleted and re-created
+unpinned at `05:06:23` when an e2e spec saved a different curriculum, while the
+rows below it still dated from Jul 9.
+
+The rule now, in `scheduleFieldsChangedForRow`
+(`app/dashboard/plan/schedule/page.tsx`):
+
+- **Schedule fields changed on that goal** (`school_days`, per-day counts /
+  overrides, `total_lessons`, `start_date`) → **its pins are released.** The user
+  redefined the grid the pins sat on; honoring stale pins would produce a
+  schedule matching neither the old plan nor the new settings — lessons stranded
+  on days that are no longer school days, or past a reduced `total_lessons`. The
+  pins are cleared explicitly (`queue_pinned = false`), not merely ignored, so
+  the rows do not freeze at their new projector dates.
+- **Schedule fields unchanged** (a cosmetic edit, or a sibling goal along for the
+  ride) → **its pins are respected.** They are excluded from the floor delete and
+  fed to the projector as date-occupying inputs, so re-projection fills around
+  them instead of stacking on their days.
+
+The gate reuses `hasScheduleFieldsChanged`, the same whitelist the wizard's
+reshuffle uses, so there is one definition of "the schedule changed". The
+per-day overrides map is compared alongside it because that helper predates it.
+
+Pinned rows above a reduced `total_lessons` are still deleted by the
+end-of-phase-2 cleanup: a pin says where a lesson belongs, not that it exists
+once the curriculum has been shortened past it.
 
 **Test case:** the PINS block in `scheduler.test.ts` — pin honored and filled
 around in order, capacity never exceeded, fully pinned tail emitted verbatim,
-reconciler skips pinned rows, cascade+reconcile round-trip with zero writes.
+reconciler skips pinned rows, cascade+reconcile round-trip with zero writes. The
+phase-2 block adds: a sibling save changes no schedule field (pins respected),
+editing the grid does (pins released), and a surviving pin holds its day while
+the re-projected tail fills around it. End to end, FLOW 4 in
+`e2e/smoke/flows.spec.ts` moves a lesson, loads Today, returns to Plan and
+asserts the lesson is still on its target day — the guard for both the
+reconciler revert and the phase-2 wipe.
 
 ### Invariant 13 — A trigger-completed row holds no future calendar slot
 
