@@ -31,6 +31,9 @@ import {
   planQueueMove,
   recomputeCurrentLesson,
   syncProjectedScheduledDates,
+  pinsFromRows,
+  pinsByGoalFromRows,
+  type PinnedSlot,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
   type VacationBlock,
@@ -3337,4 +3340,226 @@ test('Invariant 11 (whitley): partial 7-day projDateByKey reproduces the May 26 
   // 2026-06-03. Two incomplete rows of a lpd=1 goal now share a date.
   assert.equal(finalDates.get('L85'), '2026-06-03')
   assert.equal(finalDates.get('L86'), '2026-06-03')
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PINS — manual placements survive the projector and the reconciler
+//
+// The bug these tests exist for (verified on staging + prod, 2026-07-29):
+// scheduled_date was a pure cache of the projection, so reconcileGoalScheduleCache
+// rewrote every manually-moved row back to its queue date and stamped it
+// queue_resync. A 59-lesson cascade wrote successfully and was reverted within a
+// second. Partial reverts were worse than full ones: luvmywk's lessons 17-37 kept
+// their moved dates while 38+ were resynced, so Sep 7 held both lesson 36 and
+// lesson 38 and the numbers ran out of order.
+//
+// A pin says "the user put this slot on this date." Pinned slots are emitted
+// where they are; unpinned slots project around them, in order, within capacity.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PIN_GOAL: CurriculumGoalConfig = {
+  id: 'g-pin',
+  total_lessons: 10,
+  lessons_per_day: 1,
+  school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+  current_lesson: 0,
+}
+
+// Mon 2026-08-03 .. Fri 2026-08-07, Mon 2026-08-10 ..
+const MON_AUG_3 = new Date('2026-08-03T00:00:00')
+
+test('pins: empty pin set projects identically to no pins at all (converged account is byte-stable)', () => {
+  const without = computeNextLessonsForGoal(PIN_GOAL, MON_AUG_3, 30, [])
+  const withEmpty = computeNextLessonsForGoal(PIN_GOAL, MON_AUG_3, 30, [], 0, [])
+  assert.deepEqual(withEmpty, without)
+  // And a pin on an already-completed slot is inert (completed rows are never
+  // re-dated, so their pins must not perturb the live queue).
+  const doneGoal = { ...PIN_GOAL, current_lesson: 3 }
+  assert.deepEqual(
+    computeNextLessonsForGoal(doneGoal, MON_AUG_3, 30, [], 0, [{ slot: 2, date: '2027-01-01' }]),
+    computeNextLessonsForGoal(doneGoal, MON_AUG_3, 30, []),
+  )
+})
+
+test('pins: projector honors a pin and fills unpinned slots around it in order', () => {
+  // Lesson 3 dragged from Wed 8/5 out to Fri 8/14.
+  const pins: PinnedSlot[] = [{ slot: 3, date: '2026-08-14' }]
+  const got = computeNextLessonsForGoal(PIN_GOAL, MON_AUG_3, 40, [], 0, pins)
+  const bySlot = new Map(got.map((p) => [p.lesson_number, p.date]))
+
+  // Slot 3 is exactly where the user put it.
+  assert.equal(bySlot.get(3), '2026-08-14')
+  // Slots before it keep their natural dates.
+  assert.equal(bySlot.get(1), '2026-08-03')
+  assert.equal(bySlot.get(2), '2026-08-04')
+  // The queue CONTINUES AFTER the pin rather than backfilling the gap it left:
+  // mom moved lesson 3 out to the 14th, so 4 follows it on the next school day.
+  assert.equal(bySlot.get(4), '2026-08-17')
+  assert.equal(bySlot.get(5), '2026-08-18')
+
+  // Order invariant across the pinned + unpinned mix.
+  const dates = got.map((p) => p.date)
+  for (let i = 1; i < dates.length; i++) {
+    assert.ok(dates[i] >= dates[i - 1], `slot ${i + 1} (${dates[i]}) must not precede ${dates[i - 1]}`)
+  }
+})
+
+test('pins: a pinned date consumes capacity so unpinned slots never double up on it', () => {
+  // lpd=1 and slot 5 pinned onto Tue 8/4, which slot 2 would otherwise claim.
+  const pins: PinnedSlot[] = [{ slot: 5, date: '2026-08-04' }]
+  const got = computeNextLessonsForGoal(PIN_GOAL, MON_AUG_3, 40, [], 0, pins)
+  const perDate = new Map<string, number>()
+  for (const p of got) perDate.set(p.date, (perDate.get(p.date) ?? 0) + 1)
+  for (const [date, n] of perDate) {
+    assert.ok(n <= 1, `${date} holds ${n} lessons for a 1/day goal`)
+  }
+  // Slot 2 was pushed off the occupied Tuesday onto Wednesday.
+  const bySlot = new Map(got.map((p) => [p.lesson_number, p.date]))
+  assert.equal(bySlot.get(5), '2026-08-04')
+  assert.equal(bySlot.get(2), '2026-08-05')
+})
+
+test('pins: capacity is shared, not doubled, when lessons_per_day allows stacking', () => {
+  const goal2: CurriculumGoalConfig = { ...PIN_GOAL, lessons_per_day: 2 }
+  // Slot 4 pinned onto Mon 8/3, which already takes slots 1 and 2 at 2/day.
+  const pins: PinnedSlot[] = [{ slot: 4, date: '2026-08-03' }]
+  const got = computeNextLessonsForGoal(goal2, MON_AUG_3, 40, [], 0, pins)
+  const perDate = new Map<string, number>()
+  for (const p of got) perDate.set(p.date, (perDate.get(p.date) ?? 0) + 1)
+  assert.equal(perDate.get('2026-08-03'), 2, 'pin takes one of Monday\'s two slots')
+  for (const [date, n] of perDate) {
+    assert.ok(n <= 2, `${date} holds ${n} lessons for a 2/day goal`)
+  }
+})
+
+test('pins: unpinned slots still honor school_days, vacations and per-day overrides', () => {
+  const goal: CurriculumGoalConfig = {
+    id: 'g-pin',
+    total_lessons: 8,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Wed', 'Fri'],
+    current_lesson: 0,
+    lessons_per_day_overrides: { Mon: 2, Wed: 1, Fri: 0 },
+  }
+  const vacations: VacationBlock[] = [{ start_date: '2026-08-10', end_date: '2026-08-16' }]
+  const pins: PinnedSlot[] = [{ slot: 4, date: '2026-08-19' }] // a Wednesday
+  const got = computeNextLessonsForGoal(goal, MON_AUG_3, 60, vacations, 0, pins)
+
+  for (const p of got) {
+    if (p.lesson_number === 4) continue // the pin is the user's call, not ours
+    const dow = new Date(`${p.date}T12:00:00`).getDay()
+    assert.ok(dow === 1 || dow === 3, `unpinned slot landed on dow ${dow} (${p.date})`)
+    assert.ok(
+      !(p.date >= '2026-08-10' && p.date <= '2026-08-16'),
+      `unpinned slot landed inside the vacation (${p.date})`,
+    )
+  }
+  // Friday override of 0 must produce nothing, pins or not.
+  assert.equal(got.filter((p) => new Date(`${p.date}T12:00:00`).getDay() === 5).length, 0)
+  // Monday's override of 2 is still respected.
+  const perDate = new Map<string, number>()
+  for (const p of got) perDate.set(p.date, (perDate.get(p.date) ?? 0) + 1)
+  assert.equal(perDate.get('2026-08-03'), 2)
+})
+
+test('pins: a fully pinned tail is emitted verbatim (the 59-lesson cascade case)', () => {
+  // Every remaining slot manually shifted forward by one school day, which is
+  // exactly what shift-all-forward writes. The projector must return the moved
+  // dates, not the queue dates it would have chosen.
+  const goal: CurriculumGoalConfig = { ...PIN_GOAL, total_lessons: 5 }
+  const moved = ['2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-10']
+  const pins: PinnedSlot[] = moved.map((date, i) => ({ slot: i + 1, date }))
+  const got = computeNextLessonsForGoal(goal, MON_AUG_3, 60, [], 0, pins)
+  assert.deepEqual(got.map((p) => p.date), moved)
+  assert.deepEqual(got.map((p) => p.lesson_number), [1, 2, 3, 4, 5])
+})
+
+test('pins: computeFinishDate reflects pins instead of the queue-slot shortcut', () => {
+  const goal: CurriculumGoalConfig = { ...PIN_GOAL, total_lessons: 3 }
+  const unpinned = computeFinishDate(goal, MON_AUG_3, [])
+  assert.equal(toDateStr(unpinned as Date), '2026-08-05')
+  // Last slot dragged months out: the quoted finish date must follow it, or the
+  // pace pill contradicts the calendar.
+  const pinned = computeFinishDate(goal, MON_AUG_3, [], 0, [{ slot: 3, date: '2026-10-23' }])
+  assert.equal(toDateStr(pinned as Date), '2026-10-23')
+})
+
+test('pins: reconciler skips pinned rows and still fixes drifted unpinned ones', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const pinnedRow: ResyncSentRow = { ...resyncRow('PIN', 1, '2026-08-14'), queue_pinned: true }
+  const driftedRow = resyncRow('DRIFT', 2, '2026-06-01')
+  const proj = new Map([
+    ['g1|1', '2026-08-03'], // projector disagrees with the pin: pin wins
+    ['g1|2', '2026-08-17'],
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, [pinnedRow, driftedRow], proj, (r) => `g1|${r.queue_position}`)
+  assert.equal(writes.length, 1, 'exactly one write: the unpinned drifted row')
+  assert.deepEqual(writes[0].ids, ['DRIFT'])
+  assert.equal(writes[0].payload.scheduled_date, '2026-08-17')
+})
+
+test('pins: cascade + reconcile round-trip leaves every moved date untouched', async () => {
+  // Regression for the exact staging E2E failure: a cascade writes the whole
+  // tail, then the Today loader reconciles. Nothing may move.
+  const goal: CurriculumGoalConfig = { ...PIN_GOAL, total_lessons: 6 }
+  const movedDates = ['2026-08-04', '2026-08-05', '2026-08-06', '2026-08-07', '2026-08-10', '2026-08-11']
+  const rows: ResyncSentRow[] = movedDates.map((d, i) => ({
+    ...resyncRow(`L${i + 1}`, i + 1, d),
+    queue_pinned: true,
+  }))
+  const pins = pinsFromRows(
+    rows.map((r) => ({ ...r, curriculum_goal_id: 'g-pin' })),
+  )
+  const projected = computeNextLessonsForGoal(goal, MON_AUG_3, 60, [], 0, pins)
+  const projDateByKey = new Map(projected.map((p) => [`g1|${p.lesson_number}`, p.date]))
+  const { supabase, writes } = makeResyncSupabase()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, projDateByKey, (r) => `g1|${r.queue_position}`)
+  assert.equal(writes.length, 0, 'a pinned cascade must survive reconciliation with zero writes')
+  // And the projection itself still agrees with the moved dates, so every
+  // surface that reads the projector shows what the calendar shows.
+  assert.deepEqual(projected.map((p) => p.date), movedDates)
+})
+
+test('pins: converged account (no pins, cache already aligned) issues zero resync writes', async () => {
+  const goal: CurriculumGoalConfig = { ...PIN_GOAL, total_lessons: 4 }
+  const projected = computeNextLessonsForGoal(goal, MON_AUG_3, 60, [])
+  const rows: ResyncSentRow[] = projected.map((p, i) => resyncRow(`L${i + 1}`, p.lesson_number, p.date))
+  const projDateByKey = new Map(projected.map((p) => [`g1|${p.lesson_number}`, p.date]))
+  const { supabase, writes } = makeResyncSupabase()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, rows, projDateByKey, (r) => `g1|${r.queue_position}`)
+  assert.equal(writes.length, 0)
+})
+
+test('pinsFromRows: only incomplete, pinned, slotted, dated rows become pins', () => {
+  const pins = pinsFromRows([
+    { queue_pinned: true, completed: false, queue_position: 1, scheduled_date: '2026-08-03', curriculum_goal_id: 'a' },
+    { queue_pinned: false, completed: false, queue_position: 2, scheduled_date: '2026-08-04', curriculum_goal_id: 'a' },
+    // completed → pin retires itself, no unpin bookkeeping needed
+    { queue_pinned: true, completed: true, queue_position: 3, scheduled_date: '2026-08-05', curriculum_goal_id: 'a' },
+    // no queue slot → nothing to place
+    { queue_pinned: true, completed: false, queue_position: null, scheduled_date: '2026-08-06', curriculum_goal_id: 'a' },
+    // no date → nothing to pin to
+    { queue_pinned: true, completed: false, queue_position: 4, scheduled_date: null, date: null, curriculum_goal_id: 'a' },
+    // falls back to `date` when scheduled_date is absent
+    { queue_pinned: true, completed: false, queue_position: 5, date: '2026-08-07', curriculum_goal_id: 'a' },
+  ])
+  assert.deepEqual(pins, [
+    { slot: 1, date: '2026-08-03' },
+    { slot: 5, date: '2026-08-07' },
+  ])
+})
+
+test('pinsByGoalFromRows: groups per goal and scopes correctly', () => {
+  const byGoal = pinsByGoalFromRows([
+    { queue_pinned: true, completed: false, queue_position: 1, scheduled_date: '2026-08-03', curriculum_goal_id: 'a' },
+    { queue_pinned: true, completed: false, queue_position: 2, scheduled_date: '2026-08-04', curriculum_goal_id: 'b' },
+    { queue_pinned: true, completed: false, queue_position: 3, scheduled_date: '2026-08-05', curriculum_goal_id: 'a' },
+    { queue_pinned: true, completed: false, queue_position: 9, scheduled_date: '2026-08-06', curriculum_goal_id: null },
+  ])
+  assert.deepEqual(byGoal.get('a'), [{ slot: 1, date: '2026-08-03' }, { slot: 3, date: '2026-08-05' }])
+  assert.deepEqual(byGoal.get('b'), [{ slot: 2, date: '2026-08-04' }])
+  assert.equal(byGoal.size, 2, 'rows with no goal are not pins')
 })

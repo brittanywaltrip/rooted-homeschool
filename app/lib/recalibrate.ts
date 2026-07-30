@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   computeNextLessonsForGoal,
   syncProjectedScheduledDates,
+  pinsFromRows,
   type CurriculumGoalConfig,
   type VacationBlock,
 } from "./scheduler.ts";
@@ -210,22 +211,36 @@ export async function recalibrateCurriculumGoal(opts: {
   today.setHours(0, 0, 0, 0);
   // 1500 days covers a 180-lesson curriculum at 1/week (~3.5 yrs); the
   // projector also stops when total_lessons is reached.
-  const projected = computeNextLessonsForGoal(cfg, today, 1500, vacationBlocks);
-  const projDateByKey = new Map(
-    projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
-  );
+  // Load the tail first: manually-placed rows are an input to the projection
+  // (they hold their dates and consume capacity) and are excluded from the
+  // write set by syncProjectedScheduledDates. Recalibrating the queue pointer
+  // must not silently undo mom's manual moves.
   const { data: rowsData } = await supabase
     .from("lessons")
-    .select("id, scheduled_date, completed, is_backfill, lesson_number")
+    .select("id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned")
     .eq("curriculum_goal_id", goalId)
     .eq("completed", false);
   const rows = (rowsData ?? []) as Array<{
     id: string;
     scheduled_date: string | null;
+    date: string | null;
     completed: boolean;
     is_backfill: boolean | null;
     lesson_number: number | null;
+    queue_position: number | null;
+    queue_pinned: boolean | null;
   }>;
+  const projected = computeNextLessonsForGoal(
+    cfg,
+    today,
+    1500,
+    vacationBlocks,
+    0,
+    pinsFromRows(rows),
+  );
+  const projDateByKey = new Map(
+    projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
+  );
   await syncProjectedScheduledDates(
     supabase,
     rows,

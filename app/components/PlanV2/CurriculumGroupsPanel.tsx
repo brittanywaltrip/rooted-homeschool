@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Hand, MoreVertical, Pencil, Trash2 } from "l
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
-import { computeFinishDate, type VacationBlock as SchedulerVacationBlock } from "@/app/lib/scheduler";
+import { computeFinishDate, type PinnedSlot, type VacationBlock as SchedulerVacationBlock } from "@/app/lib/scheduler";
 
 /* ============================================================================
  * CurriculumGroupsPanel — curriculum goal list with pace + progress + per-
@@ -51,6 +51,10 @@ function computePaceStatus(
   remainingCount: number,
   goal: CurriculumGoal,
   vacationBlocks: VacationRange[],
+  // Manual placements for this goal. A pinned lesson can sit well past where
+  // its queue slot would have landed, so the projected finish date has to
+  // account for them or the pill contradicts the calendar.
+  pins: PinnedSlot[] = [],
 ): PaceStatus {
   const targetDate = goal.target_date;
   const schoolDays = goal.school_days;
@@ -73,6 +77,8 @@ function computePaceStatus(
         },
         new Date(),
         vacationBlocks as SchedulerVacationBlock[],
+        0,
+        pins,
       );
       if (projected) {
         const label = projected.toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -137,6 +143,8 @@ function formatDate(dateStr: string | null | undefined): string {
 export interface CurriculumGroupsPanelProps {
   goals: CurriculumGoal[];
   lessons: PlanV2Lesson[];
+  /** Manual placements per goal, loaded wide by the parent (all months). */
+  pinsByGoal?: Map<string, PinnedSlot[]>;
   kids: PlanV2Child[];
   vacationBlocks: VacationRange[];
   onCreate: () => void;
@@ -268,7 +276,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
             const totalInView = goalLessons.length;
             const completedCount = goal.current_lesson ?? 0;
             const remaining = Math.max(0, goal.total_lessons - completedCount);
-            const pace = computePaceStatus(remaining, goal, vacationBlocks);
+            const pace = computePaceStatus(remaining, goal, vacationBlocks, props.pinsByGoal?.get(goal.id) ?? []);
             const childMeta = goal.child_id ? kidsById.get(goal.child_id) : undefined;
             const color = resolveChildColor(childMeta?.child ?? null, childMeta?.index ?? 0);
             const pctComplete = goal.total_lessons > 0

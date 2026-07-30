@@ -10,7 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib/timezone";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
@@ -510,6 +510,10 @@ export default function TodayPage() {
   // computeTodayLessons in loadData and the InlineScheduleTabs Upcoming
   // tab so tomorrow's projection starts at the correct lesson_number.
   const [completedTodayPerGoal, setCompletedTodayPerGoal] = useState<Map<string, number>>(new Map());
+  // Manual placements per goal (see PinnedSlot in scheduler.ts). Held in state
+  // so the secondary projections on this page use the same pin set as the
+  // primary Today projection instead of re-deriving it.
+  const [pinsByGoal, setPinsByGoal] = useState<Map<string, PinnedSlot[]>>(new Map());
   // User's IANA timezone (e.g., "America/Los_Angeles") from profiles.timezone.
   // Falls back to America/New_York via the helpers when null. Set during
   // loadData so openExtraLessons + any other event handler can reuse it
@@ -959,7 +963,14 @@ export default function TodayPage() {
       completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
     }
     setCompletedTodayPerGoal(completedTodayPerGoal);
-    const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks, completedTodayPerGoal);
+    // Manual placements (see PinnedSlot in scheduler.ts). Loaded before the
+    // projection because a pinned slot holds its date and consumes that day's
+    // capacity, so it changes where the unpinned slots land. Every projecting
+    // surface reads the same pin set, which is what keeps Today, Upcoming and
+    // the Plan calendar from disagreeing after a manual move.
+    const pinsByGoal = await loadPinsByGoal(supabase, effectiveUserId);
+    setPinsByGoal(pinsByGoal);
+    const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks, completedTodayPerGoal, pinsByGoal);
 
     // Cache reconciliation (aligning lessons.scheduled_date with the
     // projector's full incomplete tail) runs per goal below via
@@ -2222,7 +2233,7 @@ export default function TodayPage() {
       // 22 days ahead = today + 21 forward. Drop today's slots (those
       // are the current allocation already on the Today schedule).
       const completed = completedTodayPerGoal.get(g.id) ?? 0;
-      const projected = computeNextLessonsForGoal(cfg, todayMid, 22, vacationBlocks, completed)
+      const projected = computeNextLessonsForGoal(cfg, todayMid, 22, vacationBlocks, completed, pinsByGoal.get(g.id) ?? [])
         .filter((p) => p.date !== todayKey);
       allProjected.push(...projected);
     }

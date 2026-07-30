@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { Pencil } from "lucide-react";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
-import { computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, loadPinsByGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { formatRelativeDate, formatRelativeFromTimestamp } from "./relativeDate";
 
 type Child = { id: string; name: string; color: string | null };
@@ -289,6 +289,9 @@ export default function InlineScheduleTabs({
       // returns nothing for today, so the drop is a no-op and the next
       // school day correctly gets lesson_number = current_lesson + 1.
       type Proj = { goal_id: string; lesson_number: number; date: string };
+      // Same pin set the Today projection uses, so Upcoming cannot show a
+      // manually-moved lesson on a different day than Today or Plan.
+      const pinsByGoal = await loadPinsByGoal(supabase, user.id);
       const allProjected: Proj[] = [];
       for (const g of goals) {
         if (!g.total_lessons || g.total_lessons <= 0) continue;
@@ -300,7 +303,7 @@ export default function InlineScheduleTabs({
           current_lesson: g.current_lesson ?? 0,
         };
         const completed = completedTodayPerGoal.get(g.id) ?? 0;
-        const projected = computeNextLessonsForGoal(cfg, todayMid, 15, vacationBlocks, completed)
+        const projected = computeNextLessonsForGoal(cfg, todayMid, 15, vacationBlocks, completed, pinsByGoal.get(g.id) ?? [])
           .filter((p) => p.date !== todayKey);
         allProjected.push(...projected);
       }

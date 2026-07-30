@@ -171,6 +171,12 @@ export interface QueueResyncRow {
   scheduled_date: string | null;
   completed: boolean;
   is_backfill?: boolean | null;
+  /**
+   * True when the user placed this row by hand (see PinnedSlot). Pinned rows
+   * are never re-dated: this is the guard that stops the reconciler undoing a
+   * manual move. Absent/false keeps the pre-pin behavior.
+   */
+  queue_pinned?: boolean | null;
 }
 
 export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
@@ -183,6 +189,9 @@ export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
   for (const r of rows) {
     if (r.completed) continue;
     if (r.is_backfill) continue;
+    // Manual placement wins over the projector, always. Without this guard
+    // every manual move was reverted on the next load (see PinnedSlot).
+    if (r.queue_pinned) continue;
     const key = rowKey(r);
     if (!key) continue;
     const projDate = projDateByKey.get(key);
@@ -241,12 +250,37 @@ export async function reconcileGoalScheduleCache(
 ): Promise<void> {
   if (!isSchedulerSyncEnabled()) return;
   try {
+    // Load the tail FIRST so the projection can be pin-aware. The pinned rows
+    // are both an input to the projection (they hold their dates and consume
+    // capacity) and excluded from the write set (syncProjectedScheduledDates
+    // skips them).
+    const { data, error } = await supabase
+      .from("lessons")
+      .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned")
+      .eq("curriculum_goal_id", goal.id)
+      .eq("completed", false);
+    if (error || !data) {
+      if (error) Sentry.captureException(error, { extra: { goalId: goal.id } });
+      return;
+    }
+    const rows = data as Array<
+      QueueResyncRow & { queue_position: number | null; queue_pinned: boolean | null }
+    >;
+
+    const pins: PinnedSlot[] = [];
+    for (const r of rows) {
+      if (!r.queue_pinned) continue;
+      if (r.queue_position == null || !r.scheduled_date) continue;
+      pins.push({ slot: r.queue_position, date: r.scheduled_date });
+    }
+
     const projected = computeNextLessonsForGoal(
       goal,
       today,
       3650,
       vacationBlocks,
       completedTodayCount,
+      pins,
     );
     if (projected.length === 0) return;
 
@@ -276,17 +310,6 @@ export async function reconcileGoalScheduleCache(
       projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
     );
 
-    const { data, error } = await supabase
-      .from("lessons")
-      .select("id, scheduled_date, completed, is_backfill, queue_position")
-      .eq("curriculum_goal_id", goal.id)
-      .eq("completed", false);
-    if (error || !data) {
-      if (error) Sentry.captureException(error, { extra: { goalId: goal.id } });
-      return;
-    }
-
-    const rows = data as Array<QueueResyncRow & { queue_position: number | null }>;
     await syncProjectedScheduledDates(
       supabase,
       rows,
@@ -852,6 +875,124 @@ export interface CurriculumGoalConfig {
   lessons_per_day_overrides?: Record<string, number> | null;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * PINS (July 2026) — manual placements the projector must not overrule.
+ *
+ * Before pins, `lessons.scheduled_date` was a pure cache of the projector's
+ * output: the reconciler rewrote any row that disagreed and stamped it
+ * `queue_resync`. That made every manual move temporary. A mom would shift
+ * her schedule on Plan, the write would succeed, and the next Today load
+ * would reconcile it straight back to the queue date. When only part of the
+ * tail got rewritten the result was doubled-up days and out-of-order lesson
+ * numbers (luvmywk, 2026-07-29: lessons 17-37 kept their moved dates while
+ * 38+ were resynced, so Sep 7 held both 36 and 38).
+ *
+ * A PIN is the user's explicit statement that one queue slot belongs on one
+ * calendar date. Pinned rows are never re-dated by the projector or the
+ * reconciler. Unpinned slots are projected around the pins so the queue
+ * still auto-rolls, still honors school_days / vacations / per-day
+ * overrides, and still never exceeds a day's capacity.
+ *
+ * Empty `pins` reproduces the pre-pin behavior exactly. That is what keeps a
+ * converged account (every row `queue_resync`, no pins) byte-stable: the
+ * projection is unchanged, so the reconciler's diff is empty and it issues
+ * zero writes.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+/**
+ * One manual placement. `slot` is the goal's queue slot (the
+ * `lessons.queue_position` value, which `ProjectedLesson.lesson_number`
+ * also carries); `date` is the YYYY-MM-DD the user put it on.
+ */
+export interface PinnedSlot {
+  slot: number;
+  date: string;
+}
+
+/** The lesson columns needed to derive a pin. */
+export interface PinnableRow {
+  queue_position?: number | null;
+  scheduled_date?: string | null;
+  date?: string | null;
+  completed?: boolean | null;
+  queue_pinned?: boolean | null;
+  curriculum_goal_id?: string | null;
+}
+
+/**
+ * Derive the pin set from lesson rows. One definition, used by every
+ * projection consumer (Today, Upcoming, Plan calendar, Schedule view, finish
+ * dates, reconciler) so no two surfaces can disagree about what is pinned.
+ *
+ * A row contributes a pin iff it is pinned, incomplete, has a queue slot, and
+ * has a date. Completed rows are excluded because they are already never
+ * re-dated — completing a pinned lesson therefore retires its pin with no
+ * extra bookkeeping.
+ *
+ * Pass `goalId` to scope the result to one goal.
+ */
+export function pinsFromRows(rows: PinnableRow[], goalId?: string): PinnedSlot[] {
+  const out: PinnedSlot[] = [];
+  for (const r of rows) {
+    if (!r.queue_pinned) continue;
+    if (r.completed) continue;
+    if (goalId !== undefined && r.curriculum_goal_id !== goalId) continue;
+    const slot = r.queue_position;
+    const date = r.scheduled_date ?? r.date ?? null;
+    if (slot == null || !date) continue;
+    out.push({ slot, date });
+  }
+  return out;
+}
+
+/**
+ * Load every pin for a user, grouped per goal. One query, one shape, used by
+ * all four projecting read surfaces (Today, Upcoming, Plan calendar, Schedule
+ * view) so they cannot disagree about where a manually-moved lesson sits.
+ *
+ * Cheap by construction: only rows the user actually moved are pinned
+ * (31 rows across the whole production database on 2026-07-30), so this is a
+ * narrow indexed read, not a tail scan. Never throws — on error it returns an
+ * empty map, which degrades to exactly the pre-pin projection rather than
+ * failing the page load.
+ */
+export async function loadPinsByGoal(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<Map<string, PinnedSlot[]>> {
+  try {
+    const { data, error } = await supabase
+      .from("lessons")
+      .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned")
+      .eq("user_id", userId)
+      .eq("queue_pinned", true)
+      .eq("completed", false);
+    if (error || !data) {
+      if (error) Sentry.captureException(error, { extra: { fn: "loadPinsByGoal", userId } });
+      return new Map();
+    }
+    return pinsByGoalFromRows(data as PinnableRow[]);
+  } catch (err) {
+    Sentry.captureException(err, { extra: { fn: "loadPinsByGoal", userId } });
+    return new Map();
+  }
+}
+
+/** Group `pinsFromRows` output per curriculum_goal_id. */
+export function pinsByGoalFromRows(rows: PinnableRow[]): Map<string, PinnedSlot[]> {
+  const out = new Map<string, PinnedSlot[]>();
+  for (const r of rows) {
+    const gid = r.curriculum_goal_id;
+    if (!gid) continue;
+    const pins = pinsFromRows([r], gid);
+    if (pins.length === 0) continue;
+    const list = out.get(gid) ?? [];
+    list.push(...pins);
+    out.set(gid, list);
+  }
+  return out;
+}
+
 export interface ProjectedLesson {
   goal_id: string;
   // The Nth slot in this goal's queue. Equals `lessons.queue_position`,
@@ -1084,6 +1225,7 @@ export function computeNextLessonsForGoal(
   daysAhead: number,
   vacationBlocks?: VacationBlock[],
   completedTodayCount: number = 0,
+  pins: PinnedSlot[] = [],
 ): ProjectedLesson[] {
   if (daysAhead <= 0) return [];
   if (goal.current_lesson >= goal.total_lessons) return [];
@@ -1096,6 +1238,7 @@ export function computeNextLessonsForGoal(
   const fromDateStr = toDateStr(cursor);
   const endDate = new Date(cursor);
   endDate.setDate(endDate.getDate() + daysAhead);
+  const endDateStr = toDateStr(endDate); // first date OUTSIDE the window
 
   // Honor goal.start_date (Bug B, 2026-05-03). If the goal hasn't begun yet,
   // jump the cursor to start_date so lesson 1 lands on the chosen first day,
@@ -1109,36 +1252,88 @@ export function computeNextLessonsForGoal(
     }
   }
 
+  // Pin bookkeeping. Only slots still in the queue can be pinned: a pin on an
+  // already-completed slot is irrelevant (completed rows are never re-dated
+  // anyway) and a pin past total_lessons has no row to place. Pinned dates
+  // consume capacity up front so unpinned slots never stack on top of them.
+  const pinDateBySlot = new Map<number, string>();
+  const used = new Map<string, number>();
+  for (const p of pins) {
+    if (p.slot <= goal.current_lesson) continue;
+    if (p.slot > goal.total_lessons) continue;
+    if (pinDateBySlot.has(p.slot)) continue; // first pin per slot wins, deterministically
+    pinDateBySlot.set(p.slot, p.date);
+    used.set(p.date, (used.get(p.date) ?? 0) + 1);
+  }
+
   // The "next" lesson_number is current_lesson + 1 (current_lesson is the
   // count of completed lessons; lesson_number is 1-indexed in the row).
   // On the first day this is overridden to include lessons already
   // completed today, so today's slot count stays stable across a
   // mark-complete (the completed lesson stays visible as a checked card).
   let nextLesson = goal.current_lesson + 1;
+  let firstDayApplied = false;
 
   let safety = 0;
-  while (cursor < endDate && nextLesson <= goal.total_lessons && safety < 3650) {
-    if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
-      // Per-day capacity. Without overrides this collapses to lessons_per_day
-      // for every iteration (preserves prior behavior). With overrides set,
-      // each weekday has its own ceiling — Thursday=2 / Friday=1 etc. — and
-      // a keyed 0 means this day produces nothing for this goal.
-      const perDayHere = lessonsPerDayForDate(cursor, goal);
-      if (perDayHere > 0) {
-        const dateStr = toDateStr(cursor);
-        const isFirstDay = dateStr === fromDateStr;
-        let lessonStart = isFirstDay
-          ? Math.max(1, goal.current_lesson - completedTodayCount + 1)
-          : nextLesson;
-        for (let s = 0; s < perDayHere && lessonStart <= goal.total_lessons; s++) {
-          out.push({ goal_id: goal.id, lesson_number: lessonStart, date: dateStr });
-          lessonStart++;
-        }
-        nextLesson = lessonStart;
-      }
-    }
-    cursor.setDate(cursor.getDate() + 1);
+  while (nextLesson <= goal.total_lessons && safety < 10_000) {
     safety++;
+
+    // ── Pinned slot: emit exactly where the user put it. ──────────────────
+    const pinnedDate = pinDateBySlot.get(nextLesson);
+    if (pinnedDate !== undefined) {
+      // Past the requested window: everything after this is later still
+      // (the cursor only moves forward), so the projection is done.
+      if (pinnedDate >= endDateStr) break;
+      out.push({ goal_id: goal.id, lesson_number: nextLesson, date: pinnedDate });
+      // Continue the queue AFTER the pin: later unpinned slots may share the
+      // pinned date if it still has capacity, and otherwise land beyond it.
+      // A pin dated earlier than the cursor never drags the cursor backward,
+      // so unpinned slots stay in non-decreasing date order.
+      if (pinnedDate > toDateStr(cursor)) {
+        cursor.setTime(new Date(`${pinnedDate}T00:00:00`).getTime());
+      }
+      nextLesson++;
+      continue;
+    }
+
+    // ── Unpinned slot: first date at-or-after the cursor with capacity. ───
+    let placed = false;
+    while (cursor < endDate && safety < 10_000) {
+      safety++;
+      if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, vacationBlocks)) {
+        // Per-day capacity. Without overrides this collapses to lessons_per_day
+        // for every iteration (preserves prior behavior). With overrides set,
+        // each weekday has its own ceiling — Thursday=2 / Friday=1 etc. — and
+        // a keyed 0 means this day produces nothing for this goal.
+        const perDayHere = lessonsPerDayForDate(cursor, goal);
+        if (perDayHere > 0) {
+          const dateStr = toDateStr(cursor);
+          // First-day adjustment, applied once, only if the first placement
+          // actually lands on fromDate.
+          if (!firstDayApplied && dateStr === fromDateStr) {
+            nextLesson = Math.max(1, goal.current_lesson - completedTodayCount + 1);
+            firstDayApplied = true;
+            if (nextLesson > goal.total_lessons) break;
+            // The adjustment can rewind onto a slot that is itself pinned.
+            if (pinDateBySlot.has(nextLesson)) break;
+          }
+          const u = used.get(dateStr) ?? 0;
+          if (u < perDayHere) {
+            out.push({ goal_id: goal.id, lesson_number: nextLesson, date: dateStr });
+            used.set(dateStr, u + 1);
+            nextLesson++;
+            placed = true;
+            break;
+          }
+        }
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    // Ran out of window (or rewound onto a pin) without placing: done.
+    if (!placed) {
+      if (pinDateBySlot.has(nextLesson) && cursor < endDate) continue;
+      break;
+    }
   }
 
   return out;
@@ -1166,8 +1361,29 @@ export function computeFinishDate(
   fromDate: Date = new Date(),
   vacationBlocks?: VacationBlock[],
   completedTodayCount: number = 0,
+  pins: PinnedSlot[] = [],
 ): Date | null {
   if (goal.current_lesson >= goal.total_lessons) return null;
+
+  // With pins in play the slot-counting shortcut below is wrong: a pinned
+  // lesson can sit far past where its queue position would have landed, so
+  // the finish date is the last date the real projection emits. Derived from
+  // the same projector every surface reads, so a quoted finish date can never
+  // disagree with the calendar (invariant: one projection, all surfaces).
+  if (pins.length > 0) {
+    const projected = computeNextLessonsForGoal(
+      goal,
+      fromDate,
+      3650,
+      vacationBlocks,
+      completedTodayCount,
+      pins,
+    );
+    if (projected.length === 0) return null;
+    let last = projected[0].date;
+    for (const p of projected) if (p.date > last) last = p.date;
+    return new Date(`${last}T00:00:00`);
+  }
 
   const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
   const remaining = goal.total_lessons - goal.current_lesson;
@@ -1225,13 +1441,21 @@ export function computeTodayLessons(
   today: Date,
   vacationBlocks?: VacationBlock[],
   completedTodayPerGoal?: Map<string, number>,
+  pinsByGoal?: Map<string, PinnedSlot[]>,
 ): ProjectedLesson[] {
   const out: ProjectedLesson[] = [];
   for (const goal of goals) {
     const completed = completedTodayPerGoal?.get(goal.id) ?? 0;
     // Project a single calendar day. computeNextLessonsForGoal will return
     // [] if today isn't a school day for this goal — exactly what we want.
-    const projected = computeNextLessonsForGoal(goal, today, 1, vacationBlocks, completed);
+    const projected = computeNextLessonsForGoal(
+      goal,
+      today,
+      1,
+      vacationBlocks,
+      completed,
+      pinsByGoal?.get(goal.id) ?? [],
+    );
     out.push(...projected);
   }
   return out;

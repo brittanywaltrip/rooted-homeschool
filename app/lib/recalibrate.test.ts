@@ -123,7 +123,11 @@ function makeRecalibrateSupabase(opts: {
         if (projection === 'id, lesson_number') {
           data = opts.gapLessons
         } else if (
-          projection === 'id, scheduled_date, completed, is_backfill, lesson_number'
+          // Phase-5 forward select. queue_position + queue_pinned were added
+          // when pins landed (July 2026): recalibration reads the pin state so
+          // it projects around manually-placed rows instead of re-dating them.
+          projection ===
+            'id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned'
         ) {
           data = opts.forwardIncompleteRows ?? []
         } else {

@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
-import { computeNextLessonsForGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, loadPinsByGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -165,6 +165,9 @@ export default function SchedulePage() {
     const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
     const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
       .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+    // Same pin set every other projecting surface uses, so a manually-moved
+    // lesson renders on one date everywhere (see PinnedSlot in scheduler.ts).
+    const pinsByGoal = await loadPinsByGoal(supabase, effectiveUserId);
     const projected: { goal_id: string; lesson_number: number; date: string }[] = [];
     for (const g of goals) {
       if (!g.total_lessons || g.total_lessons <= 0) continue;
@@ -176,7 +179,7 @@ export default function SchedulePage() {
         current_lesson: g.current_lesson ?? 0,
       };
       const completed = completedTodayPerGoal.get(g.id) ?? 0;
-      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks, completed).filter((p) => p.date >= s && p.date <= e));
+      projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks, completed, pinsByGoal.get(cfg.id) ?? []).filter((p) => p.date >= s && p.date <= e));
     }
     const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
     const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));

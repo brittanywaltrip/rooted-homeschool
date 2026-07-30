@@ -76,6 +76,8 @@ import {
   recomputeCurrentLesson,
   schoolDayDelta,
   buildPastDateCompletionPayload,
+  loadPinsByGoal,
+  type PinnedSlot,
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
@@ -349,6 +351,23 @@ export default function PlanV2() {
       window.localStorage.setItem(CATCHUP_DISMISS_KEY, String(now));
     } catch { /* ignore */ }
   }, []);
+
+  // Manual placements per goal (see PinnedSlot in scheduler.ts). Loaded wide
+  // (all months) because a pin outside the visible window still moves the
+  // projected finish date, and the pace pill would otherwise contradict the
+  // calendar. Reloaded whenever the calendar reloads.
+  const [pinsByGoal, setPinsByGoal] = useState<Map<string, PinnedSlot[]>>(new Map());
+  const [pinsNonce, setPinsNonce] = useState(0);
+  const reloadPins = useCallback(() => setPinsNonce((n) => n + 1), []);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const map = await loadPinsByGoal(supabase, effectiveUserId);
+      if (!cancelled) setPinsByGoal(map);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, pinsNonce]);
 
   // Both catch-up modals operate on the whole schedule, so neither can read
   // `lessons` state (capped to the visible grid window). These hold the full
@@ -1795,7 +1814,7 @@ export default function PlanV2() {
 
     let req = supabase
       .from("lessons")
-      .select("id, title, lesson_number, scheduled_date, date, child_id")
+      .select("id, title, lesson_number, scheduled_date, date, child_id, queue_pinned")
       .eq("user_id", effectiveUserId)
       .eq("completed", false)
       .not("scheduled_date", "is", null)
@@ -1884,6 +1903,28 @@ export default function PlanV2() {
     setShiftForwardLoading(false);
     setShiftForwardMissed([]);
   }, []);
+
+  // True backlog size, all months. The catch-up banner headline used the
+  // month-windowed count, so a mom several months behind was told she was
+  // "12 lessons behind" while the modal she opened from it moved far more.
+  // Cheap: one count-only query, refreshed with the calendar.
+  const [missedTotal, setMissedTotal] = useState<number | null>(null);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const { count, error } = await supabase
+        .from("lessons")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", effectiveUserId)
+        .eq("completed", false)
+        .not("scheduled_date", "is", null)
+        .lt("scheduled_date", todayStr);
+      if (cancelled || error) return;
+      setMissedTotal(count ?? 0);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, todayStr, pinsNonce]);
 
   // Catch-up threshold: 5+ past incomplete spanning 2+ distinct days AND
   // the 7-day dismissal window has elapsed. Dismissal count doesn't scope
@@ -2208,6 +2249,9 @@ export default function PlanV2() {
         actor,
       });
 
+      // move_lesson_to_date sets queue_pinned in the same statement it writes
+      // the date (migration 20260730000000), so the pin map needs a refresh.
+      reloadPins();
       reload();
       // Cross-route notification — Today page (when mounted) listens for
       // this event and reloads so the moved lesson appears on the right
@@ -2217,7 +2261,7 @@ export default function PlanV2() {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [lessons, vacationBlocks, setLessons, reload, flagLanded, recordEvent],
+    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent],
   );
 
   // ── Appointment move (drag-drop on non-recurring instances) ────────────────
@@ -2475,7 +2519,13 @@ export default function PlanV2() {
       moves.map((m) =>
         supabase
           .from("lessons")
-          .update({ scheduled_date: toDateStr, date: toDateStr })
+          // Manual placement: pin so the reconciler leaves it alone.
+          .update({
+            scheduled_date: toDateStr,
+            date: toDateStr,
+            scheduled_source: "plan_move",
+            queue_pinned: true,
+          })
           .eq("id", m.id)
           .then(({ error }) => (error ? Promise.reject(error) : true)),
       ),
@@ -2523,9 +2573,13 @@ export default function PlanV2() {
           succeeded.forEach((m) => flagLanded(m.id));
           await Promise.allSettled(
             succeeded.map((m) =>
-              supabase.from("lessons").update({ scheduled_date: m.from, date: m.from }).eq("id", m.id),
+              supabase
+                .from("lessons")
+                .update({ scheduled_date: m.from, date: m.from, queue_pinned: false })
+                .eq("id", m.id),
             ),
           );
+          reloadPins();
           reload();
         },
       });
@@ -2543,10 +2597,11 @@ export default function PlanV2() {
       failed: failedIds.length,
     });
 
+    reloadPins();
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, vacationBlocks, setLessons, reload, flagLanded, exitSelectMode, recordEvent]);
+  }, [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, exitSelectMode, recordEvent]);
 
   // ── Single move (WeekListView Edit-week → day picker) ─────────────────────
   // Mirrors performBulkMove for one lesson with simpler toast copy. Skipped
@@ -2925,10 +2980,17 @@ export default function PlanV2() {
   // partial-failure tolerance, audit event, and universal-undo registration.
   // Undo restores each lesson's prior scheduled_date by id.
 
+  // `pin` writes lessons.queue_pinned alongside the date. Pass true from the
+  // MANUAL flows (cascade, push-back, shift-forward, bulk move) so the queue
+  // reconciler stops re-dating those rows — that reversion is what made every
+  // manual move temporary. Pass false to explicitly release a pin (undo of a
+  // manual move restores the row's prior pin state). Omit for SYSTEM writes
+  // (vacation re-spread), which must stay reconcilable.
   const batchUpdateScheduledDates = useCallback(
     async (
       pairs: { id: string; date: string }[],
       source?: string,
+      pin?: boolean,
     ): Promise<{ succeededIds: Set<string>; failedIds: Set<string> }> => {
       const succeededIds = new Set<string>();
       const failedIds = new Set<string>();
@@ -2941,11 +3003,17 @@ export default function PlanV2() {
         const slice = pairs.slice(i, i + 20);
         const results = await Promise.allSettled(
           slice.map((p) => {
-            const update: { scheduled_date: string; date: string; scheduled_source?: string } = {
+            const update: {
+              scheduled_date: string;
+              date: string;
+              scheduled_source?: string;
+              queue_pinned?: boolean;
+            } = {
               scheduled_date: p.date,
               date: p.date,
             };
             if (source) update.scheduled_source = source;
+            if (pin !== undefined) update.queue_pinned = pin;
             return supabase
               .from("lessons")
               .update(update)
@@ -2979,8 +3047,13 @@ export default function PlanV2() {
     hapticTap(20);
 
     const pairs = moves.map((m) => ({ id: m.lesson.id, date: m.toDate }));
-    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs);
+    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs, "plan_move", true);
     const succeeded = moves.filter((m) => succeededIds.has(m.lesson.id));
+    const pinnedBefore = new Set(
+      moves
+        .filter((m) => (m.lesson as { queue_pinned?: boolean | null }).queue_pinned)
+        .map((m) => m.lesson.id),
+    );
 
     // Rollback any failures locally.
     if (failedIds.size > 0) {
@@ -3020,9 +3093,12 @@ export default function PlanV2() {
           );
           hapticTap(20);
           succeeded.forEach((m) => flagLanded(m.lesson.id));
-          await batchUpdateScheduledDates(
-            succeeded.map((m) => ({ id: m.lesson.id, date: m.fromDate })),
-          );
+          const undoPairs = succeeded.map((m) => ({ id: m.lesson.id, date: m.fromDate }));
+          const repin = undoPairs.filter((p) => pinnedBefore.has(p.id));
+          const unpin = undoPairs.filter((p) => !pinnedBefore.has(p.id));
+          if (repin.length > 0) await batchUpdateScheduledDates(repin, "plan_move", true);
+          if (unpin.length > 0) await batchUpdateScheduledDates(unpin, "plan_move", false);
+          reloadPins();
           reload();
         },
       });
@@ -3030,9 +3106,10 @@ export default function PlanV2() {
       flashNotice(`Couldn't shift ${failedIds.size} lesson${failedIds.size === 1 ? "" : "s"}.`);
     }
 
+    reloadPins();
     reload();
     setBulkBusy(false);
-  }, [setLessons, flagLanded, batchUpdateScheduledDates, recordEvent, reload]);
+  }, [setLessons, flagLanded, batchUpdateScheduledDates, recordEvent, reload, reloadPins]);
 
   const handlePushBackConfirm = useCallback(async (args: {
     futureMoves: PushBackMove[];
@@ -3045,6 +3122,12 @@ export default function PlanV2() {
 
     const allMoves = [...futureMoves, ...missedMoves];
     const movesById = new Map(allMoves.map((m) => [m.lesson.id, m]));
+    // Prior pin state so Undo restores it instead of blanket-unpinning.
+    const pinnedBefore = new Set(
+      allMoves
+        .filter((m) => (m.lesson as { queue_pinned?: boolean | null }).queue_pinned)
+        .map((m) => m.lesson.id),
+    );
 
     // Optimistic local apply first — future + missed happen together.
     setLessons((prev) =>
@@ -3059,7 +3142,9 @@ export default function PlanV2() {
     // Future first, missed second. If future fails we still try missed —
     // they target vacated slots regardless and can be undone as a unit.
     const pairs = allMoves.map((m) => ({ id: m.lesson.id, date: m.toDate }));
-    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs);
+    // plan_move + pin: this is mom moving her own schedule, so the reconciler
+    // must not walk it back on the next Today load.
+    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs, "plan_move", true);
     const futureSucceeded = futureMoves.filter((m) => succeededIds.has(m.lesson.id));
     const missedSucceeded = missedMoves.filter((m) => succeededIds.has(m.lesson.id));
 
@@ -3117,9 +3202,12 @@ export default function PlanV2() {
           );
           hapticTap(20);
           allSucceeded.forEach((m) => flagLanded(m.lesson.id));
-          await batchUpdateScheduledDates(
-            allSucceeded.map((m) => ({ id: m.lesson.id, date: m.fromDate })),
-          );
+          const undoPairs = allSucceeded.map((m) => ({ id: m.lesson.id, date: m.fromDate }));
+          const repin = undoPairs.filter((p) => pinnedBefore.has(p.id));
+          const unpin = undoPairs.filter((p) => !pinnedBefore.has(p.id));
+          if (repin.length > 0) await batchUpdateScheduledDates(repin, "plan_move", true);
+          if (unpin.length > 0) await batchUpdateScheduledDates(unpin, "plan_move", false);
+          reloadPins();
           reload();
         },
       });
@@ -3127,9 +3215,10 @@ export default function PlanV2() {
       flashNotice("Couldn't push the schedule back, check your connection.");
     }
 
+    reloadPins();
     reload();
     setBulkBusy(false);
-  }, [setLessons, flagLanded, batchUpdateScheduledDates, recordEvent, reload]);
+  }, [setLessons, flagLanded, batchUpdateScheduledDates, recordEvent, reload, reloadPins]);
 
   // ── Cascade shift on single-lesson move ──────────────────────────────────
   // When a mom moves one curriculum lesson forward, the queue projector
@@ -3176,7 +3265,7 @@ export default function PlanV2() {
     // Same wide-load shape the vacation shift / shift-back paths use.
     const { data: allFuture, error: futureErr } = await supabase
       .from("lessons")
-      .select("id, scheduled_date, date")
+      .select("id, scheduled_date, date, queue_pinned")
       .eq("curriculum_goal_id", c.goalId)
       .eq("completed", false)
       .neq("id", c.lessonId)
@@ -3196,7 +3285,12 @@ export default function PlanV2() {
       id: string;
       scheduled_date: string | null;
       date: string | null;
+      queue_pinned: boolean | null;
     }[]).filter((l) => (l.scheduled_date ?? l.date) !== null);
+    // Prior pin state, so Undo restores it rather than blanket-unpinning rows
+    // that were already manually placed before this cascade.
+    const wasPinnedById = new Map<string, boolean>();
+    for (const fl of futureLessons) wasPinnedById.set(fl.id, !!fl.queue_pinned);
 
     const pairs: { id: string; date: string }[] = [
       { id: c.lessonId, date: c.toDateStr },
@@ -3221,7 +3315,7 @@ export default function PlanV2() {
     pairs.forEach((p) => flagLanded(p.id));
     hapticTap(20);
 
-    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs, "plan_move");
+    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs, "plan_move", true);
 
     if (failedIds.size > 0) {
       setLessons((prev) =>
@@ -3263,7 +3357,15 @@ export default function PlanV2() {
           );
           hapticTap(20);
           succeededPairs.forEach((p) => flagLanded(p.id));
-          await batchUpdateScheduledDates(undoPairs, "plan_move");
+          // Two batches so each row goes back to the pin state it had before
+          // the cascade. The trigger lesson had no prior entry in the map (it
+          // is not part of the fetched tail), so it unpins — correct, since
+          // undoing its move means it is no longer manually placed.
+          const repin = undoPairs.filter((p) => wasPinnedById.get(p.id) === true);
+          const unpin = undoPairs.filter((p) => wasPinnedById.get(p.id) !== true);
+          if (repin.length > 0) await batchUpdateScheduledDates(repin, "plan_move", true);
+          if (unpin.length > 0) await batchUpdateScheduledDates(unpin, "plan_move", false);
+          reloadPins();
           reload();
         },
       });
@@ -3271,12 +3373,13 @@ export default function PlanV2() {
       flashNotice("Couldn't shift the schedule, check your connection.");
     }
 
+    reloadPins();
     reload();
     setBulkBusy(false);
     // `lessons` is intentionally NOT a dependency any more. The shift set
     // is read from the DB above, so the handler no longer closes over the
     // month-windowed state.
-  }, [curriculumGoals, schoolDays, vacationBlocks, batchUpdateScheduledDates, recordEvent, reload, flagLanded, flashNotice]);
+  }, [curriculumGoals, schoolDays, vacationBlocks, batchUpdateScheduledDates, recordEvent, reload, reloadPins, flagLanded, flashNotice]);
 
   // ── Past-date move with optional completion ──────────────────────────────
   // When a mom picks a past date for a single lesson, the move itself
@@ -4025,7 +4128,7 @@ export default function PlanV2() {
             MissedLessonsBanner handles per-row and select-all flows. */}
         {!loading && showCatchUpBanner ? (
           <CatchUpBanner
-            count={missedLessonsInView.length}
+            count={missedTotal ?? missedLessonsInView.length}
             onShiftForward={() => void openShiftForward()}
             onPushBack={() => void openPushBack()}
             onDismiss={dismissCatchUp}
@@ -4457,6 +4560,7 @@ export default function PlanV2() {
             Only ACTIVE goals (completed_at == null) render here. Celebrating
             and completed goals get their own subsections below. */}
         <CurriculumGroupsPanel
+          pinsByGoal={pinsByGoal}
           goals={activeGoals}
           lessons={lessons}
           kids={kids}
@@ -4688,34 +4792,55 @@ export default function PlanV2() {
                 : schoolDays;
               const vacRanges = vacationBlocks.map((v) => ({ start: v.start_date, end: v.end_date }));
               const shiftDays = schoolDayDelta(target.fromDateStr, toDateStr, goalSchoolDays, vacRanges);
-              const futureLessons = lessons.filter((l) =>
-                l.curriculum_goal_id === goalId &&
-                !l.completed &&
-                l.id !== target.lessonId &&
-                (l.scheduled_date ?? l.date) !== null &&
-                ((l.scheduled_date ?? l.date)!) > target.fromDateStr,
-              );
-              if (shiftDays <= 0 || futureLessons.length === 0) {
+              if (shiftDays <= 0) {
                 void performMove(target.lessonId, target.fromDateStr, toDateStr);
                 return;
               }
-              // Projected new finish = the latest future lesson's current
-              // date, shifted forward by shiftDays. Shown verbatim in the
-              // modal so mom knows what she's agreeing to.
-              const latestDateStr = futureLessons.reduce<string>((acc, l) => {
-                const d = (l.scheduled_date ?? l.date)!;
-                return d > acc ? d : acc;
-              }, target.fromDateStr);
-              const projectedFinishDate = nthSchoolDay(latestDateStr, goalSchoolDays, shiftDays, vacationBlocks);
-              setCascadeChoice({
-                lessonId: target.lessonId,
-                fromDateStr: target.fromDateStr,
-                toDateStr,
-                goalId,
-                shiftDays,
-                futureLessonsToShift: futureLessons.length,
-                projectedFinishDate,
-              });
+              // The count and finish date MUST come from the whole affected
+              // tail, not from `lessons` state. State is capped to the visible
+              // 42-cell grid, so this dialog used to promise "7 later lessons
+              // shift, finish Aug 12" when the truth was 59 lessons and Oct 23
+              // — mom agreed to something quite different from what happened.
+              void (async () => {
+                const { data: tail, error: tailErr } = await supabase
+                  .from("lessons")
+                  .select("id, scheduled_date, date")
+                  .eq("curriculum_goal_id", goalId)
+                  .eq("completed", false)
+                  .neq("id", target.lessonId)
+                  .gt("scheduled_date", target.fromDateStr)
+                  .order("scheduled_date", { ascending: true });
+                if (tailErr) {
+                  flashNotice("Couldn't check the rest of this curriculum. Try again.");
+                  return;
+                }
+                const futureLessons = ((tail ?? []) as {
+                  id: string;
+                  scheduled_date: string | null;
+                  date: string | null;
+                }[]).filter((l) => (l.scheduled_date ?? l.date) !== null);
+                if (futureLessons.length === 0) {
+                  void performMove(target.lessonId, target.fromDateStr, toDateStr);
+                  return;
+                }
+                // Projected new finish = the latest future lesson's current
+                // date, shifted forward by shiftDays. Shown verbatim in the
+                // modal so mom knows what she's agreeing to.
+                const latestDateStr = futureLessons.reduce<string>((acc, l) => {
+                  const d = (l.scheduled_date ?? l.date)!;
+                  return d > acc ? d : acc;
+                }, target.fromDateStr);
+                const projectedFinishDate = nthSchoolDay(latestDateStr, goalSchoolDays, shiftDays, vacationBlocks);
+                setCascadeChoice({
+                  lessonId: target.lessonId,
+                  fromDateStr: target.fromDateStr,
+                  toDateStr,
+                  goalId,
+                  shiftDays,
+                  futureLessonsToShift: futureLessons.length,
+                  projectedFinishDate,
+                });
+              })();
             }}
           />
         ) : null}
