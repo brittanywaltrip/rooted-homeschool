@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "node --test 'lib/**/*.test.ts' 'app/lib/**/*.test.ts' 'app/components/**/*.test.ts' 'scripts/**/*.test.ts'",
+    "test": "node --test 'lib/**/*.test.ts' 'app/lib/**/*.test.ts' 'app/components/**/*.test.ts' 'scripts/**/*.test.ts' 'e2e/*.test.ts'",
     "test:e2e": "node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test e2e/smoke/",
     "test:e2e:ui": "node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test e2e/smoke/ --ui",
     "audit:stripe-linkage": "node --env-file=.env.local scripts/audit-stripe-linkage.ts",

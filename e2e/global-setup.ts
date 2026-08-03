@@ -1,9 +1,11 @@
 // REGRESSION GUARD: This global-setup must not touch app/dashboard/page.tsx
 // or any save/capture function.
 
-import { chromium, type FullConfig } from '@playwright/test';
+import { chromium, type BrowserContext, type FullConfig } from '@playwright/test';
 import fs from 'node:fs';
 import path from 'node:path';
+
+import { assertIsTestAccount, E2E_EMAIL } from './test-account';
 
 // Required env (set locally via .env.local for `npm run test:e2e`,
 // via GitHub Actions secrets for CI):
@@ -18,6 +20,47 @@ function requireEnv(name: string): string {
 }
 
 const STORAGE_PATH = path.resolve(__dirname, '.auth/user.json');
+
+/**
+ * Read the signed-in user id out of the Supabase auth cookie.
+ *
+ * @supabase/ssr writes the session as `sb-<project-ref>-auth-token`, split into
+ * `.0`, `.1`, … chunks when it exceeds the 4KB cookie limit, with the first
+ * chunk prefixed `base64-`. Concatenate in index order, decode, and the session
+ * JSON carries `user.id`; if a future client version drops that, fall back to
+ * the `sub` claim of the access token.
+ *
+ * We read who ACTUALLY authenticated rather than trusting PLAYWRIGHT_EMAIL,
+ * because the whole point of the guard is that env may be wrong. Returns null
+ * on any parse failure, which the caller treats as a hard stop.
+ */
+async function resolveSignedInUserId(context: BrowserContext): Promise<string | null> {
+  try {
+    const cookies = await context.cookies();
+    const chunks = cookies
+      .filter((c) => /^sb-.+-auth-token(\.\d+)?$/.test(c.name))
+      .sort((a, b) => {
+        const idx = (n: string) => Number(n.split('.').pop()) || 0;
+        return idx(a.name) - idx(b.name);
+      });
+    if (chunks.length === 0) return null;
+
+    const raw = chunks.map((c) => c.value).join('');
+    const payload = raw.startsWith('base64-') ? raw.slice('base64-'.length) : raw;
+    const session = JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+
+    if (typeof session?.user?.id === 'string') return session.user.id;
+
+    const jwt: string | undefined = session?.access_token;
+    if (typeof jwt === 'string') {
+      const claims = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64').toString('utf8'));
+      if (typeof claims?.sub === 'string') return claims.sub;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 export default async function globalSetup(config: FullConfig) {
   // Prefer TEST_BASE_URL when set, fall back to the Playwright config's
@@ -73,12 +116,25 @@ export default async function globalSetup(config: FullConfig) {
       );
     }
 
+    // ── ACCOUNT GUARD ──────────────────────────────────────────────────────
+    // Runs BEFORE storageState is written, so a session for the wrong account
+    // never reaches disk for a later run to pick up. Any stale state file is
+    // deleted on failure for the same reason. See e2e/test-account.ts.
+    const signedInUserId = await resolveSignedInUserId(context);
+    try {
+      assertIsTestAccount(signedInUserId, 'global-setup');
+    } catch (err) {
+      if (fs.existsSync(STORAGE_PATH)) fs.rmSync(STORAGE_PATH);
+      throw err;
+    }
+
     fs.mkdirSync(path.dirname(STORAGE_PATH), { recursive: true });
     await context.storageState({ path: STORAGE_PATH });
 
     console.log(
-      `[global-setup] ✓ logged in as ${TEST_EMAIL} via /login form, storageState saved to ${STORAGE_PATH}`,
+      `[global-setup] ✓ logged in as ${TEST_EMAIL} (${signedInUserId}) via /login form, storageState saved to ${STORAGE_PATH}`,
     );
+    console.log(`[global-setup] ✓ account guard passed — this is the e2e test account (${E2E_EMAIL})`);
   } finally {
     await browser.close();
   }

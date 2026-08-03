@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 
+import { assertIsTestAccount } from '../test-account';
+
 /* Critical-path Playwright smoke tests. Run before every staging -> main
  * merge to catch regressions on the four user-facing flows that hurt the
  * most when broken: curriculum create / edit / delete / lesson complete.
@@ -143,7 +145,23 @@ async function resolveTestUserId(): Promise<string | null> {
 // start existing mid-run).
 let cachedTestUserIdPromise: Promise<string | null> | null = null;
 function cachedTestUserId(): Promise<string | null> {
-  if (!cachedTestUserIdPromise) cachedTestUserIdPromise = resolveTestUserId();
+  if (!cachedTestUserIdPromise) {
+    // Second choke point for the account guard (global-setup is the first).
+    // EVERY service-role seed and delete in this file resolves its user scope
+    // here, so asserting once covers both directions. It matters independently
+    // of global-setup: a run started with a stale e2e/.auth/user.json while
+    // PLAYWRIGHT_EMAIL points somewhere else would otherwise drive the browser
+    // as one account and issue service-role DELETEs against another.
+    //
+    // A null id still returns null rather than throwing — that is the
+    // documented "no SUPABASE_SERVICE_ROLE_KEY, skip the DB-backed specs"
+    // path, and it performs no writes. Only a resolved id that is NOT the
+    // test account is fatal.
+    cachedTestUserIdPromise = resolveTestUserId().then((id) => {
+      if (id) assertIsTestAccount(id, 'critical-paths service-role scope');
+      return id;
+    });
+  }
   return cachedTestUserIdPromise;
 }
 
