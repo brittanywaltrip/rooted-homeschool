@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as Sentry from "@sentry/nextjs";
+import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { deriveEndYear } from "@/lib/school-year-name";
 
@@ -23,14 +23,27 @@ const GRADE_ADVANCEMENT: Record<string, string> = {
   "12th Grade": "Graduated",
 };
 
+/**
+ * Readable text for anything we might be handed. Supabase errors are plain
+ * objects, so the old `String(detail)` turned them into "[object Object]" in
+ * both the API response and the Sentry title.
+ */
+function detailMessage(detail: unknown): string | null {
+  if (!detail) return null;
+  if (detail instanceof Error) return detail.message;
+  const raw = detail as { message?: unknown };
+  if (typeof raw.message === "string" && raw.message.length > 0) return raw.message;
+  return String(detail);
+}
+
 function fail(message: string, detail?: unknown) {
-  const err = detail instanceof Error ? detail.message : detail ? String(detail) : null;
+  const err = detailMessage(detail);
   const full = err ? `${message}: ${err}` : message;
   console.error("[school-year/close]", full);
   // This bug sat invisible from June 19 because handled 500s never reached
   // Sentry. Every fatal exit now creates a Sentry issue so a stranded user
   // shows up in alerting instead of only in the browser network tab.
-  Sentry.captureException(detail instanceof Error ? detail : new Error(full), {
+  captureSupabaseError(message, detail ?? new Error(message), {
     tags: { route: "school-year/close" },
     extra: { message },
   });
@@ -80,9 +93,9 @@ export async function POST(req: NextRequest) {
   // the year, then crashed on the snapshot insert, stranding a real user.
   const warnings: string[] = [];
   const warn = (step: string, detail: unknown) => {
-    const msg = detail instanceof Error ? detail.message : String(detail);
+    const msg = detailMessage(detail) ?? String(detail);
     console.error(`[school-year/close] non-fatal ${step}:`, msg);
-    Sentry.captureException(detail instanceof Error ? detail : new Error(`${step}: ${msg}`), {
+    captureSupabaseError(step, detail, {
       tags: { route: "school-year/close", step, fatal: "false" },
       extra: { userId, yearId },
     });

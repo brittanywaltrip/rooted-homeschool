@@ -38,6 +38,7 @@ import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { isSchoolDayDate } from "@/lib/school-days";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
+import { captureSupabaseError } from "@/lib/sentry-error";
 import { useIsNativeApp } from "@/lib/platform";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
@@ -1657,13 +1658,45 @@ export default function TodayPage() {
           .select("child_id, subject_label, default_minutes, subject_id")
           .eq("id", entry.goal_id)
           .maybeSingle();
+        if (goalRow.error) {
+          captureSupabaseError("Missed-lesson recovery: goal read failed", goalRow.error, {
+            tags: { fn: "acceptMissedRecovery" },
+            extra: { goalId: entry.goal_id },
+          });
+        }
         // child_id MUST come from the goal. Pre-fix this silently fell back to
         // null when the SELECT failed or returned nothing, inserting a lesson
         // with no child on a goal that has one (drift F: 6 prod rows across 3
         // families, created Jul 9-27). A lesson row with no child never renders
         // under a kid on Today or Plan and never reaches that child's
         // transcript, so a silent null is worse than a skipped row.
-        const childId = (goalRow.data as { child_id?: string | null })?.child_id ?? null;
+        //
+        // Three independent sources, in order, because production kept hitting
+        // "no child_id resolvable" on goals whose row genuinely has one:
+        //   1. the goal object already in memory (missedGoals carries child_id
+        //      from loadData's curriculum_goals select),
+        //   2. the per-entry SELECT above,
+        //   3. a narrow retry that reads child_id alone, covering a transient
+        //      failure of the wider select.
+        // Only when all three come back empty do we skip the insert.
+        let childId =
+          goal?.child_id ??
+          (goalRow.data as { child_id?: string | null } | null)?.child_id ??
+          null;
+        if (!childId) {
+          const retry = await supabase
+            .from("curriculum_goals")
+            .select("child_id")
+            .eq("id", entry.goal_id)
+            .maybeSingle();
+          if (retry.error) {
+            captureSupabaseError("Missed-lesson recovery: child_id retry failed", retry.error, {
+              tags: { fn: "acceptMissedRecovery" },
+              extra: { goalId: entry.goal_id },
+            });
+          }
+          childId = (retry.data as { child_id?: string | null } | null)?.child_id ?? null;
+        }
         if (!childId) {
           Sentry.captureMessage(
             `Missed-lesson recovery: no child_id resolvable for goal ${entry.goal_id}; skipping insert`,

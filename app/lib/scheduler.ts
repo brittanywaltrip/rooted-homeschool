@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as Sentry from "@sentry/nextjs";
 import { addDays, isoDowFromYmd } from "./timezone.ts";
+// Relative + explicit extension so `node --test` (which runs this module
+// directly) can resolve it, same as ./timezone.ts above.
+import { captureSupabaseError } from "../../lib/sentry-error.ts";
 
 // Day index conventions: Mon=0..Sun=6 for school_days / school_days bool arrays
 // (matches the wizard and plan page). getDay() → Sun=0..Sat=6, so translate with
@@ -131,7 +134,7 @@ export async function recomputeCurrentLesson(
   // `?? Math.max(0, row.start_at_lesson - 1)` fallback AND surfaces the
   // error to Sentry so the silent corruption pattern is visible.
   if (updateErr) {
-    Sentry.captureException(updateErr, {
+    captureSupabaseError("recomputeCurrentLesson: current_lesson update failed", updateErr, {
       tags: { fn: "recomputeCurrentLesson", goalId },
     });
     return null;
@@ -260,7 +263,11 @@ export async function reconcileGoalScheduleCache(
       .eq("curriculum_goal_id", goal.id)
       .eq("completed", false);
     if (error || !data) {
-      if (error) Sentry.captureException(error, { extra: { goalId: goal.id } });
+      if (error) {
+        captureSupabaseError("reconcileGoalScheduleCache: incomplete-tail read failed", error, {
+          extra: { goalId: goal.id },
+        });
+      }
       return;
     }
     const rows = data as Array<
@@ -317,7 +324,9 @@ export async function reconcileGoalScheduleCache(
       (r) => (r.queue_position != null ? `${goal.id}|${r.queue_position}` : null),
     );
   } catch (err) {
-    Sentry.captureException(err, { extra: { goalId: goal.id } });
+    captureSupabaseError("reconcileGoalScheduleCache failed", err, {
+      extra: { goalId: goal.id },
+    });
   }
 }
 
@@ -968,12 +977,18 @@ export async function loadPinsByGoal(
       .eq("queue_pinned", true)
       .eq("completed", false);
     if (error || !data) {
-      if (error) Sentry.captureException(error, { extra: { fn: "loadPinsByGoal", userId } });
+      if (error) {
+        captureSupabaseError("loadPinsByGoal: pinned-rows read failed", error, {
+          extra: { fn: "loadPinsByGoal", userId },
+        });
+      }
       return new Map();
     }
     return pinsByGoalFromRows(data as PinnableRow[]);
   } catch (err) {
-    Sentry.captureException(err, { extra: { fn: "loadPinsByGoal", userId } });
+    captureSupabaseError("loadPinsByGoal failed", err, {
+      extra: { fn: "loadPinsByGoal", userId },
+    });
     return new Map();
   }
 }

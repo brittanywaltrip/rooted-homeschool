@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreVertical, Trash2 } from "lucide-react";
-import * as Sentry from "@sentry/nextjs";
+import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
@@ -1699,7 +1699,10 @@ export default function ScheduleBuilderPage() {
           }
         }
         if (lastErr) {
-          Sentry.captureException(lastErr, {
+          // Phase 2 throws raw Supabase errors (`throw lessonErr` etc.), which
+          // Sentry titled "Object captured as exception with keys: code,
+          // details, hint, message". Wrap so the real message is the title.
+          captureSupabaseError("Curriculum save phase 2 failed", lastErr, {
             tags: { phase: "curriculum_save_phase2", goal_id: goalId },
           });
           phase2Failures.push({ goalId, err: lastErr });
