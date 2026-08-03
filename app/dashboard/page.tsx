@@ -34,6 +34,7 @@ import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal } from "@/
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
+import { biweeklyOccursOn } from "@/app/components/PlanV2/activityOccurrences";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { isSchoolDayDate } from "@/lib/school-days";
@@ -611,11 +612,10 @@ export default function TodayPage() {
       if (a.end_date && today > a.end_date) return false;
       if (!a.days || !a.days.includes(todayDow)) return false;
       if (a.frequency === "weekly") return true;
-      if (a.frequency === "biweekly") {
-        const anchor = new Date(a.created_at);
-        const diffWeeks = Math.floor((now.getTime() - anchor.getTime()) / (7 * 24 * 60 * 60 * 1000));
-        return diffWeeks % 2 === 0;
-      }
+      // Biweekly parity is anchored to the activity's own start_date (week of
+      // start_date = week 0, shown). Shared with the Plan calendar so the two
+      // surfaces cannot disagree about which weeks an activity lands on.
+      if (a.frequency === "biweekly") return biweeklyOccursOn(a, now);
       if (a.frequency === "monthly") {
         // Show only on first occurrence of matching day this month
         const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);

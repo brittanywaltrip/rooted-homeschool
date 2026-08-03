@@ -8,8 +8,10 @@
  *   - days[] is stored Mon=0..Sun=6 (ActivitySetupModal convention), NOT JS
  *     getDay() order. Convert with (jsDow + 6) % 7 before comparing.
  *   - weekly   → every matching weekday
- *   - biweekly → matching weekday on every other week, anchored on created_at
- *     (falls back to start_date, then the epoch) so the cadence matches Today.
+ *   - biweekly → matching weekday on every other week, anchored on the
+ *     activity's own start_date: the week containing start_date is week 0
+ *     (shown), the next week is week 1 (hidden). Rows with no start_date fall
+ *     back to the legacy created_at cadence.
  *   - monthly  → only the FIRST occurrence of that weekday in the month.
  *   - start_date / end_date (inclusive) clamp the visible window.
  * ==========================================================================*/
@@ -32,14 +34,72 @@ function dayNumber(d: Date): number {
   return Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / MS_PER_DAY);
 }
 
-/** Anchor day-number for biweekly cadence: created_at, else start_date, else
- *  the epoch (matches the prompt's Math.floor(daysSinceEpoch / 7) % 2 fallback). */
-function biweeklyAnchorDayNumber(activity: PlanV2Activity): number {
-  const raw = activity.created_at ?? activity.start_date;
-  if (!raw) return 0;
-  const anchor = new Date(raw);
-  if (Number.isNaN(anchor.getTime())) return 0;
-  return dayNumber(anchor);
+/**
+ * Parse a "YYYY-MM-DD" string as a LOCAL calendar date.
+ *
+ * Never `new Date("2026-10-07")` for a date-only string: that is parsed as UTC
+ * midnight, which is Oct 6 in every US timezone, so every date-derived weekday
+ * and week index lands one day early.
+ */
+export function parseLocalYmd(ymd: string | null | undefined): Date | null {
+  if (!ymd) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(ymd);
+  if (!m) return null;
+  const date = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * Day-number of the Monday that opens the local week containing `d`. Weeks run
+ * Mon-Sun to match the app's Mon=0..Sun=6 convention, so an activity that runs
+ * on e.g. Mon AND Wed keeps both days in the same parity bucket.
+ *
+ * The difference between two of these is always a whole number of weeks, which
+ * is what makes the /7 below exact rather than a floor.
+ */
+function weekStartDayNumber(d: Date): number {
+  return dayNumber(d) - toMon0(d.getDay());
+}
+
+/** Fields the biweekly cadence reads. Structural so the Today page can pass
+ *  its own activity row shape without importing PlanV2Activity. */
+export type BiweeklyCadenceFields = {
+  start_date?: string | null;
+  created_at?: string | null;
+};
+
+/**
+ * Does a biweekly activity fall on `date`?
+ *
+ * Parity is anchored to the activity's own start_date: the week CONTAINING
+ * start_date is week 0 (shown), the next week is week 1 (hidden), and so on.
+ *
+ * Anchoring to created_at (the pre-fix behavior) rendered the alternate weeks
+ * for any activity whose start_date sits an odd number of weeks away from the
+ * day it was created, which is the normal case when a family sets up a term
+ * in advance. Reported live: an activity created in late Sep with start_date
+ * 2026-10-07 rendered Oct 14 / Oct 28 instead of Oct 7 / Oct 21.
+ *
+ * start_date is NULL on older rows. Those keep the legacy created_at cadence
+ * so nothing that renders correctly today changes.
+ */
+export function biweeklyOccursOn(activity: BiweeklyCadenceFields, date: Date): boolean {
+  const start = parseLocalYmd(activity.start_date);
+  if (start) {
+    const weeks = (weekStartDayNumber(date) - weekStartDayNumber(start)) / 7;
+    return (((weeks % 2) + 2) % 2) === 0;
+  }
+
+  // Legacy fallback: 7-day blocks counted from created_at, epoch when the row
+  // has neither date. created_at is a full timestamp, so `new Date` parses it
+  // correctly (the UTC-shift trap only applies to date-only strings).
+  let anchorDay = 0;
+  if (activity.created_at) {
+    const anchor = new Date(activity.created_at);
+    if (!Number.isNaN(anchor.getTime())) anchorDay = dayNumber(anchor);
+  }
+  const diffWeeks = Math.floor((dayNumber(date) - anchorDay) / 7);
+  return (((diffWeeks % 2) + 2) % 2) === 0;
 }
 
 /** True when `activity` should render on `date` (with its YYYY-MM-DD string). */
@@ -58,11 +118,8 @@ export function activityOccursOn(
   switch (activity.frequency) {
     case "weekly":
       return true;
-    case "biweekly": {
-      const diffWeeks = Math.floor((dayNumber(date) - biweeklyAnchorDayNumber(activity)) / 7);
-      // Normalize for dates before the anchor so parity stays correct.
-      return (((diffWeeks % 2) + 2) % 2) === 0;
-    }
+    case "biweekly":
+      return biweeklyOccursOn(activity, date);
     case "monthly":
       // First occurrence of this weekday in the month is always within the
       // first 7 days — matches the Today page's "first occurrence" rule.
