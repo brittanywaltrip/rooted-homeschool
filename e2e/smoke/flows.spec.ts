@@ -1,5 +1,7 @@
 import { test, expect, type ConsoleMessage, type Page } from '@playwright/test';
 
+import { adminClient, requireTestUserId } from '../admin';
+
 /* End-to-end Playwright flows against staging.
  *
  * Auth: storageState is loaded automatically by playwright.config.ts from
@@ -449,7 +451,30 @@ test.describe('FLOW 4. Move a lesson on Plan', () => {
 // FLOW 5. Add a Win memory
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Every win this flow creates is titled `Playwright win <Date.now()>`. Without
+// a teardown one row accumulated per run, which quietly changed the account
+// state other specs describe themselves against (yearbook.spec.ts documents a
+// zero-memory account) and would eventually drift the free-tier counters.
+//
+// Scoped three ways so this can only ever reach rows this flow made: the
+// guarded user id from e2e/admin.ts (which asserts the e2e account and throws
+// rather than run unscoped), type='win', and the title prefix. The LIKE also
+// sweeps rows leaked by runs from before this teardown existed.
+const WIN_TITLE_PREFIX = 'Playwright win ';
+
 test.describe('FLOW 5. Add a memory from Memories page', () => {
+  test.afterEach(async () => {
+    const sb = adminClient();
+    if (!sb) return; // no service-role key: nothing to clean with, and nothing was seeded admin-side
+    const testUserId = await requireTestUserId('FLOW 5 win-memory teardown');
+    await sb
+      .from('memories')
+      .delete()
+      .eq('user_id', testUserId)
+      .eq('type', 'win')
+      .like('title', `${WIN_TITLE_PREFIX}%`);
+  });
+
   test('adding a win memory surfaces in the memories grid without a reload', async ({
     page,
   }) => {
@@ -494,7 +519,7 @@ test.describe('FLOW 5. Add a memory from Memories page', () => {
     // this sheet ("What did they accomplish today?"). Stamp is unique so
     // we can find this memory specifically in the grid afterwards.
     const stamp = Date.now().toString();
-    const winText = `Playwright win ${stamp}`;
+    const winText = `${WIN_TITLE_PREFIX}${stamp}`;
     const textarea = page.getByPlaceholder(/What did they accomplish today/i);
     await expect(textarea).toBeVisible({ timeout: 5_000 });
     await textarea.fill(winText);

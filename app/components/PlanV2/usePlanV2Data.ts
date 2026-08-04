@@ -79,8 +79,38 @@ export function usePlanV2Data(opts: {
 
   const monthKey = `${monthStart.getFullYear()}-${monthStart.getMonth()}`;
   const cancelRef = useRef(false);
+  /**
+   * Monotonic id for the in-flight load. A response may only write state if it
+   * is still the newest request.
+   *
+   * cancelRef alone could not do this. React runs the previous effect's cleanup
+   * (cancelRef = true) and then the new effect body (cancelRef = false) before
+   * any in-flight promise settles, so by the time an older response lands the
+   * flag has already been reset and the response applies itself. Navigating
+   * months faster than a fetch round-trip therefore left the calendar holding
+   * the PREVIOUS window's lessons: the day rows render from `weekStart` /
+   * `monthStart` (synchronous) while the cards come from `lessons` (stale), so
+   * the week looked empty even though the data existed.
+   *
+   * Observed directly with a 3s delay on the first window's query:
+   *   START req=1 window=2026-07-26..2026-09-05
+   *   START req=2 window=2026-06-28..2026-08-08
+   *   SETTLE req=2 → applied            (correct, newest)
+   *   SETTLE req=1 → applied            (stale, overwrote it)
+   *
+   * Ignoring rather than aborting: the response is already paid for by the time
+   * it arrives, several of the five queries are cheap, and dropping the write is
+   * the whole fix. Aborting would add signal plumbing through five clients for
+   * no additional correctness.
+   */
+  const requestSeqRef = useRef(0);
 
   const load = useCallback(async () => {
+    // Claim this load's identity before the first await. Anything that settles
+    // after a newer load has started is discarded (see requestSeqRef).
+    const requestId = ++requestSeqRef.current;
+    const isStale = () => cancelRef.current || requestSeqRef.current !== requestId;
+
     if (!effectiveUserId) {
       setKids([]); setLessons([]); setAppointments([]); setVacationBlocks([]); setActivities([]);
       setLoading(false);
@@ -164,7 +194,7 @@ export function usePlanV2Data(opts: {
 
     try {
       const [cRes, vRes, lRes, aRes, actRes] = await Promise.all([childrenReq, vacReq, lessonReq, apptReq, actReq]);
-      if (cancelRef.current) return;
+      if (isStale()) return;
       setKids((cRes.data ?? []) as PlanV2Child[]);
       setVacationBlocks((vRes.data ?? []) as PlanV2Vacation[]);
       setLessons((lRes.data ?? []) as unknown as PlanV2Lesson[]);
@@ -173,7 +203,10 @@ export function usePlanV2Data(opts: {
     } catch {
       /* silent-fail — leave previous data in place */
     } finally {
-      if (!cancelRef.current) setLoading(false);
+      // Only the newest request owns the loading flag. A superseded response
+      // clearing it would flip the calendar out of its skeleton while the
+      // window the user is actually looking at is still in flight.
+      if (!isStale()) setLoading(false);
     }
   }, [effectiveUserId, monthStart]);
 

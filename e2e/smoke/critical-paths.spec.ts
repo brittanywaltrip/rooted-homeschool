@@ -1,7 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { createClient } from '@supabase/supabase-js';
 
-import { assertIsTestAccount } from '../test-account';
+import { adminClient, cachedTestUserId, requireTestUserId } from '../admin';
 
 /* Critical-path Playwright smoke tests. Run before every staging -> main
  * merge to catch regressions on the four user-facing flows that hurt the
@@ -21,14 +20,9 @@ import { assertIsTestAccount } from '../test-account';
 
 const STAMP = () => Date.now().toString();
 
-// ── Optional Supabase admin client (for DB verifications + cleanup) ─────────
-// Skipped paths run without DB access, but cleanup leaves no test data.
-function adminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key, { auth: { persistSession: false } });
-}
+// Service-role helpers (admin client + guarded user-scope resolution) live in
+// e2e/admin.ts so every spec shares one implementation. See that file and
+// e2e/test-account.ts for why the scope resolution is guarded.
 
 // Fetch every row for a column-projected query, paging past PostgREST's
 // default 1000-row cap so a global audit sees the whole table rather than
@@ -59,23 +53,6 @@ async function fetchAllRows<T>(
 // "unlikely" is the wrong safety margin for an unscoped service-role DELETE —
 // one hand-edited, replayed, or copy-pasted name is all it takes.
 //
-// requireTestUserId is the single place that enforces the rule: if we cannot
-// establish the user scope, we THROW rather than widen the blast radius. The
-// only tolerated no-op is a missing admin client (nothing to delete against),
-// which each caller checks before getting here.
-async function requireTestUserId(operation: string): Promise<string> {
-  const testUserId = await cachedTestUserId();
-  if (!testUserId) {
-    throw new Error(
-      `${operation} refused to run: could not resolve the test user id ` +
-        '(PLAYWRIGHT_EMAIL missing, or no auth.users row matches it). Refusing to fall back to an ' +
-        'unscoped service-role DELETE against the shared database. Set PLAYWRIGHT_EMAIL to the ' +
-        'test account, or unset SUPABASE_SERVICE_ROLE_KEY to skip DB cleanup entirely.',
-    );
-  }
-  return testUserId;
-}
-
 // Tear down a curriculum row and its lessons, matching on `column` and scoped
 // to the test account. Lessons go first: lessons.curriculum_goal_id carries an
 // FK to curriculum_goals, so deleting the goal ahead of its lessons fails.
@@ -112,57 +89,6 @@ function cleanupCurriculumByLabel(label: string) {
 
 function cleanupCurriculumByName(name: string) {
   return cleanupCurriculumBy('curriculum_name', name);
-}
-
-// Resolve the test account's user_id via the Supabase admin auth API.
-// Returns null if admin client isn't configured or the email isn't found.
-// (profiles.email doesn't exist as a column; the canonical email lives on
-// auth.users which the JS client can only reach via auth.admin.)
-//
-// Paginates at 1000 per page (Supabase admin API max) and walks until the
-// account is found or the page is short of full. Defensive .replace strips
-// dotenv quotes that node --env-file leaves in place.
-async function resolveTestUserId(): Promise<string | null> {
-  const sb = adminClient();
-  const rawEmail = process.env.PLAYWRIGHT_EMAIL;
-  if (!sb || !rawEmail) return null;
-  const email = rawEmail.replace(/^['"]|['"]$/g, '').toLowerCase();
-  const PER_PAGE = 1000;
-  for (let page = 1; page <= 20; page++) {
-    const { data, error } = await sb.auth.admin.listUsers({ perPage: PER_PAGE, page });
-    if (error || !data?.users) return null;
-    const hit = data.users.find((row) => (row.email ?? '').toLowerCase() === email);
-    if (hit) return hit.id;
-    if (data.users.length < PER_PAGE) return null;
-  }
-  return null;
-}
-
-// Memoized resolveTestUserId. The admin listUsers walk pages 1000 accounts
-// at a time, and cleanup runs in every afterEach, so re-resolving per call
-// would add a full auth-API sweep to each teardown. Cached per worker
-// process. Null results are cached too (a missing PLAYWRIGHT_EMAIL will not
-// start existing mid-run).
-let cachedTestUserIdPromise: Promise<string | null> | null = null;
-function cachedTestUserId(): Promise<string | null> {
-  if (!cachedTestUserIdPromise) {
-    // Second choke point for the account guard (global-setup is the first).
-    // EVERY service-role seed and delete in this file resolves its user scope
-    // here, so asserting once covers both directions. It matters independently
-    // of global-setup: a run started with a stale e2e/.auth/user.json while
-    // PLAYWRIGHT_EMAIL points somewhere else would otherwise drive the browser
-    // as one account and issue service-role DELETEs against another.
-    //
-    // A null id still returns null rather than throwing — that is the
-    // documented "no SUPABASE_SERVICE_ROLE_KEY, skip the DB-backed specs"
-    // path, and it performs no writes. Only a resolved id that is NOT the
-    // test account is fatal.
-    cachedTestUserIdPromise = resolveTestUserId().then((id) => {
-      if (id) assertIsTestAccount(id, 'critical-paths service-role scope');
-      return id;
-    });
-  }
-  return cachedTestUserIdPromise;
 }
 
 // Resolve the test account's user_id + the id of their first non-archived
