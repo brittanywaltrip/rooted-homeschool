@@ -20,7 +20,10 @@ type DbResource = {
   is_free_pick?: boolean;
   created_at?: string;
 };
-type EasyWin = { emoji: string; title: string; desc: string; time: string; grade: string; url?: string; };
+// `id` / `category` are present only for wins sourced from the resources table;
+// the hardcoded EASY_WINS fallback has no DB row, so click tracking reports a
+// null resource_id for those rather than inventing one.
+type EasyWin = { emoji: string; title: string; desc: string; time: string; grade: string; url?: string; id?: string; category?: string; };
 
 // ─── State Requirements (all 50 states) ──────────────────────────────────────
 
@@ -234,6 +237,7 @@ function getCategoryEmoji(cat: string): string {
   const map: Record<string, string> = {
     curriculum: "📚", online_classes: "🖥️", science: "🔬",
     field_trips: "🌍", printables: "🖨️", discounts: "💰",
+    back_to_school: "🎒",
   };
   return map[cat] || "🌿";
 }
@@ -242,8 +246,22 @@ function getCategoryLabel(cat: string): string {
   const map: Record<string, string> = {
     curriculum: "Curriculum", online_classes: "Online Classes", science: "Science",
     field_trips: "Field Trip", printables: "Printables", discounts: "Discount",
+    back_to_school: "Back to School",
   };
   return map[cat] || cat;
+}
+
+/**
+ * Outbound resource click. Fire-and-forget by design: no preventDefault, no
+ * await, no state update — the browser follows the link on the same tick it
+ * always did, and analytics rides along. posthog.capture queues internally, so
+ * a slow or blocked ingest endpoint cannot delay navigation.
+ *
+ * `resource_id` is null for the hardcoded easy-win fallbacks, which have no
+ * row in the resources table.
+ */
+function trackResourceClick(args: { resource_id: string | null; title: string; category: string }) {
+  posthog.capture('resource_clicked', args);
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -300,6 +318,7 @@ function ResourceCard({ r, savedMap, onToggle }: { r: DbResource; savedMap: Reco
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
             <a href={r.url} target="_blank" rel="noopener noreferrer"
+              onClick={() => trackResourceClick({ resource_id: r.id, title: r.title, category: r.category })}
               className="font-bold text-[#2d2926] text-sm hover:text-[#4a7c59] hover:underline transition-colors leading-snug flex items-center gap-1.5">
               {r.title}
               <ExternalLink size={12} className="text-[#b5aca4] shrink-0" />
@@ -422,13 +441,18 @@ export default function ResourcesPage() {
     ? dbEasyWins.map((r) => ({
         emoji: r.badge_text?.slice(0, 2) || "⚡", title: r.title,
         desc: r.description, time: r.grade_level || "", grade: r.grade_level || "All Ages", url: r.url,
+        id: r.id, category: r.category,
       }))
     : EASY_WINS;
   const validWins = easyWinPool.filter((w) => w.title && w.desc);
 
   // ── Compute Browse data ────────────────────────────────────────────────────
 
-  const browsableCategories = ["curriculum", "online_classes", "science", "field_trips", "printables", "discounts"];
+  const browsableCategories = ["back_to_school", "curriculum", "online_classes", "science", "field_trips", "printables", "discounts"];
+  // Featured seasonal section. Purely data-driven: deactivate the resources in
+  // the admin page when the season ends and the section disappears on its own.
+  // No date logic anywhere.
+  const backToSchoolResources = dbResources.filter((r) => r.category === "back_to_school");
   const browsableResources = dbResources.filter((r) => browsableCategories.includes(r.category));
 
   const filteredBrowse = browsableResources.filter((r) => {
@@ -489,7 +513,9 @@ export default function ResourcesPage() {
                     {win.time && <span className="text-[10px] font-medium bg-[#f5f3f0] text-[#5C5346] px-2 py-0.5 rounded-full">{"\u23F1"} {win.time}</span>}
                     {win.grade && <span className="text-[10px] font-medium bg-[#f5f3f0] text-[#5C5346] px-2 py-0.5 rounded-full">{win.grade}</span>}
                     {win.url && (
-                      <a href={win.url} target="_blank" rel="noopener noreferrer" className="ml-auto text-[13px] text-[#2D5A3D] font-semibold hover:underline transition-colors">
+                      <a href={win.url} target="_blank" rel="noopener noreferrer"
+                        onClick={() => trackResourceClick({ resource_id: win.id ?? null, title: win.title, category: win.category ?? "easy_win" })}
+                        className="ml-auto text-[13px] text-[#2D5A3D] font-semibold hover:underline transition-colors">
                         Try it {"\u2192"}
                       </a>
                     )}
@@ -503,7 +529,9 @@ export default function ResourcesPage() {
             {showAllWins && (
               <div className="grid grid-cols-2 gap-2">
                 {validWins.filter((_, i) => i !== todayIdx).map((w) => (
-                  <a key={w.title} href={w.url} target="_blank" rel="noopener noreferrer" className="bg-white border border-[#e8e2d9] rounded-xl p-3 hover:border-[#5c7f63] transition-colors">
+                  <a key={w.title} href={w.url} target="_blank" rel="noopener noreferrer"
+                    onClick={() => trackResourceClick({ resource_id: w.id ?? null, title: w.title, category: w.category ?? "easy_win" })}
+                    className="bg-white border border-[#e8e2d9] rounded-xl p-3 hover:border-[#5c7f63] transition-colors">
                     <div className="text-xl mb-1">{w.emoji}</div>
                     <p className="text-xs font-semibold text-[#2d2926] mb-0.5">{w.title}</p>
                     <p className="text-[10px] text-[#7a6f65]">{w.time}</p>
@@ -526,7 +554,9 @@ export default function ResourcesPage() {
               const isNew = isNewThisWeek(r.created_at);
               return (
                 <div key={r.id} className="rounded-2xl overflow-hidden border border-white/80 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all" style={{ background: col.bg }}>
-                  <a href={r.url} target="_blank" rel="noopener noreferrer" className="block p-5">
+                  <a href={r.url} target="_blank" rel="noopener noreferrer"
+                    onClick={() => trackResourceClick({ resource_id: r.id, title: r.title, category: r.category })}
+                    className="block p-5">
                     <div className="text-4xl mb-2">{getCategoryEmoji(r.category)}</div>
                     <div className="flex items-start justify-between gap-1 mb-1.5">
                       <p className="text-sm font-bold text-[#2d2926] leading-snug">{r.title} {"\u2197"}</p>
@@ -628,6 +658,25 @@ export default function ResourcesPage() {
           </p>
         </Link>
       ) : null}
+
+      {/* ── Featured: Back to School ─────────────────────────────
+          Seasonal, and seasonal here means data-driven, not date-driven:
+          the section exists only while at least one back_to_school resource
+          is active, so deactivating them in the admin page retires it with
+          no code change and no hardcoded end date. Reuses ResourceCard so a
+          featured card and a browse card are the same object to the eye.
+         ──────────────────────────────────────────────────────────── */}
+      {backToSchoolResources.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Back to School</p>
+          <p className="text-[12px] text-[#8B7E74] mb-3 pl-1">Fresh picks for a fresh school year.</p>
+          <div className="space-y-3">
+            {backToSchoolResources.map((r) => (
+              <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ════════════════════════════════════════════════════════════
           ZONE 2 — BROWSE

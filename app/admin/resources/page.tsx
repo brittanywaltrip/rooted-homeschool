@@ -9,6 +9,7 @@ import { Pencil, Trash2, Check, X, Plus, ChevronDown, ChevronUp, ExternalLink, A
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
 const CATEGORIES = [
+  { id: "back_to_school", label: "🎒 Back to School"  },
   { id: "curriculum",     label: "📚 Curriculum"      },
   { id: "online_classes", label: "🖥️ Online Classes" },
   { id: "science",        label: "🔬 Science"         },
