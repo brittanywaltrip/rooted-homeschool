@@ -4,7 +4,8 @@ import { useDraggable } from "@dnd-kit/core";
 import type { PlanV2Appointment } from "./types";
 
 /* Appointment chip. Distinct visual from lessons so the eye separates
- * appointments from schoolwork: white fill, dashed border, 📍 prefix.
+ * appointments from schoolwork: white fill, dashed border, and the event's
+ * chosen icon as a prefix (falling back to 📍 when a row has none saved).
  *
  * Non-recurring instances are draggable on desktop; recurring instances
  * are non-draggable (a drag would mean "move this one occurrence" which
@@ -152,7 +153,7 @@ export function AppointmentPillShell({ appt, ariaLabel, dragging, onClick, overl
 
   const content = (
     <>
-      <span aria-hidden className="shrink-0 text-[9px]">📍</span>
+      <span aria-hidden className="shrink-0 text-[9px]">{appt.emoji ?? "📍"}</span>
       {time ? (
         <span className="shrink-0 text-[9px] font-semibold" style={{ color: "#5c7f63" }}>
           {time}

@@ -4407,7 +4407,7 @@ export default function PlanV2() {
                       const d = lesson.scheduled_date ?? lesson.date;
                       if (d) setOpenDayStr(d);
                     }}
-                    onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                    onAppointmentClick={(appt) => setApptEditTarget({ appt })}
                     onActivityClick={(_activity, dateStr) => setOpenDayStr(dateStr)}
                     onSkipLesson={(l) => { void skipLessonWithLog(l); }}
                     onRescheduleLesson={(l) => {
@@ -4451,7 +4451,7 @@ export default function PlanV2() {
                   }}
                   onAppointmentClick={(appt) => {
                     if (selectMode) return;
-                    setOpenDayStr(appt.instance_date);
+                    setApptEditTarget({ appt });
                   }}
                   onOverflowClick={(dateStr) => {
                     if (selectMode) return;
@@ -4509,7 +4509,7 @@ export default function PlanV2() {
                         const d = lesson.scheduled_date ?? lesson.date;
                         if (d) setOpenDayStr(d);
                       }}
-                      onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                      onAppointmentClick={(appt) => setApptEditTarget({ appt })}
                       onActivityClick={(_activity, dateStr) => setOpenDayStr(dateStr)}
                       onSkipLesson={(l) => { void skipLessonWithLog(l); }}
                       onRescheduleLesson={(l) => {
@@ -4545,7 +4545,7 @@ export default function PlanV2() {
                       const d = lesson.scheduled_date ?? lesson.date;
                       if (d) setOpenDayStr(d);
                     }}
-                    onAppointmentClick={(appt) => setOpenDayStr(appt.instance_date)}
+                    onAppointmentClick={(appt) => setApptEditTarget({ appt })}
                     onOverflowClick={(dateStr) => setOpenDayStr(dateStr)}
                     onLessonLongPress={(lesson) => enterSelectMode(lesson.id)}
                     onCellContextMenu={(dateStr, x, y) => setContextMenu({ dateStr, x, y })}

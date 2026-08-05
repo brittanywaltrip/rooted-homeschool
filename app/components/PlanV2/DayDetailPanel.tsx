@@ -378,7 +378,7 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
                         textDecoration: a.completed ? "line-through" : "none",
                       }}
                     >
-                      <span aria-hidden>📍 </span>
+                      <span aria-hidden>{a.emoji ?? "📍"} </span>
                       {a.title}
                       {a.is_recurring ? (
                         <span
