@@ -3,7 +3,7 @@
 import Link from "next/link";
 import HashRedirect from "./components/HashRedirect";
 import { Suspense, useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { normalizeAffiliateCode } from "@/lib/referrals";
 
@@ -272,6 +272,7 @@ export default function Home() {
 }
 
 function HomeInner() {
+  const router = useRouter();
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -279,6 +280,19 @@ function HomeInner() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
+
+  // Already-authed visitors bypass marketing and land on Today. /dashboard
+  // owns the onboarding-vs-Today decision, so we don't branch here.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!cancelled && data.session) {
+        router.replace("/dashboard");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [router]);
 
   return (
     <main className="min-h-screen bg-[#f8f7f4] text-[#2d2926] overflow-x-hidden">
@@ -459,7 +473,7 @@ function HomeInner() {
             Capture every moment. Plan your days with ease. Build a family yearbook you&apos;ll treasure forever.
           </p>
 
-          <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
+          <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-5 w-full sm:w-auto">
             <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[#3d5c42] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35), 0 0 48px rgba(134,201,138,0.12)" }}>
               Start Your Free Trial →
             </Link>
@@ -467,6 +481,13 @@ function HomeInner() {
               See Inside →
             </Link>
           </div>
+
+          <p className="anim-fade-in delay-525 text-sm text-white/75 mb-8" style={{ textShadow: "0 1px 8px rgba(0,0,0,0.3)" }}>
+            Already a Rooted family?{" "}
+            <Link href="/login" className="font-medium text-white/95 hover:text-white underline underline-offset-4 decoration-white/40 hover:decoration-white transition-colors">
+              Log in
+            </Link>
+          </p>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
             <span>🌿</span> Trusted by 1,500+ homeschool families
