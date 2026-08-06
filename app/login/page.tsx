@@ -78,17 +78,37 @@ function LoginContent() {
     e.preventDefault();
     clearError();
     setLoading(true);
-    const { error, data } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) { setError(error.message); setErrorIsNotice(false); setLoading(false); return; }
 
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("onboarded")
-      .eq("id", data.user.id)
-      .maybeSingle();
+    // Sign in on the SERVER (app/api/auth/login/route.ts) rather than through
+    // the browser client. Safari treats JS-written cookies as disposable (7-day
+    // cap, aggressive eviction for home-screen web apps), which was signing
+    // iPhone users out several times a day; cookies arriving as HTTP Set-Cookie
+    // headers are durable. OAuth already had this via /auth/callback.
+    let result: { ok?: boolean; message?: string; redirectTo?: string };
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      result = await res.json();
+    } catch {
+      setError("Something went wrong. Please try again.");
+      setErrorIsNotice(false);
+      setLoading(false);
+      return;
+    }
 
-    // onboarded === false means new user who hasn't completed setup
-    router.push(profile?.onboarded === false ? "/onboarding" : "/dashboard");
+    if (!result.ok) {
+      setError(result.message || "Something went wrong. Please try again.");
+      setErrorIsNotice(false);
+      setLoading(false);
+      return;
+    }
+
+    // Full page load, not router.push: the next request must be sent by the
+    // browser so the server sees the freshly set session cookies.
+    window.location.assign(result.redirectTo || "/dashboard");
   }
 
   async function handleAppleLogin() {
