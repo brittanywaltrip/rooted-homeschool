@@ -23,17 +23,23 @@ import { adminClient, requireTestUserId } from '../admin';
  * any of those mutated would silently change the account other specs describe
  * themselves against.
  *
- * RUNS ALONE, NOT IN PARALLEL WITH THE REST OF THE SUITE.
- * playwright.config.ts uses 5 workers and does not set fullyParallel, so spec
- * FILES run concurrently. While this spec holds the account, there is no active
- * school year for a few seconds and every goal on it is archived, which other
- * specs (notably "Schedule Builder links goals to active year") read and assert
- * against. Run it on its own:
+ * OPT-IN ONLY. THE GATE IS ENFORCED, NOT ADVISED.
+ * This file lives in e2e/smoke/, which `npm run test:e2e` sweeps whole, so a
+ * comment asking people to run it alone protected nothing. The CLOSE_YEAR_SPEC
+ * check below SKIPS the entire group unless it is set to "1", so a routine
+ * suite run cannot execute it by accident. Run it deliberately:
  *
- *   npx playwright test e2e/smoke/close-year.spec.ts
+ *   CLOSE_YEAR_SPEC=1 node --env-file-if-exists=.env.local \
+ *     node_modules/@playwright/test/cli.js test e2e/smoke/close-year.spec.ts
  *
- * Serializing the whole suite (workers: 1, or a dedicated project) is the fix
- * if this ever needs to run inside `npm run test:e2e`.
+ * Why it must not run inside the suite: playwright.config.ts uses 5 workers and
+ * does not set fullyParallel, so spec FILES run concurrently. While this spec
+ * holds the account there is no active school year for a few seconds and every
+ * goal on it is archived, which other specs (notably "Schedule Builder links
+ * goals to active year") read and assert against.
+ *
+ * Serializing the whole suite (workers: 1, or a dedicated project) is what to
+ * do if this ever needs to run inline; until then, keep the gate.
  *
  * Every service-role write here goes through e2e/admin.ts, so the account guard
  * in e2e/test-account.ts owns the scope. Every delete is keyed by user_id AND
@@ -78,6 +84,7 @@ test.describe('Close year flow', () => {
   // One test, but keep the group serial so a future second test can never
   // interleave with this one's snapshot/restore window.
   test.describe.configure({ mode: 'serial' });
+  test.skip(process.env.CLOSE_YEAR_SPEC !== '1', 'Opt-in spec: mutates account-wide state, so it must not run inside the parallel suite. Run with CLOSE_YEAR_SPEC=1, alone.');
   test.skip(!HAS_ADMIN, 'SUPABASE_SERVICE_ROLE_KEY not set — close-year needs admin access to seed AND to restore the account, so the whole spec skips.');
 
   let userId: string | null = null;

@@ -160,19 +160,25 @@ name, exactly one active year, all three seeded goal shapes archived, the
 NULL-year goal stamped onto the closed year, the archive keepsake row). It
 finishes on the next-year wizard's prefill, the regression guard for 666f3c1.
 
-RUN IT ALONE, not as part of `npm run test:e2e`:
+It is OPT-IN and gated on the CLOSE_YEAR_SPEC env var. Run it deliberately, on
+its own:
 
 ```
-node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test e2e/smoke/close-year.spec.ts
+CLOSE_YEAR_SPEC=1 node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test e2e/smoke/close-year.spec.ts
 ```
 
-Two reasons. Closing a year mutates account-wide state (there is briefly no
-active year, and every goal on the old year is archived), and spec files run
-concurrently across 5 workers, so it would fight "Schedule Builder links goals
-to active year". And the spec needs SUPABASE_SERVICE_ROLE_KEY to seed AND to
-restore; without it the whole spec skips, by design, rather than running a half
-version it cannot undo. Serializing the suite (workers: 1, or a dedicated
-project) is the fix if it ever needs to run inline.
+Without that variable the whole group skips, so `npm run test:e2e` sweeps
+`e2e/smoke/` as usual and this spec simply reports as skipped. Running the
+normal suite needs no special thought or flags.
+
+The gate is enforced rather than advised because closing a year mutates
+account-wide state (there is briefly no active year, and every goal on the old
+year is archived) while spec files run concurrently across 5 workers, so an
+accidental inline run would fight "Schedule Builder links goals to active year".
+The spec also needs SUPABASE_SERVICE_ROLE_KEY to seed AND to restore; without it
+the whole group skips too, by design, rather than running a half version it
+cannot undo. Serializing the suite (workers: 1, or a dedicated project) is what
+to do if it ever needs to run inline.
 
 The spec snapshots six tables before it acts and restores them in `afterAll`,
 which runs even when the test fails. If you extend the close route to write
