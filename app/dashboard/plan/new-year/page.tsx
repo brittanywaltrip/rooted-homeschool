@@ -138,7 +138,7 @@ export default function NewYearPage() {
             .order("name", { ascending: true }),
           supabase
             .from("school_years")
-            .select("id")
+            .select("id, name, start_date, end_date")
             .eq("user_id", user.id)
             .eq("status", "active")
             .maybeSingle(),
@@ -146,12 +146,26 @@ export default function NewYearPage() {
 
         if (cancelled) return;
 
-        setExistingYearId((activeYearRes.data as { id: string } | null)?.id ?? null);
+        const activeYear = activeYearRes.data as
+          | { id: string; name: string; start_date: string; end_date: string }
+          | null;
+        setExistingYearId(activeYear?.id ?? null);
 
+        // Closing a year creates the next year with the name and dates the
+        // user chose on the close page. When that year exists, it IS the
+        // answer: pre-fill from it so submitting can't overwrite their
+        // choice with a name derived from the old year. Only fall back to
+        // the derived defaults when there's no active year to fill in.
         const oldYear = oldYearRes.data as { name: string } | null;
-        const newName = oldYear ? nextYearName(oldYear.name) : "";
-        const newStart = oldYear ? defaultStartDate(oldYear.name) : "";
-        const newEnd = oldYear ? defaultEndDate(oldYear.name) : "";
+        const newName = activeYear
+          ? activeYear.name
+          : oldYear ? nextYearName(oldYear.name) : "";
+        const newStart = activeYear
+          ? activeYear.start_date
+          : oldYear ? defaultStartDate(oldYear.name) : "";
+        const newEnd = activeYear
+          ? activeYear.end_date
+          : oldYear ? defaultEndDate(oldYear.name) : "";
         setYearName(newName);
         setStartDate(newStart);
         setEndDate(newEnd);
@@ -171,6 +185,8 @@ export default function NewYearPage() {
           totalLessons: "",
           courseLevel: g.course_level ?? "standard",
           creditsValue: g.credits_value,
+          // The real year's start date when one exists, so subject start
+          // dates line up with the year the lessons actually belong to.
           startDate: newStart,
           showCredits: g.credits_value != null,
         }));
@@ -554,7 +570,9 @@ export default function NewYearPage() {
           className="block w-full text-white rounded-xl py-3 font-medium text-center disabled:opacity-50"
           style={{ background: "var(--g-brand)" }}
         >
-          {saving ? "Creating…" : `Create ${yearName || "Next Year"} →`}
+          {saving
+            ? existingYearId ? "Saving…" : "Creating…"
+            : `${existingYearId ? "Save" : "Create"} ${yearName || "Next Year"} →`}
         </button>
       </div>
     </div>
