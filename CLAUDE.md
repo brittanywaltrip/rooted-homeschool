@@ -152,11 +152,32 @@ main before blocking a merge on it. But do NOT file it as expected noise
 either. The known race is fixed, so a fresh failure most likely means a NEW
 one, and it almost certainly belongs in `usePlanV2Data`.
 
-### No close-year coverage
-Nothing in `e2e/` exercises `/dashboard/close-year`, `/api/school-year/close`,
-or the next-year wizard. A green suite means a close-flow change broke nothing
-else; it does NOT verify the close flow itself. Close a year by hand after
-touching it. Adding this coverage is on the e2e backlog.
+### Close-year coverage lives in e2e/smoke/close-year.spec.ts
+That spec drives `/dashboard/close-year` end to end: prefilled year fields,
+free-text renaming of both years, the type-CLOSE confirmation, the redirect to
+the year-end recap, and the DB state afterwards (old year archived under its new
+name, exactly one active year, all three seeded goal shapes archived, the
+NULL-year goal stamped onto the closed year, the archive keepsake row). It
+finishes on the next-year wizard's prefill, the regression guard for 666f3c1.
+
+RUN IT ALONE, not as part of `npm run test:e2e`:
+
+```
+node --env-file-if-exists=.env.local node_modules/@playwright/test/cli.js test e2e/smoke/close-year.spec.ts
+```
+
+Two reasons. Closing a year mutates account-wide state (there is briefly no
+active year, and every goal on the old year is archived), and spec files run
+concurrently across 5 workers, so it would fight "Schedule Builder links goals
+to active year". And the spec needs SUPABASE_SERVICE_ROLE_KEY to seed AND to
+restore; without it the whole spec skips, by design, rather than running a half
+version it cannot undo. Serializing the suite (workers: 1, or a dedicated
+project) is the fix if it ever needs to run inline.
+
+The spec snapshots six tables before it acts and restores them in `afterAll`,
+which runs even when the test fails. If you extend the close route to write
+anywhere new, extend that snapshot in the same commit, or the spec will start
+leaving the shared e2e account dirty.
 
 ## Admin emails
 - garfieldbrittany@gmail.com
