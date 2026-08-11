@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { rolloverYearName } from "@/lib/school-year-name";
 
 type SchoolYear = {
   id: string;
@@ -68,6 +69,21 @@ function formatMonthYear(iso: string): string {
   return d.toLocaleDateString("en-US", { month: "short", year: "numeric" });
 }
 
+/** Local calendar date, not UTC, so the default start date is really today. */
+function todayLocalIso(): string {
+  const d = new Date();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${month}-${day}`;
+}
+
+/** The next May 31 on or after today. */
+function nextMay31(todayIso: string): string {
+  const year = Number(todayIso.slice(0, 4));
+  const thisMay = `${year}-05-31`;
+  return todayIso <= thisMay ? thisMay : `${year + 1}-05-31`;
+}
+
 export default function CloseYearPage() {
   const router = useRouter();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
@@ -77,6 +93,14 @@ export default function CloseYearPage() {
   const [confirmInput, setConfirmInput] = useState("");
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
+
+  // Editable year details. The closing year can be renamed on the way out
+  // ("Summer 2026"), and the next year is named and dated right here so the
+  // user never lands in a year they didn't choose.
+  const [closingYearName, setClosingYearName] = useState("");
+  const [newYearName, setNewYearName] = useState("");
+  const [newYearStart, setNewYearStart] = useState("");
+  const [newYearEnd, setNewYearEnd] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -102,8 +126,16 @@ export default function CloseYearPage() {
         .order("sort_order", { ascending: true });
 
       if (cancelled) return;
-      setActiveYear((year as SchoolYear | null) ?? null);
+      const loadedYear = (year as SchoolYear | null) ?? null;
+      setActiveYear(loadedYear);
       setChildren((kids as Child[] | null) ?? []);
+      if (loadedYear) {
+        const today = todayLocalIso();
+        setClosingYearName(loadedYear.name);
+        setNewYearName(rolloverYearName(loadedYear.name, new Date().getFullYear()));
+        setNewYearStart(today);
+        setNewYearEnd(nextMay31(today));
+      }
       setLoading(false);
     }
     load();
@@ -123,7 +155,16 @@ export default function CloseYearPage() {
     try {
       const res = await fetch("/api/school-year/close", {
         method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          closingYearName: closingYearName.trim(),
+          newYearName: newYearName.trim(),
+          newYearStart,
+          newYearEnd,
+        }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.success) {
@@ -157,7 +198,17 @@ export default function CloseYearPage() {
     );
   }
 
-  const canConfirm = confirmInput.trim() === activeYear.name && !closing;
+  // Typing CLOSE, not the year name. The old exact-name match compared against
+  // stored names containing an en dash (U+2013) that no keyboard types, so the
+  // button stayed disabled forever with no explanation.
+  const typedClose = confirmInput.trim().toUpperCase() === "CLOSE";
+  const datesValid = Boolean(newYearStart) && Boolean(newYearEnd) && newYearEnd > newYearStart;
+  const namesValid = closingYearName.trim().length > 0 && newYearName.trim().length > 0;
+  const canConfirm = typedClose && datesValid && namesValid && !closing;
+
+  let blockedReason: string | null = null;
+  if (!namesValid) blockedReason = "Please give both years a name.";
+  else if (!datesValid) blockedReason = "Your next year's end date needs to come after its start date.";
 
   return (
     <div style={{ background: "#F8F7F4", minHeight: "100vh" }}>
@@ -176,7 +227,7 @@ export default function CloseYearPage() {
             className="text-3xl text-[#F8F7F4] mb-2"
             style={{ fontFamily: "'Cormorant Garamond', Georgia, serif" }}
           >
-            {activeYear.name}
+            {closingYearName.trim() || activeYear.name}
           </h1>
           <p className="text-sm text-[#a89e8f]">
             {formatMonthYear(activeYear.start_date)} – {formatMonthYear(activeYear.end_date)}
@@ -223,6 +274,77 @@ export default function CloseYearPage() {
               </ul>
             </div>
           </div>
+          <p className="text-xs text-[#7a6f65] leading-relaxed mt-5 pt-4 border-t border-[#e8e2d9]">
+            Nothing is ever deleted. This year keeps its place in Years, Memories, and
+            Transcripts for as long as you have Rooted.
+          </p>
+        </div>
+
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 mt-6">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-1">
+            The year you&apos;re closing
+          </p>
+          <p className="text-xs text-[#7a6f65] mb-3">
+            Call it whatever it was to your family. This is the name it keeps.
+          </p>
+          <label htmlFor="closing-year-name" className="block text-xs text-[#7a6f65] mb-1">
+            Year name
+          </label>
+          <input
+            id="closing-year-name"
+            type="text"
+            value={closingYearName}
+            onChange={(e) => setClosingYearName(e.target.value)}
+            placeholder="e.g. Summer 2026"
+            className="w-full border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
+          />
+        </div>
+
+        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 mt-4">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-1">
+            Your next year
+          </p>
+          <p className="text-xs text-[#7a6f65] mb-3">
+            We&apos;ll start this one for you as soon as this year is closed. Name it
+            anything: &quot;Kindergarten Year&quot;, &quot;Summer 2026&quot;, &quot;2026-2027&quot;.
+          </p>
+          <label htmlFor="new-year-name" className="block text-xs text-[#7a6f65] mb-1">
+            Year name
+          </label>
+          <input
+            id="new-year-name"
+            type="text"
+            value={newYearName}
+            onChange={(e) => setNewYearName(e.target.value)}
+            placeholder="e.g. 2026-2027"
+            className="w-full border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
+          />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+            <div>
+              <label htmlFor="new-year-start" className="block text-xs text-[#7a6f65] mb-1">
+                Start date
+              </label>
+              <input
+                id="new-year-start"
+                type="date"
+                value={newYearStart}
+                onChange={(e) => setNewYearStart(e.target.value)}
+                className="w-full border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
+              />
+            </div>
+            <div>
+              <label htmlFor="new-year-end" className="block text-xs text-[#7a6f65] mb-1">
+                End date
+              </label>
+              <input
+                id="new-year-end"
+                type="date"
+                value={newYearEnd}
+                onChange={(e) => setNewYearEnd(e.target.value)}
+                className="w-full border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
+              />
+            </div>
+          </div>
         </div>
 
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mt-8 mb-3">
@@ -261,16 +383,19 @@ export default function CloseYearPage() {
 
         <div className="mt-8">
           <p className="text-sm text-[#5c5248] mb-3">
-            This cannot be undone. Type your year name to confirm.
+            Ready when you are. Type CLOSE to confirm.
           </p>
-          <label className="block text-xs text-[#7a6f65] mb-1">
-            Type &quot;{activeYear.name}&quot;
+          <label htmlFor="close-confirm" className="block text-xs text-[#7a6f65] mb-1">
+            Type &quot;CLOSE&quot;
           </label>
           <input
+            id="close-confirm"
             type="text"
             value={confirmInput}
             onChange={(e) => setConfirmInput(e.target.value)}
-            placeholder={activeYear.name}
+            placeholder="CLOSE"
+            autoCapitalize="characters"
+            autoComplete="off"
             className="w-full border border-[#d4cfc9] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#5c7f63]"
           />
           <button
@@ -283,6 +408,9 @@ export default function CloseYearPage() {
           >
             {closing ? "Closing your year..." : "Close This School Year"}
           </button>
+          {blockedReason && (
+            <p className="text-xs text-[#7a6f65] mt-2">{blockedReason}</p>
+          )}
           {closeError && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-100 rounded-xl px-3 py-2 mt-3">
               {closeError}
@@ -291,10 +419,11 @@ export default function CloseYearPage() {
         </div>
 
         <p className="text-center text-[11px] text-[#8B7E74] mt-8 pb-8">
-          Need to update your year name or dates?{" "}
-          <Link href="/dashboard/settings?tab=family" className="text-[#5c7f63] hover:underline">
-            Go to Settings
+          Past years live in{" "}
+          <Link href="/dashboard/years" className="text-[#5c7f63] hover:underline">
+            Years
           </Link>
+          , and your memories stay right where they are.
         </p>
       </div>
     </div>

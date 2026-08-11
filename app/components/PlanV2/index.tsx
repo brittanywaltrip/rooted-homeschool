@@ -711,9 +711,8 @@ export default function PlanV2() {
 
   // Reuses the existing /api/school-year/create route (the same route the
   // new-year wizard posts to). It creates an ACTIVE year when start_date is
-  // today. The /api/school-year/new route can't be used here — it requires an
-  // existing active year and 400s when there isn't one, which is exactly this
-  // stranded state.
+  // today. This card only renders when the user has NO active year, so the
+  // create route's duplicate-active-year guard never trips here.
   const startRecoveryYear = useCallback(async () => {
     if (!effectiveUserId) return;
     setRecoveryStarting(true);

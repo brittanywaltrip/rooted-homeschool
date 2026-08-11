@@ -98,6 +98,9 @@ export default function NewYearPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  // Closing a year already creates the next active year. When one exists we
+  // fill it in rather than inserting a second year.
+  const [existingYearId, setExistingYearId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,26 +117,36 @@ export default function NewYearPage() {
           return;
         }
 
-        const [oldYearRes, oldGoalsRes, kidsRes] = await Promise.all([
+        const [oldYearRes, oldGoalsRes, kidsRes, activeYearRes] = await Promise.all([
           supabase
             .from("school_years")
             .select("name, start_date, end_date")
             .eq("id", fromYearId)
             .maybeSingle(),
+          // Archived goals are included on purpose: closing a year archives
+          // all of its subjects, and those subjects are exactly what this
+          // wizard copies forward as a starting point.
           supabase
             .from("curriculum_goals")
             .select("id, child_id, subject_label, curriculum_name, icon_emoji, school_days, default_minutes, total_lessons, course_level, credits_value")
             .eq("school_year_id", fromYearId)
-            .eq("archived", false)
             .order("subject_label", { ascending: true }),
           supabase
             .from("children")
             .select("id, name")
             .eq("user_id", user.id)
             .order("name", { ascending: true }),
+          supabase
+            .from("school_years")
+            .select("id")
+            .eq("user_id", user.id)
+            .eq("status", "active")
+            .maybeSingle(),
         ]);
 
         if (cancelled) return;
+
+        setExistingYearId((activeYearRes.data as { id: string } | null)?.id ?? null);
 
         const oldYear = oldYearRes.data as { name: string } | null;
         const newName = oldYear ? nextYearName(oldYear.name) : "";
@@ -234,6 +247,7 @@ export default function NewYearPage() {
         name: yearName.trim(),
         startDate,
         endDate,
+        existingSchoolYearId: existingYearId,
         subjects: subjects.map((s) => ({
           childId: s.childId || null,
           subjectLabel: s.subjectLabel.trim() || null,

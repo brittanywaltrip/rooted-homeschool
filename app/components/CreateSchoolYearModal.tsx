@@ -24,7 +24,9 @@ function suggestNextYear(currentName?: string): { name: string; start: string; e
   }
 
   return {
-    name: `${nextStartYear}\u2013${nextStartYear + 1}`,
+    // Plain hyphen, never an en dash. En-dash names can't be typed on a
+    // keyboard, which broke every flow that asked users to retype a year name.
+    name: `${nextStartYear}-${nextStartYear + 1}`,
     start: `${nextStartYear}-08-01`,
     end: `${nextStartYear + 1}-05-31`,
   };
@@ -97,7 +99,7 @@ export default function CreateSchoolYearModal({ userId, activeYearName, onClose,
                 type="text"
                 value={name}
                 onChange={e => setName(e.target.value)}
-                placeholder="e.g. 2026–2027"
+                placeholder="e.g. 2026-2027"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-[#e8e5e0] bg-white text-sm text-[#2D2A26] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
               />
             </div>

@@ -1,9 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { deriveEndYear } from "@/lib/school-year-name";
+import { deriveEndYear, rolloverYearName } from "@/lib/school-year-name";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * What the close page sends. Every field is optional: an older client (or any
+ * caller posting no body at all) falls back to the previous behavior, which is
+ * rollover name, start today, end next May 31, so nothing breaks mid-deploy.
+ */
+type CloseBody = {
+  closingYearName?: string;
+  newYearName?: string;
+  newYearStart?: string;
+  newYearEnd?: string;
+};
+
+function isIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  return !Number.isNaN(new Date(`${value}T00:00:00`).getTime());
+}
+
+function badRequest(message: string) {
+  return NextResponse.json({ error: message }, { status: 400 });
+}
 
 const GRADE_ADVANCEMENT: Record<string, string> = {
   "Preschool": "Pre-K",
@@ -61,6 +82,27 @@ export async function POST(req: NextRequest) {
   const todayDate = new Date().toISOString().slice(0, 10);
   const nowIso = new Date().toISOString();
 
+  // Parse and validate the payload BEFORE any write. A 400 here leaves the
+  // account exactly as it was.
+  const body = (await req.json().catch(() => null)) as CloseBody | null;
+  const rawClosingName = typeof body?.closingYearName === "string" ? body.closingYearName.trim() : null;
+  const rawNewName = typeof body?.newYearName === "string" ? body.newYearName.trim() : null;
+  const rawNewStart = typeof body?.newYearStart === "string" ? body.newYearStart.trim() : null;
+  const rawNewEnd = typeof body?.newYearEnd === "string" ? body.newYearEnd.trim() : null;
+
+  if (body?.closingYearName !== undefined && !rawClosingName) {
+    return badRequest("Please give the year you're closing a name.");
+  }
+  if (body?.newYearName !== undefined && !rawNewName) {
+    return badRequest("Please give your next year a name.");
+  }
+  if (rawNewStart && !isIsoDate(rawNewStart)) {
+    return badRequest("That start date doesn't look right. Please pick a date.");
+  }
+  if (rawNewEnd && !isIsoDate(rawNewEnd)) {
+    return badRequest("That end date doesn't look right. Please pick a date.");
+  }
+
   // Step 1: Find active school year
   const { data: activeYear, error: activeErr } = await supabaseAdmin
     .from("school_years")
@@ -78,6 +120,22 @@ export async function POST(req: NextRequest) {
 
   const yearId = activeYear.id as string;
   const yearStart = activeYear.start_date as string;
+
+  // Resolve the four editable values. Anything the client left out falls back
+  // to what this route did before it accepted a body. Names are free text:
+  // "Summer 2026" and "Kindergarten Year" are as valid as "2026-2027".
+  const currentYear = new Date().getFullYear();
+  const closingYearName = rawClosingName ?? (activeYear.name as string);
+  const newYearName = rawNewName ?? rolloverYearName(activeYear.name as string, currentYear);
+  const newYearStart = rawNewStart ?? todayDate;
+  const newYearEnd = rawNewEnd ?? `${deriveEndYear(activeYear.name as string, currentYear) + 1}-05-31`;
+
+  // Only enforce the ordering when the client actually chose a date. The
+  // legacy fallback pair is trusted as-is so an odd stored name can never
+  // 400 a close that used to work.
+  if ((rawNewStart || rawNewEnd) && newYearEnd <= newYearStart) {
+    return badRequest("Your next year's end date needs to come after its start date.");
+  }
 
   // ── INVARIANT ────────────────────────────────────────────────────────────
   // At EVERY exit point below, the user is left in exactly one of two states:
@@ -233,28 +291,25 @@ export async function POST(req: NextRequest) {
   // now back-to-back and the ONLY fatal writes: if the create fails, we
   // revert the archive so the account is never left without an active year.
 
-  // Step 5: Archive the school year.
+  // Step 5: Archive the school year, saving whatever the user named it on the
+  // close page (they can rename it to "Summer 2026" on the way out).
   const { error: archiveYearErr } = await supabaseAdmin
     .from("school_years")
-    .update({ status: "archived", end_date: todayDate, updated_at: nowIso })
+    .update({ status: "archived", name: closingYearName, end_date: todayDate, updated_at: nowIso })
     .eq("id", yearId);
   if (archiveYearErr) return fail("Failed to archive school year", archiveYearErr);
   // INVARIANT CHECKPOINT: old year archived, no new year yet. The very next
   // write MUST create the new active year or revert this archive.
 
-  // Step 6: Create the new active school year. Parse the end year with a
-  // digits regex (not split("-")) so en-dash names like "2025–2026" roll
-  // forward to 2026-2027 instead of collapsing back to 2025-2026.
-  const endYear = deriveEndYear(activeYear.name as string, new Date().getFullYear());
-  const newYearName = `${endYear}-${endYear + 1}`;
-  const newYearEnd = `${endYear + 1}-05-31`;
-
+  // Step 6: Create the new active school year from the name and dates the
+  // user chose on the close page (falling back to the rollover name and
+  // today / next May 31 when the client sends nothing).
   const { data: newYear, error: newYearErr } = await supabaseAdmin
     .from("school_years")
     .insert({
       user_id: userId,
       name: newYearName,
-      start_date: todayDate,
+      start_date: newYearStart,
       end_date: newYearEnd,
       status: "active",
     })
@@ -266,7 +321,7 @@ export async function POST(req: NextRequest) {
     // stranded. Now the invariant holds via branch (b): original state intact.
     await supabaseAdmin
       .from("school_years")
-      .update({ status: "active", end_date: activeYear.end_date, updated_at: nowIso })
+      .update({ status: "active", name: activeYear.name, end_date: activeYear.end_date, updated_at: nowIso })
       .eq("id", yearId);
     return fail("Failed to create new school year; restored the previous year to active", newYearErr);
   }
@@ -304,15 +359,30 @@ export async function POST(req: NextRequest) {
     gradesAdvanced.push({ child_id: child.id as string, from: fromGrade, to: toGrade });
   }
 
-  // Step 8: Archive incomplete curriculum goals.
+  // Step 8: Archive EVERY curriculum goal from the closing year, finished or
+  // not. The old `.is("completed_at", null)` filter left completed goals
+  // active, so last year's subjects reappeared in the new year. That is the
+  // carry-over families hit in practice.
   const { error: archiveGoalsErr } = await supabaseAdmin
     .from("curriculum_goals")
     .update({ archived: true, updated_at: nowIso })
     .eq("user_id", userId)
     .eq("school_year_id", yearId)
-    .eq("archived", false)
-    .is("completed_at", null);
+    .eq("archived", false);
   if (archiveGoalsErr) warn("Failed to archive curriculum goals", archiveGoalsErr);
+
+  // Step 8b: Legacy goals that were never stamped with a school year. They
+  // predate school_year_id (or were created while the user had no active
+  // year), so no school-year-scoped filter has ever matched them and they
+  // survived every close. Stamp them onto the year being closed and archive
+  // them in the same write. Safe to do here: the new year's goals don't
+  // exist yet, so nothing belonging to next year can be caught.
+  const { error: legacyGoalsErr } = await supabaseAdmin
+    .from("curriculum_goals")
+    .update({ school_year_id: yearId, archived: true, updated_at: nowIso })
+    .eq("user_id", userId)
+    .is("school_year_id", null);
+  if (legacyGoalsErr) warn("Failed to archive legacy curriculum goals", legacyGoalsErr);
 
   // Step 9: Archive activities.
   const { error: archiveActivitiesErr } = await supabaseAdmin
@@ -355,7 +425,7 @@ export async function POST(req: NextRequest) {
     .insert({
       user_id: userId,
       school_year_id: yearId,
-      year_name: activeYear.name,
+      year_name: closingYearName,
       start_date: yearStart,
       end_date: todayDate,
       stats,
@@ -400,7 +470,8 @@ export async function POST(req: NextRequest) {
     success: true,
     archivedYearId: yearId,
     newYearId,
-    yearName: activeYear.name,
+    yearName: closingYearName,
+    newYearName,
     stats,
     gradesAdvanced,
     warnings,
