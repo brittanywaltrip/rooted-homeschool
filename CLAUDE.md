@@ -64,6 +64,48 @@ this rule wasn't followed. If your change touches scheduling, expect to:
 3. Run `node --test app/lib/scheduler.test.ts` locally before commit.
 4. Add a new test case if you introduce a new invariant.
 
+## School year close flow — DO NOT VIOLATE
+
+There is ONE close flow. `/dashboard/close-year` POSTs to
+`/api/school-year/close` with `{ closingYearName, newYearName, newYearStart,
+newYearEnd }`. Every field is optional; anything missing falls back to the
+rollover name (`lib/school-year-name.ts`), start today, end next May 31, so a
+caller that sends no body can never break the close.
+
+Year names are FREE TEXT. "Summer 2026" and "Kindergarten Year" are as valid
+as "2026-2027".
+- NEVER generate en dashes (U+2013) in year names. Always a plain hyphen. The
+  April 2026 backfill migration wrote "2025–2026", and every flow that asked a
+  user to retype that name was unusable, because no keyboard types it.
+- NEVER require a user to retype a stored year name to confirm anything. The
+  close page confirms by typing CLOSE (case-insensitive, trimmed).
+
+Closing a year archives ALL of that year's curriculum goals, completed or not,
+AND stamps goals whose `school_year_id` is NULL onto the closing year and
+archives those too. Those two writes are the whole reason last year's subjects
+stop carrying into the new year. Do NOT weaken either filter: no
+`completed_at` filter on the first, no skipping the NULL sweep.
+
+`/api/school-year/new` was DELETED on August 11, 2026. It archived the year but
+left every subject active, which is the carry-over bug real families hit.
+NEVER recreate it.
+
+`/api/school-year/create` accepts `existingSchoolYearId` and updates that year
+in place after verifying ownership. Without an id it returns 409, with the
+existing id in the body, when the user already has an active year whose
+start_date is today or earlier, instead of silently creating a second one. The
+next-year wizard (`/dashboard/plan/new-year`) prefills from the ACTIVE year,
+never from a name derived from the old year, so it cannot overwrite the name
+and dates the user chose on the close page.
+
+The close route's invariant, preserve it in any future change: archiving the
+old year and creating the new one are the ONLY fatal writes, they run back to
+back, and if the create fails the archive is reverted, restoring status, name,
+and end_date. Every step after that (stats snapshot, certificates, grade
+advancement, goal and activity archiving) is non-fatal and records a warning
+instead of returning a 500. Losing a snapshot is cosmetic. Losing the active
+year bricks the account, which is what stranded a real user on June 19, 2026.
+
 ## Positioning
 Memory book FIRST. Planner second. Memories lead emotionally.
 
@@ -91,6 +133,30 @@ The suite reads `PLAYWRIGHT_EMAIL` and `PLAYWRIGHT_PASSWORD` from
 unlocks DB-side assertions in the curriculum-CRUD tests and the
 data-integrity audit; without it those checks skip cleanly. Never
 hardcode the test password in a spec file.
+
+## e2e notes
+
+### "Past start_date backfill via Schedule Builder"
+This spec failed intermittently on BOTH main and staging through early August
+2026. The cause was a week-view render race in `usePlanV2Data`: a stale
+month-window response could overwrite newer state, so the week rendered its day
+rows with no lesson cards, which is exactly what the spec catches.
+
+Root-caused and FIXED on August 3, 2026 (commit 1d0c1b0). Each load now claims
+a monotonic request id before its first await and writes state only while it is
+still the newest. Verified 5/5 clean passes at the time, and green again in the
+August 11, 2026 pre-merge run.
+
+So a red backfill spec is not automatically a new regression: A/B it against
+main before blocking a merge on it. But do NOT file it as expected noise
+either. The known race is fixed, so a fresh failure most likely means a NEW
+one, and it almost certainly belongs in `usePlanV2Data`.
+
+### No close-year coverage
+Nothing in `e2e/` exercises `/dashboard/close-year`, `/api/school-year/close`,
+or the next-year wizard. A green suite means a close-flow change broke nothing
+else; it does NOT verify the close flow itself. Close a year by hand after
+touching it. Adding this coverage is on the e2e backlog.
 
 ## Admin emails
 - garfieldbrittany@gmail.com
