@@ -104,8 +104,11 @@ export default function WelcomeBackPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#f8f7f4] flex items-center justify-center px-6">
-        <p className="text-sm text-[#7a6f65]">Loading...</p>
+      <div
+        className="min-h-screen flex items-center justify-center px-6"
+        style={{ background: "var(--g-deep, #1a2c22)" }}
+      >
+        <p className="text-sm text-white/70">Loading...</p>
       </div>
     );
   }
@@ -114,13 +117,16 @@ export default function WelcomeBackPage() {
   const name = status?.firstName?.trim();
 
   return (
-    <div className="min-h-screen bg-[#f8f7f4] flex flex-col items-center justify-center px-6 py-12">
-      <Link href="/" className="inline-block mb-8">
-        <img src="/rooted-logo-nav.png" alt="Rooted" className="h-8 w-auto" />
+    <div
+      className="min-h-screen flex flex-col items-center justify-center px-6 py-12"
+      style={{ background: "var(--g-deep, #1a2c22)" }}
+    >
+      <Link href="/" className="inline-block mb-10">
+        <img src="/rooted-logo-white.png" alt="Rooted" className="h-10 w-auto" />
       </Link>
 
-      <div className="w-full max-w-md bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl shadow-sm p-8">
-        <h1 className="text-2xl font-medium font-serif text-[#2d2926] mb-2">
+      <div className="w-full max-w-md bg-[#fefcf9] border border-[#e8e2d9] rounded-3xl shadow-xl px-8 py-10 sm:px-10 text-center">
+        <h1 className="text-3xl font-medium font-serif text-[#2d2926] mb-4">
           {name ? `Welcome back, ${name}` : "Welcome back"}
         </h1>
 
@@ -139,7 +145,7 @@ export default function WelcomeBackPage() {
           </p>
         )}
 
-        <p className="text-sm text-[#7a6f65] leading-relaxed mb-6">
+        <p className="text-sm text-[#7a6f65] leading-relaxed mb-8">
           You&apos;re welcome to start a new family from scratch whenever
           you&apos;re ready. If you didn&apos;t delete this account, or something
           here looks wrong, please email us at{" "}
@@ -155,7 +161,7 @@ export default function WelcomeBackPage() {
         {error && (
           <div
             role="alert"
-            className="mb-4 border border-[#e8c8c8] rounded-xl px-4 py-3"
+            className="mb-4 border border-[#e8c8c8] bg-[#fdf4f4] rounded-xl px-4 py-3"
           >
             <p className="text-sm text-[#9a3a3a]">{error}</p>
           </div>
@@ -164,7 +170,7 @@ export default function WelcomeBackPage() {
         <button
           onClick={startFresh}
           disabled={starting}
-          className="w-full px-5 py-3 rounded-xl text-white text-sm font-medium disabled:opacity-40"
+          className="w-full px-5 py-3.5 rounded-full text-white text-sm font-medium shadow-sm transition-colors disabled:opacity-40 hover:brightness-110"
           style={{ background: "var(--g-brand, #2d5a3d)" }}
         >
           {starting ? "Setting things up..." : "Start a new family"}
@@ -175,13 +181,15 @@ export default function WelcomeBackPage() {
             await supabase.auth.signOut();
             window.location.href = "/";
           }}
-          className="w-full mt-3 py-2 text-sm text-[#7a6f65] hover:text-[#2d2926] underline-offset-2 hover:underline"
+          className="w-full mt-4 py-2 text-sm text-[#7a6f65] hover:text-[#2d2926] underline-offset-2 hover:underline"
         >
           Sign out
         </button>
       </div>
 
-      <p className="mt-6 text-xs text-[#7a6f65]">Cheering you on, Brittany</p>
+      <p className="mt-8 text-sm font-serif italic text-white/70">
+        Cheering you on, Brittany
+      </p>
     </div>
   );
 }
