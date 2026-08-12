@@ -1,7 +1,9 @@
 "use client";
 
-import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
+import type { PlanV2Activity, PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
 import { resolveChildColor } from "./colors";
+import { activityOccursOn } from "./activityOccurrences";
+import { formatPrintTime, sortByTimeThenOriginal } from "./printTime";
 
 /* WeeklyPrintSheet. Landscape letter, day-block layout. Each school day in
  * the week renders as a stacked block with a date pill and per-kid lesson
@@ -16,11 +18,19 @@ const SUMMARY_BORDER = "#e8e3d9";
 const NOTE_BG = "#f4faf4";
 const NOTE_BORDER = "#5c7f63";
 const DAY_PILL_BG = "#f0ece3";
+const TIME_TEXT = "#5c7f63";
+const ACTIVITY_TEXT = "#7a4a1a";
 
 const DB_DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; // Mon=0..Sun=6
 const DAY_NAMES_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-type Goal = { id: string; total_lessons: number | null };
+type Goal = {
+  id: string;
+  total_lessons: number | null;
+  /** "HH:MM:SS" set in the Schedule Builder. Null for most goals; when
+   *  present it prints next to the subject and orders the day. */
+  scheduled_start_time?: string | null;
+};
 
 export interface WeeklyPrintSheetProps {
   weekStart: Date; // Monday on or before today (or any week the user navigated to)
@@ -32,6 +42,11 @@ export interface WeeklyPrintSheetProps {
   curriculumGoals: Goal[];
   schoolDays: string[];        // profile.school_days, e.g. ["Mon","Tue","Wed","Thu","Fri"]
   vacationBlocks: PlanV2Vacation[];
+  /** Recurring activities (co-op, music). Which dates each one lands on is
+   *  decided ONLY by activityOccursOn so this sheet, the Plan grid and the
+   *  Today page can never disagree — biweekly parity in particular is
+   *  anchored to the activity's start_date, not to created_at. */
+  activities?: PlanV2Activity[];
 }
 
 function ymd(d: Date): string {
@@ -60,9 +75,13 @@ function mondayOf(d: Date): Date {
 }
 
 export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
-  const { weekStart, familyName, lessons, appointments, kids, curriculumGoals, schoolDays, vacationBlocks } = props;
+  const { weekStart, familyName, lessons, appointments, kids, curriculumGoals, schoolDays, vacationBlocks, activities = [] } = props;
   const childIndex = new Map(kids.map((k, i) => [k.id, { child: k, index: i }]));
   const goalById = new Map(curriculumGoals.map((g) => [g.id, g]));
+
+  /** The goal's scheduled_start_time for a lesson, or null. */
+  const goalTimeFor = (l: PlanV2Lesson): string | null =>
+    l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.scheduled_start_time ?? null : null;
 
   const start = mondayOf(weekStart);
   const end = new Date(start); end.setDate(end.getDate() + 6);
@@ -113,6 +132,16 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
   const totalKids = kids.length;
   const totalAppts = appointments.length;
 
+  // Activity occurrences for the days this sheet renders. Computed via the
+  // shared helper only — no recurrence math lives in this file.
+  const activitiesByDay = new Map<string, PlanV2Activity[]>();
+  for (const day of days) {
+    const hits = activities.filter((a) => activityOccursOn(a, day.date, day.key));
+    if (hits.length > 0) {
+      activitiesByDay.set(day.key, sortByTimeThenOriginal(hits, (a) => a.scheduled_start_time));
+    }
+  }
+
   return (
     <div
       className="plan-print-sheet"
@@ -140,6 +169,7 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
           days.map((day) => {
             const dayLessons = lessonsByDay.get(day.key) ?? [];
             const dayAppts = apptsByDay.get(day.key) ?? [];
+            const dayActivities = activitiesByDay.get(day.key) ?? [];
             // Group by child in kids order
             const byKid = new Map<string, PlanV2Lesson[]>();
             const unassigned: PlanV2Lesson[] = [];
@@ -185,12 +215,13 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
                           color={resolveChildColor(k, i)}
                           dividerAbove={!firstRendered}
                         >
-                          {items.map((l) => (
+                          {sortByTimeThenOriginal(items, (l) => goalTimeFor(l)).map((l) => (
                             <LessonRow
                               key={l.id}
                               lesson={l}
                               color={resolveChildColor(k, i)}
                               totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
+                              startTime={goalTimeFor(l)}
                             />
                           ))}
                         </KidBlock>
@@ -205,12 +236,13 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
                           color="#7a6f65"
                           dividerAbove={!firstRendered}
                         >
-                          {unassigned.map((l) => (
+                          {sortByTimeThenOriginal(unassigned, (l) => goalTimeFor(l)).map((l) => (
                             <LessonRow
                               key={l.id}
                               lesson={l}
                               color="#7a6f65"
                               totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
+                              startTime={goalTimeFor(l)}
                             />
                           ))}
                         </KidBlock>
@@ -226,9 +258,22 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
                     return renderedKids;
                   })()}
 
-                  {/* Inline appointment list under the day */}
-                  {dayAppts.length > 0 ? (
+                  {/* Inline appointment + recurring-activity list under the day */}
+                  {dayAppts.length > 0 || dayActivities.length > 0 ? (
                     <div style={{ marginTop: 4, paddingTop: 4, borderTop: `1px solid ${HAIRLINE}` }}>
+                      {dayActivities.map((a) => {
+                        const t = formatPrintTime(a.scheduled_start_time);
+                        return (
+                          <p key={`act-${a.id}`} style={{ margin: "2px 0", fontSize: 10, color: MUTED }}>
+                            <span style={{ color: ACTIVITY_TEXT, fontWeight: 600 }}>
+                              {a.emoji ? `${a.emoji} ` : "🔁 "}{a.name}
+                            </span>
+                            <span style={{ color: "#aaa" }}>
+                              {t ? ` · ${t}` : ""}{a.location ? ` · ${a.location}` : ""}
+                            </span>
+                          </p>
+                        );
+                      })}
                       {dayAppts.map((a) => (
                         <p key={`${a.id}-${a.instance_date}`} style={{ margin: "2px 0", fontSize: 10, color: MUTED }}>
                           <span style={{ color: "#5c4a78", fontWeight: 600 }}>📅 {a.title}</span>
@@ -339,14 +384,18 @@ function KidBlock({
 }
 
 function LessonRow({
-  lesson, color, totalLessons,
+  lesson, color, totalLessons, startTime,
 }: {
   lesson: PlanV2Lesson;
   color: string;
   totalLessons: number | null;
+  /** Raw "HH:MM:SS" from the goal, or null. Null renders nothing at all so
+   *  goals without a time look exactly as they did before. */
+  startTime?: string | null;
 }) {
   const subject = lessonSubject(lesson);
   const title = lessonTitleText(lesson);
+  const timeLabel = formatPrintTime(startTime);
   const showProgress = lesson.lesson_number != null && totalLessons != null && totalLessons > 0;
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "3px 0" }}>
@@ -362,7 +411,14 @@ function LessonRow({
         }}
       />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: INK }}>{subject}</p>
+        <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: INK }}>
+          {subject}
+          {timeLabel ? (
+            <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 600, color: TIME_TEXT }}>
+              {timeLabel}
+            </span>
+          ) : null}
+        </p>
         <p style={{ margin: "1px 0 0", fontSize: 10, color: MUTED }}>{title}</p>
         {showProgress ? (
           <p style={{ margin: "1px 0 0", fontSize: 9, color: "#aaa" }}>

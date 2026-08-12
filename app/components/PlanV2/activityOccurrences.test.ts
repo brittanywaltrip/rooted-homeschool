@@ -47,6 +47,7 @@ const REPORTED = {
   start_date: '2026-10-07',
   end_date: '2026-12-02',
   duration_minutes: 120,
+  scheduled_start_time: null,
   child_ids: null,
   location: null,
   // Created a week before it starts, the exact offset that produced the bug.

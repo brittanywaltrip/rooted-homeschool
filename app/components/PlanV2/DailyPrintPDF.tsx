@@ -1,6 +1,7 @@
 import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { ensureFontsRegistered } from "./pdf-fonts";
 import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson } from "./types";
+import { formatPrintTime, sortByTimeThenOriginal } from "./printTime";
 
 /* DailyPrintPDF. React-PDF Document for the Daily plan sheet. Replaces
  * the window.print()-based DailyPrintSheet for the daily path. Hardcoded
@@ -22,7 +23,12 @@ const COLORS = {
   white: "#ffffff",
 } as const;
 
-type Goal = { id: string; total_lessons: number | null };
+type Goal = {
+  id: string;
+  total_lessons: number | null;
+  /** "HH:MM:SS" from the Schedule Builder; null on most goals. */
+  scheduled_start_time?: string | null;
+};
 
 export interface DailyPrintPDFProps {
   date: Date;
@@ -117,6 +123,8 @@ const styles = StyleSheet.create({
   lessonBody: { flex: 1 },
   lessonRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" },
   subject: { fontSize: 11, fontWeight: 700, color: COLORS.deepGreen },
+  subjectLine: { flexDirection: "row", alignItems: "baseline", gap: 5 },
+  subjectTime: { fontSize: 9, fontWeight: 700, color: COLORS.accentGreen },
   progress: { fontSize: 9, color: COLORS.inkMuted },
   lessonTitle: { fontSize: 9, color: COLORS.inkMuted, marginTop: 1 },
   noteCallout: {
@@ -179,6 +187,9 @@ function logoSrc(): string {
 export default function DailyPrintPDF(props: DailyPrintPDFProps) {
   const { date, familyName, lessons, appointments, kids, curriculumGoals } = props;
   const goalById = new Map(curriculumGoals.map((g) => [g.id, g]));
+  /** The goal's scheduled_start_time for a lesson, or null. */
+  const goalTimeFor = (l: PlanV2Lesson): string | null =>
+    l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.scheduled_start_time ?? null : null;
 
   const dateLabel = date.toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
@@ -229,19 +240,24 @@ export default function DailyPrintPDF(props: DailyPrintPDFProps) {
               {items.length === 0 ? (
                 <Text style={styles.emptyState}>Nothing scheduled</Text>
               ) : (
-                items.map((l) => {
+                // Timed lessons lead in clock order; untimed keep their order.
+                sortByTimeThenOriginal(items, goalTimeFor).map((l) => {
                   const subject = lessonSubject(l);
                   const title = lessonTitleText(l);
                   const total = l.curriculum_goal_id
                     ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null
                     : null;
                   const showProgress = l.lesson_number != null && total != null && total > 0;
+                  const timeLabel = formatPrintTime(goalTimeFor(l));
                   return (
                     <View key={l.id} style={styles.lessonRow}>
                       <View style={styles.checkbox} />
                       <View style={styles.lessonBody}>
                         <View style={styles.lessonRowTop}>
-                          <Text style={styles.subject}>{subject}</Text>
+                          <View style={styles.subjectLine}>
+                            <Text style={styles.subject}>{subject}</Text>
+                            {timeLabel ? <Text style={styles.subjectTime}>{timeLabel}</Text> : null}
+                          </View>
                           {showProgress ? (
                             <Text style={styles.progress}>
                               Lesson {l.lesson_number} of {total}

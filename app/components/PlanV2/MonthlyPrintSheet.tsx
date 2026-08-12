@@ -1,7 +1,8 @@
 "use client";
 
-import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
+import type { PlanV2Activity, PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
 import { resolveChildColor } from "./colors";
+import { buildActivitiesByDate } from "./activityOccurrences";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
 /* MonthlyPrintSheet. Landscape letter, Mon-Fri grid with a left
@@ -23,6 +24,8 @@ const APPT_TEXT = "#234277";
 const BREAK_BG = "#fef3da";
 const BREAK_TEXT = "#7a4a1a";
 const TODAY_BORDER = "#2D5A3D";
+const ACT_BG = "#fdf0e2";
+const ACT_TEXT = "#7a4a1a";
 
 type Goal = { id: string; total_lessons: number | null };
 
@@ -35,6 +38,11 @@ export interface MonthlyPrintSheetProps {
   vacationBlocks: PlanV2Vacation[];
   kids: PlanV2Child[];
   curriculumGoals: Goal[];
+  /** Recurring activities. Occurrence dates come ONLY from
+   *  buildActivitiesByDate, so biweekly parity stays anchored to start_date
+   *  and this grid agrees with the Plan calendar and Today. The grid stays
+   *  deliberately timeless — cells are too small for a clock time. */
+  activities?: PlanV2Activity[];
 }
 
 function ymd(d: Date): string {
@@ -56,7 +64,7 @@ const HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 const GOAL_PLACEHOLDER: Goal[] = []; // typing convenience; not used directly
 
 export default function MonthlyPrintSheet(props: MonthlyPrintSheetProps) {
-  const { monthStart, familyName, lessons, appointments, vacationBlocks, kids } = props;
+  const { monthStart, familyName, lessons, appointments, vacationBlocks, kids, activities = [] } = props;
   // Suppress unused-var lint for the goal placeholder if the import happens to be removed.
   void GOAL_PLACEHOLDER;
   const childIndex = new Map(kids.map((k, i) => [k.id, { child: k, index: i }]));
@@ -109,6 +117,13 @@ export default function MonthlyPrintSheet(props: MonthlyPrintSheetProps) {
   }
   const breakFor = (dateStr: string) =>
     vacationBlocks.find((b) => dateStr >= b.start_date && dateStr <= b.end_date) ?? null;
+
+  // Every cell this sheet renders, handed to the shared bucketing helper.
+  // No recurrence math in this file by design.
+  const activitiesByDay = buildActivitiesByDate(
+    activities,
+    weeks.flatMap((w) => w.cells.map((c) => c.date)),
+  );
 
   const totalLessons = lessons.length;
   const totalKids = kids.length;
@@ -190,6 +205,7 @@ export default function MonthlyPrintSheet(props: MonthlyPrintSheetProps) {
                 const br = breakFor(c.key);
                 const pills = kidPillsForDay(c.key);
                 const dayAppts = apptsByDay.get(c.key) ?? [];
+                const dayActivities = activitiesByDay.get(c.key) ?? [];
                 return (
                   <DayCell
                     key={c.key}
@@ -200,6 +216,7 @@ export default function MonthlyPrintSheet(props: MonthlyPrintSheetProps) {
                     breakName={br?.name ?? null}
                     pills={pills}
                     appts={dayAppts}
+                    activities={dayActivities}
                   />
                 );
               })}
@@ -235,6 +252,10 @@ export default function MonthlyPrintSheet(props: MonthlyPrintSheetProps) {
         <div style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span aria-hidden style={{ width: 9, height: 9, borderRadius: 2, background: APPT_BG, border: `1px solid ${APPT_TEXT}` }} />
           <span style={{ color: INK, fontWeight: 600 }}>Appointment</span>
+        </div>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+          <span aria-hidden style={{ width: 9, height: 9, borderRadius: 2, background: ACT_BG, border: `1px solid ${ACT_TEXT}` }} />
+          <span style={{ color: INK, fontWeight: 600 }}>Activity</span>
         </div>
         <div style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
           <span aria-hidden style={{ width: 9, height: 9, borderRadius: 2, background: BREAK_BG, border: `1px solid ${BREAK_TEXT}` }} />
@@ -275,7 +296,7 @@ function WeekRowFragment({ weekLabel, children }: { weekLabel: string; children:
 }
 
 function DayCell({
-  date, isCurrentMonth, isToday, isBreak, breakName, pills, appts,
+  date, isCurrentMonth, isToday, isBreak, breakName, pills, appts, activities = [],
 }: {
   date: Date;
   isCurrentMonth: boolean;
@@ -284,6 +305,7 @@ function DayCell({
   breakName: string | null;
   pills: { kidId: string; kidName: string; color: string; subjectIfOne: string | null; count: number }[];
   appts: { id: string; title: string; instance_date: string }[];
+  activities?: PlanV2Activity[];
 }) {
   return (
     <div
@@ -333,6 +355,24 @@ function DayCell({
           </div>
         );
       })}
+      {activities.slice(0, 2).map((a) => (
+        <div
+          key={`act-${a.id}`}
+          style={{
+            fontSize: 9,
+            fontWeight: 600,
+            color: ACT_TEXT,
+            background: ACT_BG,
+            padding: "2px 5px",
+            borderRadius: 3,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {a.emoji ? `${a.emoji} ` : "🔁 "}{a.name}
+        </div>
+      ))}
       {appts.slice(0, 2).map((a) => (
         <div
           key={`${a.id}-${a.instance_date}`}

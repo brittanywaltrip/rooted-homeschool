@@ -188,7 +188,7 @@ export function usePlanV2Data(opts: {
     // on. created_at is the biweekly cadence anchor.
     const actReq = supabase
       .from("activities")
-      .select("id, name, emoji, frequency, days, start_date, end_date, duration_minutes, child_ids, location, created_at")
+      .select("id, name, emoji, frequency, days, start_date, end_date, duration_minutes, scheduled_start_time, child_ids, location, created_at")
       .eq("user_id", effectiveUserId)
       .eq("is_active", true);
 

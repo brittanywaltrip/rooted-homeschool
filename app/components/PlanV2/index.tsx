@@ -464,6 +464,10 @@ export default function PlanV2() {
     created_at: string | null;
     start_date: string | null;
     icon_emoji: string | null;
+    /** "HH:MM:SS" set in the Schedule Builder. Until the print sheets landed
+     *  this was captured but rendered nowhere outside Today's activity pills,
+     *  so it was missing from this SELECT entirely. */
+    scheduled_start_time: string | null;
   };
   const [curriculumGoals, setCurriculumGoals] = useState<GoalFull[]>([]);
   const [goalsReloadNonce, setGoalsReloadNonce] = useState(0);
@@ -491,7 +495,7 @@ export default function PlanV2() {
       // legacy null rows to worry about.
       const { data } = await supabase
         .from("curriculum_goals")
-        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, lessons_per_day, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji")
+        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, lessons_per_day, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji, scheduled_start_time")
         .eq("user_id", effectiveUserId)
         .eq("archived", false)
         .order("created_at");
@@ -4004,6 +4008,7 @@ export default function PlanV2() {
         {/* View toggle — pill style, Week / Month. Hidden for zero-goal users
             since the calendar below is replaced by the empty state. */}
         {(curriculumGoals.length > 0 || loading) && (
+        <div className="flex items-center gap-2">
         <div className="inline-flex items-center gap-1 bg-white border border-[#e8e5e0] rounded-full p-1">
           <button
             type="button"
@@ -4027,6 +4032,23 @@ export default function PlanV2() {
           >
             Month
           </button>
+        </div>
+        {/* Print. Commit 30cd960 dropped the only setPrintDialogOpen(true)
+            call when it replaced the Plan layout, so the whole daily/weekly/
+            monthly print feature was unreachable from the UI while staying
+            fully built underneath. No device gating on purpose: the dialog
+            handles native/mobile itself (locked tiles become compliance text
+            rather than an /upgrade link inside the app). */}
+        <button
+          type="button"
+          onClick={() => setPrintDialogOpen(true)}
+          aria-label="Print your plan"
+          title="Print your plan"
+          className="inline-flex items-center gap-1.5 bg-white border border-[#e8e5e0] rounded-full px-4 py-1.5 text-[13px] font-medium text-[#5C5346] transition-colors hover:bg-[#f4f0e8]"
+        >
+          <Printer size={14} />
+          Print
+        </button>
         </div>
         )}
 
@@ -5241,6 +5263,7 @@ export default function PlanV2() {
                   curriculumGoals={curriculumGoals}
                   schoolDays={schoolDays}
                   vacationBlocks={vacationBlocks}
+                  activities={filteredActivities}
                 />
               ) : null}
               {activePrintMode === "monthly" ? (
@@ -5253,6 +5276,7 @@ export default function PlanV2() {
                   vacationBlocks={vacationBlocks}
                   curriculumGoals={curriculumGoals}
                   kids={filteredKids}
+                  activities={filteredActivities}
                 />
               ) : null}
             </div>

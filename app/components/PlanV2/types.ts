@@ -78,6 +78,8 @@ export type PlanV2Activity = {
   start_date: string | null;
   end_date: string | null;
   duration_minutes: number | null;
+  /** "HH:MM:SS" from Postgres `time`. Null when the family left it blank. */
+  scheduled_start_time: string | null;
   child_ids: string[] | null;
   location: string | null;
   created_at: string | null;
