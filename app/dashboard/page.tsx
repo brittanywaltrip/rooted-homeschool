@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, toGoalConfig, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib/timezone";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
@@ -778,7 +778,7 @@ export default function TodayPage() {
       // Curriculum goals — full config for queue-based scheduling. The same
       // query also feeds the icon emoji + per-goal school_days lookups that
       // used to be its only purpose.
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date").eq("user_id", effectiveUserId).eq("archived", false),
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, lessons_per_day_overrides, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date").eq("user_id", effectiveUserId).eq("archived", false),
       // Lessons completed today per goal (local-day window). The queue
       // projector subtracts these from today's slot allocation so that
       // marking complete keeps today's slot count stable instead of
@@ -918,6 +918,7 @@ export default function TodayPage() {
       current_lesson: number;
       total_lessons: number;
       lessons_per_day: number;
+      lessons_per_day_overrides: Record<string, number> | null;
       child_id: string | null;
       subject_label: string | null;
       curriculum_name: string;
@@ -945,14 +946,10 @@ export default function TodayPage() {
       .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
 
     // Project today's lessons across all active goals.
-    const goalConfigs: CurriculumGoalConfig[] = goalRows.map((g) => ({
-      id: g.id,
-      total_lessons: g.total_lessons,
-      lessons_per_day: g.lessons_per_day,
-      school_days: g.school_days,
-      current_lesson: g.current_lesson,
-      start_date: g.start_date,
-    }));
+    // toGoalConfig, not a hand-rolled object literal: it is what carries
+    // lessons_per_day_overrides through to the projector. See
+    // GOAL_CONFIG_COLUMNS in scheduler.ts for why this kept getting dropped.
+    const goalConfigs: CurriculumGoalConfig[] = goalRows.map(toGoalConfig);
     // Per-goal count of lessons whose completed_at falls in today's
     // local-day window. Anchors today's slots to (current_lesson -
     // completedToday + 1) so completed cards stay visible and the queue
@@ -1149,14 +1146,7 @@ export default function TodayPage() {
       const entriesByGoal = new Map<string, MissedEntry[]>();
       let overdueTotal = 0;
       for (const goal of activeGoals) {
-        const cfg: CurriculumGoalConfig = {
-          id: goal.id,
-          total_lessons: goal.total_lessons,
-          lessons_per_day: goal.lessons_per_day,
-          school_days: goal.school_days,
-          current_lesson: goal.current_lesson,
-          start_date: goal.start_date,
-        };
+        const cfg: CurriculumGoalConfig = toGoalConfig(goal);
         const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
         overdueTotal += entries.length;
         if (entries.length > 0) entriesByGoal.set(goal.id, entries);
@@ -1837,11 +1827,17 @@ export default function TodayPage() {
       // Per-goal config (school_days + lessons_per_day) for the planner.
       const goalIds = [...new Set(uncompleted.map(l => l.curriculum_goal_id).filter(Boolean))] as string[];
       const { data: goalsData } = goalIds.length > 0
-        ? await supabase.from("curriculum_goals").select("id, school_days, lessons_per_day").in("id", goalIds)
+        ? await supabase.from("curriculum_goals").select("id, school_days, lessons_per_day, lessons_per_day_overrides").in("id", goalIds)
         : { data: [] };
-      const goalConfigs = new Map<string, { school_days: string[] | null; lessons_per_day: number }>();
-      for (const g of (goalsData ?? []) as { id: string; school_days: string[] | null; lessons_per_day: number | null }[]) {
-        goalConfigs.set(g.id, { school_days: g.school_days, lessons_per_day: g.lessons_per_day ?? 1 });
+      const goalConfigs = new Map<string, { school_days: string[] | null; lessons_per_day: number; lessons_per_day_overrides?: Record<string, number> | null }>();
+      for (const g of (goalsData ?? []) as { id: string; school_days: string[] | null; lessons_per_day: number | null; lessons_per_day_overrides: Record<string, number> | null }[]) {
+        // Overrides ride along so the re-spread honors a per-weekday cap
+        // instead of the flat column (planRescheduleLessons -> capForDate).
+        goalConfigs.set(g.id, {
+          school_days: g.school_days,
+          lessons_per_day: g.lessons_per_day ?? 1,
+          lessons_per_day_overrides: g.lessons_per_day_overrides,
+        });
       }
       // Synthetic bucket for one-off lessons (no curriculum_goal_id) so they
       // route through the same planner. school_days=null falls back to
@@ -2218,7 +2214,7 @@ export default function TodayPage() {
     const [{ data: goalsRaw }, { data: vacsRaw }, { data: completedTodayRaw }] = await Promise.all([
       supabase
         .from("curriculum_goals")
-        .select("id, total_lessons, lessons_per_day, school_days, current_lesson, child_id, subject_label, start_date")
+        .select("id, total_lessons, lessons_per_day, lessons_per_day_overrides, school_days, current_lesson, child_id, subject_label, start_date")
         .eq("user_id", effectiveUserId)
         .eq("archived", false),
       supabase
@@ -2234,7 +2230,7 @@ export default function TodayPage() {
         .lt("completed_at", tomorrowStartIso)
         .not("curriculum_goal_id", "is", null),
     ]);
-    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null; start_date: string | null }[];
+    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; lessons_per_day_overrides: Record<string, number> | null; school_days: string[] | null; current_lesson: number | null; child_id: string | null; subject_label: string | null; start_date: string | null }[];
     const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
       .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
     // Today's per-goal completion count anchors today's projected slots
@@ -2267,16 +2263,8 @@ export default function TodayPage() {
     for (const g of goals) {
       const total = g.total_lessons ?? 0;
       const cur = g.current_lesson ?? 0;
-      const perDay = Math.max(1, g.lessons_per_day ?? 1);
       if (total <= 0 || cur >= total) continue;
-      const cfg: CurriculumGoalConfig = {
-        id: g.id,
-        total_lessons: total,
-        lessons_per_day: perDay,
-        school_days: g.school_days,
-        current_lesson: cur,
-        start_date: g.start_date,
-      };
+      const cfg: CurriculumGoalConfig = toGoalConfig(g);
       // 22 days ahead = today + 21 forward. Drop today's slots (those
       // are the current allocation already on the Today schedule).
       const completed = completedTodayPerGoal.get(g.id) ?? 0;

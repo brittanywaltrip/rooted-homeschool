@@ -884,6 +884,52 @@ export interface CurriculumGoalConfig {
   lessons_per_day_overrides?: Record<string, number> | null;
 }
 
+/**
+ * The exact columns a projector config needs. Use this in the SELECT for any
+ * query that will be turned into a CurriculumGoalConfig.
+ *
+ * It exists because `lessons_per_day_overrides` was the column everyone
+ * forgot. Commit e68ffe9 (July 26, 2026) fixed the Schedule Builder's cap
+ * check to honor overrides, but the Today page, the missed-lesson gap modal,
+ * the Upcoming list and the schedule preview all kept building configs from
+ * SELECTs that never fetched the column. `lessonsPerDayForDate` then saw
+ * `undefined` and fell back to the flat `lessons_per_day` on every one of
+ * them, so the builder and Today disagreed about how many lessons a Thursday
+ * holds. Selecting a superset is harmless; omitting this column is a silent
+ * wrong answer.
+ */
+export const GOAL_CONFIG_COLUMNS =
+  "id, total_lessons, current_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date";
+
+/** A curriculum_goals row carrying at least the projector's columns. */
+export interface GoalConfigRow {
+  id: string;
+  total_lessons: number | null;
+  current_lesson: number | null;
+  lessons_per_day: number | null;
+  lessons_per_day_overrides?: Record<string, number> | null;
+  school_days: string[] | null;
+  start_date?: string | null;
+}
+
+/**
+ * Build a projector config from a curriculum_goals row. The single place that
+ * decides how a DB row becomes a CurriculumGoalConfig, so `lessons_per_day_
+ * overrides` can never be dropped on the way in again. Pair it with
+ * GOAL_CONFIG_COLUMNS in the SELECT.
+ */
+export function toGoalConfig(row: GoalConfigRow): CurriculumGoalConfig {
+  return {
+    id: row.id,
+    total_lessons: row.total_lessons ?? 0,
+    current_lesson: row.current_lesson ?? 0,
+    lessons_per_day: Math.max(1, row.lessons_per_day ?? 1),
+    lessons_per_day_overrides: row.lessons_per_day_overrides ?? null,
+    school_days: row.school_days,
+    start_date: row.start_date ?? null,
+  };
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
  * PINS (July 2026) — manual placements the projector must not overrule.
  *
@@ -1020,6 +1066,17 @@ export interface ProjectedLesson {
 }
 
 /**
+ * The minimum a value needs for `lessonsPerDayForDate` to answer. Kept
+ * narrower than CurriculumGoalConfig so the per-day cap can be asked of a
+ * partial row (the reschedule planners carry only school_days + the two
+ * per-day fields) without inventing a second cap function for them.
+ */
+export interface PerDayCapConfig {
+  lessons_per_day: number;
+  lessons_per_day_overrides?: Record<string, number> | null;
+}
+
+/**
  * How many lessons of this goal should land on `date`?
  *
  * Reads `lessons_per_day_overrides` first — if the date's weekday label
@@ -1029,10 +1086,18 @@ export interface ProjectedLesson {
  * goals without overrides. The Mon=0..Sun=6 day-index conversion matches
  * `DAY_LABELS` and the rest of the projector.
  */
-export function lessonsPerDayForDate(date: Date, goal: CurriculumGoalConfig): number {
+export function lessonsPerDayForDate(
+  date: Date | string,
+  goal: PerDayCapConfig,
+): number {
   const overrides = goal.lessons_per_day_overrides;
   if (overrides) {
-    const label = DAY_LABELS[(date.getDay() + 6) % 7];
+    // Accepts a YYYY-MM-DD string as well as a Date so the string-cursor
+    // callers (pickNextAvailableDate and everything routed through it) use
+    // this same definition instead of growing a second copy. Noon anchor
+    // matches isDueDate: it keeps the weekday stable across DST.
+    const d = typeof date === "string" ? new Date(`${date}T12:00:00`) : date;
+    const label = DAY_LABELS[(d.getDay() + 6) % 7];
     const v = overrides[label];
     if (typeof v === "number" && Number.isFinite(v) && v >= 0) {
       return Math.floor(v);
@@ -1289,9 +1354,36 @@ export function computeNextLessonsForGoal(
   let nextLesson = goal.current_lesson + 1;
   let firstDayApplied = false;
 
+  // A projection is a mapping of queue slot to date, so a slot may appear in
+  // the output AT MOST ONCE. This set is what enforces that, and it is not
+  // theoretical: the first-day adjustment below rewinds `nextLesson` back to
+  // (current_lesson - completedTodayCount + 1) so lessons already done today
+  // stay on screen as checked cards, and that rewind can land on a slot this
+  // loop has already emitted. It happens whenever an early slot is PINNED to a
+  // date at or before the cursor: the pinned branch emits it without moving
+  // the cursor forward, the unpinned branch then reaches today, rewinds onto
+  // that same slot, breaks on `pinDateBySlot.has(nextLesson)`, and `continue`s
+  // straight back into the pinned branch, which emits it a second time.
+  //
+  // Live case (Sentry ROOTED-HOMESCHOOL-A, goal 13090f01, ~daily for a week):
+  // Spelling, lessons_per_day 1, school_days Mon-Thu, current_lesson 0, and
+  // queue slot 1 moved by hand onto Monday 2026-08-10. Projecting from
+  // Wednesday 2026-08-12 emitted slot 1 on 2026-08-10 twice, so the
+  // overcapacity guard in reconcileGoalScheduleCache saw "2026-08-10 has 2
+  // (max 1)" and correctly refused to write the cache. The guard was right;
+  // the projection was wrong.
+  const emitted = new Set<number>();
+
   let safety = 0;
   while (nextLesson <= goal.total_lessons && safety < 10_000) {
     safety++;
+
+    // Already placed (see `emitted`). Step over it rather than re-emitting;
+    // nextLesson only ever increases here, so this cannot loop.
+    if (emitted.has(nextLesson)) {
+      nextLesson++;
+      continue;
+    }
 
     // ── Pinned slot: emit exactly where the user put it. ──────────────────
     const pinnedDate = pinDateBySlot.get(nextLesson);
@@ -1300,6 +1392,7 @@ export function computeNextLessonsForGoal(
       // (the cursor only moves forward), so the projection is done.
       if (pinnedDate >= endDateStr) break;
       out.push({ goal_id: goal.id, lesson_number: nextLesson, date: pinnedDate });
+      emitted.add(nextLesson);
       // Continue the queue AFTER the pin: later unpinned slots may share the
       // pinned date if it still has capacity, and otherwise land beyond it.
       // A pin dated earlier than the cursor never drags the cursor backward,
@@ -1335,6 +1428,7 @@ export function computeNextLessonsForGoal(
           const u = used.get(dateStr) ?? 0;
           if (u < perDayHere) {
             out.push({ goal_id: goal.id, lesson_number: nextLesson, date: dateStr });
+            emitted.add(nextLesson);
             used.set(dateStr, u + 1);
             nextLesson++;
             placed = true;
@@ -1530,6 +1624,17 @@ export interface PickArgs {
   lessonsPerDay: number;             // 1..10
   vacations: VacationRange[];
   occupancy: Map<string, number>;    // mutated as we allocate
+  /**
+   * Optional per-DATE ceiling. Supply this for a goal with
+   * `lessons_per_day_overrides` so the walk honors "Thursday takes 2, Friday
+   * takes 1" instead of one flat number. Build it with `lessonsPerDayForDate`
+   * so there is still exactly one definition of the cap (Invariant 8).
+   *
+   * A cap of 0 means the date produces nothing and the walk steps past it.
+   * Omit for goals without overrides: `lessonsPerDay` then applies to every
+   * date, which is the pre-override behavior byte for byte.
+   */
+  capForDate?: (ymd: string) => number;
 }
 
 /**
@@ -1549,8 +1654,14 @@ export function pickNextAvailableDate(args: PickArgs): string {
     const inSchoolDay = args.schoolDays.includes(dow);
     const inVacation = args.vacations.some((v) => cursor >= v.start && cursor <= v.end);
     if (inSchoolDay && !inVacation) {
+      // Per-date ceiling when the caller supplied one (goals with per-weekday
+      // overrides), otherwise the flat clamped lessonsPerDay. A 0 cap means
+      // this weekday produces nothing for the goal, so the walk moves on.
+      const cap = args.capForDate
+        ? Math.max(0, Math.floor(args.capForDate(cursor)))
+        : lpd;
       const used = args.occupancy.get(cursor) ?? 0;
-      if (used < lpd) {
+      if (cap > 0 && used < cap) {
         args.occupancy.set(cursor, used + 1);
         return cursor;
       }
@@ -1598,8 +1709,16 @@ export interface PlanRescheduleArgs {
    * legacy goals).
    */
   staying: { curriculum_goal_id: string; date: string; lesson_number?: number | null }[];
-  /** Per-goal config keyed by curriculum_goal_id. */
-  goalConfigs: Map<string, { school_days: string[] | null; lessons_per_day: number }>;
+  /**
+   * Per-goal config keyed by curriculum_goal_id. Include
+   * `lessons_per_day_overrides` whenever the goal has them, or the re-spread
+   * silently falls back to the flat `lessons_per_day` and can place two
+   * lessons on a weekday the family capped at one.
+   */
+  goalConfigs: Map<
+    string,
+    { school_days: string[] | null; lessons_per_day: number; lessons_per_day_overrides?: Record<string, number> | null }
+  >;
   /** Exclusive starting point for the cursor walk (YYYY-MM-DD). */
   startAfterDate: string;
   /** All of the user's vacation blocks. Moves never land inside one. */
@@ -1679,6 +1798,11 @@ export function planRescheduleLessons(args: PlanRescheduleArgs): PlanRescheduleR
         lessonsPerDay: lpd,
         vacations: args.vacations,
         occupancy,
+        // Only when the goal actually has overrides, so goals without them
+        // take the identical flat-cap path they always did.
+        capForDate: config.lessons_per_day_overrides
+          ? (ymd) => lessonsPerDayForDate(ymd, config)
+          : undefined,
       });
       updates.push({ id: lesson.id, newDate });
       // Allow stacking on the same day until lpd is hit. pickNextAvailableDate's

@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
-import { computeNextLessonsForGoal, loadPinsByGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, loadPinsByGoal, toGoalConfig, GOAL_CONFIG_COLUMNS, type CurriculumGoalConfig, type GoalConfigRow as GoalConfigRowLocal, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ export default function SchedulePage() {
         .order("name"),
       supabase
         .from("curriculum_goals")
-        .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
+        .select(GOAL_CONFIG_COLUMNS)
         .eq("user_id", effectiveUserId)
         .eq("archived", false),
       supabase
@@ -162,7 +162,7 @@ export default function SchedulePage() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const daysAhead = Math.max(0, Math.floor((we.getTime() - today.getTime()) / 86400000) + 1);
-    const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
+    const goals = (goalsRaw ?? []) as GoalConfigRowLocal[];
     const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
       .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
     // Same pin set every other projecting surface uses, so a manually-moved
@@ -171,13 +171,10 @@ export default function SchedulePage() {
     const projected: { goal_id: string; lesson_number: number; date: string }[] = [];
     for (const g of goals) {
       if (!g.total_lessons || g.total_lessons <= 0) continue;
-      const cfg: CurriculumGoalConfig = {
-        id: g.id,
-        total_lessons: g.total_lessons,
-        lessons_per_day: g.lessons_per_day ?? 1,
-        school_days: g.school_days,
-        current_lesson: g.current_lesson ?? 0,
-      };
+      // Was a hand-rolled literal that dropped BOTH lessons_per_day_overrides
+      // and start_date, so this preview could disagree with Today and the Plan
+      // calendar about the same goal. toGoalConfig carries every column.
+      const cfg: CurriculumGoalConfig = toGoalConfig(g);
       const completed = completedTodayPerGoal.get(g.id) ?? 0;
       projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks, completed, pinsByGoal.get(cfg.id) ?? []).filter((p) => p.date >= s && p.date <= e));
     }

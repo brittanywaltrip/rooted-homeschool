@@ -34,6 +34,8 @@ import {
   pinsFromRows,
   pinsByGoalFromRows,
   resolveCustomLessonGoalLink,
+  lessonsPerDayForDate,
+  toGoalConfig,
   type PinnedSlot,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
@@ -3950,4 +3952,131 @@ test('phase 2 re-spread: a surviving pin holds its day and the tail fills around
   const withoutPins = computeNextLessonsForGoal(goal, new Date('2026-08-03T00:00:00'), 3650, [])
   const slot5Unpinned = withoutPins.find((p) => p.lesson_number === 5)?.date
   assert.ok(slot5Unpinned && slot5Unpinned < '2026-08-21', 'pin must be what moves slot 5')
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A queue slot is emitted AT MOST ONCE per projection
+//
+// Sentry ROOTED-HOMESCHOOL-A, route /dashboard, fired ~daily for a week on one
+// family (Spelling, goal 13090f01):
+//   "Projection exceeds per-day cap for goal 13090f01-...: 2026-08-10 has 2 (max 1)"
+//
+// The DB rows were correct and the guard was correct. computeNextLessonsForGoal
+// was emitting the SAME queue slot twice on the same date, so the overcapacity
+// guard in reconcileGoalScheduleCache refused to write the cache and the goal's
+// scheduled_date drifted further from the queue every day.
+//
+// Shape below is goal 13090f01 exactly as read from production on 2026-08-12:
+// total_lessons 160, lessons_per_day 1, lessons_per_day_overrides NULL,
+// school_days [Mon,Tue,Wed,Thu], start_date 2026-08-10, current_lesson 0, with
+// queue slot 1 pinned to Monday 2026-08-10 by a plan_move. Note the overrides
+// are NULL: this was never an override bug, and a test that added overrides
+// here would pass for the wrong reason.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SPELLING_13090F01 = {
+  id: '13090f01-0032-4e8b-a2cb-677bf82841a3',
+  total_lessons: 160,
+  current_lesson: 0,
+  lessons_per_day: 1,
+  lessons_per_day_overrides: null,
+  school_days: ['Mon', 'Tue', 'Wed', 'Thu'],
+  start_date: '2026-08-10',
+}
+
+test('goal 13090f01: a pin on a past date does not double-emit its slot', () => {
+  // Wednesday 2026-08-12, the day the error last fired.
+  const today = new Date('2026-08-12T00:00:00')
+  const pins = [{ slot: 1, date: '2026-08-10' }]
+
+  const out = computeNextLessonsForGoal(SPELLING_13090F01, today, 3650, [], 0, pins)
+
+  const slotCounts = new Map()
+  for (const p of out) slotCounts.set(p.lesson_number, (slotCounts.get(p.lesson_number) ?? 0) + 1)
+  const duplicated = [...slotCounts.entries()].filter(([, n]) => n > 1)
+  assert.deepEqual(duplicated, [], 'no queue slot may be emitted twice')
+})
+
+test('goal 13090f01: reproduces the exact Sentry message conditions and no longer trips the cap', () => {
+  const today = new Date('2026-08-12T00:00:00')
+  const pins = [{ slot: 1, date: '2026-08-10' }]
+
+  const out = computeNextLessonsForGoal(SPELLING_13090F01, today, 3650, [], 0, pins)
+
+  // The same per-date tally reconcileGoalScheduleCache runs before writing.
+  const perDate = new Map()
+  for (const p of out) perDate.set(p.date, (perDate.get(p.date) ?? 0) + 1)
+  const over = [...perDate.entries()].filter(([, n]) => n > 1)
+  assert.deepEqual(over, [], 'no date may exceed lessons_per_day = 1')
+  assert.equal(perDate.get('2026-08-10'), 1, '2026-08-10 holds exactly the pinned lesson')
+})
+
+test('goal 13090f01: the pinned slot keeps its hand-picked date (Invariant 12)', () => {
+  const today = new Date('2026-08-12T00:00:00')
+  const out = computeNextLessonsForGoal(SPELLING_13090F01, today, 3650, [], 0, [
+    { slot: 1, date: '2026-08-10' },
+  ])
+  assert.equal(out.find((p) => p.lesson_number === 1)?.date, '2026-08-10')
+})
+
+test('goal 13090f01: queue order and school days survive the fix', () => {
+  const today = new Date('2026-08-12T00:00:00')
+  const out = computeNextLessonsForGoal(SPELLING_13090F01, today, 3650, [], 0, [
+    { slot: 1, date: '2026-08-10' },
+  ]).slice(0, 12)
+
+  // Slots come back in ascending order, one per slot, none skipped.
+  assert.deepEqual(out.map((p) => p.lesson_number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+
+  // Invariant 4: Mon-Thu only. Fri/Sat/Sun must never appear.
+  for (const p of out) {
+    const dow = new Date(`${p.date}T12:00:00`).getDay() // Sun=0..Sat=6
+    assert.ok(dow >= 1 && dow <= 4, `${p.date} must be Mon-Thu, got dow ${dow}`)
+  }
+})
+
+test('the double-emit guard also covers a pin at the completed-today rewind point', () => {
+  // Generalized shape: current_lesson 5 with 2 done today rewinds nextLesson to
+  // 4, while slot 6 is pinned and was already emitted before the rewind.
+  const goal = {
+    id: 'g-rewind',
+    total_lessons: 40,
+    current_lesson: 5,
+    lessons_per_day: 1,
+    lessons_per_day_overrides: null,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    start_date: null,
+  }
+  const out = computeNextLessonsForGoal(goal, new Date('2026-08-12T00:00:00'), 3650, [], 2, [
+    { slot: 6, date: '2026-08-11' },
+  ])
+  const slotCounts = new Map()
+  for (const p of out) slotCounts.set(p.lesson_number, (slotCounts.get(p.lesson_number) ?? 0) + 1)
+  assert.deepEqual([...slotCounts.entries()].filter(([, n]) => n > 1), [])
+})
+
+test('lessonsPerDayForDate accepts a YYYY-MM-DD string and a Date identically', () => {
+  const goal = { lessons_per_day: 1, lessons_per_day_overrides: { Thu: 2, Fri: 0 } }
+  // 2026-08-13 is a Thursday, 2026-08-14 a Friday.
+  assert.equal(lessonsPerDayForDate('2026-08-13', goal), 2)
+  assert.equal(lessonsPerDayForDate(new Date('2026-08-13T00:00:00'), goal), 2)
+  assert.equal(lessonsPerDayForDate('2026-08-14', goal), 0, 'a keyed 0 means the day produces nothing')
+  assert.equal(lessonsPerDayForDate('2026-08-12', goal), 1, 'unkeyed weekday falls back to lessons_per_day')
+})
+
+test('toGoalConfig carries lessons_per_day_overrides and start_date through', () => {
+  const cfg = toGoalConfig({
+    id: 'g1',
+    total_lessons: 100,
+    current_lesson: 3,
+    lessons_per_day: 1,
+    lessons_per_day_overrides: { Thu: 2 },
+    school_days: ['Mon', 'Thu'],
+    start_date: '2026-09-01',
+  })
+  assert.deepEqual(cfg.lessons_per_day_overrides, { Thu: 2 })
+  assert.equal(cfg.start_date, '2026-09-01')
+  // The two columns that used to get dropped by hand-rolled literals.
+  assert.equal(cfg.lessons_per_day, 1)
+  assert.equal(cfg.current_lesson, 3)
 })
