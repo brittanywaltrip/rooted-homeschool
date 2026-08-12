@@ -8,6 +8,38 @@ import { ChevronLeft } from "lucide-react";
 
 const UPDATES = [
   {
+    date: "August 2026",
+    emoji: "🖨️",
+    title: "Print your plan",
+    description:
+      "There's a new Print button on your Plan page, right next to the Week and Month toggle. Print today's checklist, the week you're looking at day by day, or the whole month at a glance. Weekly and monthly sheets include your appointments and recurring activities, with room for notes, made to stick on the fridge or hand to whoever is teaching.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "August 2026",
+    emoji: "⏰",
+    title: "Start times, everywhere you plan",
+    description:
+      "If you give a subject a start time in the Schedule Builder, it now shows on your Today page and on your printed plans, in order, earliest first. And if you don't use times, nothing changes: your day stays a simple, flexible checklist.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "August 2026",
+    emoji: "💾",
+    title: "Your schedule setup saves as you go",
+    description:
+      "Setting up your schedule and life interrupts? Rooted now saves your work as you type. When you come back, your draft is waiting right where you left off, nothing lost. Your schedule still isn't final until you tap Save & build schedule.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "August 2026",
+    emoji: "📅",
+    title: "Per-day lesson plans, honored everywhere",
+    description:
+      "If you set different lesson counts for different days, like two Math lessons on Mondays, your Today page and printed plans now follow that plan exactly. A few families may notice lessons settling onto the days they actually chose. That's your plan being respected, not a glitch.",
+    inspiredByFamily: false,
+  },
+  {
     date: "June 2026",
     emoji: "💬",
     title: "One question a month",
