@@ -227,3 +227,95 @@ test('empty items array: empty Everyone, empty kids', () => {
   assert.equal(g.everyone.length, 0)
   assert.equal(g.kids.length, 0)
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Subject start times on Today (feat: show subject start times on lesson cards)
+//
+// curriculum_goals.scheduled_start_time is set on 94 active goals across 55
+// families. Until the loader started copying it onto each lesson row, every
+// lesson reached this module with time=null, so the timed-vs-untimed ordering
+// below had never actually run on real data. These pin it.
+//
+// The rule: timed lessons lead in clock order, untimed follow, and a day with
+// no times at all is ordered exactly as it was before times existed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('a timed lesson sorts ahead of an untimed one in the same subject', () => {
+  const untimed = lesson({ id: 'untimed', time: null, lesson_number: 1 })
+  const timed = lesson({ id: 'timed', time: '09:00:00', lesson_number: 2 })
+  const g = groupItems([untimed, timed], KIDS)
+  const math = g.kids[0].subjects.get('Math')!
+  assert.deepEqual(math.map((i) => i.id), ['timed', 'untimed'])
+})
+
+test('timed lessons within a subject run in clock order', () => {
+  const noon = lesson({ id: 'noon', time: '12:00:00' })
+  const early = lesson({ id: 'early', time: '08:30:00' })
+  const mid = lesson({ id: 'mid', time: '10:15:00' })
+  const g = groupItems([noon, early, mid], KIDS)
+  assert.deepEqual(
+    g.kids[0].subjects.get('Math')!.map((i) => i.id),
+    ['early', 'mid', 'noon'],
+  )
+})
+
+test('subject groups float to the top by their earliest time', () => {
+  const g = groupItems(
+    [
+      lesson({ id: 'art', subject_label: 'Art', time: null }),
+      lesson({ id: 'math', subject_label: 'Math', time: '09:00:00' }),
+      lesson({ id: 'read', subject_label: 'Reading', time: '08:00:00' }),
+    ],
+    KIDS,
+  )
+  // Timed subjects ascending, untimed subject last.
+  assert.deepEqual(Array.from(g.kids[0].subjects.keys()), ['Reading', 'Math', 'Art'])
+})
+
+test('a day with no times at all is ordered exactly as before', () => {
+  // Regression guard for "goals without a time must render identically":
+  // with every time null, subject order falls back to alphabetical and
+  // lessons fall back to lesson_number, which is the pre-times behavior.
+  const g = groupItems(
+    [
+      lesson({ id: 'm2', subject_label: 'Math', lesson_number: 2, time: null }),
+      lesson({ id: 'm1', subject_label: 'Math', lesson_number: 1, time: null }),
+      lesson({ id: 'a1', subject_label: 'Art', lesson_number: 1, time: null }),
+    ],
+    KIDS,
+  )
+  assert.deepEqual(Array.from(g.kids[0].subjects.keys()), ['Art', 'Math'])
+  assert.deepEqual(g.kids[0].subjects.get('Math')!.map((i) => i.id), ['m1', 'm2'])
+})
+
+test('a bare Postgres time string sorts without any Date parsing', () => {
+  // "HH:MM:SS" compares lexically, which is why compareTime can be a string
+  // compare. new Date('09:00:00') is Invalid Date; if ordering ever routed
+  // through it, these would come back in input order instead.
+  const g = groupItems(
+    [
+      lesson({ id: 'late', time: '23:59:00' }),
+      lesson({ id: 'midnight', time: '00:00:00' }),
+      lesson({ id: 'noonish', time: '12:30:00' }),
+    ],
+    KIDS,
+  )
+  assert.deepEqual(
+    g.kids[0].subjects.get('Math')!.map((i) => i.id),
+    ['midnight', 'noonish', 'late'],
+  )
+})
+
+test('times do not change which child a lesson is grouped under', () => {
+  const g = groupItems(
+    [
+      lesson({ id: 'emma-late', child_ids: [EMMA.id], time: '15:00:00' }),
+      lesson({ id: 'zoe-early', child_ids: [ZOE.id], time: '07:00:00' }),
+    ],
+    KIDS,
+  )
+  // Kid order stays sort_order (Emma then Zoe), not earliest-time.
+  assert.deepEqual(g.kids.map((k) => k.child.id), ['emma', 'zoe'])
+  assert.equal(g.kids[0].subjects.get('Math')![0].id, 'emma-late')
+  assert.equal(g.kids[1].subjects.get('Math')![0].id, 'zoe-early')
+})

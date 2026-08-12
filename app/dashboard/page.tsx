@@ -69,6 +69,9 @@ type Lesson = {
   notes?: string | null;
   scheduled_date?: string | null;
   date?: string | null;
+  /** Copied off the lesson's curriculum goal at load time (goals own the
+   *  time, lessons do not). "HH:MM:SS" or null. */
+  scheduled_start_time?: string | null;
 };
 
 type TodayEvent = {
@@ -1086,9 +1089,20 @@ export default function TodayPage() {
       // spam in normal use.
     }
 
+    // The subject's start time lives on the GOAL, not on the lesson row, so
+    // it has to be attached here the same way icon_emoji is. Everything
+    // downstream was already waiting for it: TodaySchedule's LessonRow type
+    // declares scheduled_start_time, its lessonTime() reads it into
+    // TodayItem.time, groupItems already sorts timed lessons ahead of untimed
+    // ones, and TodayItemCard already renders a time column. This one missing
+    // field is why 94 goals across 55 families had a time stored that Today
+    // never showed.
     const loadedLessons = [...orderedProjectedRows, ...oneOffRows].map((l) => ({
       ...(l as unknown as Lesson),
       icon_emoji: l.curriculum_goal_id ? (emojiMap.get(l.curriculum_goal_id) ?? "📚") : null,
+      scheduled_start_time: l.curriculum_goal_id
+        ? goalById.get(l.curriculum_goal_id)?.scheduled_start_time ?? null
+        : null,
     }));
     setLessons(loadedLessons);
 

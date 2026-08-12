@@ -95,7 +95,13 @@ export default function TodayKidSection({
                 isPartner={isPartner}
                 childrenLookup={childrenLookup}
                 noteEditor={noteEditor}
-                timeFormat="24h"
+                // 12h, matching the appointment + activity cards directly
+                // below. This prop has never actually rendered anything: no
+                // lesson carried a time until the goal's scheduled_start_time
+                // started being attached at load, so the "24h" branch was
+                // dead. Showing a lesson as "9:00" above an activity reading
+                // "9 AM" would be the one inconsistency worth avoiding.
+                timeFormat="12h"
               />
             ))}
           </div>
