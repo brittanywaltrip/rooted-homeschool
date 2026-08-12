@@ -10,7 +10,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { sendResendTemplate } from "./resend-template.ts";
+import { sendResendTemplate, sanitizeSubjectText } from "./resend-template.ts";
 
 type Captured = { url: string; body: Record<string, unknown> };
 
@@ -97,4 +97,68 @@ test("returns ok:false with the 4xx status and error message on failure", async 
   assert.equal(result.ok, false);
   assert.equal(result.status, 422);
   assert.equal(result.error, "Missing html or text");
+});
+
+// ─── sanitizeSubjectText ───────────────────────────────────────────────────
+// Resend rejects the entire send with 422 "The \n is not allowed in the
+// subject field" if a newline reaches the subject, so the email is never
+// delivered. Real case: a memory titled "Started a new skill\nBoxBollen"
+// (memory 33204cf4) was reacted to on 2026-08-12 18:37 UTC and the
+// notification to mom never went out, because reactionNotification's hosted
+// subject interpolates {{{memoryTitle}}}.
+
+test("collapses the newline that caused the August 12 2026 reaction 422", () => {
+  assert.equal(
+    sanitizeSubjectText("Started a new skill\nBoxBollen"),
+    "Started a new skill BoxBollen",
+  );
+});
+
+test("collapses every flavour of whitespace to a single space", () => {
+  assert.equal(
+    sanitizeSubjectText("a\r\nb\tc\n\n\nd   e f g"),
+    "a b c d e f g",
+  );
+});
+
+test("trims leading and trailing whitespace", () => {
+  assert.equal(sanitizeSubjectText("  \n padded \n  "), "padded");
+});
+
+test("leaves an already-clean subject untouched", () => {
+  assert.equal(sanitizeSubjectText("Nana reacted to your memory"), "Nana reacted to your memory");
+});
+
+test("truncates to 150 characters by default", () => {
+  const long = "x".repeat(400);
+  const out = sanitizeSubjectText(long);
+  assert.equal(out.length, 150);
+  assert.ok(out.endsWith("…"));
+});
+
+test("truncation prefers a nearby word boundary over cutting mid-word", () => {
+  const long = `${"word ".repeat(29)}finalword`; // 145 chars, then a long tail
+  const out = sanitizeSubjectText(long, 150);
+  assert.ok(out.length <= 150);
+  assert.ok(!out.includes("  "), "no double spaces introduced");
+});
+
+test("a short string is never padded or given an ellipsis", () => {
+  assert.equal(sanitizeSubjectText("hi"), "hi");
+});
+
+test("sendResendTemplate sanitizes an explicit subject argument", async () => {
+  const { captured, restore } = stubFetch(200, { id: "email-1" });
+  try {
+    await sendResendTemplate(
+      "a@b.com",
+      "tmpl-123",
+      {},
+      undefined,
+      "Line one\nLine two",
+    );
+  } finally {
+    restore();
+  }
+  assert.equal(captured[0].body.subject, "Line one Line two");
 });

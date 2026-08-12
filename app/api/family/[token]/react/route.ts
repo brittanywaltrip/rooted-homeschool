@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
+import { sendResendTemplate, TEMPLATES, sanitizeSubjectText } from "@/lib/resend-template";
 import { REACTION_EMOJIS } from "@/lib/family-reactions";
 
 export async function POST(
@@ -89,11 +89,21 @@ export async function POST(
   if (momUser?.email) {
     const memoryUrl = `https://www.rootedhomeschoolapp.com/dashboard/memories?highlight=${memory_id}`;
     const momFirstName = momUser.user_metadata?.first_name || momUser.user_metadata?.full_name?.split(' ')[0] || 'there';
+    // reactionNotification's hosted subject is
+    //   {{{reactorName}}} reacted to "{{{memoryTitle}}}" {{{reactionEmoji}}}
+    // so both of those variables land in the subject line. A newline in
+    // either one makes Resend reject the send with a 422 and mom never hears
+    // that someone reacted. Memory titles are free text typed on a phone, and
+    // one really did arrive as "Started a new skill\nBoxBollen" (memory
+    // 33204cf4, reacted to on August 12, 2026 at 18:37 UTC, no email sent).
+    //
+    // firstName and memoryUrl are body-only in this template and are left
+    // alone. Check the template's real subject before adding to this list.
     await sendResendTemplate(momUser.email, TEMPLATES.reactionNotification, {
       firstName: momFirstName,
-      reactorName: reactor_name,
+      reactorName: sanitizeSubjectText(reactor_name),
       reactionEmoji: emoji,
-      memoryTitle: memoryLabel,
+      memoryTitle: sanitizeSubjectText(memoryLabel),
       memoryUrl,
     }, "Rooted <hello@rootedhomeschoolapp.com>");
   }

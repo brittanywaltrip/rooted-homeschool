@@ -2,6 +2,52 @@
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 
+/** Email subjects are a single header line, so 150 chars is already generous. */
+const SUBJECT_MAX_LENGTH = 150
+
+/**
+ * Make a string safe to interpolate into an email subject.
+ *
+ * Resend rejects the whole send with a 422, "The \n is not allowed in the
+ * subject field", if a newline reaches the subject. That is a hard failure:
+ * the email is never delivered.
+ *
+ * The trap is that the subject is not always built here. Several Resend
+ * templates interpolate variables into their OWN hosted subject line, so a
+ * newline inside an ordinary template variable becomes a newline in the
+ * subject without any code in this repo ever concatenating it. That is what
+ * killed the reaction email on August 12, 2026: a family titled a memory
+ * "Started a new skill\nBoxBollen", and reactionNotification's subject is
+ * `{{{reactorName}}} reacted to "{{{memoryTitle}}}" {{{reactionEmoji}}}`.
+ *
+ * So call this on any value that reaches a subject, whether it is passed as
+ * the `subject` argument or as a variable the template puts in its subject.
+ * Check the template's real subject before deciding: variables that only
+ * appear in the BODY must not be passed through here, or legitimate
+ * multi-line content (a comment, a digest list) gets flattened.
+ *
+ * Collapses every run of whitespace, including newlines, tabs, and Unicode
+ * line separators, to a single space, then trims and truncates.
+ */
+export function sanitizeSubjectText(
+  value: string,
+  maxLength: number = SUBJECT_MAX_LENGTH,
+): string {
+  const collapsed = value
+    // \s covers \n, \r, \t and friends; \u2028 and \u2029 are the Unicode
+    // line and paragraph separators. They are written as escapes on purpose:
+    // a raw U+2028 in source is itself a line terminator and breaks the parse.
+    .replace(/[\s\u2028\u2029]+/g, ' ')
+    .trim()
+  if (collapsed.length <= maxLength) return collapsed
+  // Trim back to a word boundary when there is one nearby, so the subject
+  // does not end mid-word. Falls back to a hard cut.
+  const hardCut = collapsed.slice(0, maxLength - 1)
+  const lastSpace = hardCut.lastIndexOf(' ')
+  const body = lastSpace > maxLength - 25 ? hardCut.slice(0, lastSpace) : hardCut
+  return `${body.trimEnd()}…`
+}
+
 export async function sendResendTemplate(
   to: string,
   templateId: string,
@@ -22,7 +68,11 @@ export async function sendResendTemplate(
       variables,
     },
   }
-  if (subject) payload.subject = subject
+  // Defence in depth for callers that build their own subject. Variables the
+  // hosted templates drop into their own subject line still have to be
+  // sanitized at the call site, since only the caller knows which ones those
+  // are (see sanitizeSubjectText).
+  if (subject) payload.subject = sanitizeSubjectText(subject)
   if (headers && Object.keys(headers).length > 0) payload.headers = headers
 
   try {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
+import { sendResendTemplate, TEMPLATES, sanitizeSubjectText } from "@/lib/resend-template";
 
 export async function POST(
   req: NextRequest,
@@ -69,9 +69,16 @@ export async function POST(
   if (momUser?.email) {
     const memoryUrl = `https://www.rootedhomeschoolapp.com/dashboard/memories?highlight=${memory_id}`;
     const momFirstName = momUser.user_metadata?.first_name || momUser.user_metadata?.full_name?.split(' ')[0] || 'there';
+    // commentNotification's hosted subject is
+    //   {{{commenterName}}} left a comment 💬
+    // so commenterName is the ONLY variable here that reaches the subject, and
+    // the only one that must be newline-free (see sanitizeSubjectText, and the
+    // 422 it was written for). memoryTitle and commentText appear in the body
+    // of this template, so they are deliberately left intact: flattening
+    // commentText would strip the line breaks a grandparent actually typed.
     await sendResendTemplate(momUser.email, TEMPLATES.commentNotification, {
       firstName: momFirstName,
-      commenterName: commenter_name,
+      commenterName: sanitizeSubjectText(commenter_name),
       memoryTitle: memoryLabel,
       commentText: body.trim().slice(0, 100),
       memoryUrl,
