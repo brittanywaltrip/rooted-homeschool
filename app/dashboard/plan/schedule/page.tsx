@@ -12,6 +12,12 @@ import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
+import {
+  readScheduleDraft,
+  writeScheduleDraft,
+  clearScheduleDraft,
+  mergeDraftWithDbRows,
+} from "@/app/lib/schedule-draft";
 
 // ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -29,6 +35,9 @@ const COOP_DEFAULT_EMOJI = "🏫";
 const ACTIVITY_DEFAULT_EMOJI = "🎯";
 
 const PACE_WARN_WEEKS = 40;
+
+const DISCARD_PROMPT =
+  "You have unsaved changes to your schedule. Leave without saving?";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -564,6 +573,48 @@ function rowIsValid(row: Row): boolean {
   return true;
 }
 
+// Fields on a restored draft row that must be taken from the database
+// rather than from the draft snapshot. Everything else is the user's
+// in-progress edit and is kept.
+//
+// The draft can be days old, and these are the fields the save flow reads
+// to decide what changed: _originalSchedule drives the pin-preservation
+// check in phase 2, start_at_lesson_initial drives the "this will reset
+// your progress tracking" prompt, and the _legacy* fields exist purely so
+// an UPDATE doesn't clobber columns the builder doesn't render. Restoring
+// a stale copy of any of them would make the save compare against a
+// database state that no longer exists.
+//
+// A row that has since become read-only is returned whole: the draft's
+// edits to it can no longer be saved, so the live row is the honest one.
+function carryDbFieldsOntoDraftRow(draftRow: Row, freshRow: Row): Row {
+  if (freshRow.readOnly) return freshRow;
+  return {
+    ...draftRow,
+    previouslySavedAs: freshRow.previouslySavedAs,
+    readOnly: freshRow.readOnly,
+    readOnlyReason: freshRow.readOnlyReason,
+    start_at_lesson_initial: freshRow.start_at_lesson_initial,
+    _originalSchedule: freshRow._originalSchedule,
+    _legacyTargetDate: freshRow._legacyTargetDate,
+    _legacyIconEmoji: freshRow._legacyIconEmoji,
+    _legacyScheduledStartTime: freshRow._legacyScheduledStartTime,
+    _legacyActivityFrequency: freshRow._legacyActivityFrequency,
+    _legacyActivityDays: freshRow._legacyActivityDays,
+    _legacyActivityChildIds: freshRow._legacyActivityChildIds,
+    _legacyActivityStartTime: freshRow._legacyActivityStartTime,
+  };
+}
+
+function formatDraftSavedAt(savedAt: number): string {
+  const d = new Date(savedAt);
+  if (Number.isNaN(d.getTime())) return "";
+  const sameDay = new Date().toDateString() === d.toDateString();
+  const time = d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  if (sameDay) return `today at ${time}`;
+  return `${d.toLocaleDateString(undefined, { month: "long", day: "numeric" })} at ${time}`;
+}
+
 // ─── Component ─────────────────────────────────────────────────────────────
 
 export default function ScheduleBuilderPage() {
@@ -602,6 +653,21 @@ export default function ScheduleBuilderPage() {
   const [originalActivityIds, setOriginalActivityIds] = useState<Set<string>>(new Set());
 
   const [dirty, setDirty] = useState(false);
+
+  // ── Draft persistence ────────────────────────────────────────────────────
+  // Everything in this builder is local state until "Save & build schedule",
+  // so an unmount used to mean the work was gone. The draft is written to
+  // localStorage on every change and restored on mount. See
+  // app/lib/schedule-draft.ts for why localStorage and not sessionStorage.
+  const [draftNotice, setDraftNotice] = useState<
+    { savedAt: number; dropped: number } | null
+  >(null);
+  // Database rows exactly as loaded, so a family who doesn't want the
+  // restored draft can drop back to their saved schedule without a reload.
+  const dbRowsRef = useRef<Row[]>([]);
+  // Mirrors `rows` for the flush-on-hide listeners, which are registered
+  // once per dirty transition and would otherwise close over a stale array.
+  const rowsRef = useRef<Row[]>([]);
 
   // Per-row UI state for the curriculum kebab menu and the inline
   // RecalibrateForm. menuOpenLocalId tracks which kebab is currently
@@ -696,7 +762,6 @@ export default function ScheduleBuilderPage() {
         }
 
         setChildren(kidRows);
-        setRows(builtRows);
         setOriginalCurriculumIds(new Set(goalRows.map((g) => g.id)));
         setOriginalActivityIds(new Set(actRows.map((a) => a.id)));
 
@@ -705,7 +770,29 @@ export default function ScheduleBuilderPage() {
         const firstFree = CHILD_COLORS.find((c) => !used.has(c));
         if (firstFree) setNewChildColor(firstFree);
 
-        setDirty(false);
+        // ── Draft restore ────────────────────────────────────────────
+        // Keep the untouched database rows so "start from my saved
+        // schedule" can throw the draft away without a reload.
+        dbRowsRef.current = builtRows;
+        const draft = readScheduleDraft<Row>(effectiveUserId);
+        if (draft) {
+          const validChildIds = new Set(kidRows.map((k) => k.id));
+          const { rows: restored, droppedCount } = mergeDraftWithDbRows<Row>(
+            draft.rows,
+            builtRows,
+            validChildIds,
+            carryDbFieldsOntoDraftRow,
+          );
+          setRows(restored);
+          // A restored draft is by definition unsaved work, so the page
+          // comes up dirty: the exit guards and the unsaved indicator have
+          // to be live from the first render, not from the next keystroke.
+          setDirty(true);
+          setDraftNotice({ savedAt: draft.savedAt, dropped: droppedCount });
+        } else {
+          setRows(builtRows);
+          setDirty(false);
+        }
       } catch (err) {
         const msg = (err as { message?: string })?.message ?? String(err);
         setLoadError(msg);
@@ -719,6 +806,8 @@ export default function ScheduleBuilderPage() {
   }, [effectiveUserId]);
 
   // ── Unsaved changes guard ────────────────────────────────────────────────
+  // Kept for desktop browsers. It does NOT fire on iOS Safari, which is why
+  // the draft autosave below exists rather than this being the only net.
   useEffect(() => {
     if (!dirty) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -728,6 +817,87 @@ export default function ScheduleBuilderPage() {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
+
+  // ── Draft autosave ───────────────────────────────────────────────────────
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
+
+  // Debounced so a burst of keystrokes in a name field is one write, not
+  // one per character. 400ms is short enough that the pagehide flush below
+  // is a backstop rather than the primary path.
+  useEffect(() => {
+    if (!effectiveUserId || loading || !dirty) return;
+    const t = setTimeout(() => {
+      writeScheduleDraft<Row>(effectiveUserId, rows);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [rows, dirty, loading, effectiveUserId]);
+
+  // Flush immediately when the page is being backgrounded or torn down.
+  // pagehide + visibilitychange are the two events iOS Safari actually
+  // delivers when a tab is evicted, the app is swiped away, or the phone
+  // locks; unload and beforeunload are not reliable there.
+  useEffect(() => {
+    if (!effectiveUserId || !dirty) return;
+    const flush = () => writeScheduleDraft<Row>(effectiveUserId, rowsRef.current);
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [dirty, effectiveUserId]);
+
+  // ── Exit guards ──────────────────────────────────────────────────────────
+  // The Cancel button routes through confirmDiscardAndNavigate, but it is
+  // one exit out of many: the sidebar, the mobile bottom nav, the logo, and
+  // the Settings link are all plain <Link>s rendered by the dashboard
+  // layout, and a soft navigation through any of them unmounts this page
+  // without a word. Rather than reach into the shared layout (an auth
+  // manifest file), catch the click here in the capture phase while this
+  // page is mounted and dirty. The listener is registered only while dirty,
+  // so it is inert for everyone else.
+  useEffect(() => {
+    if (!dirty) return;
+    const onClickCapture = (e: MouseEvent) => {
+      if (e.defaultPrevented) return;
+      // Let modified clicks (new tab / new window) and non-primary buttons
+      // through untouched; they don't unmount this page.
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const anchor = (e.target as HTMLElement | null)?.closest?.("a[href]") as
+        | HTMLAnchorElement
+        | null;
+      if (!anchor) return;
+      if (anchor.target && anchor.target !== "_self") return;
+      if (anchor.hasAttribute("download")) return;
+
+      let url: URL;
+      try {
+        url = new URL(anchor.href, window.location.href);
+      } catch {
+        return;
+      }
+      // Off-site links and in-page anchors aren't a soft navigation away
+      // from the builder. beforeunload still covers the off-site case on
+      // desktop, and the draft covers it everywhere.
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname) return;
+
+      if (!window.confirm(DISCARD_PROMPT)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      // They chose to discard, so the draft goes with the changes.
+      if (effectiveUserId) clearScheduleDraft(effectiveUserId);
+    };
+    document.addEventListener("click", onClickCapture, true);
+    return () => document.removeEventListener("click", onClickCapture, true);
+  }, [dirty, effectiveUserId]);
 
   // ── Deep-link scroll/highlight ───────────────────────────────────────────
   // After rows finish loading, find the row card matching the ?goal=<id>
@@ -1713,6 +1883,11 @@ export default function ScheduleBuilderPage() {
       }
 
       setDirty(false);
+      setDraftNotice(null);
+      // The schedule is on disk, so the local draft has nothing left to
+      // protect. Leaving it would restore now-saved rows on the next visit
+      // and show the "we saved your draft" notice for work already done.
+      clearScheduleDraft(effectiveUserId);
       // `?saved=1` tells the Plan page to force one fresh data load on arrival.
       // The schedule + lessons are committed above (awaited), but the Plan
       // page's first load on this soft navigation could render before the
@@ -1750,6 +1925,11 @@ export default function ScheduleBuilderPage() {
           "Curriculum changes saved. Lesson layout needs another touch, save again to sync.",
         );
         setDirty(false);
+        setDraftNotice(null);
+        // The curriculum_goals + activities writes committed, so the draft
+        // is describing rows that are already saved. Only the lesson layout
+        // is outstanding, and re-saving from the loaded rows fixes that.
+        clearScheduleDraft(effectiveUserId);
       }
     } finally {
       setSaving(false);
@@ -1763,10 +1943,25 @@ export default function ScheduleBuilderPage() {
   // ── Navigation guard ─────────────────────────────────────────────────────
   function confirmDiscardAndNavigate(href: string) {
     if (dirty) {
-      const ok = window.confirm("Discard your unsaved changes?");
+      const ok = window.confirm(DISCARD_PROMPT);
       if (!ok) return;
+      // Discarding is an explicit choice, so the saved draft goes too.
+      // Leaving it behind would restore the same changes on the next visit
+      // and read as the page ignoring them.
+      if (effectiveUserId) clearScheduleDraft(effectiveUserId);
     }
     router.push(href);
+  }
+
+  // Drop the restored draft and go back to what is actually saved in the
+  // database. Paired with the restore notice so a family who didn't want
+  // the draft has a one-tap way out that isn't "undo it all by hand".
+  function discardRestoredDraft() {
+    if (!window.confirm("Go back to your saved schedule and discard the draft?")) return;
+    if (effectiveUserId) clearScheduleDraft(effectiveUserId);
+    setRows(dbRowsRef.current);
+    setDirty(false);
+    setDraftNotice(null);
   }
 
   // ── Immediate row actions (recalibrate + mark finished) ─────────────────
@@ -1902,6 +2097,42 @@ export default function ScheduleBuilderPage() {
     <>
       <PageHero overline="Your Curriculum" title="Your Schedule" subtitle="One place to plan it all." />
       <div className="px-4 pt-5 pb-32 max-w-5xl mx-auto" style={{ background: "#F8F7F4" }}>
+        {draftNotice && (
+          <div
+            role="status"
+            className="mb-4 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-4"
+          >
+            <p className="text-sm text-[#2d2926]">
+              We saved your draft. Here&apos;s where you left off
+              {formatDraftSavedAt(draftNotice.savedAt)
+                ? ` on ${formatDraftSavedAt(draftNotice.savedAt)}`
+                : ""}
+              . Nothing is scheduled until you tap Save &amp; build schedule.
+            </p>
+            {draftNotice.dropped > 0 && (
+              <p className="text-xs text-[#7a6f65] mt-1.5">
+                {draftNotice.dropped === 1
+                  ? "One row from your draft was left out because that curriculum or child is no longer active."
+                  : `${draftNotice.dropped} rows from your draft were left out because those curricula or children are no longer active.`}
+              </p>
+            )}
+            <div className="flex items-center gap-4 mt-3">
+              <button
+                onClick={() => setDraftNotice(null)}
+                className="text-sm font-medium text-[#2d5a3d] underline-offset-2 hover:underline"
+              >
+                Keep my draft
+              </button>
+              <button
+                onClick={discardRestoredDraft}
+                className="text-sm text-[#7a6f65] underline-offset-2 hover:underline"
+              >
+                Use my saved schedule instead
+              </button>
+            </div>
+          </div>
+        )}
+
         {view === "builder" && (
           <BuilderView
             children={children}
@@ -1976,6 +2207,7 @@ export default function ScheduleBuilderPage() {
               >
                 Cancel
               </button>
+              {dirty && <UnsavedIndicator />}
               <div className="flex-1" />
               <button
                 onClick={() => setView("preview")}
@@ -1995,6 +2227,7 @@ export default function ScheduleBuilderPage() {
               >
                 ← Back to edit
               </button>
+              {dirty && <UnsavedIndicator />}
               <div className="flex-1" />
               <button
                 onClick={handleSave}
@@ -2009,6 +2242,30 @@ export default function ScheduleBuilderPage() {
         </div>
       </div>
     </>
+  );
+}
+
+// ─── Unsaved indicator ─────────────────────────────────────────────────────
+
+// Sits in the sticky footer, which is the one piece of chrome visible from
+// anywhere in the builder. Nothing on this page is written to the database
+// until Save & build schedule, and families had no way to tell: the rows
+// look identical whether they're saved or not. The draft autosave means
+// the work is safe either way, so the wording promises "kept on this
+// device", not "saved", which would be a lie about the schedule itself.
+function UnsavedIndicator() {
+  return (
+    <span
+      className="text-xs text-[#7a6f65] flex items-center gap-1.5 whitespace-nowrap"
+      title="Your changes are stored on this device until you save"
+    >
+      <span
+        aria-hidden="true"
+        className="inline-block w-1.5 h-1.5 rounded-full"
+        style={{ background: "#c4956a" }}
+      />
+      Unsaved changes
+    </span>
   );
 }
 

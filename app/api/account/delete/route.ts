@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import Stripe from "stripe";
 import { Resend } from "resend";
 import { emailFooterHtml } from "@/lib/email-footer";
+import { captureSupabaseError } from "@/lib/sentry-error";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2026-02-25.clover",
@@ -32,33 +33,75 @@ export async function DELETE(req: NextRequest) {
       .eq("id", userId)
       .single();
 
-    // ── 0. Log the deletion BEFORE wiping anything ──────────────
+    // ── 0a. Idempotency guard ───────────────────────────────────
+    // This route ran twice, 8 seconds apart, for a real user on
+    // August 7, 2026. It was not a double-tap: the first call failed
+    // at step 10 (see the vacation_blocks note there), the Settings
+    // page surfaced the error and re-enabled the button, and she
+    // pressed Delete again. Two deleted_accounts rows, two goodbye
+    // emails, and a second full wipe of data that was already gone.
+    //
+    // A prior deleted_accounts row is the record of "this account has
+    // already been logged as deleted". When one exists we skip the
+    // forensic insert and the goodbye email, but still run the wipe
+    // and the auth delete: every step below is idempotent (all deletes
+    // are keyed on user_id), and a retry is precisely how a
+    // half-finished deletion is meant to be repaired.
+    //
+    // This is a check-then-act, so two genuinely simultaneous requests
+    // could still both read null and both insert. Closing that window
+    // needs a unique index on deleted_accounts(user_id), which can't be
+    // added until the existing duplicate pair is reconciled. Retries
+    // seconds or minutes apart, the shape that actually happens, are
+    // covered here.
+    const { data: priorDeletion, error: priorErr } = await supabaseAdmin
+      .from("deleted_accounts")
+      .select("id, deleted_at")
+      .eq("user_id", userId)
+      .order("deleted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (priorErr) {
+      // Don't block the deletion on a failed lookup; worst case we log a
+      // second forensic row, which is the pre-existing behaviour.
+      console.error("deleted_accounts idempotency lookup failed:", priorErr);
+    }
+    const alreadyLogged = Boolean(priorDeletion);
+    if (alreadyLogged) {
+      console.warn(
+        `[account/delete] repeat deletion for ${userId}; first logged at ${priorDeletion?.deleted_at}. Skipping forensic log + goodbye email, re-running the wipe.`,
+      );
+    }
+
+    // ── 0b. Log the deletion BEFORE wiping anything ─────────────
     // deleted_accounts is the permanent forensic trail (service role
     // only). If this insert fails we still proceed with the deletion,
     // but the failure is logged so it can be investigated.
-    try {
-      const [memCount, lessonCount, goalCount, childCount] = await Promise.all([
-        supabaseAdmin.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId),
-        supabaseAdmin.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", userId),
-        supabaseAdmin.from("curriculum_goals").select("id", { count: "exact", head: true }).eq("user_id", userId),
-        supabaseAdmin.from("children").select("id", { count: "exact", head: true }).eq("user_id", userId),
-      ]);
-      const { error: logErr } = await supabaseAdmin.from("deleted_accounts").insert({
-        user_id: userId,
-        email: userEmail ?? null,
-        first_name: profile?.first_name ?? null,
-        last_name: profile?.last_name ?? null,
-        plan_type: profile?.plan_type ?? null,
-        account_created_at: user.created_at ?? null,
-        memories_count: memCount.count ?? null,
-        lessons_count: lessonCount.count ?? null,
-        curriculum_goals_count: goalCount.count ?? null,
-        children_count: childCount.count ?? null,
-        source: "self_serve",
-      });
-      if (logErr) console.error("deleted_accounts log insert failed:", logErr);
-    } catch (logErr) {
-      console.error("deleted_accounts logging failed:", logErr);
+    if (!alreadyLogged) {
+      try {
+        const [memCount, lessonCount, goalCount, childCount] = await Promise.all([
+          supabaseAdmin.from("memories").select("id", { count: "exact", head: true }).eq("user_id", userId),
+          supabaseAdmin.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", userId),
+          supabaseAdmin.from("curriculum_goals").select("id", { count: "exact", head: true }).eq("user_id", userId),
+          supabaseAdmin.from("children").select("id", { count: "exact", head: true }).eq("user_id", userId),
+        ]);
+        const { error: logErr } = await supabaseAdmin.from("deleted_accounts").insert({
+          user_id: userId,
+          email: userEmail ?? null,
+          first_name: profile?.first_name ?? null,
+          last_name: profile?.last_name ?? null,
+          plan_type: profile?.plan_type ?? null,
+          account_created_at: user.created_at ?? null,
+          memories_count: memCount.count ?? null,
+          lessons_count: lessonCount.count ?? null,
+          curriculum_goals_count: goalCount.count ?? null,
+          children_count: childCount.count ?? null,
+          source: "self_serve",
+        });
+        if (logErr) console.error("deleted_accounts log insert failed:", logErr);
+      } catch (logErr) {
+        console.error("deleted_accounts logging failed:", logErr);
+      }
     }
 
     // ── 1. Delete family_notifications ──────────────────────────
@@ -120,6 +163,29 @@ export async function DELETE(req: NextRequest) {
     // ── 7. Delete email_log ─────────────────────────────────────
     await supabaseAdmin.from("email_log").delete().eq("user_id", userId);
 
+    // ── 7b. Delete vacation_blocks ──────────────────────────────
+    // THIS IS THE STEP WHOSE ABSENCE BROKE ACCOUNT DELETION.
+    //
+    // Every other public table that references auth.users(id) is
+    // ON DELETE CASCADE, so step 10 sweeps them. vacation_blocks is
+    // the single exception: vacation_blocks_user_id_fkey is
+    // ON DELETE NO ACTION. Any user who has ever added one break
+    // therefore hits a foreign-key violation at step 10:
+    // supabaseAdmin.auth.admin.deleteUser fails, this route returns
+    // 500, and the account is left in the worst possible state: all
+    // their data wiped by steps 1-8, but their login still working.
+    //
+    // That is exactly what happened to a paying user on August 7,
+    // 2026 (one vacation block, added May 3). She retried, got the
+    // same 500, and signed back in on August 12 to an empty account.
+    // 82 accounts currently hold vacation blocks and would fail the
+    // same way.
+    //
+    // Deleting them here, before the auth delete, keeps the fix in
+    // app code. Flipping the constraint to ON DELETE CASCADE would
+    // be the deeper fix and is worth doing separately.
+    await supabaseAdmin.from("vacation_blocks").delete().eq("user_id", userId);
+
     // ── 8. Delete profile ───────────────────────────────────────
     await supabaseAdmin.from("profiles").delete().eq("id", userId);
 
@@ -139,17 +205,33 @@ export async function DELETE(req: NextRequest) {
     }
 
     // ── 10. Delete auth user ────────────────────────────────────
+    // If this fails, everything above has already committed. The
+    // account's data is gone and only the sign-in remains, so the
+    // generic 500 the user used to see was actively misleading: it
+    // reads as "nothing happened, try again" when in fact the wipe
+    // is done and irreversible. Capture the real error (this is how
+    // the vacation_blocks FK violation went unnoticed for months)
+    // and tell the user the truth.
     const { error: deleteErr } =
       await supabaseAdmin.auth.admin.deleteUser(userId);
     if (deleteErr) {
+      captureSupabaseError("Account deletion: auth user delete failed", deleteErr, {
+        tags: { route: "account_delete", phase: "auth_delete" },
+        extra: { user_id: userId, already_logged: alreadyLogged },
+      });
       return NextResponse.json(
-        { error: "Failed to delete auth account." },
+        {
+          error:
+            "Your Rooted data has been deleted, but we couldn't remove your sign-in. Email hello@rootedhomeschoolapp.com and we'll finish it for you. Please don't press delete again.",
+          dataDeleted: true,
+        },
         { status: 500 }
       );
     }
 
     // ── Send goodbye email ──────────────────────────────────────
-    if (userEmail) {
+    // Skipped on a repeat run: the first one already sent this.
+    if (userEmail && !alreadyLogged) {
       try {
         await resend.emails.send({
           from: "Brittany from Rooted <hello@rootedhomeschoolapp.com>",

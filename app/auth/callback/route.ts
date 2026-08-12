@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getCookieDomain } from '@/lib/cookie-domain'
+import { findDeletedAccount } from '@/lib/deleted-account'
 
 // Map raw Supabase auth errors into stable short codes that the
 // /login page knows how to render as friendly recovery copy.
@@ -106,7 +107,18 @@ export async function GET(request: Request) {
         .eq('id', user.id)
         .single()
 
+      // No profile row is normally "new user". It also happens when an
+      // account was deleted but its auth.users row survived the wipe (see
+      // lib/deleted-account.ts), and those two cases must not be treated
+      // alike: creating the profile here would restart a returning family
+      // as a brand new free signup with no word about the data that's
+      // gone. Check before writing anything.
+      let returningDeletedUser = false
       if (!profile) {
+        returningDeletedUser = (await findDeletedAccount(user.id)) !== null
+      }
+
+      if (!profile && !returningDeletedUser) {
         // New user — create profile and populate Google metadata if available
         const meta = user.user_metadata ?? {}
         const firstName = meta.given_name || meta.first_name || (meta.full_name?.split(' ')[0]) || null
@@ -119,7 +131,9 @@ export async function GET(request: Request) {
         }, { onConflict: 'id' })
       }
 
-      const redirectPath = !profile || profile.onboarded !== true ? '/onboarding' : '/dashboard'
+      const redirectPath = returningDeletedUser
+        ? '/welcome-back'
+        : !profile || profile.onboarded !== true ? '/onboarding' : '/dashboard'
       const redirectResponse = NextResponse.redirect(new URL(redirectPath, BASE_URL))
 
       // IMPORTANT: preserve full cookie options (especially `domain`) when

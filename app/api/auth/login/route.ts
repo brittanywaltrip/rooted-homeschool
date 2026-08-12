@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { getCookieDomain } from '@/lib/cookie-domain'
+import { findDeletedAccount } from '@/lib/deleted-account'
 
 /**
  * Server-side email/password sign-in.
@@ -89,7 +90,20 @@ export async function POST(request: Request) {
       .eq('id', data.user.id)
       .maybeSingle()
 
-    const redirectTo = profile?.onboarded === false ? '/onboarding' : '/dashboard'
+    // No profile row + a deleted_accounts record means this login belongs to
+    // an account that was deleted while its auth.users row survived (see
+    // lib/deleted-account.ts). Sending them to /dashboard or /onboarding
+    // silently restarts them as a new free family with no word about the
+    // year of memories that is gone. /welcome-back says what happened.
+    let deletedAccountRedirect: string | null = null
+    if (!profile) {
+      const deleted = await findDeletedAccount(data.user.id)
+      if (deleted) deletedAccountRedirect = '/welcome-back'
+    }
+
+    const redirectTo =
+      deletedAccountRedirect ??
+      (profile?.onboarded === false ? '/onboarding' : '/dashboard')
 
     const response = NextResponse.json({ ok: true, redirectTo })
 
