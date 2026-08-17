@@ -111,7 +111,7 @@ export default function PlanPrintDialog(props: PlanPrintDialogProps) {
                   onClick={onClose}
                   className="block w-full text-center text-[12px] font-semibold text-[#a07000] bg-[#fef9e8] border border-[#f0dda8] rounded-xl py-2.5 hover:bg-[#fef0d6] transition-colors"
                 >
-                  Founding Family unlocks weekly + monthly prints
+                  Rooted+ includes weekly + monthly prints
                 </Link>
               )}
             </div>

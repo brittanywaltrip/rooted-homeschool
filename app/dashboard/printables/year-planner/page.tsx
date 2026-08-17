@@ -374,7 +374,7 @@ export default function YearPlannerPage() {
             </button>
           ) : isNative ? (
             <span
-              title="Founding Family"
+              title="Rooted+"
               aria-label="Download as PDF, available at rootedhomeschoolapp.com"
               className="flex items-center gap-1.5 text-xs font-semibold bg-[#c4bfb8] text-white px-3.5 py-2 rounded-xl opacity-80"
             >
@@ -383,8 +383,8 @@ export default function YearPlannerPage() {
           ) : (
             <Link
               href="/upgrade"
-              title="Founding Family"
-              aria-label="Download as PDF, Upgrade to Founding Family"
+              title="Rooted+"
+              aria-label="Download as PDF, Upgrade to Rooted+"
               className="flex items-center gap-1.5 text-xs font-semibold bg-[#c4bfb8] text-white px-3.5 py-2 rounded-xl opacity-80 hover:opacity-100 transition-opacity cursor-pointer"
             >
               <Lock size={12} /> Download as PDF
@@ -452,13 +452,13 @@ export default function YearPlannerPage() {
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-[#7a4a1a] mb-1">Preview only for free accounts</p>
               <p className="text-xs text-[#7a4a1a]/80 leading-relaxed">
-                Founding Family members can download a print-ready PDF wall calendar.{" "}
+                Rooted+ members can download a print-ready PDF wall calendar.{" "}
                 {isNative ? (
                   <span className="font-semibold">Visit rootedhomeschoolapp.com to upgrade.</span>
                 ) : (
                   <>
                     <Link href="/upgrade" className="font-semibold underline underline-offset-2">
-                      Upgrade to Founding Family
+                      Upgrade to Rooted+
                     </Link>
                     .
                   </>

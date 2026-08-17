@@ -1769,9 +1769,9 @@ export default function YearbookReadPage() {
               <Link
                 href="/upgrade"
                 className="px-3 py-1 rounded-md text-[11px] font-bold text-[#9a8f85] border border-[#3d3530] hover:text-white hover:border-white/40 transition-all"
-                aria-label="Upgrade to unlock PDF download"
+                aria-label="Upgrade to Rooted+ for PDF download"
               >
-                Download PDF (Founding Family)
+                Download PDF (Rooted+)
               </Link>
             )}
             <Link
@@ -1900,7 +1900,7 @@ export default function YearbookReadPage() {
                 ⬇ PDF at rootedhomeschoolapp.com
               </span>
               <p className="text-[10px] text-[#9a8f85] mt-1 max-w-[240px] text-right leading-tight">
-                PDF download for Founding Family, yours to save, print, or share at rootedhomeschoolapp.com.
+                PDF download for Rooted+, yours to save, print, or share at rootedhomeschoolapp.com.
               </p>
             </div>
           ) : (
@@ -1908,12 +1908,12 @@ export default function YearbookReadPage() {
               <Link
                 href="/upgrade"
                 className="px-4 py-2 rounded-lg text-[13px] font-bold text-[#c4b89a] border border-[#4d453f] hover:text-white hover:border-white/40 transition-all"
-                aria-label="Upgrade to unlock PDF download"
+                aria-label="Upgrade to Rooted+ for PDF download"
               >
-                ⬇ Download PDF (Founding Family)
+                ⬇ Download PDF (Rooted+)
               </Link>
               <p className="text-[10px] text-[#9a8f85] mt-1 max-w-[240px] text-right leading-tight">
-                Unlock PDF download with Founding Family, yours to save, print, or share.
+                PDF download comes with Rooted+, yours to save, print, or share.
               </p>
             </div>
           )}
@@ -2016,9 +2016,9 @@ export default function YearbookReadPage() {
           <div className="yearbook-print-spread" style={{ padding: "2in 0.5in", textAlign: "center" }}>
             <h1 style={{ fontSize: 28, color: "var(--yb-heading)", marginBottom: 12 }}>Your Rooted Yearbook</h1>
             <p style={{ fontSize: 14, color: "var(--yb-muted)", lineHeight: 1.6, maxWidth: 420, margin: "0 auto" }}>
-              PDF download is available to Founding Family members. Visit
+              PDF download is available with Rooted+. Visit
               <span style={{ fontWeight: 600, color: "var(--yb-body)" }}> rootedhomeschoolapp.com/upgrade </span>
-              to unlock your yearbook to save, print, or share.
+              to get your yearbook to save, print, or share.
             </p>
           </div>
         </div>
