@@ -424,6 +424,51 @@ export async function POST(req: NextRequest) {
     }
 
     if (isActive && userId) {
+      // ── Stale-event guard ──────────────────────────────────────────────
+      // Stripe does NOT guarantee event ordering, and it retries failed
+      // deliveries for up to three days. That means a customer.subscription
+      // .updated event describing a live subscription can land AFTER the
+      // customer.subscription.deleted event for the same subscription.
+      // linkStripeSubscription() below writes is_pro/subscription_status/
+      // plan_type unconditionally, so a late event silently re-promotes a
+      // profile that was correctly cancelled moments earlier. That is how
+      // real cancelled customers kept full Rooted+ access for months.
+      //
+      // event.data.object is a snapshot from when the event was CREATED.
+      // Re-reading the subscription asks Stripe for current truth, which is
+      // order-independent by construction. If the subscription is no longer
+      // live we skip the promotion entirely and let the deleted handler's
+      // result stand.
+      //
+      // On a transient Stripe failure we deliberately fall through and
+      // promote: a brief over-grant is far better than dropping a real
+      // renewal and locking a paying family out of their own memories.
+      let stillLive = true
+      try {
+        const fresh = await stripe.subscriptions.retrieve(sub.id)
+        stillLive =
+          fresh.status === 'active' ||
+          fresh.status === 'trialing' ||
+          fresh.status === 'past_due'
+        if (!stillLive) {
+          console.warn(
+            '[webhook]', event.type,
+            '— stale event ignored, Stripe now reports status:', fresh.status,
+            'subId:', sub.id, 'userId:', userId,
+          )
+        }
+      } catch (e) {
+        console.error(
+          '[webhook]', event.type,
+          '— could not re-verify subscription, promoting anyway. subId:',
+          sub.id, e,
+        )
+      }
+
+      if (!stillLive) {
+        return NextResponse.json({ received: true, skipped: 'stale_event' })
+      }
+
       // Resolve the coupon code either from the subscription's coupon or the
       // profile's stored referred_by (URL ?ref= on signup).
       let couponCode = storedReferredBy ?? (await storedReferralCode(userId))
@@ -475,13 +520,66 @@ export async function POST(req: NextRequest) {
 
     if (profile) {
       const priceId = sub.items.data[0]?.price.id
-      await supabase.from('profiles').update({
-        is_pro: false,
+
+      // ── Honour the term they already paid for ──────────────────────────
+      // A family who paid for a year and cancels in month three has still
+      // paid for the year. Revoking on the spot takes back something they
+      // bought. So unless the money went back to them, access runs to the
+      // end of the paid period and a nightly sweep
+      // (/api/cron/expire-subscriptions) downgrades them when it actually
+      // expires.
+      //
+      // The one case that DOES revoke immediately is a refund: if the
+      // charge was returned, the term was not paid for after all.
+      //
+      // Note this only matters for subscriptions cancelled with immediate
+      // effect. Configure the Stripe billing portal to cancel at period end
+      // and this branch stops being reachable for self-serve cancellations,
+      // because Stripe keeps the subscription active until the term is up
+      // and only fires this event once it genuinely ends.
+      const periodEnd = periodEndFromSubscription(sub)
+      const now = new Date()
+
+      let refunded = false
+      try {
+        const charges = await stripe.charges.list({
+          customer: sub.customer as string,
+          limit: 100,
+        })
+        // Any refunded charge on this customer means we gave the money back.
+        // Deliberately broad: over-revoking a refunded account is the safe
+        // direction, and a partial refund still signals the term is void.
+        refunded = charges.data.some(
+          (c) => c.refunded || (c.amount_refunded ?? 0) > 0,
+        )
+      } catch (e) {
+        // Could not confirm. Assume NOT refunded, which errs toward letting
+        // the family keep what they most likely paid for.
+        console.error('[webhook] subscription.deleted — refund check failed, assuming not refunded. customer:', sub.customer, e)
+      }
+
+      const termRemaining = !refunded && periodEnd > now
+
+      // plan_type drives which tier's features render, so it has to stay
+      // set while access is still live. Build the patch explicitly rather
+      // than passing undefined, which supabase-js would silently drop.
+      const cancelPatch: Record<string, unknown> = {
+        // Keep access alive through a paid-for term; drop it otherwise.
+        is_pro: termRemaining,
         subscription_status: 'cancelled',
-        plan_type: null,
-        subscription_end_date: new Date().toISOString(),
-      }).eq('id', profile.id)
-      console.log('[webhook] subscription.deleted — cancelled profile:', profile.id, 'family:', profile.display_name)
+        subscription_end_date: (termRemaining ? periodEnd : now).toISOString(),
+      }
+      if (!termRemaining) cancelPatch.plan_type = null
+
+      await supabase.from('profiles').update(cancelPatch).eq('id', profile.id)
+      console.log(
+        '[webhook] subscription.deleted — cancelled profile:', profile.id,
+        'family:', profile.display_name,
+        'refunded:', refunded,
+        termRemaining
+          ? `access retained until ${periodEnd.toISOString()}`
+          : 'access revoked now',
+      )
 
       // Look up customer email from Stripe
       let customerEmail = '—'
