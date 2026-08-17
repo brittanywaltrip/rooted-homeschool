@@ -1112,6 +1112,25 @@ export default function PlanV2() {
     if (error) {
       // Roll back the optimistic patch by reloading from DB.
       reload();
+      // Postgres unique-violation (23505) here is always
+      // lessons_goal_lesson_number_unique: another lesson in this curriculum
+      // already owns the number she typed. Four families saw the raw
+      // constraint string on Aug 17, 2026, so translate it the same way the
+      // Schedule Builder translates its own 23505 (app/dashboard/plan/
+      // schedule/page.tsx). The attempted number comes from the form diff,
+      // falling back to the untouched value when only the curriculum moved.
+      if (error.code === "23505") {
+        const attempted =
+          changes.lesson_number ??
+          originals.lesson_number ??
+          lessons.find((l) => l.id === lessonId)?.lesson_number ??
+          null;
+        throw new Error(
+          attempted != null
+            ? `Lesson ${attempted} already exists for this curriculum. Pick a different lesson number.`
+            : "That lesson number already exists for this curriculum. Pick a different lesson number.",
+        );
+      }
       throw new Error(error.message);
     }
 
