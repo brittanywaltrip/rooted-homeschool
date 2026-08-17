@@ -771,7 +771,7 @@ export default function TodayPage() {
       supabase.from("vacation_blocks").select("name, end_date, start_date").eq("user_id", effectiveUserId),
       supabase.from("lessons").select("title, scheduled_date, child_id, subjects(name), curriculum_goals(subject_label)").eq("user_id", effectiveUserId).eq("completed", false).gte("scheduled_date", localDateStr(tomorrow)).lte("scheduled_date", localDateStr(twoWeeks)).order("scheduled_date"),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).gte("date", syStart),
-      supabase.from("memories").select("id").eq("user_id", effectiveUserId).in("type", ["photo", "drawing"]),
+      supabase.from("memories").select("id").eq("user_id", effectiveUserId).not("photo_url", "is", null).neq("photo_url", ""),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).eq("include_in_book", true).gte("date", syStart),
       supabase.from("lessons").select("date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true).gte("scheduled_date", monthStartStr).lte("scheduled_date", monthEndStr),
       supabase.from("memories").select("date").eq("user_id", effectiveUserId).gte("date", monthStartStr).lte("date", monthEndStr),
