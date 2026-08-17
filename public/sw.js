@@ -1,8 +1,20 @@
-const CACHE_NAME = 'rooted-v1';
+// DO NOT cache build assets (.js/.css) or navigation HTML here. This cache is
+// unbounded and never evicts: Next.js emits content-hashed chunk names, so every
+// deploy added a fresh set and removed none. It reached 4,826 entries / 313 MB /
+// 4,320 JS files, which pushed the origin past the iOS storage budget. WebKit
+// then evicts the WHOLE origin, cookies included, which signed users out.
+//
+// /_next/static is already served with `Cache-Control: public, max-age=31536000,
+// immutable`, so the browser's own HTTP cache handles those, and unlike this one
+// it evicts under pressure. Caching them here a second time buys nothing.
+//
+// Navigations are network-only and fall through to the offline page below.
+// Authenticated page HTML must not sit on disk.
+//
+// Only the small, stable app shell belongs in here.
+const CACHE_NAME = 'rooted-v2';
 
 const APP_SHELL = [
-  '/',
-  '/dashboard',
   '/manifest.json',
   '/icon-192.png',
   '/icon-512.png',
@@ -37,8 +49,9 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Cache successful navigation and static responses
-        if (response.ok && (event.request.mode === 'navigate' || url.pathname.match(/\.(png|svg|ico|json|js|css)$/))) {
+        // Cache small, stable image assets only. See the note at the top of
+        // this file before adding anything here.
+        if (response.ok && url.pathname.match(/\.(png|svg|ico)$/)) {
           const clone = response.clone();
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
         }
