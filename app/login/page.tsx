@@ -247,11 +247,17 @@ function LoginContent() {
 
               <form onSubmit={handleLogin} className="flex flex-col gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
+                  <label htmlFor="login-email" className="block text-sm font-medium text-[#2d2926] mb-1.5">
                     Email address
                   </label>
                   <input
+                    id="login-email"
+                    name="email"
                     type="email"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="you@example.com"
@@ -262,7 +268,7 @@ function LoginContent() {
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-sm font-medium text-[#2d2926]">
+                    <label htmlFor="login-password" className="block text-sm font-medium text-[#2d2926]">
                       Password
                     </label>
                     <button
@@ -274,7 +280,10 @@ function LoginContent() {
                     </button>
                   </div>
                   <input
+                    id="login-password"
+                    name="password"
                     type="password"
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Your password"
@@ -330,11 +339,17 @@ function LoginContent() {
 
               <form onSubmit={handleForgot} className="flex flex-col gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
+                  <label htmlFor="forgot-email" className="block text-sm font-medium text-[#2d2926] mb-1.5">
                     Email address
                   </label>
                   <input
+                    id="forgot-email"
+                    name="email"
                     type="email"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={resetEmail}
                     onChange={(e) => setResetEmail(e.target.value)}
                     placeholder="you@example.com"

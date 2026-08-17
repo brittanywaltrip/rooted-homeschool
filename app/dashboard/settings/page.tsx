@@ -1957,8 +1957,10 @@ export default function SettingsPage() {
           </p>
           <div className="space-y-2">
             <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1">Current password</label>
+              <label htmlFor="settings-current-password" className="text-xs font-medium text-[#7a6f65] block mb-1">Current password</label>
               <input
+                id="settings-current-password"
+                name="current-password"
                 type="password"
                 required
                 value={currentPassword}
@@ -1967,9 +1969,24 @@ export default function SettingsPage() {
                 className="w-full border border-[#e8e2d9] rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[var(--g-brand)]/30"
               />
             </div>
+
+            {/* Tells the password manager WHICH login is being updated. */}
+            <input
+              type="text"
+              name="username"
+              autoComplete="username"
+              value={userEmail}
+              readOnly
+              aria-hidden="true"
+              tabIndex={-1}
+              style={{ display: "none" }}
+            />
+
             <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1">New password</label>
+              <label htmlFor="settings-new-password" className="text-xs font-medium text-[#7a6f65] block mb-1">New password</label>
               <input
+                id="settings-new-password"
+                name="new-password"
                 type="password"
                 required
                 minLength={8}
@@ -1980,8 +1997,10 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <label className="text-xs font-medium text-[#7a6f65] block mb-1">Confirm new password</label>
+              <label htmlFor="settings-confirm-password" className="text-xs font-medium text-[#7a6f65] block mb-1">Confirm new password</label>
               <input
+                id="settings-confirm-password"
+                name="confirm-password"
                 type="password"
                 required
                 value={confirmPassword}

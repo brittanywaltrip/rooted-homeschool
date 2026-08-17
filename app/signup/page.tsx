@@ -266,9 +266,12 @@ export default function SignupPage() {
             <form onSubmit={handleSignup} className="flex flex-col gap-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-[#2d2926] mb-1.5">First name</label>
+                  <label htmlFor="signup-first-name" className="block text-sm font-medium text-[#2d2926] mb-1.5">First name</label>
                   <input
+                    id="signup-first-name"
+                    name="given-name"
                     type="text"
+                    autoComplete="given-name"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
                     placeholder="Jane"
@@ -277,9 +280,12 @@ export default function SignupPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-[#2d2926] mb-1.5">Last name</label>
+                  <label htmlFor="signup-last-name" className="block text-sm font-medium text-[#2d2926] mb-1.5">Last name</label>
                   <input
+                    id="signup-last-name"
+                    name="family-name"
                     type="text"
+                    autoComplete="family-name"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
                     placeholder="Smith"
@@ -289,9 +295,15 @@ export default function SignupPage() {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-[#2d2926] mb-1.5">Email address</label>
+                <label htmlFor="signup-email" className="block text-sm font-medium text-[#2d2926] mb-1.5">Email address</label>
                 <input
+                  id="signup-email"
+                  name="email"
                   type="email"
+                  autoComplete="username"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@example.com"
@@ -300,9 +312,12 @@ export default function SignupPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-[#2d2926] mb-1.5">Password</label>
+                <label htmlFor="signup-password" className="block text-sm font-medium text-[#2d2926] mb-1.5">Password</label>
                 <input
+                  id="signup-password"
+                  name="new-password"
                   type="password"
+                  autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="At least 6 characters"

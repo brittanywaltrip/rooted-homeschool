@@ -17,6 +17,12 @@ export default function ResetPasswordPage() {
   const [ready,    setReady]    = useState(false);
   const [tokenErr, setTokenErr] = useState(false);
 
+  // Which account this password belongs to. Password managers read it from
+  // the hidden username field in the form below so they update the right
+  // saved login instead of creating a second, nameless entry. Read-only:
+  // nothing here touches the recovery session or the update.
+  const [email, setEmail] = useState("");
+
   // Supabase redirects here with ?code= for PKCE recovery flow.
   // Exchange the code for a session, then clean the URL.
   useEffect(() => {
@@ -59,6 +65,17 @@ export default function ResetPasswordPage() {
 
     return () => { subscription.unsubscribe(); clearTimeout(timer); };
   }, []);
+
+  // Once the recovery session is live, pull the address off it for the
+  // hidden username field. Stays empty if it can't be read.
+  useEffect(() => {
+    if (!ready) return;
+    let cancelled = false;
+    supabase.auth.getUser().then(({ data }) => {
+      if (!cancelled) setEmail(data.user?.email ?? "");
+    });
+    return () => { cancelled = true; };
+  }, [ready]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -130,12 +147,27 @@ export default function ResetPasswordPage() {
             )}
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              {/* Tells the password manager WHICH login is being updated. */}
+              <input
+                type="text"
+                name="username"
+                autoComplete="username"
+                value={email}
+                readOnly
+                aria-hidden="true"
+                tabIndex={-1}
+                style={{ display: "none" }}
+              />
+
               <div>
-                <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
+                <label htmlFor="new-password" className="block text-sm font-medium text-[#2d2926] mb-1.5">
                   New password
                 </label>
                 <input
+                  id="new-password"
+                  name="new-password"
                   type="password"
+                  autoComplete="new-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="At least 6 characters"
@@ -146,11 +178,14 @@ export default function ResetPasswordPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-[#2d2926] mb-1.5">
+                <label htmlFor="confirm-password" className="block text-sm font-medium text-[#2d2926] mb-1.5">
                   Confirm new password
                 </label>
                 <input
+                  id="confirm-password"
+                  name="confirm-password"
                   type="password"
+                  autoComplete="new-password"
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
                   placeholder="Repeat your password"
