@@ -33,6 +33,7 @@ import {
   syncProjectedScheduledDates,
   pinsFromRows,
   pinsByGoalFromRows,
+  planPhase2LessonInserts,
   resolveCustomLessonGoalLink,
   lessonsPerDayForDate,
   toGoalConfig,
@@ -3952,6 +3953,178 @@ test('phase 2 re-spread: a surviving pin holds its day and the tail fills around
   const withoutPins = computeNextLessonsForGoal(goal, new Date('2026-08-03T00:00:00'), 3650, [])
   const slot5Unpinned = withoutPins.find((p) => p.lesson_number === 5)?.date
   assert.ok(slot5Unpinned && slot5Unpinned < '2026-08-21', 'pin must be what moves slot 5')
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Phase 2 insert planning — a drifted pin must not cost a lesson
+//
+// A dragged lesson keeps its lesson_number and gets a new queue_position, so on
+// such a goal the two columns disagree. Commit 6905c4f skipped a projected slot
+// n when EITHER column held n, which suppressed two slots for a pin that only
+// accounts for one row: exactly one lesson was destroyed per drifted pin.
+//
+// Verified in production on goal 5d6ac7b5 ("Summer Test", total_lessons 100).
+// Before the save: lesson_number 3 in queue_position 4, pinned, plan_move, on
+// Thu Aug 20; lesson_number 4 in queue_position 3, unpinned, on Wed Aug 19.
+// After the save: 99 rows, no lesson_number 4, Aug 19 empty, numbering running
+// 1, 2, 3, 5, 6 — and the user was shown a success message.
+//
+// The shape below is that goal scaled to 5 lessons so every row is assertable.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('phase 2 planning: a drifted pin costs no lesson, and its day is kept', () => {
+  // Mon 2026-08-17, the real shape from goal 5d6ac7b5.
+  const goal: CurriculumGoalConfig = {
+    id: 'g-drifted-pin',
+    total_lessons: 5,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 0,
+    start_date: null,
+  }
+  // The pin: lesson 3 was dragged onto Thursday, which moved it to slot 4.
+  const PIN_DATE = '2026-08-20'
+  const pin = { lesson_number: 3, queue_position: 4, date: PIN_DATE }
+  const pins: PinnedSlot[] = [{ slot: pin.queue_position, date: pin.date }]
+
+  const upcoming = computeNextLessonsForGoal(
+    goal,
+    new Date('2026-08-17T00:00:00'),
+    3650,
+    [],
+    0,
+    pins,
+  )
+
+  // After the floor delete the pin is the only surviving row: it holds
+  // lesson_number 3 and queue_position 4.
+  const planned = planPhase2LessonInserts({
+    upcoming,
+    existingLessonNumbers: [pin.lesson_number],
+    existingQueuePositions: [pin.queue_position],
+  })
+
+  // THE REGRESSION: lesson 4 must be written. Under 6905c4f it was not, because
+  // slot 4 was read as "lesson 4 already exists" when the row holding slot 4 is
+  // lesson 3.
+  assert.ok(
+    planned.some((p) => p.lesson_number === 4),
+    'lesson 4 must be created — the pin accounts for lesson 3, not lesson 4',
+  )
+
+  // The goal ends up with every lesson number, exactly once.
+  const finalRows = [...planned, pin]
+  const numbers = finalRows.map((r) => r.lesson_number).sort((a, b) => a - b)
+  assert.deepEqual(numbers, [1, 2, 3, 4, 5], 'every lesson number 1..5 exists exactly once')
+
+  // No duplicate queue_position, and none of them null: a duplicate is a 23505
+  // on lessons_goal_queue_position_uniq, a null falls through both of Today's
+  // hydration queries (drift E).
+  const slots = finalRows.map((r) => r.queue_position)
+  assert.equal(new Set(slots).size, slots.length, 'queue_position must be unique per goal')
+  for (const s of slots) {
+    assert.ok(typeof s === 'number' && Number.isFinite(s), `queue_position must be a number, got ${s}`)
+  }
+  // And every assigned slot is one the projector actually emits, so Today's
+  // `.in("queue_position", projectedSlots)` lookup can still find the row.
+  const emitted = new Set(upcoming.map((p) => p.lesson_number))
+  for (const r of planned) {
+    assert.ok(emitted.has(r.queue_position), `slot ${r.queue_position} is outside the projected queue`)
+  }
+
+  // Invariant 12: the pinned lesson keeps the day the user chose.
+  const pinRow = finalRows.find((r) => r.lesson_number === 3)
+  assert.equal(pinRow?.date, PIN_DATE, 'the dragged lesson must stay on its date')
+
+  // Invariant 2: one lesson per date for a 1/day goal, including the pinned day.
+  const perDate = new Map<string, number>()
+  for (const r of finalRows) perDate.set(r.date, (perDate.get(r.date) ?? 0) + 1)
+  for (const [date, n] of perDate) {
+    assert.ok(n <= 1, `${date} holds ${n} lessons for a 1/day goal`)
+  }
+
+  // The vacated Wednesday is filled by the lesson that follows the pin, which is
+  // what the user asked for when she dragged lesson 3 later.
+  const byNumber = new Map(finalRows.map((r) => [r.lesson_number, r]))
+  assert.equal(byNumber.get(4)?.date, '2026-08-19', 'lesson 4 takes the day lesson 3 left')
+  assert.equal(byNumber.get(1)?.date, '2026-08-17')
+  assert.equal(byNumber.get(2)?.date, '2026-08-18')
+  assert.equal(byNumber.get(5)?.date, '2026-08-21')
+})
+
+test('phase 2 planning: with no drift, every row keeps queue_position === lesson_number', () => {
+  // The other 99% of goals. This is the byte-identical-behavior guard: nothing
+  // about the pre-6905c4f output may change for a goal never dragged.
+  const goal: CurriculumGoalConfig = {
+    id: 'g-clean',
+    total_lessons: 6,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 2,
+    start_date: null,
+  }
+  const upcoming = computeNextLessonsForGoal(goal, new Date('2026-08-17T00:00:00'), 3650, [])
+
+  // Brand-new goal shape: nothing survives, so every projected slot is written.
+  const fresh = planPhase2LessonInserts({
+    upcoming,
+    existingLessonNumbers: [],
+    existingQueuePositions: [],
+  })
+  assert.equal(fresh.length, upcoming.length, 'a fresh goal writes a row for every projected slot')
+  for (const r of fresh) {
+    assert.equal(r.queue_position, r.lesson_number, 'no drift means slot === number')
+  }
+  assert.deepEqual(
+    fresh.map((r) => r.date),
+    upcoming.map((p) => p.date),
+    'and each row keeps the projector date for its slot',
+  )
+
+  // Re-save shape: rows 3 and 4 survived with both columns in step.
+  const resave = planPhase2LessonInserts({
+    upcoming,
+    existingLessonNumbers: [3, 4],
+    existingQueuePositions: [3, 4],
+  })
+  assert.deepEqual(resave.map((r) => r.lesson_number), [5, 6], 'only the missing numbers are written')
+  for (const r of resave) {
+    assert.equal(r.queue_position, r.lesson_number)
+  }
+})
+
+test('phase 2 planning: a re-save never reduces the row count', () => {
+  // (c) in the regression guard, expressed on the pure planner: for the drifted
+  // pin, the number of rows afterwards is never fewer than the number before.
+  const goal: CurriculumGoalConfig = {
+    id: 'g-count',
+    total_lessons: 10,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    current_lesson: 0,
+    start_date: null,
+  }
+  const pins: PinnedSlot[] = [{ slot: 7, date: '2026-09-04' }]
+  const upcoming = computeNextLessonsForGoal(
+    goal,
+    new Date('2026-08-17T00:00:00'),
+    3650,
+    [],
+    0,
+    pins,
+  )
+  // Survivor holds lesson_number 6 in slot 7 (dragged one place later).
+  const planned = planPhase2LessonInserts({
+    upcoming,
+    existingLessonNumbers: [6],
+    existingQueuePositions: [7],
+  })
+  // 1 surviving row + 9 written = the full 10.
+  assert.equal(planned.length + 1, goal.total_lessons)
+  const numbers = [...planned.map((p) => p.lesson_number), 6].sort((a, b) => a - b)
+  assert.deepEqual(numbers, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+  const slots = [...planned.map((p) => p.queue_position), 7]
+  assert.equal(new Set(slots).size, slots.length, 'no duplicate queue_position')
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

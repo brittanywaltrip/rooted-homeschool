@@ -7,7 +7,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, pinsFromRows, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
@@ -1629,6 +1629,25 @@ export default function ScheduleBuilderPage() {
         const completedFloor =
           (completedTop?.[0] as { lesson_number: number } | undefined)?.lesson_number ?? 0;
 
+        // Row-count invariant, part 1 of 2: what this goal holds BEFORE the
+        // delete. Phase 2 deletes and then re-inserts, so a bug in what the
+        // batch decides to write can destroy a lesson and still report success.
+        // That is not hypothetical: commit 6905c4f dropped exactly one row per
+        // drifted pin, and goal 5d6ac7b5 came out of a save with 99 rows
+        // instead of 100, lesson 4 gone, Wednesday empty, no error shown.
+        //
+        // Read failure is non-fatal on purpose. This is a guard rail, and
+        // turning an observability read into a failed save would cost the user
+        // more than the guard rail is worth.
+        const { data: beforeRowsData, error: beforeRowsErr } = await supabase
+          .from("lessons")
+          .select("lesson_number")
+          .eq("curriculum_goal_id", goalId);
+        const beforeRows =
+          beforeRowsErr || !beforeRowsData
+            ? null
+            : (beforeRowsData as { lesson_number: number | null }[]);
+
         let floorDelete = supabase
           .from("lessons")
           .delete()
@@ -1735,22 +1754,16 @@ export default function ScheduleBuilderPage() {
           }
         }
 
-        // Dedupe against BOTH partial unique indexes on lessons:
+        // What the batch needs, against BOTH partial unique indexes on lessons:
         //   lessons_goal_lesson_number_unique  (curriculum_goal_id, lesson_number)
         //   lessons_goal_queue_position_uniq   (curriculum_goal_id, queue_position)
-        // Every row below writes queue_position = lesson_number, so a slot
-        // number is only safe to insert when it is free in BOTH columns.
         //
-        // The two columns agree at creation and diverge the moment a lesson is
-        // dragged on the Plan calendar: move_lesson_to_date rewrites
-        // queue_position and leaves lesson_number alone. Reading lesson_number
-        // only meant a surviving PINNED row whose queue_position had drifted was
-        // invisible to this dedup, so the batch re-used its slot and the INSERT
-        // died on lessons_goal_queue_position_uniq. The same phantom row was
-        // also counted a second time on the pin's own date by the capacity
-        // tally below, tripping the overcapacity guard. Six rows across five
-        // goals and three users were blocked this way, all scheduled_source
-        // 'plan_move'.
+        // These are two different questions and must not share a branch. A
+        // taken lesson_number means the lesson exists, so skip it. A taken
+        // queue slot means only that the slot is occupied: the lesson can still
+        // be missing and must still be written, just not into that slot.
+        // Answering both with one filter is what destroyed lesson 4 on goal
+        // 5d6ac7b5 — see planPhase2LessonInserts for the full shape.
         const { data: existingLessons, error: existingLessonsErr } = await supabase
           .from("lessons")
           .select("lesson_number, queue_position")
@@ -1772,33 +1785,28 @@ export default function ScheduleBuilderPage() {
             .filter((n): n is number => n !== null),
         );
 
-        const toInsert = upcoming
-          .filter(
-            (l) => !existingNums.has(l.lesson_number) && !existingSlots.has(l.lesson_number),
-          )
-          .map((l) => ({
-            user_id: effectiveUserId,
-            child_id: row.child_id,
-            curriculum_goal_id: goalId,
-            lesson_number: l.lesson_number,
-            // queue_position must match lesson_number per Path A invariant.
-            // Phase 2 treats a projector SLOT as a lesson_number, which they
-            // are at creation but not after a manual move has rewritten
-            // queue_position (move_lesson_to_date). The dedup above now reads
-            // BOTH columns, so a slot already held by a drifted row is dropped
-            // from this batch and the write can no longer collide on either
-            // unique index. What remains on such a goal is cosmetic: the
-            // projector hands out slots and we label them as lesson_numbers, so
-            // the reinsert numbering is approximate. Untangling that conflation
-            // is its own change.
-            queue_position: l.lesson_number,
-            title: `${row.name.trim()} — Lesson ${l.lesson_number}`,
-            scheduled_date: l.date,
-            date: l.date,
-            scheduled_source: "wizard_create",
-            completed: false,
-            hours: 0,
-          }));
+        // Pure, and unit-tested in scheduler.test.ts: the missing lesson
+        // numbers are zipped onto the free projected slots, so each row takes
+        // its queue_position and its date from the slot it lands in.
+        const plannedInserts = planPhase2LessonInserts({
+          upcoming,
+          existingLessonNumbers: existingNums,
+          existingQueuePositions: existingSlots,
+        });
+
+        const toInsert = plannedInserts.map((p) => ({
+          user_id: effectiveUserId,
+          child_id: row.child_id,
+          curriculum_goal_id: goalId,
+          lesson_number: p.lesson_number,
+          queue_position: p.queue_position,
+          title: `${row.name.trim()} — Lesson ${p.lesson_number}`,
+          scheduled_date: p.date,
+          date: p.date,
+          scheduled_source: "wizard_create",
+          completed: false,
+          hours: 0,
+        }));
 
         // PRE-INSERT defensive assertion. Refuses to commit a batch where
         // the projector emitted more than lessons_per_day rows on any
@@ -1904,6 +1912,66 @@ export default function ScheduleBuilderPage() {
           .gt("lesson_number", row.total_lessons)
           .eq("completed", false);
         if (cleanupErr) throw cleanupErr;
+
+        // Row-count invariant, part 2 of 2: a goal must never come out of a save
+        // holding fewer lesson rows than it went in with.
+        //
+        // Deliberately NOT `rows === total_lessons`. That is not a true
+        // invariant: plenty of healthy goals hold fewer rows than
+        // total_lessons, because the projector only writes from current_lesson
+        // forward. The never-shrink comparison is the honest one and does not
+        // false positive. Shrinking is legitimate in exactly one case, the user
+        // reducing total_lessons, which the cleanup delete above acts on.
+        //
+        // Detect and report only. By the time this runs the rows are already
+        // gone, so throwing would show a frightening notice about something
+        // this save cannot undo. Sentry is where it needs to land.
+        if (beforeRows) {
+          const { data: afterRowsData, error: afterRowsErr } = await supabase
+            .from("lessons")
+            .select("lesson_number")
+            .eq("curriculum_goal_id", goalId);
+          if (!afterRowsErr && afterRowsData) {
+            const afterRows = afterRowsData as { lesson_number: number | null }[];
+            const beforeCount = beforeRows.length;
+            const afterCount = afterRows.length;
+            const originalTotal = row._originalSchedule?.total_lessons ?? null;
+            const reducedTotalLessons =
+              originalTotal != null &&
+              row.total_lessons != null &&
+              row.total_lessons < originalTotal;
+            if (afterCount < beforeCount && !reducedTotalLessons) {
+              const afterNums = new Set(
+                afterRows
+                  .map((r) => r.lesson_number)
+                  .filter((n): n is number => n !== null),
+              );
+              const missingLessonNumbers = beforeRows
+                .map((r) => r.lesson_number)
+                .filter((n): n is number => n !== null && !afterNums.has(n))
+                .sort((a, b) => a - b);
+              console.error("[handleSave] phase 2 lost lesson rows", {
+                goalId,
+                beforeCount,
+                afterCount,
+                missingLessonNumbers,
+              });
+              captureSupabaseError(
+                "Curriculum save phase 2 lost lesson rows",
+                new Error(
+                  `Goal ${goalId} went from ${beforeCount} to ${afterCount} lesson rows with no reduction in total_lessons`,
+                ),
+                {
+                  tags: {
+                    phase: "curriculum_save_phase2_invariant",
+                    goal_id: goalId,
+                  },
+                  extra: { beforeCount, afterCount, missingLessonNumbers },
+                },
+              );
+            }
+          }
+        }
 
         // Post-INSERT overcapacity assertion. The May 20 audit surfaced
         // pre-existing goals where two disjoint lesson_number ranges

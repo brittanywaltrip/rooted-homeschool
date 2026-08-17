@@ -1448,6 +1448,106 @@ export function computeNextLessonsForGoal(
   return out;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * Schedule Builder phase 2: which rows does the reinsert batch need?
+ *
+ * Phase 2 deletes the incomplete tail and re-creates it from the projection.
+ * Deciding what to create means answering two SEPARATE questions, and the
+ * August 2026 data-loss bug came from answering them with one condition:
+ *
+ *   "lesson_number n already exists"  → do not create lesson n again.
+ *   "queue slot n is already taken"   → the LESSON may still be missing.
+ *                                       Only its queue_position has to move.
+ *
+ * The two agree until a lesson is dragged on the Plan calendar, because
+ * `move_lesson_to_date` rewrites queue_position and leaves lesson_number alone.
+ * On goal 5d6ac7b5 the pinned row was lesson_number 3 sitting in slot 4. Commit
+ * 6905c4f skipped slot 3 (its number is taken) AND slot 4 (its slot is taken),
+ * but one row cannot account for two lessons, so lesson 4 was never written:
+ * the goal came out of the save with 99 rows, Wednesday empty, numbering
+ * 1, 2, 3, 5, 6 — and a success message.
+ *
+ * So: rows are paired to SLOTS, not to numbers. The lesson numbers still
+ * missing are zipped, in order, onto the projected slots nobody holds. Each row
+ * takes its queue_position AND its date from the slot it is paired with, which
+ * is what stops it landing on the pinned row's day and tripping the
+ * overcapacity guard.
+ *
+ * queue_position is never written null here. A goal-attached row with no slot
+ * falls through BOTH of Today's hydration queries (`.in("queue_position", …)`
+ * for goal rows, `curriculum_goal_id IS NULL` for one-offs), so it renders on
+ * the Plan calendar and then silently fails to appear on the day it was planned
+ * for. That is drift E, documented above `resolveCustomLessonGoalLink`. Null
+ * would swap a visibly missing lesson for an invisible one.
+ *
+ * With no drift, free slots and missing numbers are the same ascending list, so
+ * every row gets `queue_position === lesson_number` and the projector's own
+ * date: byte-identical to the pre-6905c4f behavior for every goal that has
+ * never had a lesson moved.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface PlannedLessonInsert {
+  /** The curriculum's canonical index, what the family calls "Lesson 12". */
+  lesson_number: number;
+  /** The queue slot this row occupies. Never null (see above). */
+  queue_position: number;
+  /** The date the projector chose for that slot. */
+  date: string;
+}
+
+export function planPhase2LessonInserts(args: {
+  /** `computeNextLessonsForGoal` output: the goal's emitted slots, in order. */
+  upcoming: ProjectedLesson[];
+  /** lesson_number of every row that survived the floor delete. */
+  existingLessonNumbers: Iterable<number>;
+  /** queue_position of every row that survived the floor delete. */
+  existingQueuePositions: Iterable<number>;
+}): PlannedLessonInsert[] {
+  const takenNumbers = new Set(args.existingLessonNumbers);
+  const takenSlots = new Set(args.existingQueuePositions);
+
+  // Slots nobody holds, in projector order, each carrying its own date.
+  const freeSlots = args.upcoming.filter((p) => !takenSlots.has(p.lesson_number));
+  // Lesson numbers inside the projected range that have no row yet.
+  const missingNumbers = args.upcoming
+    .map((p) => p.lesson_number)
+    .filter((n) => !takenNumbers.has(n));
+
+  // Defensive tail. The two lists are the same length whenever every surviving
+  // row holds one number and one slot inside the projected range, which is
+  // every healthy goal and every drifted-pin goal. A goal already inconsistent
+  // enough to run the free slots out still gets its row: an existing lesson
+  // parked past the queue is recoverable on the next save, a deleted one is
+  // not.
+  let overflowSlot = 0;
+  for (const p of args.upcoming) overflowSlot = Math.max(overflowSlot, p.lesson_number);
+  for (const s of takenSlots) overflowSlot = Math.max(overflowSlot, s);
+
+  const dateByNumber = new Map(args.upcoming.map((p) => [p.lesson_number, p.date]));
+
+  const out: PlannedLessonInsert[] = [];
+  missingNumbers.forEach((lessonNumber, i) => {
+    const slot = freeSlots[i];
+    if (slot) {
+      out.push({
+        lesson_number: lessonNumber,
+        queue_position: slot.lesson_number,
+        date: slot.date,
+      });
+      return;
+    }
+    const fallbackDate = dateByNumber.get(lessonNumber);
+    if (!fallbackDate) return;
+    overflowSlot += 1;
+    out.push({
+      lesson_number: lessonNumber,
+      queue_position: overflowSlot,
+      date: fallbackDate,
+    });
+  });
+  return out;
+}
+
 /**
  * Compute the calendar date the goal will finish on, projecting forward
  * from `fromDate`. Returns null if the goal is already complete.
