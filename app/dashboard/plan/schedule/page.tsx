@@ -573,6 +573,38 @@ function rowIsValid(row: Row): boolean {
   return true;
 }
 
+/**
+ * Why can't this row be saved yet? Returns one short sentence naming the
+ * missing piece, or null when the row is fine.
+ *
+ * `rowIsValid` stays the single authority on whether a row passes: this
+ * short-circuits on it and then only decides WHICH message to show for a row it
+ * has already rejected. That is what stops the footer explaining a problem the
+ * Preview button doesn't actually have, or going quiet on one it does.
+ */
+function rowMissingLabel(row: Row): string | null {
+  if (rowIsValid(row)) return null;
+  const name = row.name.trim();
+  const label = name.length > 0 ? name : "this row";
+  if (!row.child_id) return `Pick a child for ${label}.`;
+  if (name.length === 0) return "Give every curriculum and activity a name.";
+  let anyProducingDay = false;
+  for (let i = 0; i < 7; i++) {
+    if (row.active_days[i] && row.per_day_counts[i] > 0) {
+      anyProducingDay = true;
+      break;
+    }
+  }
+  if (!anyProducingDay) return `Pick at least one day with lessons for ${label}.`;
+  if (row.type === "curriculum") {
+    if (!row.total_lessons || row.total_lessons <= 0) {
+      return `Add a total lesson count for ${label}.`;
+    }
+    if (row.start_at_lesson < 1) return `Set a starting lesson for ${label}.`;
+  }
+  return `Finish setting up ${label}.`;
+}
+
 // Fields on a restored draft row that must be taken from the database
 // rather than from the draft snapshot. Everything else is the user's
 // in-progress edit and is kept.
@@ -604,6 +636,34 @@ function carryDbFieldsOntoDraftRow(draftRow: Row, freshRow: Row): Row {
     _legacyActivityChildIds: freshRow._legacyActivityChildIds,
     _legacyActivityStartTime: freshRow._legacyActivityStartTime,
   };
+}
+
+/**
+ * A phase 2 assertion refused the batch: the projector emitted an overcapacity
+ * date, or it tried to schedule a lesson at or below the starting position.
+ * Carries the same user-facing message the plain Error used to; the distinct
+ * type is what lets the retry wrapper tell "this will fail identically" from
+ * "the network hiccuped".
+ */
+class ScheduleAssertionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScheduleAssertionError";
+  }
+}
+
+/**
+ * Is this phase 2 failure one a second attempt cannot fix?
+ *
+ * Two shapes qualify. A Postgres 23505 means the row we are about to insert
+ * already exists, which is just as true 500ms later. A refused batch means the
+ * projector built something the assertions reject, and it rebuilds the same
+ * batch from the same inputs every time. Retrying either one only doubles the
+ * wait before the user reaches the notice, and it doubles the Sentry noise.
+ */
+function isDeterministicPhase2Failure(err: unknown): boolean {
+  if (err instanceof ScheduleAssertionError) return true;
+  return (err as { code?: string } | null)?.code === "23505";
 }
 
 function formatDraftSavedAt(savedAt: number): string {
@@ -1071,6 +1131,27 @@ export default function ScheduleBuilderPage() {
     [rows],
   );
 
+  // Why "Preview schedule" is disabled, in words. The button carried no
+  // explanation at all, just 40% opacity, and "Save & build schedule" only
+  // exists inside the preview: a family who can't get past this button can
+  // never save anything. One reported it as "there is no way to save it" with
+  // three children on the account and zero curriculum goals, which is exactly
+  // the !anyEditableRow case. Null when the button is enabled.
+  const previewBlockedReason = useMemo<string | null>(() => {
+    if (!anyEditableRow) return "Add a curriculum above to continue.";
+    if (allValid) return null;
+    const issues: string[] = [];
+    for (const r of rows) {
+      const issue = rowMissingLabel(r);
+      if (issue && !issues.includes(issue)) issues.push(issue);
+    }
+    if (issues.length === 0) return null;
+    // Three is enough to act on. More than that and the bar would cover the
+    // rows she needs to go fix.
+    if (issues.length <= 3) return issues.join(" ");
+    return `${issues.slice(0, 3).join(" ")} And ${issues.length - 3} more to finish.`;
+  }, [rows, allValid, anyEditableRow]);
+
   // ── Per-child weekly total ───────────────────────────────────────────────
   function weeklyHoursFor(child_id: string): number {
     let totalMinutes = 0;
@@ -1191,6 +1272,10 @@ export default function ScheduleBuilderPage() {
     // assertion threw afterward). Flip to "post_save" once Phase 1 + 2
     // settle so any throw past that point routes to the soft notice.
     let phase: "write" | "post_save" = "write";
+    // Which goal's phase 2 failed. The re-throw below carries only the error,
+    // so this is how the catch names the goal in the console warning support
+    // reads alongside the matching Sentry event.
+    let failedPhase2GoalId: string | null = null;
     try {
       // Each entry pairs a saved curriculum_goals row with the local Row it
       // came from. The lesson-generation pass below needs both the dbId (for
@@ -1650,37 +1735,62 @@ export default function ScheduleBuilderPage() {
           }
         }
 
-        // Dedupe by lesson_number is now mostly redundant (the floor
-        // delete just cleared the space above completedFloor, and the
-        // projector emits lesson_numbers strictly above completedFloor
-        // via current_lesson+1). Kept as belt-and-suspenders: the
-        // unique index would 23505 the whole batch if a residual row
-        // slipped through.
+        // Dedupe against BOTH partial unique indexes on lessons:
+        //   lessons_goal_lesson_number_unique  (curriculum_goal_id, lesson_number)
+        //   lessons_goal_queue_position_uniq   (curriculum_goal_id, queue_position)
+        // Every row below writes queue_position = lesson_number, so a slot
+        // number is only safe to insert when it is free in BOTH columns.
+        //
+        // The two columns agree at creation and diverge the moment a lesson is
+        // dragged on the Plan calendar: move_lesson_to_date rewrites
+        // queue_position and leaves lesson_number alone. Reading lesson_number
+        // only meant a surviving PINNED row whose queue_position had drifted was
+        // invisible to this dedup, so the batch re-used its slot and the INSERT
+        // died on lessons_goal_queue_position_uniq. The same phantom row was
+        // also counted a second time on the pin's own date by the capacity
+        // tally below, tripping the overcapacity guard. Six rows across five
+        // goals and three users were blocked this way, all scheduled_source
+        // 'plan_move'.
         const { data: existingLessons, error: existingLessonsErr } = await supabase
           .from("lessons")
-          .select("lesson_number")
+          .select("lesson_number, queue_position")
           .eq("curriculum_goal_id", goalId)
           .not("lesson_number", "is", null);
         if (existingLessonsErr) throw existingLessonsErr;
+        const existingRows = (existingLessons ?? []) as {
+          lesson_number: number | null;
+          queue_position: number | null;
+        }[];
         const existingNums = new Set(
-          ((existingLessons ?? []) as { lesson_number: number }[]).map((l) => l.lesson_number),
+          existingRows
+            .map((l) => l.lesson_number)
+            .filter((n): n is number => n !== null),
+        );
+        const existingSlots = new Set(
+          existingRows
+            .map((l) => l.queue_position)
+            .filter((n): n is number => n !== null),
         );
 
         const toInsert = upcoming
-          .filter((l) => !existingNums.has(l.lesson_number))
+          .filter(
+            (l) => !existingNums.has(l.lesson_number) && !existingSlots.has(l.lesson_number),
+          )
           .map((l) => ({
             user_id: effectiveUserId,
             child_id: row.child_id,
             curriculum_goal_id: goalId,
             lesson_number: l.lesson_number,
             // queue_position must match lesson_number per Path A invariant.
-            // Caveat, pre-existing: phase 2 treats a projector SLOT as a
-            // lesson_number, which they are at creation but not after a manual
-            // move has rewritten queue_position (move_lesson_to_date). On such
-            // a goal the reinsert numbering is approximate. Preserving pins
-            // (above) strictly reduces how often this matters, since the moved
-            // rows are no longer deleted and re-created — but untangling the
-            // slot/number conflation is its own change.
+            // Phase 2 treats a projector SLOT as a lesson_number, which they
+            // are at creation but not after a manual move has rewritten
+            // queue_position (move_lesson_to_date). The dedup above now reads
+            // BOTH columns, so a slot already held by a drifted row is dropped
+            // from this batch and the write can no longer collide on either
+            // unique index. What remains on such a goal is cosmetic: the
+            // projector hands out slots and we label them as lesson_numbers, so
+            // the reinsert numbering is approximate. Untangling that conflation
+            // is its own change.
             queue_position: l.lesson_number,
             title: `${row.name.trim()} — Lesson ${l.lesson_number}`,
             scheduled_date: l.date,
@@ -1731,7 +1841,7 @@ export default function ScheduleBuilderPage() {
             "[handleSave] Projector emitted overcapacity batch, refusing INSERT",
             { goalId, violations: preInsertViolations },
           );
-          throw new Error(
+          throw new ScheduleAssertionError(
             `Lesson scheduling produced ${preInsertViolations.length} overcapacity date(s): ${preInsertViolations.join(", ")}. The curriculum saved, but lessons were not generated. Please try a different start date or contact support.`,
           );
         }
@@ -1762,7 +1872,7 @@ export default function ScheduleBuilderPage() {
             "[handleSave] Batch would insert incomplete rows at/below the starting position, refusing INSERT",
             { goalId, currentLesson, lessonNumbers: belowFloor.map((r) => r.lesson_number) },
           );
-          throw new Error(
+          throw new ScheduleAssertionError(
             `Lesson scheduling tried to schedule lesson(s) ${nums} that are at or below your starting position (${currentLesson}). The curriculum saved, but lessons were not generated. Please contact support.`,
           );
         }
@@ -1839,7 +1949,7 @@ export default function ScheduleBuilderPage() {
         });
         if (violated.length > 0) {
           console.error("[handleSave] Overcapacity after INSERT", violated);
-          throw new Error(
+          throw new ScheduleAssertionError(
             `Overcapacity detected on ${violated.length} date(s) after save. Lesson rows may need another save to resolve.`,
           );
         }
@@ -1853,6 +1963,11 @@ export default function ScheduleBuilderPage() {
       // save). Now each goal gets its own two attempts; failures are
       // captured per-goal and re-thrown ONCE at the end so handleSave's
       // catch still shows the soft "save again" notice.
+      //
+      // The retry only earns its keep against transient trouble. A unique
+      // violation or a refused batch is deterministic, so those skip the second
+      // attempt and go straight to the failure path (see
+      // isDeterministicPhase2Failure).
       const phase2Failures: { goalId: string; err: unknown }[] = [];
       for (const { id: goalId, row } of savedCurriculumGoals) {
         let lastErr: unknown = null;
@@ -1863,6 +1978,7 @@ export default function ScheduleBuilderPage() {
             break;
           } catch (err) {
             lastErr = err;
+            if (isDeterministicPhase2Failure(err)) break;
             if (attempt === 0) {
               await new Promise((r) => setTimeout(r, 500));
             }
@@ -1879,6 +1995,7 @@ export default function ScheduleBuilderPage() {
         }
       }
       if (phase2Failures.length > 0) {
+        failedPhase2GoalId = phase2Failures[0].goalId;
         throw phase2Failures[0].err;
       }
 
@@ -1920,9 +2037,21 @@ export default function ScheduleBuilderPage() {
         // when the thing they edited is on disk. Log the raw error for debug,
         // surface the soft notice, and clear dirty so the saved schema isn't
         // treated as pending changes.
-        console.warn("[handleSave] post-save phase failed:", msg);
+        //
+        // "Save again to sync" is only true for a transient failure. On a
+        // deterministic one the next save reproduces the same error exactly, so
+        // that copy sends the family round a loop she cannot get out of. Name
+        // the goal in the warning so support can line it up with the Sentry
+        // event captured above.
+        const deterministic = isDeterministicPhase2Failure(err);
+        console.warn("[handleSave] post-save phase failed:", msg, {
+          goal_id: failedPhase2GoalId,
+          deterministic,
+        });
         setPostSaveNotice(
-          "Curriculum changes saved. Lesson layout needs another touch, save again to sync.",
+          deterministic
+            ? "Your curriculum is saved. The lesson layout hit a conflict we're fixing, so those lessons aren't on your calendar yet. Email hello@rootedhomeschoolapp.com and we'll get them on there for you."
+            : "Curriculum changes saved. Lesson layout needs another touch, save again to sync.",
         );
         setDirty(false);
         setDraftNotice(null);
@@ -2198,47 +2327,58 @@ export default function ScheduleBuilderPage() {
           dashboard). Without it the FAB sits directly on top of the
           Save / Preview button on mobile. */}
       <div className="fixed bottom-[3.75rem] md:bottom-0 inset-x-0 border-t border-[#e8e2d9] bg-white px-4 pr-20 py-3 z-50 pb-[env(safe-area-inset-bottom,0px)]">
-        <div className="max-w-5xl mx-auto flex items-center gap-2">
-          {view === "builder" && (
-            <>
-              <button
-                onClick={() => confirmDiscardAndNavigate("/dashboard/plan")}
-                className="text-sm text-[#7a6f65] hover:text-[#2d2926] underline-offset-2 hover:underline"
-              >
-                Cancel
-              </button>
-              {dirty && <UnsavedIndicator />}
-              <div className="flex-1" />
-              <button
-                onClick={() => setView("preview")}
-                disabled={!allValid || !anyEditableRow}
-                className="px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-40"
-                style={{ background: "var(--g-brand)" }}
-              >
-                Preview schedule →
-              </button>
-            </>
+        <div className="max-w-5xl mx-auto">
+          {view === "builder" && previewBlockedReason && (
+            <p
+              id="preview-blocked-reason"
+              className="mb-2 text-xs text-[#7a6f65] leading-snug sm:text-right"
+            >
+              {previewBlockedReason}
+            </p>
           )}
-          {view === "preview" && (
-            <>
-              <button
-                onClick={() => setView("builder")}
-                className="text-sm text-[#7a6f65] hover:text-[#2d2926] underline-offset-2 hover:underline"
-              >
-                ← Back to edit
-              </button>
-              {dirty && <UnsavedIndicator />}
-              <div className="flex-1" />
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-40"
-                style={{ background: "var(--g-brand)" }}
-              >
-                {saving ? "Saving..." : "Save & build schedule"}
-              </button>
-            </>
-          )}
+          <div className="flex items-center gap-2">
+            {view === "builder" && (
+              <>
+                <button
+                  onClick={() => confirmDiscardAndNavigate("/dashboard/plan")}
+                  className="text-sm text-[#7a6f65] hover:text-[#2d2926] underline-offset-2 hover:underline"
+                >
+                  Cancel
+                </button>
+                {dirty && <UnsavedIndicator />}
+                <div className="flex-1" />
+                <button
+                  onClick={() => setView("preview")}
+                  disabled={!allValid || !anyEditableRow}
+                  aria-describedby={previewBlockedReason ? "preview-blocked-reason" : undefined}
+                  className="px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-40"
+                  style={{ background: "var(--g-brand)" }}
+                >
+                  Preview schedule →
+                </button>
+              </>
+            )}
+            {view === "preview" && (
+              <>
+                <button
+                  onClick={() => setView("builder")}
+                  className="text-sm text-[#7a6f65] hover:text-[#2d2926] underline-offset-2 hover:underline"
+                >
+                  ← Back to edit
+                </button>
+                {dirty && <UnsavedIndicator />}
+                <div className="flex-1" />
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-40"
+                  style={{ background: "var(--g-brand)" }}
+                >
+                  {saving ? "Saving..." : "Save & build schedule"}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </>
@@ -2719,6 +2859,9 @@ function RowCard(props: {
               min={1}
               disabled={isReadOnly}
             />
+            {/* Required, and marked as such: a blank total lesson count is the
+                single most common reason Preview stays disabled, and until now
+                the field looked as optional as every other one on the card. */}
             <FieldInput
               label="Total lessons"
               value={row.total_lessons ?? ""}
@@ -2732,6 +2875,11 @@ function RowCard(props: {
               min={1}
               placeholder="e.g. 120"
               disabled={isReadOnly}
+              required
+              invalid={
+                row.name.trim().length > 0 &&
+                !(row.total_lessons != null && row.total_lessons > 0)
+              }
             />
           </>
         ) : (
@@ -2950,11 +3098,21 @@ function FieldInput(props: {
   min?: number;
   placeholder?: string;
   disabled?: boolean;
+  /** Marks the label so the field reads as required before it is filled in. */
+  required?: boolean;
+  /** Red border. Set when the field is required and still empty. */
+  invalid?: boolean;
 }) {
   return (
     <label className="block">
       <span className="block text-[10px] font-medium uppercase tracking-wide text-[#7a6f65] mb-1">
         {props.label}
+        {props.required ? (
+          <>
+            <span aria-hidden="true" className="ml-0.5 text-[#b91c1c]">*</span>
+            <span className="sr-only"> (required)</span>
+          </>
+        ) : null}
       </span>
       <input
         type={props.type}
@@ -2963,7 +3121,12 @@ function FieldInput(props: {
         onChange={(e) => props.onChange(e.target.value)}
         placeholder={props.placeholder}
         disabled={props.disabled}
-        className="w-full px-2.5 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-sm placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] disabled:bg-[#f8f7f4]"
+        aria-invalid={props.invalid ? true : undefined}
+        className={`w-full px-2.5 py-1.5 rounded-lg border bg-white text-sm placeholder-[#c8bfb5] focus:outline-none disabled:bg-[#f8f7f4] ${
+          props.invalid
+            ? "border-[#c98b8b] focus:border-[#b91c1c]"
+            : "border-[#e8e2d9] focus:border-[#5c7f63]"
+        }`}
       />
     </label>
   );
