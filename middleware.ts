@@ -23,13 +23,52 @@ export async function middleware(request: NextRequest) {
   //   /api/stripe/webhook — Stripe-Signature header verification
   //   /api/cron           — Vercel cron secret
   //   /family/*           — token-based public viewer for grandparents
+  //   /ingest, /monitoring — PostHog + Sentry proxies (next.config rewrites).
+  //     These fire constantly from every open tab and are the single
+  //     biggest source of redundant refreshes. See the herd note below.
+  //   /sw.js, /manifest.json — static PWA assets, no session needed.
   // Doing auth work here would be wasted overhead at best and could
   // interfere with the family viewer's anon-by-design flow.
   if (
     pathname.startsWith('/api/stripe/webhook') ||
     pathname.startsWith('/api/cron') ||
-    pathname.startsWith('/family')
+    pathname.startsWith('/family') ||
+    pathname.startsWith('/ingest') ||
+    pathname.startsWith('/monitoring') ||
+    pathname === '/sw.js' ||
+    pathname === '/manifest.json'
   ) {
+    return NextResponse.next()
+  }
+
+  // ── Refresh-token herd guard ───────────────────────────────────────────
+  // Every middleware invocation that reaches getUser() below independently
+  // rotates the refresh token. A single page load can fan out into a dozen
+  // edge invocations, and when the ~1h access token has expired they all
+  // refresh in the same second. Supabase rotates on first use, so the
+  // stragglers come back "Invalid Refresh Token" — and @supabase/ssr
+  // responds to an auth error by writing Max-Age=0 deletion cookies, which
+  // wipes the session the winners just refreshed. The family is bounced to
+  // /login with a perfectly good password. Two cheap guards:
+  //
+  // 1. No Supabase auth cookie means there is no session to refresh.
+  //    Signed-out visitors on marketing pages should never touch auth.
+  // 2. Router prefetches are speculative. Next fires them for links the
+  //    family may never click, and a token rotation triggered by a link
+  //    they merely hovered is pure downside.
+  //
+  // Real document navigations and RSC fetches still refresh normally, so
+  // long sessions stay alive. Do NOT widen this to skip all non-document
+  // requests: client-side navigation in the dashboard is an RSC fetch, and
+  // skipping those would starve the refresh and reintroduce the original
+  // expiry bug this middleware was written to fix.
+  const hasAuthCookie = request.cookies
+    .getAll()
+    .some((c) => c.name.startsWith('sb-') && c.name.includes('auth-token'))
+  if (!hasAuthCookie) {
+    return NextResponse.next()
+  }
+  if (request.headers.get('next-router-prefetch') === '1') {
     return NextResponse.next()
   }
 
