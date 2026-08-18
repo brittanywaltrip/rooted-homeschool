@@ -140,11 +140,15 @@ function LoginContent() {
       provider: "apple",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
-        // CLAUDE.md auth invariant 5: every signInWithOAuth call keeps an
-        // account-picker prompt so families with more than one account can
-        // choose. Apple's parameter is `prompt=login`, not Google's
-        // `select_account`.
-        queryParams: { prompt: "login" },
+        // NO queryParams here, deliberately. CLAUDE.md invariant 5 requires an
+        // account-picker prompt on every signInWithOAuth call, but that rule
+        // was written for Google. Apple's authorize endpoint documents only
+        // client_id, redirect_uri, response_type, scope, response_mode, state
+        // and nonce; `prompt` is not among them, and Apple rejects malformed
+        // requests rather than ignoring unknown parameters. Apple carries ~40%
+        // of sign-ins, so shipping an undocumented parameter there to gain a
+        // cosmetic account picker is a bad trade. Leave it off unless someone
+        // has actually tested it end to end against Apple.
       },
     });
     if (error) console.error("Apple sign in error:", error);

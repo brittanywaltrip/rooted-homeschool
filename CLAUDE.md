@@ -26,9 +26,13 @@ The Google OAuth flow broke multiple times because these rules weren't documente
    Google** and **Sign in with Apple**. Apple went live 2026-05-14 and
    carries roughly 40% of OAuth volume (611 button clicks vs 929 for Google,
    May to Aug 2026), yet went undocumented here for three months. Every rule
-   in this section applies to BOTH. Apple's account-picker parameter is
-   `prompt=login`, not Google's `prompt=select_account`. When you change one
-   provider's flow, change and test the other.
+   in this section applies to BOTH. When you change one provider's flow,
+   change and test the other.
+   NOTE on invariant 5: the account-picker rule is Google-only. Apple's
+   authorize endpoint documents just client_id, redirect_uri, response_type,
+   scope, response_mode, state and nonce; `prompt` is not supported, and Apple
+   rejects malformed requests rather than ignoring unknown parameters. Do NOT
+   add queryParams to the Apple call without testing it end to end first.
 
 7. `/auth/callback` MUST stay in the middleware bypass list in
    `middleware.ts`. The callback owns the auth cookies for its own request.
