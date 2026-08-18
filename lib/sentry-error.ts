@@ -41,7 +41,19 @@ function readMessage(error: unknown): string {
 export function captureSupabaseError(
   context: string,
   error: unknown,
-  options: { tags?: Record<string, string>; extra?: Record<string, unknown> } = {},
+  options: {
+    tags?: Record<string, string>;
+    extra?: Record<string, unknown>;
+    /**
+     * Sentry severity. Defaults to Sentry's own default ("error") when
+     * omitted, so every existing call site is unchanged. Pass "warning" for
+     * something worth seeing that is NOT a failure — e.g. the Schedule Builder
+     * reporting that a family stacked more hand-placed lessons on a date than
+     * the goal's per-day cap. That is supported behavior, not a bug, and it
+     * must not page anyone.
+     */
+    level?: "fatal" | "error" | "warning" | "log" | "info" | "debug";
+  } = {},
 ): void {
   const raw = (error ?? {}) as SupabaseErrorLike;
   const wrapped = new Error(`${context}: ${readMessage(error)}`);
@@ -52,6 +64,7 @@ export function captureSupabaseError(
   if (typeof Sentry.captureException !== "function") return;
   Sentry.captureException(wrapped, {
     tags: options.tags,
+    ...(options.level ? { level: options.level } : {}),
     extra: {
       code: raw.code ?? null,
       details: raw.details ?? null,

@@ -36,6 +36,7 @@ import {
   planPhase2LessonInserts,
   resolveCustomLessonGoalLink,
   lessonsPerDayForDate,
+  isPinProjectable,
   toGoalConfig,
   type PinnedSlot,
   type ReschedulableLesson,
@@ -4252,4 +4253,149 @@ test('toGoalConfig carries lessons_per_day_overrides and start_date through', ()
   // The two columns that used to get dropped by hand-rolled literals.
   assert.equal(cfg.lessons_per_day, 1)
   assert.equal(cfg.current_lesson, 3)
+})
+
+// ─── isPinProjectable: one skip rule, shared by the projector and the
+// Schedule Builder's phase 2 guard ────────────────────────────────────────
+//
+// Goal 503610a9 (Foreign Language, Mon-Thu, 1/day, current_lesson 7,
+// total_lessons 30): lessons 8 and 18 are BOTH pinned to 2026-09-02 by hand.
+// Both slots are live, so both are projectable and both must be emitted where
+// the family put them. The phase 2 guard used to read that as corruption.
+
+const FOREIGN_LANGUAGE_503610A9: CurriculumGoalConfig = {
+  id: '503610a9-1fcd-4e82-ba9b-36270abd3928',
+  total_lessons: 30,
+  current_lesson: 7,
+  lessons_per_day: 1,
+  school_days: ['Mon', 'Tue', 'Wed', 'Thu'],
+  start_date: null,
+}
+
+test('isPinProjectable: a live slot is projectable', () => {
+  assert.equal(isPinProjectable({ slot: 8 }, FOREIGN_LANGUAGE_503610A9), true)
+  assert.equal(isPinProjectable({ slot: 18 }, FOREIGN_LANGUAGE_503610A9), true)
+  assert.equal(isPinProjectable({ slot: 30 }, FOREIGN_LANGUAGE_503610A9), true)
+})
+
+test('isPinProjectable: a slot at or below current_lesson is stale', () => {
+  assert.equal(isPinProjectable({ slot: 7 }, FOREIGN_LANGUAGE_503610A9), false)
+  assert.equal(isPinProjectable({ slot: 1 }, FOREIGN_LANGUAGE_503610A9), false)
+})
+
+test('isPinProjectable: a slot past total_lessons is stale', () => {
+  assert.equal(isPinProjectable({ slot: 31 }, FOREIGN_LANGUAGE_503610A9), false)
+})
+
+test('isPinProjectable matches what the projector actually emits', () => {
+  const today = new Date('2026-08-18T00:00:00')
+  // One live pin, one below the floor, one past the end.
+  const pins: PinnedSlot[] = [
+    { slot: 8, date: '2026-09-02' },
+    { slot: 3, date: '2026-09-09' },
+    { slot: 44, date: '2026-09-16' },
+  ]
+  const out = computeNextLessonsForGoal(FOREIGN_LANGUAGE_503610A9, today, 3650, [], 0, pins)
+  const emitted = new Set(out.map((p) => p.lesson_number))
+  for (const pin of pins) {
+    const projectable = isPinProjectable(pin, FOREIGN_LANGUAGE_503610A9)
+    assert.equal(
+      emitted.has(pin.slot) && out.find((p) => p.lesson_number === pin.slot)?.date === pin.date,
+      projectable,
+      `slot ${pin.slot} placed-at-its-pin should equal isPinProjectable = ${projectable}`,
+    )
+  }
+  // Neither stale pin reserved its date, so the queue used both days normally.
+  assert.ok(out.some((p) => p.date === '2026-09-09'), '2026-09-09 is a normal school day again')
+  assert.ok(out.some((p) => p.date === '2026-09-16'), '2026-09-16 is a normal school day again')
+})
+
+test('goal 503610a9: two valid pins share one date and both hold it', () => {
+  const today = new Date('2026-08-18T00:00:00')
+  const pins: PinnedSlot[] = [
+    { slot: 8, date: '2026-09-02' },
+    { slot: 18, date: '2026-09-02' },
+  ]
+  const out = computeNextLessonsForGoal(FOREIGN_LANGUAGE_503610A9, today, 3650, [], 0, pins)
+
+  assert.equal(out.find((p) => p.lesson_number === 8)?.date, '2026-09-02')
+  assert.equal(out.find((p) => p.lesson_number === 18)?.date, '2026-09-02')
+
+  // Every slot appears exactly once (no double-emit), and every slot in the
+  // queue is accounted for.
+  const slots = out.map((p) => p.lesson_number)
+  assert.equal(new Set(slots).size, slots.length, 'no slot is emitted twice')
+  assert.deepEqual(
+    slots.slice().sort((a, b) => a - b),
+    Array.from({ length: 23 }, (_, i) => i + 8),
+  )
+
+  // 2026-09-02 holds exactly the two pins and nothing the projector added:
+  // pinned dates consume capacity, so no unpinned slot stacks on top.
+  const onSep2 = out.filter((p) => p.date === '2026-09-02').map((p) => p.lesson_number).sort((a, b) => a - b)
+  assert.deepEqual(onSep2, [8, 18])
+
+  // Every OTHER date stays within the 1/day ceiling — the check the phase 2
+  // guard now runs against projected, unpinned lessons only.
+  const perDate = new Map<string, number>()
+  for (const p of out) {
+    if (p.date === '2026-09-02') continue
+    perDate.set(p.date, (perDate.get(p.date) ?? 0) + 1)
+  }
+  assert.deepEqual([...perDate.values()].filter((n) => n > 1), [])
+})
+
+test('goal 503610a9: the reconciler tally no longer bails on stacked pins', () => {
+  // Mirrors the guard inside reconcileGoalScheduleCache: pinned slots are the
+  // family's own placements and are skipped, so only scheduler-placed lessons
+  // are measured against the cap. Before the fix this tally hit "2026-09-02 has
+  // 2 (max 1)", returned early, and the goal's scheduled_date cache was never
+  // reconciled again — one Sentry event per page load, forever.
+  const today = new Date('2026-08-18T00:00:00')
+  const pins: PinnedSlot[] = [
+    { slot: 8, date: '2026-09-02' },
+    { slot: 18, date: '2026-09-02' },
+  ]
+  const projected = computeNextLessonsForGoal(FOREIGN_LANGUAGE_503610A9, today, 3650, [], 0, pins)
+
+  const pinnedSlots = new Set(
+    pins.filter((p) => isPinProjectable(p, FOREIGN_LANGUAGE_503610A9)).map((p) => p.slot),
+  )
+  const perDate = new Map<string, number>()
+  let bailed = false
+  for (const p of projected) {
+    if (pinnedSlots.has(p.lesson_number)) continue
+    const count = (perDate.get(p.date) ?? 0) + 1
+    perDate.set(p.date, count)
+    if (count > 1) bailed = true
+  }
+  assert.equal(bailed, false, 'the reconciler must complete and write the cache')
+  assert.equal(perDate.get('2026-09-02'), undefined, '2026-09-02 holds only the two pins')
+})
+
+test('a stale pin is ignored identically by the projector and by the guard', () => {
+  // slot 3 <= current_lesson 7, so the projector places nothing for it and it
+  // reserves no capacity. The phase 2 guard reads the same helper, so the date
+  // is counted once (the fresh lesson) and not twice (pin + fresh lesson) —
+  // the double-count that produced 49 "overcapacity" dates on one goal.
+  const today = new Date('2026-08-18T00:00:00')
+  const stale: PinnedSlot[] = [{ slot: 3, date: '2026-09-09' }]
+
+  assert.equal(isPinProjectable(stale[0], FOREIGN_LANGUAGE_503610A9), false)
+
+  const withStale = computeNextLessonsForGoal(FOREIGN_LANGUAGE_503610A9, today, 3650, [], 0, stale)
+  const withNone = computeNextLessonsForGoal(FOREIGN_LANGUAGE_503610A9, today, 3650, [], 0, [])
+  assert.deepEqual(withStale, withNone, 'a stale pin changes nothing about the projection')
+
+  // The guard's pin tally, using the same helper: contributes zero.
+  const pinnedByDate: Record<string, number> = {}
+  for (const p of stale) {
+    if (!isPinProjectable(p, FOREIGN_LANGUAGE_503610A9)) continue
+    pinnedByDate[p.date] = (pinnedByDate[p.date] ?? 0) + 1
+  }
+  assert.deepEqual(pinnedByDate, {})
+
+  // And the date the stale pin names is an ordinary scheduled day again.
+  const onThatDay = withStale.filter((p) => p.date === '2026-09-09')
+  assert.equal(onThatDay.length, 1, 'exactly one scheduler-placed lesson, within the 1/day cap')
 })

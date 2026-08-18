@@ -213,6 +213,44 @@ Pinned rows above a reduced `total_lessons` are still deleted by the
 end-of-phase-2 cleanup: a pin says where a lesson belongs, not that it exists
 once the curriculum has been shortened past it.
 
+**A pin never counts as an overcapacity violation (August 2026).** Every per-day
+guard measures scheduler-placed lessons only. Three of them used to count pins
+and each one misread the Invariant 2 carve-out as corruption:
+
+- **The Schedule Builder's pre-write guard** seeded its day-counts from the
+  surviving pins, so two legitimate pins on one date read as `2 > 1` and the
+  save was refused. Goal `503610a9` has lessons 8 and 18 both pinned to
+  2026-09-02 on a 1/day goal, put there by bulk-move-to-one-day.
+- **Its post-write guard** counted pinned rows straight out of the database and
+  threw on the same shape.
+- **`reconcileGoalScheduleCache`** counted pinned slots in the projection, hit
+  the cap, and returned early — so the goal's `scheduled_date` cache was never
+  reconciled again. Stale dates on Today and Plan permanently, plus one Sentry
+  event per page load (`ROOTED-HOMESCHOOL-A`).
+
+Stacked pins are now reported once, from the save, as a Sentry **warning** with
+the dates attached. They are never thrown on. The projector already reserves a
+pinned date's capacity before it places anything unpinned, so a scheduler-placed
+lesson can still never stack on a full pinned day.
+
+**`isPinProjectable(pin, goal)` is the one definition of which pins hold a
+slot** — slot > `current_lesson` and <= `total_lessons`. A pin outside that range
+is stale: the projector emits nothing for it and reserves no capacity. The
+Schedule Builder's guard used to count those anyway, so a stale pin's date was
+tallied twice, once from the pin and once from the fresh lesson the projector
+had legitimately placed there. One goal reported 49 overcapacity dates that way,
+and 45 goals across 12 families still hold a pin in that shape. The projector and
+the guard now call the same helper. Do not write a fourth copy of the rule.
+
+**Assertions run before the delete.** Phase 2's floor delete used to run first
+and the capacity assertion several statements later, with no transaction between
+them. When the assertion threw, the delete had already committed and the family
+lost every future lesson that was not pinned or completed, with nothing
+re-inserted — deterministically, so the retry could not help. The save now plans
+the whole batch against a simulated post-delete row set and runs every assertion
+against it; the first destructive call happens only after they all pass. See the
+PLAN / COMMIT markers in `applyPhase2ForGoal`.
+
 **Test case:** the PINS block in `scheduler.test.ts` — pin honored and filled
 around in order, capacity never exceeded, fully pinned tail emitted verbatim,
 reconciler skips pinned rows, cascade+reconcile round-trip with zero writes. The
