@@ -66,7 +66,24 @@ export async function GET(request: Request) {
       // Keep the raw message in server logs for debugging, but translate
       // to a stable code for the user-facing URL so we never render raw
       // Supabase strings.
-      console.error('Code exchange failed:', exchangeError.message)
+      // Cookie NAMES only, never values — a verifier or session value in
+      // a log is a session-hijack primitive. The names alone split the two
+      // remaining causes: no `sb-` cookies at all means the flow came back
+      // into a different browser context than it started in (the iOS
+      // native-shell / standalone-PWA hand-off); a session cookie present
+      // but no code-verifier means something deleted the verifier in-flight.
+      console.error(
+        'Code exchange failed:',
+        exchangeError.message,
+        JSON.stringify({
+          sbCookies: cookieStore
+            .getAll()
+            .map((c) => c.name)
+            .filter((n) => n.startsWith('sb-')),
+          ua: request.headers.get('user-agent'),
+          host: requestUrl.host,
+        }),
+      )
       const code = mapAuthErrorToCode(exchangeError.message)
       return NextResponse.redirect(
         new URL(`/login?error=${code}`, BASE_URL)

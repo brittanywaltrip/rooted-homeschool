@@ -20,6 +20,18 @@ export async function middleware(request: NextRequest) {
 
   // Bypass session refresh for routes that authenticate by other means
   // or are intentionally for unauthenticated visitors:
+  //   /auth/callback      — owns the auth cookies for its own request.
+  //     THIS ONE IS LOAD-BEARING, do not remove it. The callback route
+  //     builds its own server client and calls exchangeCodeForSession,
+  //     which reads the PKCE code-verifier cookie. If the middleware runs
+  //     getUser() first and that call fails (stale, chunk-damaged or
+  //     already-rotated session cookie), @supabase/ssr calls _removeSession
+  //     — and _removeSession deletes `<storageKey>-code-verifier` along
+  //     with the session. The verifier is then gone before the route
+  //     handler ever runs, and the family lands on
+  //     /login?error=pkce_cross_device. Reproduced against production on
+  //     2026-08-18. It also signs out families who arrived holding a stale
+  //     cookie, which is why 22 existing users were ejected mid-session.
   //   /api/stripe/webhook — Stripe-Signature header verification
   //   /api/cron           — Vercel cron secret
   //   /family/*           — token-based public viewer for grandparents
@@ -30,6 +42,7 @@ export async function middleware(request: NextRequest) {
   // Doing auth work here would be wasted overhead at best and could
   // interfere with the family viewer's anon-by-design flow.
   if (
+    pathname.startsWith('/auth/callback') ||
     pathname.startsWith('/api/stripe/webhook') ||
     pathname.startsWith('/api/cron') ||
     pathname.startsWith('/family') ||
@@ -62,9 +75,18 @@ export async function middleware(request: NextRequest) {
   // requests: client-side navigation in the dashboard is an RSC fetch, and
   // skipping those would starve the refresh and reintroduce the original
   // expiry bug this middleware was written to fix.
+  // The PKCE code-verifier cookie is literally named
+  // `<storageKey>-auth-token-code-verifier`, so a naive startsWith('sb-')
+  // + includes('auth-token') test matches it and lets a mid-OAuth visitor
+  // through to getUser() with no session to refresh. Exclude it explicitly.
   const hasAuthCookie = request.cookies
     .getAll()
-    .some((c) => c.name.startsWith('sb-') && c.name.includes('auth-token'))
+    .some(
+      (c) =>
+        c.name.startsWith('sb-') &&
+        c.name.includes('auth-token') &&
+        !c.name.includes('code-verifier'),
+    )
   if (!hasAuthCookie) {
     return NextResponse.next()
   }
