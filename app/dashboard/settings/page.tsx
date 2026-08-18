@@ -11,7 +11,7 @@ import { useProfile } from "@/lib/profile-context";
 import { canShareFamily, getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { useIsNativeApp } from "@/lib/platform";
 import { posthog } from "@/lib/posthog";
-import { capitalizeName, capitalizeChildNames } from "@/lib/utils";
+import { capitalizeName, capitalizeChildNames, childNameKey } from "@/lib/utils";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { formatMonthKey, currentMonthKey, monthKeyFromISO, buildMonthlyEarnings } from "@/lib/commission-month";
 
@@ -855,7 +855,7 @@ export default function SettingsPage() {
     if (!user) return;
 
     const maxOrder = children.reduce((m, c) => Math.max(m, c.sort_order ?? 0), 0);
-    const nameKey  = newName.trim().toLowerCase().replace(/\s+/g, "_");
+    const nameKey  = childNameKey(newName);
 
     const { data, error } = await supabase
       .from("children")
@@ -982,14 +982,32 @@ export default function SettingsPage() {
         .eq("archived", false)
         .neq("id", id);
 
+      // name_key MUST move with the name. It is derived from the name on
+      // insert and backs its own unique index, so leaving it behind on a
+      // rename made the two indexes disagree about what this child is called:
+      // "Bob" renamed to "Robert" kept name_key = "bob", and the family was
+      // then refused a genuinely new "Bob" against a list showing no Bob.
+      const updatedNameKey = childNameKey(updatedName);
+
       const { error } = await supabase
         .from("children")
-        .update({ name: updatedName, color: updatedColor })
+        .update({ name: updatedName, color: updatedColor, name_key: updatedNameKey })
         .eq("id", id);
 
       if (error) {
-        console.error("[Settings] Child update failed:", error.message);
-        setEditError(error.message.includes("unique") ? "That name is already taken." : "Save failed, try again.");
+        // Now that name_key moves, renaming onto a name a LIVE sibling already
+        // holds raises 23505 where it used to succeed and leave the row
+        // inconsistent. Refusing is right; showing raw Postgres text is not.
+        // Same mapping addChild uses.
+        captureSupabaseError("Child update failed", error, {
+          tags: { fn: "saveEdit" },
+          extra: { childId: id, nameKey: updatedNameKey },
+        });
+        setEditError(
+          (error as { code?: string }).code === "23505"
+            ? "You already have a child with that name. Try adding a last initial."
+            : "Couldn't save that change. Please try again.",
+        );
         return;
       }
 
