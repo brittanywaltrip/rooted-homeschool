@@ -166,24 +166,29 @@ export async function DELETE(req: NextRequest) {
     // ── 7b. Delete vacation_blocks ──────────────────────────────
     // THIS IS THE STEP WHOSE ABSENCE BROKE ACCOUNT DELETION.
     //
-    // Every other public table that references auth.users(id) is
-    // ON DELETE CASCADE, so step 10 sweeps them. vacation_blocks is
-    // the single exception: vacation_blocks_user_id_fkey is
-    // ON DELETE NO ACTION. Any user who has ever added one break
-    // therefore hits a foreign-key violation at step 10:
-    // supabaseAdmin.auth.admin.deleteUser fails, this route returns
-    // 500, and the account is left in the worst possible state: all
+    // History: vacation_blocks_user_id_fkey used to be ON DELETE
+    // NO ACTION, the single exception among the public tables that
+    // reference auth.users(id) (every other one is ON DELETE CASCADE
+    // and gets swept by step 10). Any user who had ever added one
+    // break therefore hit a foreign-key violation at step 10:
+    // supabaseAdmin.auth.admin.deleteUser failed, this route returned
+    // 500, and the account was left in the worst possible state: all
     // their data wiped by steps 1-8, but their login still working.
     //
     // That is exactly what happened to a paying user on August 7,
     // 2026 (one vacation block, added May 3). She retried, got the
     // same 500, and signed back in on August 12 to an empty account.
-    // 82 accounts currently hold vacation blocks and would fail the
+    // 82 accounts held vacation blocks and would have failed the
     // same way.
     //
-    // Deleting them here, before the auth delete, keeps the fix in
-    // app code. Flipping the constraint to ON DELETE CASCADE would
-    // be the deeper fix and is worth doing separately.
+    // The constraint has since been fixed: verified against the live
+    // database on August 18, 2026, vacation_blocks_user_id_fkey is
+    // now ON DELETE CASCADE, so step 10 would sweep these rows on its
+    // own. This app-level delete is retained as belt-and-braces. It is
+    // idempotent, it costs one query, and it keeps the deletion
+    // working even if the constraint is ever recreated without the
+    // CASCADE. Do not remove it on the grounds that the FK now
+    // handles it.
     await supabaseAdmin.from("vacation_blocks").delete().eq("user_id", userId);
 
     // ── 8. Delete profile ───────────────────────────────────────

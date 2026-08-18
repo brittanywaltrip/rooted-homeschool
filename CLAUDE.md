@@ -323,6 +323,21 @@ Step 5: Done + Brittany founder closing moment
   removed July 2026). Do not use "with love" in any copy anywhere.
 - No emoji overuse — meaningful only
 
+## Migrations are applied by hand, never by a deploy
+
+Migrations in `supabase/migrations/` do NOT run automatically on deploy. There
+is no CI step for them. Merging a migration file changes nothing in the live
+database: every migration must be applied to the live database explicitly,
+either through the Supabase MCP (`apply_migration`) or the Supabase SQL editor.
+
+The consequence is that repo order and live order can drift in both directions.
+Several 2026-08-18 migrations were applied via the Supabase MCP before their
+files landed in the repo, so those files are a record of an already-applied
+change, not an instruction to run one. Any migration whose header says ALREADY
+APPLIED must not be re-run. Before writing a migration that alters an existing
+constraint, index, or policy, check the live state first: it may already be
+what you are about to change it to.
+
 ## Database key tables
 - profiles: user settings, plan_type, school_days (text[] of weekday labels:
   "monday".."sunday"), family_photo_url, last_catchup_dismissed_at
