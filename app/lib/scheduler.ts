@@ -291,17 +291,39 @@ export async function reconcileGoalScheduleCache(
     );
     if (projected.length === 0) return;
 
-    // Projector regression guard: the projection assigns at most
-    // lessons_per_day (or the per-DOW override) lessons to any date. If a date
-    // ever exceeds that ceiling the projector has regressed — skip this goal
-    // rather than write a bunched cache, and surface it loudly.
+    // Projector regression guard: the SCHEDULER assigns at most lessons_per_day
+    // (or the per-DOW override) lessons to any date. If a date ever exceeds
+    // that ceiling the projector has regressed — skip this goal rather than
+    // write a bunched cache, and surface it loudly.
+    //
+    // Pinned slots are exempt, and the exemption is the whole point. A pin is
+    // the family saying "this lesson goes on this day", and stacking is
+    // supported: bulk-move-to-one-day puts N lessons on one date on purpose
+    // (see the "Invariant 2 carve-out for manual moves" section of
+    // docs/CURRICULUM-SCHEDULING.md — auto-scheduling never bunches, only the
+    // user can). Counting pins here read that choice as a projector regression
+    // and returned early, which meant the goal's scheduled_date cache was never
+    // reconciled again: stale dates on Today and Plan forever, and a Sentry
+    // event on every single page load. Goal 503610a9 has lessons 8 and 18 both
+    // pinned to 2026-09-02 on a 1/day goal and fired exactly that way.
+    //
+    // Not reported from here. This runs on every page load, so a warning would
+    // reproduce the noise the guard was creating; the Schedule Builder reports
+    // stacked pins once, at the save that is actually changing something.
     let maxPerDay = goal.lessons_per_day ?? 1;
     for (const v of Object.values(goal.lessons_per_day_overrides ?? {})) {
       const n = typeof v === "number" ? v : Number(v);
       if (Number.isFinite(n)) maxPerDay = Math.max(maxPerDay, n);
     }
+    // isPinProjectable is the same rule the projector applied when it decided
+    // which of these pins to place, so this set can never disagree with what
+    // came back in `projected`.
+    const pinnedSlots = new Set(
+      pins.filter((p) => isPinProjectable(p, goal)).map((p) => p.slot),
+    );
     const perDate = new Map<string, number>();
     for (const p of projected) {
+      if (pinnedSlots.has(p.lesson_number)) continue;
       const count = (perDate.get(p.date) ?? 0) + 1;
       perDate.set(p.date, count);
       if (count > maxPerDay) {
@@ -964,6 +986,43 @@ export interface PinnedSlot {
   date: string;
 }
 
+/**
+ * Config `isPinProjectable` needs. Kept narrower than CurriculumGoalConfig so
+ * the Schedule Builder can ask the question with the numbers it already has in
+ * hand, rather than assembling a whole projector config to answer it.
+ */
+export interface PinProjectabilityConfig {
+  current_lesson: number;
+  total_lessons: number;
+}
+
+/**
+ * Does the projector place this pin?
+ *
+ * A pin only means something while its slot is still in the queue. A slot at or
+ * below `current_lesson` is already finished — completed rows are never
+ * re-dated, so there is no row left for the pin to place. A slot past
+ * `total_lessons` has no row at all. Those are STALE pins: the projector emits
+ * nothing for them and they reserve no capacity on their date.
+ *
+ * This is the single definition of that rule, and it must stay that way.
+ * `computeNextLessonsForGoal` calls it to decide which pins occupy a date; the
+ * Schedule Builder's phase 2 guard calls it to decide which pins to count.
+ * While the guard had its own (absent) copy, a stale pin was counted by the
+ * guard on a date the projector had already filled with a fresh lesson, so the
+ * day read as doubly booked and the save was refused — one goal reported 49
+ * overcapacity dates that way, and 45 goals across 12 families still carry a
+ * pin in this shape (August 2026).
+ */
+export function isPinProjectable(
+  pin: { slot: number },
+  goal: PinProjectabilityConfig,
+): boolean {
+  if (pin.slot <= goal.current_lesson) return false;
+  if (pin.slot > goal.total_lessons) return false;
+  return true;
+}
+
 /** The lesson columns needed to derive a pin. */
 export interface PinnableRow {
   queue_position?: number | null;
@@ -1339,8 +1398,9 @@ export function computeNextLessonsForGoal(
   const pinDateBySlot = new Map<number, string>();
   const used = new Map<string, number>();
   for (const p of pins) {
-    if (p.slot <= goal.current_lesson) continue;
-    if (p.slot > goal.total_lessons) continue;
+    // isPinProjectable is the one definition of "the projector places this
+    // pin" — the Schedule Builder's phase 2 guard reads the same helper.
+    if (!isPinProjectable(p, goal)) continue;
     if (pinDateBySlot.has(p.slot)) continue; // first pin per slot wins, deterministically
     pinDateBySlot.set(p.slot, p.date);
     used.set(p.date, (used.get(p.date) ?? 0) + 1);

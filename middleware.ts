@@ -32,6 +32,15 @@ export async function middleware(request: NextRequest) {
   //     /login?error=pkce_cross_device. Reproduced against production on
   //     2026-08-18. It also signs out families who arrived holding a stale
   //     cookie, which is why 22 existing users were ejected mid-session.
+  //   /api/auth/*         — server-side sign-in. Same reason as
+  //     /auth/callback above: the route builds its own server client and
+  //     writes the session cookies for its own request. If the middleware
+  //     runs getUser() first with the family's stale cookie, @supabase/ssr
+  //     calls _removeSession and emits Max-Age=0 deletion cookies onto the
+  //     same response the login route just wrote fresh cookies onto. The
+  //     password was correct, the session was created server-side, and the
+  //     family still lands back on /login. Measured in production: 25 cases
+  //     in 21 days of one user creating two sessions 17-45s apart.
   //   /api/stripe/webhook — Stripe-Signature header verification
   //   /api/cron           — Vercel cron secret
   //   /family/*           — token-based public viewer for grandparents
@@ -43,6 +52,7 @@ export async function middleware(request: NextRequest) {
   // interfere with the family viewer's anon-by-design flow.
   if (
     pathname.startsWith('/auth/callback') ||
+    pathname.startsWith('/api/auth/') ||
     pathname.startsWith('/api/stripe/webhook') ||
     pathname.startsWith('/api/cron') ||
     pathname.startsWith('/family') ||

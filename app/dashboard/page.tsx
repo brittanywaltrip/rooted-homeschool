@@ -25,6 +25,7 @@ import SignedImage from "@/components/SignedImage";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { schoolNameFor } from "@/lib/school-name";
 import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
@@ -1423,12 +1424,14 @@ export default function TodayPage() {
         const [{ data: lessons }, { data: memories }, { data: prof }] = await Promise.all([
           supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true),
           supabase.from("memories").select("id, type, child_id, title, date").eq("user_id", effectiveUserId),
-          supabase.from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle(),
+          supabase.from("profiles").select("display_name, last_name").eq("id", effectiveUserId).maybeSingle(),
         ]);
         const allDates = new Set<string>();
         for (const l of (lessons || []) as { date?: string }[]) { if (l.date) allDates.add(l.date); }
         const displayName = (prof as { display_name?: string } | null)?.display_name || "";
-        const academy = displayName ? `${displayName} Academy` : "Family Academy";
+        const lastName = (prof as { last_name?: string } | null)?.last_name || "";
+        // Certificates render this verbatim. See lib/school-name.ts.
+        const academy = schoolNameFor(displayName, lastName);
 
         const appData = {
           children: children.map(c => ({ id: c.id, name: c.name })),
@@ -1659,7 +1662,7 @@ export default function TodayPage() {
         const goal = missedGoals.find((g) => g.id === entry.goal_id);
         const goalRow = await supabase
           .from("curriculum_goals")
-          .select("child_id, subject_label, default_minutes, subject_id")
+          .select("child_id, subject_label, default_minutes")
           .eq("id", entry.goal_id)
           .maybeSingle();
         if (goalRow.error) {
@@ -1708,8 +1711,20 @@ export default function TodayPage() {
           );
           continue;
         }
-        const subjectId = (goalRow.data as { subject_id?: string | null })?.subject_id ?? null;
-        const defaultMinutes = (goalRow.data as { default_minutes?: number | null })?.default_minutes ?? 30;
+        // curriculum_goals has no subject_id column, only subject_label. The
+        // real id comes from matching that label against the already-loaded
+        // subjects state, same case-insensitive lookup saveEdit() uses. No
+        // match means null, which is what this line always produced before.
+        const goalSubjectLabel = (goalRow.data as { subject_label?: string | null } | null)?.subject_label ?? null;
+        const matchedSubject = goalSubjectLabel?.trim()
+          ? subjects.find((s) => s.name.toLowerCase() === goalSubjectLabel.trim().toLowerCase())
+          : undefined;
+        const subjectId = matchedSubject?.id ?? null;
+        // The goal's own pacing, not a flat 30. Pre-fix goalRow.data was always
+        // null (the select above 400'd), so every recovered lesson logged 30
+        // minutes regardless of what the family had set.
+        const defaultMinutes =
+          (goalRow.data as { default_minutes?: number | null } | null)?.default_minutes ?? 30;
         await supabase.from("lessons").insert({
           user_id: effectiveUserId,
           curriculum_goal_id: entry.goal_id,

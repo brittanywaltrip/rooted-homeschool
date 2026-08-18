@@ -177,7 +177,26 @@ export function resolveCertContent(
   const content = resolveCertContentInner(type, data);
   // Merge personal note from data if not already set by the specific type
   if (data.note && !content.note) content.note = data.note;
+  // "custom" bodyText is the parent's own words. Never rewrite those.
+  if (type !== "custom") content.bodyText = trimDanglingConnector(content.bodyText);
   return content;
+}
+
+/**
+ * Body copy is assembled from optional fields, so a missing one can leave a
+ * sentence hanging on its preposition. A family with no saved name gets an
+ * empty academyName, which turns "completed 3rd Grade at ${academyName}" into
+ * "completed 3rd Grade at ". Drop the orphaned connector and any stray comma
+ * or dash so the line simply ends. See lib/school-name.ts for why the name
+ * can legitimately be empty.
+ */
+function trimDanglingConnector(bodyText: string): string {
+  return bodyText
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\s,\u2013\u2014-]*\b(?:at|with|for|of|to|on|through|together with|and)\s*$/i, "")
+    .replace(/[\s,\u2013\u2014-]+$/, "")
+    .trim();
 }
 
 function resolveCertContentInner(

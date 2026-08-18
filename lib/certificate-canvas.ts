@@ -124,7 +124,7 @@ function drawGarden(ctx: CanvasRenderingContext2D, content: CertContent, data: R
   ctx.fillStyle = "#C4962A";
   ctx.font = '18px "Cormorant Garamond"';
   ctx.letterSpacing = "3px";
-  drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, 100);
+  drawCenteredText(ctx, (data.academyName || "").toUpperCase(), cx, 100);
   ctx.letterSpacing = "0px";
 
   // Top divider
@@ -226,7 +226,7 @@ function drawHeritage(ctx: CanvasRenderingContext2D, content: CertContent, data:
   ctx.fillStyle = "#1A3A2A";
   ctx.font = '18px "Playfair Display"';
   ctx.letterSpacing = "3px";
-  drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, 100);
+  drawCenteredText(ctx, (data.academyName || "").toUpperCase(), cx, 100);
   ctx.letterSpacing = "0px";
 
   // Diamond divider
@@ -316,7 +316,7 @@ function drawArtisan(ctx: CanvasRenderingContext2D, content: CertContent, data: 
   ctx.fillStyle = "#C4613A";
   ctx.font = '300 18px "Jost"';
   ctx.letterSpacing = "5px";
-  drawCenteredText(ctx, (data.academyName || "Family Academy").toUpperCase(), cx, 80);
+  drawCenteredText(ctx, (data.academyName || "").toUpperCase(), cx, 80);
   ctx.letterSpacing = "0px";
 
   // Thin divider
@@ -574,7 +574,7 @@ async function drawIdCardGarden(ctx: CanvasRenderingContext2D, data: IdCardData)
   ctx.font = '10px "Cormorant Garamond"';
   ctx.textAlign = "center";
   ctx.letterSpacing = "1.5px";
-  ctx.fillText((data.schoolName || "Family Academy").toUpperCase(), W / 2, 24);
+  ctx.fillText((data.schoolName || "").toUpperCase(), W / 2, 24);
   ctx.letterSpacing = "0px";
 
   // Photo
@@ -650,7 +650,7 @@ async function drawIdCardHeritage(ctx: CanvasRenderingContext2D, data: IdCardDat
   ctx.font = '10px "Playfair Display"';
   ctx.textAlign = "center";
   ctx.letterSpacing = "1.5px";
-  ctx.fillText((data.schoolName || "Family Academy").toUpperCase(), W / 2, 22);
+  ctx.fillText((data.schoolName || "").toUpperCase(), W / 2, 22);
   ctx.letterSpacing = "0px";
 
   // Divider
@@ -728,7 +728,7 @@ async function drawIdCardArtisan(ctx: CanvasRenderingContext2D, data: IdCardData
   ctx.fillStyle = "#C4613A";
   ctx.font = '300 8px "Jost"';
   ctx.letterSpacing = "2px";
-  ctx.fillText((data.schoolName || "Family Academy").toUpperCase(), tx, 40);
+  ctx.fillText((data.schoolName || "").toUpperCase(), tx, 40);
   ctx.letterSpacing = "0px";
 
   // Name — hero
@@ -782,7 +782,7 @@ function drawIdCardBackGarden(ctx: CanvasRenderingContext2D, data: IdCardData) {
   ctx.fillStyle = "#2D5016";
   ctx.font = '12px "Cormorant Garamond"';
   ctx.letterSpacing = "2px";
-  ctx.fillText((data.schoolName || "Family Academy").toUpperCase(), W / 2, 50);
+  ctx.fillText((data.schoolName || "").toUpperCase(), W / 2, 50);
   ctx.letterSpacing = "0px";
 
   drawDivider(ctx, W / 2, 62, 120, "#C4962A");
@@ -820,7 +820,7 @@ function drawIdCardBackHeritage(ctx: CanvasRenderingContext2D, data: IdCardData)
   ctx.fillStyle = "#1A3A2A";
   ctx.font = '12px "Playfair Display"';
   ctx.letterSpacing = "2px";
-  ctx.fillText((data.schoolName || "Family Academy").toUpperCase(), W / 2, 50);
+  ctx.fillText((data.schoolName || "").toUpperCase(), W / 2, 50);
   ctx.letterSpacing = "0px";
 
   drawDivider(ctx, W / 2, 62, 120, "#B8860B");
@@ -855,7 +855,7 @@ function drawIdCardBackArtisan(ctx: CanvasRenderingContext2D, data: IdCardData) 
   ctx.fillStyle = "#C4613A";
   ctx.font = '300 10px "Jost"';
   ctx.letterSpacing = "3px";
-  ctx.fillText((data.schoolName || "Family Academy").toUpperCase(), W / 2, 50);
+  ctx.fillText((data.schoolName || "").toUpperCase(), W / 2, 50);
   ctx.letterSpacing = "0px";
 
   drawDivider(ctx, W / 2, 62, 80, "#e0d8d0");

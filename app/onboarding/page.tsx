@@ -8,6 +8,33 @@ import { capitalizeName } from "@/lib/utils";
 import { normalizeAffiliateCode } from "@/lib/referrals";
 import { posthog } from "@/lib/posthog";
 
+/**
+ * Was this signed-in account previously deleted?
+ *
+ * deleted_accounts is service-role only (lib/deleted-account.ts), so the
+ * browser cannot read it and must not hold the service key.
+ * /api/account/deleted-status already answers this for /welcome-back.
+ *
+ * A failed lookup returns false and falls through to the wizard, which is the
+ * pre-existing behaviour. Never blocks a family from onboarding.
+ */
+async function wasAccountDeleted(
+  supabase: ReturnType<typeof createSupabaseBrowserClient>,
+): Promise<boolean> {
+  try {
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) return false;
+    const res = await fetch("/api/account/deleted-status", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return false;
+    const body = (await res.json()) as { wasDeleted?: boolean; hasProfile?: boolean };
+    return Boolean(body.wasDeleted) && !body.hasProfile;
+  } catch {
+    return false;
+  }
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CHILD_COLORS = [
@@ -587,6 +614,24 @@ export default function OnboardingPage() {
       if ((profile as { onboarded?: boolean | null } | null)?.onboarded === true && !celebrationReadyRef.current) {
         router.replace("/dashboard");
         return;
+      }
+
+      // Second open door for a deleted family. /dashboard's gate sends
+      // no-profile users here, and this page is reachable directly besides,
+      // so without the same check a family whose account was deleted but
+      // whose auth.users row survived gets the new-family wizard and quietly
+      // restarts on a fresh trial. See lib/deleted-account.ts.
+      //
+      // Gated on !profile, so it never runs for a normal new signup: the auth
+      // callback writes the profile row before anyone reaches this page, and
+      // "start fresh" writes one too, which is what stops this becoming a
+      // redirect loop with /welcome-back.
+      if (!profile) {
+        const deleted = await wasAccountDeleted(supabase);
+        if (deleted) {
+          router.replace("/welcome-back");
+          return;
+        }
       }
 
       setUserId(user.id);

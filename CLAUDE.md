@@ -50,6 +50,19 @@ The Google OAuth flow broke multiple times because these rules weren't documente
    `startsWith('sb-') && includes('auth-token')` test matches it and treats a
    mid-OAuth visitor as though they had a session.
 
+9. Any route that builds its own Supabase server client and writes session
+   cookies MUST be in the middleware bypass list in `middleware.ts`. Today that
+   is `/auth/callback` and `/api/auth/*`. If you add another one, add it to the
+   bypass list in the same commit. `/api/auth/login` was missed when guard 7
+   landed: the middleware ran `getUser()` on the family's stale cookie,
+   `@supabase/ssr` called `_removeSession`, and the resulting `Max-Age=0`
+   deletion cookies were merged onto the same response the login route had just
+   written fresh session cookies onto. The password was correct and the family
+   still landed back on `/login`. Production showed 25 cases in 21 days of one
+   user creating two sessions 17 to 45 seconds apart. Routes that only READ the
+   session (a no-op `setAll()`, e.g. `/api/stripe/portal` and
+   `/api/family/preview`) do not need bypassing.
+
 ### Auth file manifest — these files are the only ones touching auth:
 - app/auth/callback/route.ts
 - middleware.ts  (runs getUser() on every non-bypassed request)

@@ -67,6 +67,39 @@ function NavLink({
   );
 }
 
+/**
+ * Was this signed-in account previously deleted?
+ *
+ * deleted_accounts is service-role only and deliberately unreadable by anon
+ * and authenticated (see lib/deleted-account.ts), so the browser cannot query
+ * it directly and must not be handed the service key. /api/account/deleted-status
+ * already exposes exactly this, service-role side, for /welcome-back; this
+ * reuses it rather than adding a second route that answers the same question.
+ *
+ * Never throws and never blocks the gate. A failed lookup returns false, which
+ * falls through to the pre-existing onboarding path, which is the bug being
+ * fixed, not a locked-out family. Same rule findDeletedAccount applies on the server.
+ */
+async function wasAccountDeleted(
+  supabase: ReturnType<typeof createSupabaseBrowserClient>,
+): Promise<boolean> {
+  try {
+    const token = (await supabase.auth.getSession()).data.session?.access_token;
+    if (!token) return false;
+    const res = await fetch("/api/account/deleted-status", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return false;
+    const body = (await res.json()) as { wasDeleted?: boolean; hasProfile?: boolean };
+    // hasProfile guards the "start fresh" case: once that POST has written a
+    // profile row the family belongs in onboarding, not back on the
+    // explanation page. Without it they could not get out.
+    return Boolean(body.wasDeleted) && !body.hasProfile;
+  } catch {
+    return false;
+  }
+}
+
 function nameInitial(name: string): string {
   const stripped = name.replace(/^the\s+/i, "").replace(/\s+family$/i, "").trim();
   return stripped ? stripped.charAt(0).toUpperCase() : "🌿";
@@ -152,6 +185,26 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       // Gate: send new (no profile yet) or non-onboarded users through the wizard
       // onboarded is NULL for new users (not false), so check !== true
       if (!profile || (profile as { onboarded?: boolean | null } | null)?.onboarded !== true) {
+        // No profile row usually means "new family". It also means "this
+        // account was deleted but its auth.users row survived the wipe" (see
+        // lib/deleted-account.ts), and handing THAT family the new-family
+        // wizard silently restarts them: fresh trial, no word about the year
+        // of memories that is gone. app/api/auth/login/route.ts and
+        // app/auth/callback/route.ts already separate the two cases; this
+        // gate did not, so any other way into /dashboard (live session,
+        // bookmark, PWA icon, email link) walked straight past it.
+        //
+        // Only runs when there is genuinely no profile row. Families with a
+        // profile, meaning everyone who is fine, reach the code below without
+        // an extra request.
+        if (!profile) {
+          const deleted = await wasAccountDeleted(supabase);
+          if (!mounted) return;
+          if (deleted) {
+            router.replace("/welcome-back");
+            return;
+          }
+        }
         router.replace("/onboarding");
         return;
       }

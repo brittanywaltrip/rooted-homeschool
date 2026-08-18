@@ -9,6 +9,7 @@ import PageHero from "@/app/components/PageHero";
 import { AWARD_META } from "@/lib/certificate-templates";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { schoolNameFor } from "@/lib/school-name";
 import { canExport } from "@/lib/user-access";
 import ExportGateModal from "@/app/components/ExportGateModal";
 
@@ -56,9 +57,9 @@ function formatDate(): string {
   return new Date().toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 }
 
-function makeParentDefaults(familyName: string, state: string): CardFields {
+function makeParentDefaults(schoolName: string, state: string): CardFields {
   return {
-    schoolName: familyName ? `${familyName} Academy` : "Family Academy",
+    schoolName,
     name: "",
     title: "Homeschool Administrator",
     schoolYear: currentYearRange(),
@@ -67,9 +68,9 @@ function makeParentDefaults(familyName: string, state: string): CardFields {
   };
 }
 
-function makeChildDefaults(childName: string, familyName: string, state: string): CardFields {
+function makeChildDefaults(childName: string, schoolName: string, state: string): CardFields {
   return {
-    schoolName: familyName ? `${familyName} Academy` : "Family Academy",
+    schoolName,
     name: childName,
     title: "Student",
     schoolYear: currentYearRange(),
@@ -147,9 +148,11 @@ function CardPreview({
         <div style={{ position: "absolute", inset: s(5), border: `${s(1)}px solid #C4962A`, pointerEvents: "none" }} />
         {photoSlot}
         <div style={{ flex: 1, zIndex: 1, lineHeight: 1.4, paddingRight: s(showSlot ? 10 : 14), paddingLeft: showSlot ? 0 : s(14), textAlign: showSlot ? "left" : "center" }}>
-          <p style={{ fontSize: s(7.5), color: "#C4962A", letterSpacing: s(0.8), textTransform: "uppercase", margin: `0 0 ${s(3)}px` }}>
-            {fields.schoolName || "Family Academy"}
-          </p>
+          {fields.schoolName && (
+            <p style={{ fontSize: s(7.5), color: "#C4962A", letterSpacing: s(0.8), textTransform: "uppercase", margin: `0 0 ${s(3)}px` }}>
+              {fields.schoolName}
+            </p>
+          )}
           <p style={{ fontSize: s(11), fontWeight: "bold", color: "#2d2926", margin: `0 0 ${s(1)}px`, lineHeight: 1.2 }}>
             {fields.name || "Your Name"}
           </p>
@@ -181,9 +184,11 @@ function CardPreview({
         <div style={{ position: "absolute", inset: s(8), border: `${s(1)}px solid #1A3A2A`, pointerEvents: "none" }} />
         {photoSlot}
         <div style={{ flex: 1, zIndex: 1, lineHeight: 1.4, paddingRight: s(showSlot ? 10 : 14), paddingLeft: showSlot ? 0 : s(14), textAlign: showSlot ? "left" : "center" }}>
-          <p style={{ fontSize: s(7.5), color: "#1A3A2A", letterSpacing: s(0.8), fontVariant: "small-caps", margin: `0 0 ${s(3)}px` }}>
-            {fields.schoolName || "Family Academy"}
-          </p>
+          {fields.schoolName && (
+            <p style={{ fontSize: s(7.5), color: "#1A3A2A", letterSpacing: s(0.8), fontVariant: "small-caps", margin: `0 0 ${s(3)}px` }}>
+              {fields.schoolName}
+            </p>
+          )}
           <p style={{ fontSize: s(11), fontWeight: "bold", color: "#0a1a0a", margin: `0 0 ${s(1)}px`, lineHeight: 1.2, fontStyle: "italic" }}>
             {fields.name || "Your Name"}
           </p>
@@ -216,9 +221,11 @@ function CardPreview({
         <div style={{ flex: 1, display: "flex", flexDirection: "row", alignItems: "center" }}>
           {photoSlot}
           <div style={{ flex: 1, padding: `${s(6)}px ${s(8)}px`, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-            <p style={{ fontSize: s(6), color: "#C4613A", letterSpacing: s(1), textTransform: "uppercase", fontFamily: "'Jost', sans-serif", fontWeight: 300, margin: `0 0 ${s(2)}px` }}>
-              {fields.schoolName || "Family Academy"}
-            </p>
+            {fields.schoolName && (
+              <p style={{ fontSize: s(6), color: "#C4613A", letterSpacing: s(1), textTransform: "uppercase", fontFamily: "'Jost', sans-serif", fontWeight: 300, margin: `0 0 ${s(2)}px` }}>
+                {fields.schoolName}
+              </p>
+            )}
             <p style={{ fontSize: s(showSlot ? 12 : 14), fontStyle: "italic", color: "#2C2520", margin: `0 0 ${s(2)}px`, lineHeight: 1.2 }}>
               {fields.name || "Your Name"}
             </p>
@@ -558,6 +565,7 @@ export default function PrintablesPage() {
   const [activeStyle, setActiveStyle] = useState<StyleId>("garden");
   const [isPro, setIsPro] = useState<boolean | null>(null);
   const [familyName, setFamilyName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [stateCode, setStateCode] = useState("");
   const [children, setChildren] = useState<ChildData[]>([]);
   const [parentFields, setParentFields] = useState<CardFields | null>(null);
@@ -571,7 +579,7 @@ export default function PrintablesPage() {
   const [customName, setCustomName] = useState("");
   const [customTitle, setCustomTitle] = useState("");
   const [customText, setCustomText] = useState("");
-  const [customAcademy, setCustomAcademy] = useState("");
+  const [customSchoolName, setCustomSchoolName] = useState("");
   const [customDate, setCustomDate] = useState(todayStr());
   const [customDownloading, setCustomDownloading] = useState(false);
   const [errorToast, setErrorToast] = useState<string | null>(null);
@@ -592,19 +600,23 @@ export default function PrintablesPage() {
 
       const { data: profile } = await supabase
         .from("profiles")
-        .select("display_name, state, is_pro, printable_style, trial_started_at")
+        .select("display_name, last_name, state, is_pro, printable_style, trial_started_at")
         .eq("id", uid)
         .maybeSingle();
 
       const fName = (profile as Record<string, string> | null)?.display_name || "";
+      const lName = (profile as Record<string, string> | null)?.last_name || "";
+      // Rendered verbatim. See lib/school-name.ts: no " Academy" suffix, ever.
+      const resolvedSchoolName = schoolNameFor(fName, lName);
       const st = (profile as Record<string, string> | null)?.state || "";
       const savedStyle = (profile as Record<string, string> | null)?.printable_style;
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setTrialStartedAt((profile as any)?.trial_started_at ?? null);
       setFamilyName(fName);
+      setLastName(lName);
       setStateCode(st);
-      setParentFields(makeParentDefaults(fName, st));
-      setCustomAcademy(fName ? `${fName} Academy` : "Family Academy");
+      setParentFields(makeParentDefaults(resolvedSchoolName, st));
+      setCustomSchoolName(resolvedSchoolName);
       if (savedStyle && ["garden", "heritage", "artisan"].includes(savedStyle)) {
         setActiveStyle(savedStyle as StyleId);
       }
@@ -650,7 +662,7 @@ export default function PrintablesPage() {
       if (kidsArr[0]) { setGradChild(kidsArr[0].id); setSubjectChild(kidsArr[0].id); }
 
       const cardMap: Record<string, CardFields> = {};
-      for (const kid of kidsArr) cardMap[kid.id] = makeChildDefaults(kid.name, fName, st);
+      for (const kid of kidsArr) cardMap[kid.id] = makeChildDefaults(kid.name, resolvedSchoolName, st);
       setChildFields(cardMap);
 
       // (Awards are shown from full catalog, no earned_awards check needed)
@@ -698,7 +710,7 @@ export default function PrintablesPage() {
     try {
       await downloadCertificate("custom", activeStyle, {
         recipientName: customName, awardTitle: customTitle || "Certificate of Achievement",
-        awardText: customText, academyName: customAcademy, date: customDate,
+        awardText: customText, academyName: customSchoolName, date: customDate,
       });
     } catch (e) { console.error(e); showError(e); }
     finally { setCustomDownloading(false); }
@@ -712,7 +724,7 @@ export default function PrintablesPage() {
     try {
       const data = {
         childName: child.name, grade: gradGrade,
-        academyName: familyName ? `${familyName} Academy` : "Family Academy",
+        academyName: schoolName,
         schoolYear: currentYearRange(), date: todayStr(),
       };
       await downloadCertificate("graduation", activeStyle, data);
@@ -728,7 +740,7 @@ export default function PrintablesPage() {
     try {
       const data = {
         childName: child.name, subjectName,
-        academyName: familyName ? `${familyName} Academy` : "Family Academy",
+        academyName: schoolName,
         schoolYear: currentYearRange(), date: todayStr(),
       };
       await downloadCertificate("subject_mastery", activeStyle, data);
@@ -750,7 +762,7 @@ export default function PrintablesPage() {
     return true;
   }
 
-  const schoolName = familyName ? `${familyName} Academy` : "Family Academy";
+  const schoolName = schoolNameFor(familyName, lastName);
   const sampleFields: CardFields = {
     schoolName, name: "Sample Name", title: "Student",
     schoolYear: currentYearRange(), state: stateCode || "NV", showWatermark: false,
@@ -916,7 +928,7 @@ export default function PrintablesPage() {
           </div>
           <TextAreaInput label="What they accomplished" value={customText} onChange={setCustomText} placeholder="Write what makes this special..." />
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <FieldInput label="Academy Name" value={customAcademy} onChange={setCustomAcademy} />
+            <FieldInput label="School Name" value={customSchoolName} onChange={setCustomSchoolName} placeholder="e.g. The Waltrip Family" />
             <div>
               <label className="block text-[11px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-1">Date</label>
               <input type="date" value={customDate} onChange={e => setCustomDate(e.target.value)}
