@@ -25,6 +25,7 @@ import SignedImage from "@/components/SignedImage";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { schoolNameFor } from "@/lib/school-name";
 import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
@@ -1423,12 +1424,14 @@ export default function TodayPage() {
         const [{ data: lessons }, { data: memories }, { data: prof }] = await Promise.all([
           supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true),
           supabase.from("memories").select("id, type, child_id, title, date").eq("user_id", effectiveUserId),
-          supabase.from("profiles").select("display_name").eq("id", effectiveUserId).maybeSingle(),
+          supabase.from("profiles").select("display_name, last_name").eq("id", effectiveUserId).maybeSingle(),
         ]);
         const allDates = new Set<string>();
         for (const l of (lessons || []) as { date?: string }[]) { if (l.date) allDates.add(l.date); }
         const displayName = (prof as { display_name?: string } | null)?.display_name || "";
-        const academy = displayName ? `${displayName} Academy` : "Family Academy";
+        const lastName = (prof as { last_name?: string } | null)?.last_name || "";
+        // Certificates render this verbatim. See lib/school-name.ts.
+        const academy = schoolNameFor(displayName, lastName);
 
         const appData = {
           children: children.map(c => ({ id: c.id, name: c.name })),
