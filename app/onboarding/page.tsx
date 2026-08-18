@@ -174,13 +174,27 @@ function CelebrationStep({
 }) {
   const confettiFired = useRef(false);
 
-  // Direct the family to their first meaningful action. Planning takes
-  // precedence (covers "both/all"); memories-only routes to quick capture.
-  const includesPlanning = goals.includes("planning");
-  const primaryLabel = includesPlanning || !goals.includes("memories")
+  // Direct the family to their first meaningful action.
+  //
+  // This used to read "planning takes precedence (covers both/all)", which
+  // meant a family who ticked BOTH memories and planning was sent to the
+  // scheduler, and so was anyone who ticked neither. Of 125 families who
+  // onboarded between Jun 11 and Aug 17 2026, that routed 117 to
+  // /dashboard/plan and 8 to capture — including 47 who had explicitly
+  // said memories mattered to them. PostHog then showed 125 completers
+  // producing 12 first memories.
+  //
+  // Rooted is memory-book first and planner second (see CLAUDE.md
+  // Positioning). The default now matches the product: memories wins ties,
+  // and a family who selected nothing lands on Today rather than in a
+  // scheduling tool they never asked for. Planning-only families still go
+  // straight to the planner, which is what they asked for.
+  const includesMemories = goals.includes("memories");
+  const planningOnly = goals.includes("planning") && !includesMemories;
+  const primaryLabel = planningOnly
     ? "Add your first curriculum →"
     : "Capture your first memory →";
-  const primaryHref = includesPlanning || !goals.includes("memories")
+  const primaryHref = planningOnly
     ? "/dashboard/plan"
     : "/dashboard?capture=1";
 
@@ -534,6 +548,19 @@ export default function OnboardingPage() {
   const [celebrationReady, setCelebrationReady] = useState(false);
   const celebrationReadyRef = useRef(false);
   const authCheckDone = useRef(false);
+  const onboardingStartFired = useRef(false);
+
+  // Top-of-funnel marker.
+  //
+  // `user_signed_up` fires at the END of this wizard, not at account
+  // creation, so anyone who reaches onboarding and abandons before step 1
+  // has been completely invisible. That is the one population you most want
+  // to see. This fires once on mount, before any step is rendered.
+  useEffect(() => {
+    if (onboardingStartFired.current) return;
+    onboardingStartFired.current = true;
+    posthog.capture("onboarding_started");
+  }, []);
 
   // ── Auth + profile check ────────────────────────────────────────────────
 
