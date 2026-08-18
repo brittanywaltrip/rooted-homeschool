@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { useIsOAuthHandoffContext } from "@/lib/platform";
+import AppSignInNotice from "@/app/components/AppSignInNotice";
+import { posthog } from "@/lib/posthog";
 
 type View = "login" | "forgot" | "forgot-sent";
 
@@ -41,6 +44,7 @@ export default function LoginPage() {
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const oauthUnavailable = useIsOAuthHandoffContext();
   const [view,     setView]     = useState<View>(searchParams.get("reset") === "true" ? "forgot" : "login");
   const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
@@ -65,6 +69,25 @@ function LoginContent() {
 
   useEffect(() => {
     if (searchParams.get("error")) {
+      // Record the failure as a real event before we strip the param.
+      //
+      // Until now the ONLY trace of an auth failure was the `?error=` query
+      // string on a $pageview URL, which meant every analysis had to parse
+      // URLs, carried no provider attribution, and vanished the moment the
+      // param was stripped below. Between May and Aug 2026 that made a
+      // signup-blocking bug nearly invisible: 120 families hit
+      // pkce_cross_device, 48 never signed up, and it took URL archaeology
+      // to find. A named event with the context attached means the next one
+      // shows up in a funnel instead.
+      posthog.capture("auth_error", {
+        reason: searchParams.get("error"),
+        // Which context the failure landed in. The distinction that matters
+        // is whether the round trip came back to the browser that started
+        // it; see useIsOAuthHandoffContext.
+        handoff_context: oauthUnavailable,
+        referrer: typeof document !== "undefined" ? document.referrer : null,
+      });
+
       // Strip the error param so a refresh doesn't keep showing the notice.
       // We've already captured it into local state above.
       const url = new URL(window.location.href);
@@ -117,6 +140,11 @@ function LoginContent() {
       provider: "apple",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        // CLAUDE.md auth invariant 5: every signInWithOAuth call keeps an
+        // account-picker prompt so families with more than one account can
+        // choose. Apple's parameter is `prompt=login`, not Google's
+        // `select_account`.
+        queryParams: { prompt: "login" },
       },
     });
     if (error) console.error("Apple sign in error:", error);
@@ -210,6 +238,10 @@ function LoginContent() {
               <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Welcome back</h1>
               <p className="text-sm text-[#7a6f65] mb-5">Good to see you again.</p>
 
+              {/* OAuth is hidden inside the native shell and the home-screen
+                  PWA, where the round trip cannot return to us. See
+                  useIsOAuthHandoffContext. Web keeps both buttons. */}
+              {oauthUnavailable ? <AppSignInNotice /> : <>
               <button
                 type="button"
                 onClick={async () => {
@@ -238,6 +270,7 @@ function LoginContent() {
                 </svg>
                 Sign in with Apple
               </button>
+              </>}
 
               <div className="flex items-center gap-3 my-1">
                 <div className="flex-1 h-px bg-[#e8e2d9]" />

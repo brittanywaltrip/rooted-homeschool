@@ -5,8 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { useIsOAuthHandoffContext } from "@/lib/platform";
+import AppSignInNotice from "@/app/components/AppSignInNotice";
 
 export default function SignupPage() {
+  // OAuth cannot complete inside the native shell or the home-screen PWA.
+  // See useIsOAuthHandoffContext in lib/platform.ts.
+  const oauthUnavailable = useIsOAuthHandoffContext();
   const router = useRouter();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -130,6 +135,11 @@ export default function SignupPage() {
       provider: "apple",
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
+        // CLAUDE.md auth invariant 5: every signInWithOAuth call keeps an
+        // account-picker prompt so families with more than one account can
+        // choose. Apple's parameter is `prompt=login`, not Google's
+        // `select_account`.
+        queryParams: { prompt: "login" },
       },
     });
     if (error) console.error("Apple sign in error:", error);
@@ -228,6 +238,10 @@ export default function SignupPage() {
             <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Create your account</h1>
             <p className="text-sm text-[#7a6f65] mb-5">Start your family&apos;s learning journey.</p>
 
+            {/* OAuth is hidden inside the native shell and the home-screen
+                PWA, where the round trip cannot return to us. See
+                useIsOAuthHandoffContext. Web keeps both buttons. */}
+            {oauthUnavailable ? <AppSignInNotice signup /> : <>
             <button
               type="button"
               onClick={async () => {
@@ -256,6 +270,7 @@ export default function SignupPage() {
               </svg>
               Sign in with Apple
             </button>
+            </>}
 
             <div className="flex items-center gap-3 my-1">
               <div className="flex-1 h-px bg-[#e8e2d9]" />
