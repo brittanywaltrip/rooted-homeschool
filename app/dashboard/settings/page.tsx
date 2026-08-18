@@ -12,6 +12,7 @@ import { canShareFamily, getUserAccess, getTrialDaysLeft } from "@/lib/user-acce
 import { useIsNativeApp } from "@/lib/platform";
 import { posthog } from "@/lib/posthog";
 import { capitalizeName, capitalizeChildNames } from "@/lib/utils";
+import { captureSupabaseError } from "@/lib/sentry-error";
 import { formatMonthKey, currentMonthKey, monthKeyFromISO, buildMonthlyEarnings } from "@/lib/commission-month";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -870,7 +871,18 @@ export default function SettingsPage() {
       .single();
 
     if (error) {
-      setAddError(error.message);
+      // Families were being shown the raw Postgres text, e.g. "duplicate key
+      // value violates unique constraint children_user_name_unique". Sentry
+      // still gets the real error; the mom gets something she can act on.
+      captureSupabaseError("Add child failed", error, {
+        tags: { fn: "addChild" },
+        extra: { nameKey },
+      });
+      setAddError(
+        (error as { code?: string }).code === "23505"
+          ? "You already have a child with that name. Try adding a last initial."
+          : "Couldn't add that child. Please try again.",
+      );
     } else if (data) {
       setChildren((prev) => [...prev, data]);
       setNewName("");
@@ -962,6 +974,12 @@ export default function SettingsPage() {
         .delete()
         .eq("user_id", user.id)
         .eq("name", updatedName)
+        // archived = false is load-bearing. Deleting a child is a soft
+        // delete, so renaming a live child onto an archived child's name
+        // used to hard-delete that archived row here, cascading away its
+        // lessons, goals and memories with no warning and no undo. This
+        // cleanup may only ever touch live rows.
+        .eq("archived", false)
         .neq("id", id);
 
       const { error } = await supabase
