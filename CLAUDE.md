@@ -22,11 +22,37 @@ The Google OAuth flow broke multiple times because these rules weren't documente
 
 5. Keep `queryParams: { prompt: 'select_account' }` in every signInWithOAuth call so the Google account picker always shows. Removing it breaks multi-Google-account users.
 
+6. There are TWO OAuth providers in production, not one: **Continue with
+   Google** and **Sign in with Apple**. Apple went live 2026-05-14 and
+   carries roughly 40% of OAuth volume (611 button clicks vs 929 for Google,
+   May to Aug 2026), yet went undocumented here for three months. Every rule
+   in this section applies to BOTH. Apple's account-picker parameter is
+   `prompt=login`, not Google's `prompt=select_account`. When you change one
+   provider's flow, change and test the other.
+
+7. `/auth/callback` MUST stay in the middleware bypass list in
+   `middleware.ts`. The callback owns the auth cookies for its own request.
+   If the middleware runs `supabase.auth.getUser()` first and that call fails
+   on a stale or already-rotated session cookie, `@supabase/ssr` calls
+   `_removeSession`, which deletes `<storageKey>-code-verifier` along with
+   the session — so `exchangeCodeForSession` in the route handler finds no
+   verifier and the family lands on `/login?error=pkce_cross_device`.
+   Reproduced against production 2026-08-18. Between May and August 2026 this
+   class of failure cost 48 signups and ejected 22 already-paying families
+   mid-session.
+
+8. Any cookie-presence check in middleware MUST exclude the code-verifier
+   cookie. It is named `<storageKey>-auth-token-code-verifier`, so a naive
+   `startsWith('sb-') && includes('auth-token')` test matches it and treats a
+   mid-OAuth visitor as though they had a session.
+
 ### Auth file manifest — these files are the only ones touching auth:
 - app/auth/callback/route.ts
+- middleware.ts  (runs getUser() on every non-bypassed request)
+- app/api/auth/login/route.ts  (server-side password sign-in)
 - lib/supabase.ts and lib/supabase-browser.ts
 - lib/cookie-domain.ts
-- app/login/page.tsx and app/signup/page.tsx
+- app/login/page.tsx and app/signup/page.tsx  (BOTH Google and Apple buttons)
 - app/onboarding/page.tsx
 - app/dashboard/layout.tsx
 
@@ -36,7 +62,21 @@ The Google OAuth flow broke multiple times because these rules weren't documente
 3. Click "Continue with Google" → pick a Google account that has never used Rooted
 4. Complete the onboarding wizard
 5. Confirm you land on /dashboard (Today page)
+6. Repeat steps 1-5 with "Sign in with Apple". Apple is 40% of sign-ins and
+   is NOT covered by the Google pass.
+7. Sign in with an existing password account and confirm the session survives
+   longer than the ~1 hour access-token expiry without asking you to sign in
+   again. This is what the middleware exists for and what regressions here
+   break first.
 If any step fails, DO NOT MERGE. Diagnose, fix, re-test.
+
+### Production auth environment, easy to get wrong locally
+`NEXT_PUBLIC_SUPABASE_URL` in production is `https://auth.rootedhomeschoolapp.com`
+(a Supabase custom domain), NOT the `gvkbegvvmhcrmxdorctk.supabase.co` value in
+`.env.local`. The Supabase storage key is derived from that host, so production
+cookies are named `sb-auth-auth-token` and `sb-auth-auth-token-code-verifier`
+while local and e2e runs use different names. Never hardcode a cookie name in a
+test and assume it matches production.
 
 ## Curriculum scheduler — REQUIRED READING
 
@@ -352,15 +392,37 @@ Originally patched May 4, 2026 (anon revoked, authenticated retained); tightened
 - Logo: Tour/FAQ/Privacy/Terms/Contact still use old square icon (fix in CC session 2)
 
 ## Cron jobs
-3 jobs in vercel.json — see file for current state after session 4 cleanup.
+6 jobs in vercel.json. vercel.json is the source of truth; this list has
+drifted before, so re-read the file rather than trusting the count here.
 - /api/cron/reengagement: daily 2PM UTC — 3-email drip sequence for inactive users
 - /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
 - /api/cron/weekly-summary: weekly Monday 3PM UTC — family weekly summary emails
+- /api/cron/onboarding-reminder: daily 2PM UTC — nudge families who signed up but never onboarded
+- /api/cron/health-check: daily 1PM UTC — smoke-checks a known memory row, emails on failure
+- /api/cron/expire-subscriptions: daily 11AM UTC — ends access for cancelled subscriptions
+  whose PAID TERM has run out. A family who buys a year and cancels in month
+  three keeps access to the end of that year (see the customer.subscription
+  .deleted branch in app/api/stripe/webhook/route.ts); refunded cancellations
+  are revoked immediately by the webhook instead. Only ever touches rows that
+  are cancelled AND is_pro AND past subscription_end_date.
 
-## Auth Rules — Never Break These
-- The app is served at BOTH rootedhomeschoolapp.com and www.rootedhomeschoolapp.com
-- NEVER use window.location.origin for Supabase redirectTo — it will return www and break auth
-- ALWAYS hardcode: redirectTo: 'https://www.rootedhomeschoolapp.com/reset-password' (or whichever path)
+## Auth Rules — password reset only
+
+CORRECTION, 2026-08-18: this section used to contradict the Auth Invariants at
+the top of this file, and people acted on both. The invariants at the top are
+the ones that are true. What follows applies ONLY to the password-reset flow.
+
+- The app is served at BOTH rootedhomeschoolapp.com and www.rootedhomeschoolapp.com.
+  Apex 308-redirects to www, and auth cookies are written with
+  `Domain=.rootedhomeschoolapp.com`, so they span both hosts.
+- For PASSWORD RESET only, hardcode
+  `redirectTo: 'https://www.rootedhomeschoolapp.com/reset-password'`.
+- For OAuth (Google and Apple), use `${window.location.origin}/auth/callback`,
+  per invariant 2 at the top of this file. Do NOT hardcode it.
+- The browser client is PKCE/cookie flow, NOT implicit. `@supabase/ssr`'s
+  `createBrowserClient` hardcodes `flowType: 'pkce'`; no app code sets implicit
+  anywhere. The old "flowType must stay implicit" line was stale and has been
+  removed.
 - The Supabase allowlist must have BOTH https://rootedhomeschoolapp.com/** AND https://www.rootedhomeschoolapp.com/**
 - flowType must stay 'implicit' — never change it back to 'pkce' for password reset
 - After any auth change, test password reset end-to-end before shipping
