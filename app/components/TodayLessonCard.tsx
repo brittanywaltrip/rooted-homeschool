@@ -65,6 +65,9 @@ export interface TodayLessonCardProps {
   onEdit: (lesson: TodayLessonCardLesson) => void;
   onDelete: (id: string) => void;
   onReschedule: (lesson: TodayLessonCardLesson) => void;
+  /** Optional "Continue on another day". Rendered only when supplied AND
+   *  the lesson belongs to a curriculum. The Today page does not pass it. */
+  onContinue?: (lesson: TodayLessonCardLesson) => void;
   onSkip: (lesson: TodayLessonCardLesson) => void;
   onStartEditingNote: (lessonId: string, currentNotes: string | null | undefined) => void;
   onMinutesUpdate: (id: string, minutes: number) => void;
@@ -86,7 +89,7 @@ export interface TodayLessonCardProps {
 }
 
 export default function TodayLessonCard({
-  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, onSkip, onStartEditingNote, onMinutesUpdate, isPartner,
+  lesson, childObj, onToggle, onEdit, onDelete, onReschedule, onContinue, onSkip, onStartEditingNote, onMinutesUpdate, isPartner,
   editingNoteId, editingNoteText, noteSaveState, noteTextareaRef, onNoteTextChange, onSaveNote, onCancelEditingNote,
   completeOnRowClick = true,
 }: TodayLessonCardProps) {
@@ -329,6 +332,15 @@ export default function TodayLessonCard({
                 >
                   ⏭ Reschedule
                 </button>
+                {onContinue && lesson.curriculum_goal_id ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onContinue(lesson); setMenuOpen(false); }}
+                    className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"
+                    data-no-toggle
+                  >
+                    🔁 Continue on another day
+                  </button>
+                ) : null}
                 <button
                   onClick={(e) => { e.stopPropagation(); onSkip(lesson); setMenuOpen(false); }}
                   className="w-full text-left px-4 py-2.5 text-sm text-[#2d2926] hover:bg-[#f8f7f4] transition-colors"

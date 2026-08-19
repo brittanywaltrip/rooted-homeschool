@@ -1014,7 +1014,14 @@ export default function TodayPage() {
     // reconciliation is separate and per-goal (reconcileGoalScheduleCache).
     const projectedGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
     const projectedSlots = Array.from(new Set(projected.map((p) => p.lesson_number)));
-    const [projectedRowsResult, oneOffRowsResult] = await Promise.all([
+    // Continuation rows (scheduled_source = 'continuation') are goal-linked
+    // but carry NO queue_position, so they fall through BOTH queries below:
+    // the projected one filters .in("queue_position", projectedSlots) and the
+    // one-off one filters .is("curriculum_goal_id", null). That is drift E, the
+    // shape resolveCustomLessonGoalLink exists to prevent. Continuations are the
+    // one sanctioned instance of it, so they get their own query here rather
+    // than either existing filter being widened.
+    const [projectedRowsResult, oneOffRowsResult, continuationRowsResult] = await Promise.all([
       projectedGoalIds.length > 0
         ? supabase
             .from("lessons")
@@ -1028,6 +1035,12 @@ export default function TodayPage() {
         .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes")
         .eq("user_id", effectiveUserId)
         .is("curriculum_goal_id", null)
+        .or(`date.eq.${today},scheduled_date.eq.${today}`),
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes")
+        .eq("user_id", effectiveUserId)
+        .eq("scheduled_source", "continuation")
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
     ]);
     // Reconcile each goal's cached scheduled_date with the projector, one
@@ -1073,7 +1086,23 @@ export default function TodayPage() {
       // unexpected drift surfaces as a missing row rather than a wrong
       // one.
       .filter((r) => !(r.scheduled_date && r.scheduled_date > today));
-    const oneOffRows = (oneOffRowsResult.data ?? []) as unknown as LoadedLessonRow[];
+    // Continuations join the one-off list: neither has a queue slot, so both
+    // render in date order after the projected rows. Deduped by id so a row can
+    // never appear twice if the two filters ever overlap (a continuation always
+    // has a goal today, so they cannot, but the guard is free and the cost of
+    // being wrong is a double-counted lesson on Today).
+    const oneOffRows = (() => {
+      const merged = [
+        ...((oneOffRowsResult.data ?? []) as unknown as LoadedLessonRow[]),
+        ...((continuationRowsResult.data ?? []) as unknown as LoadedLessonRow[]),
+      ];
+      const seen = new Set<string>();
+      return merged.filter((r) => {
+        if (seen.has(r.id)) return false;
+        seen.add(r.id);
+        return true;
+      });
+    })();
 
     // Order the projected rows to match the projection sequence (queue
     // order). One-off lessons are appended in their existing date order.

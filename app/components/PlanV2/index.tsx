@@ -246,6 +246,15 @@ export default function PlanV2() {
   const [recentlyLandedIds, setRecentlyLandedIds] = useState<Set<string>>(() => new Set());
   const [undoAction, setUndoAction] = useState<UndoAction | null>(null);
   const [rescheduleTarget, setRescheduleTarget] = useState<{ lessonId: string; fromDateStr: string } | null>(null);
+  // "Continue on another day": adds a second day of work on an existing
+  // lesson without advancing the curriculum. Separate state from
+  // rescheduleTarget because that dialog's onPick MOVES the row, which is
+  // the opposite of what a continuation does.
+  const [continueTarget, setContinueTarget] = useState<{
+    parent: PlanV2Lesson;
+    parentDateStr: string;
+    defaultDateStr: string;
+  } | null>(null);
   // Two-step choice when the user picks a NEW date for a curriculum lesson
   // and there are later uncompleted lessons in the same goal that could
   // ripple. shiftDays is the school-day delta from the original date to
@@ -963,7 +972,7 @@ export default function PlanV2() {
       // Select-then-update/insert to avoid the unique-constraint collision.
       const { data: existing } = await supabase
         .from("lessons")
-        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, subjects(name, color), curriculum_goals(subject_label)")
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
         .eq("curriculum_goal_id", goalIdForInsert!)
         .eq("lesson_number", values.lesson_number!)
         .maybeSingle();
@@ -1058,7 +1067,7 @@ export default function PlanV2() {
               ? { scheduled_source: "extra_log", is_backfill: false, queue_position: null }
               : {}),
           })
-          .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
+          .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
           .single();
         if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
         row = inserted as unknown as PlanV2Lesson;
@@ -1088,7 +1097,7 @@ export default function PlanV2() {
             ? { scheduled_source: "extra_log", is_backfill: false, queue_position: null }
             : {}),
         })
-        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
         .single();
       if (error || !inserted) throw new Error(error?.message ?? "Insert failed");
       row = inserted as unknown as PlanV2Lesson;
@@ -1159,6 +1168,153 @@ export default function PlanV2() {
     // the default future-schedule semantic.
     setAddLessonAsCompleted(false);
   }, [effectiveUserId, setLessons, recordEvent, reload, addLessonAsCompleted]);
+
+  /**
+   * "Continue on another day": add a second (third, and so on) day of work on a
+   * lesson the family did not finish, WITHOUT advancing the curriculum.
+   *
+   * The row is deliberately off-queue:
+   *   lesson_number  = null  → outside lessons_goal_lesson_number_unique and
+   *                            outside healGoalIntegrity's dedupe, which only
+   *                            considers non-null lesson numbers
+   *   queue_position = null  → recomputeCurrentLesson takes MAX(queue_position)
+   *                            over COMPLETED rows, so the pointer cannot move
+   *                            when this row is later checked off
+   *
+   * recomputeCurrentLesson is deliberately NOT called here. Nothing about
+   * adding a day changes how far through the curriculum the family is.
+   *
+   * The queue resync leaves it alone for free: reconcileGoalScheduleCache
+   * keys rows on queue_position and syncProjectedScheduledDates skips any row
+   * whose key is null, so a continuation is never re-dated.
+   */
+  const handleContinueLesson = useCallback(async (
+    parent: PlanV2Lesson,
+    targetDate: string,
+  ) => {
+    if (!effectiveUserId) return;
+    const goalId = parent.curriculum_goal_id;
+    if (!goalId) {
+      flashNotice("Only curriculum lessons can be continued.");
+      return;
+    }
+    // Chains stay one level deep: continuing a continuation continues its
+    // parent instead, so day numbering is always relative to one original.
+    const rootId = parent.continues_lesson_id ?? parent.id;
+
+    // child_id has to be present or the row never renders under a kid on
+    // Today/Plan and never reaches that child's transcript (drift F). The
+    // parent's value is authoritative; fall back to the goal's when a legacy
+    // parent row carries null. The DB trigger lessons_child_id_matches_goal
+    // rejects a mismatch, and both sources agree by construction.
+    const childId =
+      parent.child_id ?? curriculumGoals.find((g) => g.id === goalId)?.child_id ?? null;
+
+    const { data: inserted, error } = await supabase
+      .from("lessons")
+      .insert({
+        user_id: effectiveUserId,
+        child_id: childId,
+        curriculum_goal_id: goalId,
+        title: parent.title,
+        lesson_number: null,
+        queue_position: null,
+        minutes_spent: null,
+        hours: 0,
+        notes: null,
+        scheduled_date: targetDate,
+        date: targetDate,
+        completed: false,
+        completed_at: null,
+        scheduled_source: "continuation",
+        continues_lesson_id: rootId,
+        is_backfill: false,
+      })
+      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
+      .single();
+    if (error || !inserted) {
+      flashNotice("Couldn't add another day, please try again.");
+      return;
+    }
+    const row = inserted as unknown as PlanV2Lesson;
+
+    setLessons((prev) => [...prev, row]);
+    hapticTap(20);
+
+    const title = parent.title && parent.title.trim().length > 0
+      ? parent.title
+      : parent.lesson_number ? `Lesson ${parent.lesson_number}` : "lesson";
+
+    recordEvent("lesson.continued", {
+      lesson_id: row.id,
+      lesson_title: title,
+      date: targetDate,
+      curriculum_goal_id: goalId,
+      continues_lesson_id: rootId,
+      actor: "user",
+    });
+
+    const dateLabel = new Date(`${targetDate}T12:00:00`).toLocaleDateString("en-US", {
+      weekday: "short", month: "short", day: "numeric",
+    });
+    setUndoAction({
+      message: `Added another day for ${title} on ${dateLabel}`,
+      key: `lesson-continue:${row.id}`,
+      onUndo: async () => {
+        setLessons((prev) => prev.filter((l) => l.id !== row.id));
+        hapticTap(20);
+        try {
+          await supabase.from("lessons").delete().eq("id", row.id);
+        } catch {
+          /* best-effort; next reload reconciles */
+        }
+        reload();
+      },
+    });
+
+    reload();
+    // Cross-route notification: Today hydrates continuations through its own
+    // dedicated query (app/dashboard/page.tsx), so it needs to re-read.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+    }
+  }, [effectiveUserId, curriculumGoals, setLessons, recordEvent, reload]);
+  /** Open the continuation picker for a lesson.
+   *
+   *  Chains stay one level deep: continuing a continuation targets its ROOT,
+   *  so "Day 2" and "Day 3" are always numbered against one original lesson.
+   *  The root may sit outside the loaded 42-day window, so fall back to a
+   *  by-id fetch rather than silently continuing the wrong row. */
+  const openContinueLesson = useCallback(async (lesson: PlanV2Lesson) => {
+    if (!lesson.curriculum_goal_id) {
+      flashNotice("Only curriculum lessons can be continued.");
+      return;
+    }
+    let root: PlanV2Lesson = lesson;
+    if (lesson.continues_lesson_id) {
+      const local = lessons.find((l) => l.id === lesson.continues_lesson_id);
+      if (local) {
+        root = local;
+      } else {
+        const { data } = await supabase
+          .from("lessons")
+          .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
+          .eq("id", lesson.continues_lesson_id)
+          .maybeSingle();
+        if (data) root = data as unknown as PlanV2Lesson;
+      }
+    }
+    const parentDateStr = root.scheduled_date ?? root.date;
+    if (!parentDateStr) {
+      flashNotice("This lesson isn't on the calendar yet, give it a date first.");
+      return;
+    }
+    const [y, m, d] = parentDateStr.split("-").map(Number);
+    const next = new Date(y, m - 1, d + 1);
+    const defaultDateStr = toDateStr(next);
+    setOpenDayStr(null);
+    setContinueTarget({ parent: root, parentDateStr, defaultDateStr });
+  }, [lessons]);
 
   const handleSubmitEditLesson = useCallback(async (
     lessonId: string,
@@ -4131,6 +4287,7 @@ export default function PlanV2() {
       if (editLessonTarget) { setEditLessonTarget(null); return; }
       if (cascadeChoice) { setCascadeChoice(null); return; }
       if (pastCompleteConfirm) { setPastCompleteConfirm(null); return; }
+      if (continueTarget) { setContinueTarget(null); return; }
       if (rescheduleTarget) { setRescheduleTarget(null); return; }
       if (apptEditTarget) { setApptEditTarget(null); return; }
       if (apptMoveTarget) { setApptMoveTarget(null); return; }
@@ -4141,7 +4298,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode, closePushBack, closeShiftForward]);
+  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, continueTarget, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode, closePushBack, closeShiftForward]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -4953,6 +5110,7 @@ export default function PlanV2() {
             }
             setRescheduleTarget({ lessonId: l.id, fromDateStr });
           }}
+          onContinueLesson={(l) => { void openContinueLesson(l); }}
           onSkipLesson={(l) => { void skipLessonWithLog(l); }}
           onDeleteLesson={(l) => { void deleteLessonWithLog(l.id); }}
           onOpenBackfill={(g) => setOpenBackfillGoalId((id) => (id === g.id ? null : g.id))}
@@ -5109,6 +5267,11 @@ export default function PlanV2() {
                 setOpenDayStr(null);
                 setRescheduleTarget({ lessonId: l.id, fromDateStr });
               }}
+              onContinueLesson={(l) => {
+                const full = lessons.find((x) => x.id === l.id);
+                if (!full) return;
+                void openContinueLesson(full);
+              }}
               onMinutesUpdate={handleMinutesUpdate}
               onToggleAppointment={handleAppointmentToggle}
               onEditAppointment={(appt) => {
@@ -5143,6 +5306,28 @@ export default function PlanV2() {
             so moms can move a lesson to a past date when they're logging
             something they already did. The follow-up PastCompleteDialog
             asks whether to also mark the lesson done. */}
+        {/* Continue on another day. Same picker component as Reschedule, but
+            its onPick INSERTS a new off-queue row rather than moving this one.
+            fromDateStr stays the parent's date so the confirm button's
+            same-date guard blocks a continuation on the parent's own day. */}
+        {continueTarget ? (
+          <RescheduleDialog
+            fromDateStr={continueTarget.parentDateStr}
+            initialValue={continueTarget.defaultDateStr}
+            title="Continue on another day"
+            subtitle={`Adds another day of work. The curriculum stays on this lesson.`}
+            confirmLabel="Add this day"
+            vacationBlocks={vacationBlocks}
+            onCancel={() => setContinueTarget(null)}
+            onPick={(toDateStr) => {
+              const target = continueTarget;
+              setContinueTarget(null);
+              if (!target) return;
+              void handleContinueLesson(target.parent, toDateStr);
+            }}
+          />
+        ) : null}
+
         {rescheduleTarget ? (
           <RescheduleDialog
             lessonId={rescheduleTarget.lessonId}
@@ -6096,12 +6281,26 @@ function RescheduleDialog(props: {
   // Heading copy. Defaults to the lesson reschedule wording; the appointment
   // move flow overrides it with "Move to another day".
   title?: string;
+  // Sub-heading. Defaults to "Currently on {fromDateStr}". The continuation
+  // flow overrides it because that date is the PARENT's day, not this row's.
+  subtitle?: string;
+  // Seed for the date input. Defaults to fromDateStr (the move flows want the
+  // picker to open on the row's current day). The continuation flow seeds the
+  // day AFTER the parent instead. fromDateStr still drives the same-date guard
+  // on the confirm button, which is what stops a continuation being created on
+  // the parent's own day.
+  initialValue?: string;
+  confirmLabel?: string;
   vacationBlocks: { start_date: string; end_date: string }[];
   onCancel: () => void;
   onPick: (toDateStr: string) => void;
 }) {
-  const { fromDateStr, minDateStr, title = "Reschedule lesson", vacationBlocks, onCancel, onPick } = props;
-  const [value, setValue] = useState<string>(fromDateStr);
+  const {
+    fromDateStr, minDateStr, title = "Reschedule lesson", subtitle,
+    initialValue, confirmLabel = "Save new date",
+    vacationBlocks, onCancel, onPick,
+  } = props;
+  const [value, setValue] = useState<string>(initialValue ?? fromDateStr);
   const inVacation = vacationBlocks.some(
     (b) => value >= b.start_date && value <= b.end_date,
   );
@@ -6124,7 +6323,7 @@ function RescheduleDialog(props: {
           <div className="flex items-start justify-between px-5 pt-4 pb-2">
             <div>
               <h2 className="text-base font-bold text-[#2d2926]">{title}</h2>
-              <p className="text-xs text-[#7a6f65] mt-0.5">Currently on {fromLabel}</p>
+              <p className="text-xs text-[#7a6f65] mt-0.5">{subtitle ?? `Currently on ${fromLabel}`}</p>
             </div>
             <button
               type="button"
@@ -6167,7 +6366,7 @@ function RescheduleDialog(props: {
                 onClick={() => onPick(value)}
                 className="flex-1 min-h-[44px] text-sm font-bold text-white bg-[#2D5A3D] rounded-xl hover:bg-[var(--g-deep)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Save new date
+                {confirmLabel}
               </button>
             </div>
           </div>

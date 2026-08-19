@@ -102,7 +102,7 @@ export default function LessonSearchModal(props: LessonSearchModalProps) {
     let req = supabase
       .from("lessons")
       .select(
-        "id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, completed_at, subjects(name, color), curriculum_goals(subject_label, curriculum_name, archived)",
+        "id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, completed_at, subjects(name, color), curriculum_goals(subject_label, curriculum_name, archived)",
       )
       .eq("user_id", effectiveUserId);
 

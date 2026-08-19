@@ -172,3 +172,63 @@ test('every input row survives grouping exactly once', () => {
   assert.equal(ids.length, SCRAMBLED.length)
   assert.deepEqual([...ids].sort(), SCRAMBLED.map((r) => r.id).sort())
 })
+
+// ── Continuation chains ────────────────────────────────────────────────
+
+import { buildContinuationDayMap, groupChainRows, type ChainableLesson } from './lessonListSort.ts'
+
+type Chain = ChainableLesson
+
+const PARENT: Chain = { id: 'p', lesson_number: 8, scheduled_date: '2026-08-17', date: null, continues_lesson_id: null }
+const CONT_A: Chain = { id: 'c1', lesson_number: null, scheduled_date: '2026-08-18', date: null, continues_lesson_id: 'p' }
+const CONT_B: Chain = { id: 'c2', lesson_number: null, scheduled_date: '2026-08-19', date: null, continues_lesson_id: 'p' }
+const SIBLING: Chain = { id: 's', lesson_number: 9, scheduled_date: '2026-08-18', date: null, continues_lesson_id: null }
+
+test('day map numbers a parent and its continuations in date order', () => {
+  const m = buildContinuationDayMap([CONT_B, PARENT, CONT_A])
+  assert.deepEqual(m.get('p'), { day: 1, total: 3 })
+  assert.deepEqual(m.get('c1'), { day: 2, total: 3 })
+  assert.deepEqual(m.get('c2'), { day: 3, total: 3 })
+})
+
+test('a lesson with no continuations is absent from the day map', () => {
+  const m = buildContinuationDayMap([PARENT, SIBLING])
+  assert.equal(m.size, 0, 'no chains means no labels to render')
+})
+
+test('a continuation whose parent is not loaded gets no label', () => {
+  const m = buildContinuationDayMap([CONT_A]) // parent 'p' absent
+  assert.equal(m.size, 0)
+})
+
+test('groupChainRows pulls continuations up next to their parent', () => {
+  // Date order alone interleaves the sibling between parent and its day 2.
+  const dateOrder = sortLessonsForList([PARENT, SIBLING, CONT_A, CONT_B])
+  assert.deepEqual(dateOrder.map((r) => r.id), ['p', 's', 'c1', 'c2'])
+  assert.deepEqual(groupChainRows(dateOrder).map((r) => r.id), ['p', 'c1', 'c2', 's'])
+})
+
+test('groupChainRows leaves a chainless list untouched', () => {
+  const rows = sortLessonsForList([PARENT, SIBLING])
+  assert.equal(groupChainRows(rows), rows, 'same reference when there is nothing to move')
+})
+
+test('groupChainRows leaves a continuation put when its parent is in another month', () => {
+  const orphanInMonth: Chain = { id: 'c9', lesson_number: null, scheduled_date: '2026-09-01', date: null, continues_lesson_id: 'p' }
+  const septemberRows = [orphanInMonth]
+  assert.deepEqual(groupChainRows(septemberRows).map((r) => r.id), ['c9'])
+})
+
+test('groupChainRows preserves every row exactly once', () => {
+  const rows = sortLessonsForList([PARENT, SIBLING, CONT_A, CONT_B])
+  const out = groupChainRows(rows)
+  assert.equal(out.length, rows.length)
+  assert.deepEqual(out.map((r) => r.id).sort(), rows.map((r) => r.id).sort())
+})
+
+test('month headers survive chain grouping applied per month', () => {
+  const rows = sortLessonsForList([PARENT, SIBLING, CONT_A, CONT_B])
+  const groups = groupLessonsByMonth(rows).map((g) => ({ key: g.key, rows: groupChainRows(g.rows) }))
+  assert.deepEqual(groups.map((g) => g.key), ['August 2026'])
+  assert.deepEqual(groups[0].rows.map((r) => r.id), ['p', 'c1', 'c2', 's'])
+})
