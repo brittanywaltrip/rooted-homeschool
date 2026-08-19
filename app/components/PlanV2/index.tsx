@@ -4160,6 +4160,16 @@ export default function PlanV2() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curriculumGoals, celebrationDismissNonce]);
 
+  // The curriculum panel has to honor the child filter chips the same way the
+  // calendar grids do. It used to receive every goal, so a family with two kids
+  // on the same curriculum filtered to one child and still saw both goal cards.
+  // Same null-keeps-visible semantics as filteredLessons above: a goal with no
+  // child_id belongs to the whole family and stays visible under any filter.
+  const filteredActiveGoals = useMemo<GoalFull[]>(() => {
+    if (childFilter.size === 0 || childFilter.size === kids.length) return activeGoals;
+    return activeGoals.filter((g) => (g.child_id ? childFilter.has(g.child_id) : true));
+  }, [activeGoals, childFilter, kids.length]);
+
   // Lessons count per goal (for celebration card stats and completed-list footer).
   const minutesByGoal = useMemo(() => {
     const m = new Map<string, number>();
@@ -4843,8 +4853,8 @@ export default function PlanV2() {
             and completed goals get their own subsections below. */}
         <CurriculumGroupsPanel
           pinsByGoal={pinsByGoal}
-          goals={activeGoals}
-          lessons={lessons}
+          goals={filteredActiveGoals}
+          lessons={filteredLessons}
           kids={kids}
           vacationBlocks={vacationBlocks}
           onCreate={handleWizardOpenCreate}
@@ -4965,10 +4975,23 @@ export default function PlanV2() {
 
         {/* Day-detail sheet */}
         {openDayStr ? (() => {
+          // Honor the child filter chips, same as the calendar grids. These
+          // used to come off the raw arrays, so tapping a day with a filter on
+          // still showed every child's lessons.
           const panelLessons = toTodayLessons(
-            lessons.filter((l) => (l.scheduled_date ?? l.date) === openDayStr),
+            filteredLessons.filter((l) => (l.scheduled_date ?? l.date) === openDayStr),
           );
-          const panelAppts = appointments.filter((a) => a.instance_date === openDayStr);
+          // Appointments DO carry child scoping (child_ids), and
+          // filteredAppointments already applies the rule the rest of the page
+          // uses: null/empty child_ids means whole-family and always shows.
+          const panelAppts = filteredAppointments.filter((a) => a.instance_date === openDayStr);
+          // Deliberately the FULL kids list, not filteredKids. The panel renders
+          // one block per child found in the lessons it was handed, so filtering
+          // the lessons above is what actually hides the other child. `kids` is
+          // only a lookup for name + color, and resolveChildColor falls back to
+          // a palette slot keyed on position in this array, so handing it a
+          // filtered list would silently recolor any child who has no stored
+          // color the moment a filter is switched on.
           const panelKids = toTodayKids(kids);
           const [y, m, d] = openDayStr.split("-").map(Number);
           const panelDate = new Date(y, m - 1, d);

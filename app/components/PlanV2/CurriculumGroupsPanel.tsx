@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Hand, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
@@ -121,6 +121,17 @@ function computePaceStatus(
     color: "#7a4a1a",
     bg: "#fef9e8",
   };
+}
+
+/** lesson_number ASC with nulls last. One-off rows logged via the unified "+"
+ *  carry no number and sort to the end so they don't break a numeric run. */
+function cmpLessonNumber(a: PlanV2Lesson, b: PlanV2Lesson): number {
+  const an = a.lesson_number;
+  const bn = b.lesson_number;
+  if (an == null && bn == null) return 0;
+  if (an == null) return 1;
+  if (bn == null) return -1;
+  return an - bn;
 }
 
 function monthKey(dateStr: string | null): string {
@@ -257,21 +268,36 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
       ) : (
         <ul className="divide-y divide-[#f0ede8]">
           {activeGoals.map((goal) => {
-            // Sort by lesson_number ASC so the expanded list reads "1, 2,
-            // 3..." regardless of what calendar dates the rows happen to
-            // carry. Date-based sort meant a recalibrated curriculum (with
-            // gap-fill estimates spread across past dates) could render
-            // lesson 5 above lesson 2. Lessons with a null lesson_number
-            // (one-off rows logged via the unified "+") sort to the end so
-            // they don't break the numerical run — same convention used by
-            // WeekListView's day-bucket sort.
-            const goalLessons = (lessonsByGoal.get(goal.id) ?? []).sort((a, b) => {
-              const an = a.lesson_number;
-              const bn = b.lesson_number;
-              if (an == null && bn == null) return 0;
-              if (an == null) return 1;
-              if (bn == null) return -1;
-              return an - bn;
+            // Sort by CALENDAR DATE ASC, lesson_number as the tiebreaker,
+            // undated rows last.
+            //
+            // This deliberately reverses the earlier lesson_number sort. That
+            // sort fed LessonList's grouper, which is a run-length scan: it
+            // opens a new month header every time a row's month differs from
+            // the PREVIOUS row. So whenever dates were not monotonic in
+            // lesson_number order the headers repeated and jumped around
+            // (AUGUST, SEPTEMBER, SEPTEMBER, AUGUST). Sorting by date means
+            // each month is one contiguous run, so each header appears exactly
+            // once, and the grouper needs no change.
+            //
+            // Out-of-order dates are still shown truthfully: if lesson 34 is
+            // dated before lesson 33, the list renders 34 first rather than
+            // hiding the discrepancy. Repairing the underlying dates is a
+            // separate, data-side job. If you are tempted to switch this back
+            // to lesson_number, fix the grouper in the same change or the
+            // repeating headers come straight back.
+            //
+            // Copy before sorting: this array is the one held inside the
+            // lessonsByGoal memo and .sort() mutates in place, which reordered
+            // the memo's own buckets as a side effect of rendering.
+            const goalLessons = [...(lessonsByGoal.get(goal.id) ?? [])].sort((a, b) => {
+              const ad = a.scheduled_date ?? a.date;
+              const bd = b.scheduled_date ?? b.date;
+              if (ad == null && bd == null) return cmpLessonNumber(a, b);
+              if (ad == null) return 1;
+              if (bd == null) return -1;
+              if (ad !== bd) return ad < bd ? -1 : 1;
+              return cmpLessonNumber(a, b);
             });
             const totalInView = goalLessons.length;
             const completedCount = goal.current_lesson ?? 0;
@@ -746,29 +772,54 @@ function LessonActionMenu(props: {
 }) {
   const { lesson, onEditLesson, onRescheduleLesson, onSkipLesson, onDeleteLesson } = props;
   const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on any click outside this menu.
+  //
+  // This replaces a `fixed inset-0 z-[50]` backdrop div, which is why families
+  // reported that the "..." on some rows "would not open". The backdrop covered
+  // the ENTIRE viewport, and the kebab buttons sit in normal flow (their
+  // `relative` wrapper has z-index auto, so it creates no stacking context and
+  // cannot lift them above z-50). While any one row's menu was open, every
+  // other row's kebab was therefore unclickable: the click landed on the
+  // backdrop, which closed the open menu and swallowed the event. From the
+  // family's side that reads as "this row's button is dead", and it looks
+  // row-specific because it is whichever rows they happened to try second.
+  // A document listener closes the same way without covering anything.
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      // Clicks inside this menu (including the toggle itself) are handled by
+      // their own onClick; only outside clicks dismiss.
+      if (wrapRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [open]);
+
   return (
-    <div className="relative shrink-0">
+    <div ref={wrapRef} className="relative shrink-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="w-6 h-6 flex items-center justify-center rounded-full text-[#9a8e84] hover:bg-[#f0ede8] transition-colors"
       >
         <span aria-hidden className="text-[13px] leading-none">⋯</span>
       </button>
       {open ? (
-        <>
-          <div className="fixed inset-0 z-[50]" onClick={() => setOpen(false)} aria-hidden />
-          <div
-            role="menu"
-            className="absolute right-0 top-full mt-1 z-[51] bg-white border border-[#e8e2d9] rounded-xl shadow-lg overflow-hidden w-[140px]"
-          >
-            <ActionMenuItem label="Edit" icon="✏️" onClick={() => { setOpen(false); onEditLesson(lesson); }} />
-            <ActionMenuItem label="Reschedule" icon="📅" onClick={() => { setOpen(false); onRescheduleLesson(lesson); }} />
-            <ActionMenuItem label="Skip" icon="⏩" onClick={() => { setOpen(false); onSkipLesson(lesson); }} />
-            <ActionMenuItem label="Delete" icon="🗑" destructive onClick={() => { setOpen(false); onDeleteLesson(lesson); }} />
-          </div>
-        </>
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-[51] bg-white border border-[#e8e2d9] rounded-xl shadow-lg overflow-hidden w-[140px]"
+        >
+          <ActionMenuItem label="Edit" icon="✏️" onClick={() => { setOpen(false); onEditLesson(lesson); }} />
+          <ActionMenuItem label="Reschedule" icon="📅" onClick={() => { setOpen(false); onRescheduleLesson(lesson); }} />
+          <ActionMenuItem label="Skip" icon="⏩" onClick={() => { setOpen(false); onSkipLesson(lesson); }} />
+          <ActionMenuItem label="Delete" icon="🗑" destructive onClick={() => { setOpen(false); onDeleteLesson(lesson); }} />
+        </div>
       ) : null}
     </div>
   );
