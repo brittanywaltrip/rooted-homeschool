@@ -4294,9 +4294,18 @@ export default function PlanV2() {
           </div>
         )}
 
-        {/* View toggle — pill style, Week / Month. Hidden for zero-goal users
-            since the calendar below is replaced by the empty state. */}
-        {(curriculumGoals.length > 0 || loading) && (
+        {/* View toggle: pill style, Week / Month. Hidden for a family with no
+            curriculum at all, since the calendar below is replaced by the
+            empty state.
+
+            `hasAnyCurriculum` counts goals ARCHIVED OR NOT, while
+            `curriculumGoals` is filtered to archived=false. That gap is the
+            whole point of the second clause: a family who marked every
+            curriculum finished has zero visible goals but still owns all their
+            lesson history, and the Find button in this row is the only way
+            left to reach it (3 families, 2,930 lessons at the time of writing).
+            A brand-new family has neither, so their empty state is untouched. */}
+        {(curriculumGoals.length > 0 || hasAnyCurriculum || loading) && (
         <div className="flex items-center gap-2">
         <div className="inline-flex items-center gap-1 bg-white border border-[#e8e5e0] rounded-full p-1">
           <button
