@@ -896,7 +896,12 @@ export default function PlanV2() {
     // lesson_number). Instead, check first: UPDATE the existing row if found,
     // INSERT only when no row exists.
     const isExtraCompletion = addLessonAsCompleted;
-    const completedAt = isExtraCompletion ? new Date().toISOString() : null;
+    // Noon UTC on the day the user picked, NOT now(). Reports bucket attendance
+    // by completed_at.slice(0,10) (app/dashboard/reports/page.tsx), so stamping
+    // now() counted a backdated "Log a lesson you did" as a day present today
+    // and left the real day empty. Noon UTC matches what healGoalIntegrity
+    // writes for ghost completions (app/lib/scheduler.ts).
+    const completedAt = isExtraCompletion ? `${values.scheduled_date}T12:00:00Z` : null;
 
     // Drift E contract (see resolveCustomLessonGoalLink in scheduler.ts): an
     // INCOMPLETE lesson may not be attached to a goal without a queue slot,
@@ -923,22 +928,72 @@ export default function PlanV2() {
       // Select-then-update/insert to avoid the unique-constraint collision.
       const { data: existing } = await supabase
         .from("lessons")
-        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, subjects(name, color), curriculum_goals(subject_label)")
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, subjects(name, color), curriculum_goals(subject_label)")
         .eq("curriculum_goal_id", goalIdForInsert!)
         .eq("lesson_number", values.lesson_number!)
         .maybeSingle();
 
       if (existing) {
+        // A row almost ALWAYS exists here: the Schedule Builder pre-generates
+        // every slot 1..total_lessons up front. So "found a row" cannot mean
+        // "safe to overwrite". Until Aug 2026 it did, and a mom who picked a
+        // curriculum and typed a lesson number silently re-dated the lesson she
+        // already had instead of adding a second day. Two of one family's
+        // lessons looked like they had vanished. There was no undo registered
+        // either, so nothing walked it back.
+        //
+        // Only an UNTOUCHED PLACEHOLDER may be updated in place. Anything the
+        // family has actually put work into, or deliberately placed, is real
+        // schedule: refuse and tell her how to get what she meant.
+        const ex = existing as unknown as {
+          completed: boolean | null;
+          minutes_spent: number | null;
+          notes: string | null;
+          scheduled_date: string | null;
+          date: string | null;
+          scheduled_source: string | null;
+        };
+        const isUntouchedPlaceholder =
+          ex.completed === false &&
+          (ex.minutes_spent == null || ex.minutes_spent === 0) &&
+          (ex.notes == null || ex.notes.trim().length === 0) &&
+          (ex.scheduled_source == null || ex.scheduled_source === "queue_resync");
+
+        if (!isUntouchedPlaceholder) {
+          // Same date formatting as `dateLabel` below so both read alike.
+          const exDate = ex.scheduled_date ?? ex.date;
+          const exDateLabel = exDate
+            ? new Date(`${exDate}T12:00:00`).toLocaleDateString("en-US", {
+                weekday: "short", month: "short", day: "numeric",
+              })
+            : null;
+          // A skipped row carries no date at all (bulk skip nulls both
+          // columns), so the date-less wording is a real case, not a fallback
+          // for bad data.
+          throw new Error(
+            exDateLabel
+              ? `Lesson ${values.lesson_number} is already on ${exDateLabel}. Moving it here would erase that day. To log a second day on the same lesson, leave the Lesson # blank.`
+              : `Lesson ${values.lesson_number} already exists in this curriculum. Moving it here would erase it. To log a second day on the same lesson, leave the Lesson # blank.`,
+          );
+        }
+
         updatedExisting = true;
+        // Only the fields the user actually filled in are written. Sending the
+        // form's nulls through blanked minutes_spent and notes on the row being
+        // reused, which is data loss dressed up as an edit.
         const updatePayload: Record<string, unknown> = {
           scheduled_date: values.scheduled_date,
           date: values.scheduled_date,
-          minutes_spent: values.minutes_spent,
-          hours: values.minutes_spent ? values.minutes_spent / 60 : 0,
-          notes: values.notes,
           completed: isExtraCompletion,
           completed_at: completedAt,
         };
+        if (values.minutes_spent != null) {
+          updatePayload.minutes_spent = values.minutes_spent;
+          updatePayload.hours = values.minutes_spent / 60;
+        }
+        if (values.notes != null) {
+          updatePayload.notes = values.notes;
+        }
         if (isExtraCompletion) {
           updatePayload.scheduled_source = "extra_log";
         }
