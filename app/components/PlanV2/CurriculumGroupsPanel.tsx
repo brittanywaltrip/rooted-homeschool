@@ -6,6 +6,10 @@ import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
 import { computeFinishDate, type PinnedSlot, type VacationBlock as SchedulerVacationBlock } from "@/app/lib/scheduler";
+// Ordering + month grouping for the expanded lesson list. Extracted so the
+// sort and the run-length grouper are covered by lessonListSort.test.ts.
+// They are only correct as a pair, and that file explains why.
+import { sortLessonsForList, groupLessonsByMonth } from "./lessonListSort";
 
 /* ============================================================================
  * CurriculumGroupsPanel — curriculum goal list with pace + progress + per-
@@ -123,24 +127,6 @@ function computePaceStatus(
   };
 }
 
-/** lesson_number ASC with nulls last. One-off rows logged via the unified "+"
- *  carry no number and sort to the end so they don't break a numeric run. */
-function cmpLessonNumber(a: PlanV2Lesson, b: PlanV2Lesson): number {
-  const an = a.lesson_number;
-  const bn = b.lesson_number;
-  if (an == null && bn == null) return 0;
-  if (an == null) return 1;
-  if (bn == null) return -1;
-  return an - bn;
-}
-
-function monthKey(dateStr: string | null): string {
-  if (!dateStr) return "Unscheduled";
-  const [y, m] = dateStr.split("-").map(Number);
-  if (!y || !m) return "Unscheduled";
-  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-}
-
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -203,6 +189,33 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  // Points at the wrapper of whichever goal menu is currently open.
+  const goalMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Close the goal kebab on any click outside it.
+  //
+  // This replaces a `fixed inset-0 z-40` backdrop div, the same defect already
+  // fixed on the lesson rows: the backdrop covered the whole viewport, and
+  // every other control on the page sits in normal flow below z-40, so while
+  // one goal's menu was open no other goal's kebab (and nothing else in the
+  // panel) could be clicked. The click hit the backdrop, which closed the menu
+  // and swallowed the event.
+  //
+  // The functional update matters. Clicking goal B's kebab while A is open
+  // fires B's React onClick FIRST (React listens on its own root, inside
+  // document) and this listener second, so an unconditional
+  // setMenuOpenId(null) would close the menu B just opened. Guarding on "still
+  // the one this effect was bound for" lets B win.
+  useEffect(() => {
+    if (!menuOpenId) return;
+    const boundFor = menuOpenId;
+    const onDocClick = (e: MouseEvent) => {
+      if (goalMenuRef.current?.contains(e.target as Node)) return;
+      setMenuOpenId((cur) => (cur === boundFor ? null : cur));
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [menuOpenId]);
 
   const lessonsByGoal = useMemo(() => {
     const m = new Map<string, PlanV2Lesson[]>();
@@ -268,37 +281,10 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
       ) : (
         <ul className="divide-y divide-[#f0ede8]">
           {activeGoals.map((goal) => {
-            // Sort by CALENDAR DATE ASC, lesson_number as the tiebreaker,
-            // undated rows last.
-            //
-            // This deliberately reverses the earlier lesson_number sort. That
-            // sort fed LessonList's grouper, which is a run-length scan: it
-            // opens a new month header every time a row's month differs from
-            // the PREVIOUS row. So whenever dates were not monotonic in
-            // lesson_number order the headers repeated and jumped around
-            // (AUGUST, SEPTEMBER, SEPTEMBER, AUGUST). Sorting by date means
-            // each month is one contiguous run, so each header appears exactly
-            // once, and the grouper needs no change.
-            //
-            // Out-of-order dates are still shown truthfully: if lesson 34 is
-            // dated before lesson 33, the list renders 34 first rather than
-            // hiding the discrepancy. Repairing the underlying dates is a
-            // separate, data-side job. If you are tempted to switch this back
-            // to lesson_number, fix the grouper in the same change or the
-            // repeating headers come straight back.
-            //
-            // Copy before sorting: this array is the one held inside the
-            // lessonsByGoal memo and .sort() mutates in place, which reordered
-            // the memo's own buckets as a side effect of rendering.
-            const goalLessons = [...(lessonsByGoal.get(goal.id) ?? [])].sort((a, b) => {
-              const ad = a.scheduled_date ?? a.date;
-              const bd = b.scheduled_date ?? b.date;
-              if (ad == null && bd == null) return cmpLessonNumber(a, b);
-              if (ad == null) return 1;
-              if (bd == null) return -1;
-              if (ad !== bd) return ad < bd ? -1 : 1;
-              return cmpLessonNumber(a, b);
-            });
+            // Date ASC, lesson_number as tiebreaker, undated last, and a copy
+            // rather than an in-place sort of the memo's own bucket. See
+            // lessonListSort.ts for why this pairs with the grouper below.
+            const goalLessons = sortLessonsForList(lessonsByGoal.get(goal.id) ?? []);
             const totalInView = goalLessons.length;
             const completedCount = goal.current_lesson ?? 0;
             const remaining = Math.max(0, goal.total_lessons - completedCount);
@@ -357,7 +343,10 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                     {/* Per-card overflow menu — replaces the previous inline
                         Edit / Log past hours / Stop / Delete row. Same
                         handlers; only the trigger UI changed. */}
-                    <div className="relative shrink-0">
+                    <div
+                      className="relative shrink-0"
+                      ref={menuOpenId === goal.id ? goalMenuRef : undefined}
+                    >
                       <button
                         type="button"
                         onClick={() => setMenuOpenId((id) => (id === goal.id ? null : goal.id))}
@@ -369,12 +358,6 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                         <MoreVertical size={15} />
                       </button>
                       {menuOpenId === goal.id ? (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setMenuOpenId(null)}
-                            aria-hidden
-                          />
                           <div
                             role="menu"
                             className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[170px]"
@@ -430,7 +413,6 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                               <Trash2 size={14} /> Delete
                             </button>
                           </div>
-                        </>
                       ) : null}
                     </div>
                   </div>
@@ -664,19 +646,9 @@ function LessonList(props: {
   onDeleteLesson: (lesson: PlanV2Lesson) => void;
 }) {
   const { lessons, onToggleLesson, onEditLesson, onRescheduleLesson, onSkipLesson, onDeleteLesson } = props;
-  const grouped = useMemo(() => {
-    const groups: { key: string; rows: PlanV2Lesson[] }[] = [];
-    let current: { key: string; rows: PlanV2Lesson[] } | null = null;
-    for (const l of lessons) {
-      const key = monthKey(l.scheduled_date ?? l.date);
-      if (!current || current.key !== key) {
-        current = { key, rows: [] };
-        groups.push(current);
-      }
-      current.rows.push(l);
-    }
-    return groups;
-  }, [lessons]);
+  // Run-length grouper. Correct only because `lessons` arrives date-sorted
+  // from sortLessonsForList; see lessonListSort.ts.
+  const grouped = useMemo(() => groupLessonsByMonth(lessons), [lessons]);
 
   if (lessons.length === 0) {
     return (

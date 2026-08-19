@@ -4160,15 +4160,38 @@ export default function PlanV2() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curriculumGoals, celebrationDismissNonce]);
 
-  // The curriculum panel has to honor the child filter chips the same way the
-  // calendar grids do. It used to receive every goal, so a family with two kids
-  // on the same curriculum filtered to one child and still saw both goal cards.
+  // Every goal-driven surface below the calendar has to honor the child filter
+  // chips the same way the grids do. They used to receive every goal, so a
+  // family with two kids on the same curriculum filtered to one child and still
+  // saw both goal cards, both celebration cards, and both in the finished list.
+  //
   // Same null-keeps-visible semantics as filteredLessons above: a goal with no
   // child_id belongs to the whole family and stays visible under any filter.
-  const filteredActiveGoals = useMemo<GoalFull[]>(() => {
-    if (childFilter.size === 0 || childFilter.size === kids.length) return activeGoals;
-    return activeGoals.filter((g) => (g.child_id ? childFilter.has(g.child_id) : true));
-  }, [activeGoals, childFilter, kids.length]);
+  // One definition, applied to all three buckets, so they cannot drift apart.
+  // Returns the input array unchanged when the filter is inactive, which keeps
+  // a one-child family referentially identical to before.
+  const filterGoalsByChild = useCallback(
+    (gs: GoalFull[]): GoalFull[] => {
+      if (childFilter.size === 0 || childFilter.size === kids.length) return gs;
+      return gs.filter((g) => (g.child_id ? childFilter.has(g.child_id) : true));
+    },
+    [childFilter, kids.length],
+  );
+
+  const filteredActiveGoals = useMemo(
+    () => filterGoalsByChild(activeGoals),
+    [activeGoals, filterGoalsByChild],
+  );
+  const filteredCelebratingGoals = useMemo(
+    () => filterGoalsByChild(celebratingGoals),
+    [celebratingGoals, filterGoalsByChild],
+  );
+  // Filtered at the source rather than inside the map, so the section's own
+  // "N finished · M lessons" header counts match what is listed underneath.
+  const filteredCompletedGoals = useMemo(
+    () => filterGoalsByChild(completedGoals),
+    [completedGoals, filterGoalsByChild],
+  );
 
   // Lessons count per goal (for celebration card stats and completed-list footer).
   const minutesByGoal = useMemo(() => {
@@ -4895,9 +4918,9 @@ export default function PlanV2() {
 
         {/* Celebrating subsection — recently completed goals (within 14 days
             and not yet acknowledged). Each card shows stats + actions. */}
-        {celebratingGoals.length > 0 ? (
+        {filteredCelebratingGoals.length > 0 ? (
           <div className="space-y-3">
-            {celebratingGoals.map((goal) => {
+            {filteredCelebratingGoals.map((goal) => {
               const child = kids.find((k) => k.id === goal.child_id);
               const startedDate = goal.start_date ?? goal.created_at ?? goal.completed_at!;
               return (
@@ -4922,7 +4945,7 @@ export default function PlanV2() {
 
         {/* Completed-this-year compact list. Goals show up here once the user
             has acted on a celebration card or 14 days have passed. */}
-        {completedGoals.length > 0 ? (
+        {filteredCompletedGoals.length > 0 ? (
           <section className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden">
             <header className="flex items-center gap-2 px-4 py-3 border-b border-[#f0ede8]">
               <span
@@ -4932,11 +4955,11 @@ export default function PlanV2() {
                 Completed this school year
               </span>
               <span className="ml-auto text-[11px] text-[#7a6f65]">
-                {completedGoals.length} finished · {completedGoals.reduce((sum, g) => sum + (g.total_lessons ?? 0), 0)} lessons
+                {filteredCompletedGoals.length} finished · {filteredCompletedGoals.reduce((sum, g) => sum + (g.total_lessons ?? 0), 0)} lessons
               </span>
             </header>
             <ul className="divide-y divide-[#f0ede8]">
-              {completedGoals.map((goal) => {
+              {filteredCompletedGoals.map((goal) => {
                 const child = kids.find((k) => k.id === goal.child_id);
                 const startedDate = goal.start_date ?? goal.created_at;
                 return (
