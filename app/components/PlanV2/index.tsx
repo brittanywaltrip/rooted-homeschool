@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, Pencil, Plus, MousePointerSquareDashed, Printer, Search, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -60,6 +60,7 @@ import VacationBlockModal, { type VacationBlockExisting, type VacationBlockSave 
 import RecentChangesCard from "./RecentChangesCard";
 import DayCellContextMenu from "./DayCellContextMenu";
 import AddLessonModal, { type AddLessonSubmit } from "./AddLessonModal";
+import LessonSearchModal, { type LessonSearchResult } from "./LessonSearchModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
 import { mapLessonDateAcrossVacation } from "./handleVacationSave.shift";
@@ -467,6 +468,10 @@ export default function PlanV2() {
   // Modals are local state — a single instance of each is enough because
   // we never open both at once. `addLessonInitialDate` is the pre-filled
   // date for the form; falls back to today when opened from the toolbar.
+  // Lesson search. Queries the whole lessons table on its own (no date
+  // window), so it is the only surface that can reach a lesson outside the
+  // calendar's 42-day grid, under an archived curriculum, or with no date.
+  const [searchOpen, setSearchOpen] = useState(false);
   const [addLessonOpen, setAddLessonOpen] = useState(false);
   const [addLessonInitialDate, setAddLessonInitialDate] = useState<string>(todayStr);
   // True when AddLessonModal was opened from the unified "+" sheet's "Log
@@ -2185,6 +2190,36 @@ export default function PlanV2() {
       setWeekStart(mon);
     }
     setMonthStart(firstOfMonth(now));
+  }
+
+  /** Move the calendar to a lesson picked in the search modal.
+   *
+   *  Changing monthStart is what actually re-runs usePlanV2Data's 42-day
+   *  query, so the lesson's own window loads on arrival. The Monday math for
+   *  week view mirrors jumpToToday above; keep the two in step. */
+  function jumpToLesson(lesson: LessonSearchResult) {
+    const dateStr = lesson.scheduled_date ?? lesson.date;
+    // Close either way: the notice below renders at z-[60] and the modal at
+    // z-[70], so leaving it open would hide the explanation behind it.
+    setSearchOpen(false);
+    if (!dateStr) {
+      flashNotice(
+        "That lesson isn't on the calendar right now. Open its curriculum to reschedule it.",
+      );
+      return;
+    }
+    const [y, m, d] = dateStr.split("-").map(Number);
+    if (!y || !m || !d) return;
+    const target = new Date(y, m - 1, d);
+    if (viewMode === "week") {
+      const mon = new Date(target);
+      mon.setHours(0, 0, 0, 0);
+      const offset = (mon.getDay() + 6) % 7;
+      mon.setDate(mon.getDate() - offset);
+      setWeekStart(mon);
+    }
+    setMonthStart(firstOfMonth(target));
+    setFocusedDateStr(dateStr);
   }
 
   function flashNotice(msg: string) {
@@ -4091,6 +4126,7 @@ export default function PlanV2() {
       if (vacationModalOpen) { setVacationModalOpen(false); return; }
       if (pushBackOpen) { closePushBack(); return; }
       if (shiftForwardOpen) { closeShiftForward(); return; }
+      if (searchOpen) { setSearchOpen(false); return; }
       if (addLessonOpen) { setAddLessonOpen(false); return; }
       if (editLessonTarget) { setEditLessonTarget(null); return; }
       if (cascadeChoice) { setCascadeChoice(null); return; }
@@ -4105,7 +4141,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode, closePushBack, closeShiftForward]);
+  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode, closePushBack, closeShiftForward]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -4292,6 +4328,19 @@ export default function PlanV2() {
             fully built underneath. No device gating on purpose: the dialog
             handles native/mobile itself (locked tiles become compliance text
             rather than an /upgrade link inside the app). */}
+        {/* Find. The calendar only loads a 42-day window, so this is the only
+            way to reach a lesson in another month, under a finished
+            curriculum, or with no date at all. */}
+        <button
+          type="button"
+          onClick={() => setSearchOpen(true)}
+          aria-label="Find a lesson"
+          title="Find a lesson"
+          className="inline-flex items-center gap-1.5 bg-white border border-[#e8e5e0] rounded-full px-4 py-1.5 text-[13px] font-medium text-[#5C5346] transition-colors hover:bg-[#f4f0e8]"
+        >
+          <Search size={14} />
+          Find
+        </button>
         <button
           type="button"
           onClick={() => setPrintDialogOpen(true)}
@@ -5313,6 +5362,19 @@ export default function PlanV2() {
 
         {/* Add lesson modal — opened from "+ Lesson" toolbar + day-cell
             context menu. Goal list is filtered per child inside the modal. */}
+        {/* Lesson search. Its own un-windowed query, see LessonSearchModal.
+            Mounted only while open so each search starts clean, which is what
+            lets the modal skip a reset-on-open effect. */}
+        {searchOpen ? (
+          <LessonSearchModal
+            isOpen={searchOpen}
+            onClose={() => setSearchOpen(false)}
+            effectiveUserId={effectiveUserId}
+            childrenList={kids}
+            onJumpToLesson={jumpToLesson}
+          />
+        ) : null}
+
         <AddLessonModal
           isOpen={addLessonOpen}
           initialDate={addLessonInitialDate}
