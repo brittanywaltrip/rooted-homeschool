@@ -54,7 +54,7 @@ import WeeklyPrintSheet from "./WeeklyPrintSheet";
 import MonthlyPrintSheet from "./MonthlyPrintSheet";
 import { CornerLeaves } from "./print-decorations";
 import { canExport } from "@/lib/user-access";
-import ShiftForwardModal, { type ShiftMove } from "./ShiftForwardModal";
+import ShiftForwardModal, { type ReprojectGoalPreview } from "./ShiftForwardModal";
 import PushBackModal, { type PushBackMove } from "./PushBackModal";
 import VacationBlockModal, { type VacationBlockExisting, type VacationBlockSave } from "./VacationBlockModal";
 import RecentChangesCard from "./RecentChangesCard";
@@ -78,6 +78,12 @@ import {
   buildPastDateCompletionPayload,
   loadPinsByGoal,
   resolveCustomLessonGoalLink,
+  computeNextLessonsForGoal,
+  reconcileGoalScheduleCache,
+  toGoalConfig,
+  GOAL_CONFIG_COLUMNS,
+  type CurriculumGoalConfig,
+  type GoalConfigRow,
   type PinnedSlot,
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
@@ -182,7 +188,25 @@ type ViewMode = "week" | "month";
 type CatchUpRow = Pick<
   PlanV2Lesson,
   "id" | "title" | "lesson_number" | "scheduled_date" | "date"
-> & { child_id: string | null };
+> & { child_id: string | null; curriculum_goal_id: string | null };
+
+/** One goal queued for re-projection by the catch-up flow. The config is
+ *  captured when the modal opens and reused on confirm, so the family gets
+ *  exactly the spread the preview promised rather than a re-read that may
+ *  have moved underneath her. */
+type ReprojectPlanEntry = {
+  config: CurriculumGoalConfig;
+  preview: ReprojectGoalPreview;
+};
+
+/** A lesson row's date + pin state before the re-projection, for Undo. */
+type ReprojectSnapshotRow = {
+  id: string;
+  scheduled_date: string | null;
+  date: string | null;
+  queue_pinned: boolean | null;
+  scheduled_source: string | null;
+};
 
 export default function PlanV2() {
   const { effectiveUserId, isPartner } = usePartner();
@@ -375,7 +399,13 @@ export default function PlanV2() {
   // sets loaded from the DB when each modal opens; see loadCatchUpLessons.
   const [shiftForwardOpen, setShiftForwardOpen] = useState(false);
   const [shiftForwardLoading, setShiftForwardLoading] = useState(false);
-  const [shiftForwardMissed, setShiftForwardMissed] = useState<CatchUpRow[]>([]);
+  // The per-goal re-projection plan built when the modal opens. Replaces the
+  // old flat missed-lesson list: the flow no longer moves individual rows, it
+  // re-projects whole goals.
+  const [shiftForwardPlan, setShiftForwardPlan] = useState<ReprojectPlanEntry[]>([]);
+  // Missed rows with no curriculum_goal_id. Nothing to re-project for them,
+  // so they are reported in the modal rather than silently skipped.
+  const [shiftForwardUnlinked, setShiftForwardUnlinked] = useState(0);
   const [pushBackOpen, setPushBackOpen] = useState(false);
   const [pushBackLoading, setPushBackLoading] = useState(false);
   const [pushBackFuture, setPushBackFuture] = useState<CatchUpRow[]>([]);
@@ -1932,7 +1962,7 @@ export default function PlanV2() {
 
     let req = supabase
       .from("lessons")
-      .select("id, title, lesson_number, scheduled_date, date, child_id, queue_pinned")
+      .select("id, title, lesson_number, scheduled_date, date, child_id, curriculum_goal_id, queue_pinned")
       .eq("user_id", effectiveUserId)
       .eq("completed", false)
       .not("scheduled_date", "is", null)
@@ -2001,7 +2031,8 @@ export default function PlanV2() {
 
   const openShiftForward = useCallback(async () => {
     if (!effectiveUserId) return;
-    setShiftForwardMissed([]);
+    setShiftForwardPlan([]);
+    setShiftForwardUnlinked(0);
     setShiftForwardLoading(true);
     setShiftForwardOpen(true);
 
@@ -2012,14 +2043,73 @@ export default function PlanV2() {
       flashNotice("Couldn't load your missed lessons, nothing moved. Try again.");
       return;
     }
-    setShiftForwardMissed(sets.missed);
+
+    // Affected goals = the distinct curriculums the missed lessons belong to.
+    const goalIds = Array.from(
+      new Set(sets.missed.map((r) => r.curriculum_goal_id).filter((g): g is string => !!g)),
+    );
+    const unlinked = sets.missed.filter((r) => !r.curriculum_goal_id).length;
+    setShiftForwardUnlinked(unlinked);
+
+    if (goalIds.length === 0) {
+      setShiftForwardPlan([]);
+      setShiftForwardLoading(false);
+      return;
+    }
+
+    // GOAL_CONFIG_COLUMNS + toGoalConfig, never a hand-rolled column list. The
+    // component's own `curriculumGoals` state is NOT usable here: its select
+    // omits lessons_per_day_overrides, and a config built without that column
+    // silently falls back to the flat lessons_per_day, so the preview would
+    // promise a spread the projector will not produce (see the doc comment
+    // above GOAL_CONFIG_COLUMNS in scheduler.ts).
+    const { data: goalRows, error: goalErr } = await supabase
+      .from("curriculum_goals")
+      .select(`${GOAL_CONFIG_COLUMNS}, curriculum_name`)
+      .eq("user_id", effectiveUserId)
+      .in("id", goalIds);
+    if (goalErr || !goalRows) {
+      setShiftForwardOpen(false);
+      setShiftForwardLoading(false);
+      flashNotice("Couldn't load your curriculums, nothing moved. Try again.");
+      return;
+    }
+
+    const today = new Date();
+    const entries: ReprojectPlanEntry[] = [];
+    for (const raw of goalRows as unknown as (GoalConfigRow & { curriculum_name: string | null })[]) {
+      const config = toGoalConfig(raw);
+      // Empty pins on purpose: confirming clears this goal's pins, so the
+      // preview must project the same pin-free tail the write will produce.
+      const projected = computeNextLessonsForGoal(
+        config,
+        today,
+        3650,
+        vacationBlocks as unknown as SchedVacationBlock[],
+        0,
+        [],
+      );
+      if (projected.length === 0) continue;
+      entries.push({
+        config,
+        preview: {
+          goalId: config.id,
+          curriculumName: raw.curriculum_name ?? "Curriculum",
+          lessonCount: projected.length,
+          firstDate: projected[0]?.date ?? null,
+        },
+      });
+    }
+
+    setShiftForwardPlan(entries);
     setShiftForwardLoading(false);
-  }, [effectiveUserId, loadCatchUpLessons]);
+  }, [effectiveUserId, loadCatchUpLessons, vacationBlocks]);
 
   const closeShiftForward = useCallback(() => {
     setShiftForwardOpen(false);
     setShiftForwardLoading(false);
-    setShiftForwardMissed([]);
+    setShiftForwardPlan([]);
+    setShiftForwardUnlinked(0);
   }, []);
 
   // True backlog size, all months. The catch-up banner headline used the
@@ -3149,85 +3239,141 @@ export default function PlanV2() {
     [],
   );
 
-  const handleCatchUpShiftConfirm = useCallback(async (moves: ShiftMove[]) => {
-    if (moves.length === 0) return;
+  /**
+   * Catch-up: re-project each affected goal's remaining tail from today.
+   *
+   * The old handler took hand-computed target dates from the modal and wrote
+   * them with batchUpdateScheduledDates(pairs, "plan_move", true). That was
+   * wrong twice over. The dates came from one global counter that ignored each
+   * goal's school_days and lessons_per_day, and the write PINNED every row
+   * without ever setting queue_position, but reconcileGoalScheduleCache keys
+   * pins on queue_position, so those pins dragged the projector cursor and the
+   * unpinned tail got re-dated around the mess on every Today load.
+   *
+   * Now the flow defers to the projector instead of competing with it: clear
+   * the goal's pins, then let reconcileGoalScheduleCache lay the whole tail out
+   * on that goal's own school days, in lesson order, honoring per-weekday
+   * overrides and vacation blocks. One definition of "where does this lesson
+   * go" (Invariant 8), and the result is stable across resyncs because it IS
+   * what the reconciler would produce anyway.
+   */
+  const handleCatchUpReprojectConfirm = useCallback(async () => {
+    const plan = shiftForwardPlan;
+    if (plan.length === 0) return;
     setBulkBusy(true);
 
-    // Optimistic local update.
-    const movesById = new Map(moves.map((m) => [m.lesson.id, m]));
-    setLessons((prev) =>
-      prev.map((l) => {
-        const m = movesById.get(l.id);
-        return m ? { ...l, scheduled_date: m.toDate, date: m.toDate } : l;
-      }),
-    );
-    moves.forEach((m) => flagLanded(m.lesson.id));
-    hapticTap(20);
+    const today = new Date();
+    const snapshot: ReprojectSnapshotRow[] = [];
+    const doneGoals: { goal_id: string; curriculum_name: string; lesson_count: number }[] = [];
+    let failedGoals = 0;
 
-    const pairs = moves.map((m) => ({ id: m.lesson.id, date: m.toDate }));
-    const { succeededIds, failedIds } = await batchUpdateScheduledDates(pairs, "plan_move", true);
-    const succeeded = moves.filter((m) => succeededIds.has(m.lesson.id));
-    const pinnedBefore = new Set(
-      moves
-        .filter((m) => (m.lesson as { queue_pinned?: boolean | null }).queue_pinned)
-        .map((m) => m.lesson.id),
-    );
+    for (const entry of plan) {
+      // (a) Snapshot BEFORE touching anything. If this read fails we skip the
+      // goal entirely rather than clear pins we could never restore.
+      const { data: snapRows, error: snapErr } = await supabase
+        .from("lessons")
+        .select("id, scheduled_date, date, queue_pinned, scheduled_source")
+        .eq("curriculum_goal_id", entry.config.id)
+        .eq("completed", false);
+      if (snapErr || !snapRows) {
+        failedGoals++;
+        continue;
+      }
+      snapshot.push(...(snapRows as unknown as ReprojectSnapshotRow[]));
 
-    // Rollback any failures locally.
-    if (failedIds.size > 0) {
-      setLessons((prev) =>
-        prev.map((l) => {
-          const m = movesById.get(l.id);
-          if (!m || !failedIds.has(l.id)) return l;
-          return { ...l, scheduled_date: m.fromDate, date: m.fromDate };
-        }),
+      // (b) Release the pins. The family asked for a fresh spread, and a pin
+      // is the one thing that would hold a lesson on the day she is trying to
+      // move away from. Cleared explicitly rather than ignored so the rows do
+      // not freeze at their new projector dates either (Invariant 12).
+      const { error: unpinErr } = await supabase
+        .from("lessons")
+        .update({ queue_pinned: false })
+        .eq("curriculum_goal_id", entry.config.id)
+        .eq("completed", false);
+      if (unpinErr) {
+        failedGoals++;
+        continue;
+      }
+
+      // (c) Let the reconciler write the dates. It owns the kill switch
+      // (NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED) and its own per-day overcapacity
+      // guard; if it declines, the pins are still cleared and the next Today
+      // load reconciles. Do not second-guess it here.
+      await reconcileGoalScheduleCache(
+        supabase,
+        entry.config,
+        vacationBlocks as unknown as SchedVacationBlock[],
+        0,
+        today,
       );
+
+      doneGoals.push({
+        goal_id: entry.config.id,
+        curriculum_name: entry.preview.curriculumName,
+        lesson_count: entry.preview.lessonCount,
+      });
     }
 
+    const totalLessons = doneGoals.reduce((sum, g) => sum + g.lesson_count, 0);
+
     recordEvent("lesson.bulk_action", {
-      action: "catch_up_shift",
-      count: moves.length,
-      lesson_ids: moves.map((m) => m.lesson.id),
-      from_dates: moves.map((m) => m.fromDate),
-      to_dates: moves.map((m) => m.toDate),
-      succeeded: succeededIds.size,
-      failed: failedIds.size,
+      action: "catch_up_reproject",
+      count: totalLessons,
+      goal_ids: doneGoals.map((g) => g.goal_id),
+      per_goal: doneGoals,
+      succeeded: doneGoals.length,
+      failed: failedGoals,
     });
 
-    if (succeeded.length > 0) {
+    if (doneGoals.length > 0) {
       setUndoAction({
         message:
-          failedIds.size > 0
-            ? `Shifted ${succeeded.length} of ${moves.length} forward, ${failedIds.size} couldn't move`
-            : `Shifted ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"} forward`,
-        key: `catch-up:${Date.now()}`,
+          failedGoals > 0
+            ? `Re-spread ${doneGoals.length} of ${plan.length} curriculums, ${failedGoals} couldn't be re-spread`
+            : `Re-spread ${totalLessons} lesson${totalLessons === 1 ? "" : "s"} from today`,
+        key: `catch-up-reproject:${Date.now()}`,
         onUndo: async () => {
-          setLessons((prev) =>
-            prev.map((l) => {
-              const m = movesById.get(l.id);
-              if (!m || !succeededIds.has(l.id)) return l;
-              return { ...l, scheduled_date: m.fromDate, date: m.fromDate };
-            }),
-          );
           hapticTap(20);
-          succeeded.forEach((m) => flagLanded(m.lesson.id));
-          const undoPairs = succeeded.map((m) => ({ id: m.lesson.id, date: m.fromDate }));
-          const repin = undoPairs.filter((p) => pinnedBefore.has(p.id));
-          const unpin = undoPairs.filter((p) => !pinnedBefore.has(p.id));
-          if (repin.length > 0) await batchUpdateScheduledDates(repin, "plan_move", true);
-          if (unpin.length > 0) await batchUpdateScheduledDates(unpin, "plan_move", false);
+          // Put every snapshotted row back exactly as it was: dates, pin flag
+          // and scheduled_source. Chunked at 20 to match the rest of the file.
+          for (let i = 0; i < snapshot.length; i += 20) {
+            await Promise.allSettled(
+              snapshot.slice(i, i + 20).map((s) =>
+                supabase
+                  .from("lessons")
+                  .update({
+                    scheduled_date: s.scheduled_date,
+                    date: s.date,
+                    queue_pinned: s.queue_pinned ?? false,
+                    scheduled_source: s.scheduled_source,
+                  })
+                  .eq("id", s.id),
+              ),
+            );
+          }
           reloadPins();
           reload();
         },
       });
     } else {
-      flashNotice(`Couldn't shift ${failedIds.size} lesson${failedIds.size === 1 ? "" : "s"}.`);
+      flashNotice("Couldn't re-spread your schedule, check your connection.");
     }
 
     reloadPins();
     reload();
     setBulkBusy(false);
-  }, [setLessons, flagLanded, batchUpdateScheduledDates, recordEvent, reload, reloadPins]);
+    // Cross-route notification: Today re-reads so the new dates show without
+    // a manual refresh, same as every other bulk path here.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+    }
+  }, [shiftForwardPlan, vacationBlocks, recordEvent, reload, reloadPins]);
+
+  // NOTE: this still writes queue_pinned without ever setting queue_position,
+  // which is the same defect the catch-up flow just shed:
+  // reconcileGoalScheduleCache keys pins on queue_position (scheduler.ts), so
+  // these pins hold no slot and the projector re-dates the tail around them on
+  // the next load. Scheduled for the same per-goal re-projection treatment.
 
   const handlePushBackConfirm = useCallback(async (args: {
     futureMoves: PushBackMove[];
@@ -5145,11 +5291,10 @@ export default function PlanV2() {
         <ShiftForwardModal
           isOpen={shiftForwardOpen}
           loading={shiftForwardLoading}
-          missed={shiftForwardMissed}
-          schoolDays={schoolDays}
-          vacationBlocks={vacationBlocks}
+          goals={shiftForwardPlan.map((e) => e.preview)}
+          unlinkedMissedCount={shiftForwardUnlinked}
           onClose={closeShiftForward}
-          onConfirm={handleCatchUpShiftConfirm}
+          onConfirm={handleCatchUpReprojectConfirm}
         />
         <PushBackModal
           isOpen={pushBackOpen}

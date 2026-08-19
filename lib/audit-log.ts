@@ -85,8 +85,13 @@ export type LessonBulkAction =
   | "mark_done"
   | "skip"
   | "delete"
-  /** Catch-up banner: batch-move past-incomplete lessons to next school days. */
+  /** Catch-up banner: batch-move past-incomplete lessons to next school days.
+   *  Retired August 2026 (it scrambled dates across goals) but kept in the
+   *  union so historical rows still render with their own summary. */
   | "catch_up_shift"
+  /** Catch-up banner: re-project each affected goal's remaining tail from
+   *  today, via the projector. Replaced `catch_up_shift`. */
+  | "catch_up_reproject"
   /** Push-back flow: shift all future lessons forward by N school days. */
   | "push_back_future"
   /** Push-back flow: fit missed lessons into the now-vacated near-term slots. */
@@ -94,9 +99,16 @@ export type LessonBulkAction =
 export type LessonBulkActionPayload = {
   action: LessonBulkAction;
   count: number;
-  lesson_ids: string[];
-  from_dates: string[];
+  /** Per-row detail. Absent for `catch_up_reproject`, which acts on whole
+   *  goals rather than a hand-picked row set, so the flat arrays would be
+   *  thousands of entries describing a decision made per curriculum. */
+  lesson_ids?: string[];
+  from_dates?: string[];
   to_date?: string;
+  /** `catch_up_reproject` only: the goals whose tails were re-projected. */
+  goal_ids?: string[];
+  /** `catch_up_reproject` only: how many lessons landed per goal. */
+  per_goal?: { goal_id: string; curriculum_name: string; lesson_count: number }[];
   succeeded: number;
   failed: number;
 };
@@ -493,6 +505,17 @@ export function formatEvent(row: PlanEventRow): FormattedEvent {
       if (action === "catch_up_shift") {
         return {
           summary: `Shifted ${count} lesson${count === 1 ? "" : "s"} forward to catch up`,
+          category: "bulk",
+          icon: "🗓️",
+        };
+      }
+      if (action === "catch_up_reproject") {
+        const goalCount = Array.isArray(p.goal_ids) ? p.goal_ids.length : 0;
+        const scope = goalCount > 0
+          ? ` across ${goalCount} curriculum${goalCount === 1 ? "" : "s"}`
+          : "";
+        return {
+          summary: `Re-spread ${count} lesson${count === 1 ? "" : "s"}${scope} from today`,
           category: "bulk",
           icon: "🗓️",
         };
