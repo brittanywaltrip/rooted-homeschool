@@ -1,11 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Hand, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
 import { computeFinishDate, type PinnedSlot, type VacationBlock as SchedulerVacationBlock } from "@/app/lib/scheduler";
+// Ordering + month grouping for the expanded lesson list. Extracted so the
+// sort and the run-length grouper are covered by lessonListSort.test.ts.
+// They are only correct as a pair, and that file explains why.
+import { sortLessonsForList, groupLessonsByMonth } from "./lessonListSort";
 
 /* ============================================================================
  * CurriculumGroupsPanel — curriculum goal list with pace + progress + per-
@@ -123,13 +127,6 @@ function computePaceStatus(
   };
 }
 
-function monthKey(dateStr: string | null): string {
-  if (!dateStr) return "Unscheduled";
-  const [y, m] = dateStr.split("-").map(Number);
-  if (!y || !m) return "Unscheduled";
-  return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-}
-
 function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -192,6 +189,33 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
 
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  // Points at the wrapper of whichever goal menu is currently open.
+  const goalMenuRef = useRef<HTMLDivElement | null>(null);
+
+  // Close the goal kebab on any click outside it.
+  //
+  // This replaces a `fixed inset-0 z-40` backdrop div, the same defect already
+  // fixed on the lesson rows: the backdrop covered the whole viewport, and
+  // every other control on the page sits in normal flow below z-40, so while
+  // one goal's menu was open no other goal's kebab (and nothing else in the
+  // panel) could be clicked. The click hit the backdrop, which closed the menu
+  // and swallowed the event.
+  //
+  // The functional update matters. Clicking goal B's kebab while A is open
+  // fires B's React onClick FIRST (React listens on its own root, inside
+  // document) and this listener second, so an unconditional
+  // setMenuOpenId(null) would close the menu B just opened. Guarding on "still
+  // the one this effect was bound for" lets B win.
+  useEffect(() => {
+    if (!menuOpenId) return;
+    const boundFor = menuOpenId;
+    const onDocClick = (e: MouseEvent) => {
+      if (goalMenuRef.current?.contains(e.target as Node)) return;
+      setMenuOpenId((cur) => (cur === boundFor ? null : cur));
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [menuOpenId]);
 
   const lessonsByGoal = useMemo(() => {
     const m = new Map<string, PlanV2Lesson[]>();
@@ -257,22 +281,10 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
       ) : (
         <ul className="divide-y divide-[#f0ede8]">
           {activeGoals.map((goal) => {
-            // Sort by lesson_number ASC so the expanded list reads "1, 2,
-            // 3..." regardless of what calendar dates the rows happen to
-            // carry. Date-based sort meant a recalibrated curriculum (with
-            // gap-fill estimates spread across past dates) could render
-            // lesson 5 above lesson 2. Lessons with a null lesson_number
-            // (one-off rows logged via the unified "+") sort to the end so
-            // they don't break the numerical run — same convention used by
-            // WeekListView's day-bucket sort.
-            const goalLessons = (lessonsByGoal.get(goal.id) ?? []).sort((a, b) => {
-              const an = a.lesson_number;
-              const bn = b.lesson_number;
-              if (an == null && bn == null) return 0;
-              if (an == null) return 1;
-              if (bn == null) return -1;
-              return an - bn;
-            });
+            // Date ASC, lesson_number as tiebreaker, undated last, and a copy
+            // rather than an in-place sort of the memo's own bucket. See
+            // lessonListSort.ts for why this pairs with the grouper below.
+            const goalLessons = sortLessonsForList(lessonsByGoal.get(goal.id) ?? []);
             const totalInView = goalLessons.length;
             const completedCount = goal.current_lesson ?? 0;
             const remaining = Math.max(0, goal.total_lessons - completedCount);
@@ -331,7 +343,10 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                     {/* Per-card overflow menu — replaces the previous inline
                         Edit / Log past hours / Stop / Delete row. Same
                         handlers; only the trigger UI changed. */}
-                    <div className="relative shrink-0">
+                    <div
+                      className="relative shrink-0"
+                      ref={menuOpenId === goal.id ? goalMenuRef : undefined}
+                    >
                       <button
                         type="button"
                         onClick={() => setMenuOpenId((id) => (id === goal.id ? null : goal.id))}
@@ -343,12 +358,6 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                         <MoreVertical size={15} />
                       </button>
                       {menuOpenId === goal.id ? (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setMenuOpenId(null)}
-                            aria-hidden
-                          />
                           <div
                             role="menu"
                             className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[170px]"
@@ -404,7 +413,6 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                               <Trash2 size={14} /> Delete
                             </button>
                           </div>
-                        </>
                       ) : null}
                     </div>
                   </div>
@@ -638,19 +646,9 @@ function LessonList(props: {
   onDeleteLesson: (lesson: PlanV2Lesson) => void;
 }) {
   const { lessons, onToggleLesson, onEditLesson, onRescheduleLesson, onSkipLesson, onDeleteLesson } = props;
-  const grouped = useMemo(() => {
-    const groups: { key: string; rows: PlanV2Lesson[] }[] = [];
-    let current: { key: string; rows: PlanV2Lesson[] } | null = null;
-    for (const l of lessons) {
-      const key = monthKey(l.scheduled_date ?? l.date);
-      if (!current || current.key !== key) {
-        current = { key, rows: [] };
-        groups.push(current);
-      }
-      current.rows.push(l);
-    }
-    return groups;
-  }, [lessons]);
+  // Run-length grouper. Correct only because `lessons` arrives date-sorted
+  // from sortLessonsForList; see lessonListSort.ts.
+  const grouped = useMemo(() => groupLessonsByMonth(lessons), [lessons]);
 
   if (lessons.length === 0) {
     return (
@@ -746,29 +744,54 @@ function LessonActionMenu(props: {
 }) {
   const { lesson, onEditLesson, onRescheduleLesson, onSkipLesson, onDeleteLesson } = props;
   const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  // Close on any click outside this menu.
+  //
+  // This replaces a `fixed inset-0 z-[50]` backdrop div, which is why families
+  // reported that the "..." on some rows "would not open". The backdrop covered
+  // the ENTIRE viewport, and the kebab buttons sit in normal flow (their
+  // `relative` wrapper has z-index auto, so it creates no stacking context and
+  // cannot lift them above z-50). While any one row's menu was open, every
+  // other row's kebab was therefore unclickable: the click landed on the
+  // backdrop, which closed the open menu and swallowed the event. From the
+  // family's side that reads as "this row's button is dead", and it looks
+  // row-specific because it is whichever rows they happened to try second.
+  // A document listener closes the same way without covering anything.
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      // Clicks inside this menu (including the toggle itself) are handled by
+      // their own onClick; only outside clicks dismiss.
+      if (wrapRef.current?.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [open]);
+
   return (
-    <div className="relative shrink-0">
+    <div ref={wrapRef} className="relative shrink-0">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label="More actions"
+        aria-haspopup="menu"
+        aria-expanded={open}
         className="w-6 h-6 flex items-center justify-center rounded-full text-[#9a8e84] hover:bg-[#f0ede8] transition-colors"
       >
         <span aria-hidden className="text-[13px] leading-none">⋯</span>
       </button>
       {open ? (
-        <>
-          <div className="fixed inset-0 z-[50]" onClick={() => setOpen(false)} aria-hidden />
-          <div
-            role="menu"
-            className="absolute right-0 top-full mt-1 z-[51] bg-white border border-[#e8e2d9] rounded-xl shadow-lg overflow-hidden w-[140px]"
-          >
-            <ActionMenuItem label="Edit" icon="✏️" onClick={() => { setOpen(false); onEditLesson(lesson); }} />
-            <ActionMenuItem label="Reschedule" icon="📅" onClick={() => { setOpen(false); onRescheduleLesson(lesson); }} />
-            <ActionMenuItem label="Skip" icon="⏩" onClick={() => { setOpen(false); onSkipLesson(lesson); }} />
-            <ActionMenuItem label="Delete" icon="🗑" destructive onClick={() => { setOpen(false); onDeleteLesson(lesson); }} />
-          </div>
-        </>
+        <div
+          role="menu"
+          className="absolute right-0 top-full mt-1 z-[51] bg-white border border-[#e8e2d9] rounded-xl shadow-lg overflow-hidden w-[140px]"
+        >
+          <ActionMenuItem label="Edit" icon="✏️" onClick={() => { setOpen(false); onEditLesson(lesson); }} />
+          <ActionMenuItem label="Reschedule" icon="📅" onClick={() => { setOpen(false); onRescheduleLesson(lesson); }} />
+          <ActionMenuItem label="Skip" icon="⏩" onClick={() => { setOpen(false); onSkipLesson(lesson); }} />
+          <ActionMenuItem label="Delete" icon="🗑" destructive onClick={() => { setOpen(false); onDeleteLesson(lesson); }} />
+        </div>
       ) : null}
     </div>
   );

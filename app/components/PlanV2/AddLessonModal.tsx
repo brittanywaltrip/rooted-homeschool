@@ -144,7 +144,7 @@ export default function AddLessonModal(props: AddLessonModalProps) {
                 {isLogDone ? "Log a lesson you did" : "Add a lesson"}
               </h2>
               <p className="text-xs text-[#7a6f65] mt-0.5">
-                {isLogDone ? "It'll go in as completed for today." : "One-off or tied to a curriculum goal."}
+                {isLogDone ? "It'll go in as completed on the date you pick." : "One-off or tied to a curriculum goal."}
               </p>
             </div>
             <button
@@ -259,6 +259,15 @@ export default function AddLessonModal(props: AddLessonModalProps) {
                   placeholder="optional"
                   className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] placeholder:text-[#c4bfb8] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
                 />
+                {/* Only meaningful with a goal picked: a lesson number without
+                    one has nothing to collide with. Filling it in targets the
+                    existing queue slot, which the parent refuses to overwrite
+                    once there is real work on it. */}
+                {goalId ? (
+                  <span className="block mt-1 text-[11px] text-[#7a6f65]">
+                    Leave blank to log another day on a lesson you already started.
+                  </span>
+                ) : null}
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">

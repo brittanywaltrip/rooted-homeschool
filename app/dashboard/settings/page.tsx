@@ -779,6 +779,19 @@ export default function SettingsPage() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
+      // `dataDeleted` means the wipe already committed and only a later step
+      // failed. Pressing Delete again cannot help and did real harm once: on
+      // August 7, 2026 the button came back to life after this exact failure
+      // and the family pressed it a second time 8 seconds later. Leave
+      // deletingAccount set so the button stays disabled, and show the
+      // route's own message, which tells them to email us instead of retrying.
+      if (body.dataDeleted) {
+        setDeleteError(
+          body.error ??
+            "Your Rooted data has been deleted, but we couldn't remove your sign-in. Email hello@rootedhomeschoolapp.com and we'll finish it for you. Please don't press delete again.",
+        );
+        return;
+      }
       setDeleteError(body.error ?? "Something went wrong. Please try again.");
       setDeletingAccount(false);
       return;

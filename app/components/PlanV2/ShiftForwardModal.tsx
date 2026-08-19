@@ -1,51 +1,49 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
-import type { PlanV2Lesson } from "./types";
-import {
-  nthSchoolDay,
-  todayDateStr,
-  type VacationRange,
-} from "@/lib/school-days";
 
 /* ============================================================================
- * ShiftForwardModal — preview + confirm for catch-up shift.
+ * ShiftForwardModal: preview + confirm for the catch-up re-projection.
  *
- * Assigns each missed lesson (in their existing scheduled_date order) to
- * the next available teaching day starting from today. The assignment is
- * pure (no DB writes here); the parent handler receives the target-date
- * mapping and runs the batch UPDATE + audit event + undo.
+ * PURELY PRESENTATIONAL. It used to compute the target dates itself, with a
+ * single global counter: sorted.map((lesson, idx) => nthSchoolDay(today,
+ * profileSchoolDays, idx + 1)). That handed out one lesson per school day
+ * across EVERY goal and EVERY child, off the profile's school_days, ignoring
+ * each goal's own school_days, lessons_per_day and per-weekday overrides. A
+ * missed Spelling lesson and a missed Math lesson competed for the same day,
+ * so subjects leapfrogged each other by weeks and lesson N could land after
+ * lesson N+1 inside one goal. 70 goals across 34 families were left with
+ * backwards-running dates (August 2026). docs/CURRICULUM-SCHEDULING.md
+ * Anti-pattern C is this exact failure.
  *
- * If the user has no school_days configured, we fall back to Mon-Fri via
- * the helper's DEFAULT_SCHOOL_DAYS constant at the call site.
+ * The projector already knows how to spread a goal's remaining tail over that
+ * goal's own school days, so the parent now runs computeNextLessonsForGoal per
+ * goal and hands us the summary. No date math lives here any more, and there is
+ * only one definition of "where does this lesson go" (Invariant 8).
  * ==========================================================================*/
 
-/** All this modal needs of a lesson: an id to move, dates to shift from, and
- *  a label for the preview row. Kept narrow so the parent can hand us rows
- *  from a lean wide query (see loadCatchUpLessons) as well as calendar rows. */
-export type ShiftLesson = Pick<
-  PlanV2Lesson,
-  "id" | "title" | "lesson_number" | "scheduled_date" | "date"
->;
-
-export type ShiftMove = {
-  lesson: ShiftLesson;
-  fromDate: string;
-  toDate: string;
+/** One goal's projected outcome, computed by the parent at open time. */
+export type ReprojectGoalPreview = {
+  goalId: string;
+  curriculumName: string;
+  /** How many remaining lessons the projector placed for this goal. */
+  lessonCount: number;
+  /** First projected date (YYYY-MM-DD), or null if nothing was placed. */
+  firstDate: string | null;
 };
 
 export interface ShiftForwardModalProps {
   isOpen: boolean;
-  /** True while the parent is still loading the full, all-months missed set.
-   *  The count in the header describes what will actually move, so it must
-   *  not be shown (or confirmable) until the real set has landed. */
+  /** True while the parent is still loading goals + building the projection. */
   loading?: boolean;
-  missed: ShiftLesson[];
-  schoolDays: string[];
-  vacationBlocks: VacationRange[];
+  goals: ReprojectGoalPreview[];
+  /** Missed lessons with no curriculum attached. They are NOT re-projected:
+   *  a one-off lesson has no queue to spread. Surfaced so the family is told
+   *  rather than left wondering why those rows did not move. */
+  unlinkedMissedCount?: number;
   onClose: () => void;
-  onConfirm: (moves: ShiftMove[]) => Promise<void>;
+  onConfirm: () => Promise<void>;
 }
 
 function formatDate(dateStr: string): string {
@@ -56,38 +54,30 @@ function formatDate(dateStr: string): string {
 }
 
 export default function ShiftForwardModal(props: ShiftForwardModalProps) {
-  const { isOpen, loading = false, missed, schoolDays, vacationBlocks, onClose, onConfirm } = props;
+  const {
+    isOpen,
+    loading = false,
+    goals,
+    unlinkedMissedCount = 0,
+    onClose,
+    onConfirm,
+  } = props;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Build the from→to preview. Sort by existing scheduled_date so the
-  // earliest missed lesson lands on the earliest vacant teaching day.
-  const moves = useMemo<ShiftMove[]>(() => {
-    if (!isOpen || missed.length === 0) return [];
-    const sorted = [...missed].sort((a, b) => {
-      const da = a.scheduled_date ?? a.date ?? "";
-      const db = b.scheduled_date ?? b.date ?? "";
-      return da.localeCompare(db);
-    });
-    const today = todayDateStr();
-    return sorted.map((lesson, idx) => {
-      const fromDate = lesson.scheduled_date ?? lesson.date ?? today;
-      const toDate = nthSchoolDay(today, schoolDays, idx + 1, vacationBlocks);
-      return { lesson, fromDate, toDate };
-    });
-  }, [isOpen, missed, schoolDays, vacationBlocks]);
-
   if (!isOpen) return null;
+
+  const totalLessons = goals.reduce((sum, g) => sum + g.lessonCount, 0);
 
   async function handleConfirm() {
     if (submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      await onConfirm(moves);
+      await onConfirm();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Couldn't shift lessons");
+      setError(e instanceof Error ? e.message : "Couldn't re-spread your schedule");
     } finally {
       setSubmitting(false);
     }
@@ -105,14 +95,11 @@ export default function ShiftForwardModal(props: ShiftForwardModalProps) {
             <div>
               <h2 className="text-base font-bold text-[#2d2926]">Catch up</h2>
               <p className="text-xs text-[#7a6f65] mt-0.5">
-                {loading ? (
-                  "Checking your whole schedule, one moment…"
-                ) : (
-                  <>
-                    Shifting {moves.length} missed lesson{moves.length === 1 ? "" : "s"} to the next school day
-                    {moves.length === 1 ? "" : "s"}.
-                  </>
-                )}
+                {loading
+                  ? "Checking your whole schedule, one moment…"
+                  : goals.length === 0
+                    ? "Nothing to re-spread right now."
+                    : "Here's where everything lands."}
               </p>
             </div>
             <button
@@ -127,22 +114,25 @@ export default function ShiftForwardModal(props: ShiftForwardModalProps) {
 
           <div className="px-5 pb-4 pt-1 overflow-y-auto">
             {loading ? (
-              <p className="text-sm text-[#9a8e84] py-4 text-center">Loading your missed lessons…</p>
-            ) : moves.length === 0 ? (
-              <p className="text-sm text-[#9a8e84] py-4 text-center">Nothing to shift right now.</p>
+              <p className="text-sm text-[#9a8e84] py-4 text-center">Working out your new dates…</p>
+            ) : goals.length === 0 ? (
+              <p className="text-sm text-[#9a8e84] py-4 text-center">Nothing to re-spread right now.</p>
             ) : (
-              <ul className="space-y-1">
-                {moves.slice(0, 20).map((m) => {
-                  const title =
-                    m.lesson.title && m.lesson.title.trim().length > 0
-                      ? m.lesson.title
-                      : m.lesson.lesson_number
-                        ? `Lesson ${m.lesson.lesson_number}`
-                        : "Lesson";
-                  return (
+              <>
+                {/* Honest about scope. The old copy said "shifting N missed
+                    lessons", which described a fraction of what happened. */}
+                <p className="text-[12px] text-[#7a6f65] mb-2.5 leading-relaxed">
+                  This spreads every lesson you have left in{" "}
+                  {goals.length === 1 ? "this curriculum" : "these curriculums"} out again,
+                  starting today, in lesson order, on each one&apos;s own school days. Lessons you
+                  moved by hand will be given new dates too.
+                </p>
+
+                <ul className="space-y-1">
+                  {goals.map((g) => (
                     <li
-                      key={m.lesson.id}
-                      className="flex items-center justify-between gap-2 text-[12px] text-[#2d2926]"
+                      key={g.goalId}
+                      className="text-[12px] text-[#2d2926]"
                       style={{
                         background: "white",
                         border: "0.5px solid #e8e2d9",
@@ -150,17 +140,32 @@ export default function ShiftForwardModal(props: ShiftForwardModalProps) {
                         padding: "6px 10px",
                       }}
                     >
-                      <span className="truncate">{title}</span>
-                      <span className="shrink-0 tabular-nums text-[#7a6f65]">
-                        {formatDate(m.fromDate)} → <span className="font-semibold text-[#2D5A3D]">{formatDate(m.toDate)}</span>
+                      <span className="font-semibold">{g.curriculumName}</span>
+                      {": "}
+                      <span className="text-[#7a6f65]">
+                        {g.lessonCount} lesson{g.lessonCount === 1 ? "" : "s"} re-spread
+                        {g.firstDate ? (
+                          <>
+                            {" starting "}
+                            <span className="font-semibold text-[#2D5A3D] tabular-nums">
+                              {formatDate(g.firstDate)}
+                            </span>
+                          </>
+                        ) : null}
                       </span>
                     </li>
-                  );
-                })}
-                {moves.length > 20 ? (
-                  <li className="text-[11px] text-[#9a8e84] text-center pt-1">+ {moves.length - 20} more</li>
+                  ))}
+                </ul>
+
+                {unlinkedMissedCount > 0 ? (
+                  <p className="text-[11px] text-[#9a8e84] mt-2">
+                    {unlinkedMissedCount} one-off lesson
+                    {unlinkedMissedCount === 1 ? "" : "s"} without a curriculum will stay where
+                    {unlinkedMissedCount === 1 ? " it is" : " they are"}. Move
+                    {unlinkedMissedCount === 1 ? " it" : " them"} from the calendar.
+                  </p>
                 ) : null}
-              </ul>
+              </>
             )}
 
             {error ? <p className="text-[11px] text-[#b91c1c] mt-2">{error}</p> : null}
@@ -178,10 +183,14 @@ export default function ShiftForwardModal(props: ShiftForwardModalProps) {
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={loading || moves.length === 0 || submitting}
+              disabled={loading || goals.length === 0 || submitting}
               className="flex-1 min-h-[44px] text-sm font-bold text-white bg-[#2D5A3D] rounded-xl hover:bg-[var(--g-deep)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? "Shifting…" : loading ? "Loading…" : "Shift forward"}
+              {submitting
+                ? "Re-spreading…"
+                : loading
+                  ? "Loading…"
+                  : `Re-spread ${totalLessons} lesson${totalLessons === 1 ? "" : "s"}`}
             </button>
           </div>
         </div>

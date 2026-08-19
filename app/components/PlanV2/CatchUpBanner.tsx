@@ -46,7 +46,7 @@ export default function CatchUpBanner(props: CatchUpBannerProps) {
             You&apos;re {count} lesson{count === 1 ? "" : "s"} behind, want to catch up?
           </p>
           <p style={{ fontSize: 11, color: "#8a5a2a", margin: "1px 0 0" }}>
-            Shift them forward or push your whole schedule back.
+            Re-spread what&apos;s left from today, or push your whole schedule back.
           </p>
         </div>
       </div>
@@ -55,13 +55,13 @@ export default function CatchUpBanner(props: CatchUpBannerProps) {
         <button
           type="button"
           onClick={onShiftForward}
-          aria-label={`Shift ${count} lessons to next school days`}
+          aria-label="Re-spread remaining lessons from today"
           className="text-[11px] font-bold text-white rounded-lg px-3 py-1.5 min-h-[32px] transition-colors"
           style={{ backgroundColor: "#5c7f63" }}
           onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#3d5c42"; }}
           onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "#5c7f63"; }}
         >
-          Shift to next school days
+          Re-spread from today
         </button>
         <button
           type="button"
