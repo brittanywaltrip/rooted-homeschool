@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -94,6 +94,41 @@ function LoginContent() {
       url.searchParams.delete("error");
       window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Bounce anyone who already has a session straight to the dashboard.
+  //
+  // This is the other half of the "app keeps signing me out" fix. The
+  // dashboard used to redirect here whenever getUser() failed on a flaky
+  // network, and /login had no idea a valid session existed, so it showed the
+  // password form and the family typed their password again. Now the session
+  // is checked on arrival, which also rescues anyone the old behavior already
+  // stranded on this page.
+  //
+  // getSession() reads the cookie LOCALLY, no network call, so a bad
+  // connection cannot make this fire wrongly. Auth cookies are deliberately
+  // not httpOnly (see app/api/auth/login/route.ts) precisely so the browser
+  // client can read them.
+  const bouncedRef = useRef(false);
+  useEffect(() => {
+    // Only ever redirect once, and only on a positive session. A null session
+    // or any error leaves the login form exactly as it was.
+    if (bouncedRef.current) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const client = createSupabaseBrowserClient();
+        const { data, error } = await client.auth.getSession();
+        if (cancelled || error || !data?.session) return;
+        if (bouncedRef.current) return;
+        bouncedRef.current = true;
+        router.replace("/dashboard");
+      } catch {
+        // Never block the login form on this check.
+      }
+    })();
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

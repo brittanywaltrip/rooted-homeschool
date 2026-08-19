@@ -5,6 +5,11 @@ import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
 import { Sun, Leaf, Camera, Calendar, Search, Menu, X, Printer, GraduationCap } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import {
+  getUserWithRetry,
+  reportAuthRedirect,
+  reportAuthCheckUnavailable,
+} from "@/lib/auth-retry";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
 import { ProfileProvider, useProfile } from "@/lib/profile-context";
@@ -154,18 +159,55 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // getUser() makes a network call to Supabase's auth server using whichever
-    // session it can find (cookie or localStorage). Middleware refreshes the
-    // cookie on every request, so this call succeeds whenever the cookie is
-    // valid — even when the browser client has nothing in localStorage.
-    // INITIAL_SESSION was unreliable in that case and left the layout stuck
-    // on the loading skeleton.
-    supabase.auth.getUser().then(async ({ data }) => {
+    // getUser() reaches Supabase's auth server with whichever session it can
+    // find (cookie or localStorage). Middleware refreshes the cookie on every
+    // request, so it succeeds whenever the cookie is valid, even with nothing
+    // in localStorage. Keep using it: INITIAL_SESSION was unreliable in that
+    // case and left the layout stuck on the loading skeleton.
+    //
+    // But it is a NETWORK call, and that is what this handling is about. A
+    // phone waking with weak signal gets { user: null, error:
+    // AuthRetryableFetchError } while the session is still perfectly valid.
+    // The old code destructured the error away and redirected, which put three
+    // families back on the login form typing a password they did not need to
+    // type. getUserWithRetry retries transport failures and only reports
+    // "signed-out" when the auth server actually answered.
+    void (async () => {
+      const auth = await getUserWithRetry(supabase);
       if (!mounted) return;
-      const user = data.user;
-      if (!user) {
+
+      if (auth.kind === "signed-out") {
+        reportAuthRedirect("dashboard-layout", auth.reason);
         router.replace("/login");
         return;
+      }
+
+      let user = auth.kind === "ok" ? auth.user : null;
+      if (!user) {
+        // The check never completed, so we know nothing about the session and
+        // must NOT redirect. Try the cookie locally for the user id: it costs
+        // no network call, and auth cookies are deliberately not httpOnly (see
+        // app/api/auth/login/route.ts) so the browser client can read them.
+        // Recovering the id here is the difference between a dashboard that
+        // loads once the connection returns and an empty shell.
+        reportAuthCheckUnavailable(
+          "dashboard-layout",
+          auth.kind === "unavailable" ? auth.reason : "no-user",
+        );
+        try {
+          const { data: sessionData } = await supabase.auth.getSession();
+          if (!mounted) return;
+          user = sessionData?.session?.user ?? null;
+        } catch {
+          user = null;
+        }
+        if (!user) {
+          // No id to work with. Render anyway rather than redirect; the page's
+          // own loading states take it from here, and a real sign-out still
+          // arrives on the SIGNED_OUT subscription below.
+          setChecking(false);
+          return;
+        }
       }
 
       const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
@@ -173,17 +215,46 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         setIsAdmin(true);
       }
 
-      // Load family name + subscription status
-      const { data: profile } = await supabase
+      // Load family name + subscription status.
+      //
+      // The error is NOT discarded any more. A transient read failure returns
+      // { data: null, error }, which the old code read as "no profile" and
+      // used to route an established family into the new-family wizard. One
+      // retry, then stay put: a missing profile is only believable when the
+      // read actually succeeded.
+      const PROFILE_COLUMNS =
+        "display_name, subscription_status, family_photo_url, first_name, onboarded, is_pro, trial_started_at";
+      let { data: profile, error: profileErr } = await supabase
         .from("profiles")
-        .select("display_name, subscription_status, family_photo_url, first_name, onboarded, is_pro, trial_started_at")
+        .select(PROFILE_COLUMNS)
         .eq("id", user.id)
         .maybeSingle();
+      if (profileErr) {
+        await new Promise((r) => setTimeout(r, 1000));
+        if (!mounted) return;
+        ({ data: profile, error: profileErr } = await supabase
+          .from("profiles")
+          .select(PROFILE_COLUMNS)
+          .eq("id", user.id)
+          .maybeSingle());
+      }
 
       if (!mounted) return;
 
+      if (profileErr) {
+        // Could not read the profile. Do not guess: routing to /onboarding on
+        // a failed read restarts an established family's setup.
+        reportAuthCheckUnavailable("dashboard-layout-profile", "profile-read-failed", {
+          message: (profileErr as { message?: string }).message ?? null,
+        });
+        setPartnerCtx({ isPartner: false, effectiveUserId: user.id, ownerName: "" });
+        setChecking(false);
+        return;
+      }
+
       // Gate: send new (no profile yet) or non-onboarded users through the wizard
       // onboarded is NULL for new users (not false), so check !== true
+      // Reached only when the read succeeded, so "no profile" is a real fact.
       if (!profile || (profile as { onboarded?: boolean | null } | null)?.onboarded !== true) {
         // No profile row usually means "new family". It also means "this
         // account was deleted but its auth.users row survived the wipe" (see
@@ -276,7 +347,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       setUnreadFamilyNotifs(count ?? 0);
 
       setChecking(false);
-    });
+    })();
 
     // Keep the auth-state subscription for cross-tab sign-outs and to absorb
     // middleware-driven token refreshes. The initial auth check above is
@@ -285,6 +356,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (!mounted) return;
       if (event === "SIGNED_OUT") {
+        reportAuthRedirect("dashboard-layout", "SIGNED_OUT-event");
         router.replace("/login");
         return;
       }

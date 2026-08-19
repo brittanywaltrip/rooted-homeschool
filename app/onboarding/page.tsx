@@ -4,6 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, X } from "lucide-react";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
+import {
+  getUserWithRetry,
+  reportAuthRedirect,
+  reportAuthCheckUnavailable,
+} from "@/lib/auth-retry";
 import { capitalizeName } from "@/lib/utils";
 import { normalizeAffiliateCode } from "@/lib/referrals";
 import { posthog } from "@/lib/posthog";
@@ -594,8 +599,23 @@ export default function OnboardingPage() {
   useEffect(() => {
     if (authCheckDone.current) return;
     authCheckDone.current = true;
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { router.replace("/login"); return; }
+    // Same network-blindness fix as the dashboard layout: getUser() is a
+    // network call, and treating a dropped request as "signed out" pushed
+    // families with a valid session back onto the login form.
+    void (async () => {
+      const auth = await getUserWithRetry(supabase);
+      if (auth.kind === "unavailable") {
+        // Never redirect on an unanswered check. The wizard's own steps will
+        // surface a failure if the connection really is gone.
+        reportAuthCheckUnavailable("onboarding", auth.reason);
+        return;
+      }
+      if (auth.kind === "signed-out") {
+        reportAuthRedirect("onboarding", auth.reason);
+        router.replace("/login");
+        return;
+      }
+      const user = auth.user;
 
       const [{ data: profile }, { data: existingChildren }] = await Promise.all([
         supabase
@@ -657,7 +677,7 @@ export default function OnboardingPage() {
       setStep(0);
 
       setReady(true);
-    });
+    })();
   }, [router]);
 
   // ── Step transition ────────────────────────────────────────────────────
