@@ -5,6 +5,7 @@ import { X, MoreHorizontal, Trash2, Pencil, Heart, Search, Mic, BookmarkCheck } 
 import YearbookBookmark from "@/app/components/YearbookBookmark";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { getUserAccess } from "@/lib/user-access";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
@@ -125,6 +126,11 @@ export default function MemoriesPage() {
   const [loadError, setLoadError] = useState(false);
   const [isPro, setIsPro] = useState<boolean | null>(null);
   const [planType, setPlanType] = useState<string | null>(null);
+  // Free tier sees the last 30 days only (CLAUDE.md pricing: "memories 30
+  // days"). Nothing is deleted; `hiddenOlderCount` is how many rows sit
+  // outside that window, so the banner can be honest that they are safe.
+  const [isFreeWindowed, setIsFreeWindowed] = useState(false);
+  const [hiddenOlderCount, setHiddenOlderCount] = useState(0);
   // Filter: "all" | "family" | "favorites" | child id
   const [filter, setFilter] = useState("all");
   const [showMoreFilters, setShowMoreFilters] = useState(false);
@@ -262,16 +268,50 @@ export default function MemoriesPage() {
     if (!effectiveUserId) return;
     try {
 
+    // trial_started_at is REQUIRED here. getUserAccess reads it to tell a
+    // trial apart from an expired one, and every profile in production has it
+    // set, so selecting only is_pro would resolve every trial account to
+    // 'free' and hide their history the day they signed up.
     const { data: profile } = await supabase
       .from("profiles")
-      .select("is_pro, plan_type")
+      .select("is_pro, plan_type, trial_started_at")
       .eq("id", effectiveUserId)
       .single();
-    const userIsPro = (profile as { is_pro?: boolean } | null)?.is_pro ?? false;
+    const prof = profile as { is_pro?: boolean; plan_type?: string; trial_started_at?: string | null } | null;
+    const userIsPro = prof?.is_pro ?? false;
     setIsPro(userIsPro);
-    setPlanType((profile as { plan_type?: string } | null)?.plan_type ?? null);
+    setPlanType(prof?.plan_type ?? null);
 
-    const dateFloor = "2020-01-01";
+    // Same determination the photo cap uses on the Today page. `previewFree`
+    // lets a paid account look at the free experience without downgrading.
+    const accessLevel = getUserAccess({
+      is_pro: prof?.is_pro ?? false,
+      trial_started_at: prof?.trial_started_at ?? null,
+    });
+    const windowed = previewFree || accessLevel === 'free';
+    setIsFreeWindowed(windowed);
+
+    // Narrow the QUERY, not just the grid: a family with years of history
+    // should not download rows the page will never render.
+    const freeFloor = (() => {
+      const d = new Date();
+      d.setDate(d.getDate() - 30);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    })();
+    const dateFloor = windowed ? freeFloor : "2020-01-01";
+
+    // How much history is sitting outside the window. head:true so this costs
+    // a count and returns no rows.
+    if (windowed) {
+      const { count: olderCount } = await supabase
+        .from("memories")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", effectiveUserId)
+        .lt("date", dateFloor);
+      setHiddenOlderCount(olderCount ?? 0);
+    } else {
+      setHiddenOlderCount(0);
+    }
 
     const [{ data: kids }, { data: memRows }, { data: reflData }] = await Promise.all([
       supabase
@@ -911,6 +951,32 @@ export default function MemoriesPage() {
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── Older memories notice (free tier) ─────────────────
+          Free is the last 30 days (CLAUDE.md pricing). The older rows are
+          still in the database and come straight back on upgrade, so the copy
+          leads with that rather than with what is missing. Shown only when
+          there is actually history behind the window, so a family who has
+          never had one never sees it. Gold is the paid accent per CLAUDE.md. */}
+      {!loading && isFreeWindowed && hiddenOlderCount > 0 && (
+        <div className="bg-[#fdfaf2] border border-[#e8d9a8] rounded-2xl px-4 py-3.5 mb-4 flex items-start gap-3">
+          <span aria-hidden className="text-lg leading-none mt-0.5">🌿</span>
+          <div className="flex-1 min-w-0">
+            <p className="text-[13px] font-medium text-[#2d2926]">
+              Your older memories are safe.
+            </p>
+            <p className="text-[12px] text-[#7a6f65] mt-0.5 leading-relaxed">
+              You&apos;re seeing the last 30 days. Upgrade to see your family&apos;s whole story.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/pricing"
+            className="shrink-0 self-center text-[12px] font-semibold text-white bg-[#C4962A] hover:bg-[#a67d1f] rounded-lg px-3 py-1.5 transition-colors"
+          >
+            Upgrade
+          </Link>
         </div>
       )}
 
