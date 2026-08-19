@@ -26,6 +26,11 @@ export type PlanV2Lesson = {
   notes: string | null;
   scheduled_source: string | null;
   completed_at: string | null;
+  /** Set when this row is another day of work on the lesson it points at.
+   *  Continuations are off-queue by design (lesson_number and
+   *  queue_position are both NULL) so the curriculum pointer does not
+   *  advance. See migration 20260819100000_lesson_continuations.sql. */
+  continues_lesson_id: string | null;
 };
 
 export type PlanV2Appointment = {

@@ -9,7 +9,12 @@ import { computeFinishDate, type PinnedSlot, type VacationBlock as SchedulerVaca
 // Ordering + month grouping for the expanded lesson list. Extracted so the
 // sort and the run-length grouper are covered by lessonListSort.test.ts.
 // They are only correct as a pair, and that file explains why.
-import { sortLessonsForList, groupLessonsByMonth } from "./lessonListSort";
+import {
+  sortLessonsForList,
+  groupLessonsByMonth,
+  buildContinuationDayMap,
+  groupChainRows,
+} from "./lessonListSort";
 
 /* ============================================================================
  * CurriculumGroupsPanel — curriculum goal list with pace + progress + per-
@@ -159,6 +164,9 @@ export interface CurriculumGroupsPanelProps {
   onToggleLesson: (lessonId: string, current: boolean) => void;
   onEditLesson: (lesson: PlanV2Lesson) => void;
   onRescheduleLesson: (lesson: PlanV2Lesson) => void;
+  /** "Continue on another day": adds a second day of work on this lesson
+   *  without advancing the curriculum. Only offered on goal-linked rows. */
+  onContinueLesson: (lesson: PlanV2Lesson) => void;
   onSkipLesson: (lesson: PlanV2Lesson) => void;
   onDeleteLesson: (lesson: PlanV2Lesson) => void;
   /** Clicking "Log past hours" toggles a sub-panel below the goal header. */
@@ -182,7 +190,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
   const {
     goals, lessons, kids, vacationBlocks,
     onCreate, onEdit, onDelete, onStop, onMarkFinished,
-    onToggleLesson, onEditLesson, onRescheduleLesson, onSkipLesson, onDeleteLesson,
+    onToggleLesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onDeleteLesson,
     onOpenBackfill, openBackfillGoalId, renderBackfillPanel,
     onOpenRecalibrate, recalibratingGoalId, onRecalibrate, onCloseRecalibrate,
   } = props;
@@ -448,6 +456,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                     onToggleLesson={onToggleLesson}
                     onEditLesson={onEditLesson}
                     onRescheduleLesson={onRescheduleLesson}
+                    onContinueLesson={onContinueLesson}
                     onSkipLesson={onSkipLesson}
                     onDeleteLesson={onDeleteLesson}
                   />
@@ -642,13 +651,27 @@ function LessonList(props: {
   onToggleLesson: (lessonId: string, current: boolean) => void;
   onEditLesson: (lesson: PlanV2Lesson) => void;
   onRescheduleLesson: (lesson: PlanV2Lesson) => void;
+  /** "Continue on another day": adds a second day of work on this lesson
+   *  without advancing the curriculum. Only offered on goal-linked rows. */
+  onContinueLesson: (lesson: PlanV2Lesson) => void;
   onSkipLesson: (lesson: PlanV2Lesson) => void;
   onDeleteLesson: (lesson: PlanV2Lesson) => void;
 }) {
-  const { lessons, onToggleLesson, onEditLesson, onRescheduleLesson, onSkipLesson, onDeleteLesson } = props;
+  const { lessons, onToggleLesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onDeleteLesson } = props;
   // Run-length grouper. Correct only because `lessons` arrives date-sorted
   // from sortLessonsForList; see lessonListSort.ts.
-  const grouped = useMemo(() => groupLessonsByMonth(lessons), [lessons]);
+  //
+  // Chain grouping is applied INSIDE each month, never across the whole list:
+  // the headers come from a run-length scan, so pulling a row across a month
+  // boundary would bring back the repeating-header bug that lessonListSort.ts
+  // exists to prevent.
+  const grouped = useMemo(
+    () => groupLessonsByMonth(lessons).map((g) => ({ ...g, rows: groupChainRows(g.rows) })),
+    [lessons],
+  );
+  // Day numbers come from the goal's FULL row set, so a chain split across a
+  // month boundary is still numbered 1, 2, 3 rather than restarting.
+  const dayByLessonId = useMemo(() => buildContinuationDayMap(lessons), [lessons]);
 
   if (lessons.length === 0) {
     return (
@@ -705,6 +728,14 @@ function LessonList(props: {
                     ) : null}
                   </button>
                   <div className="flex-1 min-w-0">
+                    {(() => {
+                      const day = dayByLessonId.get(l.id);
+                      return day ? (
+                        <p className="text-[11px] text-[#9a8e84] leading-tight">
+                          Day {day.day} of {day.total}
+                        </p>
+                      ) : null;
+                    })()}
                     <p
                       className="text-[12px] font-medium leading-tight truncate"
                       style={{
@@ -722,6 +753,7 @@ function LessonList(props: {
                     lesson={l}
                     onEditLesson={onEditLesson}
                     onRescheduleLesson={onRescheduleLesson}
+                    onContinueLesson={onContinueLesson}
                     onSkipLesson={onSkipLesson}
                     onDeleteLesson={onDeleteLesson}
                   />
@@ -739,10 +771,13 @@ function LessonActionMenu(props: {
   lesson: PlanV2Lesson;
   onEditLesson: (lesson: PlanV2Lesson) => void;
   onRescheduleLesson: (lesson: PlanV2Lesson) => void;
+  /** "Continue on another day": adds a second day of work on this lesson
+   *  without advancing the curriculum. Only offered on goal-linked rows. */
+  onContinueLesson: (lesson: PlanV2Lesson) => void;
   onSkipLesson: (lesson: PlanV2Lesson) => void;
   onDeleteLesson: (lesson: PlanV2Lesson) => void;
 }) {
-  const { lesson, onEditLesson, onRescheduleLesson, onSkipLesson, onDeleteLesson } = props;
+  const { lesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onDeleteLesson } = props;
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -789,6 +824,11 @@ function LessonActionMenu(props: {
         >
           <ActionMenuItem label="Edit" icon="✏️" onClick={() => { setOpen(false); onEditLesson(lesson); }} />
           <ActionMenuItem label="Reschedule" icon="📅" onClick={() => { setOpen(false); onRescheduleLesson(lesson); }} />
+          {/* Curriculum rows only: a one-off lesson has no curriculum to hold
+              still while extra days are added. */}
+          {lesson.curriculum_goal_id ? (
+            <ActionMenuItem label="Continue on another day" icon="🔁" onClick={() => { setOpen(false); onContinueLesson(lesson); }} />
+          ) : null}
           <ActionMenuItem label="Skip" icon="⏩" onClick={() => { setOpen(false); onSkipLesson(lesson); }} />
           <ActionMenuItem label="Delete" icon="🗑" destructive onClick={() => { setOpen(false); onDeleteLesson(lesson); }} />
         </div>

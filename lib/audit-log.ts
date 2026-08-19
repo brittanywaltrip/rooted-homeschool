@@ -59,6 +59,19 @@ export type LessonCreatedPayload = {
   actor: PlanEventActor;
 };
 
+/** A continuation: another day of work on an existing lesson. The row is
+ * off-queue (lesson_number and queue_position null) so the curriculum pointer
+ * does not move; see migration 20260819100000_lesson_continuations.sql. */
+export type LessonContinuedPayload = {
+  lesson_id: string;
+  lesson_title: string;
+  date: string;
+  curriculum_goal_id: string | null;
+  /** The lesson this one continues. */
+  continues_lesson_id: string;
+  actor: PlanEventActor;
+};
+
 /** Per-field change shape: { from, to }. Payload stores only fields that
  * actually moved so the Recent Changes card can show compact diffs. */
 export type LessonUpdatedPayload = {
@@ -173,6 +186,7 @@ export type SchoolYearCreatedPayload = {
 
 export const PLAN_EVENT_TYPES = [
   "lesson.created",
+  "lesson.continued",
   "lesson.updated",
   "lesson.notes_updated",
   "lesson.moved",
@@ -405,6 +419,15 @@ export function formatEvent(row: PlanEventRow): FormattedEvent {
         summary: `Added ${title}${date ? ` on ${date}` : ""}`,
         category: "completed",
         icon: "➕",
+      };
+    }
+    case "lesson.continued": {
+      const title = titleOrFallback(p.lesson_title);
+      const date = shortDateLabel(p.date as string | null);
+      return {
+        summary: `Added another day for ${title}${date ? ` on ${date}` : ""}`,
+        category: "completed",
+        icon: "\u2795",
       };
     }
     case "lesson.updated": {

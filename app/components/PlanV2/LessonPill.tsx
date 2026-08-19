@@ -55,7 +55,11 @@ export default function LessonPill(props: Props) {
   const initial = child ? child.name.charAt(0).toUpperCase() : "·";
   const done = lesson.completed;
   const label = displayTitle(lesson);
-  const ariaLabel = buildAria(label, child, subject, sourceDateStr, done, !!selected, !!missed);
+  // Another day of work on an existing lesson. Text only, no badge shape:
+  // the pill is already dense and a continuation is not a different KIND
+  // of thing, just a second sitting.
+  const continuation = !!lesson.continues_lesson_id;
+  const ariaLabel = buildAria(label, child, subject, sourceDateStr, done, !!selected, !!missed, continuation);
 
   // Drag is suppressed in select mode even on desktop — users are picking, not moving.
   const dragActive = draggable && !selectMode;
@@ -75,6 +79,7 @@ export default function LessonPill(props: Props) {
         initial={initial}
         subject={subject}
         label={label}
+        continuation={continuation}
         done={done}
         missed={missed}
         justLanded={justLanded}
@@ -94,6 +99,7 @@ export default function LessonPill(props: Props) {
       initial={initial}
       subject={subject}
       label={label}
+      continuation={continuation}
       done={done}
       missed={missed}
       justLanded={justLanded}
@@ -112,6 +118,7 @@ function buildAria(
   done: boolean,
   selected: boolean,
   missed: boolean,
+  continuation = false,
 ): string {
   // "Lesson: Emma's Math Lesson 45, scheduled Tuesday April 21"
   const [y, m, d] = dateStr.split("-").map(Number);
@@ -120,7 +127,8 @@ function buildAria(
   });
   const whose = child ? `${child.name}'s` : "";
   const subjectPart = subject ? ` ${subject}` : "";
-  const head = `Lesson:${whose ? ` ${whose}` : ""}${subjectPart} ${label}`.replace(/\s+/g, " ").trim();
+  const contPart = continuation ? " (continued)" : "";
+  const head = `Lesson:${whose ? ` ${whose}` : ""}${subjectPart} ${label}${contPart}`.replace(/\s+/g, " ").trim();
   return `${head}, scheduled ${dateLabel}${done ? ", completed" : ""}${missed ? ", missed" : ""}${selected ? ", selected" : ""}`;
 }
 
@@ -249,6 +257,8 @@ interface ShellProps {
   initial: string;
   subject: string | null;
   label: string;
+  /** Renders a muted "(cont.)" after the title. */
+  continuation?: boolean;
   done: boolean;
   missed?: boolean;
   justLanded?: boolean;
@@ -263,7 +273,7 @@ interface ShellProps {
 }
 
 export function PillShell({
-  color, initial, subject, label, done, missed, justLanded, selectMode, selected, dragging, onClick, ariaLabel, overlay,
+  color, initial, subject, label, continuation, done, missed, justLanded, selectMode, selected, dragging, onClick, ariaLabel, overlay,
 }: ShellProps) {
   const baseClasses = [
     "w-full text-left rounded-md px-1.5 py-[3px] text-[10px] font-medium bg-white border transition-colors flex items-center gap-1 min-w-0",
@@ -298,6 +308,7 @@ export function PillShell({
       >
         {subject ? <span className="text-[#7a6f65]">{subject} · </span> : null}
         {label}
+        {continuation ? <span className="text-[#9a8e84]"> (cont.)</span> : null}
       </span>
       {selectMode ? (
         <span

@@ -69,6 +69,10 @@ export interface DayDetailPanelV2Props {
   onEditLesson: (lesson: TodayLessonCardLesson) => void;
   onDeleteLesson: (id: string) => void;
   onRescheduleLesson: (lesson: TodayLessonCardLesson) => void;
+  /** Optional "Continue on another day": adds a second day of work on a
+   *  curriculum lesson without advancing the curriculum. Omitted on the
+   *  Today page, which uses this panel in "inline" variant. */
+  onContinueLesson?: (lesson: TodayLessonCardLesson) => void;
   onSkipLesson: (lesson: TodayLessonCardLesson) => void;
   onMinutesUpdate: (id: string, mins: number) => void;
   onToggleAppointment?: (appt: PlanV2Appointment) => void;
@@ -101,7 +105,7 @@ type NoteSaveState = "idle" | "saving" | "saved" | "error";
 export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
   const {
     date, lessons, appointments, kids, isPartner,
-    onToggleLesson, onEditLesson, onDeleteLesson, onRescheduleLesson,
+    onToggleLesson, onEditLesson, onDeleteLesson, onRescheduleLesson, onContinueLesson,
     onSkipLesson, onMinutesUpdate, onToggleAppointment, onEditAppointment, onMoveAppointment,
     onLessonChanged,
     onNotesUpdated,
@@ -492,6 +496,7 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
                         onEdit={onEditLesson}
                         onDelete={onDeleteLesson}
                         onReschedule={onRescheduleLesson}
+                        onContinue={onContinueLesson}
                         onSkip={onSkipLesson}
                         onStartEditingNote={startEditingNote}
                         onMinutesUpdate={onMinutesUpdate}

@@ -2207,6 +2207,19 @@ export interface CustomLessonGoalLinkResult {
 /**
  * Decide whether a newly created lesson keeps its goal link. Single definition
  * so the Plan add-lesson flow and any future creation surface agree.
+ *
+ * CONTINUATIONS ARE THE ONE SANCTIONED EXCEPTION to the drift-E rule above
+ * (August 2026). A continuation row is goal-linked, incomplete, and has no
+ * queue slot, which is exactly the shape this function refuses to create. It is
+ * safe there and only there because Today hydrates it through a DEDICATED third
+ * query keyed on `scheduled_source = 'continuation'` (see the Promise.all in
+ * app/dashboard/page.tsx), so it does not depend on either of the two hydration
+ * queries that miss it. See migration 20260819100000_lesson_continuations.sql.
+ *
+ * This function's behavior is deliberately UNCHANGED: continuations are created
+ * by handleContinueLesson, which never calls it. The blank-lesson-number path in
+ * AddLessonModal must keep detaching, because those rows carry no continuation
+ * marker and nothing would hydrate them onto Today.
  */
 export function resolveCustomLessonGoalLink(
   input: CustomLessonGoalLinkInput,
