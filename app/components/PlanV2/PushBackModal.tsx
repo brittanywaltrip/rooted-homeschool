@@ -1,59 +1,40 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { X } from "lucide-react";
-import type { PlanV2Lesson } from "./types";
-import {
-  nthSchoolDay,
-  todayDateStr,
-  type VacationRange,
-} from "@/lib/school-days";
+import type { ReprojectGoalPreview } from "./ShiftForwardModal";
 
 /* ============================================================================
- * PushBackModal — shift the whole future schedule forward by N school days,
- * then drop the missed lessons into the now-vacated near-term slots.
+ * PushBackModal: pause the schedule for N school days.
  *
- * Algorithm (implemented at the parent via the two move lists we emit):
- *   1. For every lesson with scheduled_date > today and completed=false,
- *      set new date = nthSchoolDay(original, schoolDays, N, vacations).
- *      This preserves relative order because nthSchoolDay is monotonic.
- *   2. For every missed lesson (scheduled_date <= today, incomplete), in
- *      original-date order, assign it to nthSchoolDay(today, schoolDays, i+1).
- *      Since step 1 vacated the first N teaching days, the mapping is
- *      collision-free against the future set (no double-booking).
+ * PURELY PRESENTATIONAL. It used to compute a per-lesson from -> to mapping
+ * itself and hand the parent two move lists, which the parent then wrote
+ * directly while pinning every moved row. That is the defect class documented
+ * in 04fa1eb: pins written without a queue_position are invisible to the
+ * reconciler's pin set but skipped by its writer, so the projector double-books
+ * their dates, and pins written WITH a slot freeze the goal's auto-roll until
+ * every lesson is complete.
  *
- * We emit the two mapping arrays; parent runs the UPDATE batches + records
- * two distinct audit events so the Recent Changes card can summarize each
- * half of the rebalance separately.
+ * Now the parent re-projects each affected goal from its own resume date and
+ * hands us back the summary. No date math lives here, so the preview and the
+ * write cannot disagree.
  * ==========================================================================*/
-
-/** All this modal needs of a lesson: something to date it by and an id to
- *  move. Kept narrow so the parent can hand us rows from a lean wide query
- *  (see openPushBack) as well as full calendar rows. */
-export type PushBackLesson = Pick<PlanV2Lesson, "id" | "scheduled_date" | "date">;
-
-export type PushBackMove = {
-  lesson: PushBackLesson;
-  fromDate: string;
-  toDate: string;
-};
 
 export interface PushBackModalProps {
   isOpen: boolean;
-  /** True while the parent is still loading the full, all-months lesson
-   *  sets. The counts below describe what will actually move, so they must
-   *  not be shown (or confirmable) until the real sets have landed. */
+  /** True while the parent is still loading goals + building the projection. */
   loading?: boolean;
-  missed: PushBackLesson[];
-  futureLessons: PushBackLesson[];
-  schoolDays: string[];
-  vacationBlocks: VacationRange[];
+  /** How many school days the family is pausing for. Owned by the parent so
+   *  the per-goal preview below is computed with the same projector call the
+   *  write uses. */
+  shiftDays: number;
+  onShiftDaysChange: (days: number) => void;
+  /** One row per affected curriculum, already projected for `shiftDays`. */
+  goals: ReprojectGoalPreview[];
+  /** How many lessons the family is currently behind. Drives the copy only. */
+  missedCount: number;
   onClose: () => void;
-  onConfirm: (args: {
-    futureMoves: PushBackMove[];
-    missedMoves: PushBackMove[];
-    shiftDays: number;
-  }) => Promise<void>;
+  onConfirm: () => Promise<void>;
 }
 
 function formatDate(dateStr: string): string {
@@ -65,57 +46,21 @@ function formatDate(dateStr: string): string {
 
 export default function PushBackModal(props: PushBackModalProps) {
   const {
-    isOpen, loading = false, missed, futureLessons, schoolDays, vacationBlocks, onClose, onConfirm,
+    isOpen, loading = false, shiftDays, onShiftDaysChange, goals, missedCount, onClose, onConfirm,
   } = props;
-  const defaultShift = Math.max(1, missed.length);
-  const [shift, setShift] = useState<number>(defaultShift);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Recompute default whenever the modal opens with a new missed count.
-  useMemo(() => {
-    if (isOpen) setShift(defaultShift);
-  }, [isOpen, defaultShift]);
-
-  const futureMoves = useMemo<PushBackMove[]>(() => {
-    if (!isOpen || shift <= 0) return [];
-    return futureLessons.map((lesson) => {
-      const from = lesson.scheduled_date ?? lesson.date ?? todayDateStr();
-      const to = nthSchoolDay(from, schoolDays, shift, vacationBlocks);
-      return { lesson, fromDate: from, toDate: to };
-    });
-  }, [isOpen, shift, futureLessons, schoolDays, vacationBlocks]);
-
-  const missedMoves = useMemo<PushBackMove[]>(() => {
-    if (!isOpen || shift <= 0 || missed.length === 0) return [];
-    const sorted = [...missed].sort((a, b) => {
-      const da = a.scheduled_date ?? a.date ?? "";
-      const db = b.scheduled_date ?? b.date ?? "";
-      return da.localeCompare(db);
-    });
-    const today = todayDateStr();
-    // Only the first `shift` missed lessons are guaranteed to fit into the
-    // vacated near-term slots. Anything beyond would collide with what we
-    // just pushed forward — assign them too but the parent can still audit
-    // the mismatch if relevant.
-    return sorted.map((lesson, idx) => {
-      const from = lesson.scheduled_date ?? lesson.date ?? today;
-      const to = nthSchoolDay(today, schoolDays, idx + 1, vacationBlocks);
-      return { lesson, fromDate: from, toDate: to };
-    });
-  }, [isOpen, shift, missed, schoolDays, vacationBlocks]);
-
   if (!isOpen) return null;
 
-  const firstVacated = missedMoves[0]?.toDate;
-  const lastVacated = missedMoves[missedMoves.length - 1]?.toDate;
+  const totalLessons = goals.reduce((sum, g) => sum + g.lessonCount, 0);
 
   async function handleConfirm() {
     if (submitting) return;
     setSubmitting(true);
     setError(null);
     try {
-      await onConfirm({ futureMoves, missedMoves, shiftDays: shift });
+      await onConfirm();
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't push schedule back");
@@ -157,11 +102,11 @@ export default function PushBackModal(props: PushBackModalProps) {
                 inputMode="numeric"
                 min={1}
                 max={90}
-                value={shift}
+                value={shiftDays}
                 disabled={loading}
                 onChange={(e) => {
                   const n = parseInt(e.target.value || "0", 10);
-                  setShift(Number.isFinite(n) ? Math.max(1, Math.min(90, n)) : 1);
+                  onShiftDaysChange(Number.isFinite(n) ? Math.max(1, Math.min(90, n)) : 1);
                 }}
                 className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 disabled:opacity-50"
               />
@@ -171,20 +116,53 @@ export default function PushBackModal(props: PushBackModalProps) {
               <p className="text-[12px] text-[#7a6f65] leading-relaxed">
                 Checking your whole schedule, one moment…
               </p>
-            ) : (
-              <p className="text-[12px] text-[#2d2926] leading-relaxed">
-                <span className="font-semibold">{futureMoves.length}</span> future lesson{futureMoves.length === 1 ? "" : "s"} will move forward by <span className="font-semibold">{shift}</span> school day{shift === 1 ? "" : "s"}.
-                {missed.length > 0 && firstVacated ? (
-                  <>
-                    <br />
-                    Your missed <span className="font-semibold">{missed.length}</span> lesson{missed.length === 1 ? "" : "s"} will fit into{" "}
-                    <span className="font-semibold text-[#2D5A3D]">
-                      {formatDate(firstVacated)}
-                      {lastVacated && lastVacated !== firstVacated ? ` → ${formatDate(lastVacated)}` : ""}
-                    </span>.
-                  </>
-                ) : null}
+            ) : goals.length === 0 ? (
+              <p className="text-[12px] text-[#9a8e84] leading-relaxed">
+                Nothing to push back right now.
               </p>
+            ) : (
+              <>
+                {/* Honest about scope: this re-spreads what is left of each
+                    curriculum from the day it resumes, rather than promising a
+                    per-lesson mapping the projector may not reproduce. */}
+                <p className="text-[12px] text-[#7a6f65] leading-relaxed">
+                  Everything still to come pauses for{" "}
+                  <span className="font-semibold text-[#2d2926]">{shiftDays}</span> school day
+                  {shiftDays === 1 ? "" : "s"}, then picks up again in lesson order on each
+                  curriculum&apos;s own school days.
+                  {missedCount > 0 ? (
+                    <> Your {missedCount} missed lesson{missedCount === 1 ? "" : "s"} come along with it.</>
+                  ) : null}
+                </p>
+                <ul className="space-y-1">
+                  {goals.map((g) => (
+                    <li
+                      key={g.goalId}
+                      className="text-[12px] text-[#2d2926]"
+                      style={{
+                        background: "white",
+                        border: "0.5px solid #e8e2d9",
+                        borderRadius: 10,
+                        padding: "6px 10px",
+                      }}
+                    >
+                      <span className="font-semibold">{g.curriculumName}</span>
+                      {": "}
+                      <span className="text-[#7a6f65]">
+                        {g.lessonCount} lesson{g.lessonCount === 1 ? "" : "s"}
+                        {g.firstDate ? (
+                          <>
+                            {" resume "}
+                            <span className="font-semibold text-[#2D5A3D] tabular-nums">
+                              {formatDate(g.firstDate)}
+                            </span>
+                          </>
+                        ) : null}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
 
             {error ? <p className="text-[11px] text-[#b91c1c]">{error}</p> : null}
@@ -202,10 +180,14 @@ export default function PushBackModal(props: PushBackModalProps) {
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={submitting || loading || (futureMoves.length === 0 && missedMoves.length === 0)}
+              disabled={submitting || loading || goals.length === 0}
               className="flex-1 min-h-[44px] text-sm font-bold text-white bg-[#2D5A3D] rounded-xl hover:bg-[var(--g-deep)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {submitting ? "Pushing back…" : loading ? "Loading…" : "Push schedule back"}
+              {submitting
+                ? "Pushing back…"
+                : loading
+                  ? "Loading…"
+                  : `Push back ${totalLessons} lesson${totalLessons === 1 ? "" : "s"}`}
             </button>
           </div>
         </div>

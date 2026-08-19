@@ -450,6 +450,23 @@ Auto-scheduling never bunches; only the user can.
 ### What this PR did NOT change
 
 - Bulk move handlers in PlanV2 (`performBulkMove`, catch-up shift confirm) still write `scheduled_date` directly without touching `queue_position`. They are scheduler-driven paths, not user reorders. If a future PR makes them user-explicit reorders, route them through `move_lesson_to_date`.
+
+  **Superseded for three of them (August 2026).** Writing a date directly is
+  fine; writing `queue_pinned` alongside it is not. `batchUpdateScheduledDates
+  (pairs, "plan_move", true)` sets the pin flag but never the slot, and
+  `reconcileGoalScheduleCache` derives its pin set FROM `queue_position`. A
+  pinned row with a null slot is therefore invisible to the pin set (so the
+  projector double-books its date) while still being skipped by the writer; a
+  pinned row WITH a slot freezes the tail, because pins only retire on
+  completion and the documented auto-roll stops until every lesson is done.
+
+  The catch-up shift-forward flow shed this in `04fa1eb`, and push-back plus
+  the cascade shift followed. All three now use one shape: snapshot the goal's
+  incomplete rows, clear `queue_pinned`, and let `reconcileGoalScheduleCache`
+  re-project the tail. Undo restores the snapshot. The only path that may pin
+  is `move_lesson_to_date`, which writes the slot and the flag in the same
+  statement. **If you are about to write `queue_pinned: true` anywhere else,
+  you are reintroducing this bug.**
 - `lesson_number` semantics are unchanged everywhere. Display, Past-tab grouping, and lesson titles all still read `lesson_number`.
 
 ---

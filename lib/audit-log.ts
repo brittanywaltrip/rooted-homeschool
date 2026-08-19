@@ -105,10 +105,21 @@ export type LessonBulkAction =
   /** Catch-up banner: re-project each affected goal's remaining tail from
    *  today, via the projector. Replaced `catch_up_shift`. */
   | "catch_up_reproject"
-  /** Push-back flow: shift all future lessons forward by N school days. */
+  /** Push-back flow: shift all future lessons forward by N school days.
+   *  Retired August 2026 (it hand-placed and pinned the tail) but kept in the
+   *  union so historical rows still render with their own summary. */
   | "push_back_future"
-  /** Push-back flow: fit missed lessons into the now-vacated near-term slots. */
-  | "push_back_missed_fit";
+  /** Push-back flow: fit missed lessons into the now-vacated near-term slots.
+   *  Retired alongside `push_back_future`. */
+  | "push_back_missed_fit"
+  /** Push-back flow: pause each affected goal for N school days and re-project
+   *  its remaining tail from the resume date. Replaced the two above. */
+  | "push_back_reproject"
+  /** Cascade shift: one lesson was moved by hand and the family chose to
+   *  re-spread the rest of that curriculum around it. This has been emitted
+   *  since the cascade flow shipped but was never in this union, so it fell
+   *  through formatEvent's default and rendered as "Deleted N lessons". */
+  | "shift_forward_cascade";
 export type LessonBulkActionPayload = {
   action: LessonBulkAction;
   count: number;
@@ -118,7 +129,8 @@ export type LessonBulkActionPayload = {
   lesson_ids?: string[];
   from_dates?: string[];
   to_date?: string;
-  /** `catch_up_reproject` only: the goals whose tails were re-projected. */
+  /** `catch_up_reproject`, `push_back_reproject` and `shift_forward_cascade`:
+   *  the goals whose tails were re-projected. */
   goal_ids?: string[];
   /** `catch_up_reproject` only: how many lessons landed per goal. */
   per_goal?: { goal_id: string; curriculum_name: string; lesson_count: number }[];
@@ -541,6 +553,28 @@ export function formatEvent(row: PlanEventRow): FormattedEvent {
           summary: `Re-spread ${count} lesson${count === 1 ? "" : "s"}${scope} from today`,
           category: "bulk",
           icon: "🗓️",
+        };
+      }
+      if (action === "shift_forward_cascade") {
+        return {
+          summary: `Moved a lesson and re-spread ${count} lesson${count === 1 ? "" : "s"} around it`,
+          category: "bulk",
+          icon: "\u{1F4C5}",
+        };
+      }
+      if (action === "push_back_reproject") {
+        const goalCount = Array.isArray(p.goal_ids) ? p.goal_ids.length : 0;
+        const daysVal = Number(p.school_days_shifted ?? 0);
+        const daysLabel = daysVal > 0
+          ? ` by ${daysVal} school day${daysVal === 1 ? "" : "s"}`
+          : "";
+        const scope = goalCount > 0
+          ? ` across ${goalCount} curriculum${goalCount === 1 ? "" : "s"}`
+          : "";
+        return {
+          summary: `Pushed ${count} lesson${count === 1 ? "" : "s"}${scope} back${daysLabel}`,
+          category: "bulk",
+          icon: "\u23ED",
         };
       }
       if (action === "push_back_future") {
