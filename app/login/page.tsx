@@ -97,33 +97,42 @@ function LoginContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Bounce anyone who already has a session straight to the dashboard.
+  // Tell anyone who already has a session that they do, WITHOUT taking the
+  // form away from them.
   //
   // This is the other half of the "app keeps signing me out" fix. The
   // dashboard used to redirect here whenever getUser() failed on a flaky
   // network, and /login had no idea a valid session existed, so it showed the
-  // password form and the family typed their password again. Now the session
-  // is checked on arrival, which also rescues anyone the old behavior already
-  // stranded on this page.
+  // password form and the family typed their password again. Surfacing the
+  // session rescues anyone the old behavior already stranded here.
+  //
+  // Deliberately a banner and not a redirect. An auto-bounce would take two
+  // things away that people legitimately come to this page for:
+  //   - reading a sign-in failure. /login?error=pkce_cross_device is a
+  //     documented landing (auth invariant 7); bouncing off it hides the very
+  //     message the family needs. The `arrivedWithError` ref below skips the
+  //     check entirely in that case.
+  //   - switching accounts. A parent signed in as themselves navigating here
+  //     to sign in as someone else must still get a usable form.
   //
   // getSession() reads the cookie LOCALLY, no network call, so a bad
   // connection cannot make this fire wrongly. Auth cookies are deliberately
   // not httpOnly (see app/api/auth/login/route.ts) precisely so the browser
   // client can read them.
-  const bouncedRef = useRef(false);
+  const [hasLiveSession, setHasLiveSession] = useState(false);
+  // Captured on the FIRST render, before the effect above strips ?error= from
+  // the URL with history.replaceState. Reading searchParams later would race
+  // that strip.
+  const arrivedWithError = useRef<boolean>(!!searchParams.get("error"));
   useEffect(() => {
-    // Only ever redirect once, and only on a positive session. A null session
-    // or any error leaves the login form exactly as it was.
-    if (bouncedRef.current) return;
+    if (arrivedWithError.current) return;
     let cancelled = false;
     void (async () => {
       try {
         const client = createSupabaseBrowserClient();
         const { data, error } = await client.auth.getSession();
         if (cancelled || error || !data?.session) return;
-        if (bouncedRef.current) return;
-        bouncedRef.current = true;
-        router.replace("/dashboard");
+        setHasLiveSession(true);
       } catch {
         // Never block the login form on this check.
       }
@@ -272,6 +281,20 @@ function LoginContent() {
               {passwordReset && (
                 <div className="bg-[#e8f0e9] border border-[#c8ddb8] rounded-xl px-4 py-3 mb-5 text-center">
                   <p className="text-sm font-medium text-[#2d5a3d]">Password updated! Log in with your new password.</p>
+                </div>
+              )}
+              {hasLiveSession && (
+                <div className="bg-[#e8f0e9] border border-[#c8ddb8] rounded-xl px-4 py-3 mb-5 flex items-center gap-3">
+                  <p className="flex-1 text-sm font-medium text-[#2d5a3d] m-0">
+                    You&apos;re already signed in.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => router.replace("/dashboard")}
+                    className="shrink-0 text-[13px] font-semibold text-white bg-[#2D5A3D] hover:bg-[var(--g-deep)] rounded-lg px-3 py-1.5 transition-colors"
+                  >
+                    Go to my dashboard
+                  </button>
                 </div>
               )}
               <h1 className="text-2xl font-bold font-serif text-[#2d2926] mb-1">Welcome back</h1>
