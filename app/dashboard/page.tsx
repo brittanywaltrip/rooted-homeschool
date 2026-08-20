@@ -3233,22 +3233,37 @@ export default function TodayPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // A book cover IS a photo, so it belongs under the same free-plan cap
-      // as every other capture path. Only gated when a cover is attached: a
-      // book with no cover must never be blocked.
-      if (bookPhotoFile) {
-        const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
-        const remaining = await getRemainingPhotoSlots(user.id, accessLevel === 'free');
-        if (remaining <= 0) { setShowPhotoLimitModal(true); return; }
-      }
-
-      // Upload cover photo if provided
+      // Cover photo, if one was attached.
+      //
+      // Neither the free-plan cap nor a failed upload may discard the book. The
+      // family typed a title, an author and a page count; that is the part
+      // worth keeping, and the cover is optional. Both failures fall through to
+      // the insert with photoUrl still null and photoNote explaining why.
+      let photoNote: string | null = null;
       let photoUrl: string | null = null;
       let photoDims: { width: number; height: number } | null = null;
       if (bookPhotoFile) {
-        const uploaded = await uploadMemoryPhoto(supabase, user.id, bookPhotoFile);
-        photoUrl = uploaded.photoUrl;
-        photoDims = { width: uploaded.width, height: uploaded.height };
+        // A book cover IS a photo, so it belongs under the same free-plan cap
+        // as every other capture path. A book with no cover is never gated.
+        const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+        const remaining = await getRemainingPhotoSlots(user.id, accessLevel === 'free');
+        if (remaining <= 0) {
+          setShowPhotoLimitModal(true);
+          photoNote = "Your book was saved. The cover needs a Rooted+ plan.";
+        } else {
+          // Scoped to the upload alone: a cover that will not upload must not
+          // reach the outer catch, because that catch abandons the book.
+          try {
+            const uploaded = await uploadMemoryPhoto(supabase, user.id, bookPhotoFile);
+            photoUrl = uploaded.photoUrl;
+            photoDims = { width: uploaded.width, height: uploaded.height };
+          } catch (err) {
+            captureSupabaseError("book cover upload", err);
+            photoNote = err instanceof PhotoReadError
+              ? err.userMessage
+              : "Your book was saved. The cover didn't upload, you can add it from Memories.";
+          }
+        }
       }
 
       // Build caption from author + pages
@@ -3273,7 +3288,7 @@ export default function TodayPage() {
       setBookPhotoFile(null); setBookPhotoPreview(null);
       setShowBookModal(false);
       posthog.capture('book_logged', { user_plan: isPro ? 'paid' : 'free' });
-      showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
+      showCaptureToast(photoNote ?? "📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
       loadDataBusy.current = false;
       await loadData();
       await refreshTodayStory();

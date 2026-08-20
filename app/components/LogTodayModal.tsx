@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
+import { captureSupabaseError } from "@/lib/sentry-error";
 import { onLogAction } from "@/app/lib/onLogAction";
 import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 
@@ -91,6 +92,10 @@ export default function LogTodayModal({
   const [error,   setError]   = useState("");
   const [isPro,   setIsPro]   = useState<boolean | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  // Set once the entry has actually been written. The photo-failure path leaves
+  // the sheet open so the family can read what happened; this stops a second
+  // Save press from inserting the same entry twice.
+  const [entrySaved, setEntrySaved] = useState(false);
 
   // Unified form fields
   const [title,       setTitle]       = useState("");
@@ -149,32 +154,46 @@ export default function LogTodayModal({
         return;
       }
 
-      // Photo upload if attached
+      // Photo upload if attached. Neither the cap nor a failed upload may
+      // discard what the family typed, so both record photoNote and fall
+      // through to the insert with photoUrl left undefined.
       let photoUrl: string | undefined;
+      let photoNote: string | null = null;
       if (photoFile) {
         // getRemainingPhotoSlots is the one definition of how many photos a
         // family has, shared with the FAB, Today and the lesson-photo path.
         const remaining = await getRemainingPhotoSlots(user.id, !isPro);
         if (remaining <= 0) {
-          setUploadError("You've reached your memory limit 🤍 New photo memories won't be saved until you upgrade.");
-          setSaving(false);
-          return;
+          photoNote = "Your note was saved. New photo memories need a Rooted+ plan.";
+        } else {
+          // Scoped to the upload alone so it cannot reach the outer catch,
+          // which abandons the entry.
+          try {
+            const uploaded = await uploadMemoryPhoto(supabase, user.id, photoFile);
+            photoUrl = uploaded.photoUrl;
+          } catch (err) {
+            captureSupabaseError("log today photo", err);
+            photoNote = err instanceof PhotoReadError
+              ? err.userMessage
+              : "Your note was saved. The photo didn't upload, you can add it from Memories.";
+          }
         }
-        const uploaded = await uploadMemoryPhoto(supabase, user.id, photoFile);
-        photoUrl = uploaded.photoUrl;
       }
 
-      // Determine event type
-      const eventType = photoFile ? "memory_photo" : `memory_${category}`;
-
-      if (!title.trim() && !photoFile) {
-        setError("Please describe what you want to remember.");
+      // Nothing typed and no photo landed: there is no entry worth writing, so
+      // show what went wrong with the photo instead of inserting a blank row.
+      if (!title.trim() && !description.trim() && !photoUrl) {
+        setError(photoNote ?? "Please describe what you want to remember.");
         setSaving(false);
         return;
       }
 
+      // Typed from whether a photo actually landed, not from whether one was
+      // picked. A row with no photo must never be typed "memory_photo".
+      const eventType = photoUrl ? "memory_photo" : `memory_${category}`;
+
       const payload: Record<string, unknown> = {
-        title: title.trim() || "Photo",
+        title: title.trim() || (photoUrl ? "Photo" : "Note"),
         date: effectiveDate,
         child_id: childId || undefined,
       };
@@ -193,6 +212,20 @@ export default function LogTodayModal({
       };
       onLogAction({ userId: user.id, childId: childId || undefined, actionType: actionMap[category] ?? "memory" });
 
+      if (photoNote) {
+        // The entry is saved. onSaved would close this sheet, and the family
+        // would never learn the photo did not attach, so hold it open on the
+        // existing upload-error line instead and let them close it themselves.
+        setEntrySaved(true);
+        setUploadError(photoNote);
+        // Listeners (the Memories grid) still refresh without this sheet
+        // closing, so the saved entry is not stranded behind a stale list.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("rooted:memory-saved", { detail: { type: category } }));
+        }
+        return;
+      }
+
       onSaved(category, childId || undefined);
     } catch (e) {
       // PhotoReadError carries copy written for a family (undecodable HEIC, a
@@ -204,7 +237,7 @@ export default function LogTodayModal({
     }
   }
 
-  const canSave = !saving && (title.trim().length > 0 || !!photoFile || (isReflection && title.trim().length > 0));
+  const canSave = !saving && !entrySaved && (title.trim().length > 0 || !!photoFile || (isReflection && title.trim().length > 0));
 
   return (
     <>

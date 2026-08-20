@@ -594,23 +594,43 @@ export default function MemoriesPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setEditError("You're not signed in."); return; }
 
-      // Free-plan cap. Adding a photo to a memory that had none IS a new photo
-      // and counts; swapping the photo on a memory that already has one is not,
-      // so editing a photo memory stays available at the cap.
-      if (editPhotoFile && !editing.photo_url) {
-        const remaining = await getRemainingPhotoSlots(user.id, isFreeTier);
-        if (remaining <= 0) {
-          setEditError("You've reached 50 photos on the free plan. Upgrade to keep adding photos.");
-          return;
-        }
-      }
-
+      // A failed photo must never discard the title, caption, date, child or
+      // yearbook toggle the family just edited. Both the cap and an upload
+      // failure fall through to the update with photoNote set.
+      //
+      // photoUrl stays UNDEFINED on either failure, never null. Undefined omits
+      // photo_url from the update, so the memory keeps the photo it already
+      // had; null would delete an existing photo because a NEW one failed,
+      // which is data loss.
+      let photoNote: string | null = null;
       let photoUrl: string | null | undefined = undefined;
       let photoDims: { width: number; height: number } | null = null;
       if (editPhotoFile) {
-        const uploaded = await uploadMemoryPhoto(supabase, user.id, editPhotoFile);
-        photoUrl = uploaded.photoUrl;
-        photoDims = { width: uploaded.width, height: uploaded.height };
+        // Adding a photo to a memory that had none IS a new photo and counts;
+        // swapping the photo on a memory that already has one is not, so
+        // editing a photo memory stays available at the cap.
+        let capped = false;
+        if (!editing.photo_url) {
+          const remaining = await getRemainingPhotoSlots(user.id, isFreeTier);
+          if (remaining <= 0) {
+            photoNote = "Your changes were saved. The new photo needs a Rooted+ plan.";
+            capped = true;
+          }
+        }
+        if (!capped) {
+          // Scoped to the upload alone so it cannot reach the outer catch,
+          // which abandons the whole edit.
+          try {
+            const uploaded = await uploadMemoryPhoto(supabase, user.id, editPhotoFile);
+            photoUrl = uploaded.photoUrl;
+            photoDims = { width: uploaded.width, height: uploaded.height };
+          } catch (err) {
+            captureSupabaseError("memory edit photo", err);
+            photoNote = err instanceof PhotoReadError
+              ? err.userMessage
+              : "Your changes were saved. The photo didn't upload, you can try again here.";
+          }
+        }
       } else if (editPhotoRemoved) {
         photoUrl = null;
       }
@@ -635,17 +655,24 @@ export default function MemoriesPage() {
         updates.photo_height = null;
       }
 
-      const { data, error } = await supabase
+      // .single() is kept so a zero-row update surfaces as an error rather
+      // than a silent no-op; the returned row itself is no longer needed.
+      const { error } = await supabase
         .from("memories")
         .update(updates)
         .eq("id", editing.id)
         .select()
         .single();
       if (error) throw error;
-      setEditing(null);
-      if (data) {
-        await load();
+      if (photoNote) {
+        // Text is saved. Keep the modal open so the family sees what happened
+        // to the photo and can retry it against work that is already stored.
+        setEditError(photoNote);
+      } else {
+        setEditing(null);
       }
+      // Reload either way, so the saved text is reflected in the grid.
+      await load();
     } catch (err) {
       captureSupabaseError("memory edit save", err);
       setEditError(err instanceof PhotoReadError ? err.userMessage : "Save failed — try again");
