@@ -28,6 +28,19 @@ export async function getPhotoCount(userId: string): Promise<number> {
   return (memCount ?? 0) + (evtCount ?? 0);
 }
 
+/** Free-tier photo cap. Paid families are unlimited. */
+export const FREE_PHOTO_LIMIT = 50;
+
+/**
+ * How many more photos this family can save, using getPhotoCount above as the
+ * single definition of "how many photos do they have". Returns Infinity for
+ * paid families, so callers can gate on `<= 0` without branching on plan.
+ */
+export async function getRemainingPhotoSlots(userId: string, isFree: boolean): Promise<number> {
+  if (!isFree) return Infinity;
+  return Math.max(0, FREE_PHOTO_LIMIT - (await getPhotoCount(userId)));
+}
+
 type StreakProfile = {
   current_streak_days?: number | null;
   last_logged_date?: string | null;
