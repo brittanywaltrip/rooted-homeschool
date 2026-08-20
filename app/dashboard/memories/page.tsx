@@ -972,7 +972,9 @@ export default function MemoriesPage() {
             </p>
           </div>
           <Link
-            href="/dashboard/pricing"
+            // /upgrade, matching ExportGateModal. One paywall destination
+            // across the app so an upgrade path is never two different pages.
+            href="/upgrade"
             className="shrink-0 self-center text-[12px] font-semibold text-white bg-[#C4962A] hover:bg-[#a67d1f] rounded-lg px-3 py-1.5 transition-colors"
           >
             Upgrade

@@ -5778,8 +5778,8 @@ export default function PlanV2() {
         {showExportGate && (
           <ExportGateModal
             title="Save your progress"
-            body="Download a polished summary of your homeschool plan and progress."
-            cta="Download Report"
+            body="Download a polished summary of your homeschool plan and progress. Progress reports are part of Rooted+."
+            cta="Upgrade to download"
             onClose={() => setShowExportGate(false)}
           />
         )}
