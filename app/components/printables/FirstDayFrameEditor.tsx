@@ -7,6 +7,7 @@ import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import { posthog } from "@/lib/posthog";
 import { compressImage } from "@/lib/compress-image";
+import { PhotoReadError } from "@/lib/photo-pipeline";
 import {
   FIRST_DAY_THEMES,
   DEFAULT_FIRST_DAY_THEME,
@@ -121,19 +122,34 @@ export default function FirstDayFrameEditor() {
       setTimeout(() => setToast(null), 4000);
       return;
     }
-    const compressed = await compressImage(file);
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const src = e.target?.result as string;
-      const img = new Image();
-      img.onload = () => {
-        setPhotoNat({ w: img.width, h: img.height });
-        setPhotoSrc(src);
-        setTransform({ offsetXPct: 0, offsetYPct: 0, zoom: 1 });
+    // compressImage THROWS now where it used to hang, so without this catch a
+    // file the browser can't decode became an unhandled rejection and the
+    // editor just sat there doing nothing.
+    try {
+      const compressed = await compressImage(file);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const src = e.target?.result as string;
+        const img = new Image();
+        img.onload = () => {
+          setPhotoNat({ w: img.width, h: img.height });
+          setPhotoSrc(src);
+          setTransform({ offsetXPct: 0, offsetYPct: 0, zoom: 1 });
+        };
+        img.src = src;
       };
-      img.src = src;
-    };
-    reader.readAsDataURL(compressed);
+      reader.onerror = () => showPhotoError(null);
+      reader.readAsDataURL(compressed);
+    } catch (err) {
+      console.error("[first-day] photo read failed:", err);
+      showPhotoError(err);
+    }
+  }
+
+  function showPhotoError(err: unknown) {
+    const isReadError = err instanceof PhotoReadError;
+    setToast(isReadError ? err.userMessage : "We couldn't read that photo. Try a different one.");
+    setTimeout(() => setToast(null), isReadError ? 6000 : 4000);
   }
 
   const setValue = (key: FirstDayFieldKey, v: string) => setValues((prev) => ({ ...prev, [key]: v }));

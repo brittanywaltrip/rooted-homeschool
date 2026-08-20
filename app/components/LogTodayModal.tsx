@@ -4,10 +4,10 @@ import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { compressImage } from "@/lib/compress-image";
-import { signedPhotoUrl } from "@/lib/photo-url";
+import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
+import { captureSupabaseError } from "@/lib/sentry-error";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { getPhotoCount } from "@/app/lib/integrity-checks";
+import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,7 +91,20 @@ export default function LogTodayModal({
   const [saving,  setSaving]  = useState(false);
   const [error,   setError]   = useState("");
   const [isPro,   setIsPro]   = useState<boolean | null>(null);
+  // uploadError is the CAP only, and its block carries an upgrade link.
+  // photoError is a decode or upload failure: same styling, no pricing link.
+  // Routing every photo failure through uploadError showed an Android family
+  // HEIC camera advice with "Upgrade to Pro" under it, which reads as a
+  // shakedown for a problem that has nothing to do with their plan.
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  // Set once the entry has actually been written. The photo-failure path leaves
+  // the sheet open so the family can read what happened; this stops a second
+  // Save press from inserting the same entry twice.
+  const [entrySaved, setEntrySaved] = useState(false);
+  // The category the saved row was written under, so the close path reports the
+  // same one even if a chip is tapped afterwards.
+  const savedCategoryRef = useRef<string | null>(null);
 
   // Unified form fields
   const [title,       setTitle]       = useState("");
@@ -133,6 +146,8 @@ export default function LogTodayModal({
   async function handleSave() {
     setSaving(true);
     setError("");
+    setUploadError(null);
+    setPhotoError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setError("Not logged in."); setSaving(false); return; }
@@ -150,44 +165,58 @@ export default function LogTodayModal({
         return;
       }
 
-      // Photo upload if attached
+      // Photo upload if attached. Neither the cap nor a failed upload may
+      // discard what the family typed, so both record the cause and fall
+      // through to the insert with photoUrl left undefined.
+      //
+      // The CAUSE is kept separate from the "what was saved" preamble, because
+      // the blank-entry branch below saves nothing and must not claim it did.
       let photoUrl: string | undefined;
+      let photoFailure: { message: string; isCap: boolean } | null = null;
       if (photoFile) {
-        if (!isPro) {
-          const photoCount = await getPhotoCount(user.id);
-          if (photoCount >= 50) {
-            setUploadError("You've reached your memory limit 🤍 New photo memories won't be saved until you upgrade.");
-            setSaving(false);
-            return;
+        // getRemainingPhotoSlots is the one definition of how many photos a
+        // family has, shared with the FAB, Today and the lesson-photo path.
+        const remaining = await getRemainingPhotoSlots(user.id, !isPro);
+        if (remaining <= 0) {
+          photoFailure = { message: "New photo memories need a Rooted+ plan.", isCap: true };
+        } else {
+          // Scoped to the upload alone so it cannot reach the outer catch,
+          // which abandons the entry.
+          try {
+            const uploaded = await uploadMemoryPhoto(supabase, user.id, photoFile);
+            photoUrl = uploaded.photoUrl;
+          } catch (err) {
+            captureSupabaseError("log today photo", err);
+            photoFailure = {
+              message: err instanceof PhotoReadError
+                ? err.userMessage
+                : "The photo didn't upload, you can add it from Memories.",
+              isCap: false,
+            };
           }
         }
-        const compressed = await compressImage(photoFile);
-        const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-        const { error: uploadErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-        if (uploadErr) {
-          setError(uploadErr.message.includes("Bucket not found")
-            ? "Storage bucket 'memory-photos' not found. Create it in Supabase."
-            : `Upload failed: ${uploadErr.message}`);
-          setSaving(false);
-          return;
-        }
-        // 10-year signed URL. Bucket is private; signed URLs are the only way to read.
-        const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
-        const signed = await signedPhotoUrl(supabase, "memory-photos", path, TEN_YEARS_SECONDS);
-        photoUrl = signed ?? path;
       }
 
-      // Determine event type
-      const eventType = photoFile ? "memory_photo" : `memory_${category}`;
-
-      if (!title.trim() && !photoFile) {
-        setError("Please describe what you want to remember.");
+      // Nothing typed and no photo landed: there is no entry worth writing, so
+      // show what went wrong with the photo instead of inserting a blank row.
+      if (!title.trim() && !description.trim() && !photoUrl) {
+        if (photoFailure?.isCap) {
+          setUploadError("You've reached your memory limit 🤍 New photo memories won't be saved until you upgrade.");
+        } else if (photoFailure) {
+          setPhotoError(photoFailure.message);
+        } else {
+          setError("Please describe what you want to remember.");
+        }
         setSaving(false);
         return;
       }
 
+      // Typed from whether a photo actually landed, not from whether one was
+      // picked. A row with no photo must never be typed "memory_photo".
+      const eventType = photoUrl ? "memory_photo" : `memory_${category}`;
+
       const payload: Record<string, unknown> = {
-        title: title.trim() || "Photo",
+        title: title.trim() || (photoUrl ? "Photo" : "Note"),
         date: effectiveDate,
         child_id: childId || undefined,
       };
@@ -206,19 +235,59 @@ export default function LogTodayModal({
       };
       onLogAction({ userId: user.id, childId: childId || undefined, actionType: actionMap[category] ?? "memory" });
 
+      if (photoFailure) {
+        // The entry is saved. onSaved would close this sheet, and the family
+        // would never learn the photo did not attach, so hold it open and let
+        // them close it themselves. The close path reports to the parent (see
+        // handleClose) so the saved entry still appears on the day.
+        setEntrySaved(true);
+        savedCategoryRef.current = category;
+        // Lead with what WAS saved, then what wasn't. The cap keeps its upgrade
+        // link; a decode or upload failure gets the same block without one.
+        const note = `Your note was saved. ${photoFailure.message}`;
+        if (photoFailure.isCap) setUploadError(note);
+        else setPhotoError(note);
+        // Listeners (the Memories grid) still refresh without this sheet
+        // closing, so the saved entry is not stranded behind a stale list.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("rooted:memory-saved", { detail: { type: category } }));
+        }
+        return;
+      }
+
       onSaved(category, childId || undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+      // PhotoReadError carries copy written for a family (undecodable HEIC, a
+      // zero-byte pick from the Android cloud picker); show it verbatim.
+      if (e instanceof PhotoReadError) setError(e.userMessage);
+      else setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setSaving(false);
     }
   }
 
-  const canSave = !saving && (title.trim().length > 0 || !!photoFile || (isReflection && title.trim().length > 0));
+  /**
+   * Close the sheet.
+   *
+   * When an entry was already written and the sheet was held open to explain a
+   * photo failure, the parent has to be told. DayDetailPanel learns about a
+   * save ONLY through onSaved: it does not listen for rooted:memory-saved. A
+   * plain onClose left the family looking at a day with no entry on it, so they
+   * logged it again, and because the modal remounts (resetting entrySaved,
+   * which guards a second press, not a second mount) a duplicate row was
+   * written. Reporting on close makes the parent refresh exactly as it does on
+   * a normal save.
+   */
+  function handleClose() {
+    if (entrySaved) onSaved(savedCategoryRef.current ?? category, childId || undefined);
+    onClose();
+  }
+
+  const canSave = !saving && !entrySaved && (title.trim().length > 0 || !!photoFile || (isReflection && title.trim().length > 0));
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={handleClose} />
 
       <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center md:inset-0 md:items-center">
         <div
@@ -230,7 +299,7 @@ export default function LogTodayModal({
           {/* Header */}
           <div className="flex items-center justify-between px-5 pt-4 pb-1">
             <h2 className="text-lg font-bold text-[#2d2926]">Log a Memory</h2>
-            <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors">
+            <button type="button" onClick={handleClose} className="w-8 h-8 flex items-center justify-center rounded-full text-[#b5aca4] hover:bg-[#f0ede8] transition-colors">
               <X size={16} />
             </button>
           </div>
@@ -376,6 +445,11 @@ export default function LogTodayModal({
               <div className="rounded-xl border border-[#e8e2d9] bg-[#fefcf9] p-4 text-center">
                 <p className="mb-2 text-sm text-[#2d2926]">{uploadError}</p>
                 <Link href="/dashboard/pricing" className="text-sm font-semibold text-[#5c7f63] underline">Upgrade to Pro</Link>
+              </div>
+            )}
+            {photoError && (
+              <div className="rounded-xl border border-[#e8e2d9] bg-[#fefcf9] p-4 text-center">
+                <p className="text-sm text-[#2d2926]">{photoError}</p>
               </div>
             )}
 

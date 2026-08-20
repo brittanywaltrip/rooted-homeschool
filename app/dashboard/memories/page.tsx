@@ -11,8 +11,10 @@ import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
 import MilestonePrompt from "@/components/MilestonePrompt";
-import { compressImage } from "@/lib/compress-image";
-import { extractPath, signedPhotoUrl } from "@/lib/photo-url";
+import { extractPath } from "@/lib/photo-url";
+import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
+import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
+import { captureSupabaseError } from "@/lib/sentry-error";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -134,6 +136,9 @@ export default function MemoriesPage() {
   // checkout. Same guard ExportGateModal applies to its own CTA.
   const isNativeApp = useIsNativeApp();
   const [isFreeWindowed, setIsFreeWindowed] = useState(false);
+  // The real tier, without the previewFree override: a paid account looking at
+  // the free experience must never actually be capped.
+  const [isFreeTier, setIsFreeTier] = useState(false);
   const [hiddenOlderCount, setHiddenOlderCount] = useState(0);
   // Filter: "all" | "family" | "favorites" | child id
   const [filter, setFilter] = useState("all");
@@ -173,6 +178,7 @@ export default function MemoriesPage() {
   const [editPhotoFile, setEditPhotoFile] = useState<File | null>(null);
   const [editPhotoPreview, setEditPhotoPreview] = useState<string | null>(null);
   const [editPhotoRemoved, setEditPhotoRemoved] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const editPhotoRef = useRef<HTMLInputElement>(null);
 
   // Delete state
@@ -294,6 +300,7 @@ export default function MemoriesPage() {
     });
     const windowed = previewFree || accessLevel === 'free';
     setIsFreeWindowed(windowed);
+    setIsFreeTier(accessLevel === 'free');
 
     // Narrow the QUERY, not just the grid: a family with years of history
     // should not download rows the page will never render.
@@ -571,6 +578,7 @@ export default function MemoriesPage() {
     setEditPhotoFile(null);
     setEditPhotoPreview(m.photo_url ?? null);
     setEditPhotoRemoved(false);
+    setEditError(null);
     setMenuId(null);
     setSelectedMemory(null);
     setLightboxDeleteConfirm(false);
@@ -578,46 +586,109 @@ export default function MemoriesPage() {
 
   async function saveEdit() {
     if (!editing) return;
+    // try/catch/finally: without the finally a throw left editSaving true and
+    // the modal locked on "Saving…" with no way out but a page reload.
     setEditSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setEditSaving(false); return; }
+    setEditError(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setEditError("You're not signed in."); return; }
 
-    let photoUrl: string | null | undefined = undefined;
-    if (editPhotoFile) {
-      const compressed = await compressImage(editPhotoFile);
-      const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-      if (!upErr) {
-        // 10-year signed URL. Bucket is private; signed URLs are the only way to read.
-        const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
-        const signed = await signedPhotoUrl(supabase, "memory-photos", path, TEN_YEARS_SECONDS);
-        photoUrl = signed ?? path;
+      // A failed photo must never discard the title, caption, date, child or
+      // yearbook toggle the family just edited. Both the cap and an upload
+      // failure fall through to the update with photoNote set.
+      //
+      // photoUrl stays UNDEFINED on either failure, never null. Undefined omits
+      // photo_url from the update, so the memory keeps the photo it already
+      // had; null would delete an existing photo because a NEW one failed,
+      // which is data loss.
+      let photoNote: string | null = null;
+      let photoUrl: string | null | undefined = undefined;
+      let photoDims: { width: number; height: number } | null = null;
+      if (editPhotoFile) {
+        // Adding a photo to a memory that had none IS a new photo and counts;
+        // swapping the photo on a memory that already has one is not, so
+        // editing a photo memory stays available at the cap.
+        let capped = false;
+        if (!editing.photo_url) {
+          const remaining = await getRemainingPhotoSlots(user.id, isFreeTier);
+          if (remaining <= 0) {
+            photoNote = "Your changes were saved. The new photo needs a Rooted+ plan.";
+            capped = true;
+          }
+        }
+        if (!capped) {
+          // Scoped to the upload alone so it cannot reach the outer catch,
+          // which abandons the whole edit.
+          try {
+            const uploaded = await uploadMemoryPhoto(supabase, user.id, editPhotoFile);
+            photoUrl = uploaded.photoUrl;
+            photoDims = { width: uploaded.width, height: uploaded.height };
+          } catch (err) {
+            captureSupabaseError("memory edit photo", err);
+            photoNote = err instanceof PhotoReadError
+              ? err.userMessage
+              : "Your changes were saved. The photo didn't upload, you can try again here.";
+          }
+        }
+      } else if (editPhotoRemoved) {
+        photoUrl = null;
       }
-    } else if (editPhotoRemoved) {
-      photoUrl = null;
-    }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updates: Record<string, any> = {
-      title: editTitle.trim() || null,
-      caption: editCaption.trim() || null,
-      date: editDate.slice(0, 10),
-      child_id: editChild || null,
-      include_in_book: editInBook,
-      updated_at: new Date().toISOString(),
-    };
-    if (photoUrl !== undefined) updates.photo_url = photoUrl;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updates: Record<string, any> = {
+        title: editTitle.trim() || null,
+        caption: editCaption.trim() || null,
+        date: editDate.slice(0, 10),
+        child_id: editChild || null,
+        include_in_book: editInBook,
+        updated_at: new Date().toISOString(),
+      };
+      if (photoUrl !== undefined) updates.photo_url = photoUrl;
+      // Dimensions travel with the photo: set on upload, cleared when the photo
+      // is removed, so the yearbook never lays out against a stale shape.
+      if (photoDims) {
+        updates.photo_width = photoDims.width;
+        updates.photo_height = photoDims.height;
+      } else if (photoUrl === null) {
+        updates.photo_width = null;
+        updates.photo_height = null;
+      }
 
-    const { data } = await supabase
-      .from("memories")
-      .update(updates)
-      .eq("id", editing.id)
-      .select()
-      .single();
-    setEditSaving(false);
-    setEditing(null);
-    if (data) {
+      // .single() is kept so a zero-row update surfaces as an error rather
+      // than a silent no-op; the returned row itself is no longer needed.
+      const { error } = await supabase
+        .from("memories")
+        .update(updates)
+        .eq("id", editing.id)
+        .select()
+        .single();
+      if (error) throw error;
+      if (photoNote) {
+        // Text is saved. Keep the modal open so the family sees what happened
+        // to the photo and can retry it against work that is already stored.
+        //
+        // Reset the picker back to where it started first. Holding the sheet
+        // open leaves the FAILED photo in the preview, and the X beside that
+        // preview sets editPhotoRemoved, so a second Save would write
+        // photo_url = null and delete the ORIGINAL photo the family never
+        // asked to remove. Discarding a failed pick must never be
+        // interpretable as removing the stored photo.
+        setEditPhotoFile(null);
+        setEditPhotoPreview(editing.photo_url ?? null);
+        setEditPhotoRemoved(false);
+        if (editPhotoRef.current) editPhotoRef.current.value = "";
+        setEditError(photoNote);
+      } else {
+        setEditing(null);
+      }
+      // Reload either way, so the saved text is reflected in the grid.
       await load();
+    } catch (err) {
+      captureSupabaseError("memory edit save", err);
+      setEditError(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again");
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -1402,6 +1473,9 @@ export default function MemoriesPage() {
                 <input ref={editPhotoRef} type="file" accept="image/*" className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
+                    // Cleared immediately so re-picking the SAME file fires a
+                    // change event; without it the control looks dead on retry.
+                    if (e.target) e.target.value = "";
                     if (!file) return;
                     setEditPhotoFile(file);
                     setEditPhotoRemoved(false);
@@ -1479,6 +1553,10 @@ export default function MemoriesPage() {
                 </button>
               )}
             </div>
+
+            {editError && (
+              <p className="text-xs text-red-400 leading-snug">{editError}</p>
+            )}
 
             <div className="flex gap-2 pt-1">
               <button

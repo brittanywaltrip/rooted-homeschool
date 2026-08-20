@@ -1,7 +1,6 @@
 import { supabase } from "@/lib/supabase";
-import { compressImage, readImageSize } from "@/lib/compress-image";
-import { signedPhotoUrl } from "@/lib/photo-url";
-import { getPhotoCount } from "@/app/lib/integrity-checks";
+import { uploadMemoryPhoto } from "@/lib/photo-pipeline";
+import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 import { posthog } from "@/lib/posthog";
 
 // Window event the Today page listens for so it can re-run refreshTodayStory()
@@ -9,8 +8,6 @@ import { posthog } from "@/lib/posthog";
 // doesn't render Today's Story, so its lesson card just refreshes its own
 // thumbnails — no listener needed there.
 export const LESSON_PHOTO_SAVED_EVENT = "rooted:lesson-photo-saved";
-
-const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
 
 export type LessonPhoto = { id: string; photo_url: string | null };
 
@@ -30,9 +27,9 @@ export async function fetchLessonPhotos(lessonId: string): Promise<LessonPhoto[]
 /**
  * Attach a photo to a lesson: it becomes a memory (type "project") linked via
  * memories.lesson_id, so it shows in Memories and the yearbook automatically.
- * Reuses the existing capture primitives (compressImage + "memory-photos"
- * upload + signedPhotoUrl + memories insert). The memory inherits the lesson's
- * child, date, and title (the title is used as the caption).
+ * Reuses the shared capture primitive (uploadMemoryPhoto in lib/photo-pipeline)
+ * plus a memories insert. The memory inherits the lesson's child, date, and
+ * title (the title is used as the caption).
  */
 export async function saveLessonPhoto(lessonId: string, file: File): Promise<{ id: string }> {
   const { data: { user } } = await supabase.auth.getUser();
@@ -50,20 +47,11 @@ export async function saveLessonPhoto(lessonId: string, file: File): Promise<{ i
   // Same free 50-photo cap the other capture paths enforce.
   const { data: profile } = await supabase.from("profiles").select("is_pro").eq("id", user.id).maybeSingle();
   const isPro = (profile as { is_pro?: boolean } | null)?.is_pro ?? false;
-  if (!isPro && (await getPhotoCount(user.id)) >= 50) {
+  if ((await getRemainingPhotoSlots(user.id, !isPro)) <= 0) {
     throw new PhotoLimitError("You've reached your memory limit 🤍 Upgrade to keep saving photos.");
   }
 
-  const photoDims = await readImageSize(file);
-  const compressed = await compressImage(file);
-  const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-  const { error: upErr } = await supabase.storage
-    .from("memory-photos")
-    .upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-  if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
-
-  const signed = await signedPhotoUrl(supabase, "memory-photos", path, TEN_YEARS_SECONDS);
-  const photoUrl = signed ?? path;
+  const { photoUrl, width, height } = await uploadMemoryPhoto(supabase, user.id, file);
 
   const now = new Date().toISOString();
   const { data: ins, error: insErr } = await supabase
@@ -74,7 +62,8 @@ export async function saveLessonPhoto(lessonId: string, file: File): Promise<{ i
       title: lesson.title ?? "",
       caption: lesson.title ?? null,
       photo_url: photoUrl,
-      ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
+      photo_width: width,
+      photo_height: height,
       child_id: lesson.child_id,
       date: lesson.date,
       lesson_id: lessonId,
