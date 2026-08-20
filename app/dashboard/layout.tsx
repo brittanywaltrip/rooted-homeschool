@@ -16,8 +16,9 @@ import { ProfileProvider, useProfile } from "@/lib/profile-context";
 import { BadgeNotificationListener } from "@/components/BadgeNotification";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { compressImage } from "@/lib/compress-image";
-import { signedPhotoUrl } from "@/lib/photo-url";
+import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
+import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
+import { captureSupabaseError } from "@/lib/sentry-error";
 import SignedImage from "@/components/SignedImage";
 import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -124,6 +125,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
 type FabChild = { id: string; name: string; color: string | null };
 
+/** Photos per batch from the FAB. Enough for a morning, small enough to upload
+ *  one at a time on a phone without the sheet feeling stuck. */
+const MAX_FAB_PHOTOS = 10;
+
 function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
@@ -138,13 +143,21 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
 
   // ── Floating camera FAB state ────────────────────────────────────────────
+  // Two file inputs, not one: the `capture` attribute suppresses multi-select,
+  // so the camera input and the gallery input cannot be the same element.
   const fabFileRef = useRef<HTMLInputElement>(null);
+  const fabCameraRef = useRef<HTMLInputElement>(null);
+  const fabToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [fabKids, setFabKids] = useState<FabChild[]>([]);
-  const [fabFile, setFabFile] = useState<File | null>(null);
-  const [fabUrl, setFabUrl] = useState<string | null>(null);
+  const [fabFiles, setFabFiles] = useState<File[]>([]);
+  const [fabUrls, setFabUrls] = useState<string[]>([]);
   const [fabCaption, setFabCaption] = useState("");
   const [fabChildId, setFabChildId] = useState("");
   const [fabSaving, setFabSaving] = useState(false);
+  const [fabProgress, setFabProgress] = useState<{ current: number; total: number } | null>(null);
+  const [fabLimitHit, setFabLimitHit] = useState(false);
+  const [fabRemaining, setFabRemaining] = useState<number | null>(null);
+  const [fabActionSheet, setFabActionSheet] = useState(false);
   const [fabToast, setFabToast] = useState<string | null>(null);
   const [leafBurst, setLeafBurst] = useState(false);
   const { earnLeaf } = useLeafAnimationContext();
@@ -406,7 +419,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("rooted:children-updated", handler);
   }, [loadFabKids]);
 
-  function openFabPicker() { fabFileRef.current?.click(); }
+  // The FAB now opens a chooser (camera or gallery) instead of jumping straight
+  // to the gallery picker.
+  function openFabPicker() { setFabActionSheet(true); }
 
   // Listen for cross-page FAB open requests (e.g. from memories grid camera icon)
   useEffect(() => {
@@ -414,64 +429,150 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     window.addEventListener("rooted:open-fab", handler);
     return () => window.removeEventListener("rooted:open-fab", handler);
   });
-  function onFabFileChosen(file: File) {
-    setFabFile(file); setFabUrl(URL.createObjectURL(file)); setFabCaption(""); setFabChildId("");
+
+  // One toast at a time. Photo-read errors are full sentences and need longer
+  // than the 3s a "Memory saved" confirmation gets.
+  function showFabToast(message: string, ms = 3000) {
+    if (fabToastTimer.current) clearTimeout(fabToastTimer.current);
+    setFabToast(message);
+    fabToastTimer.current = setTimeout(() => setFabToast(null), ms);
   }
-  function closeFabSheet() {
-    setFabFile(null); if (fabUrl) URL.revokeObjectURL(fabUrl); setFabUrl(null); setFabCaption(""); setFabChildId("");
-  }
-  async function saveFabPhoto() {
-    if (!fabFile || fabSaving) return;
-    // Photo limit gate
-    const { data: { user: gateUser } } = await supabase.auth.getUser();
-    if (gateUser) {
-      const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
-      if (accessLevel === 'free') {
-        const { count } = await supabase
-          .from("memories")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", gateUser.id)
-          .in("type", ["photo", "drawing"]);
-        if ((count ?? 0) >= 50) {
-          window.dispatchEvent(new CustomEvent("rooted:photo-limit-reached"));
-          return;
-        }
+
+  async function onFabFilesChosen(files: File[]) {
+    if (files.length === 0) return;
+    setFabLimitHit(false);
+
+    let picked = files.slice(0, MAX_FAB_PHOTOS);
+    if (files.length > MAX_FAB_PHOTOS) {
+      showFabToast(`Only the first ${MAX_FAB_PHOTOS} photos were added.`, 4000);
+    }
+
+    // Free families are capped, so trim the batch to what is actually left and
+    // say so in the sheet. When nothing is left the selection is kept as-is:
+    // the sheet still has to open, otherwise the button looks dead again and
+    // the upgrade path is never shown.
+    let remaining: number | null = null;
+    if (getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt }) === "free") {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        remaining = await getRemainingPhotoSlots(user.id, true);
+        if (remaining > 0 && picked.length > remaining) picked = picked.slice(0, remaining);
       }
     }
+
+    setFabRemaining(remaining);
+    setFabFiles(picked);
+    setFabUrls(picked.map((f) => URL.createObjectURL(f)));
+    setFabCaption("");
+    setFabChildId("");
+  }
+
+  function removeFabPhoto(index: number) {
+    const url = fabUrls[index];
+    if (url) URL.revokeObjectURL(url);
+    const nextUrls = fabUrls.filter((_, i) => i !== index);
+    setFabFiles(fabFiles.filter((_, i) => i !== index));
+    setFabUrls(nextUrls);
+    if (nextUrls.length === 0) closeFabSheet();
+  }
+
+  function closeFabSheet() {
+    fabUrls.forEach((u) => URL.revokeObjectURL(u));
+    setFabFiles([]); setFabUrls([]); setFabCaption(""); setFabChildId("");
+    setFabLimitHit(false); setFabRemaining(null); setFabProgress(null);
+  }
+  async function saveFabPhoto() {
+    if (fabFiles.length === 0 || fabSaving) return;
+
+    // The spinner starts BEFORE the gate. The auth and count round trips used
+    // to run ahead of it, so a family tapping Save watched an unchanged button
+    // for the whole window and assumed it was broken.
     setFabSaving(true);
+    setFabLimitHit(false);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setFabSaving(false); return; }
-      const fileToUpload = await compressImage(fabFile);
-      const path = `${user.id}/${Date.now()}-${fileToUpload.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, fileToUpload, { contentType: "image/jpeg", upsert: false });
-      if (upErr) { setFabSaving(false); setFabToast("Upload failed, check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
-      // 10-year signed URL so photo_url stays accessible long after upload.
-      // Bucket is private; signed URLs are the only way to read.
-      const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
-      const signed = await signedPhotoUrl(supabase, "memory-photos", path, TEN_YEARS_SECONDS);
-      const photoUrl = signed ?? path;
+      if (!user) return;
+
+      // Photo limit gate. getRemainingPhotoSlots is the one definition of how
+      // many photos a family has, shared with the other capture paths.
+      const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+      const remaining = await getRemainingPhotoSlots(user.id, accessLevel === "free");
+      if (remaining <= 0) {
+        // The sheet renders the cap notice + upgrade link. The event stays for
+        // the Today page, which has its own listener; every OTHER page had none,
+        // which is why this used to fail in total silence.
+        setFabRemaining(0);
+        setFabLimitHit(true);
+        window.dispatchEvent(new CustomEvent("rooted:photo-limit-reached"));
+        return;
+      }
+
+      const batch = fabFiles.slice(0, Math.min(fabFiles.length, remaining));
       const now = new Date();
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-      const { error: insErr } = await supabase.from("memories").insert({
-        user_id: user.id,
-        type: "photo",
-        title: fabCaption.trim() || null,
-        photo_url: photoUrl,
-        child_id: fabChildId || null,
-        date: today,
-        include_in_book: false,
-      });
-      if (insErr) { setFabSaving(false); setFabToast("Upload failed, check your connection and try again"); setTimeout(() => setFabToast(null), 3000); return; }
-      setFabSaving(false); closeFabSheet();
+
+      let saved = 0;
+      let firstFailure: { message: string; long: boolean } | null = null;
+
+      // Sequential on purpose. Parallel uploads from a phone on cellular is how
+      // you get stalls, and a partial failure stays legible this way.
+      for (let i = 0; i < batch.length; i++) {
+        setFabProgress({ current: i + 1, total: batch.length });
+        try {
+          const { photoUrl, width, height } = await uploadMemoryPhoto(supabase, user.id, batch[i]);
+          const { error: insErr } = await supabase.from("memories").insert({
+            user_id: user.id,
+            type: "photo",
+            title: fabCaption.trim() || null,
+            photo_url: photoUrl,
+            photo_width: width,
+            photo_height: height,
+            child_id: fabChildId || null,
+            date: today,
+            include_in_book: false,
+          });
+          if (insErr) throw insErr;
+          saved++;
+        } catch (err) {
+          captureSupabaseError("fab photo save", err);
+          if (!firstFailure) {
+            firstFailure = err instanceof PhotoReadError
+              ? { message: err.userMessage, long: true }
+              : { message: "Upload failed, check your connection and try again", long: false };
+          }
+        }
+      }
+
+      if (saved === 0) {
+        // Nothing landed, so leave the sheet open: the family can retry or drop
+        // the photo that failed without picking everything again.
+        const failure = firstFailure ?? { message: "Upload failed, check your connection and try again", long: false };
+        showFabToast(failure.message, failure.long ? 6000 : 3000);
+        return;
+      }
+
+      // One leaf, one event, one badge check per batch, not per photo.
+      closeFabSheet();
       window.dispatchEvent(new CustomEvent("rooted:memory-saved", { detail: { type: "photo" } }));
       setLeafBurst(true); setTimeout(() => setLeafBurst(false), 1200);
       earnLeaf();
-      setFabToast("Memory saved 🌿"); setTimeout(() => setFabToast(null), 2000);
+      if (firstFailure) {
+        showFabToast(`Saved ${saved} of ${batch.length}. ${firstFailure.message}`, 6000);
+      } else {
+        showFabToast(saved > 1 ? `${saved} memories saved 🌿` : "Memory saved 🌿", 2000);
+      }
       checkAndAwardBadges(user.id);
       onLogAction({ userId: user.id, childId: fabChildId || undefined, actionType: "memory" });
-    } catch {
-      setFabSaving(false); setFabToast("Upload failed, check your connection and try again"); setTimeout(() => setFabToast(null), 3000);
+    } catch (err) {
+      captureSupabaseError("fab photo save", err);
+      if (err instanceof PhotoReadError) {
+        showFabToast(err.userMessage, 6000);
+      } else {
+        showFabToast("Upload failed, check your connection and try again", 3000);
+      }
+    } finally {
+      setFabSaving(false);
+      setFabProgress(null);
     }
   }
 
@@ -709,7 +810,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
 
         {/* ── Floating Camera FAB ────────────────────────────────── */}
-        {!partnerCtx.isPartner && !fabUrl && !hideFab && (
+        {!partnerCtx.isPartner && fabUrls.length === 0 && !fabActionSheet && !hideFab && (
           <button onClick={openFabPicker}
             className="fixed bottom-28 right-4 md:bottom-6 md:right-6 z-50 w-14 h-16 rounded-full flex flex-col items-center justify-center gap-0.5 shadow-lg active:scale-90 transition-all hover:shadow-xl"
             style={{ backgroundColor: "var(--g-brand)" }} aria-label="Quick photo" data-fab-trigger>
@@ -717,24 +818,83 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             <span className="text-white leading-none" style={{ fontSize: 9 }}>Quick photo</span>
           </button>
         )}
-        <input ref={fabFileRef} type="file" accept="image/*" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (e.target) e.target.value = ""; if (f) onFabFileChosen(f); }} />
+        {/* Gallery picker: multi-select. Never give this one `capture`, which
+            would silently reduce it to a single photo. */}
+        <input ref={fabFileRef} type="file" accept="image/*" multiple className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (e.target) e.target.value = "";
+            if (files.length) void onFabFilesChosen(files);
+          }} />
+        {/* Camera: single shot, straight to the rear camera. */}
+        <input ref={fabCameraRef} type="file" accept="image/*" capture="environment" className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (e.target) e.target.value = "";
+            if (files.length) void onFabFilesChosen(files);
+          }} />
+
+        {/* ── FAB action sheet: camera or gallery ─────────────────── */}
+        {fabActionSheet && (
+          <>
+            <div className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm" onClick={() => setFabActionSheet(false)} />
+            <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
+              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+              <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+              <div className="px-5 pb-5 space-y-2.5">
+                <button onClick={() => { setFabActionSheet(false); fabCameraRef.current?.click(); }}
+                  className="w-full py-3 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98]"
+                  style={{ backgroundColor: "var(--g-brand)" }}>
+                  <Camera size={16} strokeWidth={2.2} />
+                  Take a photo
+                </button>
+                <button onClick={() => { setFabActionSheet(false); fabFileRef.current?.click(); }}
+                  className="w-full py-3 rounded-xl text-sm font-medium border border-[#e8e2d9] bg-white text-[#2d2926] transition-colors hover:border-[#5c7f63]">
+                  Choose photos
+                </button>
+                <button onClick={() => setFabActionSheet(false)}
+                  className="w-full py-3 rounded-xl text-sm font-medium text-[#7a6f65] transition-colors hover:bg-[#f0ede8]">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </>
+        )}
 
         {/* ── Instant Photo Bottom Sheet ─────────────────────────── */}
-        {fabUrl && (
+        {fabUrls.length > 0 && (
           <>
             <div className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm" onClick={closeFabSheet} />
             <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
               style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
               <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
               <div className="px-5 pb-5 space-y-4">
-                <div className="relative rounded-2xl overflow-hidden bg-[#f0ede8]">
-                  <img src={fabUrl} alt="Preview" className="w-full max-h-56 object-cover" />
-                  <button onClick={closeFabSheet}
-                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
-                    <X size={14} />
-                  </button>
-                </div>
+                {fabUrls.length === 1 ? (
+                  <div className="relative rounded-2xl overflow-hidden bg-[#f0ede8]">
+                    <img src={fabUrls[0]} alt="Preview" className="w-full max-h-56 object-cover" />
+                    <button onClick={closeFabSheet} aria-label="Remove photo"
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2 overflow-x-auto pb-1.5 pt-1.5 -mx-1 px-1">
+                    {fabUrls.map((url, i) => (
+                      <div key={url} className="relative shrink-0">
+                        <img src={url} alt={`Photo ${i + 1}`} className="w-20 h-20 rounded-xl object-cover bg-[#f0ede8]" />
+                        <button onClick={() => removeFabPhoto(i)} aria-label={`Remove photo ${i + 1}`}
+                          className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-colors">
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {fabRemaining !== null && fabRemaining > 0 && (
+                  <p className="text-xs text-[#7a6f65]">
+                    You have {fabRemaining} {fabRemaining === 1 ? "photo" : "photos"} left on the free plan.
+                  </p>
+                )}
                 <input type="text" value={fabCaption} onChange={(e) => setFabCaption(e.target.value)}
                   placeholder="What's this?" autoFocus
                   className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition-colors" />
@@ -755,10 +915,26 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                     ))}
                   </div>
                 )}
-                <button onClick={saveFabPhoto} disabled={fabSaving}
+                {fabLimitHit && (
+                  <div className="rounded-xl border border-[#e8e2d9] bg-[#faf8f4] px-4 py-3 space-y-1.5">
+                    <p className="text-xs text-[#7a6f65]">You&apos;ve reached 50 photos on the free plan.</p>
+                    <Link href="/dashboard/pricing" onClick={closeFabSheet}
+                      className="inline-block text-xs font-medium underline"
+                      style={{ color: "var(--g-gold)" }}>
+                      Upgrade for unlimited photos
+                    </Link>
+                  </div>
+                )}
+                <button onClick={saveFabPhoto} disabled={fabSaving || fabFiles.length === 0}
                   className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all shadow-sm disabled:opacity-60"
                   style={{ backgroundColor: "var(--g-brand)" }}>
-                  {fabSaving ? "Saving..." : "Save 🌱"}
+                  {fabSaving
+                    ? (fabProgress && fabProgress.total > 1
+                        ? `Saving ${fabProgress.current} of ${fabProgress.total}...`
+                        : "Saving...")
+                    : fabFiles.length > 1
+                      ? `Save ${fabFiles.length} photos 🌱`
+                      : "Save 🌱"}
                 </button>
               </div>
             </div>
@@ -795,7 +971,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
         {fabToast && (
           <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[70] pointer-events-none">
-            <div className="bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">{fabToast}</div>
+            <div className="bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg max-w-[90vw] text-center">{fabToast}</div>
           </div>
         )}
 
