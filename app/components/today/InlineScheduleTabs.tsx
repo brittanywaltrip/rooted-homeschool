@@ -14,7 +14,15 @@ import { supabase } from "@/lib/supabase";
 import { Pencil } from "lucide-react";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
-import { computeNextLessonsForGoal, loadPinsByGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import {
+  computeNextLessonsForGoal,
+  loadPinsByGoal,
+  toGoalConfig,
+  GOAL_CONFIG_COLUMNS,
+  type CurriculumGoalConfig,
+  type GoalConfigRow,
+  type VacationBlock as SchedVacationBlock,
+} from "@/app/lib/scheduler";
 import { formatRelativeDate, formatRelativeFromTimestamp } from "./relativeDate";
 
 type Child = { id: string; name: string; color: string | null };
@@ -251,7 +259,14 @@ export default function InlineScheduleTabs({
       const [{ data: goalsRaw }, { data: vacsRaw }, { data: completedTodayRaw }] = await Promise.all([
         supabase
           .from("curriculum_goals")
-          .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
+          // GOAL_CONFIG_COLUMNS, never a hand-rolled list. This SELECT used to
+          // name five columns and miss lessons_per_day_overrides and
+          // start_date, which is the exact omission the doc comment above
+          // GOAL_CONFIG_COLUMNS calls "a silent wrong answer": a goal with
+          // Thursday=2 fell back to the flat lessons_per_day here, so Upcoming
+          // disagreed with Today and Plan about the same goal, and a
+          // future-dated curriculum showed lesson 1 before its start date.
+          .select(GOAL_CONFIG_COLUMNS)
           .eq("user_id", user.id)
           .eq("archived", false),
         supabase
@@ -273,7 +288,7 @@ export default function InlineScheduleTabs({
         if (!gid) continue;
         completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
       }
-      const goals = (goalsRaw ?? []) as { id: string; total_lessons: number | null; lessons_per_day: number | null; school_days: string[] | null; current_lesson: number | null }[];
+      const goals = (goalsRaw ?? []) as unknown as GoalConfigRow[];
       const vacationBlocks: SchedVacationBlock[] = ((vacsRaw ?? []) as { start_date: string; end_date: string }[])
         .map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
 
@@ -295,33 +310,39 @@ export default function InlineScheduleTabs({
       const allProjected: Proj[] = [];
       for (const g of goals) {
         if (!g.total_lessons || g.total_lessons <= 0) continue;
-        const cfg: CurriculumGoalConfig = {
-          id: g.id,
-          total_lessons: g.total_lessons,
-          lessons_per_day: g.lessons_per_day ?? 1,
-          school_days: g.school_days,
-          current_lesson: g.current_lesson ?? 0,
-        };
+        // toGoalConfig is the single place a DB row becomes a projector
+        // config, so overrides and start_date can never be dropped again.
+        const cfg: CurriculumGoalConfig = toGoalConfig(g);
         const completed = completedTodayPerGoal.get(g.id) ?? 0;
         const projected = computeNextLessonsForGoal(cfg, todayMid, 15, vacationBlocks, completed, pinsByGoal.get(g.id) ?? [])
           .filter((p) => p.date !== todayKey);
         allProjected.push(...projected);
       }
       const projGoalIds = Array.from(new Set(allProjected.map((p) => p.goal_id)));
-      const projNumbers = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
+      // ProjectedLesson.lesson_number carries the QUEUE SLOT, not the
+      // curriculum's printed lesson number (see the field's note in
+      // scheduler.ts). The column that holds a slot is queue_position, and
+      // move_lesson_to_date rewrites it while deliberately leaving
+      // lesson_number alone, so matching on lesson_number showed the wrong
+      // row for a slot after any manual drag. Today's main loader
+      // (app/dashboard/page.tsx) keys on queue_position; this now agrees.
+      const projSlots = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
       const { data: rowData } = projGoalIds.length > 0
         ? await supabase
             .from("lessons")
-            .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number")
+            .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, queue_position")
             .eq("user_id", user.id)
             .eq("completed", false)
             .in("curriculum_goal_id", projGoalIds)
-            .in("lesson_number", projNumbers)
+            .in("queue_position", projSlots)
         : { data: [] as unknown[] };
-      type RowLite = { id: string; title: string; child_id: string; scheduled_date: string | null; notes: string | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null; curriculum_goal_id: string | null; lesson_number: number | null };
+      type RowLite = { id: string; title: string; child_id: string; scheduled_date: string | null; notes: string | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null; curriculum_goal_id: string | null; queue_position: number | null };
       const rowMap = new Map<string, RowLite>();
       for (const r of (rowData ?? []) as RowLite[]) {
-        rowMap.set(`${r.curriculum_goal_id}|${r.lesson_number}`, r);
+        // The IN/IN pair widens past the cartesian product, so key on the
+        // exact (goal, slot) pair and let the lookup below narrow it.
+        if (r.queue_position == null) continue;
+        rowMap.set(`${r.curriculum_goal_id}|${r.queue_position}`, r);
       }
       // Hydrate + override scheduled_date with the projected date so the
       // existing render code (which keys off scheduled_date) shows queue

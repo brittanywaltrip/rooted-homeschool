@@ -2333,20 +2333,27 @@ export default function TodayPage() {
 
     // Hydrate display fields from real lesson rows.
     const projGoalIds = Array.from(new Set(allProjected.map((p) => p.goal_id)));
-    const projNumbers = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
+    // Queue SLOTS, not printed lesson numbers. Same fix as the projected-row
+    // fetch higher up this file: ProjectedLesson.lesson_number is the queue
+    // slot, the column holding a slot is queue_position, and a manual drag
+    // (move_lesson_to_date) rewrites queue_position while leaving
+    // lesson_number alone. Matching on lesson_number offered the wrong row.
+    // lesson_number is still SELECTed because the modal displays it.
+    const projSlots = Array.from(new Set(allProjected.map((p) => p.lesson_number)));
     const { data: rowData } = projGoalIds.length > 0
       ? await supabase
           .from("lessons")
-          .select("id, title, child_id, scheduled_date, curriculum_goal_id, lesson_number, subjects(name, color), curriculum_goals(subject_label)")
+          .select("id, title, child_id, scheduled_date, curriculum_goal_id, lesson_number, queue_position, subjects(name, color), curriculum_goals(subject_label)")
           .eq("user_id", effectiveUserId)
           .eq("completed", false)
           .in("curriculum_goal_id", projGoalIds)
-          .in("lesson_number", projNumbers)
+          .in("queue_position", projSlots)
       : { data: [] as unknown[] };
-    type RowLite = { id: string; title: string; child_id: string | null; scheduled_date: string | null; curriculum_goal_id: string | null; lesson_number: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
+    type RowLite = { id: string; title: string; child_id: string | null; scheduled_date: string | null; curriculum_goal_id: string | null; lesson_number: number | null; queue_position: number | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null };
     const rowMap = new Map<string, RowLite>();
     for (const r of (rowData ?? []) as RowLite[]) {
-      rowMap.set(`${r.curriculum_goal_id}|${r.lesson_number}`, r);
+      if (r.queue_position == null) continue;
+      rowMap.set(`${r.curriculum_goal_id}|${r.queue_position}`, r);
     }
 
     // Sort: kid → subject → lesson_number ascending. Override
