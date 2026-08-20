@@ -33,6 +33,8 @@ test('preparePhoto: a zero-byte file rejects with PhotoReadError in well under a
 })
 
 test('preparePhoto: an undecodable file rejects with PhotoReadError rather than hanging', { timeout: 5000 }, async () => {
+  // Since the HEIC fallback widened, this also walks the converter path before
+  // giving up, so the timeout covers both the decode and the conversion.
   const garbage = new Uint8Array(1024)
   for (let i = 0; i < garbage.length; i++) garbage[i] = (i * 37 + 11) % 256
   const file = new File([garbage], 'not-really-a-photo.jpg', { type: 'image/jpeg' })
@@ -53,6 +55,22 @@ test('preparePhoto: a file over the 50MB cap rejects with the size message', { t
 
   assert.ok(err instanceof PhotoReadError, `expected PhotoReadError, got ${String(err)}`)
   assert.match(err.userMessage, /too large to upload/)
+})
+
+test('preparePhoto: a non-HEIC undecodable file keeps the generic message after the widened fallback fails', { timeout: 10000 }, async () => {
+  // A generic filename and mime type is exactly what the Android Google Photos
+  // picker hands back, so the converter is attempted even though nothing here
+  // announces itself as HEIC. When the conversion fails too, the family must
+  // see the generic message, not camera-settings advice that does not apply.
+  const bytes = new Uint8Array(512)
+  for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 91 + 7) % 256
+  const file = new File([bytes], 'download', { type: 'application/octet-stream' })
+
+  const err = await rejection(preparePhoto(file))
+
+  assert.ok(err instanceof PhotoReadError, `expected PhotoReadError, got ${String(err)}`)
+  assert.match(err.userMessage, /couldn't read that photo/)
+  assert.doesNotMatch(err.userMessage, /HEIC/)
 })
 
 test('preparePhoto: an undecodable HEIC rejects with the HEIC guidance, not the generic message', { timeout: 40000 }, async () => {

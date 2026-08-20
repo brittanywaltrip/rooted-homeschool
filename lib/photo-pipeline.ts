@@ -115,12 +115,24 @@ function decodeWithImageElement(blob: Blob): Promise<DecodedImage> {
  * Decode a blob to something drawable. createImageBitmap is preferred: it
  * rejects properly on undecodable data and decodes once, where new Image()
  * decodes again at draw time.
+ *
+ * imageOrientation is passed explicitly because its default varies by browser
+ * and version. Where it resolves to "none", a portrait phone photo lands on the
+ * canvas sideways. "from-image" applies the EXIF rotation, which is what the
+ * old new Image() path did and what decodeWithImageElement below still does, so
+ * both paths agree. The bitmap is measured AFTER that rotation is applied, so a
+ * portrait photo reports portrait width/height and memories.photo_width /
+ * photo_height match the shape the family actually sees.
  */
 async function decodeImage(blob: Blob): Promise<DecodedImage> {
   if (typeof createImageBitmap !== "function") {
     return decodeWithImageElement(blob);
   }
-  const bitmap = await withTimeout(createImageBitmap(blob), DECODE_TIMEOUT_MS, "Image decode");
+  const bitmap = await withTimeout(
+    createImageBitmap(blob, { imageOrientation: "from-image" }),
+    DECODE_TIMEOUT_MS,
+    "Image decode",
+  );
   return {
     source: bitmap,
     width: bitmap.width,
@@ -137,9 +149,10 @@ function looksLikeHeic(file: File): boolean {
 }
 
 /**
- * Last resort for iPhone-format photos: convert to JPEG in the browser, then
- * decode the result once. heic2any is a heavy wasm-ish decoder, so it is
- * imported lazily and costs nothing unless a family actually hands us a HEIC.
+ * Last resort for any file the browser refused to decode: convert to JPEG in
+ * the browser, then decode the result once. heic2any is a heavy wasm-ish
+ * decoder, so it is imported lazily and only ever loads after a decode has
+ * already failed, which means it costs nothing on the happy path.
  */
 async function decodeHeic(file: File): Promise<DecodedImage> {
   const converted = await withTimeout(
@@ -181,15 +194,18 @@ export async function preparePhoto(file: File): Promise<PreparedPhoto> {
   try {
     decoded = await decodeImage(file);
   } catch (err) {
-    if (!looksLikeHeic(file)) {
-      throw new PhotoReadError(`Decode failed for ${file.name}: ${describe(err)}`, UNREADABLE_MESSAGE);
-    }
+    // The converter runs on ANY decode failure, not just files that announce
+    // themselves as HEIC. Android's Google Photos picker frequently hands back
+    // a HEIC under a generic filename and mime type, so gating on the name or
+    // type here would skip the one thing that can still rescue those photos.
+    // looksLikeHeic only decides which message the family sees when the
+    // conversion fails too.
     try {
       decoded = await decodeHeic(file);
     } catch (heicErr) {
       throw new PhotoReadError(
-        `HEIC fallback failed for ${file.name}: ${describe(heicErr)} (decode: ${describe(err)})`,
-        HEIC_MESSAGE,
+        `Decode and conversion both failed for ${file.name}: ${describe(heicErr)} (decode: ${describe(err)})`,
+        looksLikeHeic(file) ? HEIC_MESSAGE : UNREADABLE_MESSAGE,
       );
     }
   }
