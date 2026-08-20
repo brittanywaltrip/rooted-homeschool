@@ -6,6 +6,7 @@ import YearbookBookmark from "@/app/components/YearbookBookmark";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { getUserAccess } from "@/lib/user-access";
+import { useIsNativeApp } from "@/lib/platform";
 import { usePartner } from "@/lib/partner-context";
 import Link from "next/link";
 import PageHero from "@/app/components/PageHero";
@@ -129,6 +130,9 @@ export default function MemoriesPage() {
   // Free tier sees the last 30 days only (CLAUDE.md pricing: "memories 30
   // days"). Nothing is deleted; `hiddenOlderCount` is how many rows sit
   // outside that window, so the banner can be honest that they are safe.
+  // Apple Guideline 3.1.1: the native app may not link out to Stripe
+  // checkout. Same guard ExportGateModal applies to its own CTA.
+  const isNativeApp = useIsNativeApp();
   const [isFreeWindowed, setIsFreeWindowed] = useState(false);
   const [hiddenOlderCount, setHiddenOlderCount] = useState(0);
   // Filter: "all" | "family" | "favorites" | child id
@@ -970,15 +974,22 @@ export default function MemoriesPage() {
             <p className="text-[12px] text-[#7a6f65] mt-0.5 leading-relaxed">
               You&apos;re seeing the last 30 days. Upgrade to see your family&apos;s whole story.
             </p>
+            {isNativeApp ? (
+              <p className="text-[12px] font-medium text-[#7a6f65] mt-1.5">
+                To unlock, visit rootedhomeschoolapp.com
+              </p>
+            ) : null}
           </div>
-          <Link
-            // /upgrade, matching ExportGateModal. One paywall destination
-            // across the app so an upgrade path is never two different pages.
-            href="/upgrade"
-            className="shrink-0 self-center text-[12px] font-semibold text-white bg-[#C4962A] hover:bg-[#a67d1f] rounded-lg px-3 py-1.5 transition-colors"
-          >
-            Upgrade
-          </Link>
+          {isNativeApp ? null : (
+            <Link
+              // /upgrade, matching ExportGateModal. One paywall destination
+              // across the app so an upgrade path is never two different pages.
+              href="/upgrade"
+              className="shrink-0 self-center text-[12px] font-semibold text-white bg-[#C4962A] hover:bg-[#a67d1f] rounded-lg px-3 py-1.5 transition-colors"
+            >
+              Upgrade
+            </Link>
+          )}
         </div>
       )}
 
