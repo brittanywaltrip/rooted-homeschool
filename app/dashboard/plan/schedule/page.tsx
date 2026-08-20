@@ -696,16 +696,29 @@ export default function ScheduleBuilderPage() {
   // into the centre of the viewport whenever saveError flips truthy so
   // the failure is always visible without restructuring the layout.
   const saveErrorRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!saveError) return;
-    saveErrorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-  }, [saveError]);
   // Distinct from saveError: post-save phase (lesson regen / recompute /
   // overcapacity assertion) runs AFTER the curriculum_goals + activities
   // writes have already committed. A failure here doesn't roll back the
   // schema writes, so showing "Save failed:" would lie. This carries the
-  // softer "saved, but lesson layout needs another touch" notice instead.
+  // softer "settings saved, lessons did not generate" notice instead.
   const [postSaveNotice, setPostSaveNotice] = useState<string | null>(null);
+  // postSaveNotice used to render as a plain div at the bottom of the page,
+  // under the fixed bottom bar, with no role and no scroll. It is the ONLY
+  // signal a family gets that their goal has zero lessons, and 26 goals across
+  // 22 accounts reached that state without anyone noticing. It gets exactly
+  // what saveError gets: alert semantics, and scrolled into view on arrival.
+  const postSaveNoticeRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    // saveError wins when both are somehow set; they are mutually exclusive in
+    // practice (the catch sets one or the other).
+    const target = saveError
+      ? saveErrorRef.current
+      : postSaveNotice
+        ? postSaveNoticeRef.current
+        : null;
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [saveError, postSaveNotice]);
 
   const [children, setChildren] = useState<Child[]>([]);
   const [rows, setRows] = useState<Row[]>([]);
@@ -1798,9 +1811,15 @@ export default function ScheduleBuilderPage() {
         const existingNums = new Set<number>();
         const existingSlots = new Set<number>();
         for (const r of survivors) {
+          // Slot registration comes FIRST and is unconditional. A row with a
+          // queue_position but a NULL lesson_number used to be skipped whole,
+          // so its slot never reached existingSlots, the planner handed that
+          // same slot to a fresh insert, and the batch died on
+          // lessons_goal_queue_position_uniq. The row is invisible to the
+          // lesson-number question and still very much occupies its slot.
+          if (r.queue_position != null) existingSlots.add(r.queue_position);
           if (r.lesson_number == null) continue;
           existingNums.add(r.lesson_number);
-          if (r.queue_position != null) existingSlots.add(r.queue_position);
         }
         for (const h of histToInsert) {
           existingNums.add(h.lesson_number);
@@ -2179,8 +2198,17 @@ export default function ScheduleBuilderPage() {
         }
       }
       if (phase2Failures.length > 0) {
-        failedPhase2GoalId = phase2Failures[0].goalId;
-        throw phase2Failures[0].err;
+        // Surface a DETERMINISTIC failure over a transient one when the save
+        // hit both. Re-throwing phase2Failures[0] meant goal A failing on a
+        // network blip decided the copy for the whole save, so a family whose
+        // goal B hit a unique violation was told to "save again" for a
+        // conflict that reproduces identically every time: a loop with no way
+        // out. The transient goal still heals on that next save either way.
+        const chosen =
+          phase2Failures.find((f) => isDeterministicPhase2Failure(f.err)) ??
+          phase2Failures[0];
+        failedPhase2GoalId = chosen.goalId;
+        throw chosen.err;
       }
 
       setDirty(false);
@@ -2232,17 +2260,27 @@ export default function ScheduleBuilderPage() {
           goal_id: failedPhase2GoalId,
           deterministic,
         });
+        // Neither line opens with success wording. The old transient copy led
+        // with "Curriculum changes saved", which reads as "you are done" to
+        // anyone skimming, and the thing that did NOT happen is the whole
+        // point of the message.
         setPostSaveNotice(
           deterministic
-            ? "Your curriculum is saved. The lesson layout hit a conflict we're fixing, so those lessons aren't on your calendar yet. Email hello@rootedhomeschoolapp.com and we'll get them on there for you."
-            : "Curriculum changes saved. Lesson layout needs another touch, save again to sync.",
+            ? "Your curriculum settings were saved, but the lessons hit a conflict and did not generate. We've been notified. Email hello@rootedhomeschoolapp.com and we'll fix it for you."
+            : "Your curriculum settings were saved, but the lessons themselves did not generate. Tap Save again to finish. Nothing you entered was lost.",
         );
-        setDirty(false);
-        setDraftNotice(null);
-        // The curriculum_goals + activities writes committed, so the draft
-        // is describing rows that are already saved. Only the lesson layout
-        // is outstanding, and re-saving from the loaded rows fixes that.
-        clearScheduleDraft(effectiveUserId);
+        if (deterministic) {
+          // Saving again reproduces the same failure, so there is nothing to
+          // trap the family here for. Let them leave without the guard.
+          setDirty(false);
+          setDraftNotice(null);
+          clearScheduleDraft(effectiveUserId);
+        }
+        // Transient: dirty deliberately stays TRUE and the draft is kept. The
+        // lessons are still missing, so the schedule is not fully saved, and a
+        // second Save is the fix. Leaving dirty set means
+        // confirmDiscardAndNavigate and the anchor-capture guard both fire if
+        // they try to walk away, which is the one moment worth catching them.
       }
     } finally {
       setSaving(false);
@@ -2446,6 +2484,33 @@ export default function ScheduleBuilderPage() {
           </div>
         )}
 
+        {/* Both failure surfaces render HERE, at the top of the builder, so
+            they are in one place and above the fold. They used to sit at the
+            bottom of the page flow, BELOW the fixed bottom bar, which is how a
+            goal could come out of a save with zero lessons and nothing the
+            family would ever see. */}
+        {saveError && (
+          <div
+            ref={saveErrorRef}
+            role="alert"
+            aria-live="assertive"
+            className="mb-4 bg-white border border-[#e8c8c8] rounded-2xl p-3 scroll-mt-24"
+          >
+            <p className="text-sm text-[#9a3a3a]">Save failed: {saveError}</p>
+          </div>
+        )}
+
+        {postSaveNotice && (
+          <div
+            ref={postSaveNoticeRef}
+            role="alert"
+            aria-live="assertive"
+            className="mb-4 bg-[#fefcf9] border border-[#e8d9a8] rounded-2xl p-3 scroll-mt-24"
+          >
+            <p className="text-sm text-[#2d2926]">{postSaveNotice}</p>
+          </div>
+        )}
+
         {view === "builder" && (
           <BuilderView
             children={children}
@@ -2487,22 +2552,6 @@ export default function ScheduleBuilderPage() {
           />
         )}
 
-        {saveError && (
-          <div
-            ref={saveErrorRef}
-            role="alert"
-            aria-live="assertive"
-            className="mt-4 bg-white border border-[#e8c8c8] rounded-2xl p-3 scroll-mt-24"
-          >
-            <p className="text-sm text-[#9a3a3a]">Save failed: {saveError}</p>
-          </div>
-        )}
-
-        {postSaveNotice && (
-          <div className="mt-4 bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-3">
-            <p className="text-sm text-[#7a6f65]">{postSaveNotice}</p>
-          </div>
-        )}
       </div>
 
       {/* Sticky bottom bar.
