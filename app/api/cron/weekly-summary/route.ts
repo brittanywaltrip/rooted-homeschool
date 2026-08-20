@@ -18,7 +18,7 @@ const TEST_EMAIL = 'garfieldbrittany@gmail.com'
 
 // ── Email template ──────────────────────────────────────────────────────────
 
-function emailHtml(name: string, summaryLine: string, memCount: number): string {
+function emailHtml(name: string, summaryLine: string, memCount: number, unsubscribeToken: string | null): string {
   const greeting = name ? `Hi ${name},` : 'Hi there,'
   const memLabel = memCount === 1 ? 'memory' : 'memories'
 
@@ -39,7 +39,7 @@ function emailHtml(name: string, summaryLine: string, memCount: number): string 
 <p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:0 0 4px;">If you run into anything or just want to share how homeschooling is going &mdash; reply to this email. I read every single one.</p>
 <p style="font-size:14px;line-height:1.5;color:#2d2926;margin:24px 0 0;font-weight:600;">&mdash; Brittany</p>
 <p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted</p>
-${emailFooterHtml()}
+${emailFooterHtml(unsubscribeToken)}
 </td></tr></table>
 </td></tr></table>
 </body></html>`
@@ -180,12 +180,17 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
       // If test user has no activity, still send a sample email
       const sampleProfile = (profiles ?? [])[0]
       const sampleName = sampleProfile?.first_name ?? 'Brittany'
+      // Test preview goes to TEST_EMAIL only, but render the footer the way a
+      // real recipient would see it so the preview is worth looking at.
+      const sampleToken = sampleProfile?.id
+        ? await ensureUnsubscribeToken(sampleProfile.id, supabase)
+        : null
       await resend.emails.send({
         from: FROM,
         to: TEST_EMAIL,
         subject: `${sampleName}, your week with Rooted 🌿`,
-        text: `Hi ${sampleName}, Last week was a great week of homeschooling. You captured 0 memories this week.\n\n— Brittany\nFounder, Rooted${emailFooterText()}`,
-        html: emailHtml(sampleName, 'Last week was a great week of homeschooling.', 0),
+        text: `Hi ${sampleName}, Last week was a great week of homeschooling. You captured 0 memories this week.\n\n— Brittany\nFounder, Rooted${emailFooterText(sampleToken)}`,
+        html: emailHtml(sampleName, 'Last week was a great week of homeschooling.', 0, sampleToken),
       })
       return { sent: 1, totalUsers: 1, skipped: 0 }
     }

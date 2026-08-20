@@ -9,9 +9,21 @@ const BASE_URL = "https://www.rootedhomeschoolapp.com";
  * Gmail/Apple Mail just won't show the inbox unsubscribe button, but the
  * footer link still works.
  */
+/**
+ * The one-click unsubscribe URL for a user token. ONE definition, used by both
+ * the List-Unsubscribe header and the visible footer link, so an inbox button
+ * and the link under the email can never point at different places.
+ *
+ * www, not the apex: the apex 308-redirects to www, and a redirect on the
+ * RFC 8058 POST is worth avoiding.
+ */
+export function buildUnsubscribeUrl(token: string): string {
+  return `${BASE_URL}/api/unsubscribe-one-click?token=${encodeURIComponent(token)}`;
+}
+
 export function buildUserListUnsubscribeHeaders(token: string | null): Record<string, string> {
   if (!token) return {};
-  const url = `${BASE_URL}/api/unsubscribe-one-click?token=${encodeURIComponent(token)}`;
+  const url = buildUnsubscribeUrl(token);
   return {
     "List-Unsubscribe": `<${url}>`,
     "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
