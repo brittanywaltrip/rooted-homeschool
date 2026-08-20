@@ -44,6 +44,28 @@ const APPLY = process.argv.includes('--apply')
 // be repaired alongside real families'.
 const EXCLUDED_EMAIL = 'garfieldbrittany+test1@gmail.com'
 
+// Goals held back for a human to decide on, permanently.
+//
+// The dynamic duplicate guard below only compares EMPTY goals against each
+// other, so it stops being a guard the moment one of the pair is repaired. That
+// is not theoretical: on the 2026-08-20 run katelyn.aguiar17 had two empty
+// Language Arts goals for Louis created 25 minutes apart, the older one was
+// repaired, and on the very next dry run the younger one was no longer grouped
+// with anything and came back as a fresh PLAN for 120 rows. Re-running --apply
+// would have given that child two full Language Arts curricula.
+//
+// Listing the id is deliberate over tightening the grouping rule. The two goals
+// have DIFFERENT curriculum_names ("The Good And The Beautiful" and "... Level
+// 1"), so a stricter automatic rule would have to key on subject alone and
+// would then wrongly skip families who genuinely run two curricula in one
+// subject. This is one row that needs one decision from one person.
+const MANUAL_REVIEW_GOAL_IDS = new Set<string>([
+  // katelyn.aguiar17@gmail.com, Louis, Language Arts, total 120, created
+  // 2026-05-02T18:10:01Z, 25 minutes after its already-repaired sibling
+  // e4b7e914. Repair it only if she confirms it is a real second curriculum.
+  '5b7fc7f9-fcc6-453f-b6b9-a6de1109eb6e',
+])
+
 const supabase: SupabaseClient = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
@@ -94,7 +116,15 @@ async function loadUserEmails(): Promise<Map<string, string>> {
   return out
 }
 
-/** Every curriculum_goal_id that already owns at least one lessons row. */
+/**
+ * Every curriculum_goal_id that already owns at least one lessons row.
+ *
+ * Ordered by id, and that is not cosmetic. PostgREST applies `range` with no
+ * guaranteed row order unless you give it one, so an unordered paginated scan
+ * can hand back the same row twice and skip another. A skipped row here means a
+ * goal that HAS lessons is classified as empty, and --apply would then write a
+ * second full set of lessons over the top of the family's real ones.
+ */
 async function loadGoalIdsWithLessons(): Promise<Set<string>> {
   const out = new Set<string>()
   const pageSize = 1000
@@ -104,11 +134,44 @@ async function loadGoalIdsWithLessons(): Promise<Set<string>> {
       .from('lessons')
       .select('curriculum_goal_id')
       .not('curriculum_goal_id', 'is', null)
+      .order('id', { ascending: true })
       .range(from, from + pageSize - 1)
     if (error) throw error
     const rows = (data ?? []) as { curriculum_goal_id: string }[]
     if (rows.length === 0) break
     for (const r of rows) out.add(r.curriculum_goal_id)
+    if (rows.length < pageSize) break
+    from += pageSize
+  }
+  return out
+}
+
+/**
+ * Every active curriculum goal with a lesson count, paginated.
+ *
+ * Ordered by id for the same reason loadGoalIdsWithLessons is: an unordered
+ * paginated scan is free to skip rows, and a skipped goal is a family this
+ * script never looks at.
+ */
+async function loadActiveGoals(): Promise<GoalRow[]> {
+  const out: GoalRow[] = []
+  const pageSize = 1000
+  let from = 0
+  for (;;) {
+    const { data, error } = await supabase
+      .from('curriculum_goals')
+      .select(
+        'id, user_id, child_id, curriculum_name, subject_label, total_lessons, current_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date, created_at',
+      )
+      .eq('archived', false)
+      .is('completed_at', null)
+      .gt('total_lessons', 0)
+      .order('id', { ascending: true })
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+    const rows = (data ?? []) as GoalRow[]
+    if (rows.length === 0) break
+    out.push(...rows)
     if (rows.length < pageSize) break
     from += pageSize
   }
@@ -173,16 +236,14 @@ async function main() {
   // not a family staring at an empty Today page, and re-generating lessons onto
   // one would resurrect a curriculum they retired. Same filter the Schedule
   // Builder loads with.
-  const { data: goalsData, error: goalsErr } = await supabase
-    .from('curriculum_goals')
-    .select(
-      'id, user_id, child_id, curriculum_name, subject_label, total_lessons, current_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date, created_at',
-    )
-    .eq('archived', false)
-    .is('completed_at', null)
-    .gt('total_lessons', 0)
-  if (goalsErr) throw goalsErr
-  const allGoals = (goalsData ?? []) as GoalRow[]
+  //
+  // PAGINATED. A single call returns at most 1000 rows (PostgREST's default
+  // cap) and says nothing about having truncated. The first run of this script
+  // reported "1000 active goals", which is the cap exactly, and silently missed
+  // three broken goals that sorted past it. A truncated candidate list makes
+  // this script quietly under-repair, which is the same class of failure it
+  // exists to fix.
+  const allGoals = await loadActiveGoals()
 
   const goalsWithLessons = await loadGoalIdsWithLessons()
   const empty = allGoals.filter((g) => !goalsWithLessons.has(g.id))
@@ -203,11 +264,14 @@ async function main() {
   // Child names, for output only.
   const childIds = Array.from(new Set(candidates.map((g) => g.child_id).filter((c): c is string => !!c)))
   const childNames = new Map<string, string>()
-  if (childIds.length > 0) {
+  // Chunked: an `.in()` list is still one response and still capped at 1000.
+  // Only names are at stake here, but a silently short read would mislabel the
+  // output an engineer is deciding --apply from.
+  for (let i = 0; i < childIds.length; i += 500) {
     const { data: kids, error: kidsErr } = await supabase
       .from('children')
       .select('id, name')
-      .in('id', childIds)
+      .in('id', childIds.slice(i, i + 500))
     if (kidsErr) throw kidsErr
     for (const k of (kids ?? []) as { id: string; name: string }[]) childNames.set(k.id, k.name)
   }
@@ -227,14 +291,19 @@ async function main() {
   const skippedDuplicates: GoalRow[] = []
   for (const list of byIdentity.values()) {
     if (list.length === 1) {
-      toRepair.push(list[0])
+      // The held-back list is checked here too, not only in the multi-goal
+      // branch: once its twin is repaired a held-back goal is a group of one.
+      if (MANUAL_REVIEW_GOAL_IDS.has(list[0].id)) skippedDuplicates.push(list[0])
+      else toRepair.push(list[0])
       continue
     }
     const sorted = list
       .slice()
       .sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
-    toRepair.push(sorted[0])
-    skippedDuplicates.push(...sorted.slice(1))
+    for (const [i, g] of sorted.entries()) {
+      if (i === 0 && !MANUAL_REVIEW_GOAL_IDS.has(g.id)) toRepair.push(g)
+      else skippedDuplicates.push(g)
+    }
   }
 
   console.log(
