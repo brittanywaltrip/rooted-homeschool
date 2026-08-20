@@ -156,6 +156,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [fabSaving, setFabSaving] = useState(false);
   const [fabProgress, setFabProgress] = useState<{ current: number; total: number } | null>(null);
   const [fabLimitHit, setFabLimitHit] = useState(false);
+  // Partial-batch outcome ("Saved 3 of 5..."), shown IN the sheet, which stays
+  // open holding the photos that failed.
+  const [fabNote, setFabNote] = useState<string | null>(null);
   const [fabRemaining, setFabRemaining] = useState<number | null>(null);
   const [fabActionSheet, setFabActionSheet] = useState(false);
   const [fabToast, setFabToast] = useState<string | null>(null);
@@ -451,15 +454,30 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     // say so in the sheet. When nothing is left the selection is kept as-is:
     // the sheet still has to open, otherwise the button looks dead again and
     // the upgrade path is never shown.
+    //
+    // The whole count is wrapped because it is the only part that can reject,
+    // and it is a courtesy, not the gate. getPhotoCount runs two queries under
+    // Promise.all, so one of them failing used to reject this entire
+    // fire-and-forget handler: setFabFiles never ran, the sheet never opened,
+    // nothing was said, and the input value had already been cleared so
+    // re-picking the same photos did nothing at all. That is the dead-button
+    // symptom this branch exists to remove. On failure the sheet opens anyway
+    // with remaining unknown, and the save-time gate is the authority.
     let remaining: number | null = null;
-    if (getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt }) === "free") {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        remaining = await getRemainingPhotoSlots(user.id, true);
-        if (remaining > 0 && picked.length > remaining) picked = picked.slice(0, remaining);
+    try {
+      if (getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt }) === "free") {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          remaining = await getRemainingPhotoSlots(user.id, true);
+          if (remaining > 0 && picked.length > remaining) picked = picked.slice(0, remaining);
+        }
       }
+    } catch (err) {
+      captureSupabaseError("fab photo count", err);
+      remaining = null;
     }
 
+    setFabNote(null);
     setFabRemaining(remaining);
     setFabFiles(picked);
     setFabUrls(picked.map((f) => URL.createObjectURL(f)));
@@ -480,6 +498,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     fabUrls.forEach((u) => URL.revokeObjectURL(u));
     setFabFiles([]); setFabUrls([]); setFabCaption(""); setFabChildId("");
     setFabLimitHit(false); setFabRemaining(null); setFabProgress(null);
+    setFabNote(null);
   }
   async function saveFabPhoto() {
     if (fabFiles.length === 0 || fabSaving) return;
@@ -489,6 +508,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     // for the whole window and assumed it was broken.
     setFabSaving(true);
     setFabLimitHit(false);
+    setFabNote(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -512,6 +532,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
       let saved = 0;
+      // Which entries of fabFiles actually landed. batch is a prefix slice of
+      // fabFiles, so these indices line up with both fabFiles and fabUrls.
+      const savedIdx = new Set<number>();
       let firstFailure: { message: string; long: boolean } | null = null;
 
       // Sequential on purpose. Parallel uploads from a phone on cellular is how
@@ -533,6 +556,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           });
           if (insErr) throw insErr;
           saved++;
+          savedIdx.add(i);
         } catch (err) {
           captureSupabaseError("fab photo save", err);
           if (!firstFailure) {
@@ -551,14 +575,29 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      // Anything that did NOT save stays selected. Closing the sheet on a
+      // partial batch revoked every URL including the failures, leaving the
+      // family to find that one photo again in a camera roll of hundreds with
+      // no idea which it was.
+      const keptFiles = fabFiles.filter((_, i) => !savedIdx.has(i));
+      const keptUrls = fabUrls.filter((_, i) => !savedIdx.has(i));
+      const pickedCount = fabFiles.length;
+
+      if (keptFiles.length === 0) {
+        closeFabSheet();
+      } else {
+        // Revoke ONLY the ones that saved; the kept URLs still back previews.
+        fabUrls.forEach((u, i) => { if (savedIdx.has(i)) URL.revokeObjectURL(u); });
+        setFabFiles(keptFiles);
+        setFabUrls(keptUrls);
+        setFabNote(`Saved ${saved} of ${pickedCount}. ${firstFailure?.message ?? ""}`.trim());
+      }
+
       // One leaf, one event, one badge check per batch, not per photo.
-      closeFabSheet();
       window.dispatchEvent(new CustomEvent("rooted:memory-saved", { detail: { type: "photo" } }));
       setLeafBurst(true); setTimeout(() => setLeafBurst(false), 1200);
       earnLeaf();
-      if (firstFailure) {
-        showFabToast(`Saved ${saved} of ${batch.length}. ${firstFailure.message}`, 6000);
-      } else {
+      if (keptFiles.length === 0) {
         showFabToast(saved > 1 ? `${saved} memories saved 🌿` : "Memory saved 🌿", 2000);
       }
       checkAndAwardBadges(user.id);
@@ -864,7 +903,12 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         {/* ── Instant Photo Bottom Sheet ─────────────────────────── */}
         {fabUrls.length > 0 && (
           <>
-            <div className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm" onClick={closeFabSheet} />
+            {/* Dismiss is disabled mid-save: the upload loop iterates a snapshot
+                taken before it started, so closing or removing a photo now would
+                revoke a URL whose upload is still in flight, save it anyway, and
+                report a count that does not match what the family sees. */}
+            <div className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm"
+              onClick={() => { if (!fabSaving) closeFabSheet(); }} />
             <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
               style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
               <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
@@ -872,8 +916,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                 {fabUrls.length === 1 ? (
                   <div className="relative rounded-2xl overflow-hidden bg-[#f0ede8]">
                     <img src={fabUrls[0]} alt="Preview" className="w-full max-h-56 object-cover" />
-                    <button onClick={closeFabSheet} aria-label="Remove photo"
-                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+                    <button onClick={closeFabSheet} disabled={fabSaving} aria-label="Remove photo"
+                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 flex items-center justify-center text-white hover:bg-black/60 transition-colors disabled:opacity-40 disabled:pointer-events-none">
                       <X size={14} />
                     </button>
                   </div>
@@ -882,8 +926,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                     {fabUrls.map((url, i) => (
                       <div key={url} className="relative shrink-0">
                         <img src={url} alt={`Photo ${i + 1}`} className="w-20 h-20 rounded-xl object-cover bg-[#f0ede8]" />
-                        <button onClick={() => removeFabPhoto(i)} aria-label={`Remove photo ${i + 1}`}
-                          className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-colors">
+                        <button onClick={() => removeFabPhoto(i)} disabled={fabSaving} aria-label={`Remove photo ${i + 1}`}
+                          className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full bg-black/50 flex items-center justify-center text-white hover:bg-black/70 transition-colors disabled:opacity-40 disabled:pointer-events-none">
                           <X size={12} />
                         </button>
                       </div>
@@ -896,17 +940,17 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   </p>
                 )}
                 <input type="text" value={fabCaption} onChange={(e) => setFabCaption(e.target.value)}
-                  placeholder="What's this?" autoFocus
-                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition-colors" />
+                  placeholder="What's this?" autoFocus disabled={fabSaving}
+                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition-colors disabled:opacity-60" />
                 {fabKids.length > 0 && (
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={() => setFabChildId("")}
-                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${fabChildId === "" ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63]"}`}>
+                    <button type="button" onClick={() => setFabChildId("")} disabled={fabSaving}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors disabled:opacity-60 ${fabChildId === "" ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9] hover:border-[#5c7f63]"}`}>
                       Everyone
                     </button>
                     {fabKids.map((c) => (
-                      <button key={c.id} type="button" onClick={() => setFabChildId(c.id)}
-                        className="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors"
+                      <button key={c.id} type="button" onClick={() => setFabChildId(c.id)} disabled={fabSaving}
+                        className="px-3 py-1.5 rounded-full text-xs font-medium border transition-colors disabled:opacity-60"
                         style={fabChildId === c.id
                           ? { backgroundColor: c.color ?? "#5c7f63", color: "#fff", borderColor: c.color ?? "#5c7f63" }
                           : { backgroundColor: "#fff", color: "#7a6f65", borderColor: "#e8e2d9" }}>
@@ -914,6 +958,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                       </button>
                     ))}
                   </div>
+                )}
+                {fabNote && (
+                  <p className="text-xs text-[#7a6f65] leading-snug">{fabNote}</p>
                 )}
                 {fabLimitHit && (
                   <div className="rounded-xl border border-[#e8e2d9] bg-[#faf8f4] px-4 py-3 space-y-1.5">

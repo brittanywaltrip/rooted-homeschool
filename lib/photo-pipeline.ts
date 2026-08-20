@@ -29,6 +29,7 @@ export type PreparedPhoto = { file: File; width: number; height: number };
 export const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
 const DECODE_TIMEOUT_MS = 20000;
 const HEIC_TIMEOUT_MS = 30000;
+const NETWORK_TIMEOUT_MS = 45000;
 const MAX_DIMENSION = 1200;
 const JPEG_QUALITY = 0.82;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
@@ -50,14 +51,44 @@ function describe(err: unknown): string {
 /**
  * Reject with a timeout error if `work` hasn't settled in `ms`. The timer is
  * always cleared, so a slow-but-successful decode can't hold the process open.
+ *
+ * `onTimeout` replaces the rejection value on the timeout branch only. Errors
+ * from `work` itself always propagate unchanged.
  */
-function withTimeout<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  label: string,
+  onTimeout?: () => Error,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+    timer = setTimeout(
+      () => reject(onTimeout ? onTimeout() : new Error(`${label} timed out after ${ms}ms`)),
+      ms,
+    );
   });
   return Promise.race([work, timeout]).finally(() => {
     if (timer !== undefined) clearTimeout(timer);
+  });
+}
+
+/**
+ * The same race, for network work.
+ *
+ * Decode was bounded first, but a `finally` block cannot run while an await is
+ * still pending, so an UNBOUNDED network call reproduces the original bug
+ * exactly: a half-open socket on flaky cellular leaves the caller parked on
+ * "Saving 2 of 3..." forever, its catch and finally never reached, nothing
+ * logged. Every network wait therefore needs the same treatment decode got.
+ *
+ * A timeout surfaces as UPLOAD_FAILED_MESSAGE so the family reads copy that
+ * already exists rather than a raw timeout string.
+ */
+function withNetworkTimeout<T>(work: Promise<T>, label: string): Promise<T> {
+  return withTimeout(work, NETWORK_TIMEOUT_MS, label, () => {
+    console.warn(`[photo-pipeline] ${label} timed out after ${NETWORK_TIMEOUT_MS}ms`);
+    return new Error(UPLOAD_FAILED_MESSAGE);
   });
 }
 
@@ -272,9 +303,12 @@ export async function uploadMemoryPhoto(
 
   const safeName = prepared.file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
   const path = `${userId}/${Date.now()}-${safeName}`;
-  const { error: upErr } = await client.storage
-    .from(MEMORY_PHOTOS_BUCKET)
-    .upload(path, prepared.file, { contentType: "image/jpeg", upsert: false });
+  const { error: upErr } = await withNetworkTimeout(
+    client.storage
+      .from(MEMORY_PHOTOS_BUCKET)
+      .upload(path, prepared.file, { contentType: "image/jpeg", upsert: false }),
+    "Storage upload",
+  );
   if (upErr) {
     console.warn(`[photo-pipeline] upload failed for ${path}: ${upErr.message}`);
     throw new Error(UPLOAD_FAILED_MESSAGE);
@@ -283,7 +317,21 @@ export async function uploadMemoryPhoto(
   // Imported lazily so this module stays loadable outside a browser bundle:
   // photo-url pulls in the service-role admin client at module scope.
   const { signedPhotoUrl } = await import("./photo-url.ts");
-  const signed = await signedPhotoUrl(client, MEMORY_PHOTOS_BUCKET, path, TEN_YEARS_SECONDS);
+  // Bounded like the upload, but a timeout here degrades instead of throwing:
+  // the file IS already in storage by this point. Throwing would tell the
+  // family the upload failed when it did not, orphan the object, and invite a
+  // duplicate on retry. Falling back to the bare path is an already-supported
+  // state (signedPhotoUrl returns null on failure and this line handled it),
+  // and SignedImage re-signs from a stored path at render time.
+  let signed: string | null = null;
+  try {
+    signed = await withNetworkTimeout(
+      signedPhotoUrl(client, MEMORY_PHOTOS_BUCKET, path, TEN_YEARS_SECONDS),
+      "Signed URL",
+    );
+  } catch (err) {
+    console.warn(`[photo-pipeline] signing ${path} failed, storing bare path: ${describe(err)}`);
+  }
 
   return { photoUrl: signed ?? path, width: prepared.width, height: prepared.height };
 }

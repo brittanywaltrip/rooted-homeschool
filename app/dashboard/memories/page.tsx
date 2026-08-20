@@ -667,6 +667,17 @@ export default function MemoriesPage() {
       if (photoNote) {
         // Text is saved. Keep the modal open so the family sees what happened
         // to the photo and can retry it against work that is already stored.
+        //
+        // Reset the picker back to where it started first. Holding the sheet
+        // open leaves the FAILED photo in the preview, and the X beside that
+        // preview sets editPhotoRemoved, so a second Save would write
+        // photo_url = null and delete the ORIGINAL photo the family never
+        // asked to remove. Discarding a failed pick must never be
+        // interpretable as removing the stored photo.
+        setEditPhotoFile(null);
+        setEditPhotoPreview(editing.photo_url ?? null);
+        setEditPhotoRemoved(false);
+        if (editPhotoRef.current) editPhotoRef.current.value = "";
         setEditError(photoNote);
       } else {
         setEditing(null);
@@ -675,7 +686,7 @@ export default function MemoriesPage() {
       await load();
     } catch (err) {
       captureSupabaseError("memory edit save", err);
-      setEditError(err instanceof PhotoReadError ? err.userMessage : "Save failed — try again");
+      setEditError(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again");
     } finally {
       setEditSaving(false);
     }
@@ -1462,6 +1473,9 @@ export default function MemoriesPage() {
                 <input ref={editPhotoRef} type="file" accept="image/*" className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
+                    // Cleared immediately so re-picking the SAME file fires a
+                    // change event; without it the control looks dead on retry.
+                    if (e.target) e.target.value = "";
                     if (!file) return;
                     setEditPhotoFile(file);
                     setEditPhotoRemoved(false);

@@ -3296,7 +3296,7 @@ export default function TodayPage() {
       onLogAction({ userId: user.id, childId: bookChild || undefined, actionType: "book" });
     } catch (err) {
       captureSupabaseError("today book save", err);
-      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed — try again", null);
+      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again", null);
     } finally {
       setSavingBook(false);
     }
@@ -3309,19 +3309,39 @@ export default function TodayPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // getRemainingPhotoSlots, not the totalPhotos state: it is the one
-      // definition of how many photos a family has, shared with the FAB and
-      // the lesson-photo path, so all of them agree on where the cap falls.
-      const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
-      const remaining = await getRemainingPhotoSlots(user.id, accessLevel === 'free');
-      if (remaining <= 0) { setShowPhotoLimitModal(true); return; }
-
+      // A drawing needs a title to exist at all, so there IS typed text here to
+      // lose. Neither the cap nor a failed photo may discard it: both record
+      // photoNote and fall through to the insert, exactly as saveBook does.
+      let photoNote: string | null = null;
       let photoUrl: string | null = null;
       let photoDims: { width: number; height: number } | null = null;
       if (drawingFile) {
-        const uploaded = await uploadMemoryPhoto(supabase, user.id, drawingFile);
-        photoUrl = uploaded.photoUrl;
-        photoDims = { width: uploaded.width, height: uploaded.height };
+        // Gated only when a photo is actually attached. Run unconditionally,
+        // this blocked a capped family from logging a drawing with no photo at
+        // all, throwing away the title over a photo that was never involved.
+        //
+        // getRemainingPhotoSlots, not the totalPhotos state: it is the one
+        // definition of how many photos a family has, shared with the FAB and
+        // the lesson-photo path, so all of them agree on where the cap falls.
+        const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+        const remaining = await getRemainingPhotoSlots(user.id, accessLevel === 'free');
+        if (remaining <= 0) {
+          setShowPhotoLimitModal(true);
+          photoNote = "Your drawing was saved. The photo needs a Rooted+ plan.";
+        } else {
+          // Scoped to the upload alone so it cannot reach the outer catch,
+          // which abandons the drawing.
+          try {
+            const uploaded = await uploadMemoryPhoto(supabase, user.id, drawingFile);
+            photoUrl = uploaded.photoUrl;
+            photoDims = { width: uploaded.width, height: uploaded.height };
+          } catch (err) {
+            captureSupabaseError("drawing photo upload", err);
+            photoNote = err instanceof PhotoReadError
+              ? err.userMessage
+              : "Your drawing was saved. The photo didn't upload, you can add it from Memories.";
+          }
+        }
       }
       const nowD = new Date().toISOString();
       const { data: inserted, error: drawErr } = await supabase.from("memories").insert({
@@ -3335,7 +3355,7 @@ export default function TodayPage() {
       console.log("[Rooted] Saved:", "drawing", inserted);
       setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
       setShowDrawingSheet(false);
-      showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing", drawingChild || null);
+      showCaptureToast(photoNote ?? "🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing", drawingChild || null);
       loadDataBusy.current = false;
       await loadData();
       await refreshTodayStory();
@@ -3343,7 +3363,7 @@ export default function TodayPage() {
       onLogAction({ userId: user.id, childId: drawingChild || undefined, actionType: "drawing" });
     } catch (err) {
       captureSupabaseError("today drawing save", err);
-      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed — try again", null);
+      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again", null);
     } finally {
       setSavingDrawing(false);
     }
@@ -3382,7 +3402,13 @@ export default function TodayPage() {
    * stall), and the refresh + badge + streak calls fire ONCE for the batch.
    */
   async function saveCapturedPhotos(picked: File[]) {
-    if (capturing || picked.length === 0) return;
+    if (picked.length === 0) return;
+    if (capturing) {
+      // The input value is cleared before this runs, so a silent return would
+      // simply lose the second selection with nothing on screen to explain it.
+      showCaptureToast("Still saving your last photos, one moment.", null);
+      return;
+    }
     const memType = captureTypeRef.current;
     setCapturing(true);
     try {
@@ -3396,11 +3422,17 @@ export default function TodayPage() {
       // Trimmed twice: to the per-batch cap, and to whatever the free plan has
       // left. Anything dropped is named in the closing toast rather than
       // disappearing without a word.
-      const batch = picked.slice(0, Math.min(MAX_CAPTURE_PHOTOS, remaining));
+      //
+      // The note names whichever limit ACTUALLY did the trimming. Branching on
+      // `remaining < picked.length` told a family with 12 free slots who picked
+      // 15 that 5 "didn't fit your free plan", when the 10-per-batch cap took
+      // them and the plan had room to spare.
+      const limit = Math.min(MAX_CAPTURE_PHOTOS, remaining);
+      const batch = picked.slice(0, limit);
       const dropped = picked.length - batch.length;
       const droppedNote = dropped === 0
         ? ""
-        : remaining < picked.length
+        : remaining < MAX_CAPTURE_PHOTOS
           ? ` ${dropped} didn't fit your free plan.`
           : ` Only the first ${MAX_CAPTURE_PHOTOS} were saved.`;
 
@@ -3426,13 +3458,15 @@ export default function TodayPage() {
         } catch (err) {
           captureSupabaseError("today photo capture", err);
           if (!firstFailure) {
-            firstFailure = err instanceof PhotoReadError ? err.userMessage : "Save failed — try again";
+            firstFailure = err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again";
           }
         }
       }
 
       if (saved === 0) {
-        showCaptureToast(firstFailure ?? "Save failed — try again", null);
+        // droppedNote belongs here too: photos were trimmed off this batch even
+        // though none of the rest saved, and dropping the note hid that.
+        showCaptureToast(`${firstFailure ?? "Save failed, please try again"}${droppedNote}`, null);
         return;
       }
 
@@ -3452,7 +3486,7 @@ export default function TodayPage() {
       onLogAction({ userId: user.id, actionType: memType === "drawing" ? "drawing" : "memory" });
     } catch (err) {
       captureSupabaseError("today photo capture", err);
-      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed — try again", null);
+      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again", null);
     } finally {
       setCapturing(false);
     }
@@ -5225,6 +5259,9 @@ export default function TodayPage() {
                 <input ref={drawingFileRef} type="file" accept="image/*" className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
+                    // Cleared immediately so re-picking the SAME file fires a
+                    // change event; without it the control looks dead on retry.
+                    if (e.target) e.target.value = "";
                     if (!file) return;
                     setDrawingFile(file);
                     const reader = new FileReader();
