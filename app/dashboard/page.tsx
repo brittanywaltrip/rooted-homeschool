@@ -18,8 +18,8 @@ import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib
 import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
 import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
-import { compressImage, readImageSize } from "@/lib/compress-image";
-import { signedPhotoUrl } from "@/lib/photo-url";
+import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
+import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 import { LESSON_PHOTO_SAVED_EVENT } from "@/lib/lesson-photo";
 import SignedImage from "@/components/SignedImage";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
@@ -123,6 +123,9 @@ const INSPIRATION_PROMPTS = [
   "What memory do you want to hold onto? 🕰️",
 ];
 
+
+/** Photos per batch from the Today capture tile. Uploaded one at a time. */
+const MAX_CAPTURE_PHOTOS = 10;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -445,6 +448,10 @@ export default function TodayPage() {
   const loadDataBusy = useRef(false);
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
+  const captureToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // True while the capture tile is compressing / uploading. Drives the
+  // "Saving your photo..." toast and blocks a second concurrent batch.
+  const [capturing, setCapturing] = useState(false);
   const [firstMemoryToast, setFirstMemoryToast] = useState<string | null>(null);
   const prevTotalMemoriesRef = useRef<number | null>(null);
   // Fire the first-memory activation impression once per page load (analytics only).
@@ -3218,106 +3225,221 @@ export default function TodayPage() {
 
   async function saveBook() {
     if (!bookTitle.trim()) return;
+    // Everything below runs inside try/catch/finally. Without the finally this
+    // function could throw with savingBook still true, and the button stayed
+    // locked on "Saving…" until a page reload.
     setSavingBook(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSavingBook(false); return; }
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-    // Upload cover photo if provided
-    let photoUrl: string | null = null;
-    let photoDims: { width: number; height: number } | null = null;
-    if (bookPhotoFile) {
-      photoDims = await readImageSize(bookPhotoFile);
-      const compressed = await compressImage(bookPhotoFile);
-      const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-      if (!upErr) {
-        const signed = await signedPhotoUrl(supabase, "memory-photos", path);
-        photoUrl = signed ?? path;
+      // A book cover IS a photo, so it belongs under the same free-plan cap
+      // as every other capture path. Only gated when a cover is attached: a
+      // book with no cover must never be blocked.
+      if (bookPhotoFile) {
+        const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+        const remaining = await getRemainingPhotoSlots(user.id, accessLevel === 'free');
+        if (remaining <= 0) { setShowPhotoLimitModal(true); return; }
       }
+
+      // Upload cover photo if provided
+      let photoUrl: string | null = null;
+      let photoDims: { width: number; height: number } | null = null;
+      if (bookPhotoFile) {
+        const uploaded = await uploadMemoryPhoto(supabase, user.id, bookPhotoFile);
+        photoUrl = uploaded.photoUrl;
+        photoDims = { width: uploaded.width, height: uploaded.height };
+      }
+
+      // Build caption from author + pages
+      const captionParts: string[] = [];
+      if (bookAuthor.trim()) captionParts.push(`Author: ${bookAuthor.trim()}`);
+      if (bookPages.trim()) captionParts.push(`Pages: ${bookPages.trim()}`);
+      const caption = captionParts.length > 0 ? captionParts.join(" | ") : null;
+
+      const nowB = new Date().toISOString();
+      const { data: inserted, error: bookErr } = await supabase.from("memories").insert({
+        user_id: user.id, type: "book", title: bookTitle.trim(),
+        caption,
+        photo_url: photoUrl,
+        ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
+        child_id: bookChild || null, date: today, include_in_book: true,
+        created_at: nowB, updated_at: nowB,
+      }).select("id").single();
+      if (bookErr) throw bookErr;
+      console.log("[Rooted] Saved:", "book", inserted);
+      if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
+      setBookTitle(""); setBookChild(""); setBookAuthor(""); setBookPages("");
+      setBookPhotoFile(null); setBookPhotoPreview(null);
+      setShowBookModal(false);
+      posthog.capture('book_logged', { user_plan: isPro ? 'paid' : 'free' });
+      showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
+      loadDataBusy.current = false;
+      await loadData();
+      await refreshTodayStory();
+      checkAndAwardBadges(user.id);
+      onLogAction({ userId: user.id, childId: bookChild || undefined, actionType: "book" });
+    } catch (err) {
+      captureSupabaseError("today book save", err);
+      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed — try again", null);
+    } finally {
+      setSavingBook(false);
     }
-
-    // Build caption from author + pages
-    const captionParts: string[] = [];
-    if (bookAuthor.trim()) captionParts.push(`Author: ${bookAuthor.trim()}`);
-    if (bookPages.trim()) captionParts.push(`Pages: ${bookPages.trim()}`);
-    const caption = captionParts.length > 0 ? captionParts.join(" | ") : null;
-
-    const nowB = new Date().toISOString();
-    const { data: inserted, error: bookErr } = await supabase.from("memories").insert({
-      user_id: user.id, type: "book", title: bookTitle.trim(),
-      caption,
-      photo_url: photoUrl,
-      ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
-      child_id: bookChild || null, date: today, include_in_book: true,
-      created_at: nowB, updated_at: nowB,
-    }).select("id").single();
-    if (bookErr) { console.error("[Rooted] Book save failed:", bookErr.message); setSavingBook(false); showCaptureToast("Save failed — try again", null); return; }
-    console.log("[Rooted] Saved:", "book", inserted);
-    if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
-    setBookTitle(""); setBookChild(""); setBookAuthor(""); setBookPages("");
-    setBookPhotoFile(null); setBookPhotoPreview(null);
-    setSavingBook(false); setShowBookModal(false);
-    posthog.capture('book_logged', { user_plan: isPro ? 'paid' : 'free' });
-    showCaptureToast("📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
-    loadDataBusy.current = false;
-    await loadData();
-    await refreshTodayStory();
-    checkAndAwardBadges(user.id);
-    onLogAction({ userId: user.id, childId: bookChild || undefined, actionType: "book" });
   }
 
   async function saveDrawing() {
     if (!drawingTitle.trim()) return;
-    const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
-    if (accessLevel === 'free' && totalPhotos >= 50) {
-      setShowPhotoLimitModal(true);
-      setSavingDrawing(false);
-      return;
-    }
     setSavingDrawing(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSavingDrawing(false); return; }
-    let photoUrl: string | null = null;
-    let photoDims: { width: number; height: number } | null = null;
-    if (drawingFile) {
-      photoDims = await readImageSize(drawingFile);
-      const compressed = await compressImage(drawingFile);
-      const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-      const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-      if (!upErr) {
-        const signed = await signedPhotoUrl(supabase, "memory-photos", path);
-        photoUrl = signed ?? path;
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // getRemainingPhotoSlots, not the totalPhotos state: it is the one
+      // definition of how many photos a family has, shared with the FAB and
+      // the lesson-photo path, so all of them agree on where the cap falls.
+      const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+      const remaining = await getRemainingPhotoSlots(user.id, accessLevel === 'free');
+      if (remaining <= 0) { setShowPhotoLimitModal(true); return; }
+
+      let photoUrl: string | null = null;
+      let photoDims: { width: number; height: number } | null = null;
+      if (drawingFile) {
+        const uploaded = await uploadMemoryPhoto(supabase, user.id, drawingFile);
+        photoUrl = uploaded.photoUrl;
+        photoDims = { width: uploaded.width, height: uploaded.height };
       }
+      const nowD = new Date().toISOString();
+      const { data: inserted, error: drawErr } = await supabase.from("memories").insert({
+        user_id: user.id, type: "drawing", title: drawingTitle.trim(),
+        photo_url: photoUrl,
+        ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
+        child_id: drawingChild || null, date: today, include_in_book: true,
+        created_at: nowD, updated_at: nowD,
+      }).select("id").single();
+      if (drawErr) throw drawErr;
+      console.log("[Rooted] Saved:", "drawing", inserted);
+      setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
+      setShowDrawingSheet(false);
+      showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing", drawingChild || null);
+      loadDataBusy.current = false;
+      await loadData();
+      await refreshTodayStory();
+      checkAndAwardBadges(user.id);
+      onLogAction({ userId: user.id, childId: drawingChild || undefined, actionType: "drawing" });
+    } catch (err) {
+      captureSupabaseError("today drawing save", err);
+      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed — try again", null);
+    } finally {
+      setSavingDrawing(false);
     }
-    const nowD = new Date().toISOString();
-    const { data: inserted, error: drawErr } = await supabase.from("memories").insert({
-      user_id: user.id, type: "drawing", title: drawingTitle.trim(),
-      photo_url: photoUrl,
-      ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
-      child_id: drawingChild || null, date: today, include_in_book: true,
-      created_at: nowD, updated_at: nowD,
-    }).select("id").single();
-    if (drawErr) { console.error("[Rooted] Drawing save failed:", drawErr.message); setSavingDrawing(false); showCaptureToast("Save failed — try again", null); return; }
-    console.log("[Rooted] Saved:", "drawing", inserted);
-    setDrawingTitle(""); setDrawingChild(""); setDrawingFile(null); setDrawingPreview(null);
-    setSavingDrawing(false); setShowDrawingSheet(false);
-    showCaptureToast("🎨 Drawing saved 🌿", (inserted as { id: string } | null)?.id ?? null, "drawing", drawingChild || null);
-    loadDataBusy.current = false;
-    await loadData();
-    await refreshTodayStory();
-    checkAndAwardBadges(user.id);
-    onLogAction({ userId: user.id, childId: drawingChild || undefined, actionType: "drawing" });
   }
 
   // ── Capture toast + edit sheet helpers ────────────────────────────────────
 
   function showCaptureToast(message: string, memoryId: string | null, memoryType?: string, childId?: string | null) {
+    if (captureToastTimer.current) clearTimeout(captureToastTimer.current);
     setCaptureToast({ message, memoryId });
-    setTimeout(() => setCaptureToast(null), 4000);
+    captureToastTimer.current = setTimeout(() => setCaptureToast(null), 4000);
     if (memoryId) {
       posthog.capture('memory_captured', { type: memoryType ?? 'unknown' });
       triggerGardenAnimation(childId ?? undefined);
       earnLeaf();
+    }
+  }
+
+  /**
+   * Same toast, no auto-dismiss: it stays up for as long as the upload runs
+   * and is replaced by the success or failure toast when the batch ends.
+   * Compress + upload used to show nothing at all, so a slow phone looked
+   * like a dead button.
+   */
+  function showProgressToast(message: string) {
+    if (captureToastTimer.current) { clearTimeout(captureToastTimer.current); captureToastTimer.current = null; }
+    setCaptureToast({ message, memoryId: null });
+  }
+
+  /**
+   * Save one or more photos picked from the Today capture tile.
+   *
+   * Always settles: uploadMemoryPhoto throws PhotoReadError instead of hanging,
+   * every failure is reported to Sentry, and the finally clears the spinner.
+   * Photos upload one at a time (parallel uploads from a phone on cellular
+   * stall), and the refresh + badge + streak calls fire ONCE for the batch.
+   */
+  async function saveCapturedPhotos(picked: File[]) {
+    if (capturing || picked.length === 0) return;
+    const memType = captureTypeRef.current;
+    setCapturing(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { showCaptureToast("You're not signed in", null); return; }
+
+      const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+      const remaining = await getRemainingPhotoSlots(user.id, accessLevel === 'free');
+      if (remaining <= 0) { setShowPhotoLimitModal(true); return; }
+
+      // Trimmed twice: to the per-batch cap, and to whatever the free plan has
+      // left. Anything dropped is named in the closing toast rather than
+      // disappearing without a word.
+      const batch = picked.slice(0, Math.min(MAX_CAPTURE_PHOTOS, remaining));
+      const dropped = picked.length - batch.length;
+      const droppedNote = dropped === 0
+        ? ""
+        : remaining < picked.length
+          ? ` ${dropped} didn't fit your free plan.`
+          : ` Only the first ${MAX_CAPTURE_PHOTOS} were saved.`;
+
+      let saved = 0;
+      let lastId: string | null = null;
+      let firstFailure: string | null = null;
+
+      for (let i = 0; i < batch.length; i++) {
+        showProgressToast(batch.length > 1 ? `Saving ${i + 1} of ${batch.length}...` : "Saving your photo...");
+        try {
+          const { photoUrl, width, height } = await uploadMemoryPhoto(supabase, user.id, batch[i]);
+          const now = new Date().toISOString();
+          const { data: ins, error: insErr } = await supabase.from("memories").insert({
+            user_id: user.id, type: memType, title: '',
+            photo_url: photoUrl, child_id: null,
+            photo_width: width, photo_height: height,
+            date: today, include_in_book: false,
+            created_at: now, updated_at: now,
+          }).select("id").single();
+          if (insErr) throw insErr;
+          saved++;
+          lastId = (ins as { id: string } | null)?.id ?? null;
+        } catch (err) {
+          captureSupabaseError("today photo capture", err);
+          if (!firstFailure) {
+            firstFailure = err instanceof PhotoReadError ? err.userMessage : "Save failed — try again";
+          }
+        }
+      }
+
+      if (saved === 0) {
+        showCaptureToast(firstFailure ?? "Save failed — try again", null);
+        return;
+      }
+
+      const savedLabel = memType === "drawing"
+        ? (saved > 1 ? `🎨 ${saved} drawings saved 🌿` : "🎨 Drawing saved 🌿")
+        : (saved > 1 ? `📸 ${saved} memories saved 🌿` : "📸 Memory saved 🌿");
+      const failureNote = firstFailure ? ` ${firstFailure}` : "";
+      showCaptureToast(`${savedLabel}${droppedNote}${failureNote}`, lastId, memType, null);
+      captureTypeRef.current = "photo"; // reset
+      setTotalMemories(prev => prev + saved);
+      // Regression guard: loadData first, then refreshTodayStory. Once for the
+      // whole batch, not once per photo.
+      loadDataBusy.current = false;
+      await loadData();
+      await refreshTodayStory();
+      checkAndAwardBadges(user.id);
+      onLogAction({ userId: user.id, actionType: memType === "drawing" ? "drawing" : "memory" });
+    } catch (err) {
+      captureSupabaseError("today photo capture", err);
+      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed — try again", null);
+    } finally {
+      setCapturing(false);
     }
   }
 
@@ -4229,9 +4351,12 @@ export default function TodayPage() {
               {onThisDayMemory.title ?? "A memory from this time last year"}
             </p>
             {onThisDayMemory.photo_url && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={onThisDayMemory.photo_url} alt=""
+              // SignedImage, not a raw img: memories.photo_url can hold a signed
+              // URL that has already expired (some save paths stored 1-hour
+              // links). SignedImage re-signs from the stored path at render
+              // time, which repairs the already-broken rows too.
+              <SignedImage
+                src={onThisDayMemory.photo_url} bucket="memory-photos" alt=""
                 className="w-full object-cover rounded-lg mb-2"
                 style={{ height: 68 }}
               />
@@ -4270,51 +4395,18 @@ export default function TodayPage() {
             ref={captureFileRef}
             type="file"
             accept="image/*"
+            multiple
             className="hidden"
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              if (!file) return;
-              const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
-              if (accessLevel === 'free' && totalPhotos >= 50) {
-                setShowPhotoLimitModal(true);
-                if (e.target) e.target.value = "";
-                return;
-              }
+            onChange={(e) => {
+              const picked = Array.from(e.target.files ?? []);
+              // Cleared BEFORE any await, not in a finally. When the old handler
+              // hung, the value was never cleared, so re-picking the SAME photo
+              // fired no change event at all and the app looked dead.
+              if (e.target) e.target.value = "";
+              if (picked.length === 0) return;
               setShowCaptureMenu(false);
               setShowMemoryPicker(false);
-              try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) { console.error("[Photo capture] No user session"); return; }
-                const photoDims = await readImageSize(file);
-                const compressed = await compressImage(file);
-                const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-                const { error: upErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-                if (upErr) { console.error("[Photo capture] Upload failed:", upErr.message); showCaptureToast("Upload failed — try again", null); return; }
-                const signed = await signedPhotoUrl(supabase, "memory-photos", path);
-                const photoUrl = signed ?? path;
-                const memType = captureTypeRef.current;
-                const now = new Date().toISOString();
-                const { data: ins, error: insErr } = await supabase.from("memories").insert({
-                  user_id: user.id, type: memType, title: '',
-                  photo_url: photoUrl, child_id: null,
-                  ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
-                  date: today, include_in_book: false,
-                  created_at: now, updated_at: now,
-                }).select("id").single();
-                if (insErr) { console.error("[Photo capture] Insert failed:", insErr.message, insErr.code, insErr.details); showCaptureToast("Save failed — try again", null); return; }
-                console.log("[Rooted] Saved:", memType, ins);
-                const toastMsg = memType === "drawing" ? "🎨 Drawing saved 🌿" : "📸 Memory saved 🌿";
-                showCaptureToast(toastMsg, (ins as { id: string } | null)?.id ?? null, memType, null);
-                captureTypeRef.current = "photo"; // reset
-                setTotalMemories(prev => prev + 1);
-                loadDataBusy.current = false;
-                await loadData();
-                await refreshTodayStory();
-                checkAndAwardBadges(user.id);
-                onLogAction({ userId: user.id, actionType: memType === "drawing" ? "drawing" : "memory" });
-              } finally {
-                if (e.target) e.target.value = "";
-              }
+              void saveCapturedPhotos(picked);
             }}
           />
         </>
@@ -4338,8 +4430,10 @@ export default function TodayPage() {
 
           <div className="flex-1 flex items-center justify-center w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
             {lightboxMemory.photo_url ? (
-              <img
+              // Re-signed at render time, same reason as the On This Day card.
+              <SignedImage
                 src={lightboxMemory.photo_url}
+                bucket="memory-photos"
                 alt={lightboxMemory.title || "Memory"}
                 loading="eager"
                 className="max-h-[70vh] w-full object-contain rounded-xl bg-[#1a2e1f]"
@@ -5165,7 +5259,7 @@ export default function TodayPage() {
       {/* ── Capture toast with Edit shortcut ──────────────── */}
       {captureToast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
-          <div className="bg-[var(--g-brand)] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap flex items-center gap-3">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg max-w-[90vw] flex items-center gap-3">
             <span>{captureToast.message}</span>
             {captureToast.memoryId && (
               <button
