@@ -446,6 +446,9 @@ export default function TodayPage() {
   const captureFileRef = useRef<HTMLInputElement>(null);
   const captureTypeRef = useRef<"photo" | "drawing">("photo");
   const loadDataBusy = useRef(false);
+  // Goals already reported for a projection gap this session. Without it the
+  // report below re-fires on every loadData (page load, poll, memory save).
+  const reportedProjectionGapsRef = useRef<Set<string>>(new Set());
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
   const captureToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1116,14 +1119,36 @@ export default function TodayPage() {
     const rowKey = (r: LoadedLessonRow) => `${r.curriculum_goal_id}|${r.queue_position}`;
     const projectedRowMap = new Map(projectedRows.map((r) => [rowKey(r), r]));
     const orderedProjectedRows: LoadedLessonRow[] = [];
+    // A projection with no matching row means the lesson was never generated.
+    // This used to be skipped in silence, and that silence is why 26 goals sat
+    // broken from March to August 2026: phase 2 of the curriculum save failed,
+    // the goal kept its settings and lost its lessons, and the only surface
+    // that could have noticed rendered an empty day without a word.
+    const projectedByGoal = new Map<string, number>();
+    const missingByGoal = new Map<string, number>();
     for (const p of projected) {
+      projectedByGoal.set(p.goal_id, (projectedByGoal.get(p.goal_id) ?? 0) + 1);
       const r = projectedRowMap.get(`${p.goal_id}|${p.lesson_number}`);
-      if (r) orderedProjectedRows.push(r);
-      // If a projection has no matching row, the lesson hasn't been pre-
-      // generated. Skip silently — recomputeCurrentLesson on completion
-      // will still advance the queue from whatever exists. Pre-generation
-      // by CurriculumWizard means this case is rare; logging here would
-      // spam in normal use.
+      if (r) {
+        orderedProjectedRows.push(r);
+      } else {
+        missingByGoal.set(p.goal_id, (missingByGoal.get(p.goal_id) ?? 0) + 1);
+      }
+    }
+    // ONE report per goal per session, not one per lesson: a goal with 180
+    // missing rows would otherwise file 180 events on every single page load.
+    // Warning, not error, because the page still renders and the family is not
+    // blocked; it is the data that needs a human.
+    for (const [goalId, missing] of missingByGoal) {
+      if (reportedProjectionGapsRef.current.has(goalId)) continue;
+      reportedProjectionGapsRef.current.add(goalId);
+      captureSupabaseError(
+        "Today projection missing lesson rows",
+        new Error(
+          `Goal ${goalId} projected ${projectedByGoal.get(goalId) ?? 0} lessons but ${missing} had no row`,
+        ),
+        { tags: { goal_id: goalId }, level: "warning" },
+      );
     }
 
     // The subject's start time lives on the GOAL, not on the lesson row, so
