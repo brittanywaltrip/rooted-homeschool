@@ -1510,7 +1510,7 @@ export default function TranscriptBuilderPage() {
         <ExportGateModal
           title="Your transcript is ready"
           body="You've already done the hard part. Get a clean, official copy for your records."
-          cta="Get My Transcript"
+          cta="Upgrade to unlock"
           onClose={() => setShowExportGate(false)}
         />
       )}

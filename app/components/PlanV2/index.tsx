@@ -34,6 +34,7 @@ import CompletionCelebrationCard from "./CompletionCelebrationCard";
 import BackfillPanel, { type BackfillEntry } from "./BackfillPanel";
 import ActivitiesPanel, { type ActivityRow } from "./ActivitiesPanel";
 import ProgressReportDialog from "./ProgressReportDialog";
+import ExportGateModal from "@/app/components/ExportGateModal";
 import { downloadProgressReport, type ReportRangePreset } from "@/lib/progress-report";
 // Legacy CurriculumWizard was replaced by /dashboard/plan/schedule (Schedule
 // Builder). The component file is now an 18-line redirect with no edit
@@ -1939,6 +1940,12 @@ export default function PlanV2() {
     setEditYearOpen(false);
   }
 
+  // Export access. Same determination the photo cap and the Reports page use
+  // (getUserAccess via canExport): 'pro' and 'trial' may export, 'free' may
+  // not. Declared here rather than below because handleGenerateReport needs it.
+  const canPrintPaid = canExport({ is_pro: isPro, trial_started_at: trialStartedAt });
+  const [showExportGate, setShowExportGate] = useState(false);
+
   const handleGenerateReport = useCallback(async (opts: {
     childId: string | null;
     range: ReportRangePreset;
@@ -1947,6 +1954,15 @@ export default function PlanV2() {
     includeActivities: boolean;
   }) => {
     if (!effectiveUserId) throw new Error("Not signed in");
+    // Paywall. The button below already refuses to open the dialog for a free
+    // account, but the generate path is gated too: this is the call that
+    // actually renders and downloads the PDF, and it was reachable with no
+    // check at all while PlanPrintDialog and the Reports page both gated.
+    if (!canPrintPaid) {
+      setReportDialogOpen(false);
+      setShowExportGate(true);
+      return;
+    }
     const { data: prof } = await supabase
       .from("profiles")
       .select("display_name")
@@ -1963,13 +1979,12 @@ export default function PlanV2() {
       customEnd: opts.customEnd,
       includeActivities: opts.includeActivities,
     });
-  }, [effectiveUserId, kids]);
+  }, [effectiveUserId, kids, canPrintPaid]);
 
   // ── Print handler ────────────────────────────────────────────────────────
   // Daily uses @react-pdf/renderer to download a real PDF (colors render
   // reliably, no browser print dialog). Weekly + monthly still use the
   // legacy window.print() flow until their migration prompts run.
-  const canPrintPaid = canExport({ is_pro: isPro, trial_started_at: trialStartedAt });
   const [pdfGenerating, setPdfGenerating] = useState(false);
   const handlePickPrintMode = useCallback(async (mode: PlanPrintMode) => {
     if ((mode === "weekly" || mode === "monthly") && !canPrintPaid) {
@@ -4668,12 +4683,27 @@ export default function PlanV2() {
         {showYearAdmin && !schoolYears.loading && (
           <button
             type="button"
-            onClick={() => setReportDialogOpen(true)}
+            onClick={() => {
+              // Free accounts get the same upgrade treatment the other gated
+              // exports use, instead of a dialog that would fail at generate.
+              if (!canPrintPaid) { setShowExportGate(true); return; }
+              setReportDialogOpen(true);
+            }}
             className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left hover:bg-[#faf9f7] transition-colors"
           >
             <span className="text-xl shrink-0">📋</span>
             <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-medium text-[#2D2A26]">Download Progress Report</p>
+              <p className="text-[13px] font-medium text-[#2D2A26] flex items-center gap-1.5">
+                Download Progress Report
+                {!canPrintPaid ? (
+                  <span
+                    className="text-[10px] font-semibold rounded-full px-1.5 py-0.5"
+                    style={{ color: "#8a6a14", background: "#fdf3dc" }}
+                  >
+                    Rooted+
+                  </span>
+                ) : null}
+              </p>
               <p className="text-[11px] text-[#8B7E74] mt-0.5">
                 A printable PDF of lessons completed, books read, and pacing for this school year.
               </p>
@@ -5745,6 +5775,15 @@ export default function PlanV2() {
         ) : null}
 
         {/* Progress report dialog */}
+        {showExportGate && (
+          <ExportGateModal
+            title="Save your progress"
+            body="Download a polished summary of your homeschool plan and progress. Progress reports are part of Rooted+."
+            cta="Upgrade to download"
+            onClose={() => setShowExportGate(false)}
+          />
+        )}
+
         <ProgressReportDialog
           isOpen={reportDialogOpen}
           kids={kids}

@@ -13,7 +13,7 @@ const supabase = createClient(
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 
-function buildHtml(firstName: string): string {
+function buildHtml(firstName: string, unsubscribeToken: string | null): string {
   return `<div style="font-family: Georgia, serif; max-width: 560px; margin: 0 auto; padding: 40px 24px; color: #2d2926; background: #fefcf9;">
   <div style="text-align:center;margin-bottom:24px;"><img src="https://rootedhomeschoolapp.com/rooted-logo-nav.png" alt="Rooted" width="130" style="display:inline-block;" /></div>
   <p>Hi ${firstName},</p>
@@ -24,7 +24,7 @@ function buildHtml(firstName: string): string {
   </p>
   <p>Can't wait to show you what's inside,</p>
   <p>Brittany<br/>Founder, Rooted</p>
-  ${emailFooterHtml()}
+  ${emailFooterHtml(unsubscribeToken)}
 </div>`
 }
 
@@ -100,7 +100,9 @@ export async function GET(req: NextRequest) {
           from: FROM,
           to: email,
           subject: 'Your Rooted garden is waiting 🌱',
-          html: buildHtml(firstName),
+          // Same token the List-Unsubscribe header above uses, so the
+          // inbox button and the footer link point at one place.
+          html: buildHtml(firstName, unsubToken),
         }
         if (Object.keys(listUnsubHeaders).length > 0) body.headers = listUnsubHeaders
 
