@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback, useRef, type PointerEvent as ReactPoi
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
-import { compressImage } from "@/lib/compress-image";
 import { signedPhotoUrl } from "@/lib/photo-url";
+import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS } from "@/lib/photo-pipeline";
 import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
 import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
@@ -428,6 +428,7 @@ export default function YearbookEditPage() {
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
   const [coverUploading, setCoverUploading] = useState(false);
   const [coverSaved, setCoverSaved] = useState(false);
+  const [coverError, setCoverError] = useState<string | null>(null);
   const [familyName, setFamilyName] = useState("");
   const [familyNameSaved, setFamilyNameSaved] = useState(false);
   const [schoolYear, setSchoolYear] = useState("");
@@ -512,6 +513,47 @@ export default function YearbookEditPage() {
       updated_at: new Date().toISOString(),
     }, { onConflict: "user_id,yearbook_key,content_type,child_id,question_key" });
   }, [effectiveUserId, yearbookKey, isReadOnly]);
+
+  /**
+   * Upload a yearbook cover. One handler for both entry points (the "Change"
+   * link and the empty-state dropzone) so the two cannot drift apart again.
+   *
+   * Not uploadMemoryPhoto: covers live in the yearbook-covers bucket and
+   * deliberately overwrite (upsert), where a memory photo never does. What it
+   * borrows is preparePhoto, which throws instead of hanging on a file the
+   * browser can't decode.
+   */
+  const handleCoverUpload = useCallback(async (file: File) => {
+    if (!effectiveUserId) return;
+    setCoverUploading(true);
+    setCoverSaved(false);
+    setCoverError(null);
+    try {
+      const prepared = await preparePhoto(file);
+      const path = `${effectiveUserId}/cover.jpg`;
+      const { error: upErr } = await supabase.storage
+        .from("yearbook-covers")
+        .upload(path, prepared.file, { contentType: "image/jpeg", upsert: true });
+      if (upErr) throw upErr;
+      // TEN_YEARS_SECONDS explicitly. signedPhotoUrl defaults to one hour, so
+      // the stored cover link used to die the same day it was uploaded.
+      const signed = await signedPhotoUrl(supabase, "yearbook-covers", path, TEN_YEARS_SECONDS);
+      const stored = signed ?? path;
+      setCoverPhotoUrl(stored);
+      await saveContent("cover_photo", stored);
+      setCoverSaved(true);
+      setTimeout(() => setCoverSaved(false), 3000);
+    } catch (err) {
+      console.error("Cover upload error:", err);
+      setCoverError(
+        err instanceof PhotoReadError
+          ? err.userMessage
+          : "Upload failed. Check your connection and try again.",
+      );
+    } finally {
+      setCoverUploading(false);
+    }
+  }, [effectiveUserId, saveContent]);
 
   // ── Save a photo's focal point (memory row, or the cover's content key) ──────
   const commitFocal = useCallback(async (focal: Focal | null) => {
@@ -984,25 +1026,9 @@ export default function YearbookEditPage() {
                     className="hidden"
                     onChange={async (e) => {
                       const file = e.target.files?.[0];
-                      if (!file || !effectiveUserId) return;
-                      setCoverUploading(true);
-                      setCoverSaved(false);
-                      try {
-                        const compressed = await compressImage(file);
-                        const path = `${effectiveUserId}/cover.jpg`;
-                        const { error: upErr } = await supabase.storage.from("yearbook-covers").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
-                        if (upErr) throw upErr;
-                        const signed = await signedPhotoUrl(supabase, "yearbook-covers", path);
-                        const stored = signed ?? path;
-                        setCoverPhotoUrl(stored);
-                        await saveContent("cover_photo", stored);
-                        setCoverSaved(true);
-                        setTimeout(() => setCoverSaved(false), 3000);
-                      } catch (err) {
-                        console.error("Cover upload error:", err);
-                      } finally {
-                        setCoverUploading(false);
-                      }
+                      // Cleared before the await so re-picking the same file works.
+                      e.target.value = "";
+                      if (file) await handleCoverUpload(file);
                     }}
                   />
                 </label>
@@ -1019,31 +1045,15 @@ export default function YearbookEditPage() {
                   disabled={coverUploading}
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
-                    if (!file || !effectiveUserId) return;
-                    setCoverUploading(true);
-                    setCoverSaved(false);
-                    try {
-                      const compressed = await compressImage(file);
-                      const path = `${effectiveUserId}/cover.jpg`;
-                      const { error: upErr } = await supabase.storage.from("yearbook-covers").upload(path, compressed, { contentType: "image/jpeg", upsert: true });
-                      if (upErr) throw upErr;
-                      const signed = await signedPhotoUrl(supabase, "yearbook-covers", path);
-                      const stored = signed ?? path;
-                      setCoverPhotoUrl(stored);
-                      await saveContent("cover_photo", stored);
-                      setCoverSaved(true);
-                      setTimeout(() => setCoverSaved(false), 3000);
-                    } catch (err) {
-                      console.error("Cover upload error:", err);
-                    } finally {
-                      setCoverUploading(false);
-                    }
+                    e.target.value = "";
+                    if (file) await handleCoverUpload(file);
                   }}
                 />
               </label>
             )
           )}
           {coverSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+          {coverError && <span className="text-[11px] text-red-400 mt-1.5 block leading-snug">{coverError}</span>}
         </div>
 
         {/* ── Reposition & reorder photos ────────────────────── */}

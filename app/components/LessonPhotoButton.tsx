@@ -10,6 +10,7 @@ import {
   LESSON_PHOTO_SAVED_EVENT,
   type LessonPhoto,
 } from "@/lib/lesson-photo";
+import { PhotoReadError } from "@/lib/photo-pipeline";
 
 /**
  * "Add a photo" affordance for a single lesson. Self-contained: it loads its
@@ -46,7 +47,11 @@ export default function LessonPhotoButton({
       setPhotos(await fetchLessonPhotos(lessonId));
       window.dispatchEvent(new Event(LESSON_PHOTO_SAVED_EVENT));
     } catch (e) {
-      setError(e instanceof PhotoLimitError ? e.message : "Couldn't add the photo. Please try again.");
+      // PhotoReadError explains WHY the file couldn't be read (HEIC, a
+      // zero-byte cloud pick), which the generic line never could.
+      if (e instanceof PhotoLimitError) setError(e.message);
+      else if (e instanceof PhotoReadError) setError(e.userMessage);
+      else setError("Couldn't add the photo. Please try again.");
     } finally {
       setSaving(false);
     }

@@ -4,10 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import { X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
-import { compressImage } from "@/lib/compress-image";
-import { signedPhotoUrl } from "@/lib/photo-url";
+import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { getPhotoCount } from "@/app/lib/integrity-checks";
+import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -153,28 +152,16 @@ export default function LogTodayModal({
       // Photo upload if attached
       let photoUrl: string | undefined;
       if (photoFile) {
-        if (!isPro) {
-          const photoCount = await getPhotoCount(user.id);
-          if (photoCount >= 50) {
-            setUploadError("You've reached your memory limit 🤍 New photo memories won't be saved until you upgrade.");
-            setSaving(false);
-            return;
-          }
-        }
-        const compressed = await compressImage(photoFile);
-        const path = `${user.id}/${Date.now()}-${compressed.name.replace(/[^a-zA-Z0-9.-]/g, "_")}`;
-        const { error: uploadErr } = await supabase.storage.from("memory-photos").upload(path, compressed, { contentType: "image/jpeg", upsert: false });
-        if (uploadErr) {
-          setError(uploadErr.message.includes("Bucket not found")
-            ? "Storage bucket 'memory-photos' not found. Create it in Supabase."
-            : `Upload failed: ${uploadErr.message}`);
+        // getRemainingPhotoSlots is the one definition of how many photos a
+        // family has, shared with the FAB, Today and the lesson-photo path.
+        const remaining = await getRemainingPhotoSlots(user.id, !isPro);
+        if (remaining <= 0) {
+          setUploadError("You've reached your memory limit 🤍 New photo memories won't be saved until you upgrade.");
           setSaving(false);
           return;
         }
-        // 10-year signed URL. Bucket is private; signed URLs are the only way to read.
-        const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
-        const signed = await signedPhotoUrl(supabase, "memory-photos", path, TEN_YEARS_SECONDS);
-        photoUrl = signed ?? path;
+        const uploaded = await uploadMemoryPhoto(supabase, user.id, photoFile);
+        photoUrl = uploaded.photoUrl;
       }
 
       // Determine event type
@@ -208,7 +195,10 @@ export default function LogTodayModal({
 
       onSaved(category, childId || undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Something went wrong.");
+      // PhotoReadError carries copy written for a family (undecodable HEIC, a
+      // zero-byte pick from the Android cloud picker); show it verbatim.
+      if (e instanceof PhotoReadError) setError(e.userMessage);
+      else setError(e instanceof Error ? e.message : "Something went wrong.");
     } finally {
       setSaving(false);
     }
