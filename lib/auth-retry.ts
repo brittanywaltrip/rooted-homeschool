@@ -94,7 +94,13 @@ export function isCorruptStorageError(error: unknown): boolean {
   if (!error) return false;
   const { name, message } = read(error);
   if (name === "SyntaxError") return true;
-  return /base64|invalid character|parse|json|unexpected token|malformed/i.test(message);
+  // "Invalid UTF-8 sequence" belongs here too, and it is not hypothetical: a
+  // corrupted SINGLE (unchunked) auth cookie throws exactly that on staging,
+  // where a corrupted CHUNKED one throws the base64 message. Both are the same
+  // thing, the stored session failing to decode. Without this alternate the
+  // unchunked case fell through to the transport branch, retried three times,
+  // returned "unavailable", and left the dashboard rendering empty forever.
+  return /base64|utf-?8|invalid character|parse|json|unexpected token|malformed/i.test(message);
 }
 
 /**
