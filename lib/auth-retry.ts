@@ -1,6 +1,8 @@
 import * as Sentry from "@sentry/nextjs";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
+import { restoreFromLifeboat } from "@/lib/session-lifeboat";
+
 /* ============================================================================
  * Auth check retry + error classification.
  *
@@ -93,9 +95,9 @@ export async function getUserWithRetry(
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     const { data, error } = await supabase.auth.getUser();
     if (data?.user) return { kind: "ok", user: data.user };
-    if (!error) return { kind: "signed-out", reason: "no-user-no-error" };
+    if (!error) return await signedOutUnlessLifeboat(supabase, "no-user-no-error");
     if (isSessionMissingError(error)) {
-      return { kind: "signed-out", reason: "AuthSessionMissingError" };
+      return await signedOutUnlessLifeboat(supabase, "AuthSessionMissingError");
     }
     if (!isRetryableAuthError(error)) {
       // An error class we do not recognise. Treat it the way we treat a
@@ -109,6 +111,41 @@ export async function getUserWithRetry(
     }
   }
   return { kind: "unavailable", reason: read(last).name || "AuthRetryableFetchError" };
+}
+
+/**
+ * The auth server answered "no session". Before believing it, try the session
+ * lifeboat.
+ *
+ * This is the one choke point where the app decides a family is signed out, so
+ * it is the only place the restore needs to live: the dashboard layout and the
+ * onboarding page both route through here and neither has to know about it.
+ *
+ * An empty cookie jar is exactly what the WKWebView bug produces, and it is
+ * indistinguishable from a real sign-out at this level. The lifeboat is what
+ * tells them apart: a family who signed out deliberately has no lifeboat,
+ * because the SIGNED_OUT listener removed it.
+ *
+ * getUser runs ONCE more after a successful restore. If it still comes back
+ * empty the answer stands, so this can never loop.
+ */
+async function signedOutUnlessLifeboat(
+  supabase: SupabaseClient,
+  reason: string,
+): Promise<AuthCheckResult> {
+  const outcome = await restoreFromLifeboat(supabase);
+  if (outcome !== "restored") {
+    return { kind: "signed-out", reason };
+  }
+  const { data, error } = await supabase.auth.getUser();
+  if (data?.user) return { kind: "ok", user: data.user };
+  // Restore reported success but the session still does not resolve. Treat it
+  // the same as any unrecognised state: do not claim they are signed out on
+  // evidence this confused.
+  if (error && isRetryableAuthError(error)) {
+    return { kind: "unavailable", reason: `lifeboat-restored-then-${read(error).name || "error"}` };
+  }
+  return { kind: "signed-out", reason: `${reason}-after-lifeboat` };
 }
 
 /**
