@@ -19,6 +19,20 @@ export type Printable = {
   description: string;
   /** Path under public/, so it is served as a static asset. */
   file: string;
+  /**
+   * The same artwork as an image, for the on-screen preview.
+   *
+   * The viewer shows this instead of embedding the PDF. iOS Safari and the
+   * WKWebView inside our app shell will not render a PDF in an <object>, so an
+   * embed there fell through to a "cannot preview" message and a blank box.
+   * An image renders on every device we ship to, so that state stops existing.
+   * The PDF is still what Save or Share hands over, because that is the file a
+   * family actually wants to print.
+   */
+  previewImage: string;
+  /** Natural pixel size of previewImage, so the space is reserved before it loads. */
+  previewWidth: number;
+  previewHeight: number;
 };
 
 export const PRINTABLES: Printable[] = [
@@ -27,6 +41,9 @@ export const PRINTABLES: Printable[] = [
     title: "September Memory Challenge",
     description: "One tiny moment a day, all month long.",
     file: "/printables/september-memory-challenge-2026.pdf",
+    previewImage: "/printables/september-memory-challenge-2026.png",
+    previewWidth: 1103,
+    previewHeight: 1426,
   },
 ];
 

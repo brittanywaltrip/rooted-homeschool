@@ -156,26 +156,20 @@ export default function PrintableViewerPage() {
         </div>
       </div>
 
+      {/* An image, not the PDF. iOS Safari and the app shell's WKWebView refuse
+          to render a PDF in an <object>, so families on the platform this page
+          was built for got a blank box and a "cannot preview" message. Every
+          device renders an image. The PDF is still what Save or Share hands
+          over, because that is the file worth printing. */}
       <div className="max-w-3xl mx-auto px-4 py-4">
-        <object
-          data={printable.file}
-          type="application/pdf"
-          className="w-full h-[75vh] rounded-2xl border border-[#e8e5e0] bg-white"
-          aria-label={printable.title}
-        >
-          {/* Shown only when the browser refuses to embed the PDF at all. */}
-          <p className="p-6 text-sm text-[#7a6f65] leading-relaxed">
-            Your browser cannot preview this file.{" "}
-            <a
-              href={printable.file}
-              download={`${printable.slug}.pdf`}
-              className="font-semibold text-[var(--g-brand)] hover:underline"
-            >
-              Download it instead
-            </a>
-            .
-          </p>
-        </object>
+        <img
+          src={printable.previewImage}
+          alt={printable.title}
+          width={printable.previewWidth}
+          height={printable.previewHeight}
+          loading="eager"
+          className="mx-auto w-full h-auto max-h-[80vh] object-contain rounded-2xl border border-[#e8e5e0] bg-white"
+        />
       </div>
     </div>
   );
