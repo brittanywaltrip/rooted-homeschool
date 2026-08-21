@@ -141,7 +141,55 @@ export async function middleware(request: NextRequest) {
   // mints a new access token, and triggers setAll() above to write the
   // refreshed session cookies onto supabaseResponse. Interleaving any
   // other Supabase call here can race the refresh and drop the session.
-  await supabase.auth.getUser()
+  //
+  // The try/catch adds no statements between them; it only stops ONE crash
+  // class from becoming an error page. A corrupted CHUNKED auth cookie
+  // (sb-auth-auth-token.0 holding garbage) makes @supabase/ssr throw while it
+  // reassembles and base64-decodes the chunks, and an uncaught throw in edge
+  // middleware is a 500 MIDDLEWARE_INVOCATION_FAILED page instead of the app.
+  // Garbage in a SINGLE unchunked cookie is handled and returns cleanly; only
+  // the chunked shape throws. Verified identical on staging and production.
+  //
+  // This matters because a half-written cookie is exactly what WKWebView
+  // leaves behind when iOS kills the suspended app, so the family most likely
+  // to hit it is the one lib/session-lifeboat.ts exists to rescue, and a 500
+  // denies them that rescue: the page never loads, so no client code runs.
+  try {
+    await supabase.auth.getUser()
+  } catch (err) {
+    // Edge runtime. A plain console.error keeps the edge bundle lean; do not
+    // import Sentry here. The prefix is what makes this greppable in the
+    // Vercel runtime logs.
+    console.error(
+      '[middleware] auth cookie parse failure:',
+      err instanceof Error ? err.message : String(err),
+    )
+    // Expire the unreadable session cookies so the request completes as a
+    // signed-out page load. The client then boots, getUserWithRetry finds no
+    // session, and restoreFromLifeboat puts the family straight back in, so
+    // the crash becomes an invisible self-heal rather than an error page.
+    //
+    // A fresh response, not supabaseResponse: setAll() may have already
+    // rebuilt that one with half-written cookies from the failed parse.
+    const healed = NextResponse.next({ request })
+    for (const cookie of request.cookies.getAll()) {
+      if (!cookie.name.startsWith('sb-')) continue
+      // Same exclusion as the herd guard above, for the same reason. The PKCE
+      // verifier is literally named `<storageKey>-auth-token-code-verifier`,
+      // so a blanket `sb-` sweep deletes it too, and a family mid-OAuth then
+      // reaches /auth/callback with no verifier and lands on
+      // /login?error=pkce_cross_device unable to finish signing in.
+      if (cookie.name.includes('code-verifier')) continue
+      // The domain has to match the one the cookie was written with or the
+      // deletion silently targets a different cookie and the bad one survives.
+      healed.cookies.set(cookie.name, '', {
+        maxAge: 0,
+        path: '/',
+        ...(runtimeDomain ? { domain: runtimeDomain } : {}),
+      })
+    }
+    return healed
+  }
 
   return supabaseResponse
 }

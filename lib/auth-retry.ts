@@ -1,6 +1,10 @@
 import * as Sentry from "@sentry/nextjs";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
+import { getCookieDomain } from "@/lib/cookie-domain";
+import { posthog } from "@/lib/posthog";
+import { restoreFromLifeboat } from "@/lib/session-lifeboat";
+
 /* ============================================================================
  * Auth check retry + error classification.
  *
@@ -68,6 +72,80 @@ export function isSessionMissingError(error: unknown): boolean {
   return read(error).name === "AuthSessionMissingError";
 }
 
+/**
+ * Did the local session state fail to PARSE, rather than the auth server
+ * answering anything at all?
+ *
+ * `getUser()` normally reports problems by returning `{ data, error }`. This
+ * class does not: @supabase/ssr THROWS while it reassembles and base64-decodes
+ * a chunked auth cookie, so a corrupted `sb-…-auth-token.0` produces
+ * `Error: Invalid Base64-URL character "!" at position 0` straight out of the
+ * call. Nothing was caught, so the throw escaped the dashboard layout's async
+ * effect as an unhandled rejection, `setChecking(false)` was never reached, and
+ * the page sat on its loading skeleton forever. Observed on staging with a
+ * corrupted chunk; a half-written cookie is exactly what WKWebView leaves
+ * behind when iOS kills the suspended app.
+ *
+ * This is NOT "signed out" and NOT a transport failure. It is local state we
+ * cannot read, and the only cure is to throw that state away and rebuild it
+ * from the lifeboat.
+ */
+export function isCorruptStorageError(error: unknown): boolean {
+  if (!error) return false;
+  const { name, message } = read(error);
+  if (name === "SyntaxError") return true;
+  // "Invalid UTF-8 sequence" belongs here too, and it is not hypothetical: a
+  // corrupted SINGLE (unchunked) auth cookie throws exactly that on staging,
+  // where a corrupted CHUNKED one throws the base64 message. Both are the same
+  // thing, the stored session failing to decode. Without this alternate the
+  // unchunked case fell through to the transport branch, retried three times,
+  // returned "unavailable", and left the dashboard rendering empty forever.
+  return /base64|utf-?8|invalid character|parse|json|unexpected token|malformed/i.test(message);
+}
+
+/**
+ * Expire every Supabase auth cookie we can see from JS.
+ *
+ * Client-side on purpose, not left to the middleware sweep. The middleware only
+ * runs on a request that actually reaches it, and a PWA service worker can
+ * serve /dashboard straight from cache, in which case the corrupted cookie is
+ * never seen by any server code. The tab that is broken has to be able to fix
+ * itself.
+ *
+ * The code-verifier exclusion is the same one the middleware herd guard makes,
+ * for the same reason: the PKCE verifier is named
+ * `<storageKey>-auth-token-code-verifier`, so a blanket `sb-` sweep deletes it
+ * and a family mid-OAuth reaches /auth/callback with nothing to exchange,
+ * landing on /login?error=pkce_cross_device.
+ *
+ * Both a host-only and a domain-scoped deletion are written, because a deletion
+ * only matches a cookie with the same domain scope, and getCookieDomain is the
+ * one definition of what scope the app wrote them with.
+ */
+function clearAuthCookiesClientSide(): string[] {
+  if (typeof document === "undefined") return [];
+  let names: string[] = [];
+  try {
+    names = document.cookie.split("; ").map((c) => c.split("=")[0]).filter(Boolean);
+  } catch {
+    return [];
+  }
+  const domain = getCookieDomain();
+  const cleared: string[] = [];
+  for (const name of names) {
+    if (!name.startsWith("sb-")) continue;
+    if (name.includes("code-verifier")) continue;
+    try {
+      document.cookie = `${name}=; Max-Age=0; path=/`;
+      if (domain) document.cookie = `${name}=; Max-Age=0; path=/; domain=${domain}`;
+      cleared.push(name);
+    } catch {
+      // One unwritable cookie must not stop us clearing the rest.
+    }
+  }
+  return cleared;
+}
+
 export type AuthCheckResult =
   /** The call answered and there is a user. */
   | { kind: "ok"; user: User }
@@ -91,11 +169,31 @@ export async function getUserWithRetry(
   let last: unknown = null;
 
   for (let attempt = 0; attempt <= delays.length; attempt++) {
-    const { data, error } = await supabase.auth.getUser();
+    // getUser can THROW, not just return an error. Letting that escape is what
+    // hung the dashboard on its skeleton; see isCorruptStorageError.
+    let data: { user: User | null } | null = null;
+    let error: unknown = null;
+    try {
+      const res = await supabase.auth.getUser();
+      data = res.data;
+      error = res.error;
+    } catch (thrown) {
+      if (isCorruptStorageError(thrown)) {
+        return await healCorruptLocalState(supabase, thrown);
+      }
+      // Any other throw is treated exactly like a transport failure. A thrown
+      // error is not proof of being signed out, and that rule does not bend.
+      last = thrown;
+      if (attempt < delays.length) {
+        await new Promise((r) => setTimeout(r, delays[attempt]));
+        continue;
+      }
+      return { kind: "unavailable", reason: read(thrown).name || "thrown-error" };
+    }
     if (data?.user) return { kind: "ok", user: data.user };
-    if (!error) return { kind: "signed-out", reason: "no-user-no-error" };
+    if (!error) return await signedOutUnlessLifeboat(supabase, "no-user-no-error");
     if (isSessionMissingError(error)) {
-      return { kind: "signed-out", reason: "AuthSessionMissingError" };
+      return await signedOutUnlessLifeboat(supabase, "AuthSessionMissingError");
     }
     if (!isRetryableAuthError(error)) {
       // An error class we do not recognise. Treat it the way we treat a
@@ -109,6 +207,89 @@ export async function getUserWithRetry(
     }
   }
   return { kind: "unavailable", reason: read(last).name || "AuthRetryableFetchError" };
+}
+
+/**
+ * Local session state is unreadable. Throw it away and rebuild from the
+ * lifeboat.
+ *
+ * Order matters. The cookies are cleared FIRST, because until they are gone
+ * every subsequent supabase call re-reads the same unparseable bytes and throws
+ * again. Only then can setSession write a clean session over the top.
+ *
+ * If the lifeboat cannot rebuild it, this returns signed-out rather than
+ * unavailable. That is the one case where "unavailable" would be the wrong
+ * answer: the state is definitively broken and staying put means the family
+ * stares at a skeleton. A clean redirect to /login they can act on beats a
+ * spinner they cannot.
+ */
+async function healCorruptLocalState(
+  supabase: SupabaseClient,
+  thrown: unknown,
+): Promise<AuthCheckResult> {
+  const cleared = clearAuthCookiesClientSide();
+  let restored = false;
+  try {
+    restored = (await restoreFromLifeboat(supabase)) === "restored";
+  } catch {
+    restored = false;
+  }
+
+  try {
+    posthog.capture("auth_corrupt_state_healed", { restored });
+  } catch {
+    // Analytics must never break an auth path.
+  }
+  reportAuthCheckUnavailable("auth-retry", "corrupt-local-state", {
+    restored,
+    clearedCookies: cleared,
+    thrown: read(thrown).message.slice(0, 200),
+  });
+
+  if (restored) {
+    try {
+      const { data } = await supabase.auth.getUser();
+      if (data?.user) return { kind: "ok", user: data.user };
+    } catch {
+      // Still unreadable after a rebuild. Fall through to the redirect.
+    }
+  }
+  return { kind: "signed-out", reason: "corrupt-local-state" };
+}
+
+/**
+ * The auth server answered "no session". Before believing it, try the session
+ * lifeboat.
+ *
+ * This is the one choke point where the app decides a family is signed out, so
+ * it is the only place the restore needs to live: the dashboard layout and the
+ * onboarding page both route through here and neither has to know about it.
+ *
+ * An empty cookie jar is exactly what the WKWebView bug produces, and it is
+ * indistinguishable from a real sign-out at this level. The lifeboat is what
+ * tells them apart: a family who signed out deliberately has no lifeboat,
+ * because the SIGNED_OUT listener removed it.
+ *
+ * getUser runs ONCE more after a successful restore. If it still comes back
+ * empty the answer stands, so this can never loop.
+ */
+async function signedOutUnlessLifeboat(
+  supabase: SupabaseClient,
+  reason: string,
+): Promise<AuthCheckResult> {
+  const outcome = await restoreFromLifeboat(supabase);
+  if (outcome !== "restored") {
+    return { kind: "signed-out", reason };
+  }
+  const { data, error } = await supabase.auth.getUser();
+  if (data?.user) return { kind: "ok", user: data.user };
+  // Restore reported success but the session still does not resolve. Treat it
+  // the same as any unrecognised state: do not claim they are signed out on
+  // evidence this confused.
+  if (error && isRetryableAuthError(error)) {
+    return { kind: "unavailable", reason: `lifeboat-restored-then-${read(error).name || "error"}` };
+  }
+  return { kind: "signed-out", reason: `${reason}-after-lifeboat` };
 }
 
 /**
