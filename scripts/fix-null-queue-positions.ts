@@ -46,6 +46,9 @@ async function countNullRows(): Promise<{ rows: number; users: number; goals: nu
   if (rowErr) throw rowErr
 
   // Count distinct users and goals — Supabase JS lacks DISTINCT, so paginate.
+  // Ordered by id: PostgREST gives no row-order guarantee for `range` without
+  // one, so an unordered scan can repeat a row on one page and skip another,
+  // and these counts would under-report how many families are affected.
   const userSet = new Set<string>()
   const goalSet = new Set<string>()
   const pageSize = 1000
@@ -57,6 +60,7 @@ async function countNullRows(): Promise<{ rows: number; users: number; goals: nu
       .not('curriculum_goal_id', 'is', null)
       .not('lesson_number', 'is', null)
       .is('queue_position', null)
+      .order('id', { ascending: true })
       .range(from, from + pageSize - 1)
     if (error) throw error
     const rows = (data ?? []) as { user_id: string; curriculum_goal_id: string }[]
@@ -84,6 +88,11 @@ async function loadAffectedRows(): Promise<AffectedRow[]> {
       .is('queue_position', null)
       .order('curriculum_goal_id', { ascending: true })
       .order('lesson_number', { ascending: true })
+      // Unique tiebreaker. The first two columns are unique for this filtered
+      // set under lessons_goal_lesson_number_unique, but that index is partial
+      // and this loop should not depend on its predicate to keep page
+      // boundaries stable. This loop feeds the WRITE path.
+      .order('id', { ascending: true })
       .range(from, from + pageSize - 1)
     if (error) throw error
     const rows = (data ?? []) as AffectedRow[]

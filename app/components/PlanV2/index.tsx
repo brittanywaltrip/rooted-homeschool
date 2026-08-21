@@ -177,6 +177,50 @@ function toTodayKids(ks: { id: string; name: string; color: string | null }[]): 
   return ks.map((k) => ({ id: k.id, name: k.name, color: k.color }));
 }
 
+/**
+ * Pick the queue slot for a lesson being added into a curriculum group.
+ *
+ * WHY THIS EXISTS: this path used to insert `lesson_number` and leave
+ * `queue_position` NULL. Today filters by queue_position, so those rows render
+ * on the Plan calendar and then silently never appear on the day they were
+ * planned for. scripts/fix-null-queue-positions.ts was written to clean up the
+ * rows it had already created (reported by Blair Torres, 2026-05-18) and its
+ * header calls this out as the unfixed source. The script fixed the data; the
+ * code kept making more.
+ *
+ * THE RULE is the script's rule: queue_position = lesson_number. The one case
+ * the script never had to handle is a live collision, because it only ever
+ * touched rows whose slot was already NULL. A slot CAN be held by a sibling
+ * here: move_lesson_to_date rewrites queue_position and deliberately leaves
+ * lesson_number alone, so a dragged lesson leaves its number and its slot on
+ * different rows. "Lesson number N is free" and "slot N is free" are two
+ * different questions and conflating them is what destroyed a lesson per
+ * drifted pin in commit 6905c4f (see planPhase2LessonInserts in scheduler.ts).
+ *
+ * So: take slot N when nothing holds it, otherwise take the first slot above
+ * everything the goal currently holds. Never NULL, which would be drift E.
+ */
+export function pickQueuePositionForNewLesson(
+  lessonNumber: number,
+  existing: { lesson_number: number | null; queue_position: number | null }[],
+): number {
+  const takenSlots = new Set<number>();
+  let maxSeen = 0;
+  for (const r of existing) {
+    if (r.queue_position != null) {
+      takenSlots.add(r.queue_position);
+      if (r.queue_position > maxSeen) maxSeen = r.queue_position;
+    }
+    // Lesson numbers count toward the ceiling too: a fallback slot must clear
+    // every number the goal may still generate a row for.
+    if (r.lesson_number != null && r.lesson_number > maxSeen) maxSeen = r.lesson_number;
+  }
+  if (!takenSlots.has(lessonNumber)) return lessonNumber;
+  let slot = Math.max(maxSeen, lessonNumber) + 1;
+  while (takenSlots.has(slot)) slot++;
+  return slot;
+}
+
 // Catch-up banner dismissal constants — module-scoped so useEffect/useCallback
 // dependency arrays stay stable.
 const CATCHUP_DISMISS_KEY = "rooted_planv2_catchup_dismissed_at";
@@ -1053,6 +1097,23 @@ export default function PlanV2() {
         if (updErr) throw new Error(updErr.message);
         row = { ...(existing as unknown as PlanV2Lesson), ...updatePayload } as PlanV2Lesson;
       } else {
+        // A goal-attached incomplete row needs a queue slot or Today can never
+        // show it. Read what the goal already holds so the slot cannot collide
+        // with a sibling whose queue_position was rewritten by a manual move.
+        // Extra completions are exempt: they are off-queue history by design
+        // and null BOTH columns below, which is correct and stays as it is.
+        let queuePosition: number | null = null;
+        if (!isExtraCompletion) {
+          const { data: slotRows, error: slotErr } = await supabase
+            .from("lessons")
+            .select("lesson_number, queue_position")
+            .eq("curriculum_goal_id", goalIdForInsert!);
+          if (slotErr) throw new Error(slotErr.message);
+          queuePosition = pickQueuePositionForNewLesson(
+            values.lesson_number!,
+            (slotRows ?? []) as { lesson_number: number | null; queue_position: number | null }[],
+          );
+        }
         const { data: inserted, error } = await supabase
           .from("lessons")
           .insert({
@@ -1061,6 +1122,7 @@ export default function PlanV2() {
             curriculum_goal_id: goalIdForInsert,
             title: values.title,
             lesson_number: values.lesson_number,
+            ...(queuePosition != null ? { queue_position: queuePosition } : {}),
             minutes_spent: values.minutes_spent,
             hours: values.minutes_spent ? values.minutes_spent / 60 : 0,
             scheduled_date: values.scheduled_date,

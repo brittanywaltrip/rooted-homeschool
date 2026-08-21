@@ -423,6 +423,20 @@ Originally patched May 4, 2026 (anon revoked, authenticated retained); tightened
 - CAN-SPAM: rooted-family-digest, rooted-weekly-summary, rooted-trial-warning missing unsubscribe links
 - Logo: Tour/FAQ/Privacy/Terms/Contact still use old square icon (fix in CC session 2)
 
+## Daily health check
+
+There was no written morning check before August 2026, which is part of why the
+empty-curricula bug ran from March to August with nobody counting.
+
+### PRODUCTION
+□ Empty curricula — any curriculum_goals with total_lessons > 0 and zero
+  lessons rows? (should stay at zero after the 2026-08 repair)
+
+The repair is `scripts/repair-empty-goals.ts` (dry run by default, `--apply` to
+write). The source bug was closed in the same batch: the Schedule Builder's
+post-save notice is now an alert at the top of the page, and the Today page
+reports a projection with no matching lesson rows to Sentry once per goal.
+
 ## Cron jobs
 6 jobs in vercel.json. vercel.json is the source of truth; this list has
 drifted before, so re-read the file rather than trusting the count here.
