@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Bookmark, BookmarkCheck, ChevronDown, Download, ExternalLink, MapPin, Search, X } from "lucide-react";
+import { ArrowRight, Bookmark, BookmarkCheck, ChevronDown, ExternalLink, MapPin, Search, X } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import { posthog } from "@/lib/posthog";
+import { PRINTABLES } from "@/lib/printables";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,22 +156,6 @@ const STATE_INFO: Record<string, StateInfo> = {
   "Wyoming":        { regulation: "Low",    notice: "Notify local board of trustees", requiredSubjects: ["Language Arts","Math","Science","Social Studies","Health","Art","Music","PE"], attendance: "175 days/year", testing: "None required", portfolios: "None required", hsldaUrl: "https://hslda.org/legal/wyoming", localGroupUrl: "https://www.wyhomeschoolers.org" },
 };
 
-// ─── Free Printables ─────────────────────────────────────────────────────────
-// One a month, made by us, hosted in public/printables. Adding next month's is a
-// two step change with no logic to touch: drop the PDF in that folder and put a
-// new entry at the top of this array.
-
-type Printable = { slug: string; title: string; description: string; file: string };
-
-const FREE_PRINTABLES: Printable[] = [
-  {
-    slug: "september-memory-challenge-2026",
-    title: "September Memory Challenge",
-    description: "One tiny moment a day, all month long.",
-    file: "/printables/september-memory-challenge-2026.pdf",
-  },
-];
-
 // ─── Easy Wins ────────────────────────────────────────────────────────────────
 
 const EASY_WINS: EasyWin[] = [
@@ -278,14 +263,6 @@ function getCategoryLabel(cat: string): string {
  */
 function trackResourceClick(args: { resource_id: string | null; title: string; category: string }) {
   posthog.capture('resource_clicked', args);
-}
-
-/**
- * Printable download. Same fire-and-forget shape as trackResourceClick: no
- * preventDefault, so the browser starts the download on the tick it always did.
- */
-function trackPrintableDownload(slug: string) {
-  posthog.capture('printable_downloaded', { printable: slug });
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -515,19 +492,22 @@ export default function ResourcesPage() {
 
       {/* ── Free Printables ──────────────────────────────────────
           Top of the page on purpose: it is the one thing here that is
-          ours, free, and new every month. Rendered from FREE_PRINTABLES
-          so next month is a data edit, not a layout edit.
+          ours, free, and new every month. Rendered from PRINTABLES so
+          next month is a data edit, not a layout edit.
+
+          Each card opens the viewer route, never the PDF directly. A raw
+          PDF link traps the iOS shell's WebView, which has no back button
+          to escape with. The viewer owns the download and share actions,
+          so the analytics for them live there too.
          ──────────────────────────────────────────────────────── */}
       <div>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Free Printables</p>
         <p className="text-[12px] text-[#8B7E74] mb-3 pl-1">A new one every month. Print it, stick it on the fridge, live it.</p>
         <div className="space-y-3">
-          {FREE_PRINTABLES.map((printable) => (
-            <a
+          {PRINTABLES.map((printable) => (
+            <Link
               key={printable.slug}
-              href={printable.file}
-              download
-              onClick={() => trackPrintableDownload(printable.slug)}
+              href={`/dashboard/resources/printable/${printable.slug}`}
               className="group flex items-center gap-4 bg-white rounded-2xl border border-[#e8e5e0] hover:border-[var(--g-accent)] hover:bg-[#faf9f7] transition-all p-5"
             >
               <div className="flex-1 min-w-0">
@@ -535,10 +515,10 @@ export default function ResourcesPage() {
                 <p className="text-xs text-[#7a6f65] leading-relaxed">{printable.description}</p>
               </div>
               <span className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-[var(--g-brand)] group-hover:bg-[var(--g-mid)] px-3 py-1.5 rounded-lg transition-colors">
-                <Download size={13} />
-                Download
+                Open
+                <ArrowRight size={13} />
               </span>
-            </a>
+            </Link>
           ))}
         </div>
       </div>
