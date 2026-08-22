@@ -28,6 +28,11 @@ export type Printable = {
    * An image renders on every device we ship to, so that state stops existing.
    * The PDF is still what Save or Share hands over, because that is the file a
    * family actually wants to print.
+   *
+   * WebP at roughly display width, not the full size source. The source PNG was
+   * 1.79MB, which is a lot to spend on a preview over cellular when the file
+   * worth keeping is the PDF underneath. WebP is supported by every browser we
+   * ship to, the iOS shell included.
    */
   previewImage: string;
   /** Natural pixel size of previewImage, so the space is reserved before it loads. */
@@ -41,9 +46,9 @@ export const PRINTABLES: Printable[] = [
     title: "September Memory Challenge",
     description: "One tiny moment a day, all month long.",
     file: "/printables/september-memory-challenge-2026.pdf",
-    previewImage: "/printables/september-memory-challenge-2026.png",
-    previewWidth: 1103,
-    previewHeight: 1426,
+    previewImage: "/printables/september-memory-challenge-2026-preview.webp",
+    previewWidth: 1100,
+    previewHeight: 1422,
   },
 ];
 
