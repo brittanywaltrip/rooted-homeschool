@@ -857,6 +857,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             <span className="text-white leading-none" style={{ fontSize: 9 }}>Quick photo</span>
           </button>
         )}
+        {/* NOTE: app/components/LessonPhotoButton.tsx now mirrors this pattern —
+            an app-rendered action sheet over two hidden inputs (one gallery, one
+            `capture`). Any future capture change here should land there too, so
+            the two sheets keep feeling like one app. */}
         {/* Gallery picker: multi-select. Never give this one `capture`, which
             would silently reduce it to a single photo. */}
         <input ref={fabFileRef} type="file" accept="image/*" multiple className="hidden"

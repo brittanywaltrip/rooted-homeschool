@@ -38,4 +38,6 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Needed so "Take a photo" (FAB + lesson photo button) can open the camera. -->
+    <uses-permission android:name="android.permission.CAMERA" />
 </manifest>

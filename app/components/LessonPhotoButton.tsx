@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Camera } from "lucide-react";
 import SignedImage from "@/components/SignedImage";
 import {
   fetchLessonPhotos,
@@ -19,6 +20,10 @@ import { PhotoReadError } from "@/lib/photo-pipeline";
  * LESSON_PHOTO_SAVED_EVENT so the Today page can refresh Today's Story + the
  * memories grid. Used on both the Today lesson card and the Plan day-detail
  * lesson. Free feature — no export gate.
+ *
+ * "Add a photo" opens the same two-option action sheet the dashboard FAB uses
+ * (take a photo / choose from library), backed by two hidden inputs. Keep the
+ * two sheets in step: if one gains a capture option, so should the other.
  */
 export default function LessonPhotoButton({
   lessonId,
@@ -31,7 +36,12 @@ export default function LessonPhotoButton({
   const [photos, setPhotos] = useState<LessonPhoto[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Two file inputs, not one: the `capture` attribute suppresses the library
+  // picker, so the camera input and the gallery input cannot be the same
+  // element. Same split the dashboard FAB uses.
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const [sheetOpen, setSheetOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -81,7 +91,7 @@ export default function LessonPhotoButton({
         {!isPartner && (
           <button
             type="button"
-            onClick={() => inputRef.current?.click()}
+            onClick={() => setSheetOpen(true)}
             disabled={saving}
             className="flex items-center gap-1.5 min-h-[40px] px-2.5 rounded-lg border border-dashed border-[#c8bfb5] text-[12px] font-medium text-[#5c7f63] hover:border-[#5c7f63] hover:bg-[#f0f7f0] transition-colors disabled:opacity-50"
           >
@@ -91,6 +101,7 @@ export default function LessonPhotoButton({
         )}
       </div>
       {error && <p className="text-[11px] text-red-500 mt-1">{error}</p>}
+      {/* Library picker. Single-select, as it has always been here. */}
       <input
         ref={inputRef}
         type="file"
@@ -98,6 +109,42 @@ export default function LessonPhotoButton({
         className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleFile(f); }}
       />
+      {/* Camera: single shot, straight to the rear camera. */}
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) handleFile(f); }}
+      />
+
+      {/* Action sheet: camera or library. Mirrors the dashboard FAB sheet. */}
+      {sheetOpen && (
+        <>
+          <div className="fixed inset-0 bg-black/40 z-50 backdrop-blur-sm" onClick={() => setSheetOpen(false)} />
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto"
+            style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-2.5">
+              <button type="button" onClick={() => { setSheetOpen(false); cameraRef.current?.click(); }}
+                className="w-full py-3 rounded-xl text-sm font-medium text-white flex items-center justify-center gap-2 shadow-sm transition-all active:scale-[0.98]"
+                style={{ backgroundColor: "var(--g-brand)" }}>
+                <Camera size={16} strokeWidth={2.2} />
+                Take a photo
+              </button>
+              <button type="button" onClick={() => { setSheetOpen(false); inputRef.current?.click(); }}
+                className="w-full py-3 rounded-xl text-sm font-medium border border-[#e8e2d9] bg-white text-[#2d2926] transition-colors hover:border-[#5c7f63]">
+                Choose from library
+              </button>
+              <button type="button" onClick={() => setSheetOpen(false)}
+                className="w-full py-3 rounded-xl text-sm font-medium text-[#7a6f65] transition-colors hover:bg-[#f0ede8]">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
