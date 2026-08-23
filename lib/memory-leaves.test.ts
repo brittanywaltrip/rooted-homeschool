@@ -135,6 +135,24 @@ test("records with no id selected are still well formed", () => {
   );
   assert.deepEqual(records.map((r) => r.id), [null, null]);
   assert.deepEqual(records.map((r) => r.caption), [null, null]);
+  assert.deepEqual(records.map((r) => r.photo_url), [null, null]);
+});
+
+test("photo_url passes through from both sources and never joins the dedupe key", () => {
+  const records = mergeMemoryRecords(
+    [{ id: "mem-1", child_id: KID_A, type: "book", title: "A", photo_url: "covers/a.jpg", date: "2026-06-01" }],
+    [{ id: "evt-1", type: "book_read", payload: { title: "B", photo_url: "legacy/b.jpg", child_id: KID_A, date: "2026-06-02" } }],
+  );
+  assert.deepEqual(records.map((r) => r.photo_url), ["covers/a.jpg", "legacy/b.jpg"]);
+
+  // Same book, cover on one side only — still one book, and the memories
+  // row's cover is the one that survives.
+  const books = mergeBookRecords(
+    [{ id: "mem-2", child_id: KID_A, type: "book", title: "Charlotte's Web", photo_url: "covers/cw.jpg", date: "2026-03-20" }],
+    [{ id: "evt-2", type: "book_read", payload: { title: "Charlotte's Web", child_id: KID_A, date: "2026-03-20" } }],
+  );
+  assert.equal(books.length, 1);
+  assert.equal(books[0].photo_url, "covers/cw.jpg");
 });
 
 test("null / undefined inputs are treated as empty", () => {

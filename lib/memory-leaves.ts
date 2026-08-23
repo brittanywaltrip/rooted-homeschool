@@ -44,6 +44,7 @@ export type LegacyMemoryEvent = {
   payload: {
     title?: string;
     caption?: string;
+    photo_url?: string;
     child_id?: string;
     date?: string;
   } | null;
@@ -56,16 +57,19 @@ export type MemoryTableRow = {
   type: string;
   title?: string | null;
   caption?: string | null;
+  photo_url?: string | null;
   date?: string | null;
 };
 
 /**
  * One captured memory, from whichever source it came from.
  *
- * `id` and `caption` are pure passthrough for callers that render the record
- * (they need a React key and a label fallback). Neither takes part in the
- * dedupe key — ids differ across the two tables by definition, and a book's
- * caption holds "Author: X | Pages: N" rather than anything identifying.
+ * `id`, `caption` and `photo_url` are pure passthrough for callers that render
+ * the record (a React key, a label fallback, a cover thumbnail). None takes
+ * part in the dedupe key — ids differ across the two tables by definition, a
+ * book's caption holds "Author: X | Pages: N" rather than anything
+ * identifying, and the same book may have a cover in one table and not the
+ * other.
  */
 export type MemoryRecord = {
   id: string | null;
@@ -73,6 +77,7 @@ export type MemoryRecord = {
   type: string;
   title: string | null;
   caption: string | null;
+  photo_url: string | null;
   date: string | null;
 };
 
@@ -83,6 +88,7 @@ function toRecordFromMemory(row: MemoryTableRow): MemoryRecord {
     type: row.type,
     title: row.title ?? null,
     caption: row.caption ?? null,
+    photo_url: row.photo_url ?? null,
     date: row.date ?? null,
   };
 }
@@ -94,6 +100,7 @@ function toRecordFromLegacy(ev: LegacyMemoryEvent): MemoryRecord {
     type: LEGACY_TYPE_TO_MEMORY_TYPE[ev.type] ?? ev.type,
     title: ev.payload?.title ?? null,
     caption: ev.payload?.caption ?? null,
+    photo_url: ev.payload?.photo_url ?? null,
     date: ev.payload?.date ?? null,
   };
 }
