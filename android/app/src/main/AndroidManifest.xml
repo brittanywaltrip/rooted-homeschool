@@ -40,4 +40,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- Needed so "Take a photo" (FAB + lesson photo button) can open the camera. -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- uses-permission CAMERA implies <uses-feature android:name="android.hardware.camera"
+         android:required="true">, which dropped Play support for 422 camera-less devices.
+         Rooted works fully without a camera: every capture path also offers the gallery
+         picker, so the camera is genuinely optional. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>
