@@ -1352,22 +1352,32 @@ export default function ReportsPage() {
                   </div>
                 </div>
 
-                {/* Rating */}
+                {/* Rating.
+                    Each leaf is a 44x44 tap target — the glyph is small, the
+                    button is not. It was previously 26x20 with a 4px gap,
+                    about a third of the 44px minimum every touch guideline
+                    asks for, which on a phone means a missed tap lands in the
+                    gap and looks exactly like a dead control. The opacity and
+                    grayscale live on the glyph rather than the button so the
+                    hit area is never what is being dimmed. */}
                 <div>
                   <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Their rating</label>
-                  <div className="flex gap-1 items-center">
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <button key={n} type="button" disabled={!canWrite}
-                        onClick={() => setSheetRating((prev) => (prev === n ? null : n))}
-                        aria-label={`${n} out of 5`}
-                        className="text-xl leading-none px-0.5 transition-transform active:scale-90 disabled:opacity-60"
-                        style={{ opacity: sheetRating !== null && n <= sheetRating ? 1 : 0.25, filter: sheetRating !== null && n <= sheetRating ? "none" : "grayscale(1)" }}>
-                        🌿
-                      </button>
-                    ))}
+                  <div className="flex items-center -ml-2">
+                    {[1, 2, 3, 4, 5].map((n) => {
+                      const lit = sheetRating !== null && n <= sheetRating;
+                      return (
+                        <button key={n} type="button" disabled={!canWrite}
+                          onClick={() => setSheetRating((prev) => (prev === n ? null : n))}
+                          aria-label={`${n} out of 5`}
+                          aria-pressed={lit}
+                          className="w-11 h-11 flex items-center justify-center text-xl leading-none transition-transform active:scale-90 disabled:opacity-60">
+                          <span style={{ opacity: lit ? 1 : 0.25, filter: lit ? "none" : "grayscale(1)" }}>🌿</span>
+                        </button>
+                      );
+                    })}
                     {sheetRating !== null && canWrite && (
                       <button type="button" onClick={() => setSheetRating(null)}
-                        className="text-[11px] text-[#b5aca4] hover:text-[#7a6f65] ml-1.5 transition-colors">Clear</button>
+                        className="text-[11px] text-[#b5aca4] hover:text-[#7a6f65] ml-1.5 px-2 py-2 transition-colors">Clear</button>
                     )}
                   </div>
                 </div>
