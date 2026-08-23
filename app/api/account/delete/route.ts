@@ -4,6 +4,11 @@ import Stripe from "stripe";
 import { Resend } from "resend";
 import { emailFooterHtml } from "@/lib/email-footer";
 import { captureSupabaseError } from "@/lib/sentry-error";
+import {
+  deleteAllUserStorage,
+  summarize,
+  unremovedCount,
+} from "@/lib/storage-cleanup";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2026-02-25.clover",
@@ -110,37 +115,51 @@ export async function DELETE(req: NextRequest) {
       .delete()
       .eq("user_id", userId);
 
-    // ── 2. Delete memories + storage photos ─────────────────────
-    const { data: memoriesData } = await supabaseAdmin
-      .from("memories")
-      .select("id, photo_url")
-      .eq("user_id", userId);
+    // ── 2. Delete every uploaded file, then the memory rows ─────
+    // DO NOT go back to parsing photo_url here.
+    //
+    // This step used to collect paths by matching each memories.photo_url
+    // against one marker, "/object/public/memory-photos/". Storage went
+    // private in April 2026, so most rows now hold SIGNED urls
+    // (/object/sign/memory-photos/<path>?token=...) that the public marker
+    // never matches: 647 of 1025 production photo_url values were
+    // signed-style on August 22, 2026, so roughly two thirds of a deleting
+    // family's photo files stayed in the bucket after their rows were gone.
+    // The memories, yearbook-covers and year-certificates buckets were never
+    // swept at all, and the family photo was removed by guessing three
+    // filenames.
+    //
+    // deleteAllUserStorage asks storage what is actually in <userId>/ in
+    // every user-scoped bucket, which is url-format-proof and also catches
+    // files no row points at any more (replaced family photos, failed
+    // uploads, photos whose memory row was deleted months ago).
+    const storageResults = await deleteAllUserStorage(supabaseAdmin, userId);
+    const leftover = unremovedCount(storageResults);
+    const storageSummary = summarize(storageResults);
+    const storageErrors = storageResults.flatMap((r) => r.errors);
 
-    // Delete photos from storage in batches of 20
-    if (memoriesData?.length) {
-      const storagePaths: string[] = [];
-      const marker = "/object/public/memory-photos/";
-
-      for (const m of memoriesData) {
-        if (!m.photo_url) continue;
-        const idx = (m.photo_url as string).indexOf(marker);
-        if (idx === -1) continue;
-        let path = (m.photo_url as string).substring(idx + marker.length);
-        const qIdx = path.indexOf("?");
-        if (qIdx !== -1) path = path.substring(0, qIdx);
-        storagePaths.push(path);
-      }
-
-      // Batch delete storage objects in groups of 20
-      for (let i = 0; i < storagePaths.length; i += 20) {
-        const batch = storagePaths.slice(i, i + 20);
-        await supabaseAdmin.storage.from("memory-photos").remove(batch);
-      }
-
-      // Also delete family photo
-      await supabaseAdmin.storage
-        .from("family-photos")
-        .remove([`${userId}/family.jpg`, `${userId}/family.png`, `${userId}/family.webp`]);
+    if (leftover > 0 || storageErrors.length > 0) {
+      // Report it, but never fail the request: the user asked to be deleted
+      // and the rest of the wipe still has to run.
+      console.error(
+        `[account/delete] storage sweep left files behind for ${userId}: ${storageSummary}`,
+        storageErrors,
+      );
+      captureSupabaseError(
+        "Account deletion: storage sweep left files behind",
+        storageErrors[0] ?? { message: `${leftover} file(s) not removed` },
+        {
+          tags: { route: "account_delete", phase: "storage_sweep" },
+          extra: {
+            user_id: userId,
+            leftover,
+            summary: storageSummary,
+            errors: storageErrors,
+          },
+        },
+      );
+    } else {
+      console.log(`[account/delete] storage swept for ${userId}: ${storageSummary}`);
     }
 
     await supabaseAdmin.from("memories").delete().eq("user_id", userId);
