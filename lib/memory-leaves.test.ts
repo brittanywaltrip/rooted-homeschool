@@ -9,6 +9,8 @@ import {
   bookCover,
   bookHowLabel,
   ratingLeaves,
+  isFinishedBook,
+  isReadingBook,
   LEGACY_MEMORY_EVENT_TYPES,
   LEGACY_BOOK_EVENT_TYPES,
 } from "./memory-leaves.ts";
@@ -273,6 +275,73 @@ test("cover order: the family's own photo beats the Open Library cover", () => {
   );
   assert.equal(bookCover({ photo_url: null, book_cover_url: null }), null);
   assert.equal(bookCover({}), null);
+});
+
+// ─── Book status ─────────────────────────────────────────────────────────────
+
+test("null status counts as finished (no backfill was ever run)", () => {
+  const b = bookRecord({ title: "Old book", date: "2026-01-01" });
+  assert.equal(b.book_status, null);
+  assert.equal(isFinishedBook(b), true);
+  assert.equal(isReadingBook(b), false);
+});
+
+test("explicit 'finished' counts as finished", () => {
+  const b = bookRecord({ title: "Done", date: "2026-08-01", book_status: "finished" });
+  assert.equal(isFinishedBook(b), true);
+  assert.equal(isReadingBook(b), false);
+});
+
+test("'reading' is excluded from finished, and is the shelf", () => {
+  const b = bookRecord({ title: "In progress", date: "2026-08-01", book_status: "reading" });
+  assert.equal(isFinishedBook(b), false);
+  assert.equal(isReadingBook(b), true);
+});
+
+test("legacy app_events books have no status field and read as finished", () => {
+  const [b] = mergeBookRecords(
+    [],
+    [{ type: "book_read", payload: { title: "Ancient", date: "2026-02-01" } }],
+  );
+  assert.equal(b.book_status, null);
+  assert.equal(isFinishedBook(b), true);
+});
+
+test("the predicate is status !== reading, so an unknown value still counts", () => {
+  // The check constraint makes this unreachable from the app, but a reader
+  // must never hide a book because it carries a value it does not recognise.
+  assert.equal(isFinishedBook({ book_status: "something_new" }), true);
+  assert.equal(isFinishedBook({}), true);
+  assert.equal(isFinishedBook({ book_status: null }), true);
+});
+
+test("book_started_date passes through and is kept after finishing", () => {
+  const started = bookRecord({
+    title: "Long one", date: "2026-08-01",
+    book_status: "reading", book_started_date: "2026-08-01",
+  });
+  assert.equal(started.book_started_date, "2026-08-01");
+  // Finishing rewrites date but not book_started_date.
+  const finished = bookRecord({
+    title: "Long one", date: "2026-08-20",
+    book_status: "finished", book_started_date: "2026-08-01",
+  });
+  assert.equal(finished.date, "2026-08-20");
+  assert.equal(finished.book_started_date, "2026-08-01");
+});
+
+test("countByChild still credits an in-progress book — leaves are earned at logging", () => {
+  const counts = countByChild(
+    mergeBookRecords(
+      [
+        { type: "book", child_id: KID_A, title: "Reading now", date: "2026-08-01", book_status: "reading" },
+        { type: "book", child_id: KID_A, title: "Done", date: "2026-08-02" },
+      ] as never,
+      [],
+    ),
+  );
+  // Two leaves: the leaf is for capturing the memory, not for finishing it.
+  assert.deepEqual(counts, { [KID_A]: 2 });
 });
 
 // ─── Display helpers ─────────────────────────────────────────────────────────

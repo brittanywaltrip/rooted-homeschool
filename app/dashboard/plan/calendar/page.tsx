@@ -9,7 +9,7 @@ import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { computeNextLessonsForGoal, loadPinsByGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
-import { mergeMemoryRecords, LEGACY_MEMORY_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
+import { mergeMemoryRecords, isFinishedBook, LEGACY_MEMORY_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -156,7 +156,7 @@ export default function CalendarPage() {
       // rows below are merged in behind it so pre-March captures still show.
       supabase
         .from("memories")
-        .select("id, child_id, type, title, caption, date")
+        .select("id, child_id, type, title, caption, date, book_status")
         .eq("user_id", effectiveUserId)
         .gte("date", s)
         .lte("date", e),
@@ -278,6 +278,11 @@ export default function CalendarPage() {
       payload: { ...(ev.payload ?? {}), date: ev.payload?.date ?? ev.created_at.slice(0, 10) },
     }));
     const mergedMemories = mergeMemoryRecords(memoryRows ?? [], legacyForMerge)
+      // A book still being read is not a memory of finishing one. Its `date`
+      // holds the start day and moves to the finish day when it is finished,
+      // so leaving it in would mark a day that the book then leaves. See
+      // isFinishedBook in lib/memory-leaves.ts.
+      .filter((m) => m.type !== "book" || isFinishedBook(m))
       .filter((m): m is CalendarMemory => !!m.date);
     setEvents(mergedMemories);
     setVacations((vacs as VacationBlock[]) ?? []);

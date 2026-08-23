@@ -320,6 +320,10 @@ export default function TodayPage() {
   const [bookHow,           setBookHow]           = useState<string | null>(null);
   const [bookNotes,         setBookNotes]         = useState("");
   const [bookRating,        setBookRating]        = useState<number | null>(null);
+  // "Still reading it". Off is exactly the old behaviour: a finished book.
+  // On saves book_status 'reading' + book_started_date, and the row stays out
+  // of every book count until it is finished from the Reading Log.
+  const [bookStillReading,  setBookStillReading]  = useState(false);
   const [bookCoverUrl,      setBookCoverUrl]      = useState<string | null>(null);
   const [bookPhotoFile,     setBookPhotoFile]     = useState<File | null>(null);
   const [bookPhotoPreview,  setBookPhotoPreview]  = useState<string | null>(null);
@@ -626,6 +630,7 @@ export default function TodayPage() {
   const resetBookForm = useCallback(() => {
     setBookTitle(""); setBookChildIds([]); setBookAuthor(""); setBookPages("");
     setBookHow(null); setBookNotes(""); setBookRating(null); setBookCoverUrl(null);
+    setBookStillReading(false);
     setBookPhotoFile(null); setBookPhotoPreview(null);
     setBookSuggestions([]); setBookSearching(false);
     if (bookSearchTimer.current) clearTimeout(bookSearchTimer.current);
@@ -3384,6 +3389,11 @@ export default function TodayPage() {
       const bookChildIdsValue = selectedChildIds.length > 0 ? selectedChildIds : null;
       const legacyChildId = selectedChildIds.length === 1 ? selectedChildIds[0] : null;
 
+      // Captured here, not after resetBookForm() below: the reset is what
+      // clears the toggle, and reading state through a closure after asking
+      // for it to be cleared is a trap for whoever edits this next.
+      const stillReading = bookStillReading;
+
       // book_pages has a `> 0` check constraint; anything unparseable is null
       // rather than a failed insert that loses the whole book.
       const pagesTrimmed = bookPages.trim();
@@ -3404,6 +3414,12 @@ export default function TodayPage() {
         book_rating: bookRating,
         book_notes: bookNotes.trim() || null,
         book_cover_url: bookCoverUrl,
+        // Off writes NULL, which is what every book row has always carried and
+        // what isFinishedBook reads as finished. On parks the book on the
+        // Reading Log shelf; `date` holds the start until the finish flow
+        // rewrites it, and book_started_date keeps it thereafter.
+        book_status: stillReading ? "reading" : null,
+        book_started_date: stillReading ? today : null,
         created_at: nowB, updated_at: nowB,
       }).select("id").single();
       if (bookErr) throw bookErr;
@@ -3425,8 +3441,12 @@ export default function TodayPage() {
         has_how: bookHow !== null,
         has_rating: bookRating !== null,
         from_autofill: bookCoverUrl !== null,
+        still_reading: stillReading,
       });
-      showCaptureToast(photoNote ?? "📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", legacyChildId);
+      showCaptureToast(
+        photoNote ?? (stillReading ? "📖 On your Reading Log 🌿" : "📖 Added to your story 🌿"),
+        (inserted as { id: string } | null)?.id ?? null, "book", legacyChildId,
+      );
       loadDataBusy.current = false;
       await loadData();
       await refreshTodayStory();
@@ -5273,8 +5293,10 @@ export default function TodayPage() {
               </div>
 
               {/* Rating — the child's, not the parent's. Tap the same leaf
-                  again to clear it. */}
-              <div>
+                  again to clear it. De-emphasised but still usable while
+                  "Still reading it" is on: a child can absolutely have an
+                  opinion halfway through, it is just not the usual moment. */}
+              <div style={{ opacity: bookStillReading ? 0.55 : 1 }}>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
                   {bookChildIds.length === 1
                     ? `${children.find((c) => c.id === bookChildIds[0])?.name ?? "Their"}'s rating (optional)`
@@ -5330,12 +5352,30 @@ export default function TodayPage() {
                   </button>
                 )}
               </div>
+              {/* Still reading it. The book goes on the Reading Log's shelf
+                  and stays out of the counts until it is finished there. No
+                  reminder is ever attached to it. */}
+              <label className="flex items-center gap-2.5 cursor-pointer select-none pt-1">
+                <input
+                  type="checkbox"
+                  checked={bookStillReading}
+                  onChange={(e) => setBookStillReading(e.target.checked)}
+                  className="w-4 h-4 rounded accent-[#5c7f63]"
+                />
+                <span className="text-sm text-[#2d2926]">Still reading it</span>
+              </label>
+              {bookStillReading && (
+                <p className="text-[11px] text-[#b5aca4] -mt-2 pl-6.5">
+                  It&apos;ll wait on your Reading Log until you mark it finished.
+                </p>
+              )}
+
               <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center">
                 <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
               </div>
               <button onClick={saveBook} disabled={savingBook || !bookTitle.trim()}
                 className="w-full py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
-                {savingBook ? "Saving…" : "Log Book 🌿"}
+                {savingBook ? "Saving…" : bookStillReading ? "Add to Reading Log 🌿" : "Log Book 🌿"}
               </button>
             </div>
           </div>

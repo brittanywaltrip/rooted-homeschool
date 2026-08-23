@@ -9,6 +9,54 @@ import { ChevronLeft } from "lucide-react";
 const UPDATES = [
   {
     date: "August 2026",
+    emoji: "🔖",
+    title: "Books in progress",
+    description:
+      "Reading a chapter book that takes weeks? Log it with 'Still reading it' and it sits on a little Currently Reading shelf on your Reading Log until you're done. When you finish, one tap marks it complete, and that's the moment to add your child's leaf rating and what they thought. You can also now edit or remove any book right from the log, wrong kid, wrong book, two taps to fix. No reminders, no nagging, ever. Books finish when they finish.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "August 2026",
+    emoji: "📚",
+    title: "Your Reading Log is here",
+    description:
+      "A mom emailed on a Thursday night asking where books go. By the weekend, Rooted had a Reading Log. Log a book from the Today screen and Rooted finds the cover, author, and page count for you. Log it for one child, a few, or the whole family at once. Tag how it was read, read aloud, together, independent, audiobook, or assigned, add a note about what they thought, and let your child rate it with little leaves. It all becomes a per-child Reading Log under Reports, with a Print button that offers a simple titles-and-dates list for state portfolios or a detailed version with everything.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "August 2026",
+    emoji: "📷",
+    title: "Take a photo, right from the lesson",
+    description:
+      "Every Add a photo button on a lesson now offers your camera as well as your library, so you can check off the lesson, jot your note, and snap the moment without leaving the page. Live now on the web. If you use the installed app, the camera arrives with the next app update, already on its way to the stores.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "August 2026",
+    emoji: "🧾",
+    title: "Your records now tell the whole story",
+    description:
+      "Books and memories you've captured since spring now show up everywhere they should: your Books Read count, your printed reports, the Plan calendar's memory markers, and each child's garden. If your numbers just went up, that's months of your real work finally being counted.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "August 2026",
+    emoji: "🧭",
+    title: "Reports, easier to find",
+    description:
+      "The Reports page, your hours, attendance, and the new Reading Log, now lives in the sidebar and the More menu. It was always there; now it's findable.",
+    inspiredByFamily: false,
+  },
+  {
+    date: "August 2026",
+    emoji: "🔒",
+    title: "Straight answers on privacy",
+    description:
+      "A thoughtful mom asked hard questions about where photos live and what happens when you delete your account, and the honest audit that followed made Rooted better. The privacy policy now names every service Rooted uses and what each one sees, account deletion now verifiably removes every photo file, and the new book lookup is documented too: when you search a book title, only the title you typed is sent, never anything about your family.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "August 2026",
     emoji: "🖨️",
     title: "Print your plan",
     description:
