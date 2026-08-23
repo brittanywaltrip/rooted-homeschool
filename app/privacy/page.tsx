@@ -9,7 +9,7 @@ export default function PrivacyPage() {
           <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">Privacy Policy</h1>
-        <p className="text-sm text-[#b5aca4] mb-10">Last updated: April 2026</p>
+        <p className="text-sm text-[#b5aca4] mb-10">Last updated: August 2026</p>
 
         <div className="prose prose-sm max-w-none space-y-8 text-[#5c5248]">
           <section>
@@ -35,24 +35,36 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">4. Cookies and Local Storage</h2>
-            <p className="leading-relaxed">Rooted uses browser local storage and session storage to manage your login session and remember your preferences (such as which resources you&apos;ve viewed). We do not use third-party tracking cookies, advertising pixels, or analytics services that share your data with external companies. Our use of local storage is limited to making the app work for you.</p>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">4. Artificial Intelligence</h2>
+            <p className="leading-relaxed">Your photos, your children&apos;s information, and everything you write inside Rooted are never used to train artificial intelligence. Not by us, and not by anyone else. We do not license, sell, or hand your family&apos;s content to any company for the purpose of training or improving an AI model.</p>
+            <p className="leading-relaxed mt-2">To be concrete about what that means today: Rooted currently contains no AI features at all. There is no AI service connected to the app. Nothing you type, upload, or photograph is sent anywhere to be analyzed, summarized, or generated from. Your yearbook is assembled on your own device, from your own memories, with no outside service involved.</p>
+            <p className="leading-relaxed mt-2">If we ever add a feature that uses AI, it will be optional, we will describe exactly what it does on this page before it launches, and the commitment above still holds: your family&apos;s photos, memories, and children&apos;s information will not be used to train AI models.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">5. Data Storage and Security</h2>
-            <p className="leading-relaxed">Your data is stored securely using Supabase, a trusted database platform with industry-standard encryption at rest and in transit. We use row-level security policies on our database so your family&apos;s lessons, memories, and account data are accessible only to you.</p>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">5. Cookies and Local Storage</h2>
+            <p className="leading-relaxed">Rooted uses browser local storage and session storage to manage your login session and remember your preferences (such as which resources you&apos;ve viewed). We also use a small number of analytics services to understand how families use the app so we can improve it. Those services are listed by name in the Third-Party Services section below, along with what each one can and cannot see.</p>
+            <p className="leading-relaxed mt-2">What we do not do: we do not use advertising pixels, we do not do retargeting, and we do not sell or share your information for advertising of any kind.</p>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">6. Data Storage and Security</h2>
+            <p className="leading-relaxed">Your data is stored with Supabase, which is SOC 2 Type 2 and ISO 27001 certified and HIPAA compliant. Your database and files are hosted on Amazon Web Services in a United States region, encrypted with AES-256 at rest and protected by TLS in transit.</p>
+            <p className="leading-relaxed mt-2">We use row-level security, which means the rules that keep your family&apos;s data separate from every other family&apos;s are enforced by the database itself rather than by app code that could be bypassed. Those rules cover both your records (lessons, memories, children, settings) and your uploaded files.</p>
             <p className="leading-relaxed mt-2">Photos and media you upload are stored in private cloud storage. Photo URLs require authentication and expire on a rolling basis, they cannot be viewed by anyone outside the app without a fresh, time-limited token issued for that specific request.</p>
+            <p className="leading-relaxed mt-2">One honest note about access. The people who operate Rooted hold administrative access to the database. This is what makes it possible to recover an account, fix a broken record, or investigate a bug you report. That access is used only for support you have asked for, or to diagnose a fault in the app. It is never used to browse your memories, and your content is never read for any other purpose.</p>
             <p className="leading-relaxed mt-2">In the event of a data breach that affects your personal information, we will notify affected users within 72 hours of discovering the breach via the email address associated with your account.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">6. Data Retention and Deletion</h2>
-            <p className="leading-relaxed">You may export all your data or permanently delete your account and all associated data at any time directly from the Settings page within the app. Account deletion takes effect immediately when you confirm in Settings. Some information may be retained in encrypted backups for up to 90 days after deletion, after which it is permanently purged. If you have questions or run into any issues, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</p>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">7. Data Retention and Deletion</h2>
+            <p className="leading-relaxed">You may export all your data or permanently delete your account and all associated data at any time directly from the Settings page within the app. Account deletion takes effect immediately when you confirm in Settings. Deleting your account removes your records and the underlying image files in storage, so your photos are deleted from our servers, not just hidden from view.</p>
+            <p className="leading-relaxed mt-2">We keep one small record of the deletion itself: your name, email address, plan, the date the account was created, and counts of how many memories, lessons, and children were on it. That record contains no photos, no memory content, and no information about your children beyond how many there were. It exists so we can answer questions like &quot;was my account really deleted?&quot;, honor billing and refund requests after the fact, and understand why families leave. If you would like that record removed as well, email us and we will delete it.</p>
+            <p className="leading-relaxed mt-2">Some information may be retained in encrypted backups for up to 90 days after deletion, after which it is permanently purged. If you have questions or run into any issues, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</p>
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">7. Third-Party Services</h2>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">8. Third-Party Services</h2>
             <p className="leading-relaxed">We use the following third-party services to operate Rooted. Each has its own privacy policy, and we share only the minimum data necessary for each service to function:</p>
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
               <li><strong>Supabase</strong>: database, authentication, and file storage</li>
@@ -61,12 +73,25 @@ export default function PrivacyPage() {
               <li><strong>Resend</strong>: sending transactional emails (welcome, receipts, account notifications)</li>
               <li><strong>PostHog</strong>: product analytics (anonymous usage data such as page views and clicks) so we can understand how families use Rooted and improve the experience. PostHog does not access your photos, memory content, or children&apos;s information.</li>
               <li><strong>Google Analytics</strong>: aggregate usage statistics. Google Analytics does not access your photos, memory content, or children&apos;s information.</li>
+              <li><strong>Sentry</strong>: error monitoring, so a crash gets reported to us instead of silently ruining your day. Sentry records no ordinary browsing sessions (session replay is set to 0%), and captures a replay only when an error actually happens. In those replays all text is masked and all images and media are blocked, so we see the shape of what went wrong and not your photos, memories, or children&apos;s information.</li>
             </ul>
             <p className="leading-relaxed mt-3"><strong>None of our analytics or third-party services are used for advertising. We do not sell, share, or rent your personal information to anyone, ever.</strong></p>
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">8. California Residents (CCPA)</h2>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">9. If Rooted Is Ever Sold or Transferred</h2>
+            <p className="leading-relaxed">Rooted is a small, family-run company, and we have no plans to sell it. But you deserve to know what would happen to your memories if that ever changed, so here is our commitment in writing:</p>
+            <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
+              <li>We will email you before your information moves to anyone else, not after.</li>
+              <li>You will have time to export everything and delete your account first, before any transfer takes place.</li>
+              <li>Any company that acquires Rooted will be required to honor this policy for information collected before the transfer, including the artificial intelligence commitment in section 4.</li>
+              <li>Your memories are never sold as an asset separate from the service itself. They are not a database to be sold off on their own.</li>
+              <li>If Rooted ever shuts down, we will give you notice and a window to export your data before anything is deleted.</li>
+            </ul>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">10. California Residents (CCPA)</h2>
             <p className="leading-relaxed">If you are a California resident, you have the following rights under the California Consumer Privacy Act (CCPA):</p>
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
               <li><strong>Right to Know:</strong> You may request a copy of the personal information we have collected about you.</li>
@@ -77,7 +102,7 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-lg font-bold text-[#2d2926] mb-3">9. Contact Us</h2>
+            <h2 className="text-lg font-bold text-[#2d2926] mb-3">11. Contact Us</h2>
             <p className="leading-relaxed">If you have questions about this Privacy Policy or your data, please contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>. We are a small, family-run company and will respond personally to every inquiry.</p>
           </section>
         </div>

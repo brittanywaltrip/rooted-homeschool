@@ -14,6 +14,7 @@
     "backfill:commission-amounts": "node --env-file=.env.local scripts/backfill-commission-amounts.ts",
     "backfill:photo-dimensions": "node --env-file=.env.local scripts/backfill-photo-dimensions.ts",
     "cleanup:bunched": "node --env-file=.env.local scripts/cleanup-bunched-lessons.ts",
+    "purge:orphan-storage": "node --env-file=.env.local scripts/purge-orphan-storage.ts",
     "cap:sync": "npx cap sync",
     "cap:ios": "npx cap open ios",
     "cap:android": "npx cap open android"
