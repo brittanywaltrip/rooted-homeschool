@@ -59,6 +59,14 @@ export type MemoryTableRow = {
   caption?: string | null;
   photo_url?: string | null;
   date?: string | null;
+  /** Books only. NULL = whole family. See bookBelongsToChild below. */
+  book_child_ids?: string[] | null;
+  book_author?: string | null;
+  book_pages?: number | null;
+  book_cover_url?: string | null;
+  book_how?: string | null;
+  book_rating?: number | null;
+  book_notes?: string | null;
 };
 
 /**
@@ -79,6 +87,18 @@ export type MemoryRecord = {
   caption: string | null;
   photo_url: string | null;
   date: string | null;
+  /**
+   * Books only, from the August 2026 structured-fields migration. NULL means
+   * whole family; legacy rows written before the column existed are also NULL,
+   * which is why child_id still has to be consulted. See bookBelongsToChild.
+   */
+  book_child_ids: string[] | null;
+  book_author: string | null;
+  book_pages: number | null;
+  book_cover_url: string | null;
+  book_how: string | null;
+  book_rating: number | null;
+  book_notes: string | null;
 };
 
 function toRecordFromMemory(row: MemoryTableRow): MemoryRecord {
@@ -90,6 +110,22 @@ function toRecordFromMemory(row: MemoryTableRow): MemoryRecord {
     caption: row.caption ?? null,
     photo_url: row.photo_url ?? null,
     date: row.date ?? null,
+    // An empty array is normalised to null: "selected nobody" and "whole
+    // family" are the same intent, and the modal saves null for both, but a
+    // hand-written row could still arrive as {}.
+    book_child_ids: row.book_child_ids && row.book_child_ids.length > 0 ? row.book_child_ids : null,
+    book_author: row.book_author ?? null,
+    book_pages: row.book_pages ?? null,
+    book_cover_url: row.book_cover_url ?? null,
+    book_how: row.book_how ?? null,
+    // A rating outside 1-5 cannot come from the modal or survive the check
+    // constraint, but a hand-edited row could still carry one; clamp to null
+    // rather than render a row of eleven leaves.
+    book_rating:
+      typeof row.book_rating === "number" && row.book_rating >= 1 && row.book_rating <= 5
+        ? Math.round(row.book_rating)
+        : null,
+    book_notes: row.book_notes ?? null,
   };
 }
 
@@ -102,7 +138,42 @@ function toRecordFromLegacy(ev: LegacyMemoryEvent): MemoryRecord {
     caption: ev.payload?.caption ?? null,
     photo_url: ev.payload?.photo_url ?? null,
     date: ev.payload?.date ?? null,
+    // Legacy events predate every structured book field. They carry a single
+    // payload.child_id at most, so they fall through to the child_id rules in
+    // bookBelongsToChild.
+    book_child_ids: null,
+    book_author: null,
+    book_pages: null,
+    book_cover_url: null,
+    book_how: null,
+    book_rating: null,
+    book_notes: null,
   };
+}
+
+/**
+ * Display labels for book_how. The stored values are the migration's check
+ * constraint; these are what a family reads. Kept here rather than in the page
+ * so the card and the printed sheet can never drift apart.
+ */
+export const BOOK_HOW_LABELS: Record<string, string> = {
+  read_aloud: "Read aloud",
+  read_together: "Read together",
+  independent: "Independent",
+  audiobook: "Audiobook",
+  assigned: "Assigned",
+};
+
+/** Label for a stored book_how, or null when unset or unrecognised. */
+export function bookHowLabel(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return BOOK_HOW_LABELS[value] ?? null;
+}
+
+/** A rating rendered as leaves, or "" when unset. */
+export function ratingLeaves(rating: number | null | undefined): string {
+  if (typeof rating !== "number" || rating < 1 || rating > 5) return "";
+  return "🌿".repeat(Math.round(rating));
 }
 
 /**
@@ -117,6 +188,55 @@ function bookKey(r: MemoryRecord): string {
 
 export function isBook(r: MemoryRecord): boolean {
   return r.type === "book";
+}
+
+/**
+ * Does this record count toward `childId`'s log?
+ *
+ * Three shapes, in priority order:
+ *
+ *   1. book_child_ids is set  -> counts for exactly those children. A book
+ *      read to Ada and Bea must NEVER appear on Cal's reading log, so this
+ *      branch is exact and does not fall back to child_id.
+ *   2. book_child_ids is null, child_id is set -> that one child (the legacy
+ *      single-child row, and what the modal still writes when exactly one
+ *      child is selected).
+ *   3. both null -> whole family, counts for every child.
+ *
+ * `childId` of "all" (the reports page's sentinel for no filter) matches
+ * everything, so callers can pass their filter state through unchanged.
+ */
+export function bookBelongsToChild(r: MemoryRecord, childId: string | null): boolean {
+  if (!childId || childId === "all") return true;
+  if (r.book_child_ids && r.book_child_ids.length > 0) {
+    return r.book_child_ids.includes(childId);
+  }
+  if (r.child_id) return r.child_id === childId;
+  return true;
+}
+
+/**
+ * Which cover to show. The family's own photo always wins over a stock cover
+ * pulled from Open Library — they took it, and it is of their actual book.
+ * Returns null when neither exists and the caller should draw its placeholder.
+ *
+ * The two sources live in different buckets' worth of assumptions: photo_url
+ * is a Supabase storage path needing a signed URL, book_cover_url is an
+ * absolute https URL from covers.openlibrary.org. Callers must branch on
+ * `kind` rather than feeding both to the same <img>.
+ */
+export type BookCover =
+  | { kind: "photo"; src: string }
+  | { kind: "external"; src: string }
+  | null;
+
+export function bookCover(r: {
+  photo_url?: string | null;
+  book_cover_url?: string | null;
+}): BookCover {
+  if (r.photo_url) return { kind: "photo", src: r.photo_url };
+  if (r.book_cover_url) return { kind: "external", src: r.book_cover_url };
+  return null;
 }
 
 /**
@@ -165,10 +285,22 @@ export function mergeBookRecords(
  * Count records per child id. Records with no child (a whole-family memory)
  * are skipped, matching how every leaf counter in the app already behaves:
  * a leaf belongs to one child's tree or to none.
+ *
+ * A book naming several children in book_child_ids credits EACH of them. It
+ * really was that child's reading, and without this a family who correctly
+ * ticks two children would grow fewer leaves than one who ticked one — the
+ * multi-select would quietly punish accurate record-keeping. Whole-family
+ * books (both fields null) still credit nobody, unchanged.
  */
 export function countByChild(records: MemoryRecord[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const r of records) {
+    if (r.book_child_ids && r.book_child_ids.length > 0) {
+      for (const cid of r.book_child_ids) {
+        if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
+      }
+      continue;
+    }
     if (!r.child_id) continue;
     counts[r.child_id] = (counts[r.child_id] ?? 0) + 1;
   }
