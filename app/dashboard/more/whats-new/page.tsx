@@ -9,6 +9,14 @@ import { ChevronLeft } from "lucide-react";
 const UPDATES = [
   {
     date: "August 2026",
+    emoji: "🔖",
+    title: "Books in progress",
+    description:
+      "Reading a chapter book that takes weeks? Log it with 'Still reading it' and it sits on a little Currently Reading shelf on your Reading Log until you're done. When you finish, one tap marks it complete, and that's the moment to add your child's leaf rating and what they thought. You can also now edit or remove any book right from the log, wrong kid, wrong book, two taps to fix. No reminders, no nagging, ever. Books finish when they finish.",
+    inspiredByFamily: true,
+  },
+  {
+    date: "August 2026",
     emoji: "📚",
     title: "Your Reading Log is here",
     description:
