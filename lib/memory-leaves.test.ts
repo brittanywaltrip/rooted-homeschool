@@ -111,6 +111,32 @@ test("countByChild sums per child and skips whole-family memories", () => {
   assert.deepEqual(counts, { [KID_A]: 2, [KID_B]: 1 });
 });
 
+test("id and caption pass through without joining the dedupe key", () => {
+  const records = mergeMemoryRecords(
+    [{ id: "mem-1", child_id: KID_A, type: "photo", title: null, caption: "at the creek", date: "2026-06-01" }],
+    [{ id: "evt-1", type: "memory_field_trip", payload: { caption: "the aquarium", child_id: KID_A, date: "2026-06-02" } }],
+  );
+  assert.deepEqual(records.map((r) => r.id), ["mem-1", "evt-1"]);
+  assert.deepEqual(records.map((r) => r.caption), ["at the creek", "the aquarium"]);
+
+  // Same book, different ids and captions in each table — still one book.
+  const books = mergeBookRecords(
+    [{ id: "mem-2", child_id: KID_A, type: "book", title: "Charlotte's Web", caption: "Author: E.B. White", date: "2026-03-20" }],
+    [{ id: "evt-2", type: "book_read", payload: { title: "Charlotte's Web", caption: "different note", child_id: KID_A, date: "2026-03-20" } }],
+  );
+  assert.equal(books.length, 1);
+  assert.equal(books[0].id, "mem-2");
+});
+
+test("records with no id selected are still well formed", () => {
+  const records = mergeMemoryRecords(
+    [{ child_id: KID_A, type: "photo", title: null, date: "2026-06-01" }],
+    [{ type: "memory_photo", payload: { child_id: KID_A, date: "2026-06-02" } }],
+  );
+  assert.deepEqual(records.map((r) => r.id), [null, null]);
+  assert.deepEqual(records.map((r) => r.caption), [null, null]);
+});
+
 test("null / undefined inputs are treated as empty", () => {
   assert.deepEqual(mergeMemoryRecords(null, undefined), []);
   assert.deepEqual(countByChild([]), {});

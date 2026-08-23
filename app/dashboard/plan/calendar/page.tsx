@@ -9,6 +9,7 @@ import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { computeNextLessonsForGoal, loadPinsByGoal, type CurriculumGoalConfig, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
+import { mergeMemoryRecords, LEGACY_MEMORY_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,6 +27,7 @@ type Lesson = {
   notes: string | null;
 };
 
+/** Raw legacy app_events row, as stored before memories got its own table. */
 type AppEvent = {
   id: string;
   type: string;
@@ -40,6 +42,13 @@ type AppEvent = {
   } | null;
 };
 
+/**
+ * A captured memory as this calendar renders it: the `memories` table merged
+ * with the pre-March-2026 legacy events. See lib/memory-leaves.ts. `date` is
+ * resolved before the merge, so it is always a real day key here.
+ */
+type CalendarMemory = MemoryRecord & { date: string };
+
 type VacationBlock = {
   id: string;
   name: string;
@@ -49,8 +58,8 @@ type VacationBlock = {
 
 type DayActivity = {
   lessons: Lesson[];
-  memories: AppEvent[];
-  fieldTrips: AppEvent[];
+  memories: CalendarMemory[];
+  fieldTrips: CalendarMemory[];
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -63,14 +72,6 @@ function isInVacation(dateStr: string, blocks: VacationBlock[]): VacationBlock |
   return blocks.find((b) => dateStr >= b.start_date && dateStr <= b.end_date) ?? null;
 }
 
-function getEventDate(ev: AppEvent): string {
-  return ev.payload?.date ?? ev.created_at.slice(0, 10);
-}
-
-function getEventChildId(ev: AppEvent): string | null {
-  return ev.payload?.child_id ?? null;
-}
-
 function getSeasonalTint(month: number): string {
   if (month === 11 || month <= 1) return "rgba(120, 168, 224, 0.06)"; // Dec/Jan/Feb — cool blue-gray
   if (month >= 2 && month <= 4)   return "rgba(122, 158, 126, 0.06)"; // Mar/Apr/May — soft green
@@ -80,8 +81,15 @@ function getSeasonalTint(month: number): string {
 
 const DOW_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const MEMORY_TYPES = ["memory_book", "memory_photo", "memory_project", "memory_activity"];
-const FIELD_TRIP_TYPES = ["memory_field_trip"];
+/**
+ * Field trips get their own bucket and their own 🚌 indicator; every other
+ * captured memory shares the 📸 bucket that also drives the golden-day glow.
+ * Keyed off the canonical `memories.type` value, so a legacy
+ * 'memory_field_trip' event and a modern 'field_trip' row land together.
+ */
+function isFieldTrip(type: string): boolean {
+  return type === "field_trip";
+}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -98,7 +106,7 @@ export default function CalendarPage() {
 
   const [children, setChildren] = useState<Child[]>([]);
   const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [events, setEvents] = useState<AppEvent[]>([]);
+  const [events, setEvents] = useState<CalendarMemory[]>([]);
   const [vacations, setVacations] = useState<VacationBlock[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedChild, setSelectedChild] = useState<string | null>(null);
@@ -132,6 +140,7 @@ export default function CalendarPage() {
     const [
       { data: kids },
       { data: goalsRaw },
+      { data: memoryRows },
       { data: appEvents },
       { data: vacs },
       { data: completedTodayRaw },
@@ -142,11 +151,20 @@ export default function CalendarPage() {
         .select("id, total_lessons, lessons_per_day, school_days, current_lesson")
         .eq("user_id", effectiveUserId)
         .eq("archived", false),
+      // Captured memories for the visible month. The memories table is the
+      // source of truth (it has a real `date` column); the legacy app_events
+      // rows below are merged in behind it so pre-March captures still show.
+      supabase
+        .from("memories")
+        .select("id, child_id, type, title, caption, date")
+        .eq("user_id", effectiveUserId)
+        .gte("date", s)
+        .lte("date", e),
       supabase
         .from("app_events")
         .select("id, type, created_at, payload")
         .eq("user_id", effectiveUserId)
-        .in("type", [...MEMORY_TYPES, ...FIELD_TRIP_TYPES])
+        .in("type", [...LEGACY_MEMORY_EVENT_TYPES])
         .gte("created_at", s + "T00:00:00")
         .lte("created_at", e + "T23:59:59"),
       supabase
@@ -251,7 +269,17 @@ export default function CalendarPage() {
     for (const r of oneOffRows) byId.set(r.id, r);
     setLessons(Array.from(byId.values()) as Lesson[]);
 
-    setEvents((appEvents as unknown as AppEvent[]) ?? []);
+    // A legacy event with no payload.date falls back to its created_at day,
+    // which is what this page has always done — resolve it BEFORE the merge so
+    // every record leaves the helper with a real day key.
+    const legacyForMerge = ((appEvents as unknown as AppEvent[]) ?? []).map((ev) => ({
+      id: ev.id,
+      type: ev.type,
+      payload: { ...(ev.payload ?? {}), date: ev.payload?.date ?? ev.created_at.slice(0, 10) },
+    }));
+    const mergedMemories = mergeMemoryRecords(memoryRows ?? [], legacyForMerge)
+      .filter((m): m is CalendarMemory => !!m.date);
+    setEvents(mergedMemories);
     setVacations((vacs as VacationBlock[]) ?? []);
     setLoading(false);
   }, [monthStart, effectiveUserId, todayStr]);
@@ -317,14 +345,12 @@ export default function CalendarPage() {
     ensureDay(key).lessons.push(l);
   }
 
-  for (const ev of events) {
-    const key = getEventDate(ev);
-    const childId = getEventChildId(ev);
-    if (selectedChild && childId !== selectedChild) continue;
-    if (FIELD_TRIP_TYPES.includes(ev.type)) {
-      ensureDay(key).fieldTrips.push(ev);
+  for (const m of events) {
+    if (selectedChild && m.child_id !== selectedChild) continue;
+    if (isFieldTrip(m.type)) {
+      ensureDay(m.date).fieldTrips.push(m);
     } else {
-      ensureDay(key).memories.push(ev);
+      ensureDay(m.date).memories.push(m);
     }
   }
 
@@ -361,8 +387,8 @@ export default function CalendarPage() {
         dots.push({ childId: cid, color: child?.color ?? "#7a6f65" });
       }
     }
-    for (const ev of [...activity.memories, ...activity.fieldTrips]) {
-      const cid = getEventChildId(ev) ?? "__none__";
+    for (const m of [...activity.memories, ...activity.fieldTrips]) {
+      const cid = m.child_id ?? "__none__";
       if (!seen.has(cid)) {
         seen.add(cid);
         const child = children.find((c) => c.id === cid);
@@ -427,7 +453,7 @@ export default function CalendarPage() {
 
   // Group selected day activity by child
   function groupByChild(activity: DayActivity) {
-    const map = new Map<string, { child: Child | null; lessons: Lesson[]; memories: AppEvent[]; fieldTrips: AppEvent[] }>();
+    const map = new Map<string, { child: Child | null; lessons: Lesson[]; memories: CalendarMemory[]; fieldTrips: CalendarMemory[] }>();
     const allKey = "__all__";
 
     for (const l of activity.lessons) {
@@ -435,15 +461,15 @@ export default function CalendarPage() {
       if (!map.has(k)) map.set(k, { child: children.find((c) => c.id === k) ?? null, lessons: [], memories: [], fieldTrips: [] });
       map.get(k)!.lessons.push(l);
     }
-    for (const ev of activity.memories) {
-      const k = getEventChildId(ev) ?? allKey;
+    for (const m of activity.memories) {
+      const k = m.child_id ?? allKey;
       if (!map.has(k)) map.set(k, { child: children.find((c) => c.id === k) ?? null, lessons: [], memories: [], fieldTrips: [] });
-      map.get(k)!.memories.push(ev);
+      map.get(k)!.memories.push(m);
     }
-    for (const ev of activity.fieldTrips) {
-      const k = getEventChildId(ev) ?? allKey;
+    for (const m of activity.fieldTrips) {
+      const k = m.child_id ?? allKey;
       if (!map.has(k)) map.set(k, { child: children.find((c) => c.id === k) ?? null, lessons: [], memories: [], fieldTrips: [] });
-      map.get(k)!.fieldTrips.push(ev);
+      map.get(k)!.fieldTrips.push(m);
     }
     return Array.from(map.values());
   }
@@ -773,21 +799,21 @@ export default function CalendarPage() {
                   })}
 
                   {/* Memories */}
-                  {group.memories.map((ev) => (
-                    <div key={ev.id} className="flex items-center gap-2 pl-8">
+                  {group.memories.map((m, mi) => (
+                    <div key={m.id ?? `memory-${mi}`} className="flex items-center gap-2 pl-8">
                       <span className="text-[10px] leading-none shrink-0">{"\uD83D\uDCF8"}</span>
                       <span className="text-xs text-[#8b6820]">
-                        {ev.payload?.title ?? ev.payload?.caption ?? "Memory logged"}
+                        {m.title ?? m.caption ?? "Memory logged"}
                       </span>
                     </div>
                   ))}
 
                   {/* Field trips */}
-                  {group.fieldTrips.map((ev) => (
-                    <div key={ev.id} className="flex items-center gap-2 pl-8">
+                  {group.fieldTrips.map((m, fi) => (
+                    <div key={m.id ?? `field-trip-${fi}`} className="flex items-center gap-2 pl-8">
                       <span className="text-[10px] leading-none shrink-0">{"\uD83D\uDE8C"}</span>
                       <span className="text-xs text-[#6b3fa0]">
-                        {ev.payload?.title ?? "Field trip"}
+                        {m.title ?? "Field trip"}
                       </span>
                     </div>
                   ))}

@@ -38,43 +38,62 @@ const LEGACY_TYPE_TO_MEMORY_TYPE: Record<string, string> = {
 };
 
 export type LegacyMemoryEvent = {
+  /** Optional: only the surfaces that need a stable render key select it. */
+  id?: string | null;
   type: string;
   payload: {
     title?: string;
+    caption?: string;
     child_id?: string;
     date?: string;
   } | null;
 };
 
 export type MemoryTableRow = {
+  /** Optional: only the surfaces that need a stable render key select it. */
+  id?: string | null;
   child_id: string | null;
   type: string;
   title?: string | null;
+  caption?: string | null;
   date?: string | null;
 };
 
-/** One captured memory, from whichever source it came from. */
+/**
+ * One captured memory, from whichever source it came from.
+ *
+ * `id` and `caption` are pure passthrough for callers that render the record
+ * (they need a React key and a label fallback). Neither takes part in the
+ * dedupe key — ids differ across the two tables by definition, and a book's
+ * caption holds "Author: X | Pages: N" rather than anything identifying.
+ */
 export type MemoryRecord = {
+  id: string | null;
   child_id: string | null;
   type: string;
   title: string | null;
+  caption: string | null;
   date: string | null;
 };
 
 function toRecordFromMemory(row: MemoryTableRow): MemoryRecord {
   return {
+    id: row.id ?? null,
     child_id: row.child_id ?? null,
     type: row.type,
     title: row.title ?? null,
+    caption: row.caption ?? null,
     date: row.date ?? null,
   };
 }
 
 function toRecordFromLegacy(ev: LegacyMemoryEvent): MemoryRecord {
   return {
+    id: ev.id ?? null,
     child_id: ev.payload?.child_id ?? null,
     type: LEGACY_TYPE_TO_MEMORY_TYPE[ev.type] ?? ev.type,
     title: ev.payload?.title ?? null,
+    caption: ev.payload?.caption ?? null,
     date: ev.payload?.date ?? null,
   };
 }
