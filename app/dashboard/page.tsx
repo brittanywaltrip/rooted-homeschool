@@ -39,6 +39,7 @@ import { biweeklyOccursOn } from "@/app/components/PlanV2/activityOccurrences";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { isSchoolDayDate } from "@/lib/school-days";
+import { mergeMemoryRecords, countByChild, LEGACY_MEMORY_EVENT_TYPES } from "@/lib/memory-leaves";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { useIsNativeApp } from "@/lib/platform";
@@ -593,17 +594,27 @@ export default function TodayPage() {
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
+  // A leaf is a completed lesson or a captured memory. Memories live in the
+  // `memories` table since March 2026; the legacy app_events rows are merged in
+  // behind them so pre-March captures still count, and a book written to both
+  // tables during the cutover counts once. Same source set as the garden pages,
+  // so the toast number and the tree never disagree. See lib/memory-leaves.ts.
   const refreshLeafCounts = useCallback(async () => {
     if (!effectiveUserId) return;
-    const [{ data: completed }, { data: bookEvents }, { data: memEvents }] = await Promise.all([
+    const [{ data: completed }, { data: memoryRows }, { data: legacyEvents }] = await Promise.all([
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
-      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
-      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_field_trip"]),
+      supabase.from("memories").select("child_id, type, title, date").eq("user_id", effectiveUserId),
+      supabase.from("app_events").select("type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_MEMORY_EVENT_TYPES]),
     ]);
     const counts: Record<string, number> = {};
     completed?.forEach((l) => { if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
-    bookEvents?.forEach((e) => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
-    memEvents?.forEach((e)  => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
+    const memoryLeaves = countByChild(
+      mergeMemoryRecords(
+        memoryRows ?? [],
+        (legacyEvents as unknown as { type: string; payload: { title?: string; child_id?: string; date?: string } | null }[]) ?? [],
+      ),
+    );
+    for (const [cid, n] of Object.entries(memoryLeaves)) counts[cid] = (counts[cid] ?? 0) + n;
     setLeafCounts(counts);
   }, [effectiveUserId]);
 
@@ -744,8 +755,8 @@ export default function TodayPage() {
       allLessonsResult,
       recentLessonsResult,
       completedResult,
-      bookEventsResult,
-      memEventsResult,
+      leafMemoriesResult,
+      leafLegacyEventsResult,
       todayBooksResult,
       todayMemEventsResult,
       subjectsResult,
@@ -774,8 +785,11 @@ export default function TodayPage() {
       supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
       supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
       supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
-      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
-      supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_field_trip"]),
+      // Leaf sources: the memories table first, legacy app_events merged in
+      // behind it. Books moved to `memories` in March 2026, so reading the
+      // legacy table alone hid every book logged since. See lib/memory-leaves.ts.
+      supabase.from("memories").select("child_id, type, title, date").eq("user_id", effectiveUserId),
+      supabase.from("app_events").select("type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_MEMORY_EVENT_TYPES]),
       supabase.from("app_events").select("id, payload").eq("user_id", effectiveUserId).eq("type", "book_read").filter("payload->>date", "eq", today),
       supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_photo"]).filter("payload->>date", "eq", today),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
@@ -1346,14 +1360,19 @@ export default function TodayPage() {
       setSelectedChild((firstIncomplete ?? kidsWithLessons[0]).id);
     }
 
-    // Leaf counts
+    // Leaf counts — completed lessons plus every captured memory, merged
+    // across the memories table and the legacy app_events rows (books that
+    // exist in both count once). Mirrors refreshLeafCounts above.
     const completed = completedResult.data;
-    const bookEvents = bookEventsResult.data;
-    const memEvents = memEventsResult.data;
     const counts: Record<string, number> = {};
     completed?.forEach((l) => { if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
-    bookEvents?.forEach((e) => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
-    memEvents?.forEach((e)  => { const cid = e.payload?.child_id; if (cid) counts[cid] = (counts[cid] ?? 0) + 1; });
+    const memoryLeaves = countByChild(
+      mergeMemoryRecords(
+        leafMemoriesResult.data ?? [],
+        (leafLegacyEventsResult.data as unknown as { type: string; payload: { title?: string; child_id?: string; date?: string } | null }[]) ?? [],
+      ),
+    );
+    for (const [cid, n] of Object.entries(memoryLeaves)) counts[cid] = (counts[cid] ?? 0) + n;
     setLeafCounts(counts);
 
     // Today books + memory events

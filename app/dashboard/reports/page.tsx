@@ -8,6 +8,7 @@ import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { canExport } from "@/lib/user-access";
+import { mergeBookRecords, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 import ExportGateModal from "@/app/components/ExportGateModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -21,7 +22,12 @@ type Lesson   = {
   completed: boolean; completed_at: string | null;
   minutes_spent: number | null;
 };
-type BookEvent  = { payload: { title?: string; child_id?: string; date?: string } };
+/**
+ * A book read, from `memories` (type 'book') merged with the pre-March
+ * `app_events` rows. See lib/memory-leaves.ts — books moved tables in March
+ * 2026 and this page used to read the legacy table alone.
+ */
+type BookRecord = MemoryRecord;
 type MemoryActivity = { child_id: string | null; type: string; date: string; duration_minutes: number | null };
 type ReportAppointment = {
   id: string;
@@ -52,7 +58,7 @@ function PrintReport({
   children: Child[];
   dateFrom: string; dateTo: string;
   lessons: Lesson[];
-  books: BookEvent[];
+  books: BookRecord[];
   activities: MemoryActivity[];
   appointments: ReportAppointment[];
 }) {
@@ -62,9 +68,11 @@ function PrintReport({
     if (child && l.child_id !== child.id) return false;
     return d >= dateFrom && d <= dateTo;
   });
+  // A book with no child is a whole-family read and counts toward whichever
+  // child the report is for — unchanged from the legacy behaviour.
   const filteredBooks = books.filter((b) => {
-    if (child && b.payload.child_id && b.payload.child_id !== child.id) return false;
-    const d = b.payload.date ?? "";
+    if (child && b.child_id && b.child_id !== child.id) return false;
+    const d = b.date ?? "";
     return d >= dateFrom && d <= dateTo;
   });
 
@@ -221,7 +229,7 @@ function PrintReport({
             {filteredBooks.map((b, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">
                 <span className="text-[#5c7f63]">📖</span>
-                <span className="text-[#2d2926]">{b.payload.title ?? "Untitled"}</span>
+                <span className="text-[#2d2926]">{b.title ?? "Untitled"}</span>
               </div>
             ))}
           </div>
@@ -260,7 +268,7 @@ export default function ReportsPage() {
   const { effectiveUserId } = usePartner();
   const [children,   setChildren]   = useState<Child[]>([]);
   const [lessons,    setLessons]    = useState<Lesson[]>([]);
-  const [books,      setBooks]      = useState<BookEvent[]>([]);
+  const [books,      setBooks]      = useState<BookRecord[]>([]);
   const [activities, setActivities] = useState<MemoryActivity[]>([]);
   const [appointments, setAppointments] = useState<ReportAppointment[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -281,6 +289,7 @@ export default function ReportsPage() {
       const [
         { data: kids },
         { data: lessons_ },
+        { data: bookMemories },
         { data: bookEvts },
         { data: memActivities },
         { data: profile },
@@ -289,7 +298,10 @@ export default function ReportsPage() {
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
         supabase.from("lessons").select("id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, completed_at, minutes_spent").eq("user_id", effectiveUserId),
-        supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+        // Books live in `memories` (type 'book') since March 2026. The legacy
+        // app_events read below is kept so pre-March books still count.
+        supabase.from("memories").select("child_id, type, title, date").eq("user_id", effectiveUserId).eq("type", "book"),
+        supabase.from("app_events").select("type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_BOOK_EVENT_TYPES]),
         supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
         supabase.from("profiles").select("is_pro, trial_started_at").eq("id", effectiveUserId).single(),
         // One-time completed appointments: completion lives on the base row.
@@ -312,7 +324,7 @@ export default function ReportsPage() {
 
       setChildren(capitalizeChildNames(kids ?? []));
       setLessons((lessons_ as unknown as Lesson[]) ?? []);
-      setBooks((bookEvts as unknown as BookEvent[]) ?? []);
+      setBooks(mergeBookRecords(bookMemories ?? [], (bookEvts as unknown as { type: string; payload: { title?: string; child_id?: string; date?: string } | null }[]) ?? []));
       setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
 
       type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null; is_school_activity: boolean };
@@ -384,9 +396,9 @@ export default function ReportsPage() {
     completedFiltered.map((l) => l.curriculum_goal_id).filter((id): id is string => id !== null)
   ).size;
   const filteredBooksCount  = books.filter((b) => {
-    const d = b.payload.date ?? "";
+    const d = b.date ?? "";
     if (!d || d < dateFrom || d > dateTo) return false;
-    if (selectedChild !== "all" && b.payload.child_id && b.payload.child_id !== selectedChild) return false;
+    if (selectedChild !== "all" && b.child_id && b.child_id !== selectedChild) return false;
     return true;
   }).length;
 
