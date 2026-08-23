@@ -7,6 +7,11 @@ import {
   BADGE_CATEGORIES,
   getEarnedBadgeKeys,
 } from "@/app/lib/badges-tiered";
+import {
+  mergeMemoryRecords,
+  countByChild,
+  LEGACY_MEMORY_EVENT_TYPES,
+} from "@/lib/memory-leaves";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,20 +96,22 @@ function ChildPageInner() {
       supabase.from("lessons").select("child_id")
         .eq("user_id", uid).eq("completed", true),
       supabase.from("app_events").select("type, payload")
-        .eq("user_id", uid).in("type", ["book_read", "memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"]),
-      supabase.from("memories").select("child_id, type")
+        .eq("user_id", uid).in("type", [...LEGACY_MEMORY_EVENT_TYPES]),
+      // title + date come along so a book written to BOTH tables during the
+      // March 2026 cutover grows one leaf, not two (lib/memory-leaves.ts).
+      supabase.from("memories").select("child_id, type, title, date")
         .eq("user_id", uid),
     ]);
 
     const counts: Record<string, number> = {};
     completed?.forEach((l) => { counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
-    activityEvents?.forEach((e) => {
-      const cid = e.payload?.child_id;
-      if (cid) counts[cid] = (counts[cid] ?? 0) + 1;
-    });
-    (memoryRows ?? []).forEach((m: { child_id: string | null }) => {
-      if (m.child_id) counts[m.child_id] = (counts[m.child_id] ?? 0) + 1;
-    });
+    const memoryLeaves = countByChild(
+      mergeMemoryRecords(
+        memoryRows ?? [],
+        (activityEvents as unknown as { type: string; payload: { title?: string; child_id?: string; date?: string } | null }[]) ?? [],
+      ),
+    );
+    for (const [cid, n] of Object.entries(memoryLeaves)) counts[cid] = (counts[cid] ?? 0) + n;
 
     setChildren(kids ?? []);
     setLeafCounts(counts);

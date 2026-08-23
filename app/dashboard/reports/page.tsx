@@ -8,6 +8,9 @@ import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { canExport } from "@/lib/user-access";
+import { schoolNameFor } from "@/lib/school-name";
+import { mergeBookRecords, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
+import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -21,7 +24,12 @@ type Lesson   = {
   completed: boolean; completed_at: string | null;
   minutes_spent: number | null;
 };
-type BookEvent  = { payload: { title?: string; child_id?: string; date?: string } };
+/**
+ * A book read, from `memories` (type 'book') merged with the pre-March
+ * `app_events` rows. See lib/memory-leaves.ts — books moved tables in March
+ * 2026 and this page used to read the legacy table alone.
+ */
+type BookRecord = MemoryRecord;
 type MemoryActivity = { child_id: string | null; type: string; date: string; duration_minutes: number | null };
 type ReportAppointment = {
   id: string;
@@ -43,6 +51,121 @@ function schoolYearStart() {
   return `${year}-08-01`;
 }
 
+// ─── Reading log helpers ──────────────────────────────────────────────────────
+
+/**
+ * A book's caption is written by the Today book modal as
+ * "Author: X | Pages: N", where either half may be absent. Rows predating that
+ * format hold free text, and nothing stops a family from editing a caption by
+ * hand in Memories, so this parser treats the structured shape as a lucky case
+ * rather than a guarantee.
+ *
+ * Structured halves are extracted only when they actually match. Anything else
+ * is returned whole as `freeText`, which the UI shows in the author slot and
+ * counts as zero pages. Never throws.
+ */
+type ParsedCaption = { author: string | null; pages: number | null; freeText: string | null };
+
+function parseBookCaption(caption: string | null | undefined): ParsedCaption {
+  const empty: ParsedCaption = { author: null, pages: null, freeText: null };
+  if (typeof caption !== "string") return empty;
+  const trimmed = caption.trim();
+  if (!trimmed) return empty;
+
+  let author: string | null = null;
+  let pages: number | null = null;
+
+  for (const part of trimmed.split("|")) {
+    const seg = part.trim();
+    if (!seg) continue;
+    const authorMatch = /^author\s*:\s*(.+)$/i.exec(seg);
+    if (authorMatch) {
+      const value = authorMatch[1].trim();
+      if (value) author = value;
+      continue;
+    }
+    const pagesMatch = /^pages\s*:\s*(\d{1,6})\b/i.exec(seg);
+    if (pagesMatch) {
+      const n = Number.parseInt(pagesMatch[1], 10);
+      // A page count of 0 is not a reading record, and six digits is already
+      // far past any real book — either way, count nothing rather than put a
+      // nonsense total on a document going into a state portfolio.
+      if (Number.isFinite(n) && n > 0) pages = n;
+      continue;
+    }
+  }
+
+  // Neither half matched: keep the caption intact rather than discarding what
+  // the family wrote.
+  if (author === null && pages === null) return { author: null, pages: null, freeText: trimmed };
+  return { author, pages, freeText: null };
+}
+
+/** Monday of the week containing `dateStr`, as YYYY-MM-DD. */
+function weekStartKey(dateStr: string): string | null {
+  const d = new Date(dateStr.slice(0, 10) + "T12:00:00");
+  if (Number.isNaN(d.getTime())) return null;
+  const dow = d.getDay();                 // 0=Sun
+  const backToMonday = dow === 0 ? 6 : dow - 1;
+  d.setDate(d.getDate() - backToMonday);
+  return toDateStr(d);
+}
+
+/**
+ * Longest run of consecutive calendar weeks that contain at least one book.
+ * Weeks are keyed by their Monday, so "consecutive" is exactly 7 days apart —
+ * no ISO week-number arithmetic to get wrong at a year boundary.
+ */
+function longestWeeklyStreak(dates: string[]): number {
+  const weeks = Array.from(
+    new Set(dates.map(weekStartKey).filter((w): w is string => w !== null)),
+  ).sort();
+  if (weeks.length === 0) return 0;
+
+  let best = 1;
+  let run = 1;
+  for (let i = 1; i < weeks.length; i++) {
+    const prev = new Date(weeks[i - 1] + "T12:00:00");
+    prev.setDate(prev.getDate() + 7);
+    if (toDateStr(prev) === weeks[i]) {
+      run++;
+      if (run > best) best = run;
+    } else {
+      run = 1;
+    }
+  }
+  return best;
+}
+
+/** A book plus its parsed caption, ready to render or print. */
+type ReadingLogEntry = BookRecord & ParsedCaption;
+
+function buildReadingLog(
+  books: BookRecord[],
+  childId: string,
+  dateFrom: string,
+  dateTo: string,
+): ReadingLogEntry[] {
+  return books
+    .filter((b) => {
+      const d = b.date ?? "";
+      if (!d || d < dateFrom || d > dateTo) return false;
+      // A book with no child is a whole-family read and belongs to every
+      // child's log — same rule the Hours report uses.
+      if (childId !== "all" && b.child_id && b.child_id !== childId) return false;
+      return true;
+    })
+    .map((b) => ({ ...b, ...parseBookCaption(b.caption) }))
+    .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+}
+
+function formatLogDate(d: string | null): string {
+  if (!d) return "";
+  const dt = new Date(d.slice(0, 10) + "T12:00:00");
+  if (Number.isNaN(dt.getTime())) return "";
+  return dt.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 // ─── Print Report Component ───────────────────────────────────────────────────
 
 function PrintReport({
@@ -52,7 +175,7 @@ function PrintReport({
   children: Child[];
   dateFrom: string; dateTo: string;
   lessons: Lesson[];
-  books: BookEvent[];
+  books: BookRecord[];
   activities: MemoryActivity[];
   appointments: ReportAppointment[];
 }) {
@@ -62,9 +185,11 @@ function PrintReport({
     if (child && l.child_id !== child.id) return false;
     return d >= dateFrom && d <= dateTo;
   });
+  // A book with no child is a whole-family read and counts toward whichever
+  // child the report is for — unchanged from the legacy behaviour.
   const filteredBooks = books.filter((b) => {
-    if (child && b.payload.child_id && b.payload.child_id !== child.id) return false;
-    const d = b.payload.date ?? "";
+    if (child && b.child_id && b.child_id !== child.id) return false;
+    const d = b.date ?? "";
     return d >= dateFrom && d <= dateTo;
   });
 
@@ -221,7 +346,7 @@ function PrintReport({
             {filteredBooks.map((b, i) => (
               <div key={i} className="flex items-center gap-2 text-sm">
                 <span className="text-[#5c7f63]">📖</span>
-                <span className="text-[#2d2926]">{b.payload.title ?? "Untitled"}</span>
+                <span className="text-[#2d2926]">{b.title ?? "Untitled"}</span>
               </div>
             ))}
           </div>
@@ -254,13 +379,106 @@ function PrintReport({
   );
 }
 
+// ─── Reading Log print sheet ──────────────────────────────────────────────────
+
+/**
+ * The portfolio document. Pennsylvania requires a printed list of reading
+ * materials and other portfolio states ask for the same, so this sheet is the
+ * product: plain table, real dates, no decoration competing with the data.
+ *
+ * Rendered off-screen and revealed only during its own print job — see the
+ * print-mode-reading-log rules in the page's <style> block.
+ */
+function ReadingLogPrintSheet({
+  entries, schoolName, childName, dateFrom, dateTo,
+}: {
+  entries: ReadingLogEntry[];
+  schoolName: string;
+  childName: string;
+  dateFrom: string;
+  dateTo: string;
+}) {
+  const totalPages = entries.reduce((sum, e) => sum + (e.pages ?? 0), 0);
+  const fromLabel = formatLogDate(dateFrom);
+  const toLabel = formatLogDate(dateTo);
+
+  return (
+    <div className="reading-log-print-sheet" style={{ background: "#ffffff", color: "#000000", padding: 24 }}>
+      <div style={{ borderBottom: "1px solid #333", paddingBottom: 10, marginBottom: 14 }}>
+        {schoolName ? (
+          <p style={{ fontSize: 15, fontWeight: 700, margin: 0 }}>{schoolName}</p>
+        ) : null}
+        <h2 style={{ fontSize: 19, fontWeight: 700, margin: "4px 0 0" }}>Reading Log</h2>
+        <p style={{ fontSize: 12, margin: "3px 0 0" }}>{childName}</p>
+        <p style={{ fontSize: 12, margin: "2px 0 0" }}>{fromLabel} – {toLabel}</p>
+      </div>
+
+      {entries.length === 0 ? (
+        <p style={{ fontSize: 12 }}>No books recorded for this period.</p>
+      ) : (
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <thead>
+            <tr>
+              {[
+                { label: "Date", width: "18%", align: "left" as const },
+                { label: "Title", width: "42%", align: "left" as const },
+                { label: "Author", width: "28%", align: "left" as const },
+                { label: "Pages", width: "12%", align: "right" as const },
+              ].map((col) => (
+                <th
+                  key={col.label}
+                  style={{
+                    width: col.width, textAlign: col.align, padding: "6px 4px",
+                    borderBottom: "1px solid #333", fontWeight: 700,
+                  }}
+                >
+                  {col.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((e, i) => (
+              <tr key={e.id ?? `book-${i}`} style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
+                <td style={{ padding: "5px 4px", borderBottom: "1px solid #ddd", verticalAlign: "top" }}>
+                  {formatLogDate(e.date)}
+                </td>
+                <td style={{ padding: "5px 4px", borderBottom: "1px solid #ddd", verticalAlign: "top" }}>
+                  {e.title ?? "Untitled"}
+                </td>
+                <td style={{ padding: "5px 4px", borderBottom: "1px solid #ddd", verticalAlign: "top" }}>
+                  {e.author ?? e.freeText ?? ""}
+                </td>
+                <td style={{ padding: "5px 4px", borderBottom: "1px solid #ddd", textAlign: "right", verticalAlign: "top" }}>
+                  {e.pages ?? ""}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <p style={{ fontSize: 12, fontWeight: 700, marginTop: 12 }}>
+        Total: {entries.length} book{entries.length !== 1 ? "s" : ""}
+        {totalPages > 0 ? ` · ${totalPages.toLocaleString()} pages` : ""}
+      </p>
+
+      <div style={{ borderTop: "1px solid #ccc", marginTop: 16, paddingTop: 8, textAlign: "center" }}>
+        <p style={{ fontSize: 10, color: "#555", margin: 0 }}>
+          Generated by Rooted · This report documents home education activities for record-keeping purposes.
+        </p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
   const { effectiveUserId } = usePartner();
   const [children,   setChildren]   = useState<Child[]>([]);
   const [lessons,    setLessons]    = useState<Lesson[]>([]);
-  const [books,      setBooks]      = useState<BookEvent[]>([]);
+  const [books,      setBooks]      = useState<BookRecord[]>([]);
   const [activities, setActivities] = useState<MemoryActivity[]>([]);
   const [appointments, setAppointments] = useState<ReportAppointment[]>([]);
   const [loading,    setLoading]    = useState(true);
@@ -272,6 +490,9 @@ export default function ReportsPage() {
   const [showPreview,   setShowPreview]   = useState(false);
   const [showExportGate, setShowExportGate] = useState(false);
   const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
+  // Rendered verbatim on the print sheet. See lib/school-name.ts — no
+  // " Academy" suffix is ever appended, same as printables.
+  const [schoolName, setSchoolName] = useState("");
 
   useEffect(() => { document.title = "Hours & Attendance Log \u00b7 Rooted"; localStorage.setItem("rooted_visited_reports", "1"); posthog.capture('page_viewed', { page: 'reports' }); }, []);
 
@@ -281,6 +502,7 @@ export default function ReportsPage() {
       const [
         { data: kids },
         { data: lessons_ },
+        { data: bookMemories },
         { data: bookEvts },
         { data: memActivities },
         { data: profile },
@@ -289,9 +511,14 @@ export default function ReportsPage() {
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
         supabase.from("lessons").select("id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, completed_at, minutes_spent").eq("user_id", effectiveUserId),
-        supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "book_read"),
+        // Books live in `memories` (type 'book') since March 2026. The legacy
+        // app_events read below is kept so pre-March books still count.
+        // id / caption / photo_url ride along for the Reading Log: a render
+        // key, the "Author: X | Pages: N" caption it parses, and the cover.
+        supabase.from("memories").select("id, child_id, type, title, caption, photo_url, date").eq("user_id", effectiveUserId).eq("type", "book"),
+        supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_BOOK_EVENT_TYPES]),
         supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
-        supabase.from("profiles").select("is_pro, trial_started_at").eq("id", effectiveUserId).single(),
+        supabase.from("profiles").select("is_pro, trial_started_at, display_name, last_name").eq("id", effectiveUserId).single(),
         // One-time completed appointments: completion lives on the base row.
         supabase
           .from("appointments")
@@ -312,7 +539,7 @@ export default function ReportsPage() {
 
       setChildren(capitalizeChildNames(kids ?? []));
       setLessons((lessons_ as unknown as Lesson[]) ?? []);
-      setBooks((bookEvts as unknown as BookEvent[]) ?? []);
+      setBooks(mergeBookRecords(bookMemories ?? [], (bookEvts as unknown as { id?: string; type: string; payload: { title?: string; caption?: string; photo_url?: string; child_id?: string; date?: string } | null }[]) ?? []));
       setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
 
       type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null; is_school_activity: boolean };
@@ -360,6 +587,10 @@ export default function ReportsPage() {
 
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
       setTrialStartedAt((profile as any)?.trial_started_at ?? null);
+      setSchoolName(schoolNameFor(
+        (profile as { display_name?: string } | null)?.display_name || "",
+        (profile as { last_name?: string } | null)?.last_name || "",
+      ));
       setLoading(false);
     }
     load();
@@ -384,11 +615,53 @@ export default function ReportsPage() {
     completedFiltered.map((l) => l.curriculum_goal_id).filter((id): id is string => id !== null)
   ).size;
   const filteredBooksCount  = books.filter((b) => {
-    const d = b.payload.date ?? "";
+    const d = b.date ?? "";
     if (!d || d < dateFrom || d > dateTo) return false;
-    if (selectedChild !== "all" && b.payload.child_id && b.payload.child_id !== selectedChild) return false;
+    if (selectedChild !== "all" && b.child_id && b.child_id !== selectedChild) return false;
     return true;
   }).length;
+
+  // ── Reading log (shares the child + date range chosen above) ───────────────
+  const readingLog = buildReadingLog(books, selectedChild, dateFrom, dateTo);
+  const readingLogPages = readingLog.reduce((sum, e) => sum + (e.pages ?? 0), 0);
+  const readingLogHasPages = readingLog.some((e) => e.pages !== null);
+  const readingLogStreak = longestWeeklyStreak(
+    readingLog.map((e) => e.date).filter((d): d is string => !!d),
+  );
+  const readingLogChildName = activeChild ? activeChild.name : "All Children";
+
+  const readingLogTiles: { label: string; value: string | number }[] = [
+    { label: "Books", value: readingLog.length },
+    ...(readingLogHasPages ? [{ label: "Pages", value: readingLogPages.toLocaleString() }] : []),
+    // Longest run of consecutive weeks with at least one book finished.
+    { label: "Week streak", value: readingLogStreak },
+  ];
+
+  /**
+   * Print only the reading-log sheet. The page's other cards stay on screen
+   * but out of the print job — a portfolio document should not arrive with a
+   * date picker printed on it.
+   */
+  function printReadingLog() {
+    if (!canExport({ is_pro: isPro, trial_started_at: trialStartedAt })) {
+      setShowExportGate(true);
+      return;
+    }
+    posthog.capture('reading_log_printed', { user_plan: isPro ? 'paid' : 'free' });
+    const body = document.body;
+    body.classList.add("print-mode-reading-log");
+    const cleanup = () => {
+      body.classList.remove("print-mode-reading-log");
+      window.removeEventListener("afterprint", cleanup);
+    };
+    window.addEventListener("afterprint", cleanup);
+    setTimeout(() => {
+      window.print();
+      // Safari fires afterprint unreliably; this is the belt to its braces so
+      // the page can never be left stuck in print mode.
+      setTimeout(cleanup, 1000);
+    }, 100);
+  }
 
   if (loading) {
     return (
@@ -535,6 +808,87 @@ export default function ReportsPage() {
         />
       )}
 
+      {/* ── Reading Log ──────────────────────────────────────────
+          Shares the child + date range chosen in the report card above
+          rather than duplicating the pickers. In Pennsylvania a printed
+          list of reading materials is a required portfolio document, so
+          the print sheet is the point of this card. */}
+      <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 space-y-4">
+        <div className="flex items-start gap-2">
+          <BookOpen size={16} className="text-[#7a4a8a] mt-0.5 shrink-0" />
+          <div>
+            <h2 className="font-semibold text-[#2d2926] text-sm">Reading Log</h2>
+            <p className="text-xs text-[#7a6f65] mt-0.5">
+              {readingLogChildName} · {formatLogDate(dateFrom)} – {formatLogDate(dateTo)}
+            </p>
+          </div>
+        </div>
+
+        {readingLog.length === 0 ? (
+          /* Most families have not logged a book yet. Say what to do, warmly,
+             instead of leaving a blank card that looks broken. */
+          <div className="bg-white border border-[#e8e2d9] rounded-xl px-4 py-6 text-center">
+            <span className="text-2xl" aria-hidden>📖</span>
+            <p className="text-sm font-medium text-[#2d2926] mt-2">No books logged yet</p>
+            <p className="text-xs text-[#7a6f65] mt-1 leading-relaxed max-w-[320px] mx-auto">
+              Books you log from the Today screen show up here, ready to print for your records.
+            </p>
+            <p className="text-xs text-[#7a6f65] mt-2">
+              Tap the capture button on Today, then choose <span className="font-medium text-[#2d2926]">Book</span>.
+            </p>
+          </div>
+        ) : (
+          <>
+            {/* Summary tiles */}
+            <div className={`grid gap-2 ${readingLogTiles.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+              {readingLogTiles.map(({ label, value }) => (
+                <div key={label} className="text-center bg-[#f8f5f0] rounded-xl py-2.5">
+                  <p className="text-lg font-bold text-[#2d2926]">{value}</p>
+                  <p className="text-[10px] text-[#7a6f65]">{label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Chronological list, newest first */}
+            <div className="divide-y divide-[#f0ede8] border-t border-[#f0ede8]">
+              {readingLog.map((e, i) => (
+                <div key={e.id ?? `book-${i}`} className="flex items-center gap-3 py-2.5">
+                  {e.photo_url ? (
+                    <SignedImage
+                      src={e.photo_url}
+                      bucket="memory-photos"
+                      alt=""
+                      className="w-9 h-12 rounded-md object-cover shrink-0 bg-[#f0ede8]"
+                    />
+                  ) : (
+                    <div className="w-9 h-12 rounded-md shrink-0 bg-[#f3ece6] flex items-center justify-center text-base" aria-hidden>
+                      📖
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-[#2d2926] truncate">{e.title ?? "Untitled"}</p>
+                    <p className="text-xs text-[#7a6f65] truncate">
+                      {[e.author ?? e.freeText, formatLogDate(e.date)].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                  {e.pages !== null && (
+                    <span className="text-xs text-[#7a6f65] shrink-0 tabular-nums">{e.pages} pp</span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <button
+              onClick={printReadingLog}
+              className="w-full flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium py-3 rounded-xl transition-colors"
+            >
+              <Printer size={16} />
+              Print Reading Log
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Info banner */}
       <div className="bg-[#f5ede0] border border-[#c4956a]/30 rounded-2xl p-4">
         <p className="text-xs font-semibold text-[#8b6f47] mb-1">📌 Know Your State</p>
@@ -555,6 +909,39 @@ export default function ReportsPage() {
           onClose={() => setShowExportGate(false)}
         />
       )}
+
+      {/* ── Reading Log print host ───────────────────────────────
+          Off-screen until its own print job. Same isolation pattern the Plan
+          print sheets use in globals.css, scoped to this page so printing the
+          reading log cannot pull the config card or the Hours report along
+          with it. */}
+      <style>{`
+        .reading-log-print-host { display: none; }
+        @media print {
+          body.print-mode-reading-log { background: #ffffff !important; }
+          body.print-mode-reading-log .reading-log-print-host { display: block; }
+          body.print-mode-reading-log * { visibility: hidden !important; }
+          body.print-mode-reading-log .reading-log-print-sheet,
+          body.print-mode-reading-log .reading-log-print-sheet * { visibility: visible !important; }
+          body.print-mode-reading-log .reading-log-print-sheet {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
+          body.print-mode-reading-log .reading-log-print-sheet table { page-break-inside: auto; }
+          body.print-mode-reading-log .reading-log-print-sheet thead { display: table-header-group; }
+        }
+      `}</style>
+      <div className="reading-log-print-host" aria-hidden>
+        <ReadingLogPrintSheet
+          entries={readingLog}
+          schoolName={schoolName}
+          childName={readingLogChildName}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+        />
+      </div>
     </div>
   );
 }

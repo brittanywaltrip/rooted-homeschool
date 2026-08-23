@@ -11,6 +11,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { schoolNameFor } from "@/lib/school-name";
 import { canExport } from "@/lib/user-access";
+import { mergeBookRecords, countByChild, LEGACY_BOOK_EVENT_TYPES } from "@/lib/memory-leaves";
 import ExportGateModal from "@/app/components/ExportGateModal";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
@@ -624,17 +625,23 @@ export default function PrintablesPage() {
       const { data: kids } = await supabase
         .from("children").select("id, name").eq("user_id", uid).eq("archived", false).order("sort_order");
 
-      const [{ data: completedLessons }, { data: bookEvents }] = await Promise.all([
+      const [{ data: completedLessons }, { data: bookMemories }, { data: bookEvents }] = await Promise.all([
         supabase.from("lessons").select("child_id, date").eq("user_id", uid).eq("completed", true),
-        supabase.from("app_events").select("payload").eq("user_id", uid).eq("type", "book_read"),
+        // Books live in `memories` (type 'book') since March 2026; the legacy
+        // app_events read below keeps pre-March books in the leaf count.
+        supabase.from("memories").select("child_id, type, title, date").eq("user_id", uid).eq("type", "book"),
+        supabase.from("app_events").select("type, payload").eq("user_id", uid).in("type", [...LEGACY_BOOK_EVENT_TYPES]),
       ]);
 
       const leafMap: Record<string, number> = {};
       for (const l of (completedLessons || []) as { child_id: string }[]) leafMap[l.child_id] = (leafMap[l.child_id] || 0) + 1;
-      for (const e of (bookEvents || []) as { payload: { child_id?: string } }[]) {
-        const cid = e.payload?.child_id;
-        if (cid) leafMap[cid] = (leafMap[cid] || 0) + 1;
-      }
+      const bookLeaves = countByChild(
+        mergeBookRecords(
+          bookMemories ?? [],
+          (bookEvents as unknown as { type: string; payload: { title?: string; child_id?: string; date?: string } | null }[]) ?? [],
+        ),
+      );
+      for (const [cid, n] of Object.entries(bookLeaves)) leafMap[cid] = (leafMap[cid] || 0) + n;
 
       const childDatesMap: Record<string, Set<string>> = {};
       for (const l of (completedLessons || []) as { child_id: string; date?: string }[]) {
