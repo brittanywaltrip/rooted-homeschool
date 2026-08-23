@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
 import { FileText, Printer, Calendar, Clock, BookOpen, CheckSquare } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -9,7 +9,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { canExport } from "@/lib/user-access";
 import { schoolNameFor } from "@/lib/school-name";
-import { mergeBookRecords, bookBelongsToChild, bookCover, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
+import { mergeBookRecords, bookBelongsToChild, bookCover, bookHowLabel, ratingLeaves, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
 
@@ -99,42 +99,6 @@ function parseBookCaption(caption: string | null | undefined): ParsedCaption {
   // the family wrote.
   if (author === null && pages === null) return { author: null, pages: null, freeText: trimmed };
   return { author, pages, freeText: null };
-}
-
-/** Monday of the week containing `dateStr`, as YYYY-MM-DD. */
-function weekStartKey(dateStr: string): string | null {
-  const d = new Date(dateStr.slice(0, 10) + "T12:00:00");
-  if (Number.isNaN(d.getTime())) return null;
-  const dow = d.getDay();                 // 0=Sun
-  const backToMonday = dow === 0 ? 6 : dow - 1;
-  d.setDate(d.getDate() - backToMonday);
-  return toDateStr(d);
-}
-
-/**
- * Longest run of consecutive calendar weeks that contain at least one book.
- * Weeks are keyed by their Monday, so "consecutive" is exactly 7 days apart —
- * no ISO week-number arithmetic to get wrong at a year boundary.
- */
-function longestWeeklyStreak(dates: string[]): number {
-  const weeks = Array.from(
-    new Set(dates.map(weekStartKey).filter((w): w is string => w !== null)),
-  ).sort();
-  if (weeks.length === 0) return 0;
-
-  let best = 1;
-  let run = 1;
-  for (let i = 1; i < weeks.length; i++) {
-    const prev = new Date(weeks[i - 1] + "T12:00:00");
-    prev.setDate(prev.getDate() + 7);
-    if (toDateStr(prev) === weeks[i]) {
-      run++;
-      if (run > best) best = run;
-    } else {
-      run = 1;
-    }
-  }
-  return best;
 }
 
 /** A book plus its parsed caption, ready to render or print. */
@@ -405,17 +369,39 @@ function PrintReport({
  * print-mode-reading-log rules in the page's <style> block.
  */
 function ReadingLogPrintSheet({
-  entries, schoolName, childName, dateFrom, dateTo,
+  entries, schoolName, childName, dateFrom, dateTo, mode,
 }: {
   entries: ReadingLogEntry[];
   schoolName: string;
   childName: string;
   dateFrom: string;
   dateTo: string;
+  /**
+   * 'simple' prints only what a portfolio reviewer asks for: date and title.
+   * 'detailed' adds author, pages, how it was read, the rating and the notes.
+   * A reviewer who wanted a bare list should not have to explain away a column
+   * of leaf emoji, which is why simple is the default and is genuinely bare.
+   */
+  mode: "simple" | "detailed";
 }) {
+  const detailed = mode === "detailed";
   const totalPages = entries.reduce((sum, e) => sum + (e.pages ?? 0), 0);
   const fromLabel = formatLogDate(dateFrom);
   const toLabel = formatLogDate(dateTo);
+
+  const columns = detailed
+    ? [
+        { label: "Date",   width: "14%", align: "left"  as const },
+        { label: "Title",  width: "30%", align: "left"  as const },
+        { label: "Author", width: "22%", align: "left"  as const },
+        { label: "Pages",  width: "10%", align: "right" as const },
+        { label: "How",    width: "14%", align: "left"  as const },
+        { label: "Rating", width: "10%", align: "left"  as const },
+      ]
+    : [
+        { label: "Date",  width: "22%", align: "left" as const },
+        { label: "Title", width: "78%", align: "left" as const },
+      ];
 
   return (
     <div className="reading-log-print-sheet" style={{ background: "#ffffff", color: "#000000", padding: 24 }}>
@@ -434,12 +420,7 @@ function ReadingLogPrintSheet({
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
             <tr>
-              {[
-                { label: "Date", width: "18%", align: "left" as const },
-                { label: "Title", width: "42%", align: "left" as const },
-                { label: "Author", width: "28%", align: "left" as const },
-                { label: "Pages", width: "12%", align: "right" as const },
-              ].map((col) => (
+              {columns.map((col) => (
                 <th
                   key={col.label}
                   style={{
@@ -453,22 +434,41 @@ function ReadingLogPrintSheet({
             </tr>
           </thead>
           <tbody>
-            {entries.map((e, i) => (
-              <tr key={e.id ?? `book-${i}`} style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
-                <td style={{ padding: "5px 4px", borderBottom: "1px solid #ddd", verticalAlign: "top" }}>
-                  {formatLogDate(e.date)}
-                </td>
-                <td style={{ padding: "5px 4px", borderBottom: "1px solid #ddd", verticalAlign: "top" }}>
-                  {e.title ?? "Untitled"}
-                </td>
-                <td style={{ padding: "5px 4px", borderBottom: "1px solid #ddd", verticalAlign: "top" }}>
-                  {e.author ?? e.freeText ?? ""}
-                </td>
-                <td style={{ padding: "5px 4px", borderBottom: "1px solid #ddd", textAlign: "right", verticalAlign: "top" }}>
-                  {e.pages ?? ""}
-                </td>
-              </tr>
-            ))}
+            {entries.map((e, i) => {
+              const cell = { padding: "5px 4px", borderBottom: "1px solid #ddd", verticalAlign: "top" as const };
+              // Notes get their own full-width row beneath the entry rather
+              // than a cramped column, and only in detailed mode. Without the
+              // bottom border on the row above, the pair reads as one record.
+              const notes = detailed ? (e.book_notes ?? "").trim() : "";
+              const noNextBorder = notes ? { ...cell, borderBottom: "none" } : cell;
+              return (
+                <Fragment key={e.id ?? `book-${i}`}>
+                  <tr style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
+                    <td style={noNextBorder}>{formatLogDate(e.date)}</td>
+                    <td style={noNextBorder}>{e.title ?? "Untitled"}</td>
+                    {detailed && (
+                      <>
+                        <td style={noNextBorder}>{e.author ?? e.freeText ?? ""}</td>
+                        <td style={{ ...noNextBorder, textAlign: "right" }}>{e.pages ?? ""}</td>
+                        <td style={noNextBorder}>{bookHowLabel(e.book_how) ?? ""}</td>
+                        <td style={noNextBorder}>{ratingLeaves(e.book_rating)}</td>
+                      </>
+                    )}
+                  </tr>
+                  {notes && (
+                    <tr style={{ breakInside: "avoid", pageBreakInside: "avoid" }}>
+                      <td />
+                      <td
+                        colSpan={columns.length - 1}
+                        style={{ ...cell, fontStyle: "italic", color: "#444", paddingTop: 0 }}
+                      >
+                        {notes}
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -508,6 +508,9 @@ export default function ReportsPage() {
   // Rendered verbatim on the print sheet. See lib/school-name.ts — no
   // " Academy" suffix is ever appended, same as printables.
   const [schoolName, setSchoolName] = useState("");
+  // Simple is the default because it is what portfolio law actually asks for:
+  // dates and titles. Detailed is for families who want the fuller record.
+  const [printMode, setPrintMode] = useState<"simple" | "detailed">("simple");
 
   useEffect(() => { document.title = "Hours & Attendance Log \u00b7 Rooted"; localStorage.setItem("rooted_visited_reports", "1"); posthog.capture('page_viewed', { page: 'reports' }); }, []);
 
@@ -530,7 +533,7 @@ export default function ReportsPage() {
         // app_events read below is kept so pre-March books still count.
         // id / caption / photo_url ride along for the Reading Log: a render
         // key, the "Author: X | Pages: N" caption it parses, and the cover.
-        supabase.from("memories").select("id, child_id, type, title, caption, photo_url, date, book_child_ids, book_author, book_pages, book_cover_url").eq("user_id", effectiveUserId).eq("type", "book"),
+        supabase.from("memories").select("id, child_id, type, title, caption, photo_url, date, book_child_ids, book_author, book_pages, book_cover_url, book_how, book_rating, book_notes").eq("user_id", effectiveUserId).eq("type", "book"),
         supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_BOOK_EVENT_TYPES]),
         supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
         supabase.from("profiles").select("is_pro, trial_started_at, display_name, last_name").eq("id", effectiveUserId).single(),
@@ -638,17 +641,14 @@ export default function ReportsPage() {
   // ── Reading log (shares the child + date range chosen above) ───────────────
   const readingLog = buildReadingLog(books, selectedChild, dateFrom, dateTo);
   const readingLogPages = readingLog.reduce((sum, e) => sum + (e.pages ?? 0), 0);
+  // Pages always renders, even at zero. A blank where a number should be reads
+  // as broken; a 0 with a line explaining how to fill it reads as an invitation.
   const readingLogHasPages = readingLog.some((e) => e.pages !== null);
-  const readingLogStreak = longestWeeklyStreak(
-    readingLog.map((e) => e.date).filter((d): d is string => !!d),
-  );
   const readingLogChildName = activeChild ? activeChild.name : "All Children";
 
   const readingLogTiles: { label: string; value: string | number }[] = [
     { label: "Books", value: readingLog.length },
-    ...(readingLogHasPages ? [{ label: "Pages", value: readingLogPages.toLocaleString() }] : []),
-    // Longest run of consecutive weeks with at least one book finished.
-    { label: "Week streak", value: readingLogStreak },
+    { label: "Pages", value: readingLogPages.toLocaleString() },
   ];
 
   /**
@@ -661,7 +661,7 @@ export default function ReportsPage() {
       setShowExportGate(true);
       return;
     }
-    posthog.capture('reading_log_printed', { user_plan: isPro ? 'paid' : 'free' });
+    posthog.capture('reading_log_printed', { user_plan: isPro ? 'paid' : 'free', mode: printMode });
     const body = document.body;
     body.classList.add("print-mode-reading-log");
     const cleanup = () => {
@@ -843,7 +843,7 @@ export default function ReportsPage() {
              instead of leaving a blank card that looks broken. */
           <div className="bg-white border border-[#e8e2d9] rounded-xl px-4 py-6 text-center">
             <span className="text-2xl" aria-hidden>📖</span>
-            <p className="text-sm font-medium text-[#2d2926] mt-2">No books logged yet</p>
+            <p className="text-sm font-medium text-[#2d2926] mt-2">No books in this date range yet</p>
             <p className="text-xs text-[#7a6f65] mt-1 leading-relaxed max-w-[320px] mx-auto">
               Books you log from the Today screen show up here, ready to print for your records.
             </p>
@@ -854,13 +854,20 @@ export default function ReportsPage() {
         ) : (
           <>
             {/* Summary tiles */}
-            <div className={`grid gap-2 ${readingLogTiles.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
-              {readingLogTiles.map(({ label, value }) => (
-                <div key={label} className="text-center bg-[#f8f5f0] rounded-xl py-2.5">
-                  <p className="text-lg font-bold text-[#2d2926]">{value}</p>
-                  <p className="text-[10px] text-[#7a6f65]">{label}</p>
-                </div>
-              ))}
+            <div>
+              <div className="grid gap-2 grid-cols-2">
+                {readingLogTiles.map(({ label, value }) => (
+                  <div key={label} className="text-center bg-[#f8f5f0] rounded-xl py-2.5">
+                    <p className="text-lg font-bold text-[#2d2926]">{value}</p>
+                    <p className="text-[10px] text-[#7a6f65]">{label}</p>
+                  </div>
+                ))}
+              </div>
+              {!readingLogHasPages && (
+                <p className="text-[11px] text-[#b5aca4] mt-1.5 text-center">
+                  Add page counts when you log a book and they&apos;ll total here.
+                </p>
+              )}
             </div>
 
             {/* Chronological list, newest first */}
@@ -871,8 +878,11 @@ export default function ReportsPage() {
                 // worlds — a storage path needing a signed URL versus an
                 // absolute https URL — so they cannot share one <img>.
                 const cover = bookCover(e);
+                const howLabel = bookHowLabel(e.book_how);
+                const rating = ratingLeaves(e.book_rating);
+                const notes = (e.book_notes ?? "").trim();
                 return (
-                <div key={e.id ?? `book-${i}`} className="flex items-center gap-3 py-2.5">
+                <div key={e.id ?? `book-${i}`} className="flex items-start gap-3 py-2.5">
                   {cover?.kind === "photo" ? (
                     <SignedImage
                       src={cover.src}
@@ -894,17 +904,70 @@ export default function ReportsPage() {
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm text-[#2d2926] truncate">{e.title ?? "Untitled"}</p>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <p className="text-sm text-[#2d2926] truncate">{e.title ?? "Untitled"}</p>
+                      {rating && (
+                        <span
+                          className="text-[11px] shrink-0 leading-none"
+                          title={`${e.book_rating} out of 5`}
+                          aria-label={`Rated ${e.book_rating} out of 5`}
+                        >
+                          {rating}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-xs text-[#7a6f65] truncate">
                       {[e.author ?? e.freeText, formatLogDate(e.date)].filter(Boolean).join(" · ")}
                     </p>
+                    {howLabel && (
+                      <span className="inline-block text-[10px] text-[#8a8078] bg-[#f4f1ec] rounded px-1.5 py-0.5 mt-1">
+                        {howLabel}
+                      </span>
+                    )}
+                    {notes && (
+                      <p className="text-xs text-[#8a8078] italic mt-1 leading-snug">{notes}</p>
+                    )}
                   </div>
                   {e.pages !== null && (
-                    <span className="text-xs text-[#7a6f65] shrink-0 tabular-nums">{e.pages} pp</span>
+                    <span className="text-xs text-[#7a6f65] shrink-0 tabular-nums self-start mt-0.5">{e.pages} pp</span>
                   )}
                 </div>
                 );
               })}
+            </div>
+
+            {/* Print detail. Simple is the default: date and title is what a
+                portfolio reviewer asks for, and anything extra is something
+                they have to read past. */}
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-[#7a6f65]">Print detail</span>
+                <div className="flex rounded-lg border border-[#e8e2d9] overflow-hidden">
+                  {([
+                    ["simple",   "Simple"],
+                    ["detailed", "Detailed"],
+                  ] as const).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setPrintMode(value)}
+                      aria-pressed={printMode === value}
+                      className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                        printMode === value
+                          ? "bg-[#5c7f63] text-white"
+                          : "bg-white text-[#7a6f65] hover:bg-[#f4f1ec]"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p className="text-[11px] text-[#b5aca4] mt-1.5">
+                {printMode === "simple"
+                  ? "Dates and titles only."
+                  : "Adds author, pages, how it was read, rating and notes."}
+              </p>
             </div>
 
             <button
@@ -969,6 +1032,7 @@ export default function ReportsPage() {
           childName={readingLogChildName}
           dateFrom={dateFrom}
           dateTo={dateTo}
+          mode={printMode}
         />
       </div>
     </div>

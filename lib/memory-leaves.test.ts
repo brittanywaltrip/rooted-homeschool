@@ -7,6 +7,8 @@ import {
   countByChild,
   bookBelongsToChild,
   bookCover,
+  bookHowLabel,
+  ratingLeaves,
   LEGACY_MEMORY_EVENT_TYPES,
   LEGACY_BOOK_EVENT_TYPES,
 } from "./memory-leaves.ts";
@@ -271,6 +273,57 @@ test("cover order: the family's own photo beats the Open Library cover", () => {
   );
   assert.equal(bookCover({ photo_url: null, book_cover_url: null }), null);
   assert.equal(bookCover({}), null);
+});
+
+// ─── Display helpers ─────────────────────────────────────────────────────────
+
+test("bookHowLabel maps every stored value and refuses unknown ones", () => {
+  assert.equal(bookHowLabel("read_aloud"), "Read aloud");
+  assert.equal(bookHowLabel("read_together"), "Read together");
+  assert.equal(bookHowLabel("independent"), "Independent");
+  assert.equal(bookHowLabel("audiobook"), "Audiobook");
+  assert.equal(bookHowLabel("assigned"), "Assigned");
+  // Null rather than echoing a raw enum value into the UI.
+  assert.equal(bookHowLabel("something_else"), null);
+  assert.equal(bookHowLabel(null), null);
+  assert.equal(bookHowLabel(undefined), null);
+  assert.equal(bookHowLabel(""), null);
+});
+
+test("ratingLeaves renders one leaf per point and nothing when unset", () => {
+  assert.equal(ratingLeaves(1), "🌿");
+  assert.equal(ratingLeaves(4), "🌿🌿🌿🌿");
+  assert.equal(ratingLeaves(5), "🌿🌿🌿🌿🌿");
+  assert.equal(ratingLeaves(null), "");
+  assert.equal(ratingLeaves(undefined), "");
+  // Out of range can only arrive from a hand-edited row; render nothing.
+  assert.equal(ratingLeaves(0), "");
+  assert.equal(ratingLeaves(9), "");
+});
+
+test("book_how / rating / notes pass through the merge, rating clamped", () => {
+  const good = bookRecord({
+    title: "X", date: "2026-08-01",
+    book_how: "audiobook", book_rating: 3, book_notes: "loved it",
+  });
+  assert.equal(good.book_how, "audiobook");
+  assert.equal(good.book_rating, 3);
+  assert.equal(good.book_notes, "loved it");
+
+  // A rating the check constraint would have rejected is dropped, not shown.
+  const bad = bookRecord({ title: "Y", date: "2026-08-01", book_rating: 11 });
+  assert.equal(bad.book_rating, null);
+  assert.equal(ratingLeaves(bad.book_rating), "");
+});
+
+test("legacy books carry no how / rating / notes", () => {
+  const [b] = mergeBookRecords(
+    [],
+    [{ type: "book_read", payload: { title: "Old", date: "2026-02-01" } }],
+  );
+  assert.equal(b.book_how, null);
+  assert.equal(b.book_rating, null);
+  assert.equal(b.book_notes, null);
 });
 
 test("legacy type lists stay in sync with what the readers query", () => {
