@@ -5,12 +5,15 @@ import {
   mergeMemoryRecords,
   mergeBookRecords,
   countByChild,
+  bookBelongsToChild,
+  bookCover,
   LEGACY_MEMORY_EVENT_TYPES,
   LEGACY_BOOK_EVENT_TYPES,
 } from "./memory-leaves.ts";
 
 const KID_A = "11111111-1111-1111-1111-111111111111";
 const KID_B = "22222222-2222-2222-2222-222222222222";
+const KID_C = "33333333-3333-3333-3333-333333333333";
 
 test("books logged since March (memories table) are counted", () => {
   const books = mergeBookRecords(
@@ -158,6 +161,116 @@ test("photo_url passes through from both sources and never joins the dedupe key"
 test("null / undefined inputs are treated as empty", () => {
   assert.deepEqual(mergeMemoryRecords(null, undefined), []);
   assert.deepEqual(countByChild([]), {});
+});
+
+// ─── Multi-child attribution (book_child_ids) ────────────────────────────────
+
+/** Build one merged book record through the real code path. */
+function bookRecord(row: Record<string, unknown>) {
+  return mergeBookRecords([{ type: "book", child_id: null, ...row } as never], [])[0];
+}
+
+test("book_child_ids set: counts for exactly those children and no others", () => {
+  const b = bookRecord({ title: "Read aloud", date: "2026-08-01", book_child_ids: [KID_A, KID_B] });
+  assert.equal(bookBelongsToChild(b, KID_A), true);
+  assert.equal(bookBelongsToChild(b, KID_B), true);
+  // The rule that matters: a child NOT named never sees it.
+  assert.equal(bookBelongsToChild(b, KID_C), false);
+});
+
+test("book_child_ids set does NOT fall back to child_id", () => {
+  // A row where the two disagree must honour the array, not the legacy column.
+  const b = bookRecord({ title: "X", date: "2026-08-01", child_id: KID_C, book_child_ids: [KID_A] });
+  assert.equal(bookBelongsToChild(b, KID_A), true);
+  assert.equal(bookBelongsToChild(b, KID_C), false);
+});
+
+test("book_child_ids null + child_id set: legacy single-child rules", () => {
+  const b = bookRecord({ title: "Solo", date: "2026-08-01", child_id: KID_A });
+  assert.equal(bookBelongsToChild(b, KID_A), true);
+  assert.equal(bookBelongsToChild(b, KID_B), false);
+});
+
+test("both null: whole family, counts for every child", () => {
+  const b = bookRecord({ title: "Family read", date: "2026-08-01" });
+  assert.equal(bookBelongsToChild(b, KID_A), true);
+  assert.equal(bookBelongsToChild(b, KID_B), true);
+  assert.equal(bookBelongsToChild(b, KID_C), true);
+});
+
+test("an empty book_child_ids array means whole family, not nobody", () => {
+  const b = bookRecord({ title: "Empty array", date: "2026-08-01", book_child_ids: [] });
+  assert.equal(b.book_child_ids, null);
+  assert.equal(bookBelongsToChild(b, KID_A), true);
+});
+
+test('the "all" sentinel and null match everything', () => {
+  const b = bookRecord({ title: "X", date: "2026-08-01", book_child_ids: [KID_A] });
+  assert.equal(bookBelongsToChild(b, "all"), true);
+  assert.equal(bookBelongsToChild(b, null), true);
+});
+
+test("legacy app_events books have no array and keep child_id rules", () => {
+  const [b] = mergeBookRecords(
+    [],
+    [{ type: "book_read", payload: { title: "Old", child_id: KID_A, date: "2026-02-01" } }],
+  );
+  assert.equal(b.book_child_ids, null);
+  assert.equal(bookBelongsToChild(b, KID_A), true);
+  assert.equal(bookBelongsToChild(b, KID_B), false);
+});
+
+test("countByChild credits every child named in book_child_ids", () => {
+  const counts = countByChild(
+    mergeBookRecords(
+      [
+        { type: "book", child_id: null, title: "Aloud", date: "2026-08-01", book_child_ids: [KID_A, KID_B] },
+        { type: "book", child_id: KID_A, title: "Solo", date: "2026-08-02" },
+        { type: "book", child_id: null, title: "Family", date: "2026-08-03" },
+      ] as never,
+      [],
+    ),
+  );
+  // Aloud credits A and B; Solo credits A; Family credits nobody.
+  assert.deepEqual(counts, { [KID_A]: 2, [KID_B]: 1 });
+});
+
+test("structured book fields pass through the merge", () => {
+  const b = bookRecord({
+    title: "Charlotte's Web", date: "2026-08-01",
+    book_author: "E.B. White", book_pages: 192, book_cover_url: "https://covers/x-M.jpg",
+  });
+  assert.equal(b.book_author, "E.B. White");
+  assert.equal(b.book_pages, 192);
+  assert.equal(b.book_cover_url, "https://covers/x-M.jpg");
+});
+
+test("the dedupe key still needs no book_child_ids component", () => {
+  // book_child_ids only exists on rows written after August 2026, and legacy
+  // app_events books stopped in March 2026, so a row carrying the array can
+  // never have a legacy twin to collide with. Same title + date + null
+  // child_id across the two sources is still one book.
+  const books = mergeBookRecords(
+    [{ type: "book", child_id: null, title: "Shared", date: "2026-03-20", book_child_ids: [KID_A, KID_B] } as never],
+    [{ type: "book_read", payload: { title: "Shared", date: "2026-03-20" } }],
+  );
+  assert.equal(books.length, 1);
+  assert.deepEqual(books[0].book_child_ids, [KID_A, KID_B]);
+});
+
+// ─── Cover order ─────────────────────────────────────────────────────────────
+
+test("cover order: the family's own photo beats the Open Library cover", () => {
+  assert.deepEqual(
+    bookCover({ photo_url: "user/abc.jpg", book_cover_url: "https://covers/x-M.jpg" }),
+    { kind: "photo", src: "user/abc.jpg" },
+  );
+  assert.deepEqual(
+    bookCover({ photo_url: null, book_cover_url: "https://covers/x-M.jpg" }),
+    { kind: "external", src: "https://covers/x-M.jpg" },
+  );
+  assert.equal(bookCover({ photo_url: null, book_cover_url: null }), null);
+  assert.equal(bookCover({}), null);
 });
 
 test("legacy type lists stay in sync with what the readers query", () => {

@@ -9,7 +9,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { canExport } from "@/lib/user-access";
 import { schoolNameFor } from "@/lib/school-name";
-import { mergeBookRecords, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
+import { mergeBookRecords, bookBelongsToChild, bookCover, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
 
@@ -150,12 +150,28 @@ function buildReadingLog(
     .filter((b) => {
       const d = b.date ?? "";
       if (!d || d < dateFrom || d > dateTo) return false;
-      // A book with no child is a whole-family read and belongs to every
-      // child's log — same rule the Hours report uses.
-      if (childId !== "all" && b.child_id && b.child_id !== childId) return false;
-      return true;
+      // Attribution lives in one place (lib/memory-leaves.ts): a book counts
+      // for a child when book_child_ids names them, or when the array is unset
+      // and the legacy child_id rules say so. A book read to Ada and Bea never
+      // reaches Cal's log.
+      return bookBelongsToChild(b, childId);
     })
-    .map((b) => ({ ...b, ...parseBookCaption(b.caption) }))
+    .map((b) => {
+      // Structured columns win; the caption parse is the fallback for legacy
+      // app_events books and for anything the August 2026 backfill could not
+      // make sense of. Both agree on every backfilled row, so this changes no
+      // existing output — it just stops new books depending on a string.
+      const parsed = parseBookCaption(b.caption);
+      const author = b.book_author ?? parsed.author;
+      return {
+        ...b,
+        author,
+        pages: b.book_pages ?? parsed.pages,
+        // Only surface raw caption text when there is no author to show;
+        // otherwise a free-text caption would shove the author aside.
+        freeText: author ? null : parsed.freeText,
+      };
+    })
     .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
 }
 
@@ -185,10 +201,9 @@ function PrintReport({
     if (child && l.child_id !== child.id) return false;
     return d >= dateFrom && d <= dateTo;
   });
-  // A book with no child is a whole-family read and counts toward whichever
-  // child the report is for — unchanged from the legacy behaviour.
+  // Same attribution rule as the Reading Log — see bookBelongsToChild.
   const filteredBooks = books.filter((b) => {
-    if (child && b.child_id && b.child_id !== child.id) return false;
+    if (!bookBelongsToChild(b, child ? child.id : null)) return false;
     const d = b.date ?? "";
     return d >= dateFrom && d <= dateTo;
   });
@@ -515,7 +530,7 @@ export default function ReportsPage() {
         // app_events read below is kept so pre-March books still count.
         // id / caption / photo_url ride along for the Reading Log: a render
         // key, the "Author: X | Pages: N" caption it parses, and the cover.
-        supabase.from("memories").select("id, child_id, type, title, caption, photo_url, date").eq("user_id", effectiveUserId).eq("type", "book"),
+        supabase.from("memories").select("id, child_id, type, title, caption, photo_url, date, book_child_ids, book_author, book_pages, book_cover_url").eq("user_id", effectiveUserId).eq("type", "book"),
         supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_BOOK_EVENT_TYPES]),
         supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
         supabase.from("profiles").select("is_pro, trial_started_at, display_name, last_name").eq("id", effectiveUserId).single(),
@@ -617,8 +632,7 @@ export default function ReportsPage() {
   const filteredBooksCount  = books.filter((b) => {
     const d = b.date ?? "";
     if (!d || d < dateFrom || d > dateTo) return false;
-    if (selectedChild !== "all" && b.child_id && b.child_id !== selectedChild) return false;
-    return true;
+    return bookBelongsToChild(b, selectedChild);
   }).length;
 
   // ── Reading log (shares the child + date range chosen above) ───────────────
@@ -851,13 +865,27 @@ export default function ReportsPage() {
 
             {/* Chronological list, newest first */}
             <div className="divide-y divide-[#f0ede8] border-t border-[#f0ede8]">
-              {readingLog.map((e, i) => (
+              {readingLog.map((e, i) => {
+                // photo_url (the family's own photo) beats the Open Library
+                // cover beats the placeholder. The two live in different
+                // worlds — a storage path needing a signed URL versus an
+                // absolute https URL — so they cannot share one <img>.
+                const cover = bookCover(e);
+                return (
                 <div key={e.id ?? `book-${i}`} className="flex items-center gap-3 py-2.5">
-                  {e.photo_url ? (
+                  {cover?.kind === "photo" ? (
                     <SignedImage
-                      src={e.photo_url}
+                      src={cover.src}
                       bucket="memory-photos"
                       alt=""
+                      className="w-9 h-12 rounded-md object-cover shrink-0 bg-[#f0ede8]"
+                    />
+                  ) : cover?.kind === "external" ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={cover.src}
+                      alt=""
+                      loading="lazy"
                       className="w-9 h-12 rounded-md object-cover shrink-0 bg-[#f0ede8]"
                     />
                   ) : (
@@ -875,7 +903,8 @@ export default function ReportsPage() {
                     <span className="text-xs text-[#7a6f65] shrink-0 tabular-nums">{e.pages} pp</span>
                   )}
                 </div>
-              ))}
+                );
+              })}
             </div>
 
             <button

@@ -311,13 +311,30 @@ export default function TodayPage() {
   const [showBookModal,     setShowBookModal]     = useState(false);
   const [showLogModal,      setShowLogModal]      = useState(false);
   const [bookTitle,         setBookTitle]         = useState("");
-  const [bookChild,         setBookChild]         = useState("");
+  // Multi-select. Empty = whole family, which saves book_child_ids as null.
+  // The legacy child_id column is still written on save: the single id when
+  // exactly one child is picked, null otherwise. See the migration header.
+  const [bookChildIds,      setBookChildIds]      = useState<string[]>([]);
   const [bookAuthor,        setBookAuthor]        = useState("");
   const [bookPages,         setBookPages]         = useState("");
+  const [bookHow,           setBookHow]           = useState<string | null>(null);
+  const [bookNotes,         setBookNotes]         = useState("");
+  const [bookRating,        setBookRating]        = useState<number | null>(null);
+  const [bookCoverUrl,      setBookCoverUrl]      = useState<string | null>(null);
   const [bookPhotoFile,     setBookPhotoFile]     = useState<File | null>(null);
   const [bookPhotoPreview,  setBookPhotoPreview]  = useState<string | null>(null);
   const bookPhotoRef = useRef<HTMLInputElement>(null);
   const [savingBook,        setSavingBook]        = useState(false);
+  // Open Library title autofill. Entirely optional: every failure path in
+  // /api/book-search returns an empty list, and the modal is fully usable by
+  // typing. `bookSuppressSearch` stops the debounce firing again on the title
+  // we just wrote into the field ourselves after a pick.
+  type BookSuggestion = { title: string; author: string | null; pages: number | null; coverUrl: string | null };
+  const [bookSuggestions,   setBookSuggestions]   = useState<BookSuggestion[]>([]);
+  const [bookSearching,     setBookSearching]     = useState(false);
+  const bookSearchTimer     = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bookSuppressSearch  = useRef(false);
+  const bookSearchSeq       = useRef(0);
 
   const [isPro,            setIsPro]            = useState(false);
   const [trialStartedAt,   setTrialStartedAt]   = useState<string | null>(null);
@@ -574,6 +591,45 @@ export default function TodayPage() {
   };
   const [needsConfirmation, setNeedsConfirmation] = useState<UnconfirmedGoal[]>([]);
   const [confirmingGoalIds, setConfirmingGoalIds] = useState<Set<string>>(() => new Set());
+
+  // ── Book title autofill (Open Library, via our own server route) ──────────
+  // Debounced so a family typing a title does not fire a request per keystroke.
+  // The sequence guard drops a slow response that lands after a newer one, so
+  // suggestions can never flip back to an older query's matches.
+  useEffect(() => {
+    if (!showBookModal) return;
+    if (bookSuppressSearch.current) { bookSuppressSearch.current = false; return; }
+
+    const q = bookTitle.trim();
+    if (bookSearchTimer.current) clearTimeout(bookSearchTimer.current);
+    if (q.length < 3) { setBookSuggestions([]); setBookSearching(false); return; }
+
+    bookSearchTimer.current = setTimeout(() => {
+      const seq = ++bookSearchSeq.current;
+      setBookSearching(true);
+      fetch(`/api/book-search?q=${encodeURIComponent(q)}`)
+        .then((r) => (r.ok ? r.json() : { results: [] }))
+        .then((body: { results?: BookSuggestion[] }) => {
+          if (seq !== bookSearchSeq.current) return;
+          setBookSuggestions(Array.isArray(body?.results) ? body.results : []);
+        })
+        // Suggestions are a courtesy. A failure is silence, never a banner
+        // over the field someone is typing in.
+        .catch(() => { if (seq === bookSearchSeq.current) setBookSuggestions([]); })
+        .finally(() => { if (seq === bookSearchSeq.current) setBookSearching(false); });
+    }, 450);
+
+    return () => { if (bookSearchTimer.current) clearTimeout(bookSearchTimer.current); };
+  }, [bookTitle, showBookModal]);
+
+  /** Reset every field the book modal owns. */
+  const resetBookForm = useCallback(() => {
+    setBookTitle(""); setBookChildIds([]); setBookAuthor(""); setBookPages("");
+    setBookHow(null); setBookNotes(""); setBookRating(null); setBookCoverUrl(null);
+    setBookPhotoFile(null); setBookPhotoPreview(null);
+    setBookSuggestions([]); setBookSearching(false);
+    if (bookSearchTimer.current) clearTimeout(bookSearchTimer.current);
+  }, []);
 
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
@@ -3310,11 +3366,29 @@ export default function TodayPage() {
         }
       }
 
-      // Build caption from author + pages
+      // Caption is STILL written in the legacy "Author: X | Pages: N" shape
+      // alongside the structured columns. Every reader that predates the
+      // August 2026 book fields parses this string, so dropping it would blank
+      // the author column on the portfolio Reading Log for new books.
       const captionParts: string[] = [];
       if (bookAuthor.trim()) captionParts.push(`Author: ${bookAuthor.trim()}`);
       if (bookPages.trim()) captionParts.push(`Pages: ${bookPages.trim()}`);
       const caption = captionParts.length > 0 ? captionParts.join(" | ") : null;
+
+      // Attribution. No selection means whole family, saved as a NULL array so
+      // it counts for every child. child_id keeps the single id only when
+      // exactly one child is picked, so pre-August readers see a one-child book
+      // as one child's and a multi-child book as the family's — over-counting
+      // rather than hiding, which is the safe direction.
+      const selectedChildIds = bookChildIds.filter((id) => children.some((c) => c.id === id));
+      const bookChildIdsValue = selectedChildIds.length > 0 ? selectedChildIds : null;
+      const legacyChildId = selectedChildIds.length === 1 ? selectedChildIds[0] : null;
+
+      // book_pages has a `> 0` check constraint; anything unparseable is null
+      // rather than a failed insert that loses the whole book.
+      const pagesTrimmed = bookPages.trim();
+      const pagesParsed = /^\d{1,6}$/.test(pagesTrimmed) ? Number.parseInt(pagesTrimmed, 10) : NaN;
+      const bookPagesValue = Number.isFinite(pagesParsed) && pagesParsed > 0 ? pagesParsed : null;
 
       const nowB = new Date().toISOString();
       const { data: inserted, error: bookErr } = await supabase.from("memories").insert({
@@ -3322,22 +3396,42 @@ export default function TodayPage() {
         caption,
         photo_url: photoUrl,
         ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
-        child_id: bookChild || null, date: today, include_in_book: true,
+        child_id: legacyChildId, date: today, include_in_book: true,
+        book_child_ids: bookChildIdsValue,
+        book_how: bookHow,
+        book_author: bookAuthor.trim() || null,
+        book_pages: bookPagesValue,
+        book_rating: bookRating,
+        book_notes: bookNotes.trim() || null,
+        book_cover_url: bookCoverUrl,
         created_at: nowB, updated_at: nowB,
       }).select("id").single();
       if (bookErr) throw bookErr;
       console.log("[Rooted] Saved:", "book", inserted);
-      if (bookChild) setLeafCounts((prev) => ({ ...prev, [bookChild]: (prev[bookChild] ?? 0) + 1 }));
-      setBookTitle(""); setBookChild(""); setBookAuthor(""); setBookPages("");
-      setBookPhotoFile(null); setBookPhotoPreview(null);
+      // Optimistic leaf bump for every child credited, matching countByChild
+      // in lib/memory-leaves.ts.
+      if (selectedChildIds.length > 0) {
+        setLeafCounts((prev) => {
+          const next = { ...prev };
+          for (const cid of selectedChildIds) next[cid] = (next[cid] ?? 0) + 1;
+          return next;
+        });
+      }
+      resetBookForm();
       setShowBookModal(false);
-      posthog.capture('book_logged', { user_plan: isPro ? 'paid' : 'free' });
-      showCaptureToast(photoNote ?? "📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", bookChild || null);
+      posthog.capture('book_logged', {
+        user_plan: isPro ? 'paid' : 'free',
+        child_count: selectedChildIds.length,
+        has_how: bookHow !== null,
+        has_rating: bookRating !== null,
+        from_autofill: bookCoverUrl !== null,
+      });
+      showCaptureToast(photoNote ?? "📖 Added to your story 🌿", (inserted as { id: string } | null)?.id ?? null, "book", legacyChildId);
       loadDataBusy.current = false;
       await loadData();
       await refreshTodayStory();
       checkAndAwardBadges(user.id);
-      onLogAction({ userId: user.id, childId: bookChild || undefined, actionType: "book" });
+      onLogAction({ userId: user.id, childId: legacyChildId ?? undefined, actionType: "book" });
     } catch (err) {
       captureSupabaseError("today book save", err);
       showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again", null);
@@ -5052,20 +5146,63 @@ export default function TodayPage() {
       {showBookModal && (
         <>
           <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => {
-            if (bookTitle.trim() || bookAuthor.trim()) { setDiscardConfirm(() => () => { setShowBookModal(false); setBookTitle(""); setBookAuthor(""); setBookChild(""); setDiscardConfirm(null); }); return; }
-            setShowBookModal(false); setBookTitle(""); setBookAuthor(""); setBookChild("");
+            if (bookTitle.trim() || bookAuthor.trim() || bookNotes.trim()) { setDiscardConfirm(() => () => { setShowBookModal(false); resetBookForm(); setDiscardConfirm(null); }); return; }
+            setShowBookModal(false); resetBookForm();
           }} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
-            <div className="px-5 pb-5 space-y-4">
+          {/* max-h + internal scroll: the book sheet grew past a phone
+              viewport when how/rating/notes/autofill landed, and a fixed
+              bottom sheet with no scroll simply puts its lower half
+              off-screen where it cannot be tapped. */}
+          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto max-h-[88vh] flex flex-col" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
+            <div className="flex justify-center pt-3 pb-2 shrink-0"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+            <div className="px-5 pb-5 space-y-4 overflow-y-auto">
               <div className="flex items-center justify-between">
                 <h2 className="font-bold text-[#2d2926]">📖 Log a Book</h2>
-                <button onClick={() => setShowBookModal(false)} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
+                <button onClick={() => { setShowBookModal(false); resetBookForm(); }} className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none">×</button>
               </div>
               <div>
                 <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Book title *</label>
                 <input value={bookTitle} onChange={(e) => setBookTitle(e.target.value)} placeholder="e.g. Charlotte's Web" autoFocus
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+                {/* Title autofill. Skippable in every sense: it appears only
+                    when there are matches, it fills fields the family can
+                    then edit, and if the lookup fails nothing renders. */}
+                {bookSearching && bookSuggestions.length === 0 && (
+                  <p className="text-[11px] text-[#b5aca4] mt-1.5">Looking up titles…</p>
+                )}
+                {bookSuggestions.length > 0 && (
+                  <div className="mt-1.5 border border-[#e8e2d9] rounded-xl overflow-hidden divide-y divide-[#f0ede8] bg-white">
+                    {bookSuggestions.map((s, i) => (
+                      <button
+                        key={`${s.title}-${i}`}
+                        type="button"
+                        onClick={() => {
+                          // Suppress the debounce for the title we are about to
+                          // write ourselves, or picking a match would
+                          // immediately re-open the list under the field.
+                          bookSuppressSearch.current = true;
+                          setBookTitle(s.title);
+                          if (s.author) setBookAuthor(s.author);
+                          if (s.pages && s.pages > 0) setBookPages(String(s.pages));
+                          setBookCoverUrl(s.coverUrl);
+                          setBookSuggestions([]);
+                        }}
+                        className="w-full flex items-center gap-2.5 px-2.5 py-2 text-left hover:bg-[#faf8f5] transition-colors"
+                      >
+                        {s.coverUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={s.coverUrl} alt="" loading="lazy" className="w-7 h-10 object-cover rounded shrink-0 bg-[#f0ede8]" />
+                        ) : (
+                          <div className="w-7 h-10 rounded shrink-0 bg-[#f3ece6] flex items-center justify-center text-xs" aria-hidden>📖</div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-[#2d2926] truncate">{s.title}</p>
+                          {s.author && <p className="text-[10px] text-[#7a6f65] truncate">{s.author}</p>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               {/* Author */}
               <div>
@@ -5073,23 +5210,102 @@ export default function TodayPage() {
                 <input value={bookAuthor} onChange={(e) => setBookAuthor(e.target.value)} placeholder="e.g. E.B. White"
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
               </div>
-              {/* Pages + Child in a row */}
-              <div className="grid grid-cols-2 gap-3">
+              {/* Pages */}
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Pages (optional)</label>
+                <input value={bookPages} onChange={(e) => setBookPages(e.target.value)} type="number" min="1" placeholder="e.g. 192"
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
+              </div>
+
+              {/* Who read it — multi-select. "Whole family" and "nobody
+                  selected" are the same thing and both save a null array. */}
+              {children.length > 0 && (
                 <div>
-                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Pages (optional)</label>
-                  <input value={bookPages} onChange={(e) => setBookPages(e.target.value)} type="number" min="1" placeholder="e.g. 192"
-                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-                </div>
-                {children.length > 0 && (
-                  <div>
-                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who read it?</label>
-                    <select value={bookChild} onChange={(e) => setBookChild(e.target.value)}
-                      className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63]">
-                      <option value="">Everyone</option>
-                      {children.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Who read it?</label>
+                  <div className="flex gap-2 flex-wrap">
+                    <button type="button" onClick={() => setBookChildIds([])}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        bookChildIds.length === 0
+                          ? "bg-[#5c7f63] text-white border-[#5c7f63]"
+                          : "bg-white text-[#7a6f65] border-[#e8e2d9]"
+                      }`}>
+                      Whole family
+                    </button>
+                    {children.map((c) => {
+                      const on = bookChildIds.includes(c.id);
+                      return (
+                        <button key={c.id} type="button"
+                          onClick={() => setBookChildIds((prev) =>
+                            prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id]
+                          )}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${on ? "text-white border-transparent" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}
+                          style={on ? { backgroundColor: c.color ?? "#5c7f63" } : {}}>
+                          {c.name}
+                        </button>
+                      );
+                    })}
                   </div>
-                )}
+                </div>
+              )}
+
+              {/* How was it read — optional, no default, tap again to clear. */}
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">How was it read? (optional)</label>
+                <div className="flex gap-2 flex-wrap">
+                  {([
+                    ["read_aloud",    "Read aloud"],
+                    ["read_together", "Read together"],
+                    ["independent",   "Independent"],
+                    ["audiobook",     "Audiobook"],
+                    ["assigned",      "Assigned reading"],
+                  ] as const).map(([value, label]) => (
+                    <button key={value} type="button"
+                      onClick={() => setBookHow((prev) => (prev === value ? null : value))}
+                      className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                        bookHow === value
+                          ? "bg-[#5c7f63] text-white border-[#5c7f63]"
+                          : "bg-white text-[#7a6f65] border-[#e8e2d9]"
+                      }`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Rating — the child's, not the parent's. Tap the same leaf
+                  again to clear it. */}
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">
+                  {bookChildIds.length === 1
+                    ? `${children.find((c) => c.id === bookChildIds[0])?.name ?? "Their"}'s rating (optional)`
+                    : "Their rating (optional)"}
+                </label>
+                <div className="flex gap-1 items-center">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button key={n} type="button"
+                      onClick={() => setBookRating((prev) => (prev === n ? null : n))}
+                      aria-label={`${n} out of 5`}
+                      aria-pressed={bookRating !== null && n <= bookRating}
+                      className="text-xl leading-none px-0.5 transition-transform active:scale-90"
+                      style={{ opacity: bookRating !== null && n <= bookRating ? 1 : 0.25, filter: bookRating !== null && n <= bookRating ? "none" : "grayscale(1)" }}>
+                      🌿
+                    </button>
+                  ))}
+                  {bookRating !== null && (
+                    <button type="button" onClick={() => setBookRating(null)}
+                      className="text-[11px] text-[#b5aca4] hover:text-[#7a6f65] ml-1.5 transition-colors">
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div>
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Notes (optional)</label>
+                <textarea value={bookNotes} onChange={(e) => setBookNotes(e.target.value)} rows={2}
+                  placeholder="Favorite characters, what they thought..."
+                  className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none" />
               </div>
               {/* Cover photo */}
               <div>
