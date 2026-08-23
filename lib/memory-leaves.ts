@@ -67,6 +67,9 @@ export type MemoryTableRow = {
   book_how?: string | null;
   book_rating?: number | null;
   book_notes?: string | null;
+  /** NULL or 'finished' = finished. 'reading' = in progress. */
+  book_status?: string | null;
+  book_started_date?: string | null;
 };
 
 /**
@@ -99,6 +102,13 @@ export type MemoryRecord = {
   book_how: string | null;
   book_rating: number | null;
   book_notes: string | null;
+  /**
+   * NULL or 'finished' = a finished book. 'reading' = in progress. NULL is
+   * never backfilled, so every reader must go through isFinishedBook rather
+   * than testing for 'finished' directly.
+   */
+  book_status: string | null;
+  book_started_date: string | null;
 };
 
 function toRecordFromMemory(row: MemoryTableRow): MemoryRecord {
@@ -126,6 +136,8 @@ function toRecordFromMemory(row: MemoryTableRow): MemoryRecord {
         ? Math.round(row.book_rating)
         : null,
     book_notes: row.book_notes ?? null,
+    book_status: row.book_status ?? null,
+    book_started_date: row.book_started_date ?? null,
   };
 }
 
@@ -148,7 +160,39 @@ function toRecordFromLegacy(ev: LegacyMemoryEvent): MemoryRecord {
     book_how: null,
     book_rating: null,
     book_notes: null,
+    // A legacy app_events book is by definition a book someone finished
+    // reading years ago. NULL status reads as finished, which is correct.
+    book_status: null,
+    book_started_date: null,
   };
+}
+
+/**
+ * Is this book finished, and therefore countable?
+ *
+ * The predicate is `status !== 'reading'`, NOT `status === 'finished'`. Every
+ * book row written before August 2026 has book_status NULL and is finished;
+ * there is deliberately no backfill (see the migration header). Testing for
+ * 'finished' would hide all 179 of them.
+ *
+ * WHERE THIS APPLIES: book counts and book lists — the Books Read tiles, the
+ * Reading Log's finished list, the printed log, and the calendar's book
+ * indicators. An in-progress book is not a book read yet.
+ *
+ * WHERE IT DELIBERATELY DOES NOT: garden leaf counts. A leaf is earned when a
+ * memory is captured, the same as every other memory type, and finishing a
+ * book grants no second one. Withholding the leaf until the last page would
+ * make a half-read book feel like it did not count, which is exactly the
+ * guilt this feature exists to avoid. countByChild therefore counts an
+ * in-progress book immediately and is intentionally not filtered.
+ */
+export function isFinishedBook(r: { book_status?: string | null }): boolean {
+  return r.book_status !== "reading";
+}
+
+/** The inverse, for the currently-reading shelf. */
+export function isReadingBook(r: { book_status?: string | null }): boolean {
+  return r.book_status === "reading";
 }
 
 /**
