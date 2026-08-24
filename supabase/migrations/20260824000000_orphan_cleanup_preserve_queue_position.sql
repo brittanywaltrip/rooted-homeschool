@@ -1,6 +1,21 @@
--- NOT YET APPLIED. Do not treat this file as a record of a live change.
--- Apply it via the Supabase MCP (apply_migration) after review, then verify the
--- live body with pg_get_functiondef before trusting it (Anti-pattern J).
+-- ALREADY APPLIED TO PRODUCTION 2026-08-24 (via Supabase MCP apply_migration).
+-- This file exists so the repo's migration history matches the live database.
+-- Do NOT re-run it.
+--
+-- Live version stamp is `20260824203947` (`orphan_cleanup_preserve_queue_position`
+-- in supabase_migrations.schema_migrations). The MCP records its own apply-time
+-- timestamp, so it does not match this filename — the same drift every
+-- MCP-applied file in this directory carries. Match them on the name, not the
+-- number.
+--
+-- Verified live with pg_get_functiondef after applying: the CASE expression is
+-- in the running function, `scheduled_date = NULL` is still there (Invariant 13),
+-- and the rooted.skip_orphan_cleanup re-entry guard is unchanged.
+--
+-- This is a PREVENTIVE fix. It stops new stranded slots being made; it heals
+-- nothing that already exists. The 860 completed rows that hold a lesson_number
+-- with a NULL slot were still there immediately after the apply, as expected.
+-- scripts/repair-queue-gaps.ts is the repair for the rows already damaged.
 --
 -- THE BUG (Sentry ROOTED-HOMESCHOOL-R and -13): the orphan cleanup lowers
 -- current_lesson, so the Today projector emits a queue slot that no row
