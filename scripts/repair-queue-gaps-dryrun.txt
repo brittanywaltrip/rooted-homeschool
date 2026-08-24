@@ -9,7 +9,7 @@
 [repair-queue-gaps] ...scanned 100000 lesson rows
 [repair-queue-gaps] ...scanned 125000 lesson rows
 [repair-queue-gaps] ...scanned 150000 lesson rows
-[repair-queue-gaps] scanned 157599 goal-attached lesson rows
+[repair-queue-gaps] scanned 157598 goal-attached lesson rows
 [repair-queue-gaps] excluded 1 goal(s) belonging to garfieldbrittany+test1@gmail.com
 
 ==============================================================================
@@ -276,76 +276,6 @@ GOAL 894e9da1-0b86-44ff-9c6d-07bdd207cbbd  alishapoppel@gmail.com  child=Gwen  n
     insert  slot=78  lesson_number=78  date=2026-12-07
     insert  slot=79  lesson_number=79  date=2026-12-08
 
-GOAL 24f53fcf-75fb-4cb8-a8f3-8f48f492b994  alkinner@yahoo.com  child=Caleb  name="Explode the Code"  subject=(no subject)
-  current_lesson=44  total_lessons=78  max(queue_position)=78  holes=1 [45]
-  RESTORE  slot=45  row=21b1a83d-cf42-43d1-812b-ff60bd4efc4a  set queue_position=45  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 44 -> 45 via trg_lessons_recompute_current_lesson
-
-GOAL 37ae22fc-0b01-4674-b09b-1f0c4d26fbdd  alkinner@yahoo.com  child=Paxton  name="Spelling U See"  subject=(no subject)
-  current_lesson=9  total_lessons=30  max(queue_position)=30  holes=1 [10]
-  RESTORE  slot=10  row=a8112c9b-4b21-45a3-bef1-e7a7c8ce4166  set queue_position=10  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 9 -> 10 via trg_lessons_recompute_current_lesson
-
-GOAL 4ab98797-0e6c-4e69-a622-b036baf3e8f5  alkinner@yahoo.com  child=Paxton  name="EIW"  subject=Writing
-  current_lesson=30  total_lessons=83  max(queue_position)=83  holes=1 [31]
-  RESTORE  slot=31  row=19e68b27-3100-4128-8bc6-4cba3ef1ac9d  set queue_position=31  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 30 -> 31 via trg_lessons_recompute_current_lesson
-
-GOAL 564ac11c-f87a-4b11-a5fc-43ef6ce943d0  alkinner@yahoo.com  child=Paxton  name="Math U See"  subject=Math
-  current_lesson=181  total_lessons=210  max(queue_position)=210  holes=1 [182]
-  RESTORE  slot=182  row=3129dc25-8dd5-4c8d-9e09-0f8c11db211b  set queue_position=182  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 181 -> 182 via trg_lessons_recompute_current_lesson
-
-GOAL 5f70a092-1a15-4966-aaf0-ad3d8de5e139  alkinner@yahoo.com  child=Paxton  name="Noeo"  subject=Biology
-  current_lesson=55  total_lessons=144  max(queue_position)=144  holes=1 [56]
-  RESTORE  slot=56  row=c7438e01-d274-4ce0-8b64-fb969f9dd5e1  set queue_position=56  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 55 -> 56 via trg_lessons_recompute_current_lesson
-
-GOAL 615a433c-546c-4bea-91a0-ddb3c036f320  alkinner@yahoo.com  child=Caleb  name="HWOT"  subject=Handwriting
-  current_lesson=80  total_lessons=102  max(queue_position)=102  holes=1 [81]
-  RESTORE  slot=81  row=776a479a-8f2c-4bdd-a9ef-6e31eff0476e  set queue_position=81  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 80 -> 81 via trg_lessons_recompute_current_lesson
-
-GOAL 69622544-c56f-4a79-95da-cfc417495203  alkinner@yahoo.com  child=Connor  name="Math U See"  subject=Math
-  current_lesson=146  total_lessons=250  max(queue_position)=250  holes=1 [147]
-  RESTORE  slot=147  row=aa8ce34f-5449-42ce-878d-b6469c2bc35f  set queue_position=147  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 146 -> 147 via trg_lessons_recompute_current_lesson
-
-GOAL 853b14a8-c0a3-498b-9d88-7977fb113acb  alkinner@yahoo.com  child=Grace  name="Spelling U See"  subject=Spelling
-  current_lesson=9  total_lessons=30  max(queue_position)=30  holes=1 [10]
-  RESTORE  slot=10  row=8fdee27e-f065-4c3b-9622-3a80e7d4b22e  set queue_position=10  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 9 -> 10 via trg_lessons_recompute_current_lesson
-
-GOAL 9a4fb6af-86d6-4223-96d0-3a96ca7b5b4c  alkinner@yahoo.com  child=Grace  name="Noeo Science"  subject=Biology
-  current_lesson=55  total_lessons=144  max(queue_position)=144  holes=1 [56]
-  RESTORE  slot=56  row=f88e2e48-1339-4a77-8997-217aa4567af7  set queue_position=56  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 55 -> 56 via trg_lessons_recompute_current_lesson
-
-GOAL c6e4b919-f9b7-47ea-a260-6878ab066e26  alkinner@yahoo.com  child=Caleb  name="Math With Confidence"  subject=Math
-  current_lesson=7  total_lessons=128  max(queue_position)=128  holes=1 [8]
-  RESTORE  slot=8  row=b001302e-9235-4ecf-9118-25203c88de4d  set queue_position=8  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 7 -> 8 via trg_lessons_recompute_current_lesson
-
-GOAL c836c973-fea1-4fbf-a1c9-2794d0bde645  alkinner@yahoo.com  child=Paxton  name="Notgrass History"  subject=Our Big World
-  current_lesson=35  total_lessons=90  max(queue_position)=90  holes=1 [36]
-  RESTORE  slot=36  row=5c587876-5a90-4c92-92fd-a9d37a8bc186  set queue_position=36  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 35 -> 36 via trg_lessons_recompute_current_lesson
-
-GOAL d8ac7f63-4377-4e94-abdc-1aea0e109502  alkinner@yahoo.com  child=Grace  name="Essentials in writing"  subject=Writing
-  current_lesson=42  total_lessons=83  max(queue_position)=83  holes=1 [43]
-  RESTORE  slot=43  row=b79f35fb-3937-4629-a3b1-fa31d20bfd57  set queue_position=43  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 42 -> 43 via trg_lessons_recompute_current_lesson
-
-GOAL e8148629-d009-470a-94e3-938724421031  alkinner@yahoo.com  child=Grace  name="Notgrass History"  subject=Our Big World
-  current_lesson=35  total_lessons=90  max(queue_position)=90  holes=1 [36]
-  RESTORE  slot=36  row=923cd007-d419-4854-ab97-41dc97dab68a  set queue_position=36  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 35 -> 36 via trg_lessons_recompute_current_lesson
-
-GOAL f93a7225-a279-4b64-8971-924f5ffe34e4  alkinner@yahoo.com  child=Caleb  name="Play and Talk"  subject=Reading
-  current_lesson=2  total_lessons=20  max(queue_position)=20  holes=1 [3]
-  RESTORE  slot=3  row=bfa6459e-665c-400d-a421-78b5966e37a4  set queue_position=3  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 2 -> 3 via trg_lessons_recompute_current_lesson
-
 GOAL a955da5e-d7fd-4a93-a182-13110128cc68  allisonbcameron@gmail.com  child=Finnley  name="100 Lessons To Read"  subject=Reading
   current_lesson=3  total_lessons=100  max(queue_position)=95  holes=39 [4-42]
   CREATE   39 row(s), each {user_id: 50cefc89-99d0-412e-8a88-3d68b378da29, child_id: edea728b-bfa7-45e1-bef9-9517d457ce50, curriculum_goal_id: a955da5e-d7fd-4a93-a182-13110128cc68, completed: false, is_backfill: false, hours: 0, queue_pinned: false, scheduled_source: 'cleanup_sql', scheduled_date: null, title: "100 Lessons To Read — Lesson <n>"}
@@ -404,11 +334,6 @@ GOAL 4fadd3c5-4823-41bb-98db-ae630129b730  alotofsports2714@gmail.com  child=W  
     insert  slot=49  lesson_number=49  date=2026-12-15
     insert  slot=50  lesson_number=50  date=2026-12-16
     insert  slot=51  lesson_number=51  date=2026-12-17
-
-GOAL 231ce6ba-d582-4084-b0b3-737653e23c5f  ameds6@aol.com  child=Wesley  name="Science"  subject=(no subject)
-  current_lesson=0  total_lessons=35  max(queue_position)=35  holes=1 [1]
-  RESTORE  slot=1  row=26a5cf09-b98b-4dc7-aaf7-450e831b8f4d  set queue_position=1  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 0 -> 1 via trg_lessons_recompute_current_lesson
 
 GOAL 49b56c75-3a2f-4aee-ad98-2cecc6cec431  armbrustway@gmail.com  child=Kallie  name="Saxon Math"  subject=Math
   current_lesson=0  total_lessons=120  max(queue_position)=120  holes=20 [65-84]
@@ -519,67 +444,6 @@ GOAL 52c36241-0589-4fe2-a51a-478d51f1ab73  ashlyberm@aol.com  child=Bean  name="
     insert  slot=23  lesson_number=23  date=2026-11-06
     insert  slot=24  lesson_number=24  date=2026-11-10
     insert  slot=25  lesson_number=25  date=2026-11-13
-
-GOAL 040a17a0-cb40-40d8-81a3-f7e09de9c7c5  atharyahlovesyah@gmail.com  child=Caleb (Ary) Moses  name="Easy Peasy Geography and Cultures"  subject=History
-  current_lesson=6  total_lessons=155  max(queue_position)=155  holes=3 [7-9]
-  RESTORE  slot=7  row=9a8a1e79-eb29-427c-8a5b-bb8d7499c2ad  set queue_position=7  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=8  row=065fbcc3-fd5e-488d-95f2-49d814a9a632  set queue_position=8  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=9  row=447a3969-6382-4221-a1a4-7fd1d2f8e72e  set queue_position=9  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 6 -> 9 via trg_lessons_recompute_current_lesson
-
-GOAL 2115365b-215b-4652-9e74-2bae3e27e7b5  atharyahlovesyah@gmail.com  child=Chelsea (Kat) Owens  name="Easy peasy science"  subject=Earth science
-  current_lesson=6  total_lessons=155  max(queue_position)=155  holes=1 [7]
-  RESTORE  slot=7  row=18040cbb-6b41-41ec-a7f0-b668a0c5176b  set queue_position=7  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 6 -> 7 via trg_lessons_recompute_current_lesson
-
-GOAL 2193a68c-ead5-409d-b2ff-a14dfe36fc40  atharyahlovesyah@gmail.com  child=Chelsea (Kat) Owens  name="Easy Peasy Language Arts 2"  subject=Writing
-  current_lesson=6  total_lessons=155  max(queue_position)=155  holes=1 [7]
-  RESTORE  slot=7  row=4d9a5cac-f24a-4750-8f6a-c98c3c5a7746  set queue_position=7  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 6 -> 7 via trg_lessons_recompute_current_lesson
-
-GOAL 2a49da6e-d4be-4e96-a4c0-d48b267f2c28  atharyahlovesyah@gmail.com  child=Caleb (Ary) Moses  name="Easy Peasy Language Arts 6"  subject=Writing
-  current_lesson=5  total_lessons=155  max(queue_position)=155  holes=1 [6]
-  RESTORE  slot=6  row=8f6dd638-aa7b-4cb1-9929-28867d3e3995  set queue_position=6  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 5 -> 6 via trg_lessons_recompute_current_lesson
-
-GOAL 48304ba9-bb4c-40ab-8d2b-8dd705bebf90  atharyahlovesyah@gmail.com  child=Cayden (kam) Moses  name="Easy Peasy Thinking 8"  subject=(no subject)
-  current_lesson=2  total_lessons=80  max(queue_position)=80  holes=1 [3]
-  RESTORE  slot=3  row=867ef5a8-5464-40f7-b4cb-c7c59d19950b  set queue_position=3  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 2 -> 3 via trg_lessons_recompute_current_lesson
-
-GOAL 6b0e1971-fb7e-4469-ab6b-4b9a01f72372  atharyahlovesyah@gmail.com  child=Chelsea (Kat) Owens  name="Easy Peasy Computer 2"  subject=(no subject)
-  current_lesson=2  total_lessons=40  max(queue_position)=40  holes=3 [3-5]
-  RESTORE  slot=3  row=2bff5f05-60ec-4c39-af4a-6e4eb5ea1869  set queue_position=3  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=4  row=a1a5ce8f-e53f-4470-b3ce-6d78144de98e  set queue_position=4  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=5  row=174d646f-9f26-4f1d-9048-c8b1e45288f5  set queue_position=5  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 2 -> 5 via trg_lessons_recompute_current_lesson
-
-GOAL 85fa7f24-150f-4748-bf6d-690244cd4a0f  atharyahlovesyah@gmail.com  child=Cayden (kam) Moses  name="Easy Peasy Music"  subject=Geography and Culture
-  current_lesson=3  total_lessons=40  max(queue_position)=40  holes=3 [4-6]
-  RESTORE  slot=4  row=2ea59476-0c66-4ad4-afe2-a884135d9aa6  set queue_position=4  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=5  row=943df64c-2b17-46b8-92ac-adf5453957f7  set queue_position=5  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=6  row=85fcb113-f979-40be-bc91-e6aeeebfb064  set queue_position=6  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 3 -> 6 via trg_lessons_recompute_current_lesson
-
-GOAL 9d27d1c8-4970-4c99-b342-49f71f5bd723  atharyahlovesyah@gmail.com  child=Chelsea (Kat) Owens  name="Easy Peasy Thinking 2"  subject=Critical thinking
-  current_lesson=2  total_lessons=80  max(queue_position)=80  holes=1 [3]
-  RESTORE  slot=3  row=771ea78f-8821-41a0-913d-3b9dfc9c611f  set queue_position=3  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 2 -> 3 via trg_lessons_recompute_current_lesson
-
-GOAL a9782074-61e0-482b-976f-ac5e76773568  atharyahlovesyah@gmail.com  child=Chelsea (Kat) Owens  name="Easy Peasy Bible"  subject=Poetic books
-  current_lesson=5  total_lessons=155  max(queue_position)=155  holes=1 [6]
-  RESTORE  slot=6  row=d6cfa98f-6fe3-4f68-bd36-7910f4947a8a  set queue_position=6  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 5 -> 6 via trg_lessons_recompute_current_lesson
-
-GOAL ea624f38-fd0b-4fcb-83f9-09a439f8b866  atharyahlovesyah@gmail.com  child=Caleb (Ary) Moses  name="Easy Peasy Thinking 6"  subject=(no subject)
-  current_lesson=2  total_lessons=80  max(queue_position)=80  holes=1 [3]
-  RESTORE  slot=3  row=eaf77171-42f0-4611-aa91-823d257b37e4  set queue_position=3  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 2 -> 3 via trg_lessons_recompute_current_lesson
-
-GOAL f490e6d6-7e09-419f-84f5-bab6c8b5ba63  atharyahlovesyah@gmail.com  child=Cayden (kam) Moses  name="Computer 8"  subject=Computer science
-  current_lesson=4  total_lessons=40  max(queue_position)=40  holes=1 [5]
-  RESTORE  slot=5  row=c2bc0c9e-ac42-456b-96fc-006c27915006  set queue_position=5  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 4 -> 5 via trg_lessons_recompute_current_lesson
 
 GOAL 15b25a69-2285-425d-9c76-a55e5e57f36e  baumgartenjamie@gmail.com  child=Grayson  name="The Good And The Beautiful Level 3"  subject=Math
   current_lesson=31  total_lessons=120  max(queue_position)=120  holes=9 [83-91]
@@ -838,15 +702,9 @@ GOAL d2f2f0eb-a686-4ac4-bdce-51fc61b07364  brittanycarter820@gmail.com  child=Tr
     insert  slot=68  lesson_number=68  date=2026-12-18
 
 GOAL 4193f9b3-d571-431b-881f-676c3c0c692e  brittanywaltrip20@gmail.com  child=Zoe  name="The Good and the Beautiful Math 3"  subject=Math
-  current_lesson=29  total_lessons=120  max(queue_position)=120  holes=5 [30-34]
-  RESTORE  slot=31  row=8887d339-ba50-4801-839b-b64dfdb6ec96  set queue_position=31  (completed, source=queue_resync, is_backfill=false)
-  RESTORE  slot=32  row=0d14636b-fc3d-474e-82e8-bb5d90f7d326  set queue_position=32  (completed, source=queue_resync, is_backfill=false)
-  SKIP     slot=30  reason: row 6beaecf2-b1b8-435a-81f3-1c8996af3ee7 holds lesson_number 30 but sits in queue slot 27 (source=plan_move, completed=false); moving it would empty slot 27, and an insert would collide with lessons_goal_lesson_number_unique
+  current_lesson=32  total_lessons=120  max(queue_position)=120  holes=2 [33-34]
   SKIP     slot=33  reason: row b119b196-61e6-46b6-8936-0b152f0aeb8f holds lesson_number 33 but sits in queue slot 28 (source=plan_move, completed=false); moving it would empty slot 28, and an insert would collide with lessons_goal_lesson_number_unique
   SKIP     slot=34  reason: row f7bbee13-211c-49e7-8d25-09f568c140ad holds lesson_number 34 but sits in queue slot 29 (source=plan_move, completed=false); moving it would empty slot 29, and an insert would collide with lessons_goal_lesson_number_unique
-  CASCADE  restoring raises current_lesson 29 -> 32 via trg_lessons_recompute_current_lesson
-  CASCADE  trg_curriculum_goals_cleanup_orphans will then auto-complete 1 incomplete row(s) at or below 32 and null their queue_position; 1 of them hold slot(s) 27, which will become new holes
-    swept  row=6beaecf2-b1b8-435a-81f3-1c8996af3ee7  lesson_number=30  queue_position=27  source=plan_move
 
 GOAL 01a43625-07f9-4386-b6cf-4f31682580c0  brittney.zaczkowski@gmail.com  child=Cole  name="Dimensions Math"  subject=Math
   current_lesson=2  total_lessons=56  max(queue_position)=56  holes=32 [3-34]
@@ -1371,30 +1229,6 @@ GOAL f039439e-c7eb-41f3-820d-72e663d5a17b  chacon.teach@gmail.con  child=Joel  n
     insert  slot=21  lesson_number=21  date=2026-09-18
     insert  slot=22  lesson_number=22  date=2026-09-21
     insert  slot=23  lesson_number=23  date=2026-09-22
-
-GOAL 7c3443f8-8ce7-4030-a75f-5229296e5896  chantelgillenwater@gmail.com  child=Lucy  name="Easy Peasy Reading Grade 2"  subject=Reading
-  current_lesson=25  total_lessons=180  max(queue_position)=180  holes=1 [26]
-  RESTORE  slot=26  row=446ff311-44cb-486b-ba5d-cadc6057ac3a  set queue_position=26  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 25 -> 26 via trg_lessons_recompute_current_lesson
-
-GOAL 9aa7ec81-8c30-42aa-9fa3-a4c1fb0c6404  chantelgillenwater@gmail.com  child=Lucy  name="Easy Peasy Spelling"  subject=Spelling and Cursive Worksheets
-  current_lesson=24  total_lessons=180  max(queue_position)=180  holes=1 [26]
-  RESTORE  slot=26  row=5f64ad9f-a5aa-46f5-ab97-d4cdd80818ce  set queue_position=26  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 24 -> 26 via trg_lessons_recompute_current_lesson
-  CASCADE  trg_curriculum_goals_cleanup_orphans will then auto-complete 1 incomplete row(s) at or below 26 and null their queue_position; 1 of them hold slot(s) 25, which will become new holes
-    swept  row=3c532fce-73d7-40b1-b971-099eeedfc676  lesson_number=25  queue_position=25  source=wizard_create
-
-GOAL a321e1b8-b208-45ee-a02d-b1e45e30f869  chantelgillenwater@gmail.com  child=Jack  name="Easy Peasy Art"  subject=Ancient History
-  current_lesson=4  total_lessons=36  max(queue_position)=36  holes=3 [5-7]
-  RESTORE  slot=5  row=7ec9fa5e-8229-4af9-8834-7e0840febd27  set queue_position=5  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=6  row=f9f5522f-ce9c-42cf-abb3-131d9cd85f2f  set queue_position=6  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=7  row=016f7064-18ec-4ed6-b0aa-427e0192b307  set queue_position=7  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 4 -> 7 via trg_lessons_recompute_current_lesson
-
-GOAL ca1a70b5-81fb-4567-b740-bf76b127ee21  chantelgillenwater@gmail.com  child=Lucy  name="Easy Peasy Art"  subject=Ancient History
-  current_lesson=6  total_lessons=36  max(queue_position)=36  holes=1 [7]
-  RESTORE  slot=7  row=4ccedd9a-519f-4054-9423-16b03ad33c53  set queue_position=7  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 6 -> 7 via trg_lessons_recompute_current_lesson
 
 GOAL e4e2df00-7808-4f4b-8a83-9ff03401a07c  chelleybags@hotmail.co.uk  child=I  name="Adapted Mind"  subject=Math
   current_lesson=1  total_lessons=206  max(queue_position)=206  holes=20 [66-85]
@@ -3572,28 +3406,10 @@ GOAL 58c59879-3a92-4629-89d9-b4a775e3987e  jaimegfitz@gmail.com  child=Dylan  na
     insert  slot=83  lesson_number=83  date=2026-12-16
     insert  slot=84  lesson_number=84  date=2026-12-17
 
-GOAL 03f80af9-0e95-48c3-aa0b-1fc2882a7612  jamie.lepior@gmail.com  child=William  name="Science Shepard"  subject=Science
-  current_lesson=4  total_lessons=121  max(queue_position)=121  holes=1 [5]
-  RESTORE  slot=5  row=22194041-95b9-4527-817a-1498a3078448  set queue_position=5  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 4 -> 5 via trg_lessons_recompute_current_lesson
-
-GOAL 29c696da-eb10-48e6-ae3c-9e2d85a9e2f5  jamie.lepior@gmail.com  child=Jenna  name="Mia-SS"  subject=Exploring Social Studies
-  current_lesson=4  total_lessons=212  max(queue_position)=212  holes=1 [5]
-  RESTORE  slot=5  row=4e7239db-329a-45a4-9b32-ffab667b8820  set queue_position=5  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 4 -> 5 via trg_lessons_recompute_current_lesson
-
 GOAL 2f729d4b-4b98-4c36-b15d-16964409d3a4  jamie.lepior@gmail.com  child=Jenna  name="Mia-GS"  subject=General Science
   current_lesson=0  total_lessons=254  max(queue_position)=254  holes=1 [1]
   CREATE   1 row(s), each {user_id: 9e09c0e2-cc81-450d-8de3-2af7a59a27e3, child_id: ab1ac61b-3aa8-4764-b66c-b3b2a4fef47c, curriculum_goal_id: 2f729d4b-4b98-4c36-b15d-16964409d3a4, completed: false, is_backfill: false, hours: 0, queue_pinned: false, scheduled_source: 'cleanup_sql', scheduled_date: null, title: "Mia-GS — Lesson <n>"}
     insert  slot=1  lesson_number=1  date=2026-08-24
-
-GOAL b5235fa4-8eca-43bf-a867-d1c761ef6650  jamie.lepior@gmail.com  child=Jenna  name="Mia-SQ"  subject=Survivors quest
-  current_lesson=2  total_lessons=51  max(queue_position)=51  holes=2 [3-4]
-  RESTORE  slot=4  row=0fbee7a0-43a0-48a3-ba1b-c2a421b9f2c7  set queue_position=4  (completed, source=queue_resync, is_backfill=false)
-  SKIP     slot=3  reason: row a768c775-55c9-4be8-9a8a-b99e9116c678 has lesson_number 3 and no slot but is not completed (source=plan_move, is_backfill=true); restoring is only defined for completed rows
-  CASCADE  restoring raises current_lesson 2 -> 4 via trg_lessons_recompute_current_lesson
-  CASCADE  trg_curriculum_goals_cleanup_orphans will then auto-complete 1 incomplete row(s) at or below 4 and null their queue_position
-    swept  row=a768c775-55c9-4be8-9a8a-b99e9116c678  lesson_number=3  queue_position=null  source=plan_move
 
 GOAL 87620803-6ec0-4fbe-b466-60b805e92839  janaemartinez99@gmail.com  child=Jayce  name="Lesson 15"  subject=Reading
   current_lesson=14  total_lessons=100  max(queue_position)=100  holes=6 [79-84]
@@ -4379,6 +4195,10 @@ GOAL 715ff11e-4b67-42c7-86a7-bee47f5b8d24  kimkeaveney@gmail.com  child=Jackson 
     insert  slot=84  lesson_number=84  date=2026-12-16
     insert  slot=85  lesson_number=85  date=2026-12-17
     insert  slot=86  lesson_number=86  date=2026-12-18
+
+GOAL 44896572-1211-4aaf-8a7b-15a7556efbb9  kmmat22@gmail.com  child=Brighid  name="School Zone - Homeschool First Grade Workbook"  subject=ELA/Math
+  current_lesson=3  total_lessons=224  max(queue_position)=224  holes=1 [4]
+  SKIP     slot=4  reason: row e5b9f260-cdcc-43ed-be43-91017d784234 holds lesson_number 4 but sits in queue slot 8 (source=plan_move, completed=false); moving it would empty slot 8, and an insert would collide with lessons_goal_lesson_number_unique
 
 GOAL 200cbeb4-d827-4b3b-90d8-eb16b9b7ad93  kosch.jess@gmail.com  child=Milana  name="Math With Confidence"  subject=Math
   current_lesson=0  total_lessons=128  max(queue_position)=128  holes=121 [1-121]
@@ -6957,11 +6777,6 @@ GOAL df7a8e11-0181-4d39-be00-2ac33f0702fd  p_angerer@yahoo.com  child=Troy  name
     insert  slot=83  lesson_number=83  date=2026-12-16
     insert  slot=84  lesson_number=84  date=2026-12-17
 
-GOAL 2f7db5b8-3419-4b8c-af5b-ff19f866c519  paulinetapia88@gmail.com  child=Ximena  name="The Good and the beautiful"  subject=Historia
-  current_lesson=1  total_lessons=60  max(queue_position)=60  holes=1 [2]
-  RESTORE  slot=2  row=df96ab20-8f41-4514-b7a8-b37c30221385  set queue_position=2  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 1 -> 2 via trg_lessons_recompute_current_lesson
-
 GOAL 09af8479-9e95-4f21-82ab-673efd8d6bb9  piavky2020@gmail.com  child=Kytanna Glover  name="Math-U-See"  subject=Math
   current_lesson=0  total_lessons=120  max(queue_position)=120  holes=20 [65-84]
   CREATE   20 row(s), each {user_id: a691964a-9be1-4d26-a3f4-350c98d2f3f1, child_id: be855d5f-8fb1-438d-98a5-f9957c5df074, curriculum_goal_id: 09af8479-9e95-4f21-82ab-673efd8d6bb9, completed: false, is_backfill: false, hours: 0, queue_pinned: false, scheduled_source: 'cleanup_sql', scheduled_date: null, title: "Math-U-See — Lesson <n>"}
@@ -7190,12 +7005,6 @@ GOAL 109e9cda-92bd-4460-8aab-119848172ea5  qamar.ul.huda12@gmail.com  child=Qasi
     insert  slot=83  lesson_number=83  date=2026-12-16
     insert  slot=84  lesson_number=84  date=2026-12-17
 
-GOAL 22aaefcf-87f2-4b8f-910d-ec30490b4e23  quincyandjaydynboas@gmail.com  child=RoeynnMae  name="Jingle Jacqui"  subject=ASL
-  current_lesson=2  total_lessons=148  max(queue_position)=148  holes=2 [3-4]
-  RESTORE  slot=3  row=7b48ab7a-2dce-4a20-a3d5-6cf44188f0b0  set queue_position=3  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=4  row=6f5b1ab2-0ae6-4ac9-85a3-ffab6911db81  set queue_position=4  (completed, source=queue_resync, is_backfill=false)
-  CASCADE  restoring raises current_lesson 2 -> 4 via trg_lessons_recompute_current_lesson
-
 GOAL 238f738b-3c0d-4952-b00f-212e4d533b9c  r.stepura20@gmail.com  child=Evelyn  name="Math 4"  subject=Math
   current_lesson=10  total_lessons=120  max(queue_position)=120  holes=15 [57-71]
   CREATE   15 row(s), each {user_id: b93eedec-9f06-48f8-b89f-cf11991e304a, child_id: 26dc3a41-a2ab-4264-9afa-b662e837ca9c, curriculum_goal_id: 238f738b-3c0d-4952-b00f-212e4d533b9c, completed: false, is_backfill: false, hours: 0, queue_pinned: false, scheduled_source: 'cleanup_sql', scheduled_date: null, title: "Math 4 — Lesson <n>"}
@@ -7233,16 +7042,6 @@ GOAL 9e28c334-ec58-464c-bb95-25cc937bffe5  r.stepura20@gmail.com  child=Evelyn  
     insert  slot=69  lesson_number=69  date=2026-12-03
     insert  slot=70  lesson_number=70  date=2026-12-04
     insert  slot=71  lesson_number=71  date=2026-12-07
-
-GOAL 1530546a-847d-4a1d-926f-c97031428b0f  rachelwchristian@gmail.com  child=Daniel  name="EIW 7"  subject=Writing
-  current_lesson=3  total_lessons=90  max(queue_position)=90  holes=1 [4]
-  RESTORE  slot=4  row=9e086915-5965-4ee6-b914-3c413ed6a92b  set queue_position=4  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 3 -> 4 via trg_lessons_recompute_current_lesson
-
-GOAL 4f3b4ed6-78d5-451c-ab5a-c8e9166d32eb  rachelwchristian@gmail.com  child=Daniel  name="Chronos"  subject=History
-  current_lesson=3  total_lessons=104  max(queue_position)=104  holes=1 [4]
-  RESTORE  slot=4  row=d136fe96-08d7-4818-a1b6-2140acfc3011  set queue_position=4  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 3 -> 4 via trg_lessons_recompute_current_lesson
 
 GOAL 0aa12be3-be8a-44f0-b043-962eb934aafd  racheulca@hotmail.com  child=Eli  name="The Good and the Beautiful Math"  subject=Math
   current_lesson=0  total_lessons=120  max(queue_position)=120  holes=20 [65-84]
@@ -7781,12 +7580,6 @@ GOAL 2be1be9a-5d7b-4375-9ec0-d9e268cca0e7  savannahhawkey21@gmail.com  child=Ty 
 GOAL 78875eb4-2f4c-491f-85f1-d088a6043e80  savannahhawkey21@gmail.com  child=Ty Ty  name="Morning Menu 1/3"  subject=TYLER
   current_lesson=3  total_lessons=180  max(queue_position)=180  holes=1 [4]
   SKIP     slot=4  reason: row e6a37562-a025-4a27-af23-51cd6c52b047 holds lesson_number 4 but sits in queue slot 3 (source=catchup_resched, completed=true); moving it would empty slot 3, and an insert would collide with lessons_goal_lesson_number_unique
-
-GOAL 7c4d4e3a-462d-4d66-8b0d-eb46672a03a9  savannahhawkey21@gmail.com  child=Ty Ty  name="Morning Menu"  subject=Weather / Days of The Week 2/3
-  current_lesson=1  total_lessons=180  max(queue_position)=180  holes=2 [2-3]
-  RESTORE  slot=2  row=d5a00692-7294-4c10-ad88-37214275a134  set queue_position=2  (completed, source=wizard_create, is_backfill=true)
-  RESTORE  slot=3  row=5e3b2cd5-df91-455c-99da-2b7abd31f719  set queue_position=3  (completed, source=wizard_create, is_backfill=false)
-  CASCADE  restoring raises current_lesson 1 -> 3 via trg_lessons_recompute_current_lesson
 
 GOAL 8d9cf287-6ba4-4acc-909a-896a15831c01  savannahhawkey21@gmail.com  child=Emersyn  name="BJU Hand Writing"  subject=Language Arts
   current_lesson=3  total_lessons=180  max(queue_position)=180  holes=1 [4]
@@ -9210,16 +9003,6 @@ GOAL c52587f8-78a1-4a2a-a647-92238ea3bada  toriwallace@yahoo.com  child=Jaxston 
     insert  slot=66  lesson_number=66  date=2026-12-15
     insert  slot=67  lesson_number=67  date=2026-12-16
 
-GOAL 81046ad4-1445-45f5-b0a5-4567b565103f  whitley.t2212@gmail.com  child=Jaxton  name="The good and the beautiful kindergarten"  subject=Math
-  current_lesson=81  total_lessons=120  max(queue_position)=120  holes=1 [82]
-  RESTORE  slot=82  row=856ea349-efe0-4882-a6fe-a1aaa8b651dd  set queue_position=82  (completed, source=plan_move, is_backfill=false)
-  CASCADE  restoring raises current_lesson 81 -> 82 via trg_lessons_recompute_current_lesson
-
-GOAL fe190727-b023-42db-a8a9-1e7b7ab3517d  whitley.t2212@gmail.com  child=Jaxton  name="The Good and the beautiful level kindergarten"  subject=Language arts
-  current_lesson=53  total_lessons=120  max(queue_position)=120  holes=1 [54]
-  RESTORE  slot=54  row=c2a69e88-48e3-4321-9a26-3a0d3b7e07c5  set queue_position=54  (completed, source=plan_move, is_backfill=false)
-  CASCADE  restoring raises current_lesson 53 -> 54 via trg_lessons_recompute_current_lesson
-
 GOAL 6cda989c-e706-483f-af84-8704386aaca2  worshiphimalone@gmail.com  child=Charley  name="The Good and the Beautiful pre-school"  subject=Pre- School
   current_lesson=91  total_lessons=180  max(queue_position)=180  holes=4 [142-145]
   CREATE   4 row(s), each {user_id: cf4299f4-f196-47ed-97ca-59c4d4a9c187, child_id: f1a69784-eac8-4a94-83d2-c6317ee77b1e, curriculum_goal_id: 6cda989c-e706-483f-af84-8704386aaca2, completed: false, is_backfill: false, hours: 0, queue_pinned: false, scheduled_source: 'cleanup_sql', scheduled_date: null, title: "The Good and the Beautiful pre-school — Lesson <n>"}
@@ -9352,13 +9135,13 @@ GOAL d3674f0f-dfd1-4f10-b259-5e069af953dd  zabala.taylor@gmail.com  child=Sienna
 TOTALS
 ==============================================================================
 goals scanned .................. 1797
-goals with at least one hole ... 406
-families affected .............. 189
-holes found ................... 7716
-  RESTORE (rows to update) .... 52
+goals with at least one hole ... 367
+families affected .............. 182
+holes found ................... 7663
+  RESTORE (rows to update) .... 0
   CREATE  (rows to insert) .... 7645
-  SKIP    (needs a human) ..... 19
-goals whose current_lesson moves 41
-rows the orphan trigger sweeps . 3
+  SKIP    (needs a human) ..... 18
+goals whose current_lesson moves 0
+rows the orphan trigger sweeps . 0
 
-[repair-queue-gaps] DRY RUN — nothing was written. Re-run with --apply to update 52 row(s) and insert 7645 row(s).
+[repair-queue-gaps] DRY RUN — nothing was written. Re-run with --apply to update 0 row(s) and insert 7645 row(s), or with --apply --restores-only to update the 0 row(s) and insert nothing.

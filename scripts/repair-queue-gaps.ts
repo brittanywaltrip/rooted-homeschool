@@ -64,21 +64,49 @@
 // queue_position onto a completed row fires trg_lessons_recompute_current_lesson,
 // which raises the goal's current_lesson to max(queue_position) over completed
 // rows. That raise fires trg_curriculum_goals_cleanup_orphans, which completes
-// every incomplete row at or below the new current_lesson (with empty notes) and
-// NULLS ITS queue_position. That is how the manual run healed whole goals at
-// once — and it can also open new holes below the rows it sweeps. Read the
-// CASCADE lines before running --apply.
+// every incomplete row at or below the new current_lesson (with empty notes).
+// That is how one restore can heal a whole goal at once.
+//
+// The cleanup used to NULL those rows' queue_position too, which opened a fresh
+// hole for every row it swept and dragged current_lesson back below the restore
+// — the loop this whole class of damage comes from. Migration
+// 20260824000000_orphan_cleanup_preserve_queue_position closed it: a swept row
+// at or below the new pointer now keeps its slot. Restores are only safe to
+// apply on a database carrying that migration. Confirm it is live before
+// --apply:
+//
+//   select pg_get_functiondef('public.curriculum_goals_cleanup_orphans_trg'::regproc)
+//          like '%queue_position <= NEW.current_lesson%';
+//
+// The apply phase measures the cascade against the database rather than
+// trusting this note — see CASCADE MEASUREMENT below.
 //
 // Per docs/CURRICULUM-SCHEDULING.md Anti-pattern H this is NOT a migration: a
 // migration would run against every environment at deploy time. It is a one-off
 // script, dry run by default, that a human runs and reads first.
 //
 // Run:
-//   npx tsx scripts/repair-queue-gaps.ts            (DRY RUN — zero writes)
-//   npx tsx scripts/repair-queue-gaps.ts --apply    (updates + inserts only)
+//   npx tsx scripts/repair-queue-gaps.ts                          (DRY RUN)
+//   npx tsx scripts/repair-queue-gaps.ts --apply                  (updates + inserts)
+//   npx tsx scripts/repair-queue-gaps.ts --apply --restores-only  (updates only)
 //
 // --apply never deletes. It writes queue_position onto existing rows and
 // inserts new ones, nothing else.
+//
+// --restores-only narrows --apply to the RESTORE class: it writes
+// queue_position back onto rows that already exist, and issues no INSERT at
+// all. The two classes carry very different risk — a restore hands a slot back
+// to a lesson the family already did, while a create writes a lesson row that
+// has never existed — so they are separately approvable. The plan printed is
+// identical either way; only the write phase narrows.
+//
+// CASCADE MEASUREMENT. A restore fires two triggers (see the migration
+// 20260824000000 header), so --apply snapshots each goal immediately before its
+// restores and re-reads it immediately after, then prints what actually
+// happened: where current_lesson landed against the prediction, which rows the
+// orphan cleanup auto-completed as collateral, whether any of them lost a queue
+// slot, and whether the goal ended with holes. Predicting a cascade in a dry run
+// and never checking it against the database is how the original bug survived.
 
 import { readFileSync } from 'node:fs'
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
@@ -96,6 +124,8 @@ import { isoDowFromYmd } from '../app/lib/timezone.ts'
 
 // Dry run is the DEFAULT. Writing requires saying so out loud.
 const APPLY = process.argv.includes('--apply')
+// Narrows --apply to the RESTORE class. No INSERT is issued at all.
+const RESTORES_ONLY = process.argv.includes('--restores-only')
 
 // Known test account. Its goals are deliberately in odd states and must never
 // be repaired alongside real families'. Same exclusion repair-empty-goals uses.
@@ -373,8 +403,13 @@ function predictCurrentLesson(goal: GoalRow, rows: LessonRow[], restores: Restor
 /**
  * Rows `curriculum_goals_cleanup_orphans_trg` would auto-complete when
  * current_lesson rises to `newCurrent`: incomplete, numbered at or below it,
- * and carrying no notes. The trigger also nulls their queue_position, so each
- * one that holds a slot today opens a fresh hole tomorrow.
+ * and carrying no notes.
+ *
+ * Since migration 20260824000000 a swept row at or below the new pointer KEEPS
+ * its queue_position, so these no longer open holes — they simply become
+ * completed rows still sitting in their own slots. Before that migration each
+ * one lost its slot and stranded it. The apply phase reports the slots actually
+ * lost, which is the number that must stay at zero.
  */
 function predictCascade(rows: LessonRow[], newCurrent: number): LessonRow[] {
   return rows.filter(
@@ -595,7 +630,10 @@ function buildInsertRows(goal: GoalRow, name: string, creates: Create[]) {
 }
 
 async function main() {
-  console.log(`[repair-queue-gaps] mode: ${APPLY ? 'APPLY (writes)' : 'DRY RUN (no writes)'}`)
+  const mode = APPLY
+    ? (RESTORES_ONLY ? 'APPLY --restores-only (updates only, no inserts)' : 'APPLY (writes)')
+    : 'DRY RUN (no writes)'
+  console.log(`[repair-queue-gaps] mode: ${mode}`)
   const todayMid = todayMidnight()
   console.log(`[repair-queue-gaps] projecting from ${ymd(todayMid)} (this machine's local day)\n`)
 
@@ -703,11 +741,11 @@ async function main() {
         console.log(
           `  CASCADE  trg_curriculum_goals_cleanup_orphans will then auto-complete ` +
             `${plan.cascadeSwept.length} incomplete row(s) at or below ${plan.cascadeNewCurrent} ` +
-            `and null their queue_position` +
+            `` +
             (opened.length > 0
               ? `; ${opened.length} of them hold slot(s) ${formatRuns(
                   opened.map((r) => r.queue_position as number),
-                )}, which will become new holes`
+                )} and keep them under migration 20260824000000 (they stranded before it)`
               : ''),
         )
         for (const r of plan.cascadeSwept.slice(0, 10)) {
@@ -738,23 +776,108 @@ async function main() {
   if (!APPLY) {
     console.log(
       `\n[repair-queue-gaps] DRY RUN — nothing was written. ` +
-        `Re-run with --apply to update ${totalRestores} row(s) and insert ${totalCreates} row(s).`,
+        `Re-run with --apply to update ${totalRestores} row(s) and insert ${totalCreates} row(s), ` +
+        `or with --apply --restores-only to update the ${totalRestores} row(s) and insert nothing.`,
     )
     return
   }
 
   // ── APPLY ────────────────────────────────────────────────────────────────
-  // Restores first, then a re-read, then the inserts. A restore moves
+  // Restores first, goal by goal, each one measured against a fresh snapshot.
+  // Then (unless --restores-only) a re-read and the inserts. A restore moves
   // current_lesson and fires the orphan-cleanup trigger, which can occupy or
-  // vacate the very slots the insert plan was built against. Writing a stale
+  // vacate the very slots an insert plan was built against. Writing a stale
   // plan on top of that is how a repair becomes a second bug.
   console.log(`\n${'='.repeat(78)}\nAPPLY\n${'='.repeat(78)}\n`)
+  if (RESTORES_ONLY) {
+    console.log(
+      `--restores-only: ${totalCreates} planned insert(s) and ${totalSkips} skip(s) will NOT be touched.\n`,
+    )
+  }
+
+  /** One goal's state, for before/after comparison around a restore. */
+  type GoalSnapshot = {
+    currentLesson: number
+    rows: Map<string, { lesson_number: number | null; queue_position: number | null; completed: boolean }>
+  }
+
+  async function snapshotGoal(goalId: string): Promise<GoalSnapshot | null> {
+    const [{ data: g, error: gErr }, { data: rs, error: rErr }] = await Promise.all([
+      supabase.from('curriculum_goals').select('current_lesson').eq('id', goalId).maybeSingle(),
+      supabase
+        .from('lessons')
+        .select('id, lesson_number, queue_position, completed')
+        .eq('curriculum_goal_id', goalId),
+    ])
+    if (gErr || rErr || !g) return null
+    const rows = new Map<string, { lesson_number: number | null; queue_position: number | null; completed: boolean }>()
+    for (const r of (rs ?? []) as { id: string; lesson_number: number | null; queue_position: number | null; completed: boolean }[]) {
+      rows.set(r.id, { lesson_number: r.lesson_number, queue_position: r.queue_position, completed: r.completed })
+    }
+    return { currentLesson: (g as { current_lesson: number | null }).current_lesson ?? 0, rows }
+  }
+
+  /** Slots the projector will emit that no row occupies. */
+  function holesOf(snap: GoalSnapshot): number[] {
+    const slots = new Set<number>()
+    for (const r of snap.rows.values()) if (r.queue_position != null) slots.add(r.queue_position)
+    let maxq = 0
+    for (const sl of slots) if (sl > maxq) maxq = sl
+    const out: number[] = []
+    for (let n = snap.currentLesson + 1; n <= maxq; n++) if (!slots.has(n)) out.push(n)
+    return out
+  }
 
   let restored = 0
   let restoreFailed = 0
+  let restoreStale = 0
+  let cascadeGoals = 0
+  let cascadeAutoCompleted = 0
+  let cascadeSlotsLost = 0
+  let cascadeMatchedPrediction = 0
+  let goalsHealed = 0
+  let goalsStillHoleyAfterRestore = 0
   const touchedGoalIds = new Set<string>()
+
   for (const plan of plans) {
+    if (plan.restores.length === 0) continue
+    const g = plan.goal
+    const before = await snapshotGoal(g.id)
+    if (!before) {
+      console.error(`RESTORE-SKIP  goal=${g.id}  snapshot read failed; leaving it alone`)
+      restoreFailed += plan.restores.length
+      continue
+    }
+
+    // Re-check each restore against the snapshot taken moments ago, not the
+    // scan from the top of the run. A slot filled or a row completed in the
+    // meantime makes the planned write wrong, not merely redundant.
+    const slotsHeld = new Set<number>()
+    for (const r of before.rows.values()) if (r.queue_position != null) slotsHeld.add(r.queue_position)
+
+    let goalRestored = 0
     for (const r of plan.restores) {
+      const row = before.rows.get(r.rowId)
+      if (!row) {
+        console.log(`  stale slot=${r.hole} goal=${g.id}: row ${r.rowId} is gone`)
+        restoreStale++
+        continue
+      }
+      if (row.queue_position != null) {
+        console.log(`  stale slot=${r.hole} goal=${g.id}: row already holds slot ${row.queue_position}`)
+        restoreStale++
+        continue
+      }
+      if (!row.completed) {
+        console.log(`  stale slot=${r.hole} goal=${g.id}: row is no longer completed`)
+        restoreStale++
+        continue
+      }
+      if (slotsHeld.has(r.hole)) {
+        console.log(`  stale slot=${r.hole} goal=${g.id}: slot is occupied now`)
+        restoreStale++
+        continue
+      }
       const { error } = await supabase
         .from('lessons')
         .update({ queue_position: r.lessonNumber })
@@ -763,17 +886,71 @@ async function main() {
         .is('queue_position', null)
       if (error) {
         restoreFailed++
-        console.error(`RESTORE-FAIL  row=${r.rowId}  ${error.message}`)
+        console.error(`RESTORE-FAIL  goal=${g.id}  row=${r.rowId}  ${error.message}`)
         continue
       }
       restored++
-      touchedGoalIds.add(plan.goal.id)
+      goalRestored++
+      slotsHeld.add(r.hole)
+      touchedGoalIds.add(g.id)
+      console.log(`RESTORE-OK  goal=${g.id}  row=${r.rowId}  queue_position=${r.lessonNumber}`)
+    }
+
+    if (goalRestored === 0) continue
+
+    // ── What the triggers actually did ────────────────────────────────────
+    const after = await snapshotGoal(g.id)
+    if (!after) {
+      console.error(`  CASCADE  goal=${g.id}  post-read failed; cannot report the outcome`)
+      continue
+    }
+    cascadeGoals++
+
+    const restoredIds = new Set(plan.restores.map((r) => r.rowId))
+    const autoCompleted: string[] = []
+    const slotsLost: string[] = []
+    for (const [id, aft] of after.rows) {
+      const bef = before.rows.get(id)
+      if (!bef) continue
+      if (!bef.completed && aft.completed && !restoredIds.has(id)) autoCompleted.push(id)
+      if (bef.queue_position != null && aft.queue_position == null && !restoredIds.has(id)) slotsLost.push(id)
+    }
+    cascadeAutoCompleted += autoCompleted.length
+    cascadeSlotsLost += slotsLost.length
+
+    const predicted = plan.cascadeNewCurrent
+    const matched = predicted == null ? after.currentLesson === before.currentLesson : after.currentLesson === predicted
+    if (matched) cascadeMatchedPrediction++
+
+    console.log(
+      `  CASCADE  goal=${g.id}  current_lesson ${before.currentLesson} -> ${after.currentLesson}` +
+        `  (predicted ${predicted ?? before.currentLesson})` +
+        `  ${matched ? 'as predicted' : 'DIVERGED'}`,
+    )
+    if (autoCompleted.length > 0) {
       console.log(
-        `RESTORE-OK  goal=${plan.goal.id}  row=${r.rowId}  queue_position=${r.lessonNumber}`,
+        `  CASCADE  goal=${g.id}  orphan cleanup auto-completed ${autoCompleted.length} row(s): ` +
+          autoCompleted.slice(0, 8).join(', ') +
+          (autoCompleted.length > 8 ? `, +${autoCompleted.length - 8} more` : ''),
       )
     }
+    // Under the pre-20260824 trigger this was the damaging half: a swept row
+    // lost its slot and opened a fresh hole. With the fix live it must be zero.
+    console.log(
+      `  CASCADE  goal=${g.id}  slots lost to the cleanup: ${slotsLost.length}` +
+        (slotsLost.length > 0 ? `  !! ${slotsLost.slice(0, 8).join(', ')}` : '  (trigger fix holding)'),
+    )
+    const holesBefore = holesOf(before)
+    const holesAfter = holesOf(after)
+    if (holesAfter.length === 0) goalsHealed++
+    else goalsStillHoleyAfterRestore++
+    console.log(
+      `  CASCADE  goal=${g.id}  holes ${holesBefore.length} [${formatRuns(holesBefore)}]` +
+        ` -> ${holesAfter.length} [${formatRuns(holesAfter)}]`,
+    )
   }
-  console.log(`\n[repair-queue-gaps] restores: ${restored} ok, ${restoreFailed} failed\n`)
+
+  console.log(`\n[repair-queue-gaps] restores: ${restored} ok, ${restoreFailed} failed, ${restoreStale} stale\n`)
 
   let inserted = 0
   let insertFailed = 0
@@ -781,6 +958,10 @@ async function main() {
   let passCount = 0
   let failCount = 0
 
+  if (RESTORES_ONLY) {
+    console.log(`[repair-queue-gaps] --restores-only: skipped ${totalCreates} insert(s) across ` +
+      `${plans.filter((p) => p.creates.length > 0).length} goal(s). Nothing was created.\n`)
+  } else {
   for (const plan of plans) {
     if (plan.creates.length === 0) continue
     const g = plan.goal
@@ -859,6 +1040,7 @@ async function main() {
         `slots=[${formatRuns(stillValid.map((c) => c.hole))}]`,
     )
   }
+  }
 
   // Verify from the database rather than trusting the loops above.
   console.log(`\n${'='.repeat(78)}\nVERIFY\n${'='.repeat(78)}\n`)
@@ -875,7 +1057,7 @@ async function main() {
       if (r.queue_position != null) slots.add(r.queue_position)
     }
     let maxq = 0
-    for (const s of slots) if (s > maxq) maxq = s
+    for (const sl of slots) if (sl > maxq) maxq = sl
     const remaining: number[] = []
     for (let n = current + 1; n <= maxq; n++) if (!slots.has(n)) remaining.push(n)
     if (remaining.length === 0) {
@@ -891,9 +1073,17 @@ async function main() {
   }
 
   console.log(
+    `\n[repair-queue-gaps] cascade: ${cascadeGoals} goal(s) measured, ` +
+      `${cascadeMatchedPrediction} matched the predicted current_lesson, ` +
+      `${cascadeAutoCompleted} row(s) auto-completed by the orphan cleanup, ` +
+      `${cascadeSlotsLost} slot(s) lost to it, ` +
+      `${goalsHealed} goal(s) left hole-free, ${goalsStillHoleyAfterRestore} not.`,
+  )
+
+  console.log(
     `\n[repair-queue-gaps] done. restored=${restored} restoreFailed=${restoreFailed} ` +
-      `inserted=${inserted} insertFailed=${insertFailed} droppedAsStale=${dropped} ` +
-      `goalsInsertPass=${passCount} goalsInsertFail=${failCount} ` +
+      `restoreStale=${restoreStale} inserted=${inserted} insertFailed=${insertFailed} ` +
+      `droppedAsStale=${dropped} goalsInsertPass=${passCount} goalsInsertFail=${failCount} ` +
       `goalsClean=${clean} goalsStillHoley=${stillHoley}`,
   )
 }
