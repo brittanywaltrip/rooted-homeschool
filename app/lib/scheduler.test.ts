@@ -37,6 +37,7 @@ import {
   resolveCustomLessonGoalLink,
   lessonsPerDayForDate,
   isPinProjectable,
+  isStartAtLessonInRange,
   toGoalConfig,
   type PinnedSlot,
   type ReschedulableLesson,
@@ -1596,6 +1597,14 @@ function loadRepoFile(relPath: string): string {
   return readFileSync(resolve(process.cwd(), relPath), 'utf-8')
 }
 
+// Helper: drop // and /* */ comments so a static check cannot be satisfied by
+// prose. A guard that passes because the identifier appears in a comment is
+// worthless — caught exactly that way while mutation-checking the
+// starting-position wiring below.
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
+}
+
 // Helper: extract the body of a function declaration by name. Uses a
 // brace-depth scan so nested braces (object literals, etc.) are handled.
 function extractFunctionBody(src: string, signaturePattern: RegExp): string {
@@ -1817,6 +1826,148 @@ test('Invariant 7 — marking a single lesson complete only touches that lesson,
   assert.ok(/\bcompleted_at\s*:/.test(payload), 'payload sets completed_at')
   assert.ok(/\bscheduled_date\s*:\s*today\b/.test(payload), 'payload pins scheduled_date to today')
   assert.ok(/\bdate\s*:\s*today\b/.test(payload), 'payload pins date to today')
+})
+
+// ── A starting position past the end of the curriculum ────────────────────
+//
+// PRODUCTION REPRO. Four goals carry total_lessons = 1 with start_at_lesson of
+// 6, 18, 21 and 80, and ZERO lesson rows between them: "All About Reading" x2,
+// "Grammar", "TGATB", all created 2026-04-20..26. On each one `updated_at`
+// PRECEDES `created_at` by a fraction of a second, so they were written once
+// and never edited — those values are what the form saved, not the result of
+// someone shrinking total_lessons afterwards.
+//
+// The chain is entirely mechanical:
+//   start_at_lesson 80, total_lessons 1
+//     -> the builder seeds current_lesson = start_at_lesson - 1 = 79
+//     -> computeNextLessonsForGoal returns [] on its first line, because
+//        current_lesson (79) >= total_lessons (1)
+//     -> phase 2 plans nothing, and the goal is saved with no lessons at all
+//     -> recompute_curriculum_current_lesson then clamps current_lesson to
+//        LEAST(79, total_lessons) = 1, which is exactly the state in the
+//        database today.
+//
+// The projector is NOT at fault and must not be "fixed": a pointer at or past
+// the end genuinely has nothing left to emit. The defect is that the form
+// accepts a starting position the curriculum cannot contain. `min={1}` on the
+// input and `start_at_lesson < 1` in rowIsValid are the only bounds; nothing
+// compares it to total_lessons, and nothing re-checks after total_lessons is
+// edited, so entering the two fields in either order reaches the same state.
+//
+// start_at_lesson is 1-based and names the NEXT lesson to do, so
+// total_lessons + 1 is legal and means "I have finished all of them" — the
+// stepper's own + button already clamps to max + 1. That is the inclusive
+// bound this range enforces.
+
+test('start_at_lesson may not exceed total_lessons + 1', () => {
+  // The exact production shapes.
+  assert.equal(isStartAtLessonInRange(80, 1), false, 'TGATB: start 80 of a 1-lesson curriculum')
+  assert.equal(isStartAtLessonInRange(21, 1), false, 'Grammar: start 21 of 1')
+  assert.equal(isStartAtLessonInRange(18, 1), false, 'All About Reading: start 18 of 1')
+  assert.equal(isStartAtLessonInRange(6, 1), false, 'All About Reading: start 6 of 1')
+
+  // The inclusive upper bound: N + 1 is "I finished all N", and is legal.
+  assert.equal(isStartAtLessonInRange(1, 1), true, 'start at the only lesson')
+  assert.equal(isStartAtLessonInRange(2, 1), true, 'finished the only lesson')
+  assert.equal(isStartAtLessonInRange(3, 1), false, 'one past the end of a 1-lesson curriculum')
+  assert.equal(isStartAtLessonInRange(200, 200), true, 'start at the last lesson')
+  assert.equal(isStartAtLessonInRange(201, 200), true, 'finished all 200')
+  assert.equal(isStartAtLessonInRange(202, 200), false, 'one past the end of 200')
+
+  // Lower bound and junk.
+  assert.equal(isStartAtLessonInRange(0, 10), false)
+  assert.equal(isStartAtLessonInRange(-5, 10), false)
+  assert.equal(isStartAtLessonInRange(1.5, 10), false, 'a fractional position is not a lesson')
+  assert.equal(isStartAtLessonInRange(Number.NaN, 10), false)
+  // total_lessons not yet filled in: the row is incomplete, not startable.
+  assert.equal(isStartAtLessonInRange(1, 0), false)
+})
+
+test('the Schedule Builder actually consults the starting-position range', () => {
+  // The range rule is worthless if it exists in scheduler.ts and nothing calls
+  // it. All three of the builder's gates must read it: the validity check that
+  // enables Preview, the sentence that tells the family why it is disabled, and
+  // the save-time clamp — because total_lessons can be edited AFTER the
+  // starting position was typed and nothing re-validates the pair, so the write
+  // is the last place an out-of-range value can be caught.
+  const src = loadRepoFile('app/dashboard/plan/schedule/page.tsx')
+
+  assert.ok(
+    /isStartAtLessonInRange|clampStartAtLesson/.test(
+      src.slice(0, src.indexOf('\n', src.indexOf('from "@/app/lib/scheduler"'))),
+    ),
+    'schedule/page.tsx must import the starting-position helpers from scheduler.ts',
+  )
+
+  const rowIsValid = stripComments(extractFunctionBody(src, /function rowIsValid\s*\(/))
+  assert.ok(
+    rowIsValid.includes('isStartAtLessonInRange('),
+    'rowIsValid must reject a starting position past the end of the curriculum',
+  )
+
+  const rowMissingLabel = stripComments(extractFunctionBody(src, /function rowMissingLabel\s*\(/))
+  assert.ok(
+    rowMissingLabel.includes('isStartAtLessonInRange('),
+    'rowMissingLabel must explain an out-of-range starting position',
+  )
+
+  const changeStartAtLesson = stripComments(extractFunctionBody(src, /function changeStartAtLesson\s*\(/))
+  assert.ok(
+    changeStartAtLesson.includes('clampStartAtLesson('),
+    'changeStartAtLesson must clamp against total_lessons, not just against 1',
+  )
+
+  // The persisted value, and the current_lesson seeded from it, both go
+  // through the clamp. `Math.max(1, row.start_at_lesson)` was the old bound
+  // and is exactly what let start 80 of a 1-lesson curriculum reach the row.
+  const bare = stripComments(src)
+  assert.ok(
+    !/start_at_lesson:\s*Math\.max\(1,\s*row\.start_at_lesson\)/.test(bare),
+    'the save payload must not clamp start_at_lesson against 1 alone',
+  )
+  assert.ok(
+    bare.includes('start_at_lesson: clampStartAtLesson('),
+    'the save payload must clamp start_at_lesson against total_lessons',
+  )
+})
+
+test('every in-range starting position generates the whole remaining curriculum', () => {
+  // The guard above is only worth having if everything it admits actually
+  // produces a complete tail. This is the assertion the four production goals
+  // would have failed: for each legal start, phase 2 must plan exactly the
+  // lessons that remain, with no gap and no short count.
+  const from = new Date('2026-08-26T00:00:00')
+  for (const total of [1, 2, 15, 200]) {
+    for (let startAt = 1; startAt <= total + 1; startAt++) {
+      assert.ok(isStartAtLessonInRange(startAt, total), `start ${startAt} of ${total} should be legal`)
+      const config: CurriculumGoalConfig = {
+        id: 'g',
+        total_lessons: total,
+        // Exactly how the Schedule Builder seeds it.
+        current_lesson: Math.max(0, startAt - 1),
+        lessons_per_day: 1,
+        school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+      }
+      const upcoming = computeNextLessonsForGoal(config, from, 3650, [], 0, [])
+      const planned = planPhase2LessonInserts({
+        upcoming,
+        existingLessonNumbers: [],
+        existingQueuePositions: [],
+      })
+      const expected = total - (startAt - 1)
+      assert.equal(
+        planned.length,
+        expected,
+        `total ${total}, start ${startAt}: expected ${expected} planned rows, got ${planned.length}`,
+      )
+      const numbers = planned.map((p) => p.lesson_number)
+      assert.deepEqual(
+        numbers,
+        Array.from({ length: expected }, (_, i) => startAt + i),
+        `total ${total}, start ${startAt}: planned numbers must run ${startAt}..${total} with no gap`,
+      )
+    }
+  }
 })
 
 // ── Projected slots hydrate on queue_position, never lesson_number ────────
