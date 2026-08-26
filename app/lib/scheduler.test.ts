@@ -1819,6 +1819,64 @@ test('Invariant 7 — marking a single lesson complete only touches that lesson,
   assert.ok(/\bdate\s*:\s*today\b/.test(payload), 'payload pins date to today')
 })
 
+// ── Projected slots hydrate on queue_position, never lesson_number ────────
+
+test('every projected-slot hydrator joins rows on queue_position, not lesson_number', () => {
+  // The two sides of the join are NOT symmetric, which is what makes this
+  // easy to get wrong: the PROJECTION side is `p.lesson_number` and that is
+  // correct, because that field carries the slot; the ROW side must be
+  // `r.queue_position`, always. Today builds the map from rows (rowKey) and
+  // looks it up by projection. The Plan surfaces build the map from
+  // projections (projDateByKey) and look it up by row. Both directions are
+  // fine; only the ROW side is asserted here.
+  //
+  // Deliberate exception, asserted rather than assumed: the unconfirmed-goal
+  // probe in app/dashboard/page.tsx keys a row set on lesson_number ON
+  // PURPOSE, because trg_curriculum_goals_cleanup_orphans nulls
+  // queue_position on exactly the rows it inspects. That set never touches a
+  // projection, so it is checked by name below instead of by pattern.
+  const files = [
+    'app/dashboard/page.tsx',
+    'app/dashboard/plan/calendar/page.tsx',
+    'app/dashboard/plan/schedule/view/page.tsx',
+    'app/components/today/InlineScheduleTabs.tsx',
+  ]
+  for (const f of files) {
+    assert.ok(
+      !/\.in\(\s*["']lesson_number["']/.test(loadRepoFile(f)),
+      `${f}: projected-slot fetch must use .in("queue_position", ...), not lesson_number`,
+    )
+  }
+
+  // Today: the map is keyed BY ROW, so rowKey itself is the row side.
+  const todaySrc = loadRepoFile('app/dashboard/page.tsx')
+  const rowKeyDef = todaySrc.match(/const rowKey\s*=\s*\([^)]*\)\s*=>\s*`([^`]*)`/)
+  assert.ok(rowKeyDef, 'app/dashboard/page.tsx must define a rowKey for projection hydration')
+  assert.ok(
+    rowKeyDef[1].includes('queue_position'),
+    `Today rowKey must be built from queue_position, got \`${rowKeyDef[1]}\``,
+  )
+
+  // Plan surfaces: the map is keyed BY PROJECTION, so every .has/.get on it
+  // is the row side and must read queue_position.
+  let hydratorsChecked = 0
+  for (const f of ['app/dashboard/plan/calendar/page.tsx', 'app/dashboard/plan/schedule/view/page.tsx']) {
+    const src = loadRepoFile(f)
+    const lookups = [...src.matchAll(/projDateByKey\.(?:get|has)\(\s*`([^`]*)`/g)]
+    assert.ok(lookups.length > 0, `${f}: expected projDateByKey lookups, found none`)
+    hydratorsChecked += 1
+    for (const [, key] of lookups) {
+      assert.ok(
+        key.includes('queue_position') && !key.includes('lesson_number'),
+        `${f}: projDateByKey lookup key \`${key}\` must read queue_position, not lesson_number`,
+      )
+    }
+  }
+  // Guard the guard: if these files get renamed or moved, fail loudly rather
+  // than silently passing over an empty list.
+  assert.strictEqual(hydratorsChecked, 2, 'expected exactly 2 Plan-side projection hydrators')
+})
+
 // ── Invariant 9 — every "today" is in the user's timezone ─────────────────
 
 test('Invariant 9 — todayInTz returns user-local date, never server UTC clock', () => {

@@ -225,18 +225,26 @@ export default function CalendarPage() {
       const completed = completedTodayPerGoal.get(g.id) ?? 0;
       projected.push(...computeNextLessonsForGoal(cfg, today, daysAhead, vacationBlocks, completed, pinsByGoal.get(cfg.id) ?? []).filter((p) => p.date >= s && p.date <= e));
     }
+    // ProjectedLesson.lesson_number is a QUEUE SLOT, not a printed index, so
+    // the join below has to be on lessons.queue_position. These files used to
+    // join on lessons.lesson_number, which is only equal to the slot until the
+    // family drags a lesson to another day (move_lesson_to_date rewrites
+    // queue_position and leaves lesson_number pinned). After one drag this
+    // stamped slot N's projected date onto the row PRINTED N. Today keys on
+    // queue_position (page.tsx:1194) and was always right, which is why the
+    // two surfaces disagreed.
     const projDateByKey = new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]));
     const projGoalIds = Array.from(new Set(projected.map((p) => p.goal_id)));
-    const projNumbers = Array.from(new Set(projected.map((p) => p.lesson_number)));
+    const projSlots = Array.from(new Set(projected.map((p) => p.lesson_number)));
 
     const [{ data: projRowsRaw }, { data: pastDoneRaw }, { data: oneOffRaw }] = await Promise.all([
       projGoalIds.length > 0
         ? supabase
             .from("lessons")
-            .select("id, title, completed, child_id, date, scheduled_date, curriculum_goal_id, lesson_number, notes, subjects(name, color), curriculum_goals(subject_label)")
+            .select("id, title, completed, child_id, date, scheduled_date, curriculum_goal_id, lesson_number, queue_position, notes, subjects(name, color), curriculum_goals(subject_label)")
             .eq("user_id", effectiveUserId)
             .in("curriculum_goal_id", projGoalIds)
-            .in("lesson_number", projNumbers)
+            .in("queue_position", projSlots)
         : Promise.resolve({ data: [] as unknown[] }),
       supabase
         .from("lessons")
@@ -254,11 +262,17 @@ export default function CalendarPage() {
         .or(`and(scheduled_date.gte.${s},scheduled_date.lte.${e}),and(scheduled_date.is.null,date.gte.${s},date.lte.${e})`),
     ]);
 
-    type Row = Lesson & { curriculum_goal_id?: string | null; lesson_number?: number | null };
+    type Row = Lesson & {
+      curriculum_goal_id?: string | null;
+      lesson_number?: number | null;
+      queue_position?: number | null;
+    };
+    // The IN/IN pair over-fetches the cartesian product of goals x slots, so
+    // narrow to real (goal, slot) pairs before stamping dates.
     const projRows = ((projRowsRaw ?? []) as unknown as Row[])
-      .filter((r) => projDateByKey.has(`${r.curriculum_goal_id}|${r.lesson_number}`))
+      .filter((r) => projDateByKey.has(`${r.curriculum_goal_id}|${r.queue_position}`))
       .map((r) => {
-        const projDate = projDateByKey.get(`${r.curriculum_goal_id}|${r.lesson_number}`)!;
+        const projDate = projDateByKey.get(`${r.curriculum_goal_id}|${r.queue_position}`)!;
         return { ...r, scheduled_date: projDate, date: projDate } as Row;
       });
     const pastDoneRows = ((pastDoneRaw ?? []) as unknown as Row[]);
