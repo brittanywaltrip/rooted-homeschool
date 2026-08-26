@@ -446,6 +446,21 @@ test.describe('Orphan cleanup on starting-position advance', () => {
 
     const baseDate = new Date();
     baseDate.setDate(baseDate.getDate() + 30); // schedule rows far in the future so they would ghost
+    // Row 5 is the DRIFT case, and it is the only way to reach the second
+    // branch of migration 20260824000000 from this seed. `move_lesson_to_date`
+    // rewrites queue_position and deliberately leaves lesson_number pinned, so
+    // a row selected BY lesson_number can hold a slot far ABOVE the pointer.
+    // The migration clears those: a drifted slot must never drag current_lesson
+    // past what the family actually reached.
+    //
+    // It re-slots the EXISTING row 5 rather than adding an eleventh row.
+    // lesson_number 5 is already seeded and (curriculum_goal_id, lesson_number)
+    // is unique, so a second row numbered 5 would be rejected outright; every
+    // number from 1..10 is taken, and anything above 10 sits past the pointer
+    // and would never be swept at all.
+    const DRIFTED_LESSON_NUMBER = 5;
+    const DRIFTED_SLOT = 50;
+
     const lessonRows = Array.from({ length: 10 }, (_, i) => {
       const lessonNumber = i + 1;
       const d = new Date(baseDate);
@@ -457,7 +472,7 @@ test.describe('Orphan cleanup on starting-position advance', () => {
         curriculum_goal_id: goalId,
         title: `${subject} — Lesson ${lessonNumber}`,
         lesson_number: lessonNumber,
-        queue_position: lessonNumber,
+        queue_position: lessonNumber === DRIFTED_LESSON_NUMBER ? DRIFTED_SLOT : lessonNumber,
         scheduled_date: dateStr,
         date: dateStr,
         completed: false,
@@ -470,18 +485,17 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     const { error: lessonErr } = await sb.from('lessons').insert(lessonRows);
     if (lessonErr) throw new Error(`seed lessons failed: ${lessonErr.message}`);
 
-    // 2. Advance the starting position. Bump start_at_lesson first so the
-    //    recompute floor (start_at_lesson - 1) anchors current_lesson at 10
-    //    after the trigger nulls queue_position on cleaned rows. This
-    //    mirrors what the Schedule Builder does when a parent picks a
-    //    higher starting position and the recompute helper writes the
-    //    new current_lesson.
-    const { error: bumpErr } = await sb
-      .from('curriculum_goals')
-      .update({ start_at_lesson: 11 })
-      .eq('id', goalId);
-    if (bumpErr) throw new Error(`bump start_at_lesson failed: ${bumpErr.message}`);
-
+    // 2. Advance the starting position. start_at_lesson stays at 1, so the
+    //    recompute floor is 0 and nothing but MAX(queue_position) over the
+    //    completed rows can hold current_lesson at 10.
+    //
+    //    This used to bump start_at_lesson to 11 first, and that bump was a
+    //    fossil of the bug migration 20260824000000 fixed: the cleanup nulled
+    //    every swept slot, MAX(queue_position) collapsed, the recompute it
+    //    provokes drove current_lesson back down, and pinning the floor at 10
+    //    was the only way to keep the assertion in step 5 true. With the slots
+    //    preserved the pointer holds on its own, so step 5 is now a real
+    //    assertion rather than an artifact of the floor.
     const { error: advErr } = await sb
       .from('curriculum_goals')
       .update({ current_lesson: 10 })
@@ -509,9 +523,10 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     expect(leftovers[0].notes).toMatch(/parent/);
     expect(leftovers[0].queue_position).toBe(3); // notes-protected row keeps its queue position
 
-    // 4. The cleaned rows are completed with queue_position null + a
-    //    backdated completed_at so the daily quota anchor on Today is not
-    //    poisoned by this cleanup.
+    // 4. The cleaned rows are completed with a backdated completed_at so the
+    //    daily quota anchor on Today is not poisoned by this cleanup, and
+    //    their queue_position follows the two branches of migration
+    //    20260824000000 — kept at or below the pointer, cleared above it.
     const { data: cleanedRows, error: q2Err } = await sb
       .from('lessons')
       .select('lesson_number, completed, queue_position, completed_at, scheduled_date, date')
@@ -530,7 +545,30 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     // Rows 1, 2, 4..10 = 9 rows
     expect(cleaned.length).toBe(9);
     for (const row of cleaned) {
-      expect(row.queue_position, `row ${row.lesson_number} queue_position must be null`).toBeNull();
+      if (row.lesson_number === DRIFTED_LESSON_NUMBER) {
+        // ELSE NULL branch. Its slot (50) is above the pointer (10), so the
+        // cleanup clears it. Keeping it would let MAX(queue_position) drag
+        // current_lesson to 50 and mark 40 lessons done that nobody did —
+        // the exact hazard the migration header calls out. (total_lessons is
+        // 10 here so the recompute's own LEAST() would mask that jump, which
+        // is why this asserts the NULL directly rather than leaning on the
+        // current_lesson check in step 5.)
+        expect(
+          row.queue_position,
+          `row ${row.lesson_number}: a slot above the pointer must be cleared`,
+        ).toBeNull();
+      } else {
+        // Invariant 14 (migration 20260824000000): a swept row at or below the
+        // new pointer KEEPS its slot. This used to assert the opposite. Nulling
+        // it made the recompute that this same statement provokes read a lower
+        // MAX(queue_position) and write current_lesson BACKWARDS, stranding the
+        // slot as a hole the projector emits and no row fills — the blank
+        // subject in ROOTED-HOMESCHOOL-R and -13.
+        expect(
+          row.queue_position,
+          `row ${row.lesson_number} must keep the slot it legitimately occupies`,
+        ).toBe(row.lesson_number);
+      }
       expect(row.completed_at, `row ${row.lesson_number} completed_at must be set`).toBeTruthy();
       const completedDate = new Date(row.completed_at as string);
       const ageDays = (Date.now() - completedDate.getTime()) / 86_400_000;

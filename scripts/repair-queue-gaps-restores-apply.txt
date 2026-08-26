@@ -1,0 +1,238 @@
+APPLY
+==============================================================================
+
+--restores-only: 7645 planned insert(s) and 20 skip(s) will NOT be touched.
+
+RESTORE-OK  goal=24f53fcf-75fb-4cb8-a8f3-8f48f492b994  row=21b1a83d-cf42-43d1-812b-ff60bd4efc4a  queue_position=45
+  CASCADE  goal=24f53fcf-75fb-4cb8-a8f3-8f48f492b994  current_lesson 44 -> 45  (predicted 45)  as predicted
+  CASCADE  goal=24f53fcf-75fb-4cb8-a8f3-8f48f492b994  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=24f53fcf-75fb-4cb8-a8f3-8f48f492b994  holes 1 [45] -> 0 [(none)]
+RESTORE-OK  goal=37ae22fc-0b01-4674-b09b-1f0c4d26fbdd  row=a8112c9b-4b21-45a3-bef1-e7a7c8ce4166  queue_position=10
+  CASCADE  goal=37ae22fc-0b01-4674-b09b-1f0c4d26fbdd  current_lesson 9 -> 10  (predicted 10)  as predicted
+  CASCADE  goal=37ae22fc-0b01-4674-b09b-1f0c4d26fbdd  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=37ae22fc-0b01-4674-b09b-1f0c4d26fbdd  holes 1 [10] -> 0 [(none)]
+RESTORE-OK  goal=4ab98797-0e6c-4e69-a622-b036baf3e8f5  row=19e68b27-3100-4128-8bc6-4cba3ef1ac9d  queue_position=31
+  CASCADE  goal=4ab98797-0e6c-4e69-a622-b036baf3e8f5  current_lesson 30 -> 31  (predicted 31)  as predicted
+  CASCADE  goal=4ab98797-0e6c-4e69-a622-b036baf3e8f5  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=4ab98797-0e6c-4e69-a622-b036baf3e8f5  holes 1 [31] -> 0 [(none)]
+RESTORE-OK  goal=564ac11c-f87a-4b11-a5fc-43ef6ce943d0  row=3129dc25-8dd5-4c8d-9e09-0f8c11db211b  queue_position=182
+  CASCADE  goal=564ac11c-f87a-4b11-a5fc-43ef6ce943d0  current_lesson 181 -> 182  (predicted 182)  as predicted
+  CASCADE  goal=564ac11c-f87a-4b11-a5fc-43ef6ce943d0  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=564ac11c-f87a-4b11-a5fc-43ef6ce943d0  holes 1 [182] -> 0 [(none)]
+RESTORE-OK  goal=5f70a092-1a15-4966-aaf0-ad3d8de5e139  row=c7438e01-d274-4ce0-8b64-fb969f9dd5e1  queue_position=56
+  CASCADE  goal=5f70a092-1a15-4966-aaf0-ad3d8de5e139  current_lesson 55 -> 56  (predicted 56)  as predicted
+  CASCADE  goal=5f70a092-1a15-4966-aaf0-ad3d8de5e139  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=5f70a092-1a15-4966-aaf0-ad3d8de5e139  holes 1 [56] -> 0 [(none)]
+RESTORE-OK  goal=615a433c-546c-4bea-91a0-ddb3c036f320  row=776a479a-8f2c-4bdd-a9ef-6e31eff0476e  queue_position=81
+  CASCADE  goal=615a433c-546c-4bea-91a0-ddb3c036f320  current_lesson 80 -> 81  (predicted 81)  as predicted
+  CASCADE  goal=615a433c-546c-4bea-91a0-ddb3c036f320  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=615a433c-546c-4bea-91a0-ddb3c036f320  holes 1 [81] -> 0 [(none)]
+RESTORE-OK  goal=69622544-c56f-4a79-95da-cfc417495203  row=aa8ce34f-5449-42ce-878d-b6469c2bc35f  queue_position=147
+  CASCADE  goal=69622544-c56f-4a79-95da-cfc417495203  current_lesson 146 -> 147  (predicted 147)  as predicted
+  CASCADE  goal=69622544-c56f-4a79-95da-cfc417495203  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=69622544-c56f-4a79-95da-cfc417495203  holes 1 [147] -> 0 [(none)]
+RESTORE-OK  goal=853b14a8-c0a3-498b-9d88-7977fb113acb  row=8fdee27e-f065-4c3b-9622-3a80e7d4b22e  queue_position=10
+  CASCADE  goal=853b14a8-c0a3-498b-9d88-7977fb113acb  current_lesson 9 -> 10  (predicted 10)  as predicted
+  CASCADE  goal=853b14a8-c0a3-498b-9d88-7977fb113acb  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=853b14a8-c0a3-498b-9d88-7977fb113acb  holes 1 [10] -> 0 [(none)]
+RESTORE-OK  goal=9a4fb6af-86d6-4223-96d0-3a96ca7b5b4c  row=f88e2e48-1339-4a77-8997-217aa4567af7  queue_position=56
+  CASCADE  goal=9a4fb6af-86d6-4223-96d0-3a96ca7b5b4c  current_lesson 55 -> 56  (predicted 56)  as predicted
+  CASCADE  goal=9a4fb6af-86d6-4223-96d0-3a96ca7b5b4c  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=9a4fb6af-86d6-4223-96d0-3a96ca7b5b4c  holes 1 [56] -> 0 [(none)]
+RESTORE-OK  goal=c6e4b919-f9b7-47ea-a260-6878ab066e26  row=b001302e-9235-4ecf-9118-25203c88de4d  queue_position=8
+  CASCADE  goal=c6e4b919-f9b7-47ea-a260-6878ab066e26  current_lesson 7 -> 8  (predicted 8)  as predicted
+  CASCADE  goal=c6e4b919-f9b7-47ea-a260-6878ab066e26  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=c6e4b919-f9b7-47ea-a260-6878ab066e26  holes 1 [8] -> 0 [(none)]
+RESTORE-OK  goal=c836c973-fea1-4fbf-a1c9-2794d0bde645  row=5c587876-5a90-4c92-92fd-a9d37a8bc186  queue_position=36
+  CASCADE  goal=c836c973-fea1-4fbf-a1c9-2794d0bde645  current_lesson 35 -> 36  (predicted 36)  as predicted
+  CASCADE  goal=c836c973-fea1-4fbf-a1c9-2794d0bde645  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=c836c973-fea1-4fbf-a1c9-2794d0bde645  holes 1 [36] -> 0 [(none)]
+RESTORE-OK  goal=d8ac7f63-4377-4e94-abdc-1aea0e109502  row=b79f35fb-3937-4629-a3b1-fa31d20bfd57  queue_position=43
+  CASCADE  goal=d8ac7f63-4377-4e94-abdc-1aea0e109502  current_lesson 42 -> 43  (predicted 43)  as predicted
+  CASCADE  goal=d8ac7f63-4377-4e94-abdc-1aea0e109502  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=d8ac7f63-4377-4e94-abdc-1aea0e109502  holes 1 [43] -> 0 [(none)]
+RESTORE-OK  goal=e8148629-d009-470a-94e3-938724421031  row=923cd007-d419-4854-ab97-41dc97dab68a  queue_position=36
+  CASCADE  goal=e8148629-d009-470a-94e3-938724421031  current_lesson 35 -> 36  (predicted 36)  as predicted
+  CASCADE  goal=e8148629-d009-470a-94e3-938724421031  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=e8148629-d009-470a-94e3-938724421031  holes 1 [36] -> 0 [(none)]
+RESTORE-OK  goal=f93a7225-a279-4b64-8971-924f5ffe34e4  row=bfa6459e-665c-400d-a421-78b5966e37a4  queue_position=3
+  CASCADE  goal=f93a7225-a279-4b64-8971-924f5ffe34e4  current_lesson 2 -> 3  (predicted 3)  as predicted
+  CASCADE  goal=f93a7225-a279-4b64-8971-924f5ffe34e4  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=f93a7225-a279-4b64-8971-924f5ffe34e4  holes 1 [3] -> 0 [(none)]
+RESTORE-OK  goal=231ce6ba-d582-4084-b0b3-737653e23c5f  row=26a5cf09-b98b-4dc7-aaf7-450e831b8f4d  queue_position=1
+  CASCADE  goal=231ce6ba-d582-4084-b0b3-737653e23c5f  current_lesson 0 -> 1  (predicted 1)  as predicted
+  CASCADE  goal=231ce6ba-d582-4084-b0b3-737653e23c5f  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=231ce6ba-d582-4084-b0b3-737653e23c5f  holes 1 [1] -> 0 [(none)]
+RESTORE-OK  goal=040a17a0-cb40-40d8-81a3-f7e09de9c7c5  row=9a8a1e79-eb29-427c-8a5b-bb8d7499c2ad  queue_position=7
+RESTORE-OK  goal=040a17a0-cb40-40d8-81a3-f7e09de9c7c5  row=065fbcc3-fd5e-488d-95f2-49d814a9a632  queue_position=8
+RESTORE-OK  goal=040a17a0-cb40-40d8-81a3-f7e09de9c7c5  row=447a3969-6382-4221-a1a4-7fd1d2f8e72e  queue_position=9
+  CASCADE  goal=040a17a0-cb40-40d8-81a3-f7e09de9c7c5  current_lesson 6 -> 9  (predicted 9)  as predicted
+  CASCADE  goal=040a17a0-cb40-40d8-81a3-f7e09de9c7c5  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=040a17a0-cb40-40d8-81a3-f7e09de9c7c5  holes 3 [7-9] -> 0 [(none)]
+RESTORE-OK  goal=2115365b-215b-4652-9e74-2bae3e27e7b5  row=18040cbb-6b41-41ec-a7f0-b668a0c5176b  queue_position=7
+  CASCADE  goal=2115365b-215b-4652-9e74-2bae3e27e7b5  current_lesson 6 -> 7  (predicted 7)  as predicted
+  CASCADE  goal=2115365b-215b-4652-9e74-2bae3e27e7b5  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=2115365b-215b-4652-9e74-2bae3e27e7b5  holes 1 [7] -> 0 [(none)]
+RESTORE-OK  goal=2193a68c-ead5-409d-b2ff-a14dfe36fc40  row=4d9a5cac-f24a-4750-8f6a-c98c3c5a7746  queue_position=7
+  CASCADE  goal=2193a68c-ead5-409d-b2ff-a14dfe36fc40  current_lesson 6 -> 7  (predicted 7)  as predicted
+  CASCADE  goal=2193a68c-ead5-409d-b2ff-a14dfe36fc40  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=2193a68c-ead5-409d-b2ff-a14dfe36fc40  holes 1 [7] -> 0 [(none)]
+RESTORE-OK  goal=2a49da6e-d4be-4e96-a4c0-d48b267f2c28  row=8f6dd638-aa7b-4cb1-9929-28867d3e3995  queue_position=6
+  CASCADE  goal=2a49da6e-d4be-4e96-a4c0-d48b267f2c28  current_lesson 5 -> 6  (predicted 6)  as predicted
+  CASCADE  goal=2a49da6e-d4be-4e96-a4c0-d48b267f2c28  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=2a49da6e-d4be-4e96-a4c0-d48b267f2c28  holes 1 [6] -> 0 [(none)]
+RESTORE-OK  goal=48304ba9-bb4c-40ab-8d2b-8dd705bebf90  row=867ef5a8-5464-40f7-b4cb-c7c59d19950b  queue_position=3
+  CASCADE  goal=48304ba9-bb4c-40ab-8d2b-8dd705bebf90  current_lesson 2 -> 3  (predicted 3)  as predicted
+  CASCADE  goal=48304ba9-bb4c-40ab-8d2b-8dd705bebf90  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=48304ba9-bb4c-40ab-8d2b-8dd705bebf90  holes 1 [3] -> 0 [(none)]
+RESTORE-OK  goal=6b0e1971-fb7e-4469-ab6b-4b9a01f72372  row=2bff5f05-60ec-4c39-af4a-6e4eb5ea1869  queue_position=3
+RESTORE-OK  goal=6b0e1971-fb7e-4469-ab6b-4b9a01f72372  row=a1a5ce8f-e53f-4470-b3ce-6d78144de98e  queue_position=4
+RESTORE-OK  goal=6b0e1971-fb7e-4469-ab6b-4b9a01f72372  row=174d646f-9f26-4f1d-9048-c8b1e45288f5  queue_position=5
+  CASCADE  goal=6b0e1971-fb7e-4469-ab6b-4b9a01f72372  current_lesson 2 -> 5  (predicted 5)  as predicted
+  CASCADE  goal=6b0e1971-fb7e-4469-ab6b-4b9a01f72372  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=6b0e1971-fb7e-4469-ab6b-4b9a01f72372  holes 3 [3-5] -> 0 [(none)]
+RESTORE-OK  goal=85fa7f24-150f-4748-bf6d-690244cd4a0f  row=2ea59476-0c66-4ad4-afe2-a884135d9aa6  queue_position=4
+RESTORE-OK  goal=85fa7f24-150f-4748-bf6d-690244cd4a0f  row=943df64c-2b17-46b8-92ac-adf5453957f7  queue_position=5
+RESTORE-OK  goal=85fa7f24-150f-4748-bf6d-690244cd4a0f  row=85fcb113-f979-40be-bc91-e6aeeebfb064  queue_position=6
+  CASCADE  goal=85fa7f24-150f-4748-bf6d-690244cd4a0f  current_lesson 3 -> 6  (predicted 6)  as predicted
+  CASCADE  goal=85fa7f24-150f-4748-bf6d-690244cd4a0f  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=85fa7f24-150f-4748-bf6d-690244cd4a0f  holes 3 [4-6] -> 0 [(none)]
+RESTORE-OK  goal=9d27d1c8-4970-4c99-b342-49f71f5bd723  row=771ea78f-8821-41a0-913d-3b9dfc9c611f  queue_position=3
+  CASCADE  goal=9d27d1c8-4970-4c99-b342-49f71f5bd723  current_lesson 2 -> 3  (predicted 3)  as predicted
+  CASCADE  goal=9d27d1c8-4970-4c99-b342-49f71f5bd723  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=9d27d1c8-4970-4c99-b342-49f71f5bd723  holes 1 [3] -> 0 [(none)]
+RESTORE-OK  goal=a9782074-61e0-482b-976f-ac5e76773568  row=d6cfa98f-6fe3-4f68-bd36-7910f4947a8a  queue_position=6
+  CASCADE  goal=a9782074-61e0-482b-976f-ac5e76773568  current_lesson 5 -> 6  (predicted 6)  as predicted
+  CASCADE  goal=a9782074-61e0-482b-976f-ac5e76773568  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=a9782074-61e0-482b-976f-ac5e76773568  holes 1 [6] -> 0 [(none)]
+RESTORE-OK  goal=ea624f38-fd0b-4fcb-83f9-09a439f8b866  row=eaf77171-42f0-4611-aa91-823d257b37e4  queue_position=3
+  CASCADE  goal=ea624f38-fd0b-4fcb-83f9-09a439f8b866  current_lesson 2 -> 3  (predicted 3)  as predicted
+  CASCADE  goal=ea624f38-fd0b-4fcb-83f9-09a439f8b866  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=ea624f38-fd0b-4fcb-83f9-09a439f8b866  holes 1 [3] -> 0 [(none)]
+RESTORE-OK  goal=f490e6d6-7e09-419f-84f5-bab6c8b5ba63  row=c2bc0c9e-ac42-456b-96fc-006c27915006  queue_position=5
+  CASCADE  goal=f490e6d6-7e09-419f-84f5-bab6c8b5ba63  current_lesson 4 -> 5  (predicted 5)  as predicted
+  CASCADE  goal=f490e6d6-7e09-419f-84f5-bab6c8b5ba63  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=f490e6d6-7e09-419f-84f5-bab6c8b5ba63  holes 1 [5] -> 0 [(none)]
+RESTORE-OK  goal=4193f9b3-d571-431b-881f-676c3c0c692e  row=8887d339-ba50-4801-839b-b64dfdb6ec96  queue_position=31
+RESTORE-OK  goal=4193f9b3-d571-431b-881f-676c3c0c692e  row=0d14636b-fc3d-474e-82e8-bb5d90f7d326  queue_position=32
+  CASCADE  goal=4193f9b3-d571-431b-881f-676c3c0c692e  current_lesson 29 -> 32  (predicted 32)  as predicted
+  CASCADE  goal=4193f9b3-d571-431b-881f-676c3c0c692e  orphan cleanup auto-completed 1 row(s): 6beaecf2-b1b8-435a-81f3-1c8996af3ee7
+  CASCADE  goal=4193f9b3-d571-431b-881f-676c3c0c692e  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=4193f9b3-d571-431b-881f-676c3c0c692e  holes 5 [30-34] -> 2 [33-34]
+RESTORE-OK  goal=7c3443f8-8ce7-4030-a75f-5229296e5896  row=446ff311-44cb-486b-ba5d-cadc6057ac3a  queue_position=26
+  CASCADE  goal=7c3443f8-8ce7-4030-a75f-5229296e5896  current_lesson 25 -> 26  (predicted 26)  as predicted
+  CASCADE  goal=7c3443f8-8ce7-4030-a75f-5229296e5896  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=7c3443f8-8ce7-4030-a75f-5229296e5896  holes 1 [26] -> 0 [(none)]
+RESTORE-OK  goal=9aa7ec81-8c30-42aa-9fa3-a4c1fb0c6404  row=5f64ad9f-a5aa-46f5-ab97-d4cdd80818ce  queue_position=26
+  CASCADE  goal=9aa7ec81-8c30-42aa-9fa3-a4c1fb0c6404  current_lesson 24 -> 26  (predicted 26)  as predicted
+  CASCADE  goal=9aa7ec81-8c30-42aa-9fa3-a4c1fb0c6404  orphan cleanup auto-completed 1 row(s): 3c532fce-73d7-40b1-b971-099eeedfc676
+  CASCADE  goal=9aa7ec81-8c30-42aa-9fa3-a4c1fb0c6404  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=9aa7ec81-8c30-42aa-9fa3-a4c1fb0c6404  holes 1 [26] -> 0 [(none)]
+RESTORE-OK  goal=a321e1b8-b208-45ee-a02d-b1e45e30f869  row=7ec9fa5e-8229-4af9-8834-7e0840febd27  queue_position=5
+RESTORE-OK  goal=a321e1b8-b208-45ee-a02d-b1e45e30f869  row=f9f5522f-ce9c-42cf-abb3-131d9cd85f2f  queue_position=6
+RESTORE-OK  goal=a321e1b8-b208-45ee-a02d-b1e45e30f869  row=016f7064-18ec-4ed6-b0aa-427e0192b307  queue_position=7
+  CASCADE  goal=a321e1b8-b208-45ee-a02d-b1e45e30f869  current_lesson 4 -> 7  (predicted 7)  as predicted
+  CASCADE  goal=a321e1b8-b208-45ee-a02d-b1e45e30f869  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=a321e1b8-b208-45ee-a02d-b1e45e30f869  holes 3 [5-7] -> 0 [(none)]
+RESTORE-OK  goal=ca1a70b5-81fb-4567-b740-bf76b127ee21  row=4ccedd9a-519f-4054-9423-16b03ad33c53  queue_position=7
+  CASCADE  goal=ca1a70b5-81fb-4567-b740-bf76b127ee21  current_lesson 6 -> 7  (predicted 7)  as predicted
+  CASCADE  goal=ca1a70b5-81fb-4567-b740-bf76b127ee21  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=ca1a70b5-81fb-4567-b740-bf76b127ee21  holes 1 [7] -> 0 [(none)]
+RESTORE-OK  goal=03f80af9-0e95-48c3-aa0b-1fc2882a7612  row=22194041-95b9-4527-817a-1498a3078448  queue_position=5
+  CASCADE  goal=03f80af9-0e95-48c3-aa0b-1fc2882a7612  current_lesson 4 -> 5  (predicted 5)  as predicted
+  CASCADE  goal=03f80af9-0e95-48c3-aa0b-1fc2882a7612  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=03f80af9-0e95-48c3-aa0b-1fc2882a7612  holes 1 [5] -> 0 [(none)]
+RESTORE-OK  goal=29c696da-eb10-48e6-ae3c-9e2d85a9e2f5  row=4e7239db-329a-45a4-9b32-ffab667b8820  queue_position=5
+  CASCADE  goal=29c696da-eb10-48e6-ae3c-9e2d85a9e2f5  current_lesson 4 -> 5  (predicted 5)  as predicted
+  CASCADE  goal=29c696da-eb10-48e6-ae3c-9e2d85a9e2f5  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=29c696da-eb10-48e6-ae3c-9e2d85a9e2f5  holes 1 [5] -> 0 [(none)]
+RESTORE-OK  goal=b5235fa4-8eca-43bf-a867-d1c761ef6650  row=0fbee7a0-43a0-48a3-ba1b-c2a421b9f2c7  queue_position=4
+  CASCADE  goal=b5235fa4-8eca-43bf-a867-d1c761ef6650  current_lesson 2 -> 4  (predicted 4)  as predicted
+  CASCADE  goal=b5235fa4-8eca-43bf-a867-d1c761ef6650  orphan cleanup auto-completed 1 row(s): a768c775-55c9-4be8-9a8a-b99e9116c678
+  CASCADE  goal=b5235fa4-8eca-43bf-a867-d1c761ef6650  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=b5235fa4-8eca-43bf-a867-d1c761ef6650  holes 2 [3-4] -> 0 [(none)]
+RESTORE-OK  goal=2f7db5b8-3419-4b8c-af5b-ff19f866c519  row=df96ab20-8f41-4514-b7a8-b37c30221385  queue_position=2
+  CASCADE  goal=2f7db5b8-3419-4b8c-af5b-ff19f866c519  current_lesson 1 -> 2  (predicted 2)  as predicted
+  CASCADE  goal=2f7db5b8-3419-4b8c-af5b-ff19f866c519  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=2f7db5b8-3419-4b8c-af5b-ff19f866c519  holes 1 [2] -> 0 [(none)]
+RESTORE-OK  goal=22aaefcf-87f2-4b8f-910d-ec30490b4e23  row=7b48ab7a-2dce-4a20-a3d5-6cf44188f0b0  queue_position=3
+RESTORE-OK  goal=22aaefcf-87f2-4b8f-910d-ec30490b4e23  row=6f5b1ab2-0ae6-4ac9-85a3-ffab6911db81  queue_position=4
+  CASCADE  goal=22aaefcf-87f2-4b8f-910d-ec30490b4e23  current_lesson 2 -> 4  (predicted 4)  as predicted
+  CASCADE  goal=22aaefcf-87f2-4b8f-910d-ec30490b4e23  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=22aaefcf-87f2-4b8f-910d-ec30490b4e23  holes 2 [3-4] -> 0 [(none)]
+RESTORE-OK  goal=1530546a-847d-4a1d-926f-c97031428b0f  row=9e086915-5965-4ee6-b914-3c413ed6a92b  queue_position=4
+  CASCADE  goal=1530546a-847d-4a1d-926f-c97031428b0f  current_lesson 3 -> 4  (predicted 4)  as predicted
+  CASCADE  goal=1530546a-847d-4a1d-926f-c97031428b0f  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=1530546a-847d-4a1d-926f-c97031428b0f  holes 1 [4] -> 0 [(none)]
+RESTORE-OK  goal=4f3b4ed6-78d5-451c-ab5a-c8e9166d32eb  row=d136fe96-08d7-4818-a1b6-2140acfc3011  queue_position=4
+  CASCADE  goal=4f3b4ed6-78d5-451c-ab5a-c8e9166d32eb  current_lesson 3 -> 4  (predicted 4)  as predicted
+  CASCADE  goal=4f3b4ed6-78d5-451c-ab5a-c8e9166d32eb  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=4f3b4ed6-78d5-451c-ab5a-c8e9166d32eb  holes 1 [4] -> 0 [(none)]
+RESTORE-OK  goal=7c4d4e3a-462d-4d66-8b0d-eb46672a03a9  row=d5a00692-7294-4c10-ad88-37214275a134  queue_position=2
+RESTORE-OK  goal=7c4d4e3a-462d-4d66-8b0d-eb46672a03a9  row=5e3b2cd5-df91-455c-99da-2b7abd31f719  queue_position=3
+  CASCADE  goal=7c4d4e3a-462d-4d66-8b0d-eb46672a03a9  current_lesson 1 -> 3  (predicted 3)  as predicted
+  CASCADE  goal=7c4d4e3a-462d-4d66-8b0d-eb46672a03a9  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=7c4d4e3a-462d-4d66-8b0d-eb46672a03a9  holes 2 [2-3] -> 0 [(none)]
+RESTORE-OK  goal=81046ad4-1445-45f5-b0a5-4567b565103f  row=856ea349-efe0-4882-a6fe-a1aaa8b651dd  queue_position=82
+  CASCADE  goal=81046ad4-1445-45f5-b0a5-4567b565103f  current_lesson 81 -> 82  (predicted 82)  as predicted
+  CASCADE  goal=81046ad4-1445-45f5-b0a5-4567b565103f  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=81046ad4-1445-45f5-b0a5-4567b565103f  holes 1 [82] -> 0 [(none)]
+RESTORE-OK  goal=fe190727-b023-42db-a8a9-1e7b7ab3517d  row=c2a69e88-48e3-4321-9a26-3a0d3b7e07c5  queue_position=54
+  CASCADE  goal=fe190727-b023-42db-a8a9-1e7b7ab3517d  current_lesson 53 -> 54  (predicted 54)  as predicted
+  CASCADE  goal=fe190727-b023-42db-a8a9-1e7b7ab3517d  slots lost to the cleanup: 0  (trigger fix holding)
+  CASCADE  goal=fe190727-b023-42db-a8a9-1e7b7ab3517d  holes 1 [54] -> 0 [(none)]
+
+[repair-queue-gaps] restores: 52 ok, 0 failed, 0 stale
+
+[repair-queue-gaps] --restores-only: skipped 7645 insert(s) across 351 goal(s). Nothing was created.
+
+
+==============================================================================
+VERIFY
+==============================================================================
+
+CLEAN  goal=24f53fcf-75fb-4cb8-a8f3-8f48f492b994  current_lesson=45  max slot=78
+CLEAN  goal=37ae22fc-0b01-4674-b09b-1f0c4d26fbdd  current_lesson=10  max slot=30
+CLEAN  goal=4ab98797-0e6c-4e69-a622-b036baf3e8f5  current_lesson=31  max slot=83
+CLEAN  goal=564ac11c-f87a-4b11-a5fc-43ef6ce943d0  current_lesson=182  max slot=210
+CLEAN  goal=5f70a092-1a15-4966-aaf0-ad3d8de5e139  current_lesson=56  max slot=144
+CLEAN  goal=615a433c-546c-4bea-91a0-ddb3c036f320  current_lesson=81  max slot=102
+CLEAN  goal=69622544-c56f-4a79-95da-cfc417495203  current_lesson=147  max slot=250
+CLEAN  goal=853b14a8-c0a3-498b-9d88-7977fb113acb  current_lesson=10  max slot=30
+CLEAN  goal=9a4fb6af-86d6-4223-96d0-3a96ca7b5b4c  current_lesson=56  max slot=144
+CLEAN  goal=c6e4b919-f9b7-47ea-a260-6878ab066e26  current_lesson=8  max slot=128
+CLEAN  goal=c836c973-fea1-4fbf-a1c9-2794d0bde645  current_lesson=36  max slot=90
+CLEAN  goal=d8ac7f63-4377-4e94-abdc-1aea0e109502  current_lesson=43  max slot=83
+CLEAN  goal=e8148629-d009-470a-94e3-938724421031  current_lesson=36  max slot=90
+CLEAN  goal=f93a7225-a279-4b64-8971-924f5ffe34e4  current_lesson=3  max slot=20
+CLEAN  goal=231ce6ba-d582-4084-b0b3-737653e23c5f  current_lesson=1  max slot=35
+CLEAN  goal=040a17a0-cb40-40d8-81a3-f7e09de9c7c5  current_lesson=9  max slot=155
+CLEAN  goal=2115365b-215b-4652-9e74-2bae3e27e7b5  current_lesson=7  max slot=155
+CLEAN  goal=2193a68c-ead5-409d-b2ff-a14dfe36fc40  current_lesson=7  max slot=155
+CLEAN  goal=2a49da6e-d4be-4e96-a4c0-d48b267f2c28  current_lesson=6  max slot=155
+CLEAN  goal=48304ba9-bb4c-40ab-8d2b-8dd705bebf90  current_lesson=3  max slot=80
+CLEAN  goal=6b0e1971-fb7e-4469-ab6b-4b9a01f72372  current_lesson=5  max slot=40
+CLEAN  goal=85fa7f24-150f-4748-bf6d-690244cd4a0f  current_lesson=6  max slot=40
+CLEAN  goal=9d27d1c8-4970-4c99-b342-49f71f5bd723  current_lesson=3  max slot=80
+CLEAN  goal=a9782074-61e0-482b-976f-ac5e76773568  current_lesson=6  max slot=155
+CLEAN  goal=ea624f38-fd0b-4fcb-83f9-09a439f8b866  current_lesson=3  max slot=80
+CLEAN  goal=f490e6d6-7e09-419f-84f5-bab6c8b5ba63  current_lesson=5  max slot=40
+HOLES  goal=4193f9b3-d571-431b-881f-676c3c0c692e  current_lesson=32  max slot=120  remaining=2 [33-34]
+CLEAN  goal=7c3443f8-8ce7-4030-a75f-5229296e5896  current_lesson=26  max slot=180
+CLEAN  goal=9aa7ec81-8c30-42aa-9fa3-a4c1fb0c6404  current_lesson=26  max slot=180
+CLEAN  goal=a321e1b8-b208-45ee-a02d-b1e45e30f869  current_lesson=7  max slot=36
+CLEAN  goal=ca1a70b5-81fb-4567-b740-bf76b127ee21  current_lesson=7  max slot=36
+CLEAN  goal=03f80af9-0e95-48c3-aa0b-1fc2882a7612  current_lesson=5  max slot=121
+CLEAN  goal=29c696da-eb10-48e6-ae3c-9e2d85a9e2f5  current_lesson=5  max slot=212
+CLEAN  goal=b5235fa4-8eca-43bf-a867-d1c761ef6650  current_lesson=4  max slot=51
+CLEAN  goal=2f7db5b8-3419-4b8c-af5b-ff19f866c519  current_lesson=2  max slot=60
+CLEAN  goal=22aaefcf-87f2-4b8f-910d-ec30490b4e23  current_lesson=4  max slot=148
+CLEAN  goal=1530546a-847d-4a1d-926f-c97031428b0f  current_lesson=4  max slot=90
+CLEAN  goal=4f3b4ed6-78d5-451c-ab5a-c8e9166d32eb  current_lesson=4  max slot=104
+CLEAN  goal=7c4d4e3a-462d-4d66-8b0d-eb46672a03a9  current_lesson=3  max slot=180
+CLEAN  goal=81046ad4-1445-45f5-b0a5-4567b565103f  current_lesson=82  max slot=120
+CLEAN  goal=fe190727-b023-42db-a8a9-1e7b7ab3517d  current_lesson=54  max slot=120
+
+[repair-queue-gaps] cascade: 41 goal(s) measured, 41 matched the predicted current_lesson, 3 row(s) auto-completed by the orphan cleanup, 0 slot(s) lost to it, 40 goal(s) left hole-free, 1 not.
+
+[repair-queue-gaps] done. restored=52 restoreFailed=0 restoreStale=0 inserted=0 insertFailed=0 droppedAsStale=0 goalsInsertPass=0 goalsInsertFail=0 goalsClean=40 goalsStillHoley=1

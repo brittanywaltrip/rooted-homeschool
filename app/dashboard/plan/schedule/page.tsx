@@ -686,6 +686,13 @@ export default function ScheduleBuilderPage() {
   const [view, setView] = useState<"builder" | "preview" | "saved">("builder");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // The save gate stays shut for 1.5s AFTER setSaving(false) (see the
+  // `finally` in handleSave). Without mirroring that window in the UI the
+  // button re-labelled itself "Save & build schedule" and re-enabled while
+  // handleSave was still returning early at the gate, so a second press did
+  // nothing at all and gave no sign why. Keep it visibly busy for the whole
+  // window instead of silently swallowing the press.
+  const [settling, setSettling] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   // The save-error banner sits in normal page flow at the bottom of the
@@ -1769,6 +1776,23 @@ export default function ScheduleBuilderPage() {
               .filter((n): n is number => n != null && n >= 1 && n <= currentLesson),
           );
 
+          // Slots the surviving rows already occupy. The forward planner
+          // (planPhase2LessonInserts) has always respected this; THIS planner
+          // did not, and that asymmetry is the bug.
+          //
+          // A history row's slot is not load-bearing: it is completed, so the
+          // projector never emits it and Today never hydrates by it (the
+          // is_backfill filter keeps it off the daily list either way). So
+          // when the slot is taken, write the row with a null slot rather
+          // than losing the lesson. Drift E does not apply: that contract is
+          // about INCOMPLETE goal-linked rows falling through Today's
+          // queries, and these are completed by construction.
+          const occupiedSlots = new Set(
+            survivors
+              .map((r) => r.queue_position)
+              .filter((n): n is number => n != null),
+          );
+
           const minutes = row.minutes_per_lesson ?? 30;
           return pastSlots
             .filter((p) => !existingHistNums.has(p.lesson_number))
@@ -1777,7 +1801,7 @@ export default function ScheduleBuilderPage() {
               child_id: row.child_id,
               curriculum_goal_id: goalId,
               lesson_number: p.lesson_number,
-              queue_position: p.lesson_number,
+              queue_position: occupiedSlots.has(p.lesson_number) ? null : p.lesson_number,
               title: `${row.name.trim()} — Lesson ${p.lesson_number}`,
               scheduled_date: p.date,
               date: p.date,
@@ -1823,7 +1847,11 @@ export default function ScheduleBuilderPage() {
         }
         for (const h of histToInsert) {
           existingNums.add(h.lesson_number);
-          existingSlots.add(h.queue_position);
+          // A backfill row yields its slot when that slot was already taken
+          // (see planHistoricalBackfill), in which case it registers no slot
+          // here: it holds a lesson number and nothing else. The forward
+          // planner must not then treat that free slot as occupied.
+          if (h.queue_position != null) existingSlots.add(h.queue_position);
         }
 
         // Pure, and unit-tested in scheduler.test.ts: the missing lesson
@@ -2287,7 +2315,11 @@ export default function ScheduleBuilderPage() {
       // 1.5s settle window: prevents a back-to-back re-tap (e.g. impatient
       // user clicking twice while the post-save router transition is in
       // flight) from firing handleSave again before the page unmounts.
-      setTimeout(() => saveGate.exit(), 1500);
+      setSettling(true);
+      setTimeout(() => {
+        saveGate.exit();
+        setSettling(false);
+      }, 1500);
     }
   }
 
@@ -2603,11 +2635,11 @@ export default function ScheduleBuilderPage() {
                 <div className="flex-1" />
                 <button
                   onClick={handleSave}
-                  disabled={saving}
+                  disabled={saving || settling}
                   className="px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-40"
                   style={{ background: "var(--g-brand)" }}
                 >
-                  {saving ? "Saving..." : "Save & build schedule"}
+                  {saving || settling ? "Saving..." : "Save & build schedule"}
                 </button>
               </>
             )}
@@ -3196,7 +3228,7 @@ function RowCard(props: {
                 <span className="min-w-[36px] text-center text-[14px] font-semibold text-[#2D5A3D]">{done}</span>
                 <button
                   type="button"
-                  onClick={() => changeStartAtLesson(Math.min(max, row.start_at_lesson + 1))}
+                  onClick={() => changeStartAtLesson(Math.min(max + 1, row.start_at_lesson + 1))}
                   disabled={isReadOnly || done >= max}
                   aria-label="One more completed lesson"
                   className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#c5dbc9] bg-white text-[#2D5A3D] hover:bg-[#e8f0e9] disabled:opacity-40 disabled:cursor-not-allowed"

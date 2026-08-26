@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: July 30, 2026 — adds Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: August 24, 2026 — adds Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -294,6 +294,63 @@ instead of silently doubling a calendar.
 start_date with position N emits nothing at or below N, and simulated
 orphan-completed rows carry no future `scheduled_date` / `date`.
 
+### Invariant 14 — The orphan cleanup never moves `current_lesson`
+
+`trg_curriculum_goals_cleanup_orphans` fires as a SIDE EFFECT of a
+`current_lesson` advance. When it returns, `current_lesson` must be exactly the
+value that provoked it. It may never end up lower.
+
+**Why:** the cleanup's own `UPDATE lessons` flips `completed`, which fires
+`trg_lessons_recompute_current_lesson` → `recompute_curriculum_current_lesson`
+→ `current_lesson = MAX(queue_position)` over completed rows. While the cleanup
+nulled `queue_position` unconditionally, the row it had just stripped was
+invisible to that MAX — so the pointer came back BELOW the advance, the
+projector emitted the stripped slot, and no row occupied it. Families saw a
+blank subject (Sentry ROOTED-HOMESCHOOL-R and -13).
+
+The `rooted.skip_orphan_cleanup` re-entry guard does not prevent this. It
+blocks re-entry into the cleanup function; the lessons trigger is a different
+function and runs normally. The claim in `20260519180000`'s comment — that
+"queue_position = NULL on cleaned rows leaves MAX(queue_position) unchanged" —
+is false precisely in the common case, where the row being swept is the row AT
+the new pointer.
+
+**Reproduced in production**, goal `24f53fcf` ("Explode the Code"), 2026-08-20
+23:04:50 UTC: Today's "Did you finish Lesson 44?" prompt was answered Yes,
+`confirmPriorLessonComplete` wrote `current_lesson = 45`, the cleanup swept row
+45 (`completed_at` and `updated_at` exactly one day apart to the microsecond,
+the trigger's fingerprint), and the recompute wrote `current_lesson = 44`. The
+family's next lesson was consumed AND hidden by one tap. It ratchets: goal
+`85fa7f24` lost slots 3, 4, 5 and 6 inside a 47-second window.
+
+**Enforced by:** migration `20260824000000_orphan_cleanup_preserve_queue_position`.
+The cleanup keeps `queue_position` for rows at or below the new pointer:
+
+```sql
+queue_position = CASE WHEN queue_position <= NEW.current_lesson
+                      THEN queue_position ELSE NULL END
+```
+
+A row ABOVE the pointer still loses its slot. It was selected by
+`lesson_number`, and `move_lesson_to_date` lets the two diverge, so a drifted
+`queue_position` must never be allowed to advance `current_lesson` past what
+the family actually reached.
+
+**Do NOT "fix" this in the recompute instead.** Falling back to
+`MAX(COALESCE(queue_position, lesson_number))` was measured and rejected: 860
+completed rows on active goals hold a `lesson_number` with a NULL slot, so it
+would move `current_lesson` on 84 goals, mark 349 lessons done that nobody did,
+and jump one goal by 90 lessons. It also breaks `extra_log` by construction —
+an extra completion carries a `lesson_number` with a deliberately NULL slot so
+it does NOT advance the queue.
+
+**Test case:** the "orphan cleanup loop" block in `scheduler.test.ts` — the
+live trigger reverts the pointer and strands the slot; preserving it holds the
+pointer and leaves no hole; the ratchet accumulates one hole per advance; a
+drifted slot above the pointer is still cleared; an `extra_log` row never
+advances the queue.
+
+
 ---
 
 ## Bug patterns to NEVER reintroduce
@@ -372,6 +429,7 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 17 | queue_resync full-tail (whitley) | With lpd=1, school_days=[Mon,Wed,Fri], and 5 incomplete lessons whose stale cache overlaps today's projector output, a full-tail projection yields 5 distinct dates. Companion test pins the 7-day collision bug. |
 | 18 | Pins (Invariant 12) | Pin honored and unpinned slots filled around it in date order; pinned date consumes capacity; fully pinned tail emitted verbatim; reconciler skips pinned rows; cascade + reconcile round-trip writes nothing; empty pins projects identically to no pins. |
 | 19 | Starting position (Invariant 13) | Future start_date with starting position N projects nothing at or below N; the create batch contains no incomplete row at or below the floor; orphan-completed rows carry no future scheduled_date / date. |
+| 20 | Orphan cleanup loop (Invariant 14) | The cleanup never lowers current_lesson: swept rows at or below the new pointer keep their queue_position, so the recompute it provokes writes the pointer back unchanged and no slot is emitted without a row. A drifted slot above the pointer is still cleared; extra_log never advances the queue. |
 
 ---
 

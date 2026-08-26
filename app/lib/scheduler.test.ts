@@ -1819,6 +1819,64 @@ test('Invariant 7 — marking a single lesson complete only touches that lesson,
   assert.ok(/\bdate\s*:\s*today\b/.test(payload), 'payload pins date to today')
 })
 
+// ── Projected slots hydrate on queue_position, never lesson_number ────────
+
+test('every projected-slot hydrator joins rows on queue_position, not lesson_number', () => {
+  // The two sides of the join are NOT symmetric, which is what makes this
+  // easy to get wrong: the PROJECTION side is `p.lesson_number` and that is
+  // correct, because that field carries the slot; the ROW side must be
+  // `r.queue_position`, always. Today builds the map from rows (rowKey) and
+  // looks it up by projection. The Plan surfaces build the map from
+  // projections (projDateByKey) and look it up by row. Both directions are
+  // fine; only the ROW side is asserted here.
+  //
+  // Deliberate exception, asserted rather than assumed: the unconfirmed-goal
+  // probe in app/dashboard/page.tsx keys a row set on lesson_number ON
+  // PURPOSE, because trg_curriculum_goals_cleanup_orphans nulls
+  // queue_position on exactly the rows it inspects. That set never touches a
+  // projection, so it is checked by name below instead of by pattern.
+  const files = [
+    'app/dashboard/page.tsx',
+    'app/dashboard/plan/calendar/page.tsx',
+    'app/dashboard/plan/schedule/view/page.tsx',
+    'app/components/today/InlineScheduleTabs.tsx',
+  ]
+  for (const f of files) {
+    assert.ok(
+      !/\.in\(\s*["']lesson_number["']/.test(loadRepoFile(f)),
+      `${f}: projected-slot fetch must use .in("queue_position", ...), not lesson_number`,
+    )
+  }
+
+  // Today: the map is keyed BY ROW, so rowKey itself is the row side.
+  const todaySrc = loadRepoFile('app/dashboard/page.tsx')
+  const rowKeyDef = todaySrc.match(/const rowKey\s*=\s*\([^)]*\)\s*=>\s*`([^`]*)`/)
+  assert.ok(rowKeyDef, 'app/dashboard/page.tsx must define a rowKey for projection hydration')
+  assert.ok(
+    rowKeyDef[1].includes('queue_position'),
+    `Today rowKey must be built from queue_position, got \`${rowKeyDef[1]}\``,
+  )
+
+  // Plan surfaces: the map is keyed BY PROJECTION, so every .has/.get on it
+  // is the row side and must read queue_position.
+  let hydratorsChecked = 0
+  for (const f of ['app/dashboard/plan/calendar/page.tsx', 'app/dashboard/plan/schedule/view/page.tsx']) {
+    const src = loadRepoFile(f)
+    const lookups = [...src.matchAll(/projDateByKey\.(?:get|has)\(\s*`([^`]*)`/g)]
+    assert.ok(lookups.length > 0, `${f}: expected projDateByKey lookups, found none`)
+    hydratorsChecked += 1
+    for (const [, key] of lookups) {
+      assert.ok(
+        key.includes('queue_position') && !key.includes('lesson_number'),
+        `${f}: projDateByKey lookup key \`${key}\` must read queue_position, not lesson_number`,
+      )
+    }
+  }
+  // Guard the guard: if these files get renamed or moved, fail loudly rather
+  // than silently passing over an empty list.
+  assert.strictEqual(hydratorsChecked, 2, 'expected exactly 2 Plan-side projection hydrators')
+})
+
 // ── Invariant 9 — every "today" is in the user's timezone ─────────────────
 
 test('Invariant 9 — todayInTz returns user-local date, never server UTC clock', () => {
@@ -4398,4 +4456,340 @@ test('a stale pin is ignored identically by the projector and by the guard', () 
   // And the date the stale pin names is an ordinary scheduled day again.
   const onThatDay = withStale.filter((p) => p.date === '2026-09-09')
   assert.equal(onThatDay.length, 1, 'exactly one scheduler-placed lesson, within the 1/day cap')
+})
+
+// ── The orphan-cleanup / recompute loop (ROOTED-HOMESCHOOL-R and -13) ─────
+//
+// Two database triggers manufacture the blank subjects families report:
+//
+//   trg_curriculum_goals_cleanup_orphans   (curriculum_goals_cleanup_orphans_trg)
+//     AFTER UPDATE OF current_lesson, when NEW > OLD: completes every
+//     incomplete row at or below the new pointer and NULLS its queue_position.
+//
+//   trg_lessons_recompute_current_lesson   (lessons_recompute_current_lesson_trg)
+//     AFTER UPDATE ON lessons, when `completed` flipped: runs
+//     recompute_curriculum_current_lesson, whose formula is the one
+//     recomputeCurrentLesson implements right here in this module —
+//     MAX(queue_position) over COMPLETED rows.
+//
+// The cleanup's own UPDATE flips `completed`, so it fires the recompute, and
+// the row it just stripped is invisible to MAX(queue_position) because it
+// stripped it. current_lesson lands BELOW the value that provoked the cleanup,
+// the projector emits the stripped slot, and no row occupies it.
+//
+// The `rooted.skip_orphan_cleanup` re-entry guard does not help: it blocks
+// re-entry into the cleanup function, not the lessons trigger, which is a
+// different function and runs normally.
+//
+// GoalWorld below models both triggers over an in-memory lessons table and
+// drives the REAL recomputeCurrentLesson through a Supabase stub, so the half
+// of the loop that lives in this file is the actual production code path.
+// `preserveSweptSlots` is the migration under test
+// (20260824000000_orphan_cleanup_preserve_queue_position): false reproduces the
+// live trigger, true is the fix.
+
+type WorldLesson = {
+  id: string
+  lesson_number: number | null
+  queue_position: number | null
+  completed: boolean
+  notes: string | null
+  scheduled_source: string | null
+}
+
+function makeGoalWorld(opts: {
+  currentLesson: number
+  startAtLesson: number
+  totalLessons: number
+  lessons: WorldLesson[]
+  /** The migration under test. false = the live trigger, which nulls always. */
+  preserveSweptSlots: boolean
+}) {
+  const goalId = 'goal-under-test'
+  const rows = opts.lessons.map((l) => ({ ...l }))
+  let currentLesson = opts.currentLesson
+  // Mirrors SET LOCAL rooted.skip_orphan_cleanup, which lives for the
+  // transaction the top-level write opens.
+  let skipOrphanCleanup = false
+  const currentLessonHistory: number[] = [currentLesson]
+
+  /** curriculum_goals_cleanup_orphans_trg, verbatim in behavior. */
+  function cleanupOrphans(newCurrentLesson: number) {
+    if (skipOrphanCleanup) return
+    skipOrphanCleanup = true
+    for (const r of rows) {
+      if (r.completed) continue
+      if (r.lesson_number == null) continue
+      if (r.lesson_number > newCurrentLesson) continue
+      if (r.notes != null && r.notes !== '') continue
+      r.completed = true
+      // The live trigger nulls unconditionally. The migration keeps the slot
+      // when it sits at or below the new pointer.
+      r.queue_position =
+        opts.preserveSweptSlots &&
+        r.queue_position != null &&
+        r.queue_position <= newCurrentLesson
+          ? r.queue_position
+          : null
+      // NOTE: scheduled_source is deliberately untouched, in the model as in
+      // the trigger. It is why a swept row is identifiable in production by
+      // still carrying 'queue_resync' or 'wizard_create'.
+      onLessonCompletedFlip()
+    }
+  }
+
+  /** The AFTER UPDATE OF current_lesson dispatch, including the WHEN clause. */
+  function writeCurrentLesson(next: number) {
+    if (next === currentLesson) return // WHEN (NEW IS DISTINCT FROM OLD)
+    const old = currentLesson
+    currentLesson = next
+    currentLessonHistory.push(next)
+    if (next > old) cleanupOrphans(next)
+  }
+
+  /** lessons_recompute_current_lesson_trg, completed-flip branch. */
+  function onLessonCompletedFlip() {
+    let maxCompleted = 0
+    for (const r of rows) {
+      if (!r.completed || r.queue_position == null) continue
+      if (r.queue_position > maxCompleted) maxCompleted = r.queue_position
+    }
+    const floor = Math.max(0, opts.startAtLesson - 1)
+    let value = Math.max(floor, maxCompleted)
+    if (opts.totalLessons > 0) value = Math.min(value, opts.totalLessons)
+    writeCurrentLesson(value)
+  }
+
+  // Supabase stub shaped for recomputeCurrentLesson's exact call chain.
+  const supabase = {
+    from(table: string) {
+      if (table === 'curriculum_goals') {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: { total_lessons: opts.totalLessons, start_at_lesson: opts.startAtLesson },
+                error: null,
+              }),
+            }),
+          }),
+          update: (payload: { current_lesson: number }) => ({
+            eq: async () => {
+              writeCurrentLesson(payload.current_lesson)
+              return { error: null }
+            },
+          }),
+        }
+      }
+      if (table === 'lessons') {
+        const chain: Record<string, unknown> = {}
+        chain.select = () => chain
+        chain.eq = () => chain
+        chain.not = () => chain
+        chain.order = () => chain
+        chain.limit = async () => {
+          const completedWithSlot = rows
+            .filter((r) => r.completed && r.queue_position != null)
+            .sort((a, b) => (b.queue_position as number) - (a.queue_position as number))
+          return { data: completedWithSlot.slice(0, 1).map((r) => ({ queue_position: r.queue_position })), error: null }
+        }
+        return chain
+      }
+      throw new Error(`unexpected table: ${table}`)
+    },
+  }
+
+  return {
+    goalId,
+    rows,
+    supabase,
+    currentLessonHistory,
+    get currentLesson() { return currentLesson },
+    /** One top-level app write, i.e. one transaction. */
+    appSetCurrentLesson(next: number) {
+      skipOrphanCleanup = false
+      writeCurrentLesson(next)
+    },
+    /** Slots the projector will emit that no row occupies — the blank subjects. */
+    holes(): number[] {
+      const slots = new Set<number>()
+      for (const r of rows) if (r.queue_position != null) slots.add(r.queue_position)
+      let maxq = 0
+      for (const s of slots) if (s > maxq) maxq = s
+      const out: number[] = []
+      for (let n = currentLesson + 1; n <= maxq; n++) if (!slots.has(n)) out.push(n)
+      return out
+    },
+  }
+}
+
+/** Goal 24f53fcf "Explode the Code" as it stood at 2026-08-20 23:04:50 UTC. */
+function explodeTheCodeWorld(preserveSweptSlots: boolean) {
+  return makeGoalWorld({
+    currentLesson: 44,
+    startAtLesson: 45,
+    totalLessons: 78,
+    preserveSweptSlots,
+    lessons: [
+      // Inserted moments earlier by confirmPriorLessonComplete's Yes handler.
+      { id: 'row-44', lesson_number: 44, queue_position: 44, completed: true, notes: null, scheduled_source: 'wizard_create' },
+      // The family's actual next lesson, created by the wizard 2026-07-22.
+      { id: 'row-45', lesson_number: 45, queue_position: 45, completed: false, notes: null, scheduled_source: 'queue_resync' },
+      { id: 'row-46', lesson_number: 46, queue_position: 46, completed: false, notes: null, scheduled_source: 'queue_resync' },
+      { id: 'row-47', lesson_number: 47, queue_position: 47, completed: false, notes: null, scheduled_source: 'queue_resync' },
+    ],
+  })
+}
+
+test('orphan cleanup loop: the live trigger reverts current_lesson and strands the slot', () => {
+  const w = explodeTheCodeWorld(false)
+
+  // Today's "Did you finish Explode the Code Lesson 44?" prompt is answered
+  // Yes. confirmPriorLessonComplete writes current_lesson = 45 directly, and
+  // its code comment explains it deliberately avoids recomputeCurrentLesson
+  // because that formula would clamp the advance straight back.
+  w.appSetCurrentLesson(45)
+
+  // It got clamped anyway — by the trigger, on the caller's behalf.
+  assert.deepEqual(
+    w.currentLessonHistory,
+    [44, 45, 44],
+    'current_lesson advanced to 45 and the trigger chain put it back to 44',
+  )
+  assert.equal(w.currentLesson, 44, 'the +1 the family paid for was reverted')
+
+  // The swept row carries the exact production forensic signature.
+  const row45 = w.rows.find((r) => r.id === 'row-45')!
+  assert.equal(row45.completed, true, 'completed by the cleanup')
+  assert.equal(row45.queue_position, null, 'slot stripped')
+  assert.equal(row45.lesson_number, 45, 'lesson_number intact')
+  assert.equal(
+    row45.scheduled_source,
+    'queue_resync',
+    'scheduled_source unchanged — the cleanup never writes it, which is how these rows are identified',
+  )
+
+  // And the blank subject: the projector emits slot 45, nothing occupies it.
+  assert.deepEqual(w.holes(), [45], 'slot 45 is emitted by the projector and held by no row')
+
+  const projected = computeNextLessonsForGoal(
+    {
+      id: w.goalId,
+      total_lessons: 78,
+      lessons_per_day: 1,
+      school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+      current_lesson: w.currentLesson,
+    },
+    new Date('2026-08-21T00:00:00'),
+    1,
+  )
+  assert.equal(projected[0].lesson_number, 45, 'Today asks for slot 45')
+  const occupant = w.rows.find((r) => r.queue_position === projected[0].lesson_number)
+  assert.equal(occupant, undefined, 'and Today finds no row to render — the blank subject')
+})
+
+test('orphan cleanup loop: preserving the swept slot holds current_lesson and leaves no hole', () => {
+  const w = explodeTheCodeWorld(true)
+
+  w.appSetCurrentLesson(45)
+
+  assert.equal(w.currentLesson, 45, 'the advance sticks')
+  assert.deepEqual(
+    w.currentLessonHistory,
+    [44, 45],
+    'the recompute writes back the same value, so the trigger WHEN clause is false and there is no second move',
+  )
+
+  const row45 = w.rows.find((r) => r.id === 'row-45')!
+  assert.equal(row45.completed, true, 'still auto-completed — that behavior is unchanged')
+  assert.equal(row45.queue_position, 45, 'but it keeps the slot it legitimately occupies')
+
+  assert.deepEqual(w.holes(), [], 'no slot is emitted without a row behind it')
+})
+
+test('orphan cleanup loop: the live trigger ratchets — each advance strands another slot', () => {
+  // Goal 85fa7f24 "Easy Peasy Music" shape: rows 3, 4, 5, 6 stripped inside a
+  // 47-second window on 2026-08-24. One advance at a time, each one losing the
+  // ground it just gained.
+  const build = (preserve: boolean) =>
+    makeGoalWorld({
+      currentLesson: 2,
+      startAtLesson: 1,
+      totalLessons: 20,
+      preserveSweptSlots: preserve,
+      lessons: [
+        { id: 'r2', lesson_number: 2, queue_position: 2, completed: true, notes: null, scheduled_source: 'wizard_create' },
+        { id: 'r3', lesson_number: 3, queue_position: 3, completed: false, notes: null, scheduled_source: 'wizard_create' },
+        { id: 'r4', lesson_number: 4, queue_position: 4, completed: false, notes: null, scheduled_source: 'wizard_create' },
+        { id: 'r5', lesson_number: 5, queue_position: 5, completed: false, notes: null, scheduled_source: 'wizard_create' },
+        { id: 'r6', lesson_number: 6, queue_position: 6, completed: false, notes: null, scheduled_source: 'queue_resync' },
+        { id: 'r7', lesson_number: 7, queue_position: 7, completed: false, notes: null, scheduled_source: 'queue_resync' },
+      ],
+    })
+
+  const live = build(false)
+  live.appSetCurrentLesson(3)
+  live.appSetCurrentLesson(4)
+  live.appSetCurrentLesson(5)
+  assert.equal(live.currentLesson, 2, 'three advances, zero progress kept')
+  assert.deepEqual(live.holes(), [3, 4, 5], 'and three blank subjects accumulated')
+
+  const fixed = build(true)
+  fixed.appSetCurrentLesson(3)
+  fixed.appSetCurrentLesson(4)
+  fixed.appSetCurrentLesson(5)
+  assert.equal(fixed.currentLesson, 5, 'every advance holds')
+  assert.deepEqual(fixed.holes(), [], 'and no hole is ever opened')
+})
+
+test('orphan cleanup loop: a drifted slot above the pointer is still cleared, so current_lesson cannot over-advance', () => {
+  // move_lesson_to_date rewrites queue_position and leaves lesson_number
+  // alone, so a row swept BY lesson_number can hold a slot far above the new
+  // pointer. Preserving that unconditionally would let MAX(queue_position)
+  // drag current_lesson past what the family reached and mark lessons done
+  // that nobody did. 14 incomplete rows across 14 goals carry
+  // queue_position > lesson_number in production, so this is live.
+  const w = makeGoalWorld({
+    currentLesson: 4,
+    startAtLesson: 1,
+    totalLessons: 60,
+    preserveSweptSlots: true,
+    lessons: [
+      { id: 'r4', lesson_number: 4, queue_position: 4, completed: true, notes: null, scheduled_source: 'wizard_create' },
+      // Dragged forward on the Plan calendar: printed as Lesson 5, queued at 40.
+      { id: 'drifted', lesson_number: 5, queue_position: 40, completed: false, notes: null, scheduled_source: 'plan_move' },
+    ],
+  })
+
+  w.appSetCurrentLesson(5)
+
+  const drifted = w.rows.find((r) => r.id === 'drifted')!
+  assert.equal(drifted.completed, true, 'still swept — it is selected by lesson_number')
+  assert.equal(drifted.queue_position, null, 'but its slot is above the pointer, so it is cleared')
+  assert.equal(
+    w.currentLesson,
+    4,
+    'current_lesson never jumps to 40 — 35 lessons are not silently marked done',
+  )
+})
+
+test('orphan cleanup loop: an extra_log completion must never advance the queue', () => {
+  // Regression guard for the rejected alternative fix. Making the recompute
+  // fall back to lesson_number for position-stripped rows — MAX(COALESCE(
+  // queue_position, lesson_number)) — would count this row and advance the
+  // queue by four. "Log an extra lesson" writes a lesson_number with a
+  // deliberately NULL queue_position for exactly this reason.
+  const { supabase, writes } = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 60, start_at_lesson: 1 }, error: null },
+    // The stub returns what the production query returns: completed rows
+    // filtered to a non-null queue_position. The extra_log row is absent
+    // because the filter excludes it, which is the behavior being pinned.
+    lessonsResult: { data: [{ queue_position: 7 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = recomputeCurrentLesson(supabase as any, 'goal-1')
+  return result.then((value) => {
+    assert.equal(value, 7, 'the queue pointer follows slots only')
+    assert.deepEqual(writes[0].payload, { current_lesson: 7 })
+  })
 })

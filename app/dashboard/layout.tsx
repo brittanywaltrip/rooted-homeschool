@@ -656,7 +656,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* Skeleton main content */}
-        <main className="flex-1 md:ml-52 flex flex-col min-h-screen">
+        <main className="flex-1 min-w-0 overflow-x-hidden md:ml-52 flex flex-col min-h-screen">
           {/* Mobile top bar skeleton */}
           <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9]">
             <div className="w-16 h-4 rounded bg-[#e8e2d9] animate-pulse" />
@@ -789,7 +789,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* Main */}
-        <main className="flex-1 md:ml-52 flex flex-col min-h-screen">
+        <main className="flex-1 min-w-0 overflow-x-hidden md:ml-52 flex flex-col min-h-screen">
           <UpgradeBanner />
         {/* Mobile top bar — brand + avatar */}
           <div className="md:hidden flex items-center justify-between px-4 py-3 bg-[#fefcf9] border-b border-[#e8e2d9] sticky top-0 z-30">
