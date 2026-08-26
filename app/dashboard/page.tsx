@@ -4132,7 +4132,7 @@ export default function TodayPage() {
                     key={g.goal_id}
                     className="rounded-2xl border border-[#e5dec5] bg-[#fdfaef] px-3.5 py-3"
                   >
-                    <p className="text-[13px] text-[#5c4a1a] leading-snug">
+                    <p className="text-[13px] text-[#5c4a1a] leading-snug break-words">
                       Did you finish <span className="font-semibold">{subjectLabel}</span>
                       {" "}Lesson {g.current_lesson}?
                     </p>
@@ -4440,7 +4440,7 @@ export default function TodayPage() {
               className="flex items-start gap-2 w-full text-left hover:bg-[#d4e8d4]/40 rounded-lg px-2 py-1.5 transition-colors"
             >
               <span className="text-sm shrink-0">{n.type === "reaction" ? (n.emoji ?? "❤️") : "💬"}</span>
-              <span className="text-[13px] text-[#2d2926] leading-snug flex-1">{n.type === "reaction" ? `${n.actor_name} reacted ${n.emoji ?? "❤️"}` : `${n.actor_name} left a comment 💬`}</span>
+              <span className="text-[13px] text-[#2d2926] leading-snug flex-1 min-w-0 break-words">{n.type === "reaction" ? `${n.actor_name} reacted ${n.emoji ?? "❤️"}` : `${n.actor_name} left a comment 💬`}</span>
               <span className="text-[#5c7f63] text-xs shrink-0">→</span>
             </button>
           ))}
@@ -5111,8 +5111,8 @@ export default function TodayPage() {
               </div>
             )}
             {/* Time spent (optional) */}
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-[#7a6f65] shrink-0">Time spent, logged in your Hours &amp; Attendance Log</label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <label className="text-xs text-[#7a6f65]">Time spent, logged in your Hours &amp; Attendance Log</label>
               <input type="number" min="1" max="999" value={ftMinutes} onChange={(e) => setFtMinutes(e.target.value)}
                 placeholder="e.g. 45"
                 className="w-20 px-2.5 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] text-center" />
@@ -5481,7 +5481,7 @@ export default function TodayPage() {
 
       {/* ── Saved to Memories toast ──────────────────────── */}
       {savedMemoryToast && (
-        <div className="fixed bottom-32 left-1/2 -translate-x-1/2 z-[70] pointer-events-none toast-slide-up">
+        <div className="fixed bottom-32 left-1/2 z-[70] pointer-events-none toast-slide-up">
           <div className="bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg whitespace-nowrap">
             Saved to Memories 🌱
           </div>
@@ -5633,7 +5633,7 @@ export default function TodayPage() {
 
       {/* ── First memory magic moment toast ─────────────── */}
       {firstMemoryToast && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] toast-slide-up">
+        <div className="fixed bottom-24 left-1/2 z-[70] toast-slide-up">
           <div className="bg-[var(--g-brand)] text-white px-6 py-3.5 rounded-full shadow-lg flex items-center gap-3">
             <span className="text-lg">🌿</span>
             <div>
@@ -6104,8 +6104,8 @@ export default function TodayPage() {
               )}
 
               {/* Time spent (optional) */}
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-[#7a6f65] shrink-0">Time spent, logged in your Hours &amp; Attendance Log</label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="text-xs text-[#7a6f65]">Time spent, logged in your Hours &amp; Attendance Log</label>
                 <input type="number" min="1" max="999" value={winMinutes} onChange={(e) => setWinMinutes(e.target.value)}
                   placeholder="e.g. 45"
                   className="w-20 px-2.5 py-1.5 rounded-lg border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] text-center" />

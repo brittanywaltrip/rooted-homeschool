@@ -117,6 +117,26 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Last line of defence against a single over-wide child re-laying out the
+   whole document. `<main>` in app/dashboard/layout.tsx is a flex item, so its
+   min-width resolves to `auto` (its MIN-CONTENT width) and any descendant
+   that cannot wrap (a long curriculum name, a memory note, a nowrap chip)
+   drags the document out with it. Phones then zoom out to fit: measured in
+   production on 2026-08-26, a 384px Android reported window.innerWidth of
+   672 on /dashboard, i.e. the page rendered 1.75x its own screen.
+   That zoom-out is also why taps started missing their targets: a 32px
+   button drawn at 57% scale is ~18px of real estate, so the tap lands in the
+   gap beside it and PostHog logs a $dead_click on the wrapper div.
+   `overflow-x: clip` rather than `hidden`: clip does not create a scroll
+   container, so it cannot break `position: sticky` on descendants the way
+   `hidden` does. The print block below deliberately restores
+   `overflow: visible !important` so printables are never truncated. */
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {
@@ -331,9 +351,35 @@ input:-webkit-autofill:focus {
 
 /* ─── Toast notification ─────────────────────────────────────────────────────── */
 
+/* The X-centering lives INSIDE the keyframes on purpose. These toasts are
+   positioned `left-1/2 -translate-x-1/2`, but `animation-fill-mode: forwards`
+   makes the animated `transform` win over the class for the whole life of the
+   element, so the Tailwind `-translate-x-1/2` was being erased the moment the
+   animation started and every toast rendered starting at the horizontal
+   midpoint instead of centred on it. With `whitespace-nowrap` on the inner
+   pill, a toast on a 384px phone ran to a right edge of ~659px: half of it
+   off-screen, and the page shoved wide with it.
+   Same shape, same fix, as the child-toast-slide-in/out pair above, which
+   already carries translateX(-50%) in every keyframe.
+
+   Two rules for callers, and they are not the same rule:
+
+   1. The animation and the `left-1/2` MUST be on the SAME element. The -50%
+      here shifts whatever element is animating; put it on an inner pill and
+      you shift the pill, not the thing being centred. components/Toast.tsx
+      had exactly that shape and the animation was moved up to the wrapper.
+   2. A caller using the `.toast-slide-up` class (fill-mode: forwards) should
+      DROP its own -translate-x-1/2: the animated transform replaces the
+      class for the element's whole life, so the class is dead weight.
+      A caller animating WITHOUT forwards — e.g.
+      `animate-[toast-slide-up_0.3s_ease-out]` in app/family/[token]/page.tsx
+      — must KEEP it, because once the animation ends the transform reverts
+      to the class and the element would jump right by half its width.
+      Animated and declared transforms replace one another; they never add,
+      so neither case is ever a doubled offset. */
 @keyframes toast-slide-up {
-  from { opacity: 0; transform: translateY(10px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
 }
 .toast-slide-up {
   animation: toast-slide-up 0.25s ease-out forwards;
@@ -353,6 +399,16 @@ input:-webkit-autofill:focus {
 }
 
 @media print {
+  /* Undo the overflow-x guard set on html/body above. That guard exists to
+     stop one over-wide child re-laying out the document on a phone; on paper
+     it would silently truncate anything wider than the sheet, and printables
+     are the one surface where the full width has to survive. */
+  html,
+  body {
+    max-width: none !important;
+    overflow: visible !important;
+  }
+
   aside, nav, .no-print, header {
     display: none !important;
   }
