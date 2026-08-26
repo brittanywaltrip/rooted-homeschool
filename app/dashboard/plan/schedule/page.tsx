@@ -7,7 +7,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
@@ -568,7 +568,11 @@ function rowIsValid(row: Row): boolean {
   if (!anyProducingDay) return false;
   if (row.type === "curriculum") {
     if (!row.total_lessons || row.total_lessons <= 0) return false;
-    if (row.start_at_lesson < 1) return false;
+    // A starting position the curriculum cannot contain generates NOTHING:
+    // the builder seeds current_lesson = start_at_lesson - 1, and the
+    // projector returns [] the moment that reaches total_lessons. Four
+    // production goals were saved empty this way. See isStartAtLessonInRange.
+    if (!isStartAtLessonInRange(row.start_at_lesson, row.total_lessons)) return false;
   }
   return true;
 }
@@ -601,6 +605,12 @@ function rowMissingLabel(row: Row): string | null {
       return `Add a total lesson count for ${label}.`;
     }
     if (row.start_at_lesson < 1) return `Set a starting lesson for ${label}.`;
+    if (!isStartAtLessonInRange(row.start_at_lesson, row.total_lessons)) {
+      return (
+        `${label} starts at lesson ${row.start_at_lesson} but only has ` +
+        `${row.total_lessons}. Use ${row.total_lessons + 1} if it is finished.`
+      );
+    }
   }
   return `Finish setting up ${label}.`;
 }
@@ -1364,7 +1374,10 @@ export default function ScheduleBuilderPage() {
             lessons_per_day_overrides,
             school_days,
             start_date: row.start_date,
-            start_at_lesson: Math.max(1, row.start_at_lesson),
+            // Clamped on the way out too. total_lessons can be edited after
+            // the starting position was typed, and nothing re-validates the
+            // pair, so the write path is the last place this can be caught.
+            start_at_lesson: clampStartAtLesson(row.start_at_lesson, row.total_lessons ?? 0),
             // default_minutes is NOT NULL in DB; fall back to 30 if the user
             // cleared the field. Same fallback applies on UPDATE so an empty
             // input never null-trips the constraint.
@@ -1397,7 +1410,7 @@ export default function ScheduleBuilderPage() {
             const insertPayload = {
               ...payload,
               school_year_id: activeSchoolYearId,
-              current_lesson: Math.max(0, row.start_at_lesson - 1),
+              current_lesson: Math.max(0, clampStartAtLesson(row.start_at_lesson, row.total_lessons ?? 0) - 1),
             };
             const { data: inserted, error: insErr } = await supabase
               .from("curriculum_goals")
@@ -1414,7 +1427,7 @@ export default function ScheduleBuilderPage() {
             const insertPayload = {
               ...payload,
               school_year_id: activeSchoolYearId,
-              current_lesson: Math.max(0, row.start_at_lesson - 1),
+              current_lesson: Math.max(0, clampStartAtLesson(row.start_at_lesson, row.total_lessons ?? 0) - 1),
             };
             const { data: inserted, error } = await supabase
               .from("curriculum_goals")
@@ -2878,7 +2891,10 @@ function RowCard(props: {
   // N lessons" count is about to be rewritten. Subsequent edits in the same
   // session skip the prompt (progress_confirmed flips true on yes).
   function changeStartAtLesson(rawValue: number) {
-    const clamped = Math.max(1, Math.floor(rawValue) || 1);
+    // Clamped against total_lessons, not just against 1. The field carried
+    // min={1} and no max, so "start at 80" on a 1-lesson curriculum was
+    // accepted and generated no lessons at all.
+    const clamped = clampStartAtLesson(rawValue, row.total_lessons ?? 0);
     if (clamped === row.start_at_lesson) return;
     const hasSeed = row.start_at_lesson_initial !== null;
     const needsConfirm =
@@ -3122,6 +3138,9 @@ function RowCard(props: {
               onChange={(v) => changeStartAtLesson(Number(v) || 1)}
               type="number"
               min={1}
+              // total_lessons + 1 means "finished all of them", the same
+              // ceiling the +/- stepper below already uses.
+              max={row.total_lessons ? row.total_lessons + 1 : undefined}
               disabled={isReadOnly}
             />
             {/* Required, and marked as such: a blank total lesson count is the
@@ -3361,6 +3380,10 @@ function FieldInput(props: {
   onChange: (v: string) => void;
   type: "number" | "date" | "text";
   min?: number;
+  /** Upper bound for number fields. Advisory: the browser enforces it on the
+   *  spinner and on form validation, but a typed value still reaches onChange,
+   *  so the caller must clamp as well. */
+  max?: number;
   placeholder?: string;
   disabled?: boolean;
   /** Marks the label so the field reads as required before it is filled in. */
@@ -3383,6 +3406,7 @@ function FieldInput(props: {
         type={props.type}
         value={props.value}
         min={props.min}
+        max={props.max}
         onChange={(e) => props.onChange(e.target.value)}
         placeholder={props.placeholder}
         disabled={props.disabled}

@@ -952,6 +952,64 @@ export function toGoalConfig(row: GoalConfigRow): CurriculumGoalConfig {
   };
 }
 
+/**
+ * Is this a starting position the curriculum can actually contain?
+ *
+ * `start_at_lesson` is 1-based and names the NEXT lesson the family will do, so
+ * `total_lessons + 1` is legal and means "I have finished all of them". That is
+ * the inclusive upper bound. Anything above it names a lesson that does not
+ * exist.
+ *
+ * WHY THIS EXISTS. Four production goals carry `total_lessons = 1` with
+ * `start_at_lesson` of 6, 18, 21 and 80, and no lesson rows at all — "All About
+ * Reading" twice, "Grammar" and "TGATB", created 2026-04-20..26. On every one
+ * `updated_at` PRECEDES `created_at`, so they were written once and never
+ * edited: those values are what the form saved.
+ *
+ * From there it is mechanical. The builder seeds
+ * `current_lesson = start_at_lesson - 1 = 79`, `computeNextLessonsForGoal`
+ * returns [] on its first line because `current_lesson >= total_lessons`, phase
+ * 2 plans nothing, and the goal is saved empty. The database's own
+ * `recompute_curriculum_current_lesson` then clamps `current_lesson` to
+ * `LEAST(79, 1) = 1`, which is the state those rows sit in today.
+ *
+ * The projector is not at fault and must not be changed: a pointer at or past
+ * the end has nothing left to emit. The only defect is that nothing rejected
+ * the input. `min={1}` on the field and `start_at_lesson < 1` in the builder's
+ * `rowIsValid` were the sole bounds, neither of which involves
+ * `total_lessons`, and nothing re-validates after `total_lessons` is edited —
+ * so filling the two fields in either order lands in the same place.
+ *
+ * Keep this the single definition. The builder's validity check, its
+ * human-readable reason, and its save-time clamp all read it, so a starting
+ * position that survives one of them cannot fail another.
+ */
+export function isStartAtLessonInRange(
+  startAtLesson: number,
+  totalLessons: number,
+): boolean {
+  if (!Number.isInteger(startAtLesson) || startAtLesson < 1) return false;
+  if (!Number.isInteger(totalLessons) || totalLessons <= 0) return false;
+  return startAtLesson <= totalLessons + 1;
+}
+
+/**
+ * Fold a starting position into the legal range for `totalLessons`.
+ *
+ * Used on the write path so a value that reached state before `total_lessons`
+ * was set (or was reduced afterwards) still cannot be persisted out of range.
+ * Returns 1 when `totalLessons` is not yet a usable count — the row is
+ * incomplete and the builder blocks the save on its own.
+ */
+export function clampStartAtLesson(
+  startAtLesson: number,
+  totalLessons: number,
+): number {
+  if (!Number.isInteger(totalLessons) || totalLessons <= 0) return 1;
+  const floored = Number.isFinite(startAtLesson) ? Math.floor(startAtLesson) : 1;
+  return Math.min(Math.max(1, floored), totalLessons + 1);
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
  * PINS (July 2026) — manual placements the projector must not overrule.
  *
