@@ -181,12 +181,33 @@ export default function FirstDayFrameEditor() {
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
     drag.current = { startX: e.clientX, startY: e.clientY, ox: transform.offsetXPct, oy: transform.offsetYPct };
   }
+  // Read the ref ONCE, synchronously, and close over plain numbers.
+  //
+  // ROOTED-HOMESCHOOL-15: this used to read `drag.current!.ox` INSIDE the
+  // setTransform updater. React does not run an updater during the event — it
+  // runs it during the next render, by which time onPointerUp has already set
+  // `drag.current = null`. The guard at the top of this function is true when
+  // it is evaluated and false by the time the updater runs, so the non-null
+  // assertion was asserting something false and threw
+  // "null is not an object (evaluating 'drag.current.ox')" inside React's
+  // render phase, which takes the whole page down mid-drag rather than losing
+  // one pointer event. Reported on iOS Safari, where the pointerup lands
+  // between the move and the render more readily.
+  //
+  // ox/oy are captured at pointerdown and never change during a drag, so
+  // reading them early is not just safe, it is what the updater meant.
+  //
+  // An updater must be a pure function of its argument. Anything mutable it
+  // needs has to be read before it is handed to setState.
   function onPointerMove(e: React.PointerEvent) {
-    if (!drag.current || box.w === 0) return;
-    const dx = (e.clientX - drag.current.startX) / box.w;
-    const dy = (e.clientY - drag.current.startY) / box.h;
+    const d = drag.current;
+    if (!d || box.w === 0) return;
+    const dx = (e.clientX - d.startX) / box.w;
+    const dy = (e.clientY - d.startY) / box.h;
     const clamp = (n: number) => Math.max(-0.5, Math.min(0.5, n));
-    setTransform((t) => ({ ...t, offsetXPct: clamp(drag.current!.ox + dx), offsetYPct: clamp(drag.current!.oy + dy) }));
+    const nextX = clamp(d.ox + dx);
+    const nextY = clamp(d.oy + dy);
+    setTransform((t) => ({ ...t, offsetXPct: nextX, offsetYPct: nextY }));
   }
   function onPointerUp(e: React.PointerEvent) {
     drag.current = null;

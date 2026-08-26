@@ -902,7 +902,13 @@ export default function YearbookReadPage() {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "ArrowRight") {
         setDirection(1);
-        setCurrentPage((p) => Math.min(p + 1, maxPageRef.current));
+        // Read the ref at keypress time, not inside the updater. This one was
+        // not throwing — maxPageRef always holds a number — but it is the same
+        // shape as ROOTED-HOMESCHOOL-15 (see FirstDayFrameEditor.onPointerMove),
+        // and reading the bound the reader actually had when they pressed the
+        // key is the semantic that was meant.
+        const maxPage = maxPageRef.current;
+        setCurrentPage((p) => Math.min(p + 1, maxPage));
       }
       if (e.key === "ArrowLeft") {
         setDirection(-1);

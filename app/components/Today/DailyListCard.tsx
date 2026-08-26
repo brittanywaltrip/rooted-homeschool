@@ -108,15 +108,30 @@ export default function DailyListCard(props: DailyListCardProps) {
   const burstErrorRef = useRef<boolean>(false);
   const savedTimerRef = useRef<number | null>(null);
 
-  /** Update items state AND mirror it to the ref synchronously inside the
-   *  setState callback. Async handlers can read itemsRef.current without
-   *  worrying about React batching. */
+  /** Update items state AND mirror it to the ref, so async handlers can read
+   *  itemsRef.current without worrying about React batching.
+   *
+   *  The mirror is written HERE, at call time, not inside a setState updater.
+   *  It used to live inside the updater with a comment claiming that was
+   *  synchronous; it is not. React runs an updater during the next render, so
+   *  a handler reading itemsRef.current immediately after calling this would
+   *  have seen the previous value. It happened to work only because the one
+   *  reader (persistSave) is behind a 500ms debounce and a render always beat
+   *  the timer — a race this code should not be relying on. It also made the
+   *  updater impure: React may call an updater more than once, or discard a
+   *  render entirely, either of which leaves the ref describing state that
+   *  was never committed.
+   *
+   *  This is the same misreading of React's execution model as
+   *  ROOTED-HOMESCHOOL-15 (see FirstDayFrameEditor.onPointerMove), where a ref
+   *  read inside an updater was null by the time the updater actually ran.
+   *
+   *  Safe to compute from itemsRef rather than from React's `prev` because
+   *  this is the ONLY caller of setItems, so the ref cannot drift from state. */
   const updateItems = useCallback((updater: (prev: LocalItem[]) => LocalItem[]) => {
-    setItems((prev) => {
-      const next = updater(prev);
-      itemsRef.current = next;
-      return next;
-    });
+    const next = updater(itemsRef.current);
+    itemsRef.current = next;
+    setItems(next);
   }, []);
 
   // ── Collapse state persistence ──────────────────────────────────────────
