@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { signedPhotoUrl } from "@/lib/photo-url";
-import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS } from "@/lib/photo-pipeline";
+import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS, COVER_MAX_DIMENSION } from "@/lib/photo-pipeline";
 import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
 import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
@@ -54,6 +54,11 @@ type MemoryRow = {
 
 type Focal = { x: number; y: number };
 type ReposTarget = { kind: "memory" | "cover"; id: string; url: string; bucket: string };
+
+// A cover is prepared at COVER_MAX_DIMENSION (3000px, a 10in front panel at
+// 300 PPI). Below this on the longest side there is not enough detail for that
+// panel and the print goes soft, so the editor says so without blocking.
+const COVER_SOFT_THRESHOLD = 2000;
 
 const FAMILY_GROUP_KEY = "family";
 
@@ -429,6 +434,9 @@ export default function YearbookEditPage() {
   const [coverUploading, setCoverUploading] = useState(false);
   const [coverSaved, setCoverSaved] = useState(false);
   const [coverError, setCoverError] = useState<string | null>(null);
+  // Set when the uploaded cover's natural size is too small to print sharply.
+  // Advisory only: the upload still succeeds and the cover still saves.
+  const [coverSoft, setCoverSoft] = useState(false);
   const [familyName, setFamilyName] = useState("");
   const [familyNameSaved, setFamilyNameSaved] = useState(false);
   const [schoolYear, setSchoolYear] = useState("");
@@ -528,8 +536,11 @@ export default function YearbookEditPage() {
     setCoverUploading(true);
     setCoverSaved(false);
     setCoverError(null);
+    setCoverSoft(false);
     try {
-      const prepared = await preparePhoto(file);
+      // COVER_MAX_DIMENSION, not the memory cap: the front panel of a casewrap
+      // cover is 10in wide once the board wrap is added.
+      const prepared = await preparePhoto(file, COVER_MAX_DIMENSION);
       const path = `${effectiveUserId}/cover.jpg`;
       const { error: upErr } = await supabase.storage
         .from("yearbook-covers")
@@ -541,6 +552,9 @@ export default function YearbookEditPage() {
       const stored = signed ?? path;
       setCoverPhotoUrl(stored);
       await saveContent("cover_photo", stored);
+      // Natural size, measured before the downscale. Anything under this prints
+      // visibly soft at cover size, so the family gets a nudge (never a block).
+      setCoverSoft(Math.max(prepared.width, prepared.height) < COVER_SOFT_THRESHOLD);
       setCoverSaved(true);
       setTimeout(() => setCoverSaved(false), 3000);
     } catch (err) {
@@ -1053,6 +1067,11 @@ export default function YearbookEditPage() {
             )
           )}
           {coverSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+          {coverSoft && (
+            <span className="text-[11px] text-[#9a8f85] mt-1.5 block leading-snug">
+              This photo will look soft if you print your yearbook. A larger photo from your camera roll will print sharper.
+            </span>
+          )}
           {coverError && <span className="text-[11px] text-red-400 mt-1.5 block leading-snug">{coverError}</span>}
         </div>
 

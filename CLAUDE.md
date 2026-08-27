@@ -365,6 +365,19 @@ what you are about to change it to.
   blank.)
 - family-photos: family profile photos (PRIVATE — signed URLs, same as above)
 
+## Photo notes
+Uploads are capped by lib/photo-pipeline.ts, and the caps are PRINT budgets.
+Lulu prints at 300 PPI, so printed inches = pixels / 300.
+- MEMORY_MAX_DIMENSION = 2400px → 8in, the widest a photo sits on an 8.5in page
+- COVER_MAX_DIMENSION = 3000px → 10in, a casewrap front panel incl. the 0.75in
+  board wrap
+preparePhoto re-encodes and the picked file is discarded, so the original is
+never retained: raising a cap only helps photos uploaded after the change, and
+lowering one is unrecoverable. Any NEW upload path must pass one of these two
+constants rather than inventing a third number.
+Not covered by this: Settings' family photo uploads the raw file (already print
+safe), and lib/compress-image.ts feeds the on-screen First Day frame only.
+
 ## Plan system (as of April 14, 2026)
 Display names: "Rooted" (free), "Rooted+" (all paid tiers). Use + symbol, never "Plus".
 Founding Family = pricing tier within Rooted+ ($39/yr, locked forever, ends April 30).

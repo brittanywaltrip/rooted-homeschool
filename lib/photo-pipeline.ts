@@ -30,8 +30,20 @@ export const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
 const DECODE_TIMEOUT_MS = 20000;
 const HEIC_TIMEOUT_MS = 30000;
 const NETWORK_TIMEOUT_MS = 45000;
-const MAX_DIMENSION = 1200;
-const JPEG_QUALITY = 0.82;
+// Upload caps, in pixels on the longest side. Both are print budgets, not
+// screen budgets: Lulu prints at 300 PPI, so a photo's printed width in inches
+// is its pixel width / 300. The old single 1200px cap printed about 4in, half
+// the width of an 8.5in book page, which is why interior photos looked soft.
+// 2400px covers an 8in placement on the page; a casewrap cover's front panel is
+// 10in once the 0.75in board wrap is added, so covers get 3000px.
+//
+// The original file is NEVER stored: preparePhoto re-encodes and the picked
+// file is discarded, so a photo uploaded under an older, smaller cap cannot be
+// recovered at a larger size. Raising these only helps photos uploaded from
+// this point forward.
+export const MEMORY_MAX_DIMENSION = 2400;  // 8in at 300 PPI
+export const COVER_MAX_DIMENSION  = 3000;  // 10in at 300 PPI, casewrap front panel incl. 0.75in wrap
+const JPEG_QUALITY = 0.85;
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
 const MEMORY_PHOTOS_BUCKET = "memory-photos";
 
@@ -212,8 +224,16 @@ function jpegName(name: string): string {
  * finally, so the spinner runs forever and nothing is ever logged. It either
  * resolves with a prepared photo or throws PhotoReadError, whose `userMessage`
  * is safe to show a family as-is.
+ *
+ * `maxDimension` caps the longest side of the JPEG that gets written. It
+ * defaults to MEMORY_MAX_DIMENSION; the yearbook cover passes
+ * COVER_MAX_DIMENSION. The returned width/height are the NATURAL size either
+ * way, not the capped size.
  */
-export async function preparePhoto(file: File): Promise<PreparedPhoto> {
+export async function preparePhoto(
+  file: File,
+  maxDimension: number = MEMORY_MAX_DIMENSION,
+): Promise<PreparedPhoto> {
   if (file.size === 0) {
     throw new PhotoReadError(`Zero-byte file: ${file.name}`, EMPTY_FILE_MESSAGE);
   }
@@ -246,7 +266,7 @@ export async function preparePhoto(file: File): Promise<PreparedPhoto> {
   // their real shape.
   const { width, height } = decoded;
 
-  const scale = Math.min(1, MAX_DIMENSION / Math.max(width, height));
+  const scale = Math.min(1, maxDimension / Math.max(width, height));
   const targetWidth = Math.max(1, Math.round(width * scale));
   const targetHeight = Math.max(1, Math.round(height * scale));
 
