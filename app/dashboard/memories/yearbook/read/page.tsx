@@ -1654,7 +1654,7 @@ export default function YearbookReadPage() {
   // nothing above reads it.
   //
   // The letter's "favorite moment" reserves a photo out of whichever chapter
-  // owns it, so the same subtraction is applied here — childPhotoCounts is what
+  // owns it, so the same subtraction is applied here. childPhotoCounts is what
   // actually reaches the chapter, which is what estimateYearbookPages expects.
   const letterReservedPhotoId = favMemory?.photo_url ? favMemory.id : null;
   const chapterPhotoCount = (mems: MemoryRow[]): number => {
@@ -1723,7 +1723,7 @@ export default function YearbookReadPage() {
   // honest, so the reader checks itself every time it builds the book and
   // reports a mismatch. It never changes what renders and never throws.
   //
-  // Reported once per distinct (estimate, actual) pair per mount — the memo
+  // Reported once per distinct (estimate, actual) pair per mount, because the memo
   // rebuilds on every settings toggle, and one real divergence should be one
   // issue, not one per page turn.
   const reportedDriftRef = useRef<Set<string>>(new Set());

@@ -551,7 +551,7 @@ Gear icon → Customize page.
 Page count: Today shows a permanent "Your Book" strip
 whose page number comes from estimateYearbookPages()
 in lib/yearbook-page-count.ts. That helper and the
-reader must never diverge — Today cannot assemble
+reader must never diverge. Today cannot assemble
 spreads, so the helper is the only way it can know the
 length. The reader compares its own rendered
 pages.length against the helper on every render and

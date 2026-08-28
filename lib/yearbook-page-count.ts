@@ -31,11 +31,11 @@ import {
 
 /** The cover + table of contents. Reader: `spreads.unshift(buildCoverSpread(...))`. */
 export const COVER_SPREADS = 1;
-/** "Until next year…" — the warm closing spread. Reader: the `id: "until-next-year"` push. */
+/** "Until next year…", the warm closing spread. Reader: the `id: "until-next-year"` push. */
 export const CLOSING_SPREADS = 1;
 /** The back cover. Reader: the `id: "back"` push, always the last spread. */
 export const BACK_COVER_SPREADS = 1;
-/** "From the village" — the signing spread, only when the section is enabled. Reader: `if (ybSettings.show_village)`. */
+/** "From the village", the signing spread, only when the section is enabled. Reader: `if (ybSettings.show_village)`. */
 export const VILLAGE_SPREADS = 1;
 /** "A letter from home". Reader pushes this on `show_letter` alone, regardless of whether the letter is written. */
 export const LETTER_SPREADS = 1;
@@ -146,8 +146,8 @@ function spreadsForChunkedPages(itemCount: number, perPage: number): number {
  * How many pages a chapter's photos occupy, using the reader's own functions.
  *
  * Featured photos are the one thing this cannot model. A featured photo gets a
- * solo full-bleed page, and its cost depends on WHERE it sits — dropped into
- * the middle of a run it also splits that run's mosaic in two — which a count
+ * solo full-bleed page, and its cost depends on WHERE it sits: dropped into
+ * the middle of a run it also splits that run's mosaic in two, which a count
  * cannot express. So a child's featured photos are left out of
  * childPhotoCounts entirely (the reader plans that chapter from its
  * non-featured photos), and the family chapter's are counted but treated as
@@ -253,7 +253,7 @@ export function estimateYearbookPages(
 
   if (sections.showFamilyChapter) {
     spreads += FAMILY_OPENER_SPREADS;
-    // Family photos skip planChapterPhotos entirely — the reader sends them
+    // Family photos skip planChapterPhotos entirely. The reader sends them
     // straight to the collage, with no divider or favorites reservation.
     spreads += Math.ceil(chapterPhotoUnits(c.familyPhotoCount) / 2);
     if (sections.showBooksSection && c.familyBookCount > 0) spreads += 1;

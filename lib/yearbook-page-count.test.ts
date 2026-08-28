@@ -1,4 +1,4 @@
-// Tests for lib/yearbook-page-count.ts — the one page count Today and the
+// Tests for lib/yearbook-page-count.ts, the one page count Today and the
 // yearbook reader share.
 //
 // The reader emits whole spreads and flattens them two pages at a time, so
@@ -74,7 +74,7 @@ test("with every section off, an empty book is cover + closing + back cover only
 
 test("the result is always even, for every shape of book", () => {
   // A spread is two facing pages, so an odd page count means a page was
-  // counted without its partner — the one thing this function must never do.
+  // counted without its partner, the one thing this function must never do.
   for (let photos = 0; photos <= 40; photos++) {
     for (const drawings of [0, 1, 3, 4, 5, 9]) {
       for (const keepsake of [0, 1, 2, 3]) {
@@ -125,11 +125,11 @@ test("three children with unequal photo counts each get their own chapter", () =
     filledKeepsakePages: [1, 0, 2],
   });
 
-  // Child 1 — 12 photos: divider + favorites + 10 in the collage (2 pages → 1
+  // Child 1, 12 photos: divider + favorites + 10 in the collage (2 pages → 1
   // spread), a books spread, and 1 keepsake page (1 spread, facing a filler).
-  // Child 2 — 3 photos: photo-poor, so a title-panel divider, 1 to favorites,
+  // Child 2, 3 photos: photo-poor, so a title-panel divider, 1 to favorites,
   // 2 in the collage (1 spread). 5 drawings → 2 gallery pages → 1 spread.
-  // Child 3 — no photos at all, but has favorites written, plus 2 keepsake
+  // Child 3, no photos at all, but has favorites written, plus 2 keepsake
   // pages that pack into a single spread.
   const child1 = CHILD_OPENER_SPREADS + 1 + 1 + 1; // collage + favorites + books, then keepsake
   const child2 = CHILD_OPENER_SPREADS + 1 + 1 + 1; // collage + favorites + art
@@ -223,7 +223,7 @@ test("adding one photo to a chapter never shrinks the book", () => {
 
 test("recap pages match paginateRecap for every section split", () => {
   // recapPageCount mirrors paginateRecap's line budget without the strings.
-  // Run both over a spread of shapes and require identical page counts — a
+  // Run both over a spread of shapes and require identical page counts. A
   // section header costs two lines, so the split really does move the breaks.
   const shapes: [number, number, number][] = [
     [0, 0, 0], [1, 0, 0], [1, 1, 1], [13, 0, 0], [11, 1, 1], [24, 1, 1],

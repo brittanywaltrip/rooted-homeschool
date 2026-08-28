@@ -189,8 +189,8 @@ function buildBookCounts(
   // A CHILD chapter is planned from its non-featured photos (the reader's
   // `nonFeatured`), so featured ones are left out of the count here.
   const childPhotos = (rows: BookMemoryRow[]) => collagePhotos(rows).filter((m) => !m.featured).length;
-  // The FAMILY chapter has no such planning step — every photo goes straight
-  // to the collage — so featured ones stay counted. The two differ on purpose;
+  // The FAMILY chapter has no such planning step, so every photo goes straight
+  // to the collage and featured ones stay counted. The two differ on purpose;
   // matching the reader chapter for chapter is the whole point.
   const familyPhotos = (rows: BookMemoryRow[]) => collagePhotos(rows).length;
   const chapterDrawings = (rows: BookMemoryRow[]) =>
@@ -935,7 +935,7 @@ export default function TodayPage() {
     const yearbookKeyForCount = `${ybStartYear}-${String(ybStartYear + 1).slice(2)}`;
 
     // Minimal column list, plus title/caption because the recap drops blank
-    // items and collapses duplicates before it paginates — counting rows
+    // items and collapses duplicates before it paginates, so counting rows
     // instead would put the recap on the wrong page. Current families hold at
     // most 61 memories, so this is cheap. If a family ever passes a few
     // thousand rows, move this to a grouped RPC rather than widening it.
@@ -1648,7 +1648,7 @@ export default function TodayPage() {
     }
     const bookMems = (bookMemsResult.data ?? []) as unknown as BookMemoryRow[];
     // profiles.yearbook_settings stores the reader's snake_case keys, and any
-    // key the family has never toggled is simply absent — the reader spreads
+    // key the family has never toggled is simply absent. The reader spreads
     // its DEFAULT_YB_SETTINGS underneath, so an absent key means on.
     const ybSettingsRow =
       (profile as { yearbook_settings?: Record<string, boolean> | null } | null)?.yearbook_settings ?? null;
@@ -4519,7 +4519,7 @@ export default function TodayPage() {
         // here. It existed only because the book had no permanent surface on
         // Today; the Your Book strip is that surface now, so a one-shot card
         // pointing at the same place is noise. rooted_visited_yearbook is
-        // untouched — the gate above still reads it, and the reader still
+        // untouched: the gate above still reads it, and the reader still
         // writes it when the strip's "Open →" gets them there.
         if (!nudge && yearbookVisited && !hasAnyLessons && !curriculumDismissed) {
           nudge = {
@@ -4735,14 +4735,14 @@ export default function TodayPage() {
       )}
 
       {/* ═══════════════════════════════════════════════════════════
-          YOUR BOOK — the permanent page count. Sits AFTER Today's
+          YOUR BOOK, the permanent page count. Sits AFTER Today's
           Story on purpose: Today's Story answers "what did we do
           today", this answers "what is it adding up to", and the
           second question only makes sense once the first is answered.
          ═══════════════════════════════════════════════════════════ */}
       {!loading && bookStats && (() => {
         // Nothing at all below three memories with no lessons behind them.
-        // "0 pages" reads as a scolding, and Rooted does not scold — the
+        // "0 pages" reads as a scolding, and Rooted does not scold. The
         // activation card above already speaks to a family with an empty book,
         // and it does it warmly. This is a fact for families who have one.
         if (totalMemories < 3 && bookStats.lessons === 0) return null;
