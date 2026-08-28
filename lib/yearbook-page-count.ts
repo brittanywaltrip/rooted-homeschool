@@ -170,6 +170,15 @@ function spreadsForChunkedPages(itemCount: number, perPage: number): number {
 /**
  * How many pages a chapter's photos occupy, using the reader's own functions.
  *
+ * The caption line every photograph now carries does NOT appear here, and that
+ * is deliberate rather than an omission. It lives inside the mosaic cell: the
+ * image gives up the height, the cell keeps its grid slot, and maxPerPage is
+ * still 6, so the same photographs fill the same number of pages captioned or
+ * not (locked in by lib/yearbook-photo-pages.test.ts). The moment that stops
+ * being true, because captions push maxPerPage down or the geometry starts
+ * depending on caption length, this function has to change in the same commit
+ * or Today will quote a length the book does not have.
+ *
  * Featured photos are the one thing this cannot model. A featured photo gets a
  * solo full-bleed page, and its cost depends on WHERE it sits: dropped into
  * the middle of a run it also splits that run's mosaic in two, which a count

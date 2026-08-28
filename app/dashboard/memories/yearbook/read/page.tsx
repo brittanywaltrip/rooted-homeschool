@@ -21,7 +21,7 @@ import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, typ
 import { focalObjectPosition } from "@/lib/focal-point";
 import { coverBucketFor } from "@/lib/photo-url";
 import { orderPhotos } from "@/lib/photo-order";
-import { featureCaptionText } from "@/lib/photo-caption";
+import { featureCaptionText, photoCaptionLine, photoMetaLine, photoDateLabel, SAFE_AREA_X, SAFE_AREA_Y } from "@/lib/photo-caption";
 import { resolveTheme, themeCssVars, THEMES, type YearbookTheme } from "@/lib/yearbook-theme";
 import { buildYearRecap, paginateRecap, type RecapPageContent } from "@/lib/year-recap";
 import { estimateYearbookPages, type BookCounts, type BookSections } from "@/lib/yearbook-page-count";
@@ -238,18 +238,48 @@ function FocalPhoto({
   );
 }
 
+// The caption line under a mosaic photograph.
+//
+// 8px at this page scale lands at roughly 8.5pt on the finished page, and it is
+// the size the Tiny Masterpieces captions already use, so the book stays
+// internally consistent. One line's worth of height is reserved in EVERY cell
+// whether or not that photo has anything to say, so the images in a row stay
+// the same height and the grid still reads as a grid. A caption that wraps to a
+// second line takes the extra height from its own image, which is the trade the
+// rule demands: never truncate a parent's words.
+const CAPTION_TEXT_PX = 8;
+const CAPTION_LEADING = 1.35;
+const CAPTION_TOP_PAD_PX = 3;
+const CAPTION_LINE_PX = Math.ceil(CAPTION_TEXT_PX * CAPTION_LEADING) + CAPTION_TOP_PAD_PX;
+
 function MosaicCell({ cell }: { cell: PlacedCell }) {
+  const line = photoCaptionLine(cell.photo);
   return (
     <div
-      className="overflow-hidden rounded-[3px]"
+      className="overflow-hidden rounded-[3px] flex flex-col"
       style={{ gridColumn: `${cell.c + 1} / span ${cell.cs}`, gridRow: `${cell.r + 1} / span ${cell.rs}` }}
     >
-      <FocalPhoto
-        src={cell.photo.photo_url}
-        aspect={photoAspect(cell.photo)}
-        focalX={cell.photo.focal_x}
-        focalY={cell.photo.focal_y}
-      />
+      <div className="flex-1 min-h-0 overflow-hidden rounded-[3px]">
+        <FocalPhoto
+          src={cell.photo.photo_url}
+          aspect={photoAspect(cell.photo)}
+          focalX={cell.photo.focal_x}
+          focalY={cell.photo.focal_y}
+        />
+      </div>
+      {/* Below the photograph, never over it. Not clamped: a long caption wraps
+          and the image gives up the height. */}
+      <p
+        className="shrink-0 text-[var(--yb-muted)] px-[1px] text-center"
+        style={{
+          fontSize: CAPTION_TEXT_PX,
+          lineHeight: CAPTION_LEADING,
+          paddingTop: CAPTION_TOP_PAD_PX,
+          minHeight: CAPTION_LINE_PX,
+        }}
+      >
+        {line}
+      </p>
     </div>
   );
 }
@@ -287,7 +317,10 @@ function FillerPage() {
   );
 }
 
-function toPhotoItem(m: MemoryRow): PhotoItem {
+// `childName` is passed in rather than looked up here because a PhotoItem is
+// built from a memory row alone, which only knows its child_id. Family
+// memories have no child, so they pass null and print the date by itself.
+function toPhotoItem(m: MemoryRow, childName: string | null = null): PhotoItem {
   return {
     id: m.id,
     photo_url: m.photo_url,
@@ -300,19 +333,23 @@ function toPhotoItem(m: MemoryRow): PhotoItem {
     caption: m.caption,
     title: m.title,
     date: m.date,
+    takenAt: m.date,
+    childName,
   };
 }
 
 // A featured photo on its own full-bleed page — like a chapter divider, but no
-// title overlay. A small caption (caption, else title) sits at the bottom over a
-// soft scrim, with the date beneath it; the date always shows, the caption only
-// when there's real text. Positioned low so it never covers faces. Focal-aware
-// cover fill, identical in reader and print.
+// title overlay. A caption (caption, else title) sits at the bottom over a soft
+// scrim, with the child's name and the date beneath it. The name-and-date line
+// always shows; the caption only when there is real text. Focal-aware cover
+// fill, identical in reader and print.
+//
+// The scrim's padding is a fraction of the page, not a pixel count, because the
+// reader page is fluid: SAFE_AREA_X / SAFE_AREA_Y keep every word more than half
+// an inch off the trim, which is what a printer needs.
 function FeaturePhotoPage({ photo }: { photo: PhotoItem }) {
   const caption = featureCaptionText(photo);
-  const dateLabel = safeParseDateStr(photo.date)?.toLocaleDateString("en-US", {
-    month: "long", day: "numeric", year: "numeric",
-  }) ?? "";
+  const meta = photoMetaLine(photo);
   return (
     <div className="relative w-full h-full overflow-hidden" style={{ background: "var(--yb-bg)" }}>
       <FocalPhoto
@@ -321,18 +358,22 @@ function FeaturePhotoPage({ photo }: { photo: PhotoItem }) {
         focalX={photo.focal_x}
         focalY={photo.focal_y}
       />
-      {(caption || dateLabel) && (
+      {(caption || meta) && (
         <div
-          className="absolute inset-x-0 bottom-0 px-6 pt-14 pb-5"
-          style={{ background: "linear-gradient(to top, rgba(22,32,24,0.7), rgba(22,32,24,0))" }}
+          className="absolute inset-x-0 bottom-0 pt-14"
+          style={{
+            background: "linear-gradient(to top, rgba(22,32,24,0.7), rgba(22,32,24,0))",
+            paddingLeft: SAFE_AREA_X,
+            paddingRight: SAFE_AREA_X,
+            paddingBottom: SAFE_AREA_Y,
+          }}
         >
           {caption && (
-            // TODO: paginate. Clamping cuts a family's words with no sign it happened.
-            <p className="italic text-[12px] text-white/90 leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
+            <p className="italic text-[12px] text-white/90 leading-snug" style={{ fontFamily: "Georgia, serif" }}>
               {caption}
             </p>
           )}
-          {dateLabel && <p className="text-[9px] text-white/70 mt-1">{dateLabel}</p>}
+          {meta && <p className="text-[9px] text-white/70 mt-1">{meta}</p>}
         </div>
       )}
     </div>
@@ -454,9 +495,25 @@ function FavoritesLeftPage({ childName, items }: { childName: string; items: { l
 
 function FavoritesRightPage({ photo, childName }: { photo: PhotoItem | null; childName: string }) {
   if (photo?.photo_url) {
+    const line = photoCaptionLine(photo);
     return (
-      <div className="w-full h-full overflow-hidden" style={{ background: "var(--yb-bg)" }}>
+      <div className="relative w-full h-full overflow-hidden" style={{ background: "var(--yb-bg)" }}>
         <FocalPhoto src={photo.photo_url} aspect={photoAspect(photo)} focalX={photo.focal_x} focalY={photo.focal_y} />
+        {/* A full page of one photograph is a record, not a design surface, so
+            it carries its line too, inside the print safe area. */}
+        {line && (
+          <div
+            className="absolute inset-x-0 bottom-0 pt-12"
+            style={{
+              background: "linear-gradient(to top, rgba(22,32,24,0.65), rgba(22,32,24,0))",
+              paddingLeft: SAFE_AREA_X,
+              paddingRight: SAFE_AREA_X,
+              paddingBottom: SAFE_AREA_Y,
+            }}
+          >
+            <p className="text-[9px] text-white/80 leading-snug">{line}</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -502,6 +559,11 @@ function TinyMasterpiecesPage({ items, showTitle }: { items: MemoryRow[]; showTi
                 <p className="text-[8px] text-[var(--yb-muted)] mt-1 leading-snug">
                   This piece reminds me of <span className="italic text-[var(--yb-body)]">{caption}</span>
                 </p>
+              )}
+              {/* A drawing with no date is worth much less in twenty years, so
+                  the date prints whether or not anyone wrote a caption. */}
+              {photoDateLabel(m.date) && (
+                <p className="text-[8px] text-[var(--yb-muted)] mt-0.5 leading-snug">{photoDateLabel(m.date)}</p>
               )}
             </div>
           );
@@ -1059,6 +1121,14 @@ export default function YearbookReadPage() {
 
   const familyMemories = memories.filter((m) => !m.child_id);
 
+  // Every photograph that reaches a page carries its child's name, so the
+  // caption line can fall back to it when there is no caption. Resolved here,
+  // once, rather than threaded through each call site: `.map(toPhotoItem)`
+  // would otherwise hand the array index in as the name.
+  const childNameById = new Map(children.map((c) => [c.id, c.name] as const));
+  const asPhotoItem = (m: MemoryRow): PhotoItem =>
+    toPhotoItem(m, m.child_id ? childNameById.get(m.child_id) ?? null : null);
+
   // De-dup: a photo shown in a chapter's collage is never reused for that
   // chapter's "favorite things" slot or the letter's "favorite moment". Those
   // slots reserve their photo here (and per-child below) so the collages
@@ -1209,7 +1279,7 @@ export default function YearbookReadPage() {
             // ride along with a real photo.
             <div>
               <div className="w-full rounded-md overflow-hidden" style={{ aspectRatio: "4/3" }}>
-                <FocalPhoto src={favMemory.photo_url} aspect={photoAspect(toPhotoItem(favMemory))} focalX={favMemory.focal_x} focalY={favMemory.focal_y} />
+                <FocalPhoto src={favMemory.photo_url} aspect={photoAspect(asPhotoItem(favMemory))} focalX={favMemory.focal_x} focalY={favMemory.focal_y} />
               </div>
               <p className="text-[9px] text-[var(--yb-muted)] mt-1.5">
                 {[safeParseDateStr(favMemory.date)?.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }), favLocation.trim()].filter(Boolean).join(" · ")}
@@ -1347,7 +1417,7 @@ export default function YearbookReadPage() {
       // designed title panel on the brand color (never empty cream).
       leftContent: featurePhoto?.photo_url ? (
         <div className="relative w-full h-full overflow-hidden" style={{ background: "var(--yb-bg)" }}>
-          <FocalPhoto src={featurePhoto.photo_url} aspect={photoAspect(toPhotoItem(featurePhoto))} focalX={featurePhoto.focal_x} focalY={featurePhoto.focal_y} />
+          <FocalPhoto src={featurePhoto.photo_url} aspect={photoAspect(asPhotoItem(featurePhoto))} focalX={featurePhoto.focal_x} focalY={featurePhoto.focal_y} />
           <div
             className="absolute inset-x-0 bottom-0 px-6 pt-16 pb-7"
             style={{ background: "linear-gradient(to top, rgba(22,32,24,0.82), rgba(22,32,24,0))" }}
@@ -1448,7 +1518,7 @@ export default function YearbookReadPage() {
     // for "favorite things"), tiled into full-page mosaics across both pages of
     // each spread.
     for (const sp of chapterUnitsToSpreads(
-      buildChapterPhotoUnits(bodyChildPhotos.map(toPhotoItem)),
+      buildChapterPhotoUnits(bodyChildPhotos.map(asPhotoItem)),
       `child-${child.id}-photos`,
       `${child.name}'s chapter`,
     )) {
@@ -1468,7 +1538,7 @@ export default function YearbookReadPage() {
         const value = direct || fallback;
         return value ? { label: f.label, value } : null;
       }).filter((x): x is { label: string; value: string } => x !== null);
-      const favPhoto = favThingsPhoto ? toPhotoItem(favThingsPhoto) : null;
+      const favPhoto = favThingsPhoto ? asPhotoItem(favThingsPhoto) : null;
       if (favItems.length > 0 || favPhoto) {
         spreads.push({
           id: `child-${child.id}-favorites`,
@@ -1609,7 +1679,7 @@ export default function YearbookReadPage() {
   // the letter's favorite moment), tiled into mosaics.
   const collageFamPhotos = famPhotos.filter((m) => !reservedPhotoIds.has(m.id));
   if (ybSettings.show_family_chapter) {
-    for (const sp of chapterUnitsToSpreads(buildChapterPhotoUnits(collageFamPhotos.map(toPhotoItem)), "family-photos", "Our family")) {
+    for (const sp of chapterUnitsToSpreads(buildChapterPhotoUnits(collageFamPhotos.map(asPhotoItem)), "family-photos", "Our family")) {
       spreads.push(sp);
     }
   }

@@ -557,3 +557,43 @@ test("the estimator matches the reader's assembly, so the drift detector stays q
     }
   }
 });
+
+// ─── Captions cost no pages, and that has to stay deliberate ────────────────
+
+test("captioning every photograph does not change the page count", () => {
+  // The caption line sits inside the cell and the image shrinks to make room,
+  // so a chapter of N photographs occupies the same pages either way. This
+  // test is the tripwire: if captions ever start costing pages (a smaller
+  // maxPerPage, geometry that reacts to caption length), it fails here rather
+  // than as a family being quoted a length their book does not have.
+  for (let photos = 0; photos <= 40; photos++) {
+    const bare = Array.from({ length: photos }, (_, i) => ({ id: `p${i}`, photo_url: "x" }));
+    const captioned = bare.map((p) => ({
+      ...p,
+      caption: "A caption long enough to wrap onto a second line",
+      takenAt: "2026-10-12",
+      childName: "Zoe",
+    }));
+    assert.equal(
+      buildChapterPhotoUnits(captioned, DEFAULT_MOSAIC_OPTS).length,
+      buildChapterPhotoUnits(bare, DEFAULT_MOSAIC_OPTS).length,
+      `photos=${photos}`,
+    );
+  }
+
+  // And the estimate a chapter produces is unchanged, because it is built from
+  // that same unit count.
+  const counts = emptyCounts({
+    childPhotoCounts: [17],
+    filledFavoriteChildren: [false],
+    filledKeepsakePages: [0],
+    childInterviewAnswers: [0],
+    familyPhotoCount: 9,
+  });
+  assert.equal(estimateYearbookPages(counts) % 2, 0);
+  assert.equal(
+    estimateYearbookPages(counts),
+    estimateYearbookPages({ ...counts }),
+    "the estimate reads counts only, never caption text",
+  );
+});

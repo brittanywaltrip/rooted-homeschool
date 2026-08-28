@@ -26,10 +26,23 @@ export interface PhotoItem {
   featured?: boolean | null;
   /** false = hidden from the book (excluded everywhere). */
   include_in_book?: boolean | null;
-  /** Content for a featured photo's caption (mosaic cells never show these). */
+  /**
+   * What prints under the photograph. Every photograph in the book now carries
+   * at least a date, so these are read by mosaic cells too, not only by a
+   * featured photo's full page. Rooted has always stored a date and a child for
+   * every memory and often a caption; a grid that shows none of it is a
+   * screensaver rather than a record.
+   *
+   * Carried, never read, by the packing code below: template selection, cell
+   * assignment and crop cost do not look at them.
+   */
   caption?: string | null;
   title?: string | null;
   date?: string | null;
+  /** ISO date of the memory. Same value as `date`; see photoTakenAt. */
+  takenAt?: string | null;
+  /** The child this memory belongs to, or null for a family memory. */
+  childName?: string | null;
 }
 
 /** A cell's placement in the template's grid (0-based start, span counts). */

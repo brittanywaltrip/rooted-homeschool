@@ -600,6 +600,27 @@ see and no test caught.
   cannot assemble spreads to check it; the reader
   compares its own pages.length against the helper on
   every render and reports drift to Sentry.
+- Every photograph in the book prints with at least a
+  date. A caption gets "caption · October 12", no
+  caption gets "child's name · October 12", neither gets
+  the date alone. Month and day, never the year: the
+  year is on the cover. The line is composed by
+  photoCaptionLine / photoMetaLine in lib/photo-caption.ts
+  so the reader, the print path and any future surface
+  compose it identically. Mosaic cells used to render the
+  image and nothing else, which made roughly 95% of the
+  book uncaptioned: a screensaver rather than a record.
+- Captions are never truncated. A long one wraps and the
+  image gives up the height.
+- The cover photograph and the chapter divider
+  photograph are the ONLY exceptions. They are design
+  surfaces, not records.
+- The caption line is part of cell geometry. It lives
+  inside the mosaic cell so it costs no pages today, and
+  lib/yearbook-photo-pages.test.ts holds that fixed. Any
+  change to it (a smaller maxPerPage, geometry that
+  reacts to caption length) must update the page-count
+  helper in the same commit.
 
 ### YEARBOOK CUSTOMIZE — /dashboard/memories/yearbook/edit
 Single page for all yearbook settings + content.

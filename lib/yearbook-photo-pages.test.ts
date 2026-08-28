@@ -331,3 +331,61 @@ test("missing-dimension photos behave as landscape (wide template for a pair)", 
   assert.equal(page.cols, 1);
   assert.equal(page.rows, 2);
 });
+
+// ─── Caption fields are carried, never read ──────────────────────────────────
+// Every photograph in the book now prints with at least a date, so PhotoItem
+// carries caption / takenAt / childName. The packing code must stay blind to
+// them: template choice, cell assignment and crop cost are decided by count and
+// aspect alone. If that ever stops being true, the page count silently starts
+// depending on what a family typed, which nothing downstream is prepared for.
+
+test("caption, takenAt and childName do not change template selection or assignment", () => {
+  const shapes: PhotoItem[][] = [
+    many(landscape, 1),
+    many(portrait, 2),
+    [portrait(), landscape(), square()],
+    [...many(landscape, 3), ...many(portrait, 3)],
+    // Six is maxPerPage, so it is the largest set selectTemplate ever sees.
+    [portrait(), landscape(), portrait(), square(), landscape(), portrait()],
+  ];
+
+  for (const bare of shapes) {
+    const captioned: PhotoItem[] = bare.map((p, i) => ({
+      ...p,
+      caption: i % 2 === 0 ? "A caption long enough to wrap onto a second line on any page" : null,
+      takenAt: "2026-10-12",
+      childName: i % 3 === 0 ? "Zoe" : null,
+    }));
+
+    const a = selectTemplate(bare, PA);
+    const b = selectTemplate(captioned, PA);
+    assert.equal(b.cols, a.cols, `cols unchanged for ${bare.length} photos`);
+    assert.equal(b.rows, a.rows, `rows unchanged for ${bare.length} photos`);
+    assert.deepEqual(
+      b.cells.map((c) => [c.c, c.r, c.cs, c.rs, c.photo.id]),
+      a.cells.map((c) => [c.c, c.r, c.cs, c.rs, c.photo.id]),
+      "same photo in the same cell",
+    );
+  }
+});
+
+test("captions do not change how many pages a chapter's photos occupy", () => {
+  // The caption line lives INSIDE the cell and the image gives up that height,
+  // so the number of cells per page is untouched. This is what lets
+  // lib/yearbook-page-count.ts stay a pure count.
+  for (let n = 0; n <= 40; n++) {
+    const bare = Array.from({ length: n }, (_, i) => ({ id: `b${i}`, photo_url: "x" }) as PhotoItem);
+    const captioned = bare.map((p) => ({
+      ...p,
+      caption: "Every photograph in this book carries a line of its own now",
+      takenAt: "2026-10-12",
+      childName: "Zoe",
+    }));
+    assert.equal(
+      buildChapterPhotoUnits(captioned, DEFAULT_MOSAIC_OPTS).length,
+      buildChapterPhotoUnits(bare, DEFAULT_MOSAIC_OPTS).length,
+      `n=${n}: same page count with and without captions`,
+    );
+    assert.equal(pageCountFor(n, DEFAULT_MOSAIC_OPTS.maxPerPage), buildChapterPhotoUnits(bare, DEFAULT_MOSAIC_OPTS).length);
+  }
+});
