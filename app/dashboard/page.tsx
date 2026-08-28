@@ -46,6 +46,12 @@ import { useIsNativeApp } from "@/lib/platform";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
 import MonthlyQuestionCard from "@/app/components/MonthlyQuestionCard";
+import { estimateYearbookPages, type BookCounts, type BookSections } from "@/lib/yearbook-page-count";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES, tinyMomentLines } from "@/lib/yearbook-prompts";
+import { buildYearRecap } from "@/lib/year-recap";
+import { monthEntriesFor } from "@/lib/monthly-questions";
+import { partitionDrawings } from "@/lib/tiny-masterpieces";
+import { keepInBook } from "@/lib/yearbook-photo-pages";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -129,6 +135,106 @@ const INSPIRATION_PROMPTS = [
 const MAX_CAPTURE_PHOTOS = 10;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// ─── Your Book strip ─────────────────────────────────────────────────────────
+// Today shows how many pages the yearbook currently runs to. It cannot build
+// the book to find out (that is 40 pages of React and a signed URL per photo),
+// so it counts the same things the reader counts and hands them to the shared
+// estimator in lib/yearbook-page-count.ts. The reader checks its own rendered
+// page count against that estimator on every render and reports a mismatch to
+// Sentry, so if this derivation and the book ever disagree, it surfaces there
+// instead of as a family reading a book that is not the length they were told.
+
+type BookMemoryRow = {
+  id: string;
+  child_id: string | null;
+  type: string;
+  include_in_book: boolean | null;
+  photo_url: string | null;
+  title: string | null;
+  caption: string | null;
+  featured: boolean | null;
+};
+
+type YearbookContentRow = {
+  content_type: string;
+  child_id: string | null;
+  question_key: string | null;
+  content: string;
+};
+
+function buildBookCounts(
+  childIds: string[],
+  mems: BookMemoryRow[],
+  contentRows: YearbookContentRow[],
+  monthlyRows: { month: string; answer: string | null }[],
+  yearbookKey: string,
+): BookCounts {
+  const key = (contentType: string, childId?: string | null, questionKey?: string | null) =>
+    `${contentType}:${childId ?? "null"}:${questionKey ?? "null"}`;
+  const content: Record<string, string> = {};
+  for (const r of contentRows) content[key(r.content_type, r.child_id, r.question_key)] = r.content;
+  const filled = (k: string) => (content[k] ?? "").trim().length > 0;
+
+  // The letter's "favorite moment" reserves its photo out of whichever chapter
+  // owns it, exactly as the reader does, so the chapter counts match the book.
+  const favMemId = (content[key("letter_favorite_memory_id")] ?? "").trim();
+  const favMem = favMemId ? mems.find((m) => m.id === favMemId) : undefined;
+  const reservedPhotoId = favMem?.photo_url ? favMem.id : null;
+
+  const collagePhotos = (rows: BookMemoryRow[]) =>
+    partitionDrawings(keepInBook(rows.filter((m) => m.photo_url))).photos.filter(
+      (m) => m.id !== reservedPhotoId,
+    );
+  // A CHILD chapter is planned from its non-featured photos (the reader's
+  // `nonFeatured`), so featured ones are left out of the count here.
+  const childPhotos = (rows: BookMemoryRow[]) => collagePhotos(rows).filter((m) => !m.featured).length;
+  // The FAMILY chapter has no such planning step — every photo goes straight
+  // to the collage — so featured ones stay counted. The two differ on purpose;
+  // matching the reader chapter for chapter is the whole point.
+  const familyPhotos = (rows: BookMemoryRow[]) => collagePhotos(rows).length;
+  const chapterDrawings = (rows: BookMemoryRow[]) =>
+    partitionDrawings(keepInBook(rows.filter((m) => m.photo_url))).drawings.length;
+
+  const byChild = childIds.map((id) => mems.filter((m) => m.child_id === id));
+  const familyMems = mems.filter((m) => !m.child_id);
+
+  const monthlyMap: Record<string, { question: string; answer: string }> = {};
+  for (const r of monthlyRows) monthlyMap[r.month] = { question: "", answer: r.answer ?? "" };
+
+  const recap = buildYearRecap(mems.map((m) => ({ type: m.type, title: m.title, caption: m.caption })));
+
+  return {
+    childPhotoCounts: byChild.map(childPhotos),
+    familyPhotoCount: familyPhotos(familyMems),
+    childBookCounts: byChild.map((rows) => rows.filter((m) => m.type === "book").length),
+    familyBookCount: familyMems.filter((m) => m.type === "book").length,
+    childDrawingCounts: byChild.map(chapterDrawings),
+    familyDrawingCount: chapterDrawings(familyMems),
+    filledInterviewChildren: childIds.filter((id) =>
+      YEAR_END_QUESTIONS.some((q) => filled(key("child_interview", id, q.key))),
+    ).length,
+    filledFavoriteChildren: childIds.map((id) =>
+      FAVORITES.some((f) => {
+        const oldKey = FAVORITES_FROM_INTERVIEW[f.key];
+        return filled(key("child_favorite", id, f.key)) || (!!oldKey && filled(key("child_interview", id, oldKey)));
+      }),
+    ),
+    filledKeepsakePages: childIds.map((id) => {
+      let n = 0;
+      if (SNAPSHOT_FIELDS.some((f) => filled(key("child_snapshot", id, f.key)))) n++;
+      if (NEVER_FORGET_LINES.some((l) => filled(key("child_never_forget", id, l.key)))) n++;
+      if (OPEN_WHEN_PROMPTS.some((q) => filled(key("child_open_when", id, q.key)))) n++;
+      return n;
+    }),
+    hasLetter: filled(key("letter_from_home")),
+    monthlyAnswers: monthEntriesFor(yearbookKey, monthlyMap).length,
+    tinyMomentLines: tinyMomentLines(content[key("tiny_moments")]).length,
+    filledAdventureCategories: ADVENTURE_CATEGORIES.filter((c) => filled(key("adventure_categories", null, c.key))).length,
+    recapItemCount: recap.books.length + recap.places.length + recap.moments.length,
+    recapSectionCounts: [recap.books.length, recap.places.length, recap.moments.length],
+  };
+}
 
 /** Local-time YYYY-MM-DD — avoids the UTC shift that toISOString causes. */
 function localDateStr(d: Date): string {
@@ -441,6 +547,9 @@ export default function TodayPage() {
   const [achievementBanner, setAchievementBanner] = useState<{ label: string; childName?: string; isEducator: boolean; extra: number } | null>(null);
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastMemory, setLastMemory] = useState<{ id: string; type: string; title: string | null; date: string; child_id: string | null; photo_url: string | null } | null>(null);
+  // Your Book strip: the yearbook's current page count plus the record behind
+  // it. Null until loadData has run, so the strip never flashes a zero.
+  const [bookStats, setBookStats] = useState<{ pages: number; lessons: number; books: number; days: number } | null>(null);
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null; photo_url: string | null } | null>(null);
   const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | 3>(3);
   const [showWinSheet, setShowWinSheet] = useState(false);
@@ -783,7 +892,7 @@ export default function TodayPage() {
     // browser-detected value for the self-heal write below.
     const profileResult = await supabase
       .from("profiles")
-      .select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, timezone")
+      .select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, timezone, yearbook_opened_at, yearbook_closed_at, yearbook_settings")
       .eq("id", effectiveUserId)
       .maybeSingle();
     const tzFromProfile = (profileResult.data as { timezone?: string | null } | null)?.timezone ?? null;
@@ -809,6 +918,34 @@ export default function TodayPage() {
     const todayInUserTz = todayInTz(browserTz);
     const todayStartIso = startOfDayInTzAsUtc(todayInUserTz, browserTz).toISOString();
     const tomorrowStartIso = startOfDayInTzAsUtc(addDaysYmd(todayInUserTz, 1), browserTz).toISOString();
+
+    // ── The yearbook's own window ───────────────────────────────────────────
+    // Today shows the book's page count, so it has to scope its counts exactly
+    // the way the reader does: from yearbook_opened_at (or this school year's
+    // August 1 when the book has never been opened) to yearbook_closed_at, and
+    // in-book rows only. Any other window gives a number the book won't match.
+    // Mirrors app/dashboard/memories/yearbook/read/page.tsx's loader.
+    const ybOpenedAt =
+      (profileResult.data as { yearbook_opened_at?: string | null } | null)?.yearbook_opened_at ??
+      new Date(syYear, schoolYearStartMonth, 1).toISOString();
+    const ybClosedAt = (profileResult.data as { yearbook_closed_at?: string | null } | null)?.yearbook_closed_at ?? null;
+    const ybOpenedMonth = new Date(ybOpenedAt).getUTCMonth();
+    const ybOpenedYear = new Date(ybOpenedAt).getUTCFullYear();
+    const ybStartYear = ybOpenedMonth >= 7 ? ybOpenedYear : ybOpenedYear - 1;
+    const yearbookKeyForCount = `${ybStartYear}-${String(ybStartYear + 1).slice(2)}`;
+
+    // Minimal column list, plus title/caption because the recap drops blank
+    // items and collapses duplicates before it paginates — counting rows
+    // instead would put the recap on the wrong page. Current families hold at
+    // most 61 memories, so this is cheap. If a family ever passes a few
+    // thousand rows, move this to a grouped RPC rather than widening it.
+    let bookMemsQuery = supabase
+      .from("memories")
+      .select("id, child_id, type, include_in_book, photo_url, title, caption, featured")
+      .eq("user_id", effectiveUserId)
+      .eq("include_in_book", true)
+      .gte("date", ybOpenedAt.slice(0, 10));
+    if (ybClosedAt) bookMemsQuery = bookMemsQuery.lte("date", ybClosedAt.slice(0, 10));
     const [
       authResult,
       childrenResult,
@@ -833,6 +970,9 @@ export default function TodayPage() {
       todayStoryResult,
       curriculumGoalsResult,
       completedTodayResult,
+      bookMemsResult,
+      ybContentResult,
+      monthlyReflectionsResult,
     ] = await Promise.all([
       supabase.auth.getUser(),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
@@ -845,7 +985,10 @@ export default function TodayPage() {
       Promise.resolve({ data: null, error: null }),
       supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
       supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
-      supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
+      // child_id for the leaf counts; date/scheduled_date so the Your Book strip
+      // can count both completed lessons and the distinct days they fall on
+      // without a second and third round trip for the same rows.
+      supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true),
       // Leaf sources: the memories table first, legacy app_events merged in
       // behind it. Books moved to `memories` in March 2026, so reading the
       // legacy table alone hid every book logged since. See lib/memory-leaves.ts.
@@ -880,6 +1023,18 @@ export default function TodayPage() {
         .gte("completed_at", todayStartIso)
         .lt("completed_at", tomorrowStartIso)
         .not("curriculum_goal_id", "is", null),
+      // ── Your Book strip ───────────────────────────────────────────────────
+      bookMemsQuery,
+      // Which written sections exist. content_type / child_id / question_key
+      // are what decide whether a section costs pages, so a bare row count
+      // would not be enough to tell them apart.
+      supabase
+        .from("yearbook_content")
+        .select("content_type, child_id, question_key, content")
+        .eq("user_id", effectiveUserId)
+        .eq("yearbook_key", yearbookKeyForCount)
+        .neq("content", ""),
+      supabase.from("monthly_reflections").select("month, answer").eq("user_id", effectiveUserId),
     ]);
 
     // TODO: remove after queue scheduling verified in production. The
@@ -1481,6 +1636,45 @@ export default function TodayPage() {
     setTotalMemories(memCountResult.data?.length ?? 0);
     setTotalPhotos(photoCountResult.data?.length ?? 0);
     setYearbookCount(ybCountResult.data?.length ?? 0);
+
+    // ── Your Book strip ─────────────────────────────────────────────────────
+    // Page count from the shared estimator, and the learning record beside it.
+    // Both read rows already fetched above; nothing here makes its own request.
+    const completedLessonRows = (completedResult.data ?? []) as { date?: string | null; scheduled_date?: string | null }[];
+    const schoolDayDates = new Set<string>();
+    for (const l of completedLessonRows) {
+      const d = l.date ?? l.scheduled_date;
+      if (d) schoolDayDates.add(d);
+    }
+    const bookMems = (bookMemsResult.data ?? []) as unknown as BookMemoryRow[];
+    // profiles.yearbook_settings stores the reader's snake_case keys, and any
+    // key the family has never toggled is simply absent — the reader spreads
+    // its DEFAULT_YB_SETTINGS underneath, so an absent key means on.
+    const ybSettingsRow =
+      (profile as { yearbook_settings?: Record<string, boolean> | null } | null)?.yearbook_settings ?? null;
+    const sectionOn = (k: string) => ybSettingsRow?.[k] ?? true;
+    const bookSections: BookSections = {
+      showLetter: sectionOn("show_letter"),
+      showYearInNumbers: sectionOn("show_year_in_numbers"),
+      showChildChapters: sectionOn("show_child_chapters"),
+      showFavoriteThings: sectionOn("show_favorite_things"),
+      showBooksSection: sectionOn("show_books_section"),
+      showFamilyChapter: sectionOn("show_family_chapter"),
+      showVillage: sectionOn("show_village"),
+    };
+    const bookCounts = buildBookCounts(
+      (childrenData ?? []).map((c: { id: string }) => c.id),
+      bookMems,
+      (ybContentResult.data ?? []) as unknown as YearbookContentRow[],
+      (monthlyReflectionsResult.data ?? []) as unknown as { month: string; answer: string | null }[],
+      yearbookKeyForCount,
+    );
+    setBookStats({
+      pages: estimateYearbookPages(bookCounts, bookSections),
+      lessons: completedLessonRows.length,
+      books: bookMems.filter((m) => m.type === "book").length,
+      days: schoolDayDates.size,
+    });
 
     // Active days this month
     const activeDates = new Set<string>();
@@ -4321,14 +4515,12 @@ export default function TodayPage() {
             href: "/dashboard/garden", lsKey: "rooted_visited_garden",
           };
         }
-        if (!nudge && gardenVisited && !yearbookVisited) {
-          nudge = {
-            key: "yearbook", emoji: "📖",
-            title: "Your yearbook already has something in it",
-            body: `${totalMemories} memor${totalMemories === 1 ? "y is" : "ies are"} building your family book automatically. Preview it \u2192`,
-            href: "/dashboard/memories/yearbook/read", lsKey: "rooted_visited_yearbook",
-          };
-        }
+        // The "Your yearbook already has something in it" nudge used to sit
+        // here. It existed only because the book had no permanent surface on
+        // Today; the Your Book strip is that surface now, so a one-shot card
+        // pointing at the same place is noise. rooted_visited_yearbook is
+        // untouched — the gate above still reads it, and the reader still
+        // writes it when the strip's "Open →" gets them there.
         if (!nudge && yearbookVisited && !hasAnyLessons && !curriculumDismissed) {
           nudge = {
             key: "curriculum", emoji: "📚",
@@ -4541,6 +4733,66 @@ export default function TodayPage() {
           </Link>
         </div>
       )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          YOUR BOOK — the permanent page count. Sits AFTER Today's
+          Story on purpose: Today's Story answers "what did we do
+          today", this answers "what is it adding up to", and the
+          second question only makes sense once the first is answered.
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && bookStats && (() => {
+        // Nothing at all below three memories with no lessons behind them.
+        // "0 pages" reads as a scolding, and Rooted does not scold — the
+        // activation card above already speaks to a family with an empty book,
+        // and it does it warmly. This is a fact for families who have one.
+        if (totalMemories < 3 && bookStats.lessons === 0) return null;
+
+        const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+        // The record, middle-dot separated, with every zero left out. A family
+        // with no lessons logged has a book made of memories, so that is what
+        // the line counts for them.
+        const record =
+          bookStats.lessons === 0
+            ? `${totalMemories} memor${totalMemories === 1 ? "y" : "ies"}`
+            : [
+                `${plural(bookStats.lessons, "lesson")} completed`,
+                bookStats.books > 0 ? `${plural(bookStats.books, "book")} read` : null,
+                bookStats.days > 0 ? `${plural(bookStats.days, "day")} of school` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+        const newestChild = lastMemory?.child_id ? children.find((c) => c.id === lastMemory.child_id) : null;
+        const newestLabel = lastMemory ? (lastMemory.title?.trim() || "Photo") : null;
+
+        return (
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Book</p>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3.5 flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="leading-none">
+                  {/* 500, not 700: CLAUDE.md allows 400 and 500 only. */}
+                  <span className="text-[28px] font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+                    {bookStats.pages}
+                  </span>
+                  <span className="text-xs text-[#9a8f85] ml-1.5">pages</span>
+                </p>
+                <p className="text-[11px] text-[#7a6f65] mt-2">{record}</p>
+                {newestLabel && (
+                  <p className="text-[10px] text-[#9a8f85] mt-1 truncate">
+                    Newest: {newestLabel}{newestChild ? ` · ${newestChild.name}` : ""}
+                  </p>
+                )}
+              </div>
+              <Link
+                href="/dashboard/memories/yearbook/read"
+                className="text-xs text-[#5c7f63] font-medium hover:underline shrink-0 mt-1"
+              >
+                Open →
+              </Link>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           ON THIS DAY — purple card, show only for Tier 1 or 2 matches (1+ year)

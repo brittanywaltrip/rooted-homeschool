@@ -548,6 +548,20 @@ Free: first 4 spreads. Paid: all spreads.
 NEVER say "unlock" — use "View full yearbook".
 Gear icon → Customize page.
 
+Page count: Today shows a permanent "Your Book" strip
+whose page number comes from estimateYearbookPages()
+in lib/yearbook-page-count.ts. That helper and the
+reader must never diverge — Today cannot assemble
+spreads, so the helper is the only way it can know the
+length. The reader compares its own rendered
+pages.length against the helper on every render and
+reports a mismatch to Sentry (level warning, tag
+area:yearbook); treat one of those as a real bug, not
+noise. The count includes the whole learning record
+(books, drawings, written sections, the recap), not
+only photos, so a family who logs but never
+photographs still has a book with pages in it.
+
 ### YEARBOOK CUSTOMIZE — /dashboard/memories/yearbook/edit
 Single page for all yearbook settings + content.
 Section toggles, cover photo upload, family name,

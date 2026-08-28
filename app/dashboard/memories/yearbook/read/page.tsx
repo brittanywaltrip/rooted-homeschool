@@ -23,6 +23,8 @@ import { orderPhotos } from "@/lib/photo-order";
 import { featureCaptionText } from "@/lib/photo-caption";
 import { resolveTheme, themeCssVars, THEMES, type YearbookTheme } from "@/lib/yearbook-theme";
 import { buildYearRecap, paginateRecap, type RecapPageContent } from "@/lib/year-recap";
+import { estimateYearbookPages, type BookCounts, type BookSections } from "@/lib/yearbook-page-count";
+import { captureSupabaseError } from "@/lib/sentry-error";
 
 // Theme flows to the motif components (sprig vs rule) via context; colors/fonts
 // flow via the --yb-* CSS variables set on the book wrapper.
@@ -921,7 +923,7 @@ export default function YearbookReadPage() {
 
   // ── Build spreads (memoized to avoid recomputing on every page turn) ────────
 
-  const { spreads, pages, familyName } = useMemo(() => {
+  const { spreads, pages, familyName, bookCounts, bookSections } = useMemo(() => {
 
   const familyName = profile.display_name ?? "Our Family";
   const coverTitle = /^the\s/i.test(familyName) ? familyName : `The ${familyName}`;
@@ -1646,9 +1648,108 @@ export default function YearbookReadPage() {
     ];
   });
 
-  return { spreads, pages, familyName };
+  // ── Counts for the shared page estimate (Today shows the same number) ─────
+  // Derived here, from the same data the spreads above were built from, purely
+  // so the drift detector below can compare. Nothing in this block renders, and
+  // nothing above reads it.
+  //
+  // The letter's "favorite moment" reserves a photo out of whichever chapter
+  // owns it, so the same subtraction is applied here — childPhotoCounts is what
+  // actually reaches the chapter, which is what estimateYearbookPages expects.
+  const letterReservedPhotoId = favMemory?.photo_url ? favMemory.id : null;
+  const chapterPhotoCount = (mems: MemoryRow[]): number => {
+    const ordered = orderPhotos(keepInBook(mems.filter((m) => m.photo_url)));
+    const { photos } = partitionDrawings(ordered);
+    // planChapterPhotos is planned from the NON-featured photos, so the count
+    // handed to the estimate is the same population the reader planned from.
+    return photos.filter((m) => m.id !== letterReservedPhotoId && !m.featured).length;
+  };
+  const chapterDrawingCount = (mems: MemoryRow[]): number =>
+    partitionDrawings(orderPhotos(keepInBook(mems.filter((m) => m.photo_url)))).drawings.length;
+
+  const childMemsById = children.map((c) => memories.filter((m) => m.child_id === c.id));
+  const bookCounts: BookCounts = {
+    childPhotoCounts: childMemsById.map(chapterPhotoCount),
+    familyPhotoCount: famPhotos.filter((m) => m.id !== letterReservedPhotoId).length,
+    childBookCounts: childMemsById.map((mems) => mems.filter((m) => m.type === "book").length),
+    familyBookCount: familyBooks.length,
+    childDrawingCounts: childMemsById.map(chapterDrawingCount),
+    familyDrawingCount: famDrawings.length,
+    filledInterviewChildren: children.filter((c) =>
+      YEAR_END_QUESTIONS.some((q) => (contentMap[ck("child_interview", c.id, q.key)] ?? "").trim()),
+    ).length,
+    filledFavoriteChildren: children.map((c) =>
+      FAVORITES.some((f) => {
+        const oldKey = FAVORITES_FROM_INTERVIEW[f.key];
+        return (
+          (contentMap[ck("child_favorite", c.id, f.key)] ?? "").trim() ||
+          (oldKey ? (contentMap[ck("child_interview", c.id, oldKey)] ?? "").trim() : "")
+        ).length > 0;
+      }),
+    ),
+    filledKeepsakePages: children.map((c) => {
+      let n = 0;
+      if (SNAPSHOT_FIELDS.some((f) => (contentMap[ck("child_snapshot", c.id, f.key)] ?? "").trim())) n++;
+      if (NEVER_FORGET_LINES.some((l) => (contentMap[ck("child_never_forget", c.id, l.key)] ?? "").trim())) n++;
+      if (OPEN_WHEN_PROMPTS.some((q) => (contentMap[ck("child_open_when", c.id, q.key)] ?? "").trim())) n++;
+      return n;
+    }),
+    hasLetter: letterText.trim().length > 0,
+    monthlyAnswers: monthEntries.length,
+    tinyMomentLines: tinyMoments.length,
+    filledAdventureCategories: adventures.length,
+    recapItemCount: yearRecap.books.length + yearRecap.places.length + yearRecap.moments.length,
+    recapSectionCounts: [yearRecap.books.length, yearRecap.places.length, yearRecap.moments.length],
+  };
+  const bookSections: BookSections = {
+    showLetter: ybSettings.show_letter,
+    showYearInNumbers: ybSettings.show_year_in_numbers,
+    showChildChapters: ybSettings.show_child_chapters,
+    showFavoriteThings: ybSettings.show_favorite_things,
+    showBooksSection: ybSettings.show_books_section,
+    showFamilyChapter: ybSettings.show_family_chapter,
+    showVillage: ybSettings.show_village,
+  };
+
+  return { spreads, pages, familyName, bookCounts, bookSections };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [memories, children, contentMap, monthly, profile, yearbookKey, ybSettings]);
+
+  // ── Drift detector ────────────────────────────────────────────────────────
+  // Today shows a page count it cannot derive by assembling the book, so it
+  // calls estimateYearbookPages instead. The two must agree: a family told
+  // "34 pages" on Today who then reads a 31-page book has been lied to by
+  // their own dashboard. This is the only thing keeping the two calculations
+  // honest, so the reader checks itself every time it builds the book and
+  // reports a mismatch. It never changes what renders and never throws.
+  //
+  // Reported once per distinct (estimate, actual) pair per mount — the memo
+  // rebuilds on every settings toggle, and one real divergence should be one
+  // issue, not one per page turn.
+  const reportedDriftRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (loading || pages.length === 0) return;
+    let estimated: number;
+    try {
+      estimated = estimateYearbookPages(bookCounts, bookSections);
+    } catch (err) {
+      captureSupabaseError("yearbook page estimate threw", err);
+      return;
+    }
+    if (estimated === pages.length) return;
+    const key = `${estimated}:${pages.length}`;
+    if (reportedDriftRef.current.has(key)) return;
+    reportedDriftRef.current.add(key);
+    captureSupabaseError(
+      `Yearbook page count drift: estimate ${estimated}, rendered ${pages.length}`,
+      new Error("yearbook_page_count_drift"),
+      {
+        level: "warning",
+        tags: { area: "yearbook" },
+        extra: { estimated, rendered: pages.length, counts: bookCounts, sections: bookSections },
+      },
+    );
+  }, [loading, pages.length, bookCounts, bookSections]);
 
   const accessLevel = getUserAccess(profile);
   const FREE_SPREAD_LIMIT = 4;
