@@ -625,11 +625,26 @@ test("captioning every photograph does not change the page count", () => {
       caption: "A caption long enough to wrap onto a second line",
       takenAt: "2026-10-12",
       childName: "Zoe",
+      type: "photo",
+    }));
+    // And the same with the words in `title` instead, which the caption line
+    // now falls back to. The fallback changes the STRING on the line, never
+    // whether there is a line: the height is reserved in every cell either way.
+    const titled = bare.map((p) => ({
+      ...p,
+      title: "Words a mother typed into the other field",
+      takenAt: "2026-10-12",
+      type: "photo",
     }));
     assert.equal(
       buildChapterPhotoUnits(captioned, DEFAULT_MOSAIC_OPTS).length,
       buildChapterPhotoUnits(bare, DEFAULT_MOSAIC_OPTS).length,
       `photos=${photos}`,
+    );
+    assert.equal(
+      buildChapterPhotoUnits(titled, DEFAULT_MOSAIC_OPTS).length,
+      buildChapterPhotoUnits(bare, DEFAULT_MOSAIC_OPTS).length,
+      `photos=${photos}, words in title`,
     );
   }
 

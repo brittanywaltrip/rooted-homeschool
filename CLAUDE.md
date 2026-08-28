@@ -673,10 +673,8 @@ What that means in practice:
   sweeps the source and fails if any insert into
   `memories` anywhere leaves include_in_book to the
   column default.
-  NOTE: lib/lesson-photo.ts is a fourth path that
-  attaches a photo to a lesson and sets false, despite
-  the commit that added it saying it "flows into
-  Memories and the yearbook". That needs a decision.
+  lib/lesson-photo.ts is a fourth path and sets false,
+  which is the decision: see the lesson-photo note below.
 - The caption card must not be occluded. It opens by
   itself right after a save rather than by a tap, so it
   cannot rely on being the last sheet rendered: it sits
@@ -694,6 +692,26 @@ What that means in practice:
   include_in_book explicitly, and must say in a comment
   why if it sets false. The win/quote insert is the one
   deliberate false, for non-win types.
+- For a PHOTO, the printed caption is `caption` falling
+  back to `title`, and the Memories grid label is `title`
+  falling back to `caption`. The two directions differ on
+  purpose: a family's words appear regardless of which
+  field caught them, and the capture paths have caught
+  them in both over the years (409 photos hold theirs in
+  `title`). Composed by photoCaptionLine and
+  memoryDisplayLabel in lib/photo-caption.ts.
+  The literal title "Photo" is treated as NO text: it is
+  what LogTodayModal and LogActivityModal write when the
+  field is left blank, not something anyone typed.
+  The book's fallback is for type 'photo' only. A
+  'project' title is an auto-generated lesson label and a
+  'book' title is the book's name, already in the reading
+  list; neither should print under a photograph.
+- Lesson photos (lib/lesson-photo.ts) are deliberately
+  OUT of the yearbook's photo pages, include_in_book:
+  false, because they inherit an auto-generated
+  curriculum label as their title. They are earmarked for
+  the Record section instead.
 - The caption field is labelled "Caption" everywhere,
   never "Note", and always carries the line "This prints
   under the photo in your yearbook." A mother has no

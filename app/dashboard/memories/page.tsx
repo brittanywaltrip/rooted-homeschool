@@ -18,6 +18,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { memoryDisplayLabel } from "@/lib/photo-caption";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1159,7 +1160,7 @@ export default function MemoriesPage() {
                 >
                   {/* Photo or type tile */}
                   {m.photo_url ? (
-                    <SignedImage src={m.photo_url} bucket="memory-photos" alt={m.title ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
+                    <SignedImage src={m.photo_url} bucket="memory-photos" alt={memoryDisplayLabel(m) ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
                   ) : (
                     (() => {
                       const tileGradientClass: Record<string, string> = {
@@ -1173,7 +1174,10 @@ export default function MemoriesPage() {
                       };
                       const gradClass = tileGradientClass[m.type] ?? tileGradientClass.project;
                       const emoji = TYPE_EMOJI[m.type] ?? "📷";
-                      const title = m.title ?? TYPE_LABEL[m.type] ?? "Memory";
+                      // Title, else caption, else the type's own word. The
+                      // mirror of the book's caption line: a family's words
+                      // show up whichever field caught them.
+                      const title = memoryDisplayLabel(m) ?? TYPE_LABEL[m.type] ?? "Memory";
                       return (
                         <div className={`w-full h-full relative overflow-hidden flex flex-col items-center justify-center ${gradClass}`}>
                           <span className="text-[32px]">{emoji}</span>

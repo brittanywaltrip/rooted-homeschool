@@ -41,6 +41,41 @@ export interface PhotoDateSource {
 
 export interface PhotoLineSource extends PhotoDateSource, CaptionSource {
   childName?: string | null;
+  /** The memory's type. Only 'photo' falls back to `title`; see typedTitle. */
+  type?: string | null;
+}
+
+/**
+ * Titles the app writes ITSELF when a family leaves the field blank, so they
+ * are not words anyone chose and must never print as a caption.
+ *
+ * app/components/LogTodayModal.tsx and components/LogActivityModal.tsx both do
+ * `title: title.trim() || "Photo"`. ("Note", the other default in that
+ * expression, is only used when there is no photo, so it cannot reach a
+ * collage cell and is not listed here.)
+ */
+const DEFAULT_TITLES = new Set(["photo"]);
+
+/** The title, but only when a family actually typed one. */
+export function typedTitle(m: CaptionSource): string | null {
+  const title = m.title?.trim();
+  if (!title) return null;
+  return DEFAULT_TITLES.has(title.toLowerCase()) ? null : title;
+}
+
+/**
+ * The label a memory shows in the Memories grid: the title if there is one,
+ * otherwise the caption.
+ *
+ * The mirror of photoCaptionLine below. The two capture paths caught a
+ * family's words in different columns for a long time, and ccec694 moved the
+ * Quick photo sheet's field from `title` to `caption` so the book could print
+ * it. Reading both, in the order each surface prefers, means whatever she
+ * typed appears wherever she typed it. No type gate: a book memory's title is
+ * the book's name, which is exactly what the grid should show.
+ */
+export function memoryDisplayLabel(m: CaptionSource): string | null {
+  return typedTitle(m) ?? (m.caption?.trim() || null);
 }
 
 /** One ISO date, whichever field carries it. */
@@ -79,8 +114,15 @@ function joinParts(parts: (string | null | undefined)[]): string | null {
  */
 export function photoCaptionLine(p: PhotoLineSource): string | null {
   const date = photoDateLabel(photoTakenAt(p));
-  const caption = p.caption?.trim();
-  if (caption) return joinParts([caption, date]);
+  // Caption first, then the title, but only for a plain photo. 409 photos
+  // carry a mother's own words in `title` because that is where the capture
+  // path of the day happened to put them, and they were printing anonymously.
+  //
+  // Only for type 'photo'. A 'project' title is an auto-generated lesson
+  // label, which would read as mechanical under a photograph, and a 'book'
+  // title is the book's name, already printed in the reading list.
+  const words = p.caption?.trim() || (p.type === "photo" ? typedTitle(p) : null);
+  if (words) return joinParts([words, date]);
   return joinParts([p.childName, date]);
 }
 

@@ -330,6 +330,7 @@ function toPhotoItem(m: MemoryRow, childName: string | null = null): PhotoItem {
     date: m.date,
     takenAt: m.date,
     childName,
+    type: m.type,
   };
 }
 

@@ -43,6 +43,9 @@ export interface PhotoItem {
   takenAt?: string | null;
   /** The child this memory belongs to, or null for a family memory. */
   childName?: string | null;
+  /** The memory's type. Read only by photoCaptionLine, to decide whether a
+   *  missing caption may fall back to the title. */
+  type?: string | null;
 }
 
 /** A cell's placement in the template's grid (0-based start, span counts). */
