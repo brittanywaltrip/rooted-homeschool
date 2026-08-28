@@ -618,6 +618,13 @@ export default function TodayPage() {
   const reportedProjectionGapsRef = useRef<Set<string>>(new Set());
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
+  // The caption card. The photos are already saved when this opens: the queue is
+  // what to OFFER a caption for, one at a time, and dismissing it loses nothing.
+  const [captionQueue, setCaptionQueue] = useState<{ id: string; photoUrl: string; type: string }[]>([]);
+  const [captionIndex, setCaptionIndex] = useState(0);
+  const [captionText, setCaptionText] = useState("");
+  const [captionChild, setCaptionChild] = useState("");
+  const [captionSaving, setCaptionSaving] = useState(false);
   const captureToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // True while the capture tile is compressing / uploading. Drives the
   // "Saving your photo..." toast and blocks a second concurrent batch.
@@ -3837,22 +3844,33 @@ export default function TodayPage() {
       let saved = 0;
       let lastId: string | null = null;
       let firstFailure: string | null = null;
+      // The rows that really landed, for the caption card below. Only these:
+      // a photo that failed to save has nothing to caption.
+      const savedRows: { id: string; photoUrl: string; type: string }[] = [];
 
       for (let i = 0; i < batch.length; i++) {
         showProgressToast(batch.length > 1 ? `Saving ${i + 1} of ${batch.length}...` : "Saving your photo...");
         try {
           const { photoUrl, width, height } = await uploadMemoryPhoto(supabase, user.id, batch[i]);
           const now = new Date().toISOString();
+          // include_in_book: true. Photos are IN the book by default, matching
+          // the column default and the way the yearbook editor is worded: it
+          // offers a Hide toggle, which only makes sense if things start
+          // included. This line said false, and since the reader filters on
+          // .eq("include_in_book", true) it was the single reason 64% of every
+          // photo Rooted has ever stored never reached a page. The way out is
+          // the editor's Hide toggle, not the capture path.
           const { data: ins, error: insErr } = await supabase.from("memories").insert({
             user_id: user.id, type: memType, title: '',
             photo_url: photoUrl, child_id: null,
             photo_width: width, photo_height: height,
-            date: today, include_in_book: false,
+            date: today, include_in_book: true,
             created_at: now, updated_at: now,
           }).select("id").single();
           if (insErr) throw insErr;
           saved++;
           lastId = (ins as { id: string } | null)?.id ?? null;
+          if (lastId) savedRows.push({ id: lastId, photoUrl, type: memType });
         } catch (err) {
           captureSupabaseError("today photo capture", err);
           if (!firstFailure) {
@@ -3882,11 +3900,92 @@ export default function TodayPage() {
       await refreshTodayStory();
       checkAndAwardBadges(user.id);
       onLogAction({ userId: user.id, actionType: memType === "drawing" ? "drawing" : "memory" });
+
+      // ── The caption offer ────────────────────────────────────────────────
+      // Last, after the save, the toast and both refreshes. The moment she is
+      // still holding the phone is the only time a caption ever gets written,
+      // which is why 815 of 898 photos have none, but the offer must never be
+      // in the way of the save: everything above has already happened and
+      // closing this card loses nothing.
+      if (savedRows.length > 0) {
+        // The toast has fired and done its job. It sits above this card's
+        // backdrop, so it is cleared rather than left floating over it.
+        if (captureToastTimer.current) { clearTimeout(captureToastTimer.current); captureToastTimer.current = null; }
+        setCaptureToast(null);
+        setCaptionQueue(savedRows);
+        setCaptionIndex(0);
+        setCaptionText("");
+        setCaptionChild("");
+      }
     } catch (err) {
       captureSupabaseError("today photo capture", err);
       showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again", null);
     } finally {
       setCapturing(false);
+    }
+  }
+
+  // ── Caption card ──────────────────────────────────────────────────────────
+  // Every exit from the card goes through one of these two. Nothing here can
+  // lose a photo: the row is already in the database with its photo attached,
+  // so the worst case is a memory with no caption, which is what every photo
+  // captured before today looks like anyway.
+
+  /**
+   * Move to the next photo in the batch, or close when that was the last.
+   *
+   * The next index is worked out HERE, from the values the tap actually saw,
+   * rather than inside a setState updater reading the queue length. Updaters
+   * run at render, not at the event (see app/components/updaterPurity.test.ts),
+   * and this one would be reasoning about a queue that may already have moved.
+   */
+  function advanceCaptionCard() {
+    const next = captionIndex + 1;
+    setCaptionText("");
+    setCaptionChild("");
+    if (next >= captionQueue.length) {
+      setCaptionQueue([]);
+      setCaptionIndex(0);
+    } else {
+      setCaptionIndex(next);
+    }
+  }
+
+  /** Close the card and drop the rest of the batch. Skipping is normal. */
+  function dismissCaptionCard() {
+    setCaptionQueue([]);
+    setCaptionIndex(0);
+    setCaptionText("");
+    setCaptionChild("");
+  }
+
+  async function saveCaptionCard() {
+    const target = captionQueue[captionIndex];
+    if (!target || captionSaving) return;
+    const caption = captionText.trim();
+    const childId = captionChild || null;
+    // Nothing typed and nobody picked is the same as skipping, and writing
+    // nulls over a row for no reason is not worth a round trip.
+    if (!caption && !childId) { advanceCaptionCard(); return; }
+
+    setCaptionSaving(true);
+    try {
+      const { error } = await supabase
+        .from("memories")
+        .update({ caption: caption || null, child_id: childId, updated_at: new Date().toISOString() })
+        .eq("id", target.id);
+      if (error) throw error;
+      // Regression guard: loadData first, then refreshTodayStory, both awaited,
+      // so the grid and Today's Story show the caption without a reload.
+      loadDataBusy.current = false;
+      await loadData();
+      await refreshTodayStory();
+      advanceCaptionCard();
+    } catch (err) {
+      captureSupabaseError("caption card save", err);
+      showCaptureToast("Couldn't save that caption, try again", null);
+    } finally {
+      setCaptionSaving(false);
     }
   }
 
@@ -5426,10 +5525,12 @@ export default function TodayPage() {
                   const { data: { user } } = await supabase.auth.getUser();
                   if (user) {
                     const nowFt = new Date().toISOString();
+                    // include_in_book: true, same rule as a captured photo: in
+                    // the book by default, out via the editor's Hide toggle.
                     const { data: ins, error: ftErr } = await supabase.from("memories").insert({
                       user_id: user.id, type: ftType, title: ftTitle.trim(),
                       caption: ftNote.trim() || null, child_id: ftChild || null,
-                      date: today, include_in_book: false,
+                      date: today, include_in_book: true,
                       ...(ftMinutes ? { duration_minutes: parseInt(ftMinutes) } : {}),
                       created_at: nowFt, updated_at: nowFt,
                     }).select("id").single();
@@ -5942,6 +6043,113 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* ═══════════════════════════════════════════════════════════
+          CAPTION CARD, offered after a capture has already saved.
+          Quiet on purpose: no progress bar, no celebration, no gold.
+          It is a small offer, not a task, and Skip is a normal answer.
+         ═══════════════════════════════════════════════════════════ */}
+      {captionQueue.length > 0 && captionQueue[captionIndex] && (() => {
+        const current = captionQueue[captionIndex];
+        const isDrawing = current.type === "drawing";
+        const subject = isDrawing ? "drawing" : "photo";
+        return (
+          <>
+            <div
+              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50"
+              onClick={dismissCaptionCard}
+            />
+            <div
+              className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto max-h-[92dvh] overflow-y-auto"
+              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+            >
+              <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+              <div className="px-5 pb-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="font-bold text-[#2d2926]">Add a caption?</h2>
+                    <p className="text-[11px] text-[#9a8f85] mt-0.5">
+                      Your {subject} is saved{captionQueue.length > 1 ? ` · ${captionIndex + 1} of ${captionQueue.length}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={dismissCaptionCard}
+                    aria-label="Close"
+                    className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none w-11 h-11 flex items-center justify-center -mr-2"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {/* The photograph itself, at a size worth looking at. */}
+                <div className="w-full rounded-xl overflow-hidden bg-[#f0ede8] flex items-center justify-center" style={{ maxHeight: "40dvh" }}>
+                  <SignedImage
+                    src={current.photoUrl}
+                    bucket="memory-photos"
+                    alt=""
+                    className="w-full object-contain"
+                    style={{ maxHeight: "40dvh" }}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Caption</label>
+                  <input
+                    value={captionText}
+                    onChange={(e) => setCaptionText(e.target.value)}
+                    autoFocus
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                  />
+                  <p className="text-[11px] text-[#9a8f85] mt-1.5">This prints under the {subject} in your yearbook.</p>
+                </div>
+
+                {children.length > 0 && (
+                  <div>
+                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setCaptionChild("")}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${!captionChild ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}
+                      >
+                        Everyone
+                      </button>
+                      {children.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setCaptionChild(c.id)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${captionChild === c.id ? "text-white border-transparent" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}
+                          style={captionChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : {}}
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={advanceCaptionCard}
+                    disabled={captionSaving}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-50 transition-colors"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    onClick={saveCaptionCard}
+                    disabled={captionSaving}
+                    className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                  >
+                    {captionSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
       {/* ── Edit sheet ────────────────────────────────────── */}
       {editSheet && (
         <>
@@ -5959,9 +6167,13 @@ export default function TodayPage() {
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
               </div>
               <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Note</label>
-                <input value={editSheet.caption} onChange={(e) => setEditSheet({ ...editSheet, caption: e.target.value })} placeholder="Optional note"
+                {/* Labelled Caption, not Note: it writes the same column the
+                    yearbook prints under the photograph, and calling it a note
+                    told a mother it was for her own reference. */}
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Caption</label>
+                <input value={editSheet.caption} onChange={(e) => setEditSheet({ ...editSheet, caption: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]" />
+                <p className="text-[11px] text-[#9a8f85] mt-1.5">This prints under the photo in your yearbook.</p>
               </div>
               {children.length > 0 && (
                 <div>

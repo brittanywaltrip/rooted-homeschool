@@ -660,6 +660,29 @@ What that means in practice:
   by lib/year-recap.ts, and is omitted when there is
   nothing to count. It replaced two pages of copy that
   were word for word identical in every book.
+- Photos and field trips are captured INTO the book:
+  include_in_book: true on insert, matching the column
+  default. The capture path wrote false, and since the
+  reader filters on .eq("include_in_book", true) that one
+  line kept 64% of every photo Rooted has ever stored out
+  of the book. The model is "everything is in, pull out
+  what you don't want"; the yearbook editor's Hide toggle
+  is the only way out. Any NEW memory insert must set
+  include_in_book explicitly, and must say in a comment
+  why if it sets false. The win/quote insert is the one
+  deliberate false, for non-win types.
+- The caption field is labelled "Caption" everywhere,
+  never "Note", and always carries the line "This prints
+  under the photo in your yearbook." A mother has no
+  other way to know that field becomes the caption in her
+  book, which is why 815 of 898 photos have none. Today's
+  edit sheet, the Memories edit sheet and the capture
+  card all say the same thing.
+- The capture card offers a caption AFTER the photo has
+  saved, the toast has fired and both refreshes have run.
+  It must never sit between a family and a saved photo:
+  dismissing it loses nothing, Skip is a normal answer,
+  and it never appears when the capture failed.
 - Lulu's hardcover casewrap has a 24 PAGE MINIMUM. A
   light book can now fall under it. estimateYearbookPages
   reports the count honestly; the floor is a check the

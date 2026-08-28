@@ -1466,6 +1466,10 @@ export default function MemoriesPage() {
                   rows={2}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                 />
+                {/* Same helper text as the capture card and the Today edit
+                    sheet: nothing used to tell a family that this field is what
+                    prints in their book. */}
+                <p className="text-[11px] text-[#9a8f85] mt-1.5">This prints under the photo in your yearbook.</p>
               </div>
 
               <div>
