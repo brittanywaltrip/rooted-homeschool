@@ -481,7 +481,6 @@ export default function YearbookEditPage() {
     show_favorite_things: boolean;
     show_books_section: boolean;
     show_family_chapter: boolean;
-    show_village: boolean;
     theme?: string;
   };
   const DEFAULT_YB_SETTINGS: YearbookSettings = {
@@ -491,7 +490,6 @@ export default function YearbookEditPage() {
     show_favorite_things: true,
     show_books_section: true,
     show_family_chapter: true,
-    show_village: true,
     theme: "garden",
   };
   const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
@@ -982,7 +980,6 @@ export default function YearbookEditPage() {
               { key: "show_favorite_things" as const, emoji: "💛", label: "Favorite things pages" },
               { key: "show_books_section" as const, emoji: "📚", label: "Books sections" },
               { key: "show_family_chapter" as const, emoji: "👨‍👩‍👧", label: "Our family chapter" },
-              { key: "show_village" as const, emoji: "👵", label: "From the village" },
             ]).map((item) => (
               <button
                 key={item.key}

@@ -3,7 +3,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { buildYearRecap, isRecapEmpty, paginateRecap, type RecapMemory, type YearRecap } from "./year-recap.ts";
+import {
+  buildYearRecap,
+  isRecapEmpty,
+  paginateRecap,
+  hasClosingNote,
+  closingNoteSentence,
+  type RecapMemory,
+  type YearRecap,
+} from "./year-recap.ts";
 
 test("groups by type into named lists of titles", () => {
   const mems: RecapMemory[] = [
@@ -89,4 +97,46 @@ test("no numbers/counts are produced — recap is purely string lists", () => {
   for (const v of Object.values(r)) {
     assert.ok(Array.isArray(v) && v.every((x) => typeof x === "string"));
   }
+});
+
+// ─── The closing note ────────────────────────────────────────────────────────
+
+test("hasClosingNote: a family with nothing to count gets no closing page", () => {
+  assert.equal(hasClosingNote({ schoolDays: 0, lessons: 0, books: 0, places: 0, photographs: 0 }), false);
+  assert.equal(closingNoteSentence({ schoolDays: 0, lessons: 0, books: 0, places: 0, photographs: 0 }), null);
+});
+
+test("hasClosingNote: any one of the five is enough for an ending", () => {
+  const zero = { schoolDays: 0, lessons: 0, books: 0, places: 0, photographs: 0 };
+  for (const field of ["schoolDays", "lessons", "books", "places", "photographs"] as const) {
+    assert.equal(hasClosingNote({ ...zero, [field]: 1 }), true, `${field} alone is enough`);
+  }
+});
+
+test("closingNoteSentence: zeros are left out entirely, never printed as noughts", () => {
+  const s = closingNoteSentence({ schoolDays: 142, lessons: 0, books: 19, places: 0, photographs: 206 });
+  assert.equal(s, "142 days of school, 19 books read, and 206 photographs kept.");
+  assert.ok(!s!.includes("0 "), "no zero clauses");
+  assert.ok(!s!.includes("lesson"), "an unlogged category is simply absent");
+});
+
+test("closingNoteSentence: reads as a sentence at one, two and five clauses", () => {
+  assert.equal(closingNoteSentence({ schoolDays: 1, lessons: 0, books: 0, places: 0, photographs: 0 }), "1 day of school.");
+  assert.equal(
+    closingNoteSentence({ schoolDays: 0, lessons: 1, books: 0, places: 0, photographs: 3 }),
+    "1 lesson finished, and 3 photographs kept.",
+  );
+  assert.equal(
+    closingNoteSentence({ schoolDays: 142, lessons: 311, books: 19, places: 4, photographs: 206 }),
+    "142 days of school, 311 lessons finished, 19 books read, 4 places visited, and 206 photographs kept.",
+  );
+});
+
+test("closingNoteSentence: singulars are singular and thousands are grouped", () => {
+  assert.equal(
+    closingNoteSentence({ schoolDays: 0, lessons: 0, books: 1, places: 1, photographs: 1 }),
+    "1 book read, 1 place visited, and 1 photograph kept.",
+  );
+  const big = closingNoteSentence({ schoolDays: 0, lessons: 1200, books: 0, places: 0, photographs: 0 });
+  assert.equal(big, "1,200 lessons finished.");
 });

@@ -48,7 +48,7 @@ import GettingStartedCard from "@/app/components/GettingStartedCard";
 import MonthlyQuestionCard from "@/app/components/MonthlyQuestionCard";
 import { estimateYearbookPages, type BookCounts, type BookSections } from "@/lib/yearbook-page-count";
 import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES, tinyMomentLines, paginateLetter, paginateByLineBudget, estimateLines, KEEPSAKE_LINES_PER_PAGE, KEEPSAKE_LINES_WITH_SIGNOFF } from "@/lib/yearbook-prompts";
-import { buildYearRecap } from "@/lib/year-recap";
+import { buildYearRecap, hasClosingNote } from "@/lib/year-recap";
 import { monthEntriesFor } from "@/lib/monthly-questions";
 import { partitionDrawings } from "@/lib/tiny-masterpieces";
 import { keepInBook } from "@/lib/yearbook-photo-pages";
@@ -169,6 +169,7 @@ function buildBookCounts(
   contentRows: YearbookContentRow[],
   monthlyRows: { month: string; answer: string | null }[],
   yearbookKey: string,
+  lessonRecord: { lessons: number; schoolDays: number },
 ): BookCounts {
   const key = (contentType: string, childId?: string | null, questionKey?: string | null) =>
     `${contentType}:${childId ?? "null"}:${questionKey ?? "null"}`;
@@ -242,6 +243,26 @@ function buildBookCounts(
       YEAR_END_QUESTIONS.filter((q) => filled(key("child_interview", id, q.key))).length,
     ),
     hasLetter: filled(key("letter_from_home")),
+    // "A Day We'll Never Forget", the letter's facing page. Same test the
+    // reader makes: a chosen memory with a photo or a name, any of the day's
+    // written details, or the quote from that day.
+    hasFavoriteDay: !!(
+      favMem?.photo_url ||
+      favMem?.title?.trim() ||
+      filled(key("letter_favorite_what")) ||
+      filled(key("letter_favorite_why")) ||
+      filled(key("letter_favorite_caption")) ||
+      filled(key("letter_favorite_location")) ||
+      filled(key("letter_favorite_quote"))
+    ),
+    familyWinCount: familyMems.filter((m) => m.type === "win" || m.type === "field_trip").length,
+    hasClosingNote: hasClosingNote({
+      schoolDays: lessonRecord.schoolDays,
+      lessons: lessonRecord.lessons,
+      books: mems.filter((m) => m.type === "book").length,
+      places: mems.filter((m) => m.type === "field_trip").length,
+      photographs: mems.filter((m) => m.photo_url && m.type !== "drawing").length,
+    }),
     letterPages: paginateLetter(content[key("letter_from_home")] ?? "").length,
     monthlyAnswers: monthEntriesFor(yearbookKey, monthlyMap).length,
     tinyMomentLines: tinyMomentLines(content[key("tiny_moments")]).length,
@@ -1675,14 +1696,24 @@ export default function TodayPage() {
       showFavoriteThings: sectionOn("show_favorite_things"),
       showBooksSection: sectionOn("show_books_section"),
       showFamilyChapter: sectionOn("show_family_chapter"),
-      showVillage: sectionOn("show_village"),
     };
+    // The closing note counts the lessons inside the yearbook's own window, the
+    // way the reader does. The strip's "lessons completed" figure below stays
+    // all-time on purpose; these two are different questions.
+    const windowedLessonDates: string[] = [];
+    for (const l of completedLessonRows) {
+      const d = (l.date ?? l.scheduled_date ?? "").slice(0, 10);
+      if (!d || d < ybOpenedAt.slice(0, 10)) continue;
+      if (ybClosedAt && d > ybClosedAt.slice(0, 10)) continue;
+      windowedLessonDates.push(d);
+    }
     const bookCounts = buildBookCounts(
       (childrenData ?? []).map((c: { id: string }) => c.id),
       bookMems,
       (ybContentResult.data ?? []) as unknown as YearbookContentRow[],
       (monthlyReflectionsResult.data ?? []) as unknown as { month: string; answer: string | null }[],
       yearbookKeyForCount,
+      { lessons: windowedLessonDates.length, schoolDays: new Set(windowedLessonDates).size },
     );
     setBookStats({
       pages: estimateYearbookPages(bookCounts, bookSections),

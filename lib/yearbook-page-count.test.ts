@@ -14,9 +14,8 @@ import {
   estimateYearbookPages,
   ALL_SECTIONS_ON,
   COVER_SPREADS,
-  CLOSING_SPREADS,
+  CLOSING_NOTE_SPREADS,
   BACK_COVER_SPREADS,
-  VILLAGE_SPREADS,
   LETTER_SPREADS,
   CHILD_OPENER_SPREADS,
   FAMILY_OPENER_SPREADS,
@@ -49,6 +48,9 @@ function emptyCounts(overrides: Partial<BookCounts> = {}): BookCounts {
     filledFavoriteChildren: [],
     filledKeepsakePages: [],
     hasLetter: false,
+    hasFavoriteDay: false,
+    familyWinCount: 0,
+    hasClosingNote: false,
     letterPages: 0,
     monthlyAnswers: 0,
     tinyMomentLines: 0,
@@ -65,21 +67,28 @@ const SECTIONS_OFF: BookSections = {
   showFavoriteThings: false,
   showBooksSection: false,
   showFamilyChapter: false,
-  showVillage: false,
 };
 
-// The spreads an empty book still has, with every section enabled: cover,
-// letter, the family opener, village, "until next year", and the back cover.
-const EMPTY_SPREADS =
-  COVER_SPREADS + LETTER_SPREADS + FAMILY_OPENER_SPREADS + VILLAGE_SPREADS + CLOSING_SPREADS + BACK_COVER_SPREADS;
+// An EMPTY book is now the cover and the back cover, and nothing else. No
+// letter (nothing written), no family opener (no wins to list), no village (it
+// is gone) and no closing note (nothing to count). That is the whole point of
+// this pass: a book with no content prints no pages of prompts.
+const EMPTY_SPREADS = COVER_SPREADS + BACK_COVER_SPREADS;
 
 test("an empty book is only its fixed spreads", () => {
   assert.equal(estimateYearbookPages(emptyCounts()), EMPTY_SPREADS * 2);
 });
 
-test("with every section off, an empty book is cover + closing + back cover only", () => {
-  const fixed = COVER_SPREADS + CLOSING_SPREADS + BACK_COVER_SPREADS;
+test("with every section off, an empty book is cover + back cover only", () => {
+  const fixed = COVER_SPREADS + BACK_COVER_SPREADS;
   assert.equal(estimateYearbookPages(emptyCounts(), SECTIONS_OFF), fixed * 2);
+});
+
+test("a book with nothing in it is the cover and the back cover, nothing else", () => {
+  // Four pages: no letter spread, no family opener, no closing note, and the
+  // village spread does not exist any more. Before this pass the same family
+  // got twelve pages, ten of them placeholders and blank ruled lines.
+  assert.equal(estimateYearbookPages(emptyCounts()), 4);
 });
 
 test("the result is always even, for every shape of book", () => {
@@ -107,23 +116,32 @@ test("the result is always even, for every shape of book", () => {
   }
 });
 
-test("one child with 30 photos: the chapter spends one on the divider and one on favorites", () => {
+test("one child with 30 photos and nothing written keeps every photo in the collage", () => {
   const counts = emptyCounts({
     childPhotoCounts: [30],
     childBookCounts: [0],
     childDrawingCounts: [0],
     filledFavoriteChildren: [false],
     filledKeepsakePages: [0],
+    childInterviewAnswers: [0],
   });
 
-  // 30 photos: 1 to the full-bleed divider, 1 to favorites, 28 to the collage.
-  // 28 photos at 6 per page is 5 pages, bumped to an even 6 → 3 spreads.
-  const collageSpreads = 3;
-  assert.equal(pageCountFor(28, DEFAULT_MOSAIC_OPTS.maxPerPage), 6);
-
-  const expected =
-    EMPTY_SPREADS + CHILD_OPENER_SPREADS + collageSpreads + 1; // +1 favorites (the spared photo faces it)
+  // No favorites written, so no favorites spread AND no photo reserved for it:
+  // 1 goes to the full-bleed divider and the other 29 stay in the collage.
+  // 29 at 6 per page is 5 pages, bumped to an even 6, so 3 spreads.
+  assert.equal(pageCountFor(29, DEFAULT_MOSAIC_OPTS.maxPerPage), 6);
+  const expected = EMPTY_SPREADS + CHILD_OPENER_SPREADS + 3;
   assert.equal(estimateYearbookPages(counts), expected * 2);
+});
+
+test("writing favorites is what buys the favorites spread, and the photo to face it", () => {
+  const base = { childPhotoCounts: [30], filledKeepsakePages: [0], childInterviewAnswers: [0] };
+  const without = estimateYearbookPages(emptyCounts({ ...base, filledFavoriteChildren: [false] }));
+  const withFavs = estimateYearbookPages(emptyCounts({ ...base, filledFavoriteChildren: [true] }));
+  // 28 in the collage instead of 29 is still 6 pages, so the only difference is
+  // the favorites spread itself.
+  assert.equal(pageCountFor(28, DEFAULT_MOSAIC_OPTS.maxPerPage), 6);
+  assert.equal(withFavs - without, 2, "one spread, and only when there is something on it");
 });
 
 test("three children with unequal photo counts each get their own chapter", () => {
@@ -133,18 +151,20 @@ test("three children with unequal photo counts each get their own chapter", () =
     childDrawingCounts: [0, 5, 0],
     filledFavoriteChildren: [false, false, true],
     filledKeepsakePages: [1, 0, 2],
+    childInterviewAnswers: [0, 0, 0],
   });
 
-  // Child 1, 12 photos: divider + favorites + 10 in the collage (2 pages → 1
-  // spread), a books spread, and 1 keepsake page (1 spread, facing a filler).
-  // Child 2, 3 photos: photo-poor, so a title-panel divider, 1 to favorites,
-  // 2 in the collage (1 spread). 5 drawings → 2 gallery pages → 1 spread.
-  // Child 3, no photos at all, but has favorites written, plus 2 keepsake
-  // pages that pack into a single spread.
-  const child1 = CHILD_OPENER_SPREADS + 1 + 1 + 1; // collage + favorites + books, then keepsake
-  const child2 = CHILD_OPENER_SPREADS + 1 + 1 + 1; // collage + favorites + art
+  // Child 1, 12 photos, no favorites written: divider + 11 in the collage
+  // (2 pages → 1 spread), a books spread, and 1 keepsake page facing a blank.
+  // Child 2, 3 photos, no favorites written: a title-panel divider and all 3
+  // in the collage (1 spread). 5 drawings → 2 gallery pages → 1 spread.
+  // Child 3, no photos, but favorites written, plus 2 keepsake pages.
+  assert.equal(pageCountFor(11, DEFAULT_MOSAIC_OPTS.maxPerPage), 2);
+  assert.equal(pageCountFor(3, DEFAULT_MOSAIC_OPTS.maxPerPage), 2);
+  const child1 = CHILD_OPENER_SPREADS + 1 + 1 + 1; // collage + books + keepsake
+  const child2 = CHILD_OPENER_SPREADS + 1 + 1; // collage + art
   const child3 = CHILD_OPENER_SPREADS + 1 + 1; // favorites + keepsake
-  const expected = EMPTY_SPREADS + (child1 + 1) + child2 + child3;
+  const expected = EMPTY_SPREADS + child1 + child2 + child3;
 
   assert.equal(estimateYearbookPages(counts), expected * 2);
 });
@@ -177,12 +197,15 @@ test("a family with lessons and books but no photos still gets a real book", () 
     filledAdventureCategories: 3,
     recapItemCount: 27,
     recapSectionCounts: [27],
+    childInterviewAnswers: [0, 0],
+    // 23 books read is plenty to close a year on.
+    hasClosingNote: true,
   });
 
   const pages = estimateYearbookPages(counts);
   assert.equal(pages % 2, 0);
   assert.ok(pages > EMPTY_SPREADS * 2, "the record adds pages of its own");
-  assert.ok(pages >= 30, `a book this full should be substantial, got ${pages}`);
+  assert.ok(pages >= 26, `a book this full should be substantial, got ${pages}`);
 
   // And it is strictly more than the same family with nothing logged.
   assert.ok(pages > estimateYearbookPages(emptyCounts({ childPhotoCounts: [0, 0], filledFavoriteChildren: [false, false], filledKeepsakePages: [0, 0] })));
@@ -299,20 +322,31 @@ test("month-by-month, adventures and tiny moments paginate the way the reader ch
 
 // ─── Print correctness: nothing is clamped, so long text costs pages ─────────
 
-test("a letter that fits on one page adds no spreads beyond the letter spread", () => {
+test("an unwritten letter prints no letter spread at all", () => {
   const base = estimateYearbookPages(emptyCounts());
   assert.equal(estimateYearbookPages(emptyCounts({ letterPages: 0 })), base);
-  assert.equal(estimateYearbookPages(emptyCounts({ letterPages: 1 })), base);
+  // Writing one buys exactly one spread; it used to print either way, with an
+  // envelope emoji asking the family to write it.
+  assert.equal(estimateYearbookPages(emptyCounts({ letterPages: 1 })), base + 2);
+});
+
+test("a chosen favourite day prints the letter spread even with no letter", () => {
+  const base = estimateYearbookPages(emptyCounts());
+  assert.equal(estimateYearbookPages(emptyCounts({ hasFavoriteDay: true })), base + 2);
+  // And the two together are still one spread, not two.
+  assert.equal(estimateYearbookPages(emptyCounts({ hasFavoriteDay: true, letterPages: 1 })), base + 2);
 });
 
 test("a long letter adds continuation spreads instead of losing its ending", () => {
   const spreadsFor = (letterPages: number) =>
     (estimateYearbookPages(emptyCounts({ letterPages })) - estimateYearbookPages(emptyCounts())) / 2;
-  // Pages 2..n pair off, a filler faces a lone trailing page.
-  assert.equal(spreadsFor(2), 1);
-  assert.equal(spreadsFor(3), 1);
-  assert.equal(spreadsFor(4), 2);
-  assert.equal(spreadsFor(7), 3);
+  // One page is the letter spread itself; pages 2..n pair off after it, with a
+  // blank leaf facing a lone trailing page.
+  assert.equal(spreadsFor(1), 1);
+  assert.equal(spreadsFor(2), 2);
+  assert.equal(spreadsFor(3), 2);
+  assert.equal(spreadsFor(4), 3);
+  assert.equal(spreadsFor(7), 4);
   // And the count never goes backwards as the letter grows.
   let prev = 0;
   for (let n = 0; n <= 20; n++) {
@@ -425,7 +459,10 @@ interface ReaderShape {
   familyPhotos: number;
   familyBooks: number;
   familyDrawings: number;
+  familyWins: number;
   letterPages: number;
+  hasFavoriteDay: boolean;
+  hasClosingNote: boolean;
   monthlyAnswers: number;
   tinyMomentLines: number;
   adventures: number;
@@ -438,8 +475,9 @@ function readerSpreadCount(shape: ReaderShape, sections: BookSections): number {
   const chunkedSpreads = (items: number, perPage: number) =>
     items <= 0 ? 0 : Math.ceil(Math.ceil(items / perPage) / 2);
 
-  if (sections.showLetter) {
-    n += 1; // the letter spread, written or not
+  // 2. the letter spread, only when one of its two sides has content
+  if (sections.showLetter && (shape.letterPages > 0 || shape.hasFavoriteDay)) {
+    n += 1;
     if (shape.letterPages > 1) n += Math.ceil((shape.letterPages - 1) / 2); // 2a
   }
 
@@ -448,15 +486,17 @@ function readerSpreadCount(shape: ReaderShape, sections: BookSections): number {
       n += 1; // 3. chapter opener
       // 3a0. conversation continuation
       n += chunkedSpreads(Math.max(0, c.interviewAnswers - INTERVIEW_PER_PAGE), INTERVIEW_PER_PAGE);
-      // 3a. photo collage
-      const plan = planChapterPhotos(c.photos, sections.showFavoriteThings);
+      // 3a. photo collage. The favorites spread gates the reservation too, so
+      // a chapter with nothing written keeps that photograph in its collage.
+      const showFavorites = sections.showFavoriteThings && c.hasFavorites;
+      const plan = planChapterPhotos(c.photos, showFavorites);
       const units = buildChapterPhotoUnits(
         Array.from({ length: plan.collageCount }, (_, i) => ({ id: `x${i}`, photo_url: "y" })),
         DEFAULT_MOSAIC_OPTS,
       ).length;
       n += Math.ceil(units / 2);
       // 3b. favorites
-      if (sections.showFavoriteThings && (c.hasFavorites || plan.useFavPhoto)) n += 1;
+      if (showFavorites) n += 1;
       // 3d. books
       if (sections.showBooksSection && c.books > 0) n += 1;
       // 3e. tiny masterpieces
@@ -467,7 +507,7 @@ function readerSpreadCount(shape: ReaderShape, sections: BookSections): number {
   }
 
   if (sections.showFamilyChapter) {
-    n += 1; // 4. family opener
+    if (shape.familyWins > 0) n += 1; // 4. family opener, only with wins to list
     const famUnits = buildChapterPhotoUnits(
       Array.from({ length: shape.familyPhotos }, (_, i) => ({ id: `f${i}`, photo_url: "y" })),
       DEFAULT_MOSAIC_OPTS,
@@ -477,7 +517,7 @@ function readerSpreadCount(shape: ReaderShape, sections: BookSections): number {
     n += chunkedSpreads(shape.familyDrawings, 4); // 4c
   }
 
-  if (sections.showVillage) n += 1; // 5
+  // 5. the village spread is gone entirely.
   if (sections.showYearInNumbers) {
     const recap: YearRecap = {
       books: Array.from({ length: shape.recap[0] }, (_, i) => `b${i}`),
@@ -489,7 +529,7 @@ function readerSpreadCount(shape: ReaderShape, sections: BookSections): number {
   n += chunkedSpreads(shape.monthlyAnswers, 6); // 5.55
   if (shape.tinyMomentLines > 0) n += 1; // 5.56
   n += chunkedSpreads(shape.adventures, 5); // 5.57
-  n += 1; // 5.6 until next year
+  if (shape.hasClosingNote) n += 1; // 5.6 the closing note, one page facing a blank leaf
   n += 1; // 6. back cover
   n += 1; // the cover, unshifted last
   return n;
@@ -508,6 +548,9 @@ function countsFor(shape: ReaderShape): BookCounts {
     filledFavoriteChildren: shape.children.map((c) => c.hasFavorites),
     filledKeepsakePages: shape.children.map((c) => c.keepsakePages),
     hasLetter: shape.letterPages > 0,
+    hasFavoriteDay: shape.hasFavoriteDay,
+    familyWinCount: shape.familyWins,
+    hasClosingNote: shape.hasClosingNote,
     letterPages: shape.letterPages,
     monthlyAnswers: shape.monthlyAnswers,
     tinyMomentLines: shape.tinyMomentLines,
@@ -519,29 +562,38 @@ function countsFor(shape: ReaderShape): BookCounts {
 
 test("the estimator matches the reader's assembly, so the drift detector stays quiet", () => {
   const shapes: ReaderShape[] = [
-    // An empty book.
-    { children: [], familyPhotos: 0, familyBooks: 0, familyDrawings: 0, letterPages: 0, monthlyAnswers: 0, tinyMomentLines: 0, adventures: 0, recap: [0, 0, 0] },
+    // An empty book: nothing at all.
+    { children: [], familyPhotos: 0, familyBooks: 0, familyDrawings: 0, familyWins: 0, letterPages: 0, hasFavoriteDay: false, hasClosingNote: false, monthlyAnswers: 0, tinyMomentLines: 0, adventures: 0, recap: [0, 0, 0] },
+    // The casual family: two children, thirty photographs between them, and
+    // not one word typed anywhere.
+    { children: [
+        { photos: 18, books: 0, drawings: 0, hasFavorites: false, keepsakePages: 0, interviewAnswers: 0 },
+        { photos: 12, books: 0, drawings: 0, hasFavorites: false, keepsakePages: 0, interviewAnswers: 0 },
+      ], familyPhotos: 0, familyBooks: 0, familyDrawings: 0, familyWins: 0, letterPages: 0, hasFavoriteDay: false, hasClosingNote: true, monthlyAnswers: 0, tinyMomentLines: 0, adventures: 0, recap: [0, 0, 0] },
     // One child, a first year: a few photos, a short letter, no writing yet.
-    { children: [{ photos: 7, books: 2, drawings: 1, hasFavorites: false, keepsakePages: 0, interviewAnswers: 3 }], familyPhotos: 4, familyBooks: 0, familyDrawings: 0, letterPages: 1, monthlyAnswers: 2, tinyMomentLines: 0, adventures: 0, recap: [2, 1, 1] },
+    { children: [{ photos: 7, books: 2, drawings: 1, hasFavorites: false, keepsakePages: 0, interviewAnswers: 3 }], familyPhotos: 4, familyBooks: 0, familyDrawings: 0, familyWins: 2, letterPages: 1, hasFavoriteDay: true, hasClosingNote: true, monthlyAnswers: 2, tinyMomentLines: 0, adventures: 0, recap: [2, 1, 1] },
     // A family who fills everything in: three children, all eleven questions,
     // long keepsake pages, a letter that runs to five pages.
     { children: [
         { photos: 34, books: 12, drawings: 9, hasFavorites: true, keepsakePages: 5, interviewAnswers: 11 },
         { photos: 3, books: 0, drawings: 4, hasFavorites: true, keepsakePages: 3, interviewAnswers: 11 },
         { photos: 0, books: 6, drawings: 0, hasFavorites: false, keepsakePages: 1, interviewAnswers: 7 },
-      ], familyPhotos: 21, familyBooks: 4, familyDrawings: 6, letterPages: 5, monthlyAnswers: 12, tinyMomentLines: 14, adventures: 8, recap: [24, 3, 6] },
+      ], familyPhotos: 21, familyBooks: 4, familyDrawings: 6, familyWins: 9, letterPages: 5, hasFavoriteDay: true, hasClosingNote: true, monthlyAnswers: 12, tinyMomentLines: 14, adventures: 8, recap: [24, 3, 6] },
+    // A favourite day chosen but no letter written: the spread still prints,
+    // with the day on the left and a blank leaf facing it.
+    { children: [], familyPhotos: 0, familyBooks: 0, familyDrawings: 0, familyWins: 0, letterPages: 0, hasFavoriteDay: true, hasClosingNote: false, monthlyAnswers: 0, tinyMomentLines: 0, adventures: 0, recap: [0, 0, 0] },
     // The awkward middles: lone photos, one spilled answer, an odd letter page.
     { children: [
         { photos: 1, books: 1, drawings: 1, hasFavorites: false, keepsakePages: 1, interviewAnswers: 7 },
         { photos: 2, books: 0, drawings: 5, hasFavorites: false, keepsakePages: 2, interviewAnswers: 6 },
-      ], familyPhotos: 1, familyBooks: 1, familyDrawings: 3, letterPages: 2, monthlyAnswers: 7, tinyMomentLines: 1, adventures: 6, recap: [11, 1, 1] },
+      ], familyPhotos: 1, familyBooks: 1, familyDrawings: 3, familyWins: 1, letterPages: 2, hasFavoriteDay: false, hasClosingNote: true, monthlyAnswers: 7, tinyMomentLines: 1, adventures: 6, recap: [11, 1, 1] },
   ];
 
   const sectionSets: BookSections[] = [
     ALL_SECTIONS_ON,
     SECTIONS_OFF,
     { ...ALL_SECTIONS_ON, showFavoriteThings: false },
-    { ...ALL_SECTIONS_ON, showBooksSection: false, showVillage: false },
+    { ...ALL_SECTIONS_ON, showBooksSection: false },
     { ...ALL_SECTIONS_ON, showChildChapters: false },
     { ...ALL_SECTIONS_ON, showLetter: false, showYearInNumbers: false },
   ];
@@ -596,4 +648,82 @@ test("captioning every photograph does not change the page count", () => {
     estimateYearbookPages({ ...counts }),
     "the estimate reads counts only, never caption text",
   );
+});
+
+// ─── Nothing empty ever prints ───────────────────────────────────────────────
+
+test("the casual family: two children, thirty photographs, nothing typed", () => {
+  // This is the shape the whole pass is for. Before it, this family's book
+  // carried a letter spread asking them to write one, two conversation pages
+  // asking each child what their year was like, two favorites pages showing a
+  // photo over the words "A few favorite things.", a family opener saying "The
+  // moments we shared, all together.", twelve blank ruled lines to be signed by
+  // hand, and two pages of copy identical in every book ever printed.
+  const casual = emptyCounts({
+    childPhotoCounts: [18, 12],
+    childBookCounts: [0, 0],
+    childDrawingCounts: [0, 0],
+    filledFavoriteChildren: [false, false],
+    filledKeepsakePages: [0, 0],
+    childInterviewAnswers: [0, 0],
+    familyPhotoCount: 0,
+    familyWinCount: 0,
+    hasLetter: false,
+    hasFavoriteDay: false,
+    letterPages: 0,
+    // They did show up and log their days, so the book still has an ending.
+    hasClosingNote: true,
+  });
+
+  const pages = estimateYearbookPages(casual);
+  assert.equal(pages % 2, 0, "always whole spreads");
+
+  // Every spread the old book gave this family that had nothing on it. The
+  // conversation page is not counted here: it was the right side of the chapter
+  // opener, which still exists, so it costs no spread either way.
+  const spreadsRemoved =
+    LETTER_SPREADS + //            an envelope asking them to write a letter
+    FAMILY_OPENER_SPREADS + //     "The moments we shared, all together."
+    2 + //                         a favorites spread per child, on a reserved photo alone
+    1 + //                         From the village: twelve blank ruled lines
+    1; //                          "Until next year", two pages of identical copy
+  const spreadsAdded = CLOSING_NOTE_SPREADS; // the closing note, from their own year
+  const before = pages + (spreadsRemoved - spreadsAdded) * 2;
+  assert.ok(pages < before, `expected fewer pages than the old ${before}, got ${pages}`);
+  assert.equal(before - pages, 10, "five placeholder spreads out, one real page in");
+
+  // And nothing that could be a placeholder is in there. Each of these would
+  // add a spread if the estimator still printed it unconditionally.
+  const noLetter = estimateYearbookPages({ ...casual, letterPages: 0, hasFavoriteDay: false });
+  assert.equal(noLetter, pages, "no letter spread");
+  const noFamilyOpener = estimateYearbookPages({ ...casual, familyWinCount: 0 });
+  assert.equal(noFamilyOpener, pages, "no family opener");
+  const noFavorites = estimateYearbookPages({ ...casual, filledFavoriteChildren: [false, false] });
+  assert.equal(noFavorites, pages, "no favorites spreads");
+
+  // Only the two chapters and their photographs, plus the covers and the note.
+  const chapters = 2 * CHILD_OPENER_SPREADS;
+  const collage =
+    Math.ceil(buildChapterPhotoUnits(Array.from({ length: 17 }, (_, i) => ({ id: `a${i}`, photo_url: "x" })), DEFAULT_MOSAIC_OPTS).length / 2) +
+    Math.ceil(buildChapterPhotoUnits(Array.from({ length: 11 }, (_, i) => ({ id: `b${i}`, photo_url: "x" })), DEFAULT_MOSAIC_OPTS).length / 2);
+  assert.equal(pages, (COVER_SPREADS + chapters + collage + CLOSING_NOTE_SPREADS + BACK_COVER_SPREADS) * 2);
+});
+
+test("a family with no year at all gets no closing note", () => {
+  const pages = estimateYearbookPages(emptyCounts({ hasClosingNote: false }));
+  const withNote = estimateYearbookPages(emptyCounts({ hasClosingNote: true }));
+  assert.equal(withNote - pages, 2, "one page facing a blank leaf");
+  assert.equal(pages, 4, "cover and back cover, and nothing in between");
+});
+
+test("the estimate is honest below Lulu's 24 page floor, and never pads to reach it", () => {
+  // A very light book really can come out under 24 pages now. That is a print
+  // flow problem, not a reason for the book to inflate itself with pages a
+  // family did not fill. See CLAUDE.md: the floor is checked before offering to
+  // print, never met by padding.
+  assert.equal(estimateYearbookPages(emptyCounts()), 4);
+  const light = estimateYearbookPages(
+    emptyCounts({ childPhotoCounts: [3], filledFavoriteChildren: [false], filledKeepsakePages: [0], childInterviewAnswers: [0], hasClosingNote: true }),
+  );
+  assert.ok(light < 24, `a light book reports ${light}, not a padded 24`);
 });

@@ -122,3 +122,49 @@ export function paginateRecap(recap: YearRecap, linesPerPage = 15): RecapPageCon
   flush();
   return pages;
 }
+
+// ─── The closing note ────────────────────────────────────────────────────────
+// The last page before the back cover used to be two pages of copy, word for
+// word identical in every Rooted yearbook ever printed. It is now built from
+// the family's own year. Pure so the reader, the print path and the page-count
+// helper agree on whether there is a page here at all.
+//
+// It has to read as an ending rather than a dashboard, so the counts are set as
+// one sentence, zeros are left out entirely, and a family with nothing to count
+// gets no page rather than a page of noughts.
+
+export interface ClosingCounts {
+  schoolDays: number;
+  lessons: number;
+  books: number;
+  places: number;
+  photographs: number;
+}
+
+/** True when the family's year has anything in it worth closing on. */
+export function hasClosingNote(c: ClosingCounts): boolean {
+  return closingNoteClauses(c).length > 0;
+}
+
+function countPhrase(n: number, one: string, many: string): string {
+  return `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+}
+
+/** The clauses that have a number behind them, in reading order. */
+export function closingNoteClauses(c: ClosingCounts): string[] {
+  const out: string[] = [];
+  if (c.schoolDays > 0) out.push(countPhrase(c.schoolDays, "day of school", "days of school"));
+  if (c.lessons > 0) out.push(countPhrase(c.lessons, "lesson finished", "lessons finished"));
+  if (c.books > 0) out.push(countPhrase(c.books, "book read", "books read"));
+  if (c.places > 0) out.push(countPhrase(c.places, "place visited", "places visited"));
+  if (c.photographs > 0) out.push(countPhrase(c.photographs, "photograph kept", "photographs kept"));
+  return out;
+}
+
+/** The clauses as one sentence, or null when there is nothing to say. */
+export function closingNoteSentence(c: ClosingCounts): string | null {
+  const parts = closingNoteClauses(c);
+  if (parts.length === 0) return null;
+  if (parts.length === 1) return `${parts[0]}.`;
+  return `${parts.slice(0, -1).join(", ")}, and ${parts[parts.length - 1]}.`;
+}

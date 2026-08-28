@@ -622,6 +622,51 @@ see and no test caught.
   reacts to caption length) must update the page-count
   helper in the same commit.
 
+THE GOVERNING RULE: nothing empty ever prints. A section
+with no content is omitted from the book AND from the
+contents. No placeholders, no prompt text, no
+invitations, no ruled lines waiting to be filled. The
+printed book must never ask a mother for anything: she
+is holding it, so it is too late to ask.
+
+What that means in practice:
+- No letter written and no favourite day chosen, no
+  letter spread. No answers and no note, no conversation
+  page. No favourites written, no favourites spread (a
+  reserved photograph is NOT content, and the
+  reservation is gated on the same condition so the
+  photograph stays in the collage). No family wins or
+  trips, no family opener.
+- The contents page is generated from the spreads
+  actually assembled, using each spread's own label and
+  its real page number. Never a hardcoded list. It used
+  to name six fixed sections, two of them wrongly, while
+  listing nothing for favourites, books, Tiny
+  Masterpieces, the keepsake pages, Tiny Moments or
+  Adventures.
+- FillerPage is deliberately, completely blank and is
+  the ONLY empty page the book may contain. It exists
+  because a book is printed in leaves and an odd-length
+  section needs a back for its last page. Never put a
+  motif or an epigraph on it.
+- "From the village" is gone. It printed twelve blank
+  ruled lines nothing in the app could fill. The
+  show_village setting is gone with it; old
+  yearbook_content rows were left alone and there is no
+  migration. NOTE: app/faq/page.tsx still describes this
+  section to the public.
+- The closing note is built from the family's own year
+  (days of school, lessons, books, places, photographs)
+  by lib/year-recap.ts, and is omitted when there is
+  nothing to count. It replaced two pages of copy that
+  were word for word identical in every book.
+- Lulu's hardcover casewrap has a 24 PAGE MINIMUM. A
+  light book can now fall under it. estimateYearbookPages
+  reports the count honestly; the floor is a check the
+  print flow must make before offering to print, and is
+  NEVER a reason for the book to pad itself with pages a
+  family did not fill.
+
 ### YEARBOOK CUSTOMIZE — /dashboard/memories/yearbook/edit
 Single page for all yearbook settings + content.
 Section toggles, cover photo upload, family name,

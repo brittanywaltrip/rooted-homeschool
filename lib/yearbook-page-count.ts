@@ -32,23 +32,34 @@ import { INTERVIEW_PER_PAGE } from "./yearbook-prompts.ts";
 
 /** The cover + table of contents. Reader: `spreads.unshift(buildCoverSpread(...))`. */
 export const COVER_SPREADS = 1;
-/** "Until next year…", the warm closing spread. Reader: the `id: "until-next-year"` push. */
-export const CLOSING_SPREADS = 1;
+
 /** The back cover. Reader: the `id: "back"` push, always the last spread. */
 export const BACK_COVER_SPREADS = 1;
-/** "From the village", the signing spread, only when the section is enabled. Reader: `if (ybSettings.show_village)`. */
-export const VILLAGE_SPREADS = 1;
+// "From the village" is gone. It printed twelve blank ruled lines nothing in the
+// app could fill, in every book, so it was never a section with content.
 /**
- * "A letter from home". Reader pushes this on `show_letter` alone, regardless
- * of whether the letter is written, because an unwritten letter still gets its
- * warm empty page. A letter longer than one page adds continuation spreads on
- * top of this; see BookCounts.letterPages.
+ * "A letter from home", facing "A Day We'll Never Forget". Assembled only when
+ * at least one of those two has real content: the empty states on both sides
+ * are gone, and a family who wrote neither gets no spread rather than an
+ * envelope emoji asking them for one. A letter longer than one page adds
+ * continuation spreads on top of this; see BookCounts.letterPages.
  */
 export const LETTER_SPREADS = 1;
 /** A child's chapter opener (divider + year-end conversation). One per child. */
 export const CHILD_OPENER_SPREADS = 1;
-/** The "Our family" opener spread. Reader: `if (ybSettings.show_family_chapter)`. */
+/**
+ * The "Our family" opener spread, which lists the family's wins and trips.
+ * Only when there is at least one to list; it used to print a family emoji over
+ * "The moments we shared, all together." to a family whose shared moments were
+ * all photographs, which the collage after it already shows.
+ */
 export const FAMILY_OPENER_SPREADS = 1;
+/**
+ * The closing note. One page facing a blank leaf, built from the family's own
+ * year, and omitted when that year has nothing to count. It replaced two pages
+ * of copy that were word for word identical in every book ever printed.
+ */
+export const CLOSING_NOTE_SPREADS = 1;
 
 // Page capacities the reader paginates by (each is a `chunk(items, N)` call).
 const DRAWINGS_PER_PAGE = 4; // buildTinyMasterpiecesSpreads
@@ -97,9 +108,11 @@ export interface BookCounts {
   childInterviewAnswers: number[];
   /**
    * Per child, whether they have at least one filled "favorite things" field.
-   * Per child rather than a total because the favorites spread also appears
-   * when the chapter had a photo to spare for it, and pairing a bare count to
-   * the wrong child would put the spread in the wrong chapter.
+   * This is now the ONLY thing that decides whether the favorites spread
+   * exists: a reserved photograph is not content, and the spread used to print
+   * a photo facing the words "A few favorite things." to a family who had
+   * written none. It also gates the reservation itself, so a chapter with no
+   * favorites keeps that photograph in its collage instead of losing it.
    */
   filledFavoriteChildren: boolean[];
   /**
@@ -112,8 +125,26 @@ export interface BookCounts {
    * one.
    */
   filledKeepsakePages: number[];
-  /** Whether the letter has text. Kept for symmetry; see LETTER_SPREADS. */
+  /** Whether the letter has text. */
   hasLetter: boolean;
+  /**
+   * Whether "A Day We'll Never Forget", the letter's facing page, has anything
+   * on it: a chosen memory, its details, or the quote from that day. The letter
+   * spread is assembled when EITHER side has content, so a family who chose a
+   * favourite day but never wrote a letter still gets the page, and a family
+   * with neither gets no spread.
+   */
+  hasFavoriteDay: boolean;
+  /**
+   * Family wins and field trips. The "Our family" opener lists them, so with
+   * none there is no opener; the family's photographs still print after it.
+   */
+  familyWinCount: number;
+  /**
+   * Whether the family's year has anything to close on: days of school, lessons,
+   * books, places or photographs. See hasClosingNote in lib/year-recap.ts.
+   */
+  hasClosingNote: boolean;
   /**
    * How many pages the letter from home paginates into (0 when unwritten).
    * The first page faces "A Day We'll Never Forget" on the letter spread, and
@@ -147,7 +178,6 @@ export interface BookSections {
   showFavoriteThings: boolean;
   showBooksSection: boolean;
   showFamilyChapter: boolean;
-  showVillage: boolean;
 }
 
 /** The reader's DEFAULT_YB_SETTINGS, which is what a family gets until they toggle something. */
@@ -158,7 +188,6 @@ export const ALL_SECTIONS_ON: BookSections = {
   showFavoriteThings: true,
   showBooksSection: true,
   showFamilyChapter: true,
-  showVillage: true,
 };
 
 /** Pages that hold `perPage` items each, paired into spreads (a lone trailing page gets a filler). */
@@ -247,7 +276,7 @@ export function estimateYearbookPages(
 ): number {
   let spreads = COVER_SPREADS;
 
-  if (sections.showLetter) {
+  if (sections.showLetter && (c.letterPages > 0 || c.hasFavoriteDay)) {
     spreads += LETTER_SPREADS;
     // Pages 2..n of a long letter, two to a spread, a filler on the odd one.
     if (c.letterPages > 1) spreads += Math.ceil((c.letterPages - 1) / 2);
@@ -280,11 +309,14 @@ export function estimateYearbookPages(
       // The chapter's photos, allocated exactly as the reader allocates them:
       // one may become the full-bleed divider, one may go to favorites, and
       // planChapterPhotos guarantees the collage is never left at a lonely 1.
-      const plan = planChapterPhotos(photos, sections.showFavoriteThings);
+      // The favorites spread exists only when the family wrote favorites, and
+      // the plan only reserves a photograph for it on the same condition, so a
+      // chapter with nothing written keeps every photograph in its collage.
+      const showFavorites = sections.showFavoriteThings && hasFavItems;
+      const plan = planChapterPhotos(photos, showFavorites);
       spreads += Math.ceil(chapterPhotoUnits(plan.collageCount) / 2);
 
-      // Favorites: shown when there is something written OR a photo to face it.
-      if (sections.showFavoriteThings && (hasFavItems || plan.useFavPhoto)) spreads += 1;
+      if (showFavorites) spreads += 1;
 
       if (sections.showBooksSection && books > 0) spreads += 1;
 
@@ -296,15 +328,13 @@ export function estimateYearbookPages(
   }
 
   if (sections.showFamilyChapter) {
-    spreads += FAMILY_OPENER_SPREADS;
+    if (c.familyWinCount > 0) spreads += FAMILY_OPENER_SPREADS;
     // Family photos skip planChapterPhotos entirely. The reader sends them
     // straight to the collage, with no divider or favorites reservation.
     spreads += Math.ceil(chapterPhotoUnits(c.familyPhotoCount) / 2);
     if (sections.showBooksSection && c.familyBookCount > 0) spreads += 1;
     spreads += spreadsForChunkedPages(c.familyDrawingCount, DRAWINGS_PER_PAGE);
   }
-
-  if (sections.showVillage) spreads += VILLAGE_SPREADS;
 
   if (sections.showYearInNumbers) {
     const split = c.recapSectionCounts ?? (c.recapItemCount > 0 ? [c.recapItemCount] : []);
@@ -315,7 +345,7 @@ export function estimateYearbookPages(
   if (c.tinyMomentLines > 0) spreads += 1;
   spreads += spreadsForChunkedPages(c.filledAdventureCategories, ADVENTURES_PER_PAGE);
 
-  spreads += CLOSING_SPREADS;
+  if (c.hasClosingNote) spreads += CLOSING_NOTE_SPREADS;
   spreads += BACK_COVER_SPREADS;
 
   return spreads * 2;

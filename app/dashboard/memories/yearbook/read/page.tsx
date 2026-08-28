@@ -23,7 +23,7 @@ import { coverBucketFor } from "@/lib/photo-url";
 import { orderPhotos } from "@/lib/photo-order";
 import { featureCaptionText, photoCaptionLine, photoMetaLine, photoDateLabel, SAFE_AREA_X, SAFE_AREA_Y } from "@/lib/photo-caption";
 import { resolveTheme, themeCssVars, THEMES, type YearbookTheme } from "@/lib/yearbook-theme";
-import { buildYearRecap, paginateRecap, type RecapPageContent } from "@/lib/year-recap";
+import { buildYearRecap, paginateRecap, hasClosingNote, closingNoteSentence, type RecapPageContent, type ClosingCounts } from "@/lib/year-recap";
 import { estimateYearbookPages, type BookCounts, type BookSections } from "@/lib/yearbook-page-count";
 import { captureSupabaseError } from "@/lib/sentry-error";
 
@@ -303,18 +303,13 @@ function CollagePage({ page }: { page: MosaicPage }) {
   );
 }
 
-// Soft breather page that faces a lone collage feature (the only case a chapter
-// has an odd collage page count). A single brand sprig on the warm background —
-// no mechanical rules.
+// The blank side of a leaf. A book is printed in leaves, so a section with an
+// odd number of pages needs something on the back of its last one, and this is
+// it. It is the ONLY empty page the book is allowed to contain, and it is
+// deliberately, completely blank: it used to carry a sprig motif, which reads as
+// a designed page and made a reader look for the content that was not there.
 function FillerPage() {
-  return (
-    <div
-      className="w-full h-full overflow-hidden flex items-center justify-center"
-      style={{ background: "var(--yb-bg)" }}
-    >
-      <span className="select-none"><MotifMark size={34} opacity={0.25} /></span>
-    </div>
-  );
+  return <div className="w-full h-full overflow-hidden" style={{ background: "var(--yb-bg)" }} />;
 }
 
 // `childName` is passed in rather than looked up here because a PhotoItem is
@@ -455,7 +450,7 @@ function buildRecapSpreads(recapPages: RecapPageContent[]): SpreadDef[] {
   for (let i = 0; i < recapPages.length; i += 2) {
     out.push({
       id: i === 0 ? "year-in-numbers" : `year-in-numbers-${i / 2}`,
-      label: "Our year",
+      label: "Looking back",
       leftContent: <RecapPage blocks={recapPages[i]} showTitle={i === 0} />,
       rightContent: recapPages[i + 1] ? <RecapPage blocks={recapPages[i + 1]} showTitle={false} /> : <FillerPage />,
     });
@@ -473,27 +468,22 @@ function FavoritesLeftPage({ childName, items }: { childName: string; items: { l
           {childName}&apos;s favorite things
         </p>
       </div>
-      {items.length > 0 ? (
-        <div className="flex-1 min-h-0 overflow-hidden" style={{ columnCount: 2, columnGap: "1rem" }}>
-          {items.map((it, i) => (
-            <div key={i} className="mb-2.5" style={{ breakInside: "avoid" }}>
-              <p className="text-[8px] uppercase tracking-[0.08em] text-[var(--yb-muted)]">{it.label}</p>
-              {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
-              <p className="text-[11px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{it.value}</p>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-          <Sprig className="mb-3" />
-          <p className="italic text-[13px] text-[var(--yb-muted)]" style={{ fontFamily: "Georgia, serif" }}>A few favorite things.</p>
-        </div>
-      )}
+      {/* No empty branch: the spread is only assembled when there are real
+          favorites to print, so this page can never be a prompt. */}
+      <div className="flex-1 min-h-0 overflow-hidden" style={{ columnCount: 2, columnGap: "1rem" }}>
+        {items.map((it, i) => (
+          <div key={i} className="mb-2.5" style={{ breakInside: "avoid" }}>
+            <p className="text-[8px] uppercase tracking-[0.08em] text-[var(--yb-muted)]">{it.label}</p>
+            {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
+            <p className="text-[11px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{it.value}</p>
+          </div>
+        ))}
+      </div>
     </PageShell>
   );
 }
 
-function FavoritesRightPage({ photo, childName }: { photo: PhotoItem | null; childName: string }) {
+function FavoritesRightPage({ photo }: { photo: PhotoItem | null }) {
   if (photo?.photo_url) {
     const line = photoCaptionLine(photo);
     return (
@@ -517,15 +507,9 @@ function FavoritesRightPage({ photo, childName }: { photo: PhotoItem | null; chi
       </div>
     );
   }
-  return (
-    <PageShell>
-      <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-        <p className="text-[20px] text-[var(--yb-heading)]" style={{ fontFamily: "var(--yb-heading-font)" }}>{childName}</p>
-        <Sprig className="my-3" />
-        <p className="italic text-[11px] text-[var(--yb-muted)]" style={{ fontFamily: "Georgia, serif" }}>A few favorite things.</p>
-      </div>
-    </PageShell>
-  );
+  // No photo to spare: the favorites list faces a blank leaf rather than a
+  // designed panel repeating the section's own title back at the family.
+  return <FillerPage />;
 }
 
 // ─── Tiny Masterpieces (drawings, not photos) ────────────────────────────────
@@ -774,7 +758,7 @@ function buildMonthByMonthSpreads(entries: MonthEntry[]): SpreadDef[] {
   for (let i = 0; i < pages.length; i += 2) {
     out.push({
       id: i === 0 ? "month-by-month" : `month-by-month-${i / 2}`,
-      label: "Our year",
+      label: "Our year, month by month",
       leftContent: <MonthByMonthPage entries={pages[i]} showTitle={i === 0} />,
       rightContent: pages[i + 1] ? <MonthByMonthPage entries={pages[i + 1]} showTitle={false} /> : <FillerPage />,
     });
@@ -844,6 +828,29 @@ function buildAdventureSpreads(items: { label: string; value: string }[]): Sprea
   return out;
 }
 
+// The closing note: this family's year, set as a sentence. No stat tiles, no
+// hardcoded sentiment, and no page at all when there is nothing to count.
+function ClosingNotePage({ counts, yearLabel }: { counts: ClosingCounts; yearLabel: string }) {
+  const sentence = closingNoteSentence(counts);
+  return (
+    <PageShell>
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">A year together</p>
+        <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1.5 mb-4" style={{ fontFamily: "var(--yb-heading-font)" }}>
+          Until next year…
+        </h2>
+        <p className="italic text-[13px] text-[var(--yb-body)] leading-relaxed max-w-[230px]" style={{ fontFamily: "Georgia, serif" }}>
+          {sentence}
+        </p>
+        <Sprig className="my-5" />
+        {yearLabel && (
+          <p className="text-[9px] text-[var(--yb-muted)] tracking-[0.18em] uppercase">{yearLabel}</p>
+        )}
+      </div>
+    </PageShell>
+  );
+}
+
 // ─── Page header mapping ─────────────────────────────────────────────────────
 
 function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
@@ -866,7 +873,6 @@ function getPageHeaders(spreadId: string, spreadLabel: string): [string, string]
   if (spreadId === "family") return ["TOGETHER", "TOGETHER"];
   if (spreadId === "family-books") return ["OUR BOOKS", "OUR BOOKS"];
   if (spreadId.startsWith("family-art")) return ["TINY MASTERPIECES", "TINY MASTERPIECES"];
-  if (spreadId === "village") return ["FROM THE VILLAGE", "FROM THE VILLAGE"];
   if (spreadId === "back") return ["ROOTED HOMESCHOOL", "ROOTED HOMESCHOOL"];
   return ["", ""];
 }
@@ -900,6 +906,9 @@ export default function YearbookReadPage() {
   const [children, setChildren] = useState<Child[]>([]);
   const [contentMap, setContentMap] = useState<Record<string, string>>({});
   const [monthly, setMonthly] = useState<Record<string, { question: string; answer: string }>>({});
+  // The family's lesson record inside this yearbook's window, for the closing
+  // note. Nothing else in the book reads lessons.
+  const [lessonRecord, setLessonRecord] = useState<{ lessons: number; schoolDays: number }>({ lessons: 0, schoolDays: 0 });
   const [profile, setProfile] = useState<{ display_name?: string; yearbook_opened_at?: string; yearbook_closed_at?: string; family_photo_url?: string | null; plan_type?: string | null; is_pro?: boolean | null; trial_started_at?: string | null }>({});
   const [yearbookKey, setYearbookKey] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
@@ -913,7 +922,6 @@ export default function YearbookReadPage() {
     show_favorite_things: boolean;
     show_books_section: boolean;
     show_family_chapter: boolean;
-    show_village: boolean;
     theme?: string;
   };
   const DEFAULT_YB_SETTINGS: YearbookSettings = {
@@ -923,7 +931,6 @@ export default function YearbookReadPage() {
     show_favorite_things: true,
     show_books_section: true,
     show_family_chapter: true,
-    show_village: true,
     theme: "garden",
   };
   const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
@@ -977,13 +984,29 @@ export default function YearbookReadPage() {
         memsQuery = memsQuery.lte("date", prof.yearbook_closed_at.slice(0, 10));
       }
 
-      const [{ data: mems }, { data: kids }, { data: ybRows }] = await Promise.all([
+      const [{ data: mems }, { data: kids }, { data: ybRows }, { data: doneLessons }] = await Promise.all([
         memsQuery,
         supabase.from("children").select("id, name, color")
           .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
         supabase.from("yearbook_content").select("content_type, child_id, question_key, content")
           .eq("user_id", effectiveUserId).eq("yearbook_key", key),
+        // The closing note counts the year's lessons and school days. Scoped to
+        // the same window as the memories, because "your year" has to mean the
+        // year the book covers and not everything the family has ever logged.
+        supabase.from("lessons").select("date, scheduled_date")
+          .eq("user_id", effectiveUserId).eq("completed", true),
       ]);
+
+      const windowStart = openedAt.slice(0, 10);
+      const windowEnd = prof?.yearbook_closed_at ? prof.yearbook_closed_at.slice(0, 10) : null;
+      const lessonDates: string[] = [];
+      for (const l of (doneLessons ?? []) as { date?: string | null; scheduled_date?: string | null }[]) {
+        const d = (l.date ?? l.scheduled_date ?? "").slice(0, 10);
+        if (!d || d < windowStart) continue;
+        if (windowEnd && d > windowEnd) continue;
+        lessonDates.push(d);
+      }
+      setLessonRecord({ lessons: lessonDates.length, schoolDays: new Set(lessonDates).size });
 
       const rawMems = (mems ?? []) as MemoryRow[];
       const stalePaths: string[] = [];
@@ -1142,7 +1165,7 @@ export default function YearbookReadPage() {
   // spreads exist) so its table of contents can cite true page numbers
   // (option a). The body spreads are pushed below; pageNumberForId is derived
   // from their real positions, then the cover is unshift()ed to the front.
-  const buildCoverSpread = (pageNumberForId: (id: string) => number | null): SpreadDef => ({
+  const buildCoverSpread = (contents: { label: string; page: number }[]): SpreadDef => ({
     id: "cover",
     label: "Cover",
     leftContent: coverPhotoUrl ? (
@@ -1215,19 +1238,18 @@ export default function YearbookReadPage() {
             Every lesson, every photo, every little moment. Rooted holds onto it all.
           </p>
           <Sprig className="my-4" />
+          {/* Built from the spreads actually assembled, never a hardcoded
+              list. It used to name six fixed sections, two of them wrongly
+              ("Adventures Together" for a spread titled "Our family",
+              "Family Traditions" for the signing pages), while listing nothing
+              for favorites, books, Tiny Masterpieces, the keepsake pages, Tiny
+              Moments or the real Adventures section. A section that was omitted
+              cannot appear here, because it is not in the list it is built
+              from. */}
           <div className="space-y-1.5 text-[11px] text-[#6f655c]" style={{ lineHeight: 1.8 }}>
-            <p>A Letter From Home · p. {pageNumberForId("letter") ?? "–"}</p>
-            {children.map((c) => (
-              <p key={c.id}>{c.name}&apos;s Story · p. {pageNumberForId(`child-${c.id}`) ?? "–"}</p>
+            {contents.map((entry) => (
+              <p key={`${entry.label}-${entry.page}`}>{entry.label} · p. {entry.page}</p>
             ))}
-            <p>Adventures Together · p. {pageNumberForId("family") ?? "–"}</p>
-            <p>Family Traditions · p. {pageNumberForId("village") ?? "–"}</p>
-            {pageNumberForId("year-in-numbers") != null && (
-              <p>Looking Back · p. {pageNumberForId("year-in-numbers")}</p>
-            )}
-            {pageNumberForId("month-by-month") != null && (
-              <p>Our year, month by month · p. {pageNumberForId("month-by-month")}</p>
-            )}
           </div>
         </div>
       </PageShell>
@@ -1241,34 +1263,29 @@ export default function YearbookReadPage() {
   // now paginates: page 1 faces "A Day We'll Never Forget" as before, and any
   // further pages follow on their own spreads (2a).
   const letterPages = paginateLetter(letterText);
-  if (ybSettings.show_letter) spreads.push({
-    id: "letter",
-    label: "Letter from home",
-    leftContent: letterPages.length > 0 ? (
-      <LetterPage
-        text={letterPages[0]}
-        familyName={familyName}
-        showTitle
-        showSignoff={letterPages.length === 1}
-      />
-    ) : (
-      <PageShell>
-        <div className="shrink-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Written for our family</p>
-          <h2 className="text-[17px] font-bold text-[var(--yb-heading)] mt-1.5" style={{ fontFamily: "var(--yb-heading-font)" }}>A letter from home</h2>
-          <p className="text-[10px] text-[var(--yb-muted)] mt-1">Dear Future Us…</p>
-        </div>
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-3">
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-3">
-            <span className="text-[40px] mb-3 opacity-60">✉️</span>
-            <p className="text-[13px] italic text-[#8a7d70] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-              Dear Future Us… the story of this year,<br />in your own words.
-            </p>
-          </div>
-        </div>
-      </PageShell>
-    ),
-    rightContent: (
+  // The letter's facing page, "A Day We'll Never Forget", is its own piece of
+  // content and can exist without a letter (or the letter without it). Neither
+  // side prints a placeholder any more, so the spread is assembled only when at
+  // least one of them has something real, and whichever one does takes the left
+  // page with a blank leaf facing it.
+  const hasFavoriteDay = !!(
+    favMemory?.photo_url ||
+    favMemory?.title?.trim() ||
+    favWhat.trim() ||
+    favWhy.trim() ||
+    favCaption.trim() ||
+    favLocation.trim() ||
+    favQuoteText.trim()
+  );
+  const letterFirstPage = letterPages.length > 0 ? (
+    <LetterPage
+      text={letterPages[0]}
+      familyName={familyName}
+      showTitle
+      showSignoff={letterPages.length === 1}
+    />
+  ) : null;
+  const favoriteDayPage = hasFavoriteDay ? (
       <PageShell>
         {/* A Day We'll Never Forget */}
         <div className="mb-3">
@@ -1303,16 +1320,18 @@ export default function YearbookReadPage() {
                 <p className="italic text-[10.5px] text-[#3a352f] mt-1.5 line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favCaption}</p>
               )}
             </div>
-          ) : (
-            // No photo to show (none chosen, or reserved away) — a clean designed
-            // panel, never date/caption/details floating where the photo should be.
+          ) : favMemory?.title?.trim() ? (
+            // No photo to show (none chosen, or reserved away), but the family
+            // named the day. The panel prints what they wrote and nothing else:
+            // the old "A moment worth remembering." fallback was the book
+            // telling a mother what she should have filled in.
             <div className="w-full rounded-md bg-[#eef3e6] flex items-center justify-center px-5 py-8" style={{ aspectRatio: "4/3" }}>
               {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
               <p className="text-[14px] italic text-[var(--yb-accent)] text-center leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
-                {favMemory?.title ? favMemory.title : <>A moment worth<br />remembering.</>}
+                {favMemory.title}
               </p>
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Favorite quote from that day */}
@@ -1331,8 +1350,16 @@ export default function YearbookReadPage() {
           </div>
         )}
       </PageShell>
-    ),
-  });
+    ) : null;
+
+  if (ybSettings.show_letter && (letterFirstPage || favoriteDayPage)) {
+    spreads.push({
+      id: "letter",
+      label: "Letter from home",
+      leftContent: letterFirstPage ?? favoriteDayPage,
+      rightContent: letterFirstPage ? (favoriteDayPage ?? <FillerPage />) : <FillerPage />,
+    });
+  }
 
   // 2a. LETTER CONTINUATION SPREADS: pages 2..n of a long letter, paired two
   // to a spread with a quiet filler on a trailing odd page.
@@ -1390,7 +1417,19 @@ export default function YearbookReadPage() {
     // the divider opener or the favorites slot; the divider/favorites are
     // planned from the non-featured photos so the collage still fills.
     const nonFeatured = available.filter((m) => !m.featured);
-    const plan = planChapterPhotos(nonFeatured.length, ybSettings.show_favorite_things);
+    // The favorites list is resolved BEFORE the photo plan, because the plan
+    // reserves a photo for the favorites spread and that spread now only exists
+    // when the family actually wrote favorites. Reserving on the old condition
+    // would pull a photograph out of the collage and then print it nowhere.
+    const favItems = FAVORITES.map((f) => {
+      const direct = (contentMap[ck("child_favorite", child.id, f.key)] ?? "").trim();
+      const oldKey = FAVORITES_FROM_INTERVIEW[f.key];
+      const fallback = oldKey ? (contentMap[ck("child_interview", child.id, oldKey)] ?? "").trim() : "";
+      const value = direct || fallback;
+      return value ? { label: f.label, value } : null;
+    }).filter((x): x is { label: string; value: string } => x !== null);
+    const showFavoritesSpread = ybSettings.show_favorite_things && favItems.length > 0;
+    const plan = planChapterPhotos(nonFeatured.length, showFavoritesSpread);
     const byRecent = [...nonFeatured].reverse();
     let pick = 0;
     const featurePhoto = plan.useFeaturePhoto ? byRecent[pick++] : null;
@@ -1408,6 +1447,7 @@ export default function YearbookReadPage() {
     const answeredInterview = YEAR_END_QUESTIONS
       .map((q) => ({ q, a: (contentMap[ck("child_interview", child.id, q.key)] ?? "").trim() }))
       .filter((x) => x.a);
+    const futureNote = contentMap[ck("child_future_note", child.id)] ?? "";
 
     spreads.push({
       id: `child-${child.id}`,
@@ -1447,7 +1487,11 @@ export default function YearbookReadPage() {
           <span className="text-[20px] mt-4 opacity-70 select-none relative z-10" aria-hidden>🌿</span>
         </div>
       ),
-      rightContent: (
+      // The conversation page prints only when the child actually said
+      // something, or a parent wrote them a note. It used to print a sprig over
+      // "{Name}'s year, in their own words." to a family who had never opened
+      // the editor, which is the book asking for homework.
+      rightContent: (answeredInterview.length > 0 || futureNote.trim()) ? (
         <PageShell>
           <div className="shrink-0">
             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">{child.name} in their own words</p>
@@ -1456,37 +1500,24 @@ export default function YearbookReadPage() {
             </h3>
           </div>
 
-          {(() => {
-            const answered = answeredInterview;
-            if (answered.length === 0) {
-              return (
-                <div className="flex-1 flex flex-col items-center justify-center text-center px-3">
-                  <Sprig className="mb-3" />
-                  <p className="italic text-[12px] text-[var(--yb-muted)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-                    {child.name}&apos;s year, in their own words.
-                  </p>
-                </div>
-              );
-            }
+          {answeredInterview.length > 0 && (
             // The opener's right page holds the first INTERVIEW_PER_PAGE
             // answers; the rest continue on their own spreads below (3c). It
             // used to be .slice(0, 6) with nothing after it, so a child who
             // answered all eleven questions silently lost five of them.
-            return (
-              <div className="space-y-2.5 flex-1 min-h-0 overflow-hidden mt-3">
-                {answered.slice(0, INTERVIEW_PER_PAGE).map(({ q, a }) => (
-                  <div key={q.key}>
-                    <p className="italic text-[9.5px] text-[var(--yb-muted)] leading-snug">{q.label}</p>
-                    {/* TODO: paginate a single very long answer; the SET is paginated below. */}
-                    <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-2 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{a}</p>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
+            <div className="space-y-2.5 flex-1 min-h-0 overflow-hidden mt-3">
+              {answeredInterview.slice(0, INTERVIEW_PER_PAGE).map(({ q, a }) => (
+                <div key={q.key}>
+                  <p className="italic text-[9.5px] text-[var(--yb-muted)] leading-snug">{q.label}</p>
+                  {/* TODO: paginate a single very long answer; the SET is paginated below. */}
+                  <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-2 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{a}</p>
+                </div>
+              ))}
+            </div>
+          )}
 
           {(() => {
-            const note = contentMap[ck("child_future_note", child.id)] ?? "";
+            const note = futureNote;
             if (!note.trim()) return null;
             return (
               <div className="bg-[#faf6ec] border-l-2 border-[#e8c44a] rounded-r-lg p-2.5 shrink-0 mt-3">
@@ -1499,6 +1530,8 @@ export default function YearbookReadPage() {
             );
           })()}
         </PageShell>
+      ) : (
+        <FillerPage />
       ),
     });
 
@@ -1528,25 +1561,19 @@ export default function YearbookReadPage() {
     // 3b. FAVORITE THINGS SPREAD — the expanded favorites, in the family's own
     // words. Each favorite reads its own child_favorite key; the two that used to
     // borrow interview answers fall back to those (also backfilled), so nothing
-    // a family wrote is lost. Only answered favorites are shown — never an empty
-    // prompt. The reserved photo (if any) faces the list.
-    if (ybSettings.show_favorite_things) {
-      const favItems = FAVORITES.map((f) => {
-        const direct = (contentMap[ck("child_favorite", child.id, f.key)] ?? "").trim();
-        const oldKey = FAVORITES_FROM_INTERVIEW[f.key];
-        const fallback = oldKey ? (contentMap[ck("child_interview", child.id, oldKey)] ?? "").trim() : "";
-        const value = direct || fallback;
-        return value ? { label: f.label, value } : null;
-      }).filter((x): x is { label: string; value: string } => x !== null);
+    // a family wrote is lost. favItems is resolved above, before the photo plan.
+    //
+    // A reserved photograph is NOT content: the spread used to print for a
+    // family who had written nothing, showing a photo facing the words
+    // "A few favorite things." The list is the section; the photo only faces it.
+    if (showFavoritesSpread) {
       const favPhoto = favThingsPhoto ? asPhotoItem(favThingsPhoto) : null;
-      if (favItems.length > 0 || favPhoto) {
-        spreads.push({
-          id: `child-${child.id}-favorites`,
-          label: `${child.name}'s chapter`,
-          leftContent: <FavoritesLeftPage childName={child.name} items={favItems} />,
-          rightContent: <FavoritesRightPage photo={favPhoto} childName={child.name} />,
-        });
-      }
+      spreads.push({
+        id: `child-${child.id}-favorites`,
+        label: `${child.name}'s chapter`,
+        leftContent: <FavoritesLeftPage childName={child.name} items={favItems} />,
+        rightContent: <FavoritesRightPage photo={favPhoto} />,
+      });
     }
 
     // 3d. BOOKS SPREAD for this child
@@ -1624,7 +1651,10 @@ export default function YearbookReadPage() {
   const { drawings: famDrawings, photos: famPhotos } = partitionDrawings(famPhotoMems);
   const famWins = familyMemories.filter((m) => m.type === "win" || m.type === "field_trip");
 
-  if (ybSettings.show_family_chapter) spreads.push({
+  // The opener lists the family's wins and trips. With none, it used to print a
+  // family emoji over "The moments we shared, all together." to a family whose
+  // shared moments were all photographs, which the collage below already shows.
+  if (ybSettings.show_family_chapter && famWins.length > 0) spreads.push({
     id: "family",
     label: "Our family",
     leftContent: (
@@ -1634,10 +1664,9 @@ export default function YearbookReadPage() {
           <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>Our family</h2>
         </div>
 
-        {familyMemories.length > 0 ? (
-          <div className="space-y-2.5 mt-4">
-            {/* Family photos flow to the collage spreads below (all of them). */}
-            {famWins.map((w) => (
+        <div className="space-y-2.5 mt-4">
+          {/* Family photos flow to the collage spreads below (all of them). */}
+          {famWins.map((w) => (
               <div key={w.id} className="bg-[#f0ede5] rounded-lg p-2.5 border-l-2 border-[#cdd9bf]">
                 <p className="text-[8px] uppercase tracking-[0.1em] text-[var(--yb-accent)] font-semibold flex items-center gap-1 mb-1">
                   <span>{w.type === "field_trip" ? "🗺️" : "⭐"}</span>
@@ -1648,18 +1677,10 @@ export default function YearbookReadPage() {
                     </span>
                   )}
                 </p>
-                <p className="text-[11px] text-[var(--yb-body)] line-clamp-2 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{w.title}</p>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
-            <span className="text-[40px] mb-3 opacity-60">👨‍👩‍👧‍👦</span>
-            <p className="text-[13px] italic text-[#8a7d70] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-              The moments we shared,<br />all together.
-            </p>
-          </div>
-        )}
+              <p className="text-[11px] text-[var(--yb-body)] line-clamp-2 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{w.title}</p>
+            </div>
+          ))}
+        </div>
       </PageShell>
     ),
     rightContent: (
@@ -1711,34 +1732,10 @@ export default function YearbookReadPage() {
     for (const sp of buildTinyMasterpiecesSpreads(famDrawings, "family-art", "Our family")) spreads.push(sp);
   }
 
-  // 5. FROM THE VILLAGE SPREAD — a keepsake signing page (warm write-on lines)
-  // for family to handwrite in. No in-app CTAs are printed into the book.
-  const SigningLines = ({ count }: { count: number }) => (
-    <div className="flex-1 flex flex-col justify-center gap-[26px]">
-      {Array.from({ length: count }).map((_, i) => (
-        <div key={i} className="border-b border-[#e2d9c7]" />
-      ))}
-    </div>
-  );
-  if (ybSettings.show_village) spreads.push({
-    id: "village",
-    label: "From the village",
-    leftContent: (
-      <PageShell>
-        <div className="shrink-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">The people who love you</p>
-          <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>From the village</h2>
-          <p className="italic text-[11px] text-[var(--yb-muted)] mt-1.5" style={{ fontFamily: "Georgia, serif" }}>A page for the people who love you to sign.</p>
-        </div>
-        <SigningLines count={5} />
-      </PageShell>
-    ),
-    rightContent: (
-      <PageShell>
-        <SigningLines count={7} />
-      </PageShell>
-    ),
-  });
+  // 5. FROM THE VILLAGE is gone. It printed twelve blank ruled lines waiting to
+  // be signed by hand, which nothing in the app can fill, in every book whether
+  // or not the family had anyone to sign them. Its yearbook_content rows, if any
+  // family ever had them, are left alone; there is no migration.
 
   // 5.5. LOOKING BACK — the year recap (named lists, no counts), paginated so a
   // long recap spills across spreads and never clips. Omitted when empty.
@@ -1779,40 +1776,29 @@ export default function YearbookReadPage() {
     for (const sp of buildAdventureSpreads(adventures)) spreads.push(sp);
   }
 
-  // 5.6. UNTIL NEXT YEAR — a warm closing page before the back cover.
-  spreads.push({
-    id: "until-next-year",
-    label: "Until next year",
-    leftContent: (
-      <PageShell>
-        <div className="flex-1 flex flex-col justify-center px-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">A year together</p>
-          <h2 className="text-[18px] font-bold text-[var(--yb-heading)] mt-1 mb-3" style={{ fontFamily: "var(--yb-heading-font)" }}>
-            Until next year…
-          </h2>
-          <p className="text-[11.5px] text-[var(--yb-body)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-            Every homeschool year is different. Some lessons were easy. Some were messy.
-            Some happened around the kitchen table. Some happened outside under the sky.
-            Some weren&apos;t in any curriculum at all.
-          </p>
-        </div>
-      </PageShell>
-    ),
-    rightContent: (
-      <PageShell>
-        <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-          <Sprig className="mb-5" />
-          <p className="italic text-[13px] text-[var(--yb-body)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-            Thank you for filling these pages with laughter, curiosity, kindness, and love.
-          </p>
-          <p className="italic text-[14px] text-[var(--yb-heading)] leading-relaxed mt-4" style={{ fontFamily: "Georgia, serif" }}>
-            Here&apos;s to another year of growing together.
-          </p>
-          <Sprig className="mt-5" />
-        </div>
-      </PageShell>
-    ),
-  });
+  // 5.6. UNTIL NEXT YEAR: the closing note.
+  //
+  // This used to be two pages of hardcoded copy, word for word identical in
+  // every Rooted yearbook ever printed. It is now built from this family's own
+  // year: the days they showed up, the lessons they finished, the books, the
+  // places, the photographs. Set as a sentence rather than a stat block, because
+  // the last page of a keepsake is an ending, not a dashboard. A family with
+  // none of it gets no page at all.
+  const closingCounts: ClosingCounts = {
+    schoolDays: lessonRecord.schoolDays,
+    lessons: lessonRecord.lessons,
+    books: memories.filter((m) => m.type === "book").length,
+    places: memories.filter((m) => m.type === "field_trip").length,
+    photographs: memories.filter((m) => m.photo_url && m.type !== "drawing").length,
+  };
+  if (hasClosingNote(closingCounts)) {
+    spreads.push({
+      id: "until-next-year",
+      label: "Until next year",
+      leftContent: <ClosingNotePage counts={closingCounts} yearLabel={yearLabel} />,
+      rightContent: <FillerPage />,
+    });
+  }
 
   // 6. BACK COVER SPREAD
   spreads.push({
@@ -1849,7 +1835,21 @@ export default function YearbookReadPage() {
     const idx = spreads.findIndex((s) => s.id === id);
     return idx === -1 ? null : (idx + 1) * 2 + 1;
   };
-  spreads.unshift(buildCoverSpread(pageNumberForId));
+
+  // The contents: one entry per section that was actually assembled, at the
+  // page its first spread opens on, using that spread's own label. Sections
+  // share a label across their spreads (a child's chapter is several), so the
+  // first occurrence wins. The back cover is the only body spread left out.
+  const contentsEntries: { label: string; page: number }[] = [];
+  const seenContentsLabels = new Set<string>();
+  for (const sp of spreads) {
+    if (sp.id === "back" || seenContentsLabels.has(sp.label)) continue;
+    const page = pageNumberForId(sp.id);
+    if (page == null) continue;
+    seenContentsLabels.add(sp.label);
+    contentsEntries.push({ label: sp.label, page });
+  }
+  spreads.unshift(buildCoverSpread(contentsEntries));
 
   // ── Stamp discreet page numbers on every content page ─────────────────────
   // Folios count the cover as pages 1-2 (so a body spread's left page is
@@ -1928,6 +1928,8 @@ export default function YearbookReadPage() {
     filledInterviewChildren: children.filter((c) =>
       YEAR_END_QUESTIONS.some((q) => (contentMap[ck("child_interview", c.id, q.key)] ?? "").trim()),
     ).length,
+    // Exactly the condition the chapter uses above: at least one favorite
+    // written. It gates both the spread and the photo reservation.
     filledFavoriteChildren: children.map((c) =>
       FAVORITES.some((f) => {
         const oldKey = FAVORITES_FROM_INTERVIEW[f.key];
@@ -1958,6 +1960,9 @@ export default function YearbookReadPage() {
       YEAR_END_QUESTIONS.filter((q) => (contentMap[ck("child_interview", c.id, q.key)] ?? "").trim()).length,
     ),
     hasLetter: letterText.trim().length > 0,
+    hasFavoriteDay,
+    familyWinCount: famWins.length,
+    hasClosingNote: hasClosingNote(closingCounts),
     letterPages: letterPages.length,
     monthlyAnswers: monthEntries.length,
     tinyMomentLines: tinyMoments.length,
@@ -1972,12 +1977,11 @@ export default function YearbookReadPage() {
     showFavoriteThings: ybSettings.show_favorite_things,
     showBooksSection: ybSettings.show_books_section,
     showFamilyChapter: ybSettings.show_family_chapter,
-    showVillage: ybSettings.show_village,
   };
 
   return { spreads, pages, familyName, bookCounts, bookSections };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memories, children, contentMap, monthly, profile, yearbookKey, ybSettings]);
+  }, [memories, children, contentMap, monthly, profile, yearbookKey, ybSettings, lessonRecord]);
 
   // ── Drift detector ────────────────────────────────────────────────────────
   // Today shows a page count it cannot derive by assembling the book, so it
