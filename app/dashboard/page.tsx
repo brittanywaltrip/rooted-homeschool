@@ -1928,6 +1928,25 @@ export default function TodayPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadData]);
 
+  // A photo was saved from the Quick photo button in app/dashboard/layout.tsx.
+  // That FAB dispatches rooted:memory-saved and its comment said the event was
+  // "for the Today page, which has its own listener". Today had none, so a
+  // photo taken with the most convenient button in the app did not appear in
+  // Today's Story until a reload. That was survivable while those photos were
+  // include_in_book: false; now that they reach the book, the Your Book page
+  // count was stale too. Regression guard: await both.
+  useEffect(() => {
+    const handler = async () => {
+      loadDataBusy.current = false;
+      await loadData();
+      await refreshTodayStory();
+    };
+    window.addEventListener("rooted:memory-saved", handler);
+    return () => window.removeEventListener("rooted:memory-saved", handler);
+  // refreshTodayStory is a stable hoisted function declaration in this component.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadData]);
+
   // Re-fetch when a lesson is rescheduled/moved on the Plan page so the
   // Today schedule reflects the new date without a manual page reload.
   useEffect(() => {
@@ -6054,12 +6073,20 @@ export default function TodayPage() {
         const subject = isDrawing ? "drawing" : "photo";
         return (
           <>
+            {/* z-[75], not z-50. Every other sheet on this page shares z-50 and
+                is therefore ordered by where it happens to sit in the JSX, and
+                the toasts sit at z-[70]. This card opens by itself right after
+                a save rather than by a tap, so it cannot rely on being the
+                last thing rendered; giving it its own level keeps a stray
+                sibling from covering it the way the catch-up modal did. The
+                z-[80] modals above it are all opened by an explicit tap, and
+                the one that was not is suppressed above. */}
             <div
-              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50"
+              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[75]"
               onClick={dismissCaptionCard}
             />
             <div
-              className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto max-h-[92dvh] overflow-y-auto"
+              className="fixed bottom-0 left-0 right-0 z-[75] bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto max-h-[92dvh] overflow-y-auto"
               style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
             >
               <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
@@ -6419,7 +6446,15 @@ export default function TodayPage() {
            their gap dates and recomputes current_lesson per goal; NO is
            a no-op write but still refreshes Today + Memories. Session-
            storage flag `rooted_missed_lesson_prompt_shown` gates re-show. */}
-      {showMissedRecovery && (
+      {/* Suppressed while the caption card is open. loadData() runs immediately
+          before that card opens and can set showMissedRecovery, and this modal
+          renders at z-[80]/[81], so it landed square on top of the caption
+          field and both buttons. Nothing is lost: showMissedRecovery stays
+          true and the session flag is only written by the YES/NO/dismiss
+          handlers, so the prompt appears the moment the card is closed. It is
+          also the right call on its own terms, since catching up on lessons is
+          not urgent enough to interrupt a photo the family just took. */}
+      {showMissedRecovery && captionQueue.length === 0 && (
         <MissedLessonRecoveryModal
           goals={missedGoals}
           entriesByGoal={missedEntriesByGoal}

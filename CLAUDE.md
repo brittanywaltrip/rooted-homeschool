@@ -660,6 +660,29 @@ What that means in practice:
   by lib/year-recap.ts, and is omitted when there is
   nothing to count. It replaced two pages of copy that
   were word for word identical in every book.
+- There are THREE photo capture paths, and a change to
+  one is a change to all three:
+    1. saveCapturedPhotos, app/dashboard/page.tsx
+    2. the field trip sheet, app/dashboard/page.tsx
+    3. the Quick photo FAB, app/dashboard/layout.tsx
+  The FAB lives in the layout, so it is on every
+  dashboard page and is the most used of the three. It
+  was missed when the other two were fixed in 8e08d08
+  and stayed broken for a commit. All three set
+  include_in_book: true. lib/memory-insert-guard.test.ts
+  sweeps the source and fails if any insert into
+  `memories` anywhere leaves include_in_book to the
+  column default.
+  NOTE: lib/lesson-photo.ts is a fourth path that
+  attaches a photo to a lesson and sets false, despite
+  the commit that added it saying it "flows into
+  Memories and the yearbook". That needs a decision.
+- The caption card must not be occluded. It opens by
+  itself right after a save rather than by a tap, so it
+  cannot rely on being the last sheet rendered: it sits
+  at z-[75], above the z-50 sheet band and the z-[70]
+  toasts, and the catch-up lessons modal (z-[80]) is
+  suppressed while it is open.
 - Photos and field trips are captured INTO the book:
   include_in_book: true on insert, matching the column
   default. The capture path wrote false, and since the
@@ -677,7 +700,10 @@ What that means in practice:
   other way to know that field becomes the caption in her
   book, which is why 815 of 898 photos have none. Today's
   edit sheet, the Memories edit sheet and the capture
-  card all say the same thing.
+  card all say the same thing, and so does the Quick
+  photo sheet, which had a bare "What's this?"
+  placeholder and wrote its text to `title` where the
+  yearbook's caption line never looked.
 - The capture card offers a caption AFTER the photo has
   saved, the toast has fired and both refreshes have run.
   It must never sit between a family and a saved photo:

@@ -519,8 +519,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       const accessLevel = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
       const remaining = await getRemainingPhotoSlots(user.id, accessLevel === "free");
       if (remaining <= 0) {
-        // The sheet renders the cap notice + upgrade link. The event stays for
-        // the Today page, which has its own listener; every OTHER page had none,
+        // The sheet renders the cap notice + upgrade link. The event is for
+        // the Today page, which listens for it; every OTHER page had none,
         // which is why this used to fail in total silence.
         setFabRemaining(0);
         setFabLimitHit(true);
@@ -547,13 +547,26 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           const { error: insErr } = await supabase.from("memories").insert({
             user_id: user.id,
             type: "photo",
-            title: fabCaption.trim() || null,
+            // The sheet's text field goes to `caption`, not `title`. It is
+            // labelled Caption and promises to print under the photo, and the
+            // yearbook's caption line reads memories.caption; text left in
+            // `title` never appeared under a collage photo at all, so this
+            // path quietly made a different promise from the Today capture.
+            caption: fabCaption.trim() || null,
             photo_url: photoUrl,
             photo_width: width,
             photo_height: height,
             child_id: fabChildId || null,
             date: today,
-            include_in_book: false,
+            // include_in_book: true. Photos are IN the book by default,
+            // matching the column default and the way the yearbook editor is
+            // worded: it offers a Hide toggle, which only makes sense if
+            // things start included. The reader filters on
+            // .eq("include_in_book", true), so false here meant every photo
+            // taken with the Quick photo button, the most convenient capture
+            // in the app, never reached a page. The way out is the editor's
+            // Hide toggle, not the capture path.
+            include_in_book: true,
           });
           if (insErr) throw insErr;
           saved++;
@@ -944,9 +957,16 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                     You have {fabRemaining} {fabRemaining === 1 ? "photo" : "photos"} left on the free plan.
                   </p>
                 )}
-                <input type="text" value={fabCaption} onChange={(e) => setFabCaption(e.target.value)}
-                  placeholder="What's this?" autoFocus disabled={fabSaving}
-                  className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition-colors disabled:opacity-60" />
+                {/* Labelled and explained, the same as the Today capture card
+                    and both edit sheets. Two capture paths must not make two
+                    different promises about what this text does. */}
+                <div>
+                  <label htmlFor="fab-caption" className="text-xs font-medium text-[#7a6f65] block mb-1.5">Caption</label>
+                  <input id="fab-caption" type="text" value={fabCaption} onChange={(e) => setFabCaption(e.target.value)}
+                    autoFocus disabled={fabSaving}
+                    className="w-full px-4 py-3 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder:text-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20 transition-colors disabled:opacity-60" />
+                  <p className="text-[11px] text-[#9a8f85] mt-1.5">This prints under the photo in your yearbook.</p>
+                </div>
                 {fabKids.length > 0 && (
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => setFabChildId("")} disabled={fabSaving}
