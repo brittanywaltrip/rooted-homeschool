@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef, type PointerEvent as ReactPoi
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
-import { signedPhotoUrl } from "@/lib/photo-url";
+import { signedPhotoUrl, coverBucketFor } from "@/lib/photo-url";
 import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS, COVER_MAX_DIMENSION } from "@/lib/photo-pipeline";
 import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
@@ -1027,7 +1027,7 @@ export default function YearbookEditPage() {
             <div className="flex items-center gap-4">
               <SignedImage
                 src={coverPhotoUrl}
-                bucket={coverPhotoUrl.includes("/family-photos/") ? "family-photos" : "yearbook-covers"}
+                bucket={coverBucketFor(coverPhotoUrl)}
                 alt="Cover"
                 className="h-[100px] w-auto rounded-lg object-cover border border-[#e8e3dc]"
               />
@@ -1094,7 +1094,7 @@ export default function YearbookEditPage() {
               ...(familyIds.length ? [{ key: FAMILY_GROUP_KEY, label: "Family", ids: familyIds }] : []),
             ];
 
-            const coverBucket = coverPhotoUrl.includes("/family-photos/") ? "family-photos" : "yearbook-covers";
+            const coverBucket = coverBucketFor(coverPhotoUrl);
             const coverFocal = focalMap["cover"] ?? null;
 
             if (!coverPhotoUrl && groups.length === 0) {
@@ -1572,7 +1572,7 @@ export default function YearbookEditPage() {
                             style={{ fontFamily: "Georgia, serif" }}
                           />
                           {val.trim() && updatedMap[updKey] && (
-                            <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)] mt-0.5">
+                            <p className="text-[9px] text-[#9a8f85] mt-0.5">
                               ✓ Saved {new Date(updatedMap[updKey]).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                             </p>
                           )}

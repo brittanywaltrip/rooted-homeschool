@@ -24,6 +24,7 @@ import {
   DEFAULT_MOSAIC_OPTS,
   type PhotoItem,
 } from "./yearbook-photo-pages.ts";
+import { INTERVIEW_PER_PAGE } from "./yearbook-prompts.ts";
 
 // ─── Fixed spreads ───────────────────────────────────────────────────────────
 // Spreads the book always has, whatever a family has written. Each is one
@@ -37,7 +38,12 @@ export const CLOSING_SPREADS = 1;
 export const BACK_COVER_SPREADS = 1;
 /** "From the village", the signing spread, only when the section is enabled. Reader: `if (ybSettings.show_village)`. */
 export const VILLAGE_SPREADS = 1;
-/** "A letter from home". Reader pushes this on `show_letter` alone, regardless of whether the letter is written. */
+/**
+ * "A letter from home". Reader pushes this on `show_letter` alone, regardless
+ * of whether the letter is written, because an unwritten letter still gets its
+ * warm empty page. A letter longer than one page adds continuation spreads on
+ * top of this; see BookCounts.letterPages.
+ */
 export const LETTER_SPREADS = 1;
 /** A child's chapter opener (divider + year-end conversation). One per child. */
 export const CHILD_OPENER_SPREADS = 1;
@@ -73,13 +79,22 @@ export interface BookCounts {
   childDrawingCounts: number[];
   familyDrawingCount: number;
   /**
-   * How many children answered at least one year-end question. Recorded
-   * because it is the obvious thing to want here, but it does NOT change the
-   * count: the reader renders the interview on the chapter opener's right page
-   * whether or not it has answers (it falls back to a warm line), so an
-   * unanswered interview costs the same pages as an answered one.
+   * How many children answered at least one year-end question. Does NOT change
+   * the count on its own: the reader renders the interview on the chapter
+   * opener's right page whether or not it has answers (it falls back to a warm
+   * line), so an unanswered interview costs the same pages as an answered one.
+   * What DOES change the count is answering more than fit there, which is
+   * childInterviewAnswers below.
    */
   filledInterviewChildren: number;
+  /**
+   * Per child, how many year-end questions they answered. The chapter opener's
+   * right page holds INTERVIEW_PER_PAGE of them and the rest continue on their
+   * own spreads, so a child who answered all eleven adds pages. Until the
+   * print-correctness pass the reader clamped this at six and silently dropped
+   * the rest, which is why answering more used to cost nothing.
+   */
+  childInterviewAnswers: number[];
   /**
    * Per child, whether they have at least one filled "favorite things" field.
    * Per child rather than a total because the favorites spread also appears
@@ -88,14 +103,24 @@ export interface BookCounts {
    */
   filledFavoriteChildren: boolean[];
   /**
-   * Per child, how many keepsake pages are filled (snapshot / never-forget /
-   * open-when, so 0..3). Per child because the reader packs each child's
-   * keepsake pages into that child's own spreads: two children with one page
-   * each are two spreads, not one.
+   * Per child, how many keepsake PAGES are filled. One for the snapshot, then
+   * however many pages the never-forget lines and the open-when letter
+   * paginate into, so this is no longer capped at three: those two pages stopped
+   * clamping their text and now flow onto more pages instead of cutting it.
+   * Per child because the reader packs each child's keepsake pages into that
+   * child's own spreads: two children with one page each are two spreads, not
+   * one.
    */
   filledKeepsakePages: number[];
   /** Whether the letter has text. Kept for symmetry; see LETTER_SPREADS. */
   hasLetter: boolean;
+  /**
+   * How many pages the letter from home paginates into (0 when unwritten).
+   * The first page faces "A Day We'll Never Forget" on the letter spread, and
+   * the rest pair off onto continuation spreads. It used to be one page with
+   * line-clamp-[11], so a long letter cost no extra pages and lost its ending.
+   */
+  letterPages: number;
   /** Monthly reflections with a non-empty answer, inside this yearbook's months. */
   monthlyAnswers: number;
   /** Non-empty lines in the "tiny moments" text. */
@@ -213,7 +238,11 @@ export function estimateYearbookPages(
 ): number {
   let spreads = COVER_SPREADS;
 
-  if (sections.showLetter) spreads += LETTER_SPREADS;
+  if (sections.showLetter) {
+    spreads += LETTER_SPREADS;
+    // Pages 2..n of a long letter, two to a spread, a filler on the odd one.
+    if (c.letterPages > 1) spreads += Math.ceil((c.letterPages - 1) / 2);
+  }
 
   if (sections.showChildChapters) {
     const childCount = Math.max(
@@ -222,6 +251,7 @@ export function estimateYearbookPages(
       c.childDrawingCounts.length,
       c.filledFavoriteChildren.length,
       c.filledKeepsakePages.length,
+      c.childInterviewAnswers.length,
     );
     for (let i = 0; i < childCount; i++) {
       const photos = c.childPhotoCounts[i] ?? 0;
@@ -232,6 +262,11 @@ export function estimateYearbookPages(
 
       // The chapter opener: a divider page facing the year-end conversation.
       spreads += CHILD_OPENER_SPREADS;
+
+      // Conversation answers past the ones that fit on the opener continue on
+      // their own spreads, INTERVIEW_PER_PAGE to a page.
+      const spilledAnswers = Math.max(0, (c.childInterviewAnswers[i] ?? 0) - INTERVIEW_PER_PAGE);
+      spreads += spreadsForChunkedPages(spilledAnswers, INTERVIEW_PER_PAGE);
 
       // The chapter's photos, allocated exactly as the reader allocates them:
       // one may become the full-bleed divider, one may go to favorites, and

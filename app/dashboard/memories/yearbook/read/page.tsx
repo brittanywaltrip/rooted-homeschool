@@ -14,11 +14,12 @@ import {
   buildBooksSpread,
   type YearbookMemory,
 } from "@/lib/yearbook-layout-engine";
-import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES, tinyMomentLines } from "@/lib/yearbook-prompts";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES, tinyMomentLines, paginateLetter, paginateByLineBudget, estimateLines, KEEPSAKE_LINES_PER_PAGE, KEEPSAKE_LINES_WITH_SIGNOFF, INTERVIEW_PER_PAGE } from "@/lib/yearbook-prompts";
 import { partitionDrawings, tinyMasterpieceCaption, chunk } from "@/lib/tiny-masterpieces";
 import { monthEntriesFor, monthLabel, type MonthEntry } from "@/lib/monthly-questions";
 import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell, type PhotoItem, type ChapterPhotoUnit } from "@/lib/yearbook-photo-pages";
 import { focalObjectPosition } from "@/lib/focal-point";
+import { coverBucketFor } from "@/lib/photo-url";
 import { orderPhotos } from "@/lib/photo-order";
 import { featureCaptionText } from "@/lib/photo-caption";
 import { resolveTheme, themeCssVars, THEMES, type YearbookTheme } from "@/lib/yearbook-theme";
@@ -326,6 +327,7 @@ function FeaturePhotoPage({ photo }: { photo: PhotoItem }) {
           style={{ background: "linear-gradient(to top, rgba(22,32,24,0.7), rgba(22,32,24,0))" }}
         >
           {caption && (
+            // TODO: paginate. Clamping cuts a family's words with no sign it happened.
             <p className="italic text-[12px] text-white/90 leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
               {caption}
             </p>
@@ -369,6 +371,7 @@ function RecapSection({ label, items, continued }: { label: string; items: strin
       </p>
       <ul className="space-y-1">
         {items.map((it, i) => (
+          // TODO: paginate. Clamping cuts a family's words with no sign it happened.
           <li
             key={i}
             className="text-[11.5px] text-[var(--yb-body)] leading-snug line-clamp-1"
@@ -434,6 +437,7 @@ function FavoritesLeftPage({ childName, items }: { childName: string; items: { l
           {items.map((it, i) => (
             <div key={i} className="mb-2.5" style={{ breakInside: "avoid" }}>
               <p className="text-[8px] uppercase tracking-[0.08em] text-[var(--yb-muted)]">{it.label}</p>
+              {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
               <p className="text-[11px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{it.value}</p>
             </div>
           ))}
@@ -537,6 +541,7 @@ function SnapshotPage({ childName, items }: { childName: string; items: { label:
         {items.map((it, i) => (
           <div key={i} className="mb-2.5" style={{ breakInside: "avoid" }}>
             <p className="text-[8px] uppercase tracking-[0.08em] text-[var(--yb-muted)]">{it.label}</p>
+            {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
             <p className="text-[12px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{it.value}</p>
           </div>
         ))}
@@ -547,18 +552,25 @@ function SnapshotPage({ childName, items }: { childName: string; items: { label:
 
 // "Things I Never Want to Forget About You Right Now" — parent-written; only the
 // completed lines are shown (lead-in + what the parent wrote).
-function NeverForgetPage({ childName, lines }: { childName: string; lines: { prompt: string; value: string }[] }) {
+//
+// Not clamped. What a mother writes here is the whole point of the page, so a
+// long answer flows onto another page instead of being cut at two lines. The
+// title is carried by the first page only, the way every other paginated
+// section in this book does it.
+function NeverForgetPage({ childName, lines, showTitle }: { childName: string; lines: { prompt: string; value: string }[]; showTitle: boolean }) {
   return (
     <PageShell>
-      <div className="shrink-0 mb-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">For {childName}, from us</p>
-        <h2 className="text-[16px] font-bold text-[var(--yb-heading)] mt-1 leading-tight" style={{ fontFamily: "var(--yb-heading-font)" }}>
-          Things I never want to forget about you right now
-        </h2>
-      </div>
+      {showTitle && (
+        <div className="shrink-0 mb-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">For {childName}, from us</p>
+          <h2 className="text-[16px] font-bold text-[var(--yb-heading)] mt-1 leading-tight" style={{ fontFamily: "var(--yb-heading-font)" }}>
+            Things I never want to forget about you right now
+          </h2>
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-hidden space-y-2">
         {lines.map((l, i) => (
-          <p key={i} className="text-[11.5px] text-[var(--yb-body)] leading-relaxed line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>
+          <p key={i} className="text-[11.5px] text-[var(--yb-body)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
             <span className="text-[var(--yb-muted)]">{l.prompt}</span> {l.value}
           </p>
         ))}
@@ -567,24 +579,102 @@ function NeverForgetPage({ childName, lines }: { childName: string; lines: { pro
   );
 }
 
+/** Cost of one prompt-and-answer line: the lead-in plus what the parent wrote. */
+function promptLineCost(l: { prompt: string; value: string }): number {
+  return estimateLines(`${l.prompt} ${l.value}`);
+}
+
 // "Open When You're Grown" — a letter to the future child; written prompts only.
-function OpenWhenPage({ childName, parts }: { childName: string; parts: { prompt: string; value: string }[] }) {
+// Not clamped, for the same reason as the page above: it paginates instead.
+// Only the last page signs off, so "Love, Mom & Dad" appears once.
+function OpenWhenPage({ childName, parts, showTitle, showSignoff }: { childName: string; parts: { prompt: string; value: string }[]; showTitle: boolean; showSignoff: boolean }) {
   return (
     <PageShell>
-      <div className="shrink-0 mb-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Open when you&apos;re grown</p>
-        <h2 className="text-[16px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
-          Dear Future {childName},
-        </h2>
-      </div>
+      {showTitle && (
+        <div className="shrink-0 mb-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Open when you&apos;re grown</p>
+          <h2 className="text-[16px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+            Dear Future {childName},
+          </h2>
+        </div>
+      )}
       <div className="flex-1 min-h-0 overflow-hidden space-y-2.5">
         {parts.map((p, i) => (
-          <p key={i} className="text-[11.5px] text-[var(--yb-body)] leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
+          <p key={i} className="text-[11.5px] text-[var(--yb-body)] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
             <span className="italic text-[var(--yb-muted)]">{p.prompt}</span> {p.value}
           </p>
         ))}
       </div>
-      <p className="italic text-[12px] text-[var(--yb-accent)] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>Love, Mom &amp; Dad</p>
+      {showSignoff && (
+        <p className="italic text-[12px] text-[var(--yb-accent)] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>Love, Mom &amp; Dad</p>
+      )}
+    </PageShell>
+  );
+}
+
+// One page of year-end conversation answers. The chapter opener's right page
+// shows the first few; when a child answers more than that, the rest continue
+// here, one spread at a time, exactly the way month-by-month spills.
+function InterviewPage({ childName, items, showTitle }: { childName: string; items: { label: string; answer: string }[]; showTitle: boolean }) {
+  return (
+    <PageShell>
+      {showTitle && (
+        <div className="shrink-0 mb-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">{childName} in their own words</p>
+          <h2 className="text-[16px] font-bold text-[var(--yb-heading)] mt-1" style={{ fontFamily: "var(--yb-heading-font)" }}>
+            Year-End Conversation
+          </h2>
+        </div>
+      )}
+      <div className="flex-1 min-h-0 overflow-hidden space-y-2.5">
+        {items.map((it, i) => (
+          <div key={i}>
+            <p className="italic text-[9.5px] text-[var(--yb-muted)] leading-snug">{it.label}</p>
+            <p className="text-[11px] text-[var(--yb-body)] leading-relaxed mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{it.answer}</p>
+          </div>
+        ))}
+      </div>
+    </PageShell>
+  );
+}
+
+function buildInterviewSpreads(childName: string, items: { label: string; answer: string }[], idPrefix: string, label: string): SpreadDef[] {
+  const pages = chunk(items, INTERVIEW_PER_PAGE);
+  const out: SpreadDef[] = [];
+  for (let i = 0; i < pages.length; i += 2) {
+    out.push({
+      id: i === 0 ? idPrefix : `${idPrefix}-${i / 2}`,
+      label,
+      leftContent: <InterviewPage childName={childName} items={pages[i]} showTitle={i === 0} />,
+      rightContent: pages[i + 1] ? <InterviewPage childName={childName} items={pages[i + 1]} showTitle={false} /> : <FillerPage />,
+    });
+  }
+  return out;
+}
+
+// One page of the letter from home. paginateLetter has already decided where
+// the breaks fall; the first page carries the heading and the last one signs
+// off, so a three-page letter reads as one letter, not three.
+function LetterPage({ text, familyName, showTitle, showSignoff }: { text: string; familyName: string; showTitle: boolean; showSignoff: boolean }) {
+  return (
+    <PageShell>
+      {showTitle && (
+        <div className="shrink-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Written for our family</p>
+          <h2 className="text-[17px] font-bold text-[var(--yb-heading)] mt-1.5" style={{ fontFamily: "var(--yb-heading-font)" }}>A letter from home</h2>
+          <p className="text-[10px] text-[var(--yb-muted)] mt-1">Dear Future Us…</p>
+        </div>
+      )}
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-3">
+        <p className="text-[11.5px] italic text-[#3a352f] leading-relaxed whitespace-pre-wrap" style={{ fontFamily: "Georgia, serif" }}>
+          {text}
+        </p>
+        {showSignoff && (
+          <p className="italic text-[12px] text-[var(--yb-accent)] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>
+            Love, {familyName}
+          </p>
+        )}
+      </div>
     </PageShell>
   );
 }
@@ -607,6 +697,7 @@ function MonthByMonthPage({ entries, showTitle }: { entries: MonthEntry[]; showT
           <div key={e.month}>
             <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--yb-accent)]">{monthLabel(e.month)}</p>
             <p className="italic text-[9.5px] text-[var(--yb-muted)] leading-snug">{e.question}</p>
+            {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
             <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-2 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{e.answer}</p>
           </div>
         ))}
@@ -641,6 +732,7 @@ function TinyMomentsPage({ lines }: { lines: string[] }) {
       </div>
       <div className="flex-1 min-h-0 overflow-hidden space-y-1.5">
         {lines.map((line, i) => (
+          // TODO: paginate. Clamping cuts a family's words with no sign it happened.
           <p key={i} className="text-[12px] text-[var(--yb-body)] leading-snug line-clamp-1" style={{ fontFamily: "Georgia, serif" }}>{line}</p>
         ))}
       </div>
@@ -667,6 +759,7 @@ function AdventureCategoriesPage({ items, showTitle }: { items: { label: string;
         {items.map((it, i) => (
           <div key={i}>
             <p className="text-[9px] font-semibold uppercase tracking-[0.1em] text-[var(--yb-accent)]">{it.label}</p>
+            {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
             <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-3 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{it.value}</p>
           </div>
         ))}
@@ -693,7 +786,7 @@ function buildAdventureSpreads(items: { label: string; value: string }[]): Sprea
 
 function getPageHeaders(spreadId: string, spreadLabel: string): [string, string] {
   if (spreadId === "cover") return ["ROOTED YEARBOOK", "TABLE OF CONTENTS"];
-  if (spreadId === "letter") return ["A LETTER FROM HOME", "A LETTER FROM HOME"];
+  if (spreadId === "letter" || spreadId.startsWith("letter-cont")) return ["A LETTER FROM HOME", "A LETTER FROM HOME"];
   if (spreadId.startsWith("year-in-numbers")) return ["LOOKING BACK", "LOOKING BACK"];
   if (spreadId.startsWith("month-by-month")) return ["MONTH BY MONTH", "MONTH BY MONTH"];
   if (spreadId === "until-next-year") return ["UNTIL NEXT YEAR", "UNTIL NEXT YEAR"];
@@ -925,11 +1018,21 @@ export default function YearbookReadPage() {
 
   const { spreads, pages, familyName, bookCounts, bookSections } = useMemo(() => {
 
-  const familyName = profile.display_name ?? "Our Family";
+  // The editor is the source of truth for the family name. It is the most
+  // prominent field on the customize page, it saves to yearbook_content as
+  // family_name, and until now the cover ignored it completely and printed the
+  // profile display name instead. The profile is only the fallback for a
+  // family who has never filled the field in.
+  const familyName =
+    (contentMap[ck("family_name")] ?? "").trim() || profile.display_name || "Our Family";
   const coverTitle = /^the\s/i.test(familyName) ? familyName : `The ${familyName}`;
-  const yearLabel = yearbookKey
+  // Same for the year. profiles.yearbook_opened_at tells us WHICH book this is,
+  // not what the family wants printed on it, so the editor's school_year wins
+  // and the derivation is the fallback.
+  const derivedYearLabel = yearbookKey
     ? `${yearbookKey.split("-")[0]}\u201320${yearbookKey.split("-")[1]}`
     : "";
+  const yearLabel = (contentMap[ck("school_year")] ?? "").trim() || derivedYearLabel;
 
   const coverPhotoUrl = contentMap[ck("cover_photo")] || profile.family_photo_url || "";
   // Cover focal point lives in the yearbook content (the cover photo isn't a
@@ -991,7 +1094,7 @@ export default function YearbookReadPage() {
           >
             <SignedImage
               src={coverPhotoUrl}
-              bucket={coverPhotoUrl.includes("/yearbook-covers/") ? "yearbook-covers" : "family-photos"}
+              bucket={coverBucketFor(coverPhotoUrl)}
               className="w-full h-full object-cover"
               style={{ objectPosition: focalObjectPosition(coverFocalX, coverFocalY, 1.5) }}
             />
@@ -1001,13 +1104,13 @@ export default function YearbookReadPage() {
           <p className="italic text-[11px] text-white/80 text-center max-w-[230px] leading-snug mt-4" style={{ fontFamily: "Georgia, serif" }}>
             {coverSubtitle}
           </p>
-          <p className="text-[8px] font-semibold tracking-[0.2em] uppercase text-[rgba(254, 252, 249, 0.55)] mt-2">
+          <p className="text-[8px] font-semibold tracking-[0.2em] uppercase text-[var(--yb-cover-accent)] mt-2">
             {yearLabel}
           </p>
         </div>
 
         <div className="flex justify-center items-center w-full px-5 pb-3 relative z-10">
-          <span className="text-[9px] tracking-[0.18em] text-[rgba(254, 252, 249, 0.55)]/50">ROOTED</span>
+          <span className="text-[9px] tracking-[0.18em] text-[var(--yb-cover-fg)]/30">ROOTED</span>
         </div>
       </div>
     ) : (
@@ -1030,7 +1133,7 @@ export default function YearbookReadPage() {
         </div>
 
         <div className="flex justify-center items-center px-5 pb-4 relative z-10">
-          <span className="text-[9px] tracking-[0.18em] text-[rgba(254, 252, 249, 0.55)]/60">ROOTED</span>
+          <span className="text-[9px] tracking-[0.18em] text-[var(--yb-cover-fg)]/35">ROOTED</span>
         </div>
       </div>
     ),
@@ -1062,10 +1165,23 @@ export default function YearbookReadPage() {
   });
 
   // 2. LETTER FROM HOME SPREAD
+  //
+  // The letter used to be one page with line-clamp-[11] on it, so anything a
+  // mother wrote past about eleven lines was cut and she was never told. It
+  // now paginates: page 1 faces "A Day We'll Never Forget" as before, and any
+  // further pages follow on their own spreads (2a).
+  const letterPages = paginateLetter(letterText);
   if (ybSettings.show_letter) spreads.push({
     id: "letter",
     label: "Letter from home",
-    leftContent: (
+    leftContent: letterPages.length > 0 ? (
+      <LetterPage
+        text={letterPages[0]}
+        familyName={familyName}
+        showTitle
+        showSignoff={letterPages.length === 1}
+      />
+    ) : (
       <PageShell>
         <div className="shrink-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--yb-accent)]">Written for our family</p>
@@ -1073,23 +1189,12 @@ export default function YearbookReadPage() {
           <p className="text-[10px] text-[var(--yb-muted)] mt-1">Dear Future Us…</p>
         </div>
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden mt-3">
-          {letterText.trim() ? (
-            <>
-              <p className="text-[11.5px] italic text-[#3a352f] leading-relaxed whitespace-pre-wrap line-clamp-[11]" style={{ fontFamily: "Georgia, serif" }}>
-                {letterText}
-              </p>
-              <p className="italic text-[12px] text-[var(--yb-accent)] mt-3 shrink-0" style={{ fontFamily: "Georgia, serif" }}>
-                Love, {familyName}
-              </p>
-            </>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-3">
-              <span className="text-[40px] mb-3 opacity-60">✉️</span>
-              <p className="text-[13px] italic text-[#8a7d70] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
-                Dear Future Us… the story of this year,<br />in your own words.
-              </p>
-            </div>
-          )}
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-3">
+            <span className="text-[40px] mb-3 opacity-60">✉️</span>
+            <p className="text-[13px] italic text-[#8a7d70] leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>
+              Dear Future Us… the story of this year,<br />in your own words.
+            </p>
+          </div>
         </div>
       </PageShell>
     ),
@@ -1112,16 +1217,19 @@ export default function YearbookReadPage() {
               {favWhat.trim() && (
                 <div className="mt-1.5">
                   <p className="text-[7.5px] uppercase tracking-[0.1em] text-[var(--yb-muted)] font-semibold">What happened</p>
+                  {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
                   <p className="text-[10.5px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favWhat}</p>
                 </div>
               )}
               {favWhy.trim() && (
                 <div className="mt-1.5">
                   <p className="text-[7.5px] uppercase tracking-[0.1em] text-[var(--yb-muted)] font-semibold">Why we&apos;ll always remember it</p>
+                  {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
                   <p className="text-[10.5px] text-[var(--yb-body)] leading-snug line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favWhy}</p>
                 </div>
               )}
               {favCaption.trim() && (
+                // TODO: paginate. Clamping cuts a family's words with no sign it happened.
                 <p className="italic text-[10.5px] text-[#3a352f] mt-1.5 line-clamp-2" style={{ fontFamily: "Georgia, serif" }}>{favCaption}</p>
               )}
             </div>
@@ -1129,6 +1237,7 @@ export default function YearbookReadPage() {
             // No photo to show (none chosen, or reserved away) — a clean designed
             // panel, never date/caption/details floating where the photo should be.
             <div className="w-full rounded-md bg-[#eef3e6] flex items-center justify-center px-5 py-8" style={{ aspectRatio: "4/3" }}>
+              {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
               <p className="text-[14px] italic text-[var(--yb-accent)] text-center leading-relaxed line-clamp-3" style={{ fontFamily: "Georgia, serif" }}>
                 {favMemory?.title ? favMemory.title : <>A moment worth<br />remembering.</>}
               </p>
@@ -1142,6 +1251,7 @@ export default function YearbookReadPage() {
             <Sprig className="mb-3 mt-1" />
             <p className="text-[8px] uppercase tracking-[0.12em] text-[var(--yb-muted)] font-semibold mb-1">Favorite quote from that day</p>
             <span className="text-[30px] font-serif text-[#b9a8d6] leading-none">&ldquo;</span>
+            {/* TODO: paginate. Clamping cuts a family's words with no sign it happened. */}
             <p className="italic text-[12px] text-[var(--yb-body)] line-clamp-4 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{favQuoteText}</p>
             {favQuoteMemory?.child_id && (
               <p className="text-[10px] text-[var(--yb-muted)] mt-1.5">
@@ -1153,6 +1263,38 @@ export default function YearbookReadPage() {
       </PageShell>
     ),
   });
+
+  // 2a. LETTER CONTINUATION SPREADS: pages 2..n of a long letter, paired two
+  // to a spread with a quiet filler on a trailing odd page.
+  if (ybSettings.show_letter && letterPages.length > 1) {
+    const rest = letterPages.slice(1);
+    for (let i = 0; i < rest.length; i += 2) {
+      const leftIdx = i + 1;
+      const rightIdx = i + 2;
+      spreads.push({
+        id: i === 0 ? "letter-cont" : `letter-cont-${i / 2}`,
+        label: "Letter from home",
+        leftContent: (
+          <LetterPage
+            text={rest[i]}
+            familyName={familyName}
+            showTitle={false}
+            showSignoff={leftIdx === letterPages.length - 1}
+          />
+        ),
+        rightContent: rest[i + 1] ? (
+          <LetterPage
+            text={rest[i + 1]}
+            familyName={familyName}
+            showTitle={false}
+            showSignoff={rightIdx === letterPages.length - 1}
+          />
+        ) : (
+          <FillerPage />
+        ),
+      });
+    }
+  }
 
   // The "Looking Back" recap now reflects at the END of the book (built below,
   // after the chapters/family/village), so it reads as a year-end recap.
@@ -1189,6 +1331,13 @@ export default function YearbookReadPage() {
     const bodyChildPhotos = available.filter(
       (m) => m.id !== featurePhoto?.id && m.id !== favThingsPhoto?.id,
     );
+
+    // Every answered year-end question, in prompt order. Only the answered ones
+    // are shown, so there are never empty prompts and never orphaned answers
+    // from the removed old questions.
+    const answeredInterview = YEAR_END_QUESTIONS
+      .map((q) => ({ q, a: (contentMap[ck("child_interview", child.id, q.key)] ?? "").trim() }))
+      .filter((x) => x.a);
 
     spreads.push({
       id: `child-${child.id}`,
@@ -1238,11 +1387,7 @@ export default function YearbookReadPage() {
           </div>
 
           {(() => {
-            // Only the answered new questions are shown — no empty prompts, and
-            // no orphaned answers from the old (removed) questions.
-            const answered = YEAR_END_QUESTIONS
-              .map((q) => ({ q, a: (contentMap[ck("child_interview", child.id, q.key)] ?? "").trim() }))
-              .filter((x) => x.a);
+            const answered = answeredInterview;
             if (answered.length === 0) {
               return (
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-3">
@@ -1253,11 +1398,16 @@ export default function YearbookReadPage() {
                 </div>
               );
             }
+            // The opener's right page holds the first INTERVIEW_PER_PAGE
+            // answers; the rest continue on their own spreads below (3c). It
+            // used to be .slice(0, 6) with nothing after it, so a child who
+            // answered all eleven questions silently lost five of them.
             return (
               <div className="space-y-2.5 flex-1 min-h-0 overflow-hidden mt-3">
-                {answered.slice(0, 6).map(({ q, a }) => (
+                {answered.slice(0, INTERVIEW_PER_PAGE).map(({ q, a }) => (
                   <div key={q.key}>
                     <p className="italic text-[9.5px] text-[var(--yb-muted)] leading-snug">{q.label}</p>
+                    {/* TODO: paginate a single very long answer; the SET is paginated below. */}
                     <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-2 mt-0.5" style={{ fontFamily: "Georgia, serif" }}>{a}</p>
                   </div>
                 ))}
@@ -1281,6 +1431,18 @@ export default function YearbookReadPage() {
         </PageShell>
       ),
     });
+
+    // 3a0. YEAR-END CONVERSATION CONTINUATION: answers past the first page.
+    // The opener's right page shows INTERVIEW_PER_PAGE of them; a child who
+    // answered all eleven questions used to lose the rest to a .slice(0, 6).
+    for (const sp of buildInterviewSpreads(
+      child.name,
+      answeredInterview.slice(INTERVIEW_PER_PAGE).map(({ q, a }) => ({ label: q.label, answer: a })),
+      `child-${child.id}-conversation`,
+      `${child.name}'s chapter`,
+    )) {
+      spreads.push(sp);
+    }
 
     // 3a. PHOTO COLLAGE SPREADS — the chapter's photos (minus the one reserved
     // for "favorite things"), tiled into full-page mosaics across both pages of
@@ -1353,15 +1515,29 @@ export default function YearbookReadPage() {
       .filter((x) => x.value);
     if (snapItems.length > 0) keepsakePages.push(<SnapshotPage childName={child.name} items={snapItems} />);
 
+    // Both of these paginate rather than clamp, so a parent who writes a
+    // paragraph under a prompt gets another page instead of a cut sentence.
     const nfLines = NEVER_FORGET_LINES
       .map((l) => ({ prompt: l.label, value: (contentMap[ck("child_never_forget", child.id, l.key)] ?? "").trim() }))
       .filter((x) => x.value);
-    if (nfLines.length > 0) keepsakePages.push(<NeverForgetPage childName={child.name} lines={nfLines} />);
+    for (const [pi, pageLines] of paginateByLineBudget(nfLines, promptLineCost, KEEPSAKE_LINES_PER_PAGE).entries()) {
+      keepsakePages.push(<NeverForgetPage childName={child.name} lines={pageLines} showTitle={pi === 0} />);
+    }
 
     const owParts = OPEN_WHEN_PROMPTS
       .map((p) => ({ prompt: p.label, value: (contentMap[ck("child_open_when", child.id, p.key)] ?? "").trim() }))
       .filter((x) => x.value);
-    if (owParts.length > 0) keepsakePages.push(<OpenWhenPage childName={child.name} parts={owParts} />);
+    const owPages = paginateByLineBudget(owParts, promptLineCost, KEEPSAKE_LINES_WITH_SIGNOFF);
+    for (const [pi, pageParts] of owPages.entries()) {
+      keepsakePages.push(
+        <OpenWhenPage
+          childName={child.name}
+          parts={pageParts}
+          showTitle={pi === 0}
+          showSignoff={pi === owPages.length - 1}
+        />,
+      );
+    }
 
     for (let i = 0; i < keepsakePages.length; i += 2) {
       spreads.push({
@@ -1589,7 +1765,7 @@ export default function YearbookReadPage() {
         <span className="absolute top-2 right-3 text-[72px] opacity-[0.06] select-none pointer-events-none">🌿</span>
         <span className="absolute -bottom-2 left-2 text-[56px] opacity-[0.05] select-none pointer-events-none">🌱</span>
         <div className="text-center relative z-10">
-          <p className="text-[22px] text-[rgba(254, 252, 249, 0.55)] font-bold" style={{ fontFamily: "var(--yb-heading-font)" }}>Rooted</p>
+          <p className="text-[22px] text-[var(--yb-cover-fg)]/55 font-bold" style={{ fontFamily: "var(--yb-heading-font)" }}>Rooted</p>
           <p className="text-[8px] text-[#5a7a45] tracking-[0.18em] uppercase mt-1">Homeschool · Memory Keeping</p>
         </div>
       </div>
@@ -1628,7 +1804,11 @@ export default function YearbookReadPage() {
         .replace(/-spread-\d+$/, "")
         .replace(/-photos-\d+$/, "")
         .replace(/-favorites$/, "")
+        .replace(/-conversation(-\d+)?$/, "")
         .replace(/-books$/, "");
+      if (spreadId.includes("-conversation")) {
+        return [`${base}#${childId}-interview`, null];
+      }
       if (spreadId.includes("-books") || spreadId.includes("-spread-") || spreadId.includes("-photos") || spreadId.includes("-favorites")) {
         return [`${base}#${childId}-photos`, null];
       }
@@ -1687,14 +1867,28 @@ export default function YearbookReadPage() {
         ).length > 0;
       }),
     ),
+    // Keepsake PAGES, not sections: never-forget and open-when paginate, so a
+    // parent who writes at length gets more pages and the book gets longer.
+    // Built with the same calls the render above makes.
     filledKeepsakePages: children.map((c) => {
-      let n = 0;
-      if (SNAPSHOT_FIELDS.some((f) => (contentMap[ck("child_snapshot", c.id, f.key)] ?? "").trim())) n++;
-      if (NEVER_FORGET_LINES.some((l) => (contentMap[ck("child_never_forget", c.id, l.key)] ?? "").trim())) n++;
-      if (OPEN_WHEN_PROMPTS.some((q) => (contentMap[ck("child_open_when", c.id, q.key)] ?? "").trim())) n++;
-      return n;
+      const nf = NEVER_FORGET_LINES
+        .map((l) => ({ prompt: l.label, value: (contentMap[ck("child_never_forget", c.id, l.key)] ?? "").trim() }))
+        .filter((x) => x.value);
+      const ow = OPEN_WHEN_PROMPTS
+        .map((q) => ({ prompt: q.label, value: (contentMap[ck("child_open_when", c.id, q.key)] ?? "").trim() }))
+        .filter((x) => x.value);
+      const snapshot = SNAPSHOT_FIELDS.some((f) => (contentMap[ck("child_snapshot", c.id, f.key)] ?? "").trim()) ? 1 : 0;
+      return (
+        snapshot +
+        paginateByLineBudget(nf, promptLineCost, KEEPSAKE_LINES_PER_PAGE).length +
+        paginateByLineBudget(ow, promptLineCost, KEEPSAKE_LINES_WITH_SIGNOFF).length
+      );
     }),
+    childInterviewAnswers: children.map((c) =>
+      YEAR_END_QUESTIONS.filter((q) => (contentMap[ck("child_interview", c.id, q.key)] ?? "").trim()).length,
+    ),
     hasLetter: letterText.trim().length > 0,
+    letterPages: letterPages.length,
     monthlyAnswers: monthEntries.length,
     tinyMomentLines: tinyMoments.length,
     filledAdventureCategories: adventures.length,

@@ -24,8 +24,16 @@ import {
   type BookCounts,
   type BookSections,
 } from "./yearbook-page-count.ts";
-import { buildChapterPhotoUnits, DEFAULT_MOSAIC_OPTS, type PhotoItem } from "./yearbook-photo-pages.ts";
+import { buildChapterPhotoUnits, planChapterPhotos, DEFAULT_MOSAIC_OPTS, type PhotoItem } from "./yearbook-photo-pages.ts";
 import { paginateRecap, type YearRecap } from "./year-recap.ts";
+import {
+  paginateLetter,
+  paginateByLineBudget,
+  estimateLines,
+  INTERVIEW_PER_PAGE,
+  KEEPSAKE_LINES_PER_PAGE,
+  YEAR_END_QUESTIONS,
+} from "./yearbook-prompts.ts";
 
 /** An empty book: no children, nothing written, nothing photographed. */
 function emptyCounts(overrides: Partial<BookCounts> = {}): BookCounts {
@@ -37,9 +45,11 @@ function emptyCounts(overrides: Partial<BookCounts> = {}): BookCounts {
     childDrawingCounts: [],
     familyDrawingCount: 0,
     filledInterviewChildren: 0,
+    childInterviewAnswers: [],
     filledFavoriteChildren: [],
     filledKeepsakePages: [],
     hasLetter: false,
+    letterPages: 0,
     monthlyAnswers: 0,
     tinyMomentLines: 0,
     filledAdventureCategories: 0,
@@ -285,4 +295,265 @@ test("month-by-month, adventures and tiny moments paginate the way the reader ch
   assert.equal(spreadsFor({ tinyMomentLines: 1 }), 1);
   assert.equal(spreadsFor({ tinyMomentLines: 40 }), 1);
   assert.equal(spreadsFor({ tinyMomentLines: 0 }), 0);
+});
+
+// ─── Print correctness: nothing is clamped, so long text costs pages ─────────
+
+test("a letter that fits on one page adds no spreads beyond the letter spread", () => {
+  const base = estimateYearbookPages(emptyCounts());
+  assert.equal(estimateYearbookPages(emptyCounts({ letterPages: 0 })), base);
+  assert.equal(estimateYearbookPages(emptyCounts({ letterPages: 1 })), base);
+});
+
+test("a long letter adds continuation spreads instead of losing its ending", () => {
+  const spreadsFor = (letterPages: number) =>
+    (estimateYearbookPages(emptyCounts({ letterPages })) - estimateYearbookPages(emptyCounts())) / 2;
+  // Pages 2..n pair off, a filler faces a lone trailing page.
+  assert.equal(spreadsFor(2), 1);
+  assert.equal(spreadsFor(3), 1);
+  assert.equal(spreadsFor(4), 2);
+  assert.equal(spreadsFor(7), 3);
+  // And the count never goes backwards as the letter grows.
+  let prev = 0;
+  for (let n = 0; n <= 20; n++) {
+    const pages = estimateYearbookPages(emptyCounts({ letterPages: n }));
+    assert.ok(pages >= prev, `letterPages=${n}`);
+    prev = pages;
+  }
+});
+
+test("the letter costs nothing when the section is switched off", () => {
+  const off = { ...ALL_SECTIONS_ON, showLetter: false };
+  assert.equal(
+    estimateYearbookPages(emptyCounts({ letterPages: 9 }), off),
+    estimateYearbookPages(emptyCounts({ letterPages: 0 }), off),
+  );
+});
+
+test("paginateLetter never loses a word and always terminates", () => {
+  const cases = [
+    "",
+    "   ",
+    "One short line.",
+    Array.from({ length: 12 }, (_, i) => `Paragraph number ${i}. `.repeat(6)).join("\n\n"),
+    "x".repeat(4000), // one unbroken run, longer than any page
+    "word ".repeat(1500).trim(),
+  ];
+  for (const text of cases) {
+    const pages = paginateLetter(text);
+    const rejoined = pages.join(" ").replace(/\s+/g, "");
+    assert.equal(rejoined, text.replace(/\s+/g, ""), `nothing dropped for a ${text.length}-char letter`);
+    if (text.trim()) assert.ok(pages.length >= 1);
+    else assert.equal(pages.length, 0);
+  }
+});
+
+test("every answered year-end question is printed, not the first six", () => {
+  const spreadsFor = (answers: number) =>
+    (estimateYearbookPages(emptyCounts({ childInterviewAnswers: [answers], filledFavoriteChildren: [false], filledKeepsakePages: [0], childPhotoCounts: [0] })) -
+      estimateYearbookPages(emptyCounts({ childInterviewAnswers: [0], filledFavoriteChildren: [false], filledKeepsakePages: [0], childPhotoCounts: [0] }))) / 2;
+  // The opener's right page holds the first INTERVIEW_PER_PAGE for free.
+  assert.equal(spreadsFor(INTERVIEW_PER_PAGE), 0);
+  // Answering more used to cost nothing because the extras were dropped.
+  assert.equal(spreadsFor(INTERVIEW_PER_PAGE + 1), 1);
+  assert.equal(spreadsFor(YEAR_END_QUESTIONS.length), 1);
+  // Two full continuation pages still pair into one spread.
+  assert.equal(spreadsFor(INTERVIEW_PER_PAGE * 3), 1);
+  assert.equal(spreadsFor(INTERVIEW_PER_PAGE * 4), 2);
+});
+
+test("keepsake pages are page counts now, so a long answer lengthens the book", () => {
+  const short = { prompt: "Your laugh…", value: "is the best sound in the house." };
+  const long = { prompt: "Your laugh…", value: "is the best sound in the house. ".repeat(20) };
+  const cost = (l: { prompt: string; value: string }) => estimateLines(`${l.prompt} ${l.value}`);
+
+  const shortPages = paginateByLineBudget(Array.from({ length: 6 }, () => short), cost, KEEPSAKE_LINES_PER_PAGE).length;
+  const longPages = paginateByLineBudget(Array.from({ length: 6 }, () => long), cost, KEEPSAKE_LINES_PER_PAGE).length;
+  assert.ok(longPages > shortPages, "long answers need more pages than short ones");
+
+  const withShort = estimateYearbookPages(emptyCounts({ childPhotoCounts: [0], filledFavoriteChildren: [false], filledKeepsakePages: [shortPages] }));
+  const withLong = estimateYearbookPages(emptyCounts({ childPhotoCounts: [0], filledFavoriteChildren: [false], filledKeepsakePages: [longPages] }));
+  assert.ok(withLong > withShort, "and the book gets longer, rather than the text getting cut");
+});
+
+test("paginateByLineBudget keeps every item and never drops an oversized one", () => {
+  const items = [1, 20, 2, 3, 40, 1];
+  const pages = paginateByLineBudget(items, (n) => n, 10);
+  assert.deepEqual(pages.flat(), items, "every item survives, in order");
+  for (const page of pages) assert.ok(page.length >= 1);
+  assert.deepEqual(paginateByLineBudget([], () => 1, 10), []);
+});
+
+test("the result is still always even once letters and conversations paginate", () => {
+  for (const letterPages of [0, 1, 2, 3, 8]) {
+    for (const answers of [0, 3, 6, 7, 11]) {
+      for (const keepsake of [0, 1, 3, 5]) {
+        const pages = estimateYearbookPages(
+          emptyCounts({
+            letterPages,
+            childInterviewAnswers: [answers, answers],
+            childPhotoCounts: [4, 0],
+            filledFavoriteChildren: [true, false],
+            filledKeepsakePages: [keepsake, 0],
+          }),
+        );
+        assert.equal(pages % 2, 0, `letter=${letterPages} answers=${answers} keepsake=${keepsake}`);
+      }
+    }
+  }
+});
+
+// ─── The drift detector's own question, asked here ──────────────────────────
+//
+// The reader compares its rendered pages.length against estimateYearbookPages
+// and reports any gap to Sentry. That check only helps if the estimator really
+// does mirror the reader's assembly, so this walks the reader's spread pushes
+// in the order they appear in app/dashboard/memories/yearbook/read/page.tsx and
+// requires the same answer. It is transcribed from the reader, not from the
+// estimator, so an arithmetic slip in either one shows up here rather than in
+// production as a family being told the wrong length.
+
+interface ReaderShape {
+  children: {
+    photos: number;
+    books: number;
+    drawings: number;
+    hasFavorites: boolean;
+    keepsakePages: number;
+    interviewAnswers: number;
+  }[];
+  familyPhotos: number;
+  familyBooks: number;
+  familyDrawings: number;
+  letterPages: number;
+  monthlyAnswers: number;
+  tinyMomentLines: number;
+  adventures: number;
+  recap: [number, number, number];
+}
+
+/** Spreads the reader pushes, in the reader's own order. */
+function readerSpreadCount(shape: ReaderShape, sections: BookSections): number {
+  let n = 0;
+  const chunkedSpreads = (items: number, perPage: number) =>
+    items <= 0 ? 0 : Math.ceil(Math.ceil(items / perPage) / 2);
+
+  if (sections.showLetter) {
+    n += 1; // the letter spread, written or not
+    if (shape.letterPages > 1) n += Math.ceil((shape.letterPages - 1) / 2); // 2a
+  }
+
+  if (sections.showChildChapters) {
+    for (const c of shape.children) {
+      n += 1; // 3. chapter opener
+      // 3a0. conversation continuation
+      n += chunkedSpreads(Math.max(0, c.interviewAnswers - INTERVIEW_PER_PAGE), INTERVIEW_PER_PAGE);
+      // 3a. photo collage
+      const plan = planChapterPhotos(c.photos, sections.showFavoriteThings);
+      const units = buildChapterPhotoUnits(
+        Array.from({ length: plan.collageCount }, (_, i) => ({ id: `x${i}`, photo_url: "y" })),
+        DEFAULT_MOSAIC_OPTS,
+      ).length;
+      n += Math.ceil(units / 2);
+      // 3b. favorites
+      if (sections.showFavoriteThings && (c.hasFavorites || plan.useFavPhoto)) n += 1;
+      // 3d. books
+      if (sections.showBooksSection && c.books > 0) n += 1;
+      // 3e. tiny masterpieces
+      n += chunkedSpreads(c.drawings, 4);
+      // 3f. keepsake pages, two to a spread
+      n += Math.ceil(c.keepsakePages / 2);
+    }
+  }
+
+  if (sections.showFamilyChapter) {
+    n += 1; // 4. family opener
+    const famUnits = buildChapterPhotoUnits(
+      Array.from({ length: shape.familyPhotos }, (_, i) => ({ id: `f${i}`, photo_url: "y" })),
+      DEFAULT_MOSAIC_OPTS,
+    ).length;
+    n += Math.ceil(famUnits / 2); // 4a
+    if (sections.showBooksSection && shape.familyBooks > 0) n += 1; // 4b
+    n += chunkedSpreads(shape.familyDrawings, 4); // 4c
+  }
+
+  if (sections.showVillage) n += 1; // 5
+  if (sections.showYearInNumbers) {
+    const recap: YearRecap = {
+      books: Array.from({ length: shape.recap[0] }, (_, i) => `b${i}`),
+      places: Array.from({ length: shape.recap[1] }, (_, i) => `p${i}`),
+      moments: Array.from({ length: shape.recap[2] }, (_, i) => `m${i}`),
+    };
+    n += Math.ceil(paginateRecap(recap).length / 2); // 5.5
+  }
+  n += chunkedSpreads(shape.monthlyAnswers, 6); // 5.55
+  if (shape.tinyMomentLines > 0) n += 1; // 5.56
+  n += chunkedSpreads(shape.adventures, 5); // 5.57
+  n += 1; // 5.6 until next year
+  n += 1; // 6. back cover
+  n += 1; // the cover, unshifted last
+  return n;
+}
+
+function countsFor(shape: ReaderShape): BookCounts {
+  return {
+    childPhotoCounts: shape.children.map((c) => c.photos),
+    familyPhotoCount: shape.familyPhotos,
+    childBookCounts: shape.children.map((c) => c.books),
+    familyBookCount: shape.familyBooks,
+    childDrawingCounts: shape.children.map((c) => c.drawings),
+    familyDrawingCount: shape.familyDrawings,
+    filledInterviewChildren: shape.children.filter((c) => c.interviewAnswers > 0).length,
+    childInterviewAnswers: shape.children.map((c) => c.interviewAnswers),
+    filledFavoriteChildren: shape.children.map((c) => c.hasFavorites),
+    filledKeepsakePages: shape.children.map((c) => c.keepsakePages),
+    hasLetter: shape.letterPages > 0,
+    letterPages: shape.letterPages,
+    monthlyAnswers: shape.monthlyAnswers,
+    tinyMomentLines: shape.tinyMomentLines,
+    filledAdventureCategories: shape.adventures,
+    recapItemCount: shape.recap[0] + shape.recap[1] + shape.recap[2],
+    recapSectionCounts: shape.recap,
+  };
+}
+
+test("the estimator matches the reader's assembly, so the drift detector stays quiet", () => {
+  const shapes: ReaderShape[] = [
+    // An empty book.
+    { children: [], familyPhotos: 0, familyBooks: 0, familyDrawings: 0, letterPages: 0, monthlyAnswers: 0, tinyMomentLines: 0, adventures: 0, recap: [0, 0, 0] },
+    // One child, a first year: a few photos, a short letter, no writing yet.
+    { children: [{ photos: 7, books: 2, drawings: 1, hasFavorites: false, keepsakePages: 0, interviewAnswers: 3 }], familyPhotos: 4, familyBooks: 0, familyDrawings: 0, letterPages: 1, monthlyAnswers: 2, tinyMomentLines: 0, adventures: 0, recap: [2, 1, 1] },
+    // A family who fills everything in: three children, all eleven questions,
+    // long keepsake pages, a letter that runs to five pages.
+    { children: [
+        { photos: 34, books: 12, drawings: 9, hasFavorites: true, keepsakePages: 5, interviewAnswers: 11 },
+        { photos: 3, books: 0, drawings: 4, hasFavorites: true, keepsakePages: 3, interviewAnswers: 11 },
+        { photos: 0, books: 6, drawings: 0, hasFavorites: false, keepsakePages: 1, interviewAnswers: 7 },
+      ], familyPhotos: 21, familyBooks: 4, familyDrawings: 6, letterPages: 5, monthlyAnswers: 12, tinyMomentLines: 14, adventures: 8, recap: [24, 3, 6] },
+    // The awkward middles: lone photos, one spilled answer, an odd letter page.
+    { children: [
+        { photos: 1, books: 1, drawings: 1, hasFavorites: false, keepsakePages: 1, interviewAnswers: 7 },
+        { photos: 2, books: 0, drawings: 5, hasFavorites: false, keepsakePages: 2, interviewAnswers: 6 },
+      ], familyPhotos: 1, familyBooks: 1, familyDrawings: 3, letterPages: 2, monthlyAnswers: 7, tinyMomentLines: 1, adventures: 6, recap: [11, 1, 1] },
+  ];
+
+  const sectionSets: BookSections[] = [
+    ALL_SECTIONS_ON,
+    SECTIONS_OFF,
+    { ...ALL_SECTIONS_ON, showFavoriteThings: false },
+    { ...ALL_SECTIONS_ON, showBooksSection: false, showVillage: false },
+    { ...ALL_SECTIONS_ON, showChildChapters: false },
+    { ...ALL_SECTIONS_ON, showLetter: false, showYearInNumbers: false },
+  ];
+
+  for (const shape of shapes) {
+    for (const sections of sectionSets) {
+      const expected = readerSpreadCount(shape, sections) * 2;
+      assert.equal(
+        estimateYearbookPages(countsFor(shape), sections),
+        expected,
+        `drift for ${JSON.stringify(shape.children.length)} children / letter ${shape.letterPages}`,
+      );
+    }
+  }
 });

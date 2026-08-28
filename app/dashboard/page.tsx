@@ -47,7 +47,7 @@ import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
 import MonthlyQuestionCard from "@/app/components/MonthlyQuestionCard";
 import { estimateYearbookPages, type BookCounts, type BookSections } from "@/lib/yearbook-page-count";
-import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES, tinyMomentLines } from "@/lib/yearbook-prompts";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES, tinyMomentLines, paginateLetter, paginateByLineBudget, estimateLines, KEEPSAKE_LINES_PER_PAGE, KEEPSAKE_LINES_WITH_SIGNOFF } from "@/lib/yearbook-prompts";
 import { buildYearRecap } from "@/lib/year-recap";
 import { monthEntriesFor } from "@/lib/monthly-questions";
 import { partitionDrawings } from "@/lib/tiny-masterpieces";
@@ -175,6 +175,7 @@ function buildBookCounts(
   const content: Record<string, string> = {};
   for (const r of contentRows) content[key(r.content_type, r.child_id, r.question_key)] = r.content;
   const filled = (k: string) => (content[k] ?? "").trim().length > 0;
+  const promptCost = (l: { prompt: string; value: string }) => estimateLines(`${l.prompt} ${l.value}`);
 
   // The letter's "favorite moment" reserves its photo out of whichever chapter
   // owns it, exactly as the reader does, so the chapter counts match the book.
@@ -220,14 +221,28 @@ function buildBookCounts(
         return filled(key("child_favorite", id, f.key)) || (!!oldKey && filled(key("child_interview", id, oldKey)));
       }),
     ),
+    // Keepsake PAGES, not sections. The never-forget and open-when pages stopped
+    // clamping their text in the print-correctness pass, so a parent who writes
+    // at length gets more pages. Same paginator the reader renders with.
     filledKeepsakePages: childIds.map((id) => {
-      let n = 0;
-      if (SNAPSHOT_FIELDS.some((f) => filled(key("child_snapshot", id, f.key)))) n++;
-      if (NEVER_FORGET_LINES.some((l) => filled(key("child_never_forget", id, l.key)))) n++;
-      if (OPEN_WHEN_PROMPTS.some((q) => filled(key("child_open_when", id, q.key)))) n++;
-      return n;
+      const nf = NEVER_FORGET_LINES
+        .map((l) => ({ prompt: l.label, value: (content[key("child_never_forget", id, l.key)] ?? "").trim() }))
+        .filter((x) => x.value);
+      const ow = OPEN_WHEN_PROMPTS
+        .map((q) => ({ prompt: q.label, value: (content[key("child_open_when", id, q.key)] ?? "").trim() }))
+        .filter((x) => x.value);
+      const snapshot = SNAPSHOT_FIELDS.some((f) => filled(key("child_snapshot", id, f.key))) ? 1 : 0;
+      return (
+        snapshot +
+        paginateByLineBudget(nf, promptCost, KEEPSAKE_LINES_PER_PAGE).length +
+        paginateByLineBudget(ow, promptCost, KEEPSAKE_LINES_WITH_SIGNOFF).length
+      );
     }),
+    childInterviewAnswers: childIds.map((id) =>
+      YEAR_END_QUESTIONS.filter((q) => filled(key("child_interview", id, q.key))).length,
+    ),
     hasLetter: filled(key("letter_from_home")),
+    letterPages: paginateLetter(content[key("letter_from_home")] ?? "").length,
     monthlyAnswers: monthEntriesFor(yearbookKey, monthlyMap).length,
     tinyMomentLines: tinyMomentLines(content[key("tiny_moments")]).length,
     filledAdventureCategories: ADVENTURE_CATEGORIES.filter((c) => filled(key("adventure_categories", null, c.key))).length,

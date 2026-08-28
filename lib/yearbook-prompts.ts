@@ -130,3 +130,133 @@ export function tinyMomentLines(content: string | null | undefined): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0);
 }
+
+// ─── Pagination for written content ──────────────────────────────────────────
+// A yearbook page is a fixed-height box with overflow-hidden. Long text used to
+// be handled with line-clamp, which silently cuts a mother's sentence in half
+// and gives her no way to know it happened. Nothing in the book may be clamped:
+// text that does not fit flows onto another page, and the book gets longer.
+//
+// These estimate how many lines a string will occupy rather than measuring the
+// DOM, because the count has to be identical in three places that never see the
+// same layout: the reader, the print path, and the page-count helper Today
+// reads (lib/yearbook-page-count.ts). Estimating is deterministic; measuring is
+// not. The trade is that a wildly unusual string can be off by a line, so the
+// budgets below leave a line of slack rather than filling the page exactly.
+
+/** Characters that fit on one line of body text in a yearbook page column. */
+export const CHARS_PER_LINE = 52;
+
+/** Year-end conversation answers that fit on the chapter opener's right page. */
+export const INTERVIEW_PER_PAGE = 6;
+/** Body lines a full keepsake page holds under its heading. */
+export const KEEPSAKE_LINES_PER_PAGE = 14;
+/** Same, for a page that also carries a signature line at the bottom. */
+export const KEEPSAKE_LINES_WITH_SIGNOFF = 12;
+/** Body lines the letter's first page holds, sharing the page with its heading and signature. */
+export const LETTER_LINES_FIRST_PAGE = 11;
+/** Body lines a letter continuation page holds, having no heading of its own. */
+export const LETTER_LINES_PER_PAGE = 16;
+
+/** How many lines a string occupies, minimum one, counting its own newlines. */
+export function estimateLines(text: string, charsPerLine: number = CHARS_PER_LINE): number {
+  const trimmed = (text ?? "").trim();
+  if (!trimmed) return 1;
+  return trimmed
+    .split("\n")
+    .reduce((sum, line) => sum + Math.max(1, Math.ceil(line.trim().length / charsPerLine)), 0);
+}
+
+/**
+ * Pack items onto pages by their estimated line cost. An item always lands on
+ * a page even when it is longer than the whole budget on its own, so nothing
+ * is ever dropped; it simply gets a page to itself and may run a little long.
+ */
+export function paginateByLineBudget<T>(
+  items: T[],
+  cost: (item: T) => number,
+  linesPerPage: number,
+): T[][] {
+  if (items.length === 0) return [];
+  const pages: T[][] = [];
+  let page: T[] = [];
+  let used = 0;
+  for (const item of items) {
+    const n = Math.max(1, cost(item));
+    if (page.length > 0 && used + n > linesPerPage) {
+      pages.push(page);
+      page = [];
+      used = 0;
+    }
+    page.push(item);
+    used += n;
+  }
+  if (page.length > 0) pages.push(page);
+  return pages;
+}
+
+/**
+ * Split the letter from home across pages, breaking between paragraphs where
+ * it can. A paragraph longer than a whole page is split on a word boundary
+ * rather than mid-word, and the remainder carries on the next page.
+ *
+ * The first page is shorter than the rest because it shares its page with the
+ * "A letter from home" heading and the "Love, …" signature.
+ */
+export function paginateLetter(
+  text: string,
+  firstPageLines: number = LETTER_LINES_FIRST_PAGE,
+  laterPageLines: number = LETTER_LINES_PER_PAGE,
+  charsPerLine: number = CHARS_PER_LINE,
+): string[] {
+  const trimmed = (text ?? "").trim();
+  if (!trimmed) return [];
+
+  // Paragraphs, keeping single newlines inside one paragraph so a list the
+  // family typed on separate lines stays together.
+  const paragraphs = trimmed.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+
+  const pages: string[] = [];
+  let page: string[] = [];
+  let used = 0;
+  const budget = () => (pages.length === 0 ? firstPageLines : laterPageLines);
+  const flush = () => {
+    if (page.length > 0) {
+      pages.push(page.join("\n\n"));
+      page = [];
+      used = 0;
+    }
+  };
+
+  for (const paragraph of paragraphs) {
+    let rest = paragraph;
+    while (rest) {
+      const room = budget() - used;
+      if (room <= 0) {
+        flush();
+        continue;
+      }
+      const cost = estimateLines(rest, charsPerLine);
+      if (cost <= room) {
+        page.push(rest);
+        used += cost;
+        rest = "";
+        break;
+      }
+      // Does not fit. Start a fresh page unless this page is already fresh, in
+      // which case the paragraph is longer than a page and has to be split.
+      if (page.length > 0) {
+        flush();
+        continue;
+      }
+      const take = room * charsPerLine;
+      let cut = rest.lastIndexOf(" ", take);
+      if (cut <= 0) cut = Math.min(take, rest.length);
+      page.push(rest.slice(0, cut).trim());
+      flush();
+      rest = rest.slice(cut).trim();
+    }
+  }
+  flush();
+  return pages;
+}

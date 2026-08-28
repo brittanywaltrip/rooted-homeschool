@@ -562,6 +562,45 @@ noise. The count includes the whole learning record
 only photos, so a family who logs but never
 photographs still has a book with pages in it.
 
+### Yearbook print correctness
+These are the rules a printed book has to obey. Each one
+is here because it was broken in a way no family could
+see and no test caught.
+
+- family_name and school_year are read from
+  yearbook_content, with profiles.display_name and the
+  yearbook_opened_at derivation as fallbacks only. The
+  editor is the source of truth. For months the cover
+  ignored both fields, so a mother could type her family
+  name into the most prominent field on the customize
+  page and nothing changed.
+- No Tailwind arbitrary value may contain a space.
+  "text-[rgba(254, 252, 249, 0.55)]" does not parse and
+  Tailwind emits no colour at all, so the element renders
+  with whatever it inherits. Write "text-[#fefcf9]/55",
+  or better a theme token. Guard with:
+  git grep -nE '\[(rgba?|hsla?)\([^]]*, '
+- Nothing in the yearbook may be clamped. line-clamp
+  cuts a family's sentence in half inside an
+  overflow-hidden box and gives no sign it happened.
+  Long text paginates: it flows onto another page and
+  the book gets longer. The shared paginators live in
+  lib/yearbook-prompts.ts (paginateLetter,
+  paginateByLineBudget, estimateLines). Sites still
+  clamped carry a "TODO: paginate" comment.
+- coverBucketFor in lib/photo-url.ts is the only thing
+  that decides which bucket a cover lives in. Never
+  inline the test again: the reader and the editor once
+  asked opposite questions and disagreed on a bare path,
+  which is exactly what a cover upload stores when
+  signing fails.
+- Any change to pagination must update
+  lib/yearbook-page-count.ts in the SAME commit, with a
+  test. Today prints the page count from that helper and
+  cannot assemble spreads to check it; the reader
+  compares its own pages.length against the helper on
+  every render and reports drift to Sentry.
+
 ### YEARBOOK CUSTOMIZE — /dashboard/memories/yearbook/edit
 Single page for all yearbook settings + content.
 Section toggles, cover photo upload, family name,
