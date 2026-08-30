@@ -38,6 +38,12 @@ interface Props {
    * passes its instance_date here so the wizard can prompt for scope
    * (this / future / series) on save. */
   editingInstanceDate?: string;
+  /** Presentation only. "event" swaps the preset list and the four
+   * appointment-worded strings for event wording. Events are still rows in
+   * `appointments` — there is no events table and no separate save path.
+   * Ignored while editing: a stored row carries no record of which sheet
+   * created it, so an edit always reads as an appointment. */
+  variant?: "appointment" | "event";
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -58,6 +64,19 @@ const PRESETS = [
   { emoji: "🏛️", name: "Museum" },
   { emoji: "🌲", name: "Nature Walk" },
   { emoji: "🎤", name: "Webinar" },
+  { emoji: "✨", name: "Custom" },
+];
+
+// Event wording for the same picker. "Custom" MUST stay last and keep that
+// exact name — canProceedStep1 and pickType both key off it.
+const EVENT_PRESETS = [
+  { emoji: "🚌", name: "Field Trip" },
+  { emoji: "🏛️", name: "Museum" },
+  { emoji: "🌲", name: "Nature Walk" },
+  { emoji: "🎤", name: "Webinar" },
+  { emoji: "👨‍👩‍👧", name: "Co-op" },
+  { emoji: "🎪", name: "Convention" },
+  { emoji: "🎨", name: "Class" },
   { emoji: "✨", name: "Custom" },
 ];
 
@@ -98,8 +117,12 @@ function todayStr(): string {
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
-export default function AppointmentWizard({ isOpen, onClose, onSaved, editingAppointment, initialDate, editingInstanceDate }: Props) {
+export default function AppointmentWizard({ isOpen, onClose, onSaved, editingAppointment, initialDate, editingInstanceDate, variant = "appointment" }: Props) {
   const isEdit = !!editingAppointment;
+  // An existing row gives no clue which sheet created it, so editing always
+  // presents as an appointment regardless of what the caller passed.
+  const isEvent = !isEdit && variant === "event";
+  const presets = isEvent ? EVENT_PRESETS : PRESETS;
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [children, setChildren] = useState<Child[]>([]);
 
@@ -304,10 +327,10 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
         <div className="sticky top-0 bg-[#faf8f4] border-b border-[#e8e2d9] px-5 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full" style={{ background: ACCENT_BG, color: ACCENT, border: `1px solid ${ACCENT_BORDER}` }}>
-              Appt
+              {isEvent ? "Event" : "Appt"}
             </span>
             <h2 className="text-base font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-              {step === 1 && (isEdit ? "Edit appointment" : "New appointment")}
+              {step === 1 && (isEdit ? "Edit appointment" : isEvent ? "New event" : "New appointment")}
               {step === 2 && `${emoji} ${title}`}
               {step === 3 && "Review"}
             </h2>
@@ -326,9 +349,9 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
           {/* ═══ STEP 1 — Type Picker ═══ */}
           {step === 1 && (
             <div>
-              <p className="text-sm text-[#7a6f65] mb-4">What kind of appointment?</p>
+              <p className="text-sm text-[#7a6f65] mb-4">{isEvent ? "What kind of event?" : "What kind of appointment?"}</p>
               <div className="grid grid-cols-2 gap-2.5 mb-4">
-                {PRESETS.map((p) => {
+                {presets.map((p) => {
                   const active = selectedType === p.name;
                   return (
                     <button key={p.name} onClick={() => pickType(p)}
@@ -346,7 +369,7 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
                   {/* Selected emoji + name input */}
                   <div className="flex gap-2 items-center">
                     <span className="w-10 h-10 rounded-lg bg-[#f5f0ff] flex items-center justify-center text-xl shrink-0">{customEmoji || "✨"}</span>
-                    <input type="text" placeholder="Appointment name" value={customTitle} onChange={(e) => setCustomTitle(e.target.value)}
+                    <input type="text" placeholder={isEvent ? "Event name" : "Appointment name"} value={customTitle} onChange={(e) => setCustomTitle(e.target.value)}
                       className="flex-1 text-sm border border-[#e8e2d9] rounded-lg px-3 py-2 bg-white focus:outline-none focus:border-[#7C3AED]" autoFocus />
                   </div>
                   {/* Emoji picker grid */}
@@ -542,7 +565,7 @@ export default function AppointmentWizard({ isOpen, onClose, onSaved, editingApp
                   <div className="flex flex-col gap-2">
                     <button onClick={handleSave} disabled={saving || deleting}
                       className="w-full py-3 rounded-xl text-white text-sm font-medium transition-colors disabled:opacity-50" style={{ background: ACCENT }}>
-                      {saving ? "Saving..." : isEdit ? "Save changes" : "Save appointment"}
+                      {saving ? "Saving..." : isEdit ? "Save changes" : isEvent ? "Save event" : "Save appointment"}
                     </button>
                     {isEdit && (
                       <button onClick={handleDelete} disabled={saving || deleting}
