@@ -325,6 +325,10 @@ export default function PlanV2() {
   const [contextMenu, setContextMenu] = useState<{ dateStr: string; x: number; y: number } | null>(null);
   // Appointment wizard opened from "+ Add appointment" menu item.
   const [apptWizardDate, setApptWizardDate] = useState<string | null>(null);
+  // Which wording the wizard wears. "event" is presentation only — the row
+  // still saves to `appointments` through the same path. Reset to
+  // "appointment" wherever apptWizardDate is cleared.
+  const [apptWizardVariant, setApptWizardVariant] = useState<"appointment" | "event">("appointment");
   // Appointment edit target — set when the Pencil button is tapped on an
   // appointment pill in the day panel.
   const [apptEditTarget, setApptEditTarget] = useState<{
@@ -4350,9 +4354,13 @@ export default function PlanV2() {
     setAddLessonOpen(true);
   }, [todayStr]);
 
-  const handleMenuAddAppointment = useCallback((dateStr: string) => {
+  const handleMenuAddAppointment = useCallback((
+    dateStr: string,
+    variant: "appointment" | "event" = "appointment",
+  ) => {
     setContextMenu(null);
     setApptWizardDate(dateStr);
+    setApptWizardVariant(variant);
   }, []);
 
   // "Mark as break day" — opens the full vacation block modal. If the
@@ -5684,12 +5692,15 @@ export default function PlanV2() {
             editingInstanceDate for a recurring instance). */}
         <AppointmentWizard
           isOpen={apptWizardDate !== null || apptEditTarget !== null}
+          variant={apptWizardVariant}
           onClose={() => {
             setApptWizardDate(null);
+            setApptWizardVariant("appointment");
             setApptEditTarget(null);
           }}
           onSaved={(info?: AppointmentSavedInfo) => {
             setApptWizardDate(null);
+            setApptWizardVariant("appointment");
             setApptEditTarget(null);
             if (info?.id && info.title) {
               if (info.kind === "create" && info.date) {
@@ -6262,7 +6273,7 @@ export default function PlanV2() {
               color: "#be185d",
               onClick: () => {
                 closeUnifiedAdd();
-                handleMenuAddAppointment(targetDate);
+                handleMenuAddAppointment(targetDate, "event");
               },
             },
             {

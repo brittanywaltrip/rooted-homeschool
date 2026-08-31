@@ -103,3 +103,24 @@ export async function signedPhotoUrlsAdmin(
 ): Promise<(string | null)[]> {
   return signedPhotoUrls(getSupabaseAdmin(), bucket, urlsOrPaths, expiresInSeconds);
 }
+
+/**
+ * Which bucket a yearbook cover lives in.
+ *
+ * Covers are uploaded to `yearbook-covers`, but a family who has never set one
+ * falls back to their profile photo in `family-photos`, so the value stored in
+ * yearbook_content can point at either. The reader and the editor used to
+ * decide this with two inline ternaries that asked OPPOSITE questions: the
+ * reader tested for `/yearbook-covers/` and the editor for `/family-photos/`.
+ * They agreed on a signed URL, which carries one marker or the other, and
+ * disagreed on a bare path, which carries neither. A bare path is exactly what
+ * the cover upload stores when signing fails
+ * (app/dashboard/memories/yearbook/edit/page.tsx), so the two files then looked
+ * in different buckets for the same cover and one of them rendered nothing.
+ *
+ * One question, asked once: it is a family photo only when it says so.
+ * Everything else, a `yearbook-covers` URL or a bare path, is a cover.
+ */
+export function coverBucketFor(url: string): "yearbook-covers" | "family-photos" {
+  return url.includes("/family-photos/") ? "family-photos" : "yearbook-covers";
+}

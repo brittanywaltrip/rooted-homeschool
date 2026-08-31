@@ -674,7 +674,7 @@ export default function AdminPage() {
         <section>
           <SectionHeader emoji="🔍" title="User Funnel" />
           {data.funnel === null ? (
-            <p className="text-sm text-[rgba(254, 252, 249, 0.55)] opacity-60">Funnel data unavailable.</p>
+            <p className="text-sm text-[#7a6f65] opacity-60">Funnel data unavailable.</p>
           ) : (() => {
             const base = data.funnel!.totalSignups || 1;
             const steps = [

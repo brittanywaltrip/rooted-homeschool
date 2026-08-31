@@ -26,7 +26,19 @@ export async function fetchLessonPhotos(lessonId: string): Promise<LessonPhoto[]
 
 /**
  * Attach a photo to a lesson: it becomes a memory (type "project") linked via
- * memories.lesson_id, so it shows in Memories and the yearbook automatically.
+ * memories.lesson_id, so it shows in Memories.
+ *
+ * It stays OUT of the yearbook's photo pages, on purpose, which is why the
+ * insert below sets include_in_book: false explicitly. A lesson photo inherits
+ * the lesson's title, and a lesson title is an auto-generated curriculum label
+ * ("Lesson 42", "Unit 3: Fractions"). Printed under a photograph in a keepsake
+ * those read as mechanical, which is the opposite of what the book is for.
+ * They are earmarked for the Record section instead, where a curriculum label
+ * is the right register.
+ *
+ * The docstring used to claim these showed "in Memories and the yearbook
+ * automatically". They never did: the insert has always set false.
+ *
  * Reuses the shared capture primitive (uploadMemoryPhoto in lib/photo-pipeline)
  * plus a memories insert. The memory inherits the lesson's child, date, and
  * title (the title is used as the caption).

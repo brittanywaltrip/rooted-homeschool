@@ -369,7 +369,7 @@ function YearbookMockup() {
           <div className="px-3 py-2.5 relative">
             <span className="absolute top-0 right-1 text-[28px] opacity-[0.08] select-none">🌿</span>
             <p className="text-[12px] font-bold text-white relative z-10" style={{ fontFamily: "var(--font-display)" }}>The Parker Family</p>
-            <p className="text-[8px] text-[rgba(254, 252, 249, 0.55)] uppercase tracking-wider">2025-26 school year</p>
+            <p className="text-[8px] text-[#fefcf9]/55 uppercase tracking-wider">2025-26 school year</p>
           </div>
           <div className="bg-[#faf6f0] px-3 py-2 flex justify-between text-center">
             {[

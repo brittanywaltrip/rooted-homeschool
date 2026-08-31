@@ -18,6 +18,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
+import { memoryDisplayLabel } from "@/lib/photo-caption";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1159,7 +1160,7 @@ export default function MemoriesPage() {
                 >
                   {/* Photo or type tile */}
                   {m.photo_url ? (
-                    <SignedImage src={m.photo_url} bucket="memory-photos" alt={m.title ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
+                    <SignedImage src={m.photo_url} bucket="memory-photos" alt={memoryDisplayLabel(m) ?? "Memory"} loading={photoIdx++ < 6 ? "eager" : "lazy"} className="w-full h-full object-cover" />
                   ) : (
                     (() => {
                       const tileGradientClass: Record<string, string> = {
@@ -1173,7 +1174,10 @@ export default function MemoriesPage() {
                       };
                       const gradClass = tileGradientClass[m.type] ?? tileGradientClass.project;
                       const emoji = TYPE_EMOJI[m.type] ?? "📷";
-                      const title = m.title ?? TYPE_LABEL[m.type] ?? "Memory";
+                      // Title, else caption, else the type's own word. The
+                      // mirror of the book's caption line: a family's words
+                      // show up whichever field caught them.
+                      const title = memoryDisplayLabel(m) ?? TYPE_LABEL[m.type] ?? "Memory";
                       return (
                         <div className={`w-full h-full relative overflow-hidden flex flex-col items-center justify-center ${gradClass}`}>
                           <span className="text-[32px]">{emoji}</span>
@@ -1466,6 +1470,10 @@ export default function MemoriesPage() {
                   rows={2}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20 resize-none"
                 />
+                {/* Same helper text as the capture card and the Today edit
+                    sheet: nothing used to tell a family that this field is what
+                    prints in their book. */}
+                <p className="text-[11px] text-[#9a8f85] mt-1.5">This prints under the photo in your yearbook.</p>
               </div>
 
               <div>

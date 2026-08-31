@@ -365,6 +365,19 @@ what you are about to change it to.
   blank.)
 - family-photos: family profile photos (PRIVATE — signed URLs, same as above)
 
+## Photo notes
+Uploads are capped by lib/photo-pipeline.ts, and the caps are PRINT budgets.
+Lulu prints at 300 PPI, so printed inches = pixels / 300.
+- MEMORY_MAX_DIMENSION = 2400px → 8in, the widest a photo sits on an 8.5in page
+- COVER_MAX_DIMENSION = 3000px → 10in, a casewrap front panel incl. the 0.75in
+  board wrap
+preparePhoto re-encodes and the picked file is discarded, so the original is
+never retained: raising a cap only helps photos uploaded after the change, and
+lowering one is unrecoverable. Any NEW upload path must pass one of these two
+constants rather than inventing a third number.
+Not covered by this: Settings' family photo uploads the raw file (already print
+safe), and lib/compress-image.ts feeds the on-screen First Day frame only.
+
 ## Plan system (as of April 14, 2026)
 Display names: "Rooted" (free), "Rooted+" (all paid tiers). Use + symbol, never "Plus".
 Founding Family = pricing tier within Rooted+ ($39/yr, locked forever, ends April 30).
@@ -534,6 +547,192 @@ Wins, Lessons, Family.
 Free: first 4 spreads. Paid: all spreads.
 NEVER say "unlock" — use "View full yearbook".
 Gear icon → Customize page.
+
+Page count: Today shows a permanent "Your Book" strip
+whose page number comes from estimateYearbookPages()
+in lib/yearbook-page-count.ts. That helper and the
+reader must never diverge. Today cannot assemble
+spreads, so the helper is the only way it can know the
+length. The reader compares its own rendered
+pages.length against the helper on every render and
+reports a mismatch to Sentry (level warning, tag
+area:yearbook); treat one of those as a real bug, not
+noise. The count includes the whole learning record
+(books, drawings, written sections, the recap), not
+only photos, so a family who logs but never
+photographs still has a book with pages in it.
+
+### Yearbook print correctness
+These are the rules a printed book has to obey. Each one
+is here because it was broken in a way no family could
+see and no test caught.
+
+- family_name and school_year are read from
+  yearbook_content, with profiles.display_name and the
+  yearbook_opened_at derivation as fallbacks only. The
+  editor is the source of truth. For months the cover
+  ignored both fields, so a mother could type her family
+  name into the most prominent field on the customize
+  page and nothing changed.
+- No Tailwind arbitrary value may contain a space.
+  "text-[rgba(254, 252, 249, 0.55)]" does not parse and
+  Tailwind emits no colour at all, so the element renders
+  with whatever it inherits. Write "text-[#fefcf9]/55",
+  or better a theme token. Guard with:
+  git grep -nE '\[(rgba?|hsla?)\([^]]*, '
+- Nothing in the yearbook may be clamped. line-clamp
+  cuts a family's sentence in half inside an
+  overflow-hidden box and gives no sign it happened.
+  Long text paginates: it flows onto another page and
+  the book gets longer. The shared paginators live in
+  lib/yearbook-prompts.ts (paginateLetter,
+  paginateByLineBudget, estimateLines). Sites still
+  clamped carry a "TODO: paginate" comment.
+- coverBucketFor in lib/photo-url.ts is the only thing
+  that decides which bucket a cover lives in. Never
+  inline the test again: the reader and the editor once
+  asked opposite questions and disagreed on a bare path,
+  which is exactly what a cover upload stores when
+  signing fails.
+- Any change to pagination must update
+  lib/yearbook-page-count.ts in the SAME commit, with a
+  test. Today prints the page count from that helper and
+  cannot assemble spreads to check it; the reader
+  compares its own pages.length against the helper on
+  every render and reports drift to Sentry.
+- Every photograph in the book prints with at least a
+  date. A caption gets "caption · October 12", no
+  caption gets "child's name · October 12", neither gets
+  the date alone. Month and day, never the year: the
+  year is on the cover. The line is composed by
+  photoCaptionLine / photoMetaLine in lib/photo-caption.ts
+  so the reader, the print path and any future surface
+  compose it identically. Mosaic cells used to render the
+  image and nothing else, which made roughly 95% of the
+  book uncaptioned: a screensaver rather than a record.
+- Captions are never truncated. A long one wraps and the
+  image gives up the height.
+- The cover photograph and the chapter divider
+  photograph are the ONLY exceptions. They are design
+  surfaces, not records.
+- The caption line is part of cell geometry. It lives
+  inside the mosaic cell so it costs no pages today, and
+  lib/yearbook-photo-pages.test.ts holds that fixed. Any
+  change to it (a smaller maxPerPage, geometry that
+  reacts to caption length) must update the page-count
+  helper in the same commit.
+
+THE GOVERNING RULE: nothing empty ever prints. A section
+with no content is omitted from the book AND from the
+contents. No placeholders, no prompt text, no
+invitations, no ruled lines waiting to be filled. The
+printed book must never ask a mother for anything: she
+is holding it, so it is too late to ask.
+
+What that means in practice:
+- No letter written and no favourite day chosen, no
+  letter spread. No answers and no note, no conversation
+  page. No favourites written, no favourites spread (a
+  reserved photograph is NOT content, and the
+  reservation is gated on the same condition so the
+  photograph stays in the collage). No family wins or
+  trips, no family opener.
+- The contents page is generated from the spreads
+  actually assembled, using each spread's own label and
+  its real page number. Never a hardcoded list. It used
+  to name six fixed sections, two of them wrongly, while
+  listing nothing for favourites, books, Tiny
+  Masterpieces, the keepsake pages, Tiny Moments or
+  Adventures.
+- FillerPage is deliberately, completely blank and is
+  the ONLY empty page the book may contain. It exists
+  because a book is printed in leaves and an odd-length
+  section needs a back for its last page. Never put a
+  motif or an epigraph on it.
+- "From the village" is gone. It printed twelve blank
+  ruled lines nothing in the app could fill. The
+  show_village setting is gone with it; old
+  yearbook_content rows were left alone and there is no
+  migration. NOTE: app/faq/page.tsx still describes this
+  section to the public.
+- The closing note is built from the family's own year
+  (days of school, lessons, books, places, photographs)
+  by lib/year-recap.ts, and is omitted when there is
+  nothing to count. It replaced two pages of copy that
+  were word for word identical in every book.
+- There are THREE photo capture paths, and a change to
+  one is a change to all three:
+    1. saveCapturedPhotos, app/dashboard/page.tsx
+    2. the field trip sheet, app/dashboard/page.tsx
+    3. the Quick photo FAB, app/dashboard/layout.tsx
+  The FAB lives in the layout, so it is on every
+  dashboard page and is the most used of the three. It
+  was missed when the other two were fixed in 8e08d08
+  and stayed broken for a commit. All three set
+  include_in_book: true. lib/memory-insert-guard.test.ts
+  sweeps the source and fails if any insert into
+  `memories` anywhere leaves include_in_book to the
+  column default.
+  lib/lesson-photo.ts is a fourth path and sets false,
+  which is the decision: see the lesson-photo note below.
+- The caption card must not be occluded. It opens by
+  itself right after a save rather than by a tap, so it
+  cannot rely on being the last sheet rendered: it sits
+  at z-[75], above the z-50 sheet band and the z-[70]
+  toasts, and the catch-up lessons modal (z-[80]) is
+  suppressed while it is open.
+- Photos and field trips are captured INTO the book:
+  include_in_book: true on insert, matching the column
+  default. The capture path wrote false, and since the
+  reader filters on .eq("include_in_book", true) that one
+  line kept 64% of every photo Rooted has ever stored out
+  of the book. The model is "everything is in, pull out
+  what you don't want"; the yearbook editor's Hide toggle
+  is the only way out. Any NEW memory insert must set
+  include_in_book explicitly, and must say in a comment
+  why if it sets false. The win/quote insert is the one
+  deliberate false, for non-win types.
+- For a PHOTO, the printed caption is `caption` falling
+  back to `title`, and the Memories grid label is `title`
+  falling back to `caption`. The two directions differ on
+  purpose: a family's words appear regardless of which
+  field caught them, and the capture paths have caught
+  them in both over the years (409 photos hold theirs in
+  `title`). Composed by photoCaptionLine and
+  memoryDisplayLabel in lib/photo-caption.ts.
+  The literal title "Photo" is treated as NO text: it is
+  what LogTodayModal and LogActivityModal write when the
+  field is left blank, not something anyone typed.
+  The book's fallback is for type 'photo' only. A
+  'project' title is an auto-generated lesson label and a
+  'book' title is the book's name, already in the reading
+  list; neither should print under a photograph.
+- Lesson photos (lib/lesson-photo.ts) are deliberately
+  OUT of the yearbook's photo pages, include_in_book:
+  false, because they inherit an auto-generated
+  curriculum label as their title. They are earmarked for
+  the Record section instead.
+- The caption field is labelled "Caption" everywhere,
+  never "Note", and always carries the line "This prints
+  under the photo in your yearbook." A mother has no
+  other way to know that field becomes the caption in her
+  book, which is why 815 of 898 photos have none. Today's
+  edit sheet, the Memories edit sheet and the capture
+  card all say the same thing, and so does the Quick
+  photo sheet, which had a bare "What's this?"
+  placeholder and wrote its text to `title` where the
+  yearbook's caption line never looked.
+- The capture card offers a caption AFTER the photo has
+  saved, the toast has fired and both refreshes have run.
+  It must never sit between a family and a saved photo:
+  dismissing it loses nothing, Skip is a normal answer,
+  and it never appears when the capture failed.
+- Lulu's hardcover casewrap has a 24 PAGE MINIMUM. A
+  light book can now fall under it. estimateYearbookPages
+  reports the count honestly; the floor is a check the
+  print flow must make before offering to print, and is
+  NEVER a reason for the book to pad itself with pages a
+  family did not fill.
 
 ### YEARBOOK CUSTOMIZE — /dashboard/memories/yearbook/edit
 Single page for all yearbook settings + content.

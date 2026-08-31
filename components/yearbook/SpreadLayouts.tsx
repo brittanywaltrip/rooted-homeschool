@@ -191,7 +191,7 @@ function MilestoneRightPage({ spread }: { spread: YearbookSpread }) {
     <Shell>
       <div className="flex-1 flex flex-col justify-center px-4">
         {/* Header */}
-        <p className="text-[8px] font-semibold uppercase tracking-[0.15em] text-[rgba(254, 252, 249, 0.55)] mb-3">
+        <p className="text-[8px] font-semibold uppercase tracking-[0.15em] text-[var(--yb-muted)] mb-3">
           A moment worth remembering
         </p>
         <div className="h-px bg-[#ddd5c0] mb-4" style={{ height: 0.5 }} />
@@ -213,7 +213,7 @@ function MilestoneRightPage({ spread }: { spread: YearbookSpread }) {
             <div className="space-y-1.5">
               {also.slice(0, 4).map((a) => (
                 <div key={a.id} className="flex items-start gap-1.5">
-                  <span className="text-[8px] text-[rgba(254, 252, 249, 0.55)] mt-0.5">•</span>
+                  <span className="text-[8px] text-[var(--yb-muted)] mt-0.5">•</span>
                   <div>
                     <p className="text-[9px] text-[var(--yb-body)] line-clamp-1" style={{ fontFamily: "Georgia, serif" }}>
                       {a.title}
@@ -274,14 +274,14 @@ function MonthDividerLeftPage({ spread }: { spread: YearbookSpread }) {
       <span className="absolute top-1/3 left-1/4 text-[40px] opacity-[0.025] select-none pointer-events-none">🌱</span>
 
       <div className="h-full flex flex-col items-center justify-center text-center px-8 relative z-10">
-        <div className="w-12 h-px bg-[rgba(254, 252, 249, 0.55)]/40 mb-5" />
+        <div className="w-12 h-px bg-[var(--yb-accent)]/20 mb-5" />
         <p className="text-[36px] font-bold text-[var(--yb-body)]" style={{ fontFamily: "Georgia, serif" }}>
           {md.monthName}
         </p>
         <p className="text-[10px] text-[#9a8f85] mt-2 tracking-[0.15em] uppercase">
           {md.monthYear}
         </p>
-        <div className="w-12 h-px bg-[rgba(254, 252, 249, 0.55)]/40 mt-5" />
+        <div className="w-12 h-px bg-[var(--yb-accent)]/20 mt-5" />
       </div>
     </div>
   );
@@ -406,7 +406,7 @@ function FavoriteThingsLeftPage({ spread }: { spread: YearbookSpread }) {
     <Shell bg="#FAF6EC">
       <div className="flex-1 flex flex-col px-1">
         {/* Header */}
-        <p className="text-[8px] font-semibold uppercase tracking-[0.18em] text-[rgba(254, 252, 249, 0.55)] mb-4">
+        <p className="text-[8px] font-semibold uppercase tracking-[0.18em] text-[var(--yb-accent)] mb-4">
           {md.childName}&apos;s favorite things
         </p>
 
@@ -479,7 +479,7 @@ function MixedLayout({ spread }: { spread: YearbookSpread }) {
     <Shell>
       <div className="space-y-2 flex-1 min-h-0 overflow-hidden">
         {spread.memories.map((m) => (
-          <div key={m.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[rgba(254, 252, 249, 0.55)]">
+          <div key={m.id} className="bg-[#f0ede5] rounded-lg p-2 border-l-2 border-[var(--yb-accent)]">
             <p className="text-[7px] uppercase tracking-wider text-[var(--yb-accent)] mb-0.5">
               {m.type === "field_trip" ? "🗺️ Trip" : m.type === "project" ? "🎨 Project" : "📝 Memory"}
             </p>

@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback, useRef, type PointerEvent as ReactPoi
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { capitalizeChildNames } from "@/lib/utils";
-import { signedPhotoUrl } from "@/lib/photo-url";
-import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS } from "@/lib/photo-pipeline";
+import { signedPhotoUrl, coverBucketFor } from "@/lib/photo-url";
+import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS, COVER_MAX_DIMENSION } from "@/lib/photo-pipeline";
 import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
 import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
@@ -54,6 +54,11 @@ type MemoryRow = {
 
 type Focal = { x: number; y: number };
 type ReposTarget = { kind: "memory" | "cover"; id: string; url: string; bucket: string };
+
+// A cover is prepared at COVER_MAX_DIMENSION (3000px, a 10in front panel at
+// 300 PPI). Below this on the longest side there is not enough detail for that
+// panel and the print goes soft, so the editor says so without blocking.
+const COVER_SOFT_THRESHOLD = 2000;
 
 const FAMILY_GROUP_KEY = "family";
 
@@ -429,6 +434,9 @@ export default function YearbookEditPage() {
   const [coverUploading, setCoverUploading] = useState(false);
   const [coverSaved, setCoverSaved] = useState(false);
   const [coverError, setCoverError] = useState<string | null>(null);
+  // Set when the uploaded cover's natural size is too small to print sharply.
+  // Advisory only: the upload still succeeds and the cover still saves.
+  const [coverSoft, setCoverSoft] = useState(false);
   const [familyName, setFamilyName] = useState("");
   const [familyNameSaved, setFamilyNameSaved] = useState(false);
   const [schoolYear, setSchoolYear] = useState("");
@@ -473,7 +481,6 @@ export default function YearbookEditPage() {
     show_favorite_things: boolean;
     show_books_section: boolean;
     show_family_chapter: boolean;
-    show_village: boolean;
     theme?: string;
   };
   const DEFAULT_YB_SETTINGS: YearbookSettings = {
@@ -483,7 +490,6 @@ export default function YearbookEditPage() {
     show_favorite_things: true,
     show_books_section: true,
     show_family_chapter: true,
-    show_village: true,
     theme: "garden",
   };
   const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
@@ -528,8 +534,11 @@ export default function YearbookEditPage() {
     setCoverUploading(true);
     setCoverSaved(false);
     setCoverError(null);
+    setCoverSoft(false);
     try {
-      const prepared = await preparePhoto(file);
+      // COVER_MAX_DIMENSION, not the memory cap: the front panel of a casewrap
+      // cover is 10in wide once the board wrap is added.
+      const prepared = await preparePhoto(file, COVER_MAX_DIMENSION);
       const path = `${effectiveUserId}/cover.jpg`;
       const { error: upErr } = await supabase.storage
         .from("yearbook-covers")
@@ -541,6 +550,9 @@ export default function YearbookEditPage() {
       const stored = signed ?? path;
       setCoverPhotoUrl(stored);
       await saveContent("cover_photo", stored);
+      // Natural size, measured before the downscale. Anything under this prints
+      // visibly soft at cover size, so the family gets a nudge (never a block).
+      setCoverSoft(Math.max(prepared.width, prepared.height) < COVER_SOFT_THRESHOLD);
       setCoverSaved(true);
       setTimeout(() => setCoverSaved(false), 3000);
     } catch (err) {
@@ -968,7 +980,6 @@ export default function YearbookEditPage() {
               { key: "show_favorite_things" as const, emoji: "💛", label: "Favorite things pages" },
               { key: "show_books_section" as const, emoji: "📚", label: "Books sections" },
               { key: "show_family_chapter" as const, emoji: "👨‍👩‍👧", label: "Our family chapter" },
-              { key: "show_village" as const, emoji: "👵", label: "From the village" },
             ]).map((item) => (
               <button
                 key={item.key}
@@ -1013,7 +1024,7 @@ export default function YearbookEditPage() {
             <div className="flex items-center gap-4">
               <SignedImage
                 src={coverPhotoUrl}
-                bucket={coverPhotoUrl.includes("/family-photos/") ? "family-photos" : "yearbook-covers"}
+                bucket={coverBucketFor(coverPhotoUrl)}
                 alt="Cover"
                 className="h-[100px] w-auto rounded-lg object-cover border border-[#e8e3dc]"
               />
@@ -1053,6 +1064,11 @@ export default function YearbookEditPage() {
             )
           )}
           {coverSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+          {coverSoft && (
+            <span className="text-[11px] text-[#9a8f85] mt-1.5 block leading-snug">
+              This photo will look soft if you print your yearbook. A larger photo from your camera roll will print sharper.
+            </span>
+          )}
           {coverError && <span className="text-[11px] text-red-400 mt-1.5 block leading-snug">{coverError}</span>}
         </div>
 
@@ -1075,7 +1091,7 @@ export default function YearbookEditPage() {
               ...(familyIds.length ? [{ key: FAMILY_GROUP_KEY, label: "Family", ids: familyIds }] : []),
             ];
 
-            const coverBucket = coverPhotoUrl.includes("/family-photos/") ? "family-photos" : "yearbook-covers";
+            const coverBucket = coverBucketFor(coverPhotoUrl);
             const coverFocal = focalMap["cover"] ?? null;
 
             if (!coverPhotoUrl && groups.length === 0) {
@@ -1553,7 +1569,7 @@ export default function YearbookEditPage() {
                             style={{ fontFamily: "Georgia, serif" }}
                           />
                           {val.trim() && updatedMap[updKey] && (
-                            <p className="text-[9px] text-[rgba(254, 252, 249, 0.55)] mt-0.5">
+                            <p className="text-[9px] text-[#9a8f85] mt-0.5">
                               ✓ Saved {new Date(updatedMap[updKey]).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                             </p>
                           )}

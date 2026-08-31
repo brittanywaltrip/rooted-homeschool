@@ -376,7 +376,7 @@ export default function FamilyViewPage() {
       </div>
 
       {/* ─── Gift nudge (always visible) ─────────────────────────────── */}
-      <div className="mx-4 mt-8 bg-[#fefcf9] border border-[#e8e2d9] border-l-[3px] border-l-[rgba(254, 252, 249, 0.55)] rounded-2xl px-5 py-4">
+      <div className="mx-4 mt-8 bg-[#fefcf9] border border-[#e8e2d9] border-l-[3px] border-l-[#5c7f63] rounded-2xl px-5 py-4">
         <p className="text-[13px] font-medium text-[#2d2926] mb-1">Love following along? 🎁</p>
         <p className="text-[12px] text-[#7a6f65] leading-relaxed mb-3">
           You can gift {familyName} a full year of Rooted so they never stop capturing these moments.

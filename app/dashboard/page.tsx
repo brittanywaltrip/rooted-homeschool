@@ -46,6 +46,12 @@ import { useIsNativeApp } from "@/lib/platform";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
 import MonthlyQuestionCard from "@/app/components/MonthlyQuestionCard";
+import { estimateYearbookPages, type BookCounts, type BookSections } from "@/lib/yearbook-page-count";
+import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES, tinyMomentLines, paginateLetter, paginateByLineBudget, estimateLines, KEEPSAKE_LINES_PER_PAGE, KEEPSAKE_LINES_WITH_SIGNOFF } from "@/lib/yearbook-prompts";
+import { buildYearRecap, hasClosingNote } from "@/lib/year-recap";
+import { monthEntriesFor } from "@/lib/monthly-questions";
+import { partitionDrawings } from "@/lib/tiny-masterpieces";
+import { keepInBook } from "@/lib/yearbook-photo-pages";
 // PageHero removed — replaced by Book Cover Card
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -129,6 +135,142 @@ const INSPIRATION_PROMPTS = [
 const MAX_CAPTURE_PHOTOS = 10;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// ─── Your Book strip ─────────────────────────────────────────────────────────
+// Today shows how many pages the yearbook currently runs to. It cannot build
+// the book to find out (that is 40 pages of React and a signed URL per photo),
+// so it counts the same things the reader counts and hands them to the shared
+// estimator in lib/yearbook-page-count.ts. The reader checks its own rendered
+// page count against that estimator on every render and reports a mismatch to
+// Sentry, so if this derivation and the book ever disagree, it surfaces there
+// instead of as a family reading a book that is not the length they were told.
+
+type BookMemoryRow = {
+  id: string;
+  child_id: string | null;
+  type: string;
+  include_in_book: boolean | null;
+  photo_url: string | null;
+  title: string | null;
+  caption: string | null;
+  featured: boolean | null;
+};
+
+type YearbookContentRow = {
+  content_type: string;
+  child_id: string | null;
+  question_key: string | null;
+  content: string;
+};
+
+function buildBookCounts(
+  childIds: string[],
+  mems: BookMemoryRow[],
+  contentRows: YearbookContentRow[],
+  monthlyRows: { month: string; answer: string | null }[],
+  yearbookKey: string,
+  lessonRecord: { lessons: number; schoolDays: number },
+): BookCounts {
+  const key = (contentType: string, childId?: string | null, questionKey?: string | null) =>
+    `${contentType}:${childId ?? "null"}:${questionKey ?? "null"}`;
+  const content: Record<string, string> = {};
+  for (const r of contentRows) content[key(r.content_type, r.child_id, r.question_key)] = r.content;
+  const filled = (k: string) => (content[k] ?? "").trim().length > 0;
+  const promptCost = (l: { prompt: string; value: string }) => estimateLines(`${l.prompt} ${l.value}`);
+
+  // The letter's "favorite moment" reserves its photo out of whichever chapter
+  // owns it, exactly as the reader does, so the chapter counts match the book.
+  const favMemId = (content[key("letter_favorite_memory_id")] ?? "").trim();
+  const favMem = favMemId ? mems.find((m) => m.id === favMemId) : undefined;
+  const reservedPhotoId = favMem?.photo_url ? favMem.id : null;
+
+  const collagePhotos = (rows: BookMemoryRow[]) =>
+    partitionDrawings(keepInBook(rows.filter((m) => m.photo_url))).photos.filter(
+      (m) => m.id !== reservedPhotoId,
+    );
+  // A CHILD chapter is planned from its non-featured photos (the reader's
+  // `nonFeatured`), so featured ones are left out of the count here.
+  const childPhotos = (rows: BookMemoryRow[]) => collagePhotos(rows).filter((m) => !m.featured).length;
+  // The FAMILY chapter has no such planning step, so every photo goes straight
+  // to the collage and featured ones stay counted. The two differ on purpose;
+  // matching the reader chapter for chapter is the whole point.
+  const familyPhotos = (rows: BookMemoryRow[]) => collagePhotos(rows).length;
+  const chapterDrawings = (rows: BookMemoryRow[]) =>
+    partitionDrawings(keepInBook(rows.filter((m) => m.photo_url))).drawings.length;
+
+  const byChild = childIds.map((id) => mems.filter((m) => m.child_id === id));
+  const familyMems = mems.filter((m) => !m.child_id);
+
+  const monthlyMap: Record<string, { question: string; answer: string }> = {};
+  for (const r of monthlyRows) monthlyMap[r.month] = { question: "", answer: r.answer ?? "" };
+
+  const recap = buildYearRecap(mems.map((m) => ({ type: m.type, title: m.title, caption: m.caption })));
+
+  return {
+    childPhotoCounts: byChild.map(childPhotos),
+    familyPhotoCount: familyPhotos(familyMems),
+    childBookCounts: byChild.map((rows) => rows.filter((m) => m.type === "book").length),
+    familyBookCount: familyMems.filter((m) => m.type === "book").length,
+    childDrawingCounts: byChild.map(chapterDrawings),
+    familyDrawingCount: chapterDrawings(familyMems),
+    filledInterviewChildren: childIds.filter((id) =>
+      YEAR_END_QUESTIONS.some((q) => filled(key("child_interview", id, q.key))),
+    ).length,
+    filledFavoriteChildren: childIds.map((id) =>
+      FAVORITES.some((f) => {
+        const oldKey = FAVORITES_FROM_INTERVIEW[f.key];
+        return filled(key("child_favorite", id, f.key)) || (!!oldKey && filled(key("child_interview", id, oldKey)));
+      }),
+    ),
+    // Keepsake PAGES, not sections. The never-forget and open-when pages stopped
+    // clamping their text in the print-correctness pass, so a parent who writes
+    // at length gets more pages. Same paginator the reader renders with.
+    filledKeepsakePages: childIds.map((id) => {
+      const nf = NEVER_FORGET_LINES
+        .map((l) => ({ prompt: l.label, value: (content[key("child_never_forget", id, l.key)] ?? "").trim() }))
+        .filter((x) => x.value);
+      const ow = OPEN_WHEN_PROMPTS
+        .map((q) => ({ prompt: q.label, value: (content[key("child_open_when", id, q.key)] ?? "").trim() }))
+        .filter((x) => x.value);
+      const snapshot = SNAPSHOT_FIELDS.some((f) => filled(key("child_snapshot", id, f.key))) ? 1 : 0;
+      return (
+        snapshot +
+        paginateByLineBudget(nf, promptCost, KEEPSAKE_LINES_PER_PAGE).length +
+        paginateByLineBudget(ow, promptCost, KEEPSAKE_LINES_WITH_SIGNOFF).length
+      );
+    }),
+    childInterviewAnswers: childIds.map((id) =>
+      YEAR_END_QUESTIONS.filter((q) => filled(key("child_interview", id, q.key))).length,
+    ),
+    hasLetter: filled(key("letter_from_home")),
+    // "A Day We'll Never Forget", the letter's facing page. Same test the
+    // reader makes: a chosen memory with a photo or a name, any of the day's
+    // written details, or the quote from that day.
+    hasFavoriteDay: !!(
+      favMem?.photo_url ||
+      favMem?.title?.trim() ||
+      filled(key("letter_favorite_what")) ||
+      filled(key("letter_favorite_why")) ||
+      filled(key("letter_favorite_caption")) ||
+      filled(key("letter_favorite_location")) ||
+      filled(key("letter_favorite_quote"))
+    ),
+    familyWinCount: familyMems.filter((m) => m.type === "win" || m.type === "field_trip").length,
+    hasClosingNote: hasClosingNote({
+      schoolDays: lessonRecord.schoolDays,
+      lessons: lessonRecord.lessons,
+      books: mems.filter((m) => m.type === "book").length,
+      places: mems.filter((m) => m.type === "field_trip").length,
+      photographs: mems.filter((m) => m.photo_url && m.type !== "drawing").length,
+    }),
+    letterPages: paginateLetter(content[key("letter_from_home")] ?? "").length,
+    monthlyAnswers: monthEntriesFor(yearbookKey, monthlyMap).length,
+    tinyMomentLines: tinyMomentLines(content[key("tiny_moments")]).length,
+    filledAdventureCategories: ADVENTURE_CATEGORIES.filter((c) => filled(key("adventure_categories", null, c.key))).length,
+    recapItemCount: recap.books.length + recap.places.length + recap.moments.length,
+    recapSectionCounts: [recap.books.length, recap.places.length, recap.moments.length],
+  };
+}
 
 /** Local-time YYYY-MM-DD — avoids the UTC shift that toISOString causes. */
 function localDateStr(d: Date): string {
@@ -441,6 +583,9 @@ export default function TodayPage() {
   const [achievementBanner, setAchievementBanner] = useState<{ label: string; childName?: string; isEducator: boolean; extra: number } | null>(null);
   const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastMemory, setLastMemory] = useState<{ id: string; type: string; title: string | null; date: string; child_id: string | null; photo_url: string | null } | null>(null);
+  // Your Book strip: the yearbook's current page count plus the record behind
+  // it. Null until loadData has run, so the strip never flashes a zero.
+  const [bookStats, setBookStats] = useState<{ pages: number; lessons: number; books: number; days: number } | null>(null);
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null; photo_url: string | null } | null>(null);
   const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | 3>(3);
   const [showWinSheet, setShowWinSheet] = useState(false);
@@ -473,6 +618,13 @@ export default function TodayPage() {
   const reportedProjectionGapsRef = useRef<Set<string>>(new Set());
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
   const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
+  // The caption card. The photos are already saved when this opens: the queue is
+  // what to OFFER a caption for, one at a time, and dismissing it loses nothing.
+  const [captionQueue, setCaptionQueue] = useState<{ id: string; photoUrl: string; type: string }[]>([]);
+  const [captionIndex, setCaptionIndex] = useState(0);
+  const [captionText, setCaptionText] = useState("");
+  const [captionChild, setCaptionChild] = useState("");
+  const [captionSaving, setCaptionSaving] = useState(false);
   const captureToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // True while the capture tile is compressing / uploading. Drives the
   // "Saving your photo..." toast and blocks a second concurrent batch.
@@ -783,7 +935,7 @@ export default function TodayPage() {
     // browser-detected value for the self-heal write below.
     const profileResult = await supabase
       .from("profiles")
-      .select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, timezone")
+      .select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, timezone, yearbook_opened_at, yearbook_closed_at, yearbook_settings")
       .eq("id", effectiveUserId)
       .maybeSingle();
     const tzFromProfile = (profileResult.data as { timezone?: string | null } | null)?.timezone ?? null;
@@ -809,6 +961,34 @@ export default function TodayPage() {
     const todayInUserTz = todayInTz(browserTz);
     const todayStartIso = startOfDayInTzAsUtc(todayInUserTz, browserTz).toISOString();
     const tomorrowStartIso = startOfDayInTzAsUtc(addDaysYmd(todayInUserTz, 1), browserTz).toISOString();
+
+    // ── The yearbook's own window ───────────────────────────────────────────
+    // Today shows the book's page count, so it has to scope its counts exactly
+    // the way the reader does: from yearbook_opened_at (or this school year's
+    // August 1 when the book has never been opened) to yearbook_closed_at, and
+    // in-book rows only. Any other window gives a number the book won't match.
+    // Mirrors app/dashboard/memories/yearbook/read/page.tsx's loader.
+    const ybOpenedAt =
+      (profileResult.data as { yearbook_opened_at?: string | null } | null)?.yearbook_opened_at ??
+      new Date(syYear, schoolYearStartMonth, 1).toISOString();
+    const ybClosedAt = (profileResult.data as { yearbook_closed_at?: string | null } | null)?.yearbook_closed_at ?? null;
+    const ybOpenedMonth = new Date(ybOpenedAt).getUTCMonth();
+    const ybOpenedYear = new Date(ybOpenedAt).getUTCFullYear();
+    const ybStartYear = ybOpenedMonth >= 7 ? ybOpenedYear : ybOpenedYear - 1;
+    const yearbookKeyForCount = `${ybStartYear}-${String(ybStartYear + 1).slice(2)}`;
+
+    // Minimal column list, plus title/caption because the recap drops blank
+    // items and collapses duplicates before it paginates, so counting rows
+    // instead would put the recap on the wrong page. Current families hold at
+    // most 61 memories, so this is cheap. If a family ever passes a few
+    // thousand rows, move this to a grouped RPC rather than widening it.
+    let bookMemsQuery = supabase
+      .from("memories")
+      .select("id, child_id, type, include_in_book, photo_url, title, caption, featured")
+      .eq("user_id", effectiveUserId)
+      .eq("include_in_book", true)
+      .gte("date", ybOpenedAt.slice(0, 10));
+    if (ybClosedAt) bookMemsQuery = bookMemsQuery.lte("date", ybClosedAt.slice(0, 10));
     const [
       authResult,
       childrenResult,
@@ -833,6 +1013,9 @@ export default function TodayPage() {
       todayStoryResult,
       curriculumGoalsResult,
       completedTodayResult,
+      bookMemsResult,
+      ybContentResult,
+      monthlyReflectionsResult,
     ] = await Promise.all([
       supabase.auth.getUser(),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
@@ -845,7 +1028,10 @@ export default function TodayPage() {
       Promise.resolve({ data: null, error: null }),
       supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
       supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
-      supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
+      // child_id for the leaf counts; date/scheduled_date so the Your Book strip
+      // can count both completed lessons and the distinct days they fall on
+      // without a second and third round trip for the same rows.
+      supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true),
       // Leaf sources: the memories table first, legacy app_events merged in
       // behind it. Books moved to `memories` in March 2026, so reading the
       // legacy table alone hid every book logged since. See lib/memory-leaves.ts.
@@ -880,6 +1066,18 @@ export default function TodayPage() {
         .gte("completed_at", todayStartIso)
         .lt("completed_at", tomorrowStartIso)
         .not("curriculum_goal_id", "is", null),
+      // ── Your Book strip ───────────────────────────────────────────────────
+      bookMemsQuery,
+      // Which written sections exist. content_type / child_id / question_key
+      // are what decide whether a section costs pages, so a bare row count
+      // would not be enough to tell them apart.
+      supabase
+        .from("yearbook_content")
+        .select("content_type, child_id, question_key, content")
+        .eq("user_id", effectiveUserId)
+        .eq("yearbook_key", yearbookKeyForCount)
+        .neq("content", ""),
+      supabase.from("monthly_reflections").select("month, answer").eq("user_id", effectiveUserId),
     ]);
 
     // TODO: remove after queue scheduling verified in production. The
@@ -1482,6 +1680,55 @@ export default function TodayPage() {
     setTotalPhotos(photoCountResult.data?.length ?? 0);
     setYearbookCount(ybCountResult.data?.length ?? 0);
 
+    // ── Your Book strip ─────────────────────────────────────────────────────
+    // Page count from the shared estimator, and the learning record beside it.
+    // Both read rows already fetched above; nothing here makes its own request.
+    const completedLessonRows = (completedResult.data ?? []) as { date?: string | null; scheduled_date?: string | null }[];
+    const schoolDayDates = new Set<string>();
+    for (const l of completedLessonRows) {
+      const d = l.date ?? l.scheduled_date;
+      if (d) schoolDayDates.add(d);
+    }
+    const bookMems = (bookMemsResult.data ?? []) as unknown as BookMemoryRow[];
+    // profiles.yearbook_settings stores the reader's snake_case keys, and any
+    // key the family has never toggled is simply absent. The reader spreads
+    // its DEFAULT_YB_SETTINGS underneath, so an absent key means on.
+    const ybSettingsRow =
+      (profile as { yearbook_settings?: Record<string, boolean> | null } | null)?.yearbook_settings ?? null;
+    const sectionOn = (k: string) => ybSettingsRow?.[k] ?? true;
+    const bookSections: BookSections = {
+      showLetter: sectionOn("show_letter"),
+      showYearInNumbers: sectionOn("show_year_in_numbers"),
+      showChildChapters: sectionOn("show_child_chapters"),
+      showFavoriteThings: sectionOn("show_favorite_things"),
+      showBooksSection: sectionOn("show_books_section"),
+      showFamilyChapter: sectionOn("show_family_chapter"),
+    };
+    // The closing note counts the lessons inside the yearbook's own window, the
+    // way the reader does. The strip's "lessons completed" figure below stays
+    // all-time on purpose; these two are different questions.
+    const windowedLessonDates: string[] = [];
+    for (const l of completedLessonRows) {
+      const d = (l.date ?? l.scheduled_date ?? "").slice(0, 10);
+      if (!d || d < ybOpenedAt.slice(0, 10)) continue;
+      if (ybClosedAt && d > ybClosedAt.slice(0, 10)) continue;
+      windowedLessonDates.push(d);
+    }
+    const bookCounts = buildBookCounts(
+      (childrenData ?? []).map((c: { id: string }) => c.id),
+      bookMems,
+      (ybContentResult.data ?? []) as unknown as YearbookContentRow[],
+      (monthlyReflectionsResult.data ?? []) as unknown as { month: string; answer: string | null }[],
+      yearbookKeyForCount,
+      { lessons: windowedLessonDates.length, schoolDays: new Set(windowedLessonDates).size },
+    );
+    setBookStats({
+      pages: estimateYearbookPages(bookCounts, bookSections),
+      lessons: completedLessonRows.length,
+      books: bookMems.filter((m) => m.type === "book").length,
+      days: schoolDayDates.size,
+    });
+
     // Active days this month
     const activeDates = new Set<string>();
     (monthLessonsResult.data ?? []).forEach((l: { date?: string; scheduled_date?: string }) => {
@@ -1677,6 +1924,25 @@ export default function TodayPage() {
     };
     window.addEventListener(LESSON_PHOTO_SAVED_EVENT, handler);
     return () => window.removeEventListener(LESSON_PHOTO_SAVED_EVENT, handler);
+  // refreshTodayStory is a stable hoisted function declaration in this component.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadData]);
+
+  // A photo was saved from the Quick photo button in app/dashboard/layout.tsx.
+  // That FAB dispatches rooted:memory-saved and its comment said the event was
+  // "for the Today page, which has its own listener". Today had none, so a
+  // photo taken with the most convenient button in the app did not appear in
+  // Today's Story until a reload. That was survivable while those photos were
+  // include_in_book: false; now that they reach the book, the Your Book page
+  // count was stale too. Regression guard: await both.
+  useEffect(() => {
+    const handler = async () => {
+      loadDataBusy.current = false;
+      await loadData();
+      await refreshTodayStory();
+    };
+    window.addEventListener("rooted:memory-saved", handler);
+    return () => window.removeEventListener("rooted:memory-saved", handler);
   // refreshTodayStory is a stable hoisted function declaration in this component.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadData]);
@@ -3597,22 +3863,33 @@ export default function TodayPage() {
       let saved = 0;
       let lastId: string | null = null;
       let firstFailure: string | null = null;
+      // The rows that really landed, for the caption card below. Only these:
+      // a photo that failed to save has nothing to caption.
+      const savedRows: { id: string; photoUrl: string; type: string }[] = [];
 
       for (let i = 0; i < batch.length; i++) {
         showProgressToast(batch.length > 1 ? `Saving ${i + 1} of ${batch.length}...` : "Saving your photo...");
         try {
           const { photoUrl, width, height } = await uploadMemoryPhoto(supabase, user.id, batch[i]);
           const now = new Date().toISOString();
+          // include_in_book: true. Photos are IN the book by default, matching
+          // the column default and the way the yearbook editor is worded: it
+          // offers a Hide toggle, which only makes sense if things start
+          // included. This line said false, and since the reader filters on
+          // .eq("include_in_book", true) it was the single reason 64% of every
+          // photo Rooted has ever stored never reached a page. The way out is
+          // the editor's Hide toggle, not the capture path.
           const { data: ins, error: insErr } = await supabase.from("memories").insert({
             user_id: user.id, type: memType, title: '',
             photo_url: photoUrl, child_id: null,
             photo_width: width, photo_height: height,
-            date: today, include_in_book: false,
+            date: today, include_in_book: true,
             created_at: now, updated_at: now,
           }).select("id").single();
           if (insErr) throw insErr;
           saved++;
           lastId = (ins as { id: string } | null)?.id ?? null;
+          if (lastId) savedRows.push({ id: lastId, photoUrl, type: memType });
         } catch (err) {
           captureSupabaseError("today photo capture", err);
           if (!firstFailure) {
@@ -3642,11 +3919,92 @@ export default function TodayPage() {
       await refreshTodayStory();
       checkAndAwardBadges(user.id);
       onLogAction({ userId: user.id, actionType: memType === "drawing" ? "drawing" : "memory" });
+
+      // ── The caption offer ────────────────────────────────────────────────
+      // Last, after the save, the toast and both refreshes. The moment she is
+      // still holding the phone is the only time a caption ever gets written,
+      // which is why 815 of 898 photos have none, but the offer must never be
+      // in the way of the save: everything above has already happened and
+      // closing this card loses nothing.
+      if (savedRows.length > 0) {
+        // The toast has fired and done its job. It sits above this card's
+        // backdrop, so it is cleared rather than left floating over it.
+        if (captureToastTimer.current) { clearTimeout(captureToastTimer.current); captureToastTimer.current = null; }
+        setCaptureToast(null);
+        setCaptionQueue(savedRows);
+        setCaptionIndex(0);
+        setCaptionText("");
+        setCaptionChild("");
+      }
     } catch (err) {
       captureSupabaseError("today photo capture", err);
       showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again", null);
     } finally {
       setCapturing(false);
+    }
+  }
+
+  // ── Caption card ──────────────────────────────────────────────────────────
+  // Every exit from the card goes through one of these two. Nothing here can
+  // lose a photo: the row is already in the database with its photo attached,
+  // so the worst case is a memory with no caption, which is what every photo
+  // captured before today looks like anyway.
+
+  /**
+   * Move to the next photo in the batch, or close when that was the last.
+   *
+   * The next index is worked out HERE, from the values the tap actually saw,
+   * rather than inside a setState updater reading the queue length. Updaters
+   * run at render, not at the event (see app/components/updaterPurity.test.ts),
+   * and this one would be reasoning about a queue that may already have moved.
+   */
+  function advanceCaptionCard() {
+    const next = captionIndex + 1;
+    setCaptionText("");
+    setCaptionChild("");
+    if (next >= captionQueue.length) {
+      setCaptionQueue([]);
+      setCaptionIndex(0);
+    } else {
+      setCaptionIndex(next);
+    }
+  }
+
+  /** Close the card and drop the rest of the batch. Skipping is normal. */
+  function dismissCaptionCard() {
+    setCaptionQueue([]);
+    setCaptionIndex(0);
+    setCaptionText("");
+    setCaptionChild("");
+  }
+
+  async function saveCaptionCard() {
+    const target = captionQueue[captionIndex];
+    if (!target || captionSaving) return;
+    const caption = captionText.trim();
+    const childId = captionChild || null;
+    // Nothing typed and nobody picked is the same as skipping, and writing
+    // nulls over a row for no reason is not worth a round trip.
+    if (!caption && !childId) { advanceCaptionCard(); return; }
+
+    setCaptionSaving(true);
+    try {
+      const { error } = await supabase
+        .from("memories")
+        .update({ caption: caption || null, child_id: childId, updated_at: new Date().toISOString() })
+        .eq("id", target.id);
+      if (error) throw error;
+      // Regression guard: loadData first, then refreshTodayStory, both awaited,
+      // so the grid and Today's Story show the caption without a reload.
+      loadDataBusy.current = false;
+      await loadData();
+      await refreshTodayStory();
+      advanceCaptionCard();
+    } catch (err) {
+      captureSupabaseError("caption card save", err);
+      showCaptureToast("Couldn't save that caption, try again", null);
+    } finally {
+      setCaptionSaving(false);
     }
   }
 
@@ -4321,14 +4679,12 @@ export default function TodayPage() {
             href: "/dashboard/garden", lsKey: "rooted_visited_garden",
           };
         }
-        if (!nudge && gardenVisited && !yearbookVisited) {
-          nudge = {
-            key: "yearbook", emoji: "📖",
-            title: "Your yearbook already has something in it",
-            body: `${totalMemories} memor${totalMemories === 1 ? "y is" : "ies are"} building your family book automatically. Preview it \u2192`,
-            href: "/dashboard/memories/yearbook/read", lsKey: "rooted_visited_yearbook",
-          };
-        }
+        // The "Your yearbook already has something in it" nudge used to sit
+        // here. It existed only because the book had no permanent surface on
+        // Today; the Your Book strip is that surface now, so a one-shot card
+        // pointing at the same place is noise. rooted_visited_yearbook is
+        // untouched: the gate above still reads it, and the reader still
+        // writes it when the strip's "Open →" gets them there.
         if (!nudge && yearbookVisited && !hasAnyLessons && !curriculumDismissed) {
           nudge = {
             key: "curriculum", emoji: "📚",
@@ -4541,6 +4897,66 @@ export default function TodayPage() {
           </Link>
         </div>
       )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          YOUR BOOK, the permanent page count. Sits AFTER Today's
+          Story on purpose: Today's Story answers "what did we do
+          today", this answers "what is it adding up to", and the
+          second question only makes sense once the first is answered.
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && bookStats && (() => {
+        // Nothing at all below three memories with no lessons behind them.
+        // "0 pages" reads as a scolding, and Rooted does not scold. The
+        // activation card above already speaks to a family with an empty book,
+        // and it does it warmly. This is a fact for families who have one.
+        if (totalMemories < 3 && bookStats.lessons === 0) return null;
+
+        const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+        // The record, middle-dot separated, with every zero left out. A family
+        // with no lessons logged has a book made of memories, so that is what
+        // the line counts for them.
+        const record =
+          bookStats.lessons === 0
+            ? `${totalMemories} memor${totalMemories === 1 ? "y" : "ies"}`
+            : [
+                `${plural(bookStats.lessons, "lesson")} completed`,
+                bookStats.books > 0 ? `${plural(bookStats.books, "book")} read` : null,
+                bookStats.days > 0 ? `${plural(bookStats.days, "day")} of school` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+        const newestChild = lastMemory?.child_id ? children.find((c) => c.id === lastMemory.child_id) : null;
+        const newestLabel = lastMemory ? (lastMemory.title?.trim() || "Photo") : null;
+
+        return (
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Book</p>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3.5 flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="leading-none">
+                  {/* 500, not 700: CLAUDE.md allows 400 and 500 only. */}
+                  <span className="text-[28px] font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+                    {bookStats.pages}
+                  </span>
+                  <span className="text-xs text-[#9a8f85] ml-1.5">pages</span>
+                </p>
+                <p className="text-[11px] text-[#7a6f65] mt-2">{record}</p>
+                {newestLabel && (
+                  <p className="text-[10px] text-[#9a8f85] mt-1 truncate">
+                    Newest: {newestLabel}{newestChild ? ` · ${newestChild.name}` : ""}
+                  </p>
+                )}
+              </div>
+              <Link
+                href="/dashboard/memories/yearbook/read"
+                className="text-xs text-[#5c7f63] font-medium hover:underline shrink-0 mt-1"
+              >
+                Open →
+              </Link>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ═══════════════════════════════════════════════════════════
           ON THIS DAY — purple card, show only for Tier 1 or 2 matches (1+ year)
@@ -5128,10 +5544,12 @@ export default function TodayPage() {
                   const { data: { user } } = await supabase.auth.getUser();
                   if (user) {
                     const nowFt = new Date().toISOString();
+                    // include_in_book: true, same rule as a captured photo: in
+                    // the book by default, out via the editor's Hide toggle.
                     const { data: ins, error: ftErr } = await supabase.from("memories").insert({
                       user_id: user.id, type: ftType, title: ftTitle.trim(),
                       caption: ftNote.trim() || null, child_id: ftChild || null,
-                      date: today, include_in_book: false,
+                      date: today, include_in_book: true,
                       ...(ftMinutes ? { duration_minutes: parseInt(ftMinutes) } : {}),
                       created_at: nowFt, updated_at: nowFt,
                     }).select("id").single();
@@ -5644,6 +6062,121 @@ export default function TodayPage() {
         </div>
       )}
 
+      {/* ═══════════════════════════════════════════════════════════
+          CAPTION CARD, offered after a capture has already saved.
+          Quiet on purpose: no progress bar, no celebration, no gold.
+          It is a small offer, not a task, and Skip is a normal answer.
+         ═══════════════════════════════════════════════════════════ */}
+      {captionQueue.length > 0 && captionQueue[captionIndex] && (() => {
+        const current = captionQueue[captionIndex];
+        const isDrawing = current.type === "drawing";
+        const subject = isDrawing ? "drawing" : "photo";
+        return (
+          <>
+            {/* z-[75], not z-50. Every other sheet on this page shares z-50 and
+                is therefore ordered by where it happens to sit in the JSX, and
+                the toasts sit at z-[70]. This card opens by itself right after
+                a save rather than by a tap, so it cannot rely on being the
+                last thing rendered; giving it its own level keeps a stray
+                sibling from covering it the way the catch-up modal did. The
+                z-[80] modals above it are all opened by an explicit tap, and
+                the one that was not is suppressed above. */}
+            <div
+              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[75]"
+              onClick={dismissCaptionCard}
+            />
+            <div
+              className="fixed bottom-0 left-0 right-0 z-[75] bg-[#fefcf9] rounded-t-3xl shadow-2xl max-w-lg mx-auto max-h-[92dvh] overflow-y-auto"
+              style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+            >
+              <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
+              <div className="px-5 pb-5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="font-bold text-[#2d2926]">Add a caption?</h2>
+                    <p className="text-[11px] text-[#9a8f85] mt-0.5">
+                      Your {subject} is saved{captionQueue.length > 1 ? ` · ${captionIndex + 1} of ${captionQueue.length}` : ""}
+                    </p>
+                  </div>
+                  <button
+                    onClick={dismissCaptionCard}
+                    aria-label="Close"
+                    className="text-[#b5aca4] hover:text-[#7a6f65] text-xl leading-none w-11 h-11 flex items-center justify-center -mr-2"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                {/* The photograph itself, at a size worth looking at. */}
+                <div className="w-full rounded-xl overflow-hidden bg-[#f0ede8] flex items-center justify-center" style={{ maxHeight: "40dvh" }}>
+                  <SignedImage
+                    src={current.photoUrl}
+                    bucket="memory-photos"
+                    alt=""
+                    className="w-full object-contain"
+                    style={{ maxHeight: "40dvh" }}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Caption</label>
+                  <input
+                    value={captionText}
+                    onChange={(e) => setCaptionText(e.target.value)}
+                    autoFocus
+                    className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20"
+                  />
+                  <p className="text-[11px] text-[#9a8f85] mt-1.5">This prints under the {subject} in your yearbook.</p>
+                </div>
+
+                {children.length > 0 && (
+                  <div>
+                    <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Child</label>
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={() => setCaptionChild("")}
+                        className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${!captionChild ? "bg-[#5c7f63] text-white border-[#5c7f63]" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}
+                      >
+                        Everyone
+                      </button>
+                      {children.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => setCaptionChild(c.id)}
+                          className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${captionChild === c.id ? "text-white border-transparent" : "bg-white text-[#7a6f65] border-[#e8e2d9]"}`}
+                          style={captionChild === c.id ? { backgroundColor: c.color ?? "#5c7f63" } : {}}
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={advanceCaptionCard}
+                    disabled={captionSaving}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-medium text-[#7a6f65] hover:bg-[#f0ede8] disabled:opacity-50 transition-colors"
+                  >
+                    Skip
+                  </button>
+                  <button
+                    onClick={saveCaptionCard}
+                    disabled={captionSaving}
+                    className="flex-1 py-2.5 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                  >
+                    {captionSaving ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
       {/* ── Edit sheet ────────────────────────────────────── */}
       {editSheet && (
         <>
@@ -5661,9 +6194,13 @@ export default function TodayPage() {
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
               </div>
               <div>
-                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Note</label>
-                <input value={editSheet.caption} onChange={(e) => setEditSheet({ ...editSheet, caption: e.target.value })} placeholder="Optional note"
+                {/* Labelled Caption, not Note: it writes the same column the
+                    yearbook prints under the photograph, and calling it a note
+                    told a mother it was for her own reference. */}
+                <label className="text-xs font-medium text-[#7a6f65] block mb-1.5">Caption</label>
+                <input value={editSheet.caption} onChange={(e) => setEditSheet({ ...editSheet, caption: e.target.value })}
                   className="w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]" />
+                <p className="text-[11px] text-[#9a8f85] mt-1.5">This prints under the photo in your yearbook.</p>
               </div>
               {children.length > 0 && (
                 <div>
@@ -5909,7 +6446,15 @@ export default function TodayPage() {
            their gap dates and recomputes current_lesson per goal; NO is
            a no-op write but still refreshes Today + Memories. Session-
            storage flag `rooted_missed_lesson_prompt_shown` gates re-show. */}
-      {showMissedRecovery && (
+      {/* Suppressed while the caption card is open. loadData() runs immediately
+          before that card opens and can set showMissedRecovery, and this modal
+          renders at z-[80]/[81], so it landed square on top of the caption
+          field and both buttons. Nothing is lost: showMissedRecovery stays
+          true and the session flag is only written by the YES/NO/dismiss
+          handlers, so the prompt appears the moment the card is closed. It is
+          also the right call on its own terms, since catching up on lessons is
+          not urgent enough to interrupt a photo the family just took. */}
+      {showMissedRecovery && captionQueue.length === 0 && (
         <MissedLessonRecoveryModal
           goals={missedGoals}
           entriesByGoal={missedEntriesByGoal}
