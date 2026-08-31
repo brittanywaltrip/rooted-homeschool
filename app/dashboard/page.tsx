@@ -44,6 +44,7 @@ import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { useIsNativeApp } from "@/lib/platform";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
+import WhenPicker from "@/app/components/WhenPicker";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
 import MonthlyQuestionCard from "@/app/components/MonthlyQuestionCard";
 import { estimateYearbookPages, type BookCounts, type BookSections } from "@/lib/yearbook-page-count";
@@ -467,6 +468,9 @@ export default function TodayPage() {
   // of every book count until it is finished from the Reading Log.
   const [bookStillReading,  setBookStillReading]  = useState(false);
   const [bookCoverUrl,      setBookCoverUrl]      = useState<string | null>(null);
+  // The day the book was finished. Reset to today every time the sheet opens,
+  // so a date picked once never carries into the next book.
+  const [bookDate,          setBookDate]          = useState(today);
   const [bookPhotoFile,     setBookPhotoFile]     = useState<File | null>(null);
   const [bookPhotoPreview,  setBookPhotoPreview]  = useState<string | null>(null);
   const bookPhotoRef = useRef<HTMLInputElement>(null);
@@ -592,12 +596,19 @@ export default function TodayPage() {
   const [showDrawingSheet, setShowDrawingSheet] = useState(false);
   const [drawingTitle, setDrawingTitle] = useState("");
   const [drawingChild, setDrawingChild] = useState("");
+  // Reset to today every time the drawing sheet opens. Same rule as the book.
+  const [drawingDate, setDrawingDate] = useState(today);
   const [savingDrawing, setSavingDrawing] = useState(false);
   const [drawingFile, setDrawingFile] = useState<File | null>(null);
   const [drawingPreview, setDrawingPreview] = useState<string | null>(null);
   const drawingFileRef = useRef<HTMLInputElement>(null);
   const [showCaptureMenu, setShowCaptureMenu] = useState(false);
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
+  // The Today photo batch has no sheet of its own: the tile opens the OS file
+  // picker and saveCapturedPhotos writes the rows straight away, so the only
+  // surface that exists BEFORE the insert is the memory picker itself. Reset
+  // whenever that picker opens.
+  const [photoDate, setPhotoDate] = useState(today);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [showExtraLessons, setShowExtraLessons] = useState(false);
   const [showPhotoLimitModal, setShowPhotoLimitModal] = useState(false);
@@ -609,6 +620,8 @@ export default function TodayPage() {
   const [ftNote, setFtNote] = useState("");
   const [ftChild, setFtChild] = useState("");
   const [ftType, setFtType] = useState<"field_trip" | "project">("field_trip");
+  // Reset to today every time the field trip / project sheet opens.
+  const [ftDate, setFtDate] = useState(today);
   const [ftSaving, setFtSaving] = useState(false);
   const captureFileRef = useRef<HTMLInputElement>(null);
   const captureTypeRef = useRef<"photo" | "drawing">("photo");
@@ -641,6 +654,8 @@ export default function TodayPage() {
   const [winText, setWinText] = useState("");
   const [winType, setWinType] = useState<"win" | "quote">("win");
   const [winChild, setWinChild] = useState("");
+  // Reset to today every time the win / moment sheet opens.
+  const [winDate, setWinDate] = useState(today);
   const [savingWin, setSavingWin] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [winMinutes, setWinMinutes] = useState("");
@@ -783,10 +798,11 @@ export default function TodayPage() {
     setBookTitle(""); setBookChildIds([]); setBookAuthor(""); setBookPages("");
     setBookHow(null); setBookNotes(""); setBookRating(null); setBookCoverUrl(null);
     setBookStillReading(false);
+    setBookDate(today);
     setBookPhotoFile(null); setBookPhotoPreview(null);
     setBookSuggestions([]); setBookSearching(false);
     if (bookSearchTimer.current) clearTimeout(bookSearchTimer.current);
-  }, []);
+  }, [today]);
 
   // ── Open capture menu from URL param (used by other pages) ─────────────────
   useEffect(() => {
@@ -798,6 +814,14 @@ export default function TodayPage() {
       window.history.replaceState({}, "", url.pathname + url.search);
     }
   }, []);
+
+  // ── Every capture starts on today ─────────────────────────────────────────
+  // The memory picker is the photo batch's only pre-insert surface, so its
+  // WhenPicker owns photoDate. Resetting on open is what stops a date chosen
+  // for one memory from silently carrying into the next one.
+  useEffect(() => {
+    if (showMemoryPicker) setPhotoDate(today);
+  }, [showMemoryPicker, today]);
 
   // ── Hide FAB when new-user empty state is showing ─────────────────────────
   useEffect(() => {
@@ -3672,7 +3696,9 @@ export default function TodayPage() {
         caption,
         photo_url: photoUrl,
         ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
-        child_id: legacyChildId, date: today, include_in_book: true,
+        // bookDate, not today: a family can date the book to the day they
+        // finished it while they are logging it.
+        child_id: legacyChildId, date: bookDate, include_in_book: true,
         book_child_ids: bookChildIdsValue,
         book_how: bookHow,
         book_author: bookAuthor.trim() || null,
@@ -3685,7 +3711,10 @@ export default function TodayPage() {
         // Reading Log shelf; `date` holds the start until the finish flow
         // rewrites it, and book_started_date keeps it thereafter.
         book_status: stillReading ? "reading" : null,
-        book_started_date: stillReading ? today : null,
+        // Follows the chosen date, not today. `date` holds the start until the
+        // finish flow rewrites it, so the two must agree or a book started
+        // last week would claim it was started the day it was typed in.
+        book_started_date: stillReading ? bookDate : null,
         created_at: nowB, updated_at: nowB,
       }).select("id").single();
       if (bookErr) throw bookErr;
@@ -3772,7 +3801,7 @@ export default function TodayPage() {
         user_id: user.id, type: "drawing", title: drawingTitle.trim(),
         photo_url: photoUrl,
         ...(photoDims ? { photo_width: photoDims.width, photo_height: photoDims.height } : {}),
-        child_id: drawingChild || null, date: today, include_in_book: true,
+        child_id: drawingChild || null, date: drawingDate, include_in_book: true,
         created_at: nowD, updated_at: nowD,
       }).select("id").single();
       if (drawErr) throw drawErr;
@@ -3883,7 +3912,7 @@ export default function TodayPage() {
             user_id: user.id, type: memType, title: '',
             photo_url: photoUrl, child_id: null,
             photo_width: width, photo_height: height,
-            date: today, include_in_book: true,
+            date: photoDate, include_in_book: true,
             created_at: now, updated_at: now,
           }).select("id").single();
           if (insErr) throw insErr;
@@ -5248,14 +5277,21 @@ export default function TodayPage() {
             <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mx-4 mb-2">
               <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Every memory earns a leaf for your garden!</span>
             </div>
+            {/* Photo goes straight to the OS file picker and saves on return,
+                so this is the only place its date can be chosen. The other
+                tiles open sheets that carry their own When, each starting on
+                today. */}
+            <div className="px-4 pb-3">
+              <WhenPicker value={photoDate} onChange={setPhotoDate} />
+            </div>
             <div className="grid grid-cols-3 gap-2.5 px-4 pb-6">
               {([
                 { emoji: "📸", label: "Photo",      sub: "Snap a moment",      action: () => { setShowMemoryPicker(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); } },
-                { emoji: "🎨", label: "Drawing",    sub: "Save their art",     action: () => { setShowMemoryPicker(false); setShowDrawingSheet(true); } },
-                { emoji: "🏆", label: "Win",        sub: "Celebrate a win",    action: () => { setShowMemoryPicker(false); setShowWinSheet(true); } },
-                { emoji: "📖", label: "Book",       sub: "Log a read",         action: () => { setShowMemoryPicker(false); setShowBookModal(true); } },
-                { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere",  action: () => { setShowMemoryPicker(false); setFtType("field_trip"); setShowFieldTripSheet(true); } },
-                { emoji: "🔨", label: "Project",    sub: "We made something",  action: () => { setShowMemoryPicker(false); setFtType("project"); setShowFieldTripSheet(true); } },
+                { emoji: "🎨", label: "Drawing",    sub: "Save their art",     action: () => { setShowMemoryPicker(false); setDrawingDate(today); setShowDrawingSheet(true); } },
+                { emoji: "🏆", label: "Win",        sub: "Celebrate a win",    action: () => { setShowMemoryPicker(false); setWinDate(today); setShowWinSheet(true); } },
+                { emoji: "📖", label: "Book",       sub: "Log a read",         action: () => { setShowMemoryPicker(false); setBookDate(today); setShowBookModal(true); } },
+                { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere",  action: () => { setShowMemoryPicker(false); setFtType("field_trip"); setFtDate(today); setShowFieldTripSheet(true); } },
+                { emoji: "🔨", label: "Project",    sub: "We made something",  action: () => { setShowMemoryPicker(false); setFtType("project"); setFtDate(today); setShowFieldTripSheet(true); } },
               ] as const).map(tile => (
                 <button key={tile.label} onClick={tile.action}
                   className="flex flex-col items-center justify-center py-5 px-2.5 rounded-2xl border-[1.5px] border-[#e8e5e0] bg-[#fafaf8] hover:border-[#2D5A3D] hover:bg-[#f0f7f2] transition-colors text-center">
@@ -5526,6 +5562,7 @@ export default function TodayPage() {
                 </div>
               </div>
             )}
+            <WhenPicker value={ftDate} onChange={setFtDate} />
             {/* Time spent (optional) */}
             <div className="flex items-center gap-2 flex-wrap">
               <label className="text-xs text-[#7a6f65]">Time spent, logged in your Hours &amp; Attendance Log</label>
@@ -5549,7 +5586,7 @@ export default function TodayPage() {
                     const { data: ins, error: ftErr } = await supabase.from("memories").insert({
                       user_id: user.id, type: ftType, title: ftTitle.trim(),
                       caption: ftNote.trim() || null, child_id: ftChild || null,
-                      date: today, include_in_book: true,
+                      date: ftDate, include_in_book: true,
                       ...(ftMinutes ? { duration_minutes: parseInt(ftMinutes) } : {}),
                       created_at: nowFt, updated_at: nowFt,
                     }).select("id").single();
@@ -5685,6 +5722,8 @@ export default function TodayPage() {
                   </div>
                 </div>
               )}
+
+              <WhenPicker value={bookDate} onChange={setBookDate} />
 
               {/* How was it read — optional, no default, tap again to clear. */}
               <div>
@@ -6014,6 +6053,7 @@ export default function TodayPage() {
                   </select>
                 </div>
               )}
+              <WhenPicker value={drawingDate} onChange={setDrawingDate} />
               <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center">
                 <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
               </div>
@@ -6648,6 +6688,8 @@ export default function TodayPage() {
                 </div>
               )}
 
+              <WhenPicker value={winDate} onChange={setWinDate} />
+
               {/* Time spent (optional) */}
               <div className="flex items-center gap-2 flex-wrap">
                 <label className="text-xs text-[#7a6f65]">Time spent, logged in your Hours &amp; Attendance Log</label>
@@ -6670,7 +6712,7 @@ export default function TodayPage() {
                     const { data: ins, error } = await supabase.from("memories").insert({
                       user_id: user.id,
                       child_id: winChild || null,
-                      date: today,
+                      date: winDate,
                       type: winType,
                       title: winText.trim(),
                       ...(['win','quote'].includes(winType) ? { include_in_book: true } : { include_in_book: false }),

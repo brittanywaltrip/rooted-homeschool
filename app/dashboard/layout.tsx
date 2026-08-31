@@ -20,6 +20,7 @@ import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
 import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import SignedImage from "@/components/SignedImage";
+import WhenPicker, { todayLocalDateStr } from "@/app/components/WhenPicker";
 import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { LeafAnimationProvider, useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
@@ -154,6 +155,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [fabUrls, setFabUrls] = useState<string[]>([]);
   const [fabCaption, setFabCaption] = useState("");
   const [fabChildId, setFabChildId] = useState("");
+  // The day this batch happened. Reset to today every time the sheet opens
+  // (onFabFilesChosen) and every time it closes, so a date picked for one
+  // batch can never carry silently into the next one.
+  const [fabDate, setFabDate] = useState(todayLocalDateStr());
   const [fabSaving, setFabSaving] = useState(false);
   const [fabProgress, setFabProgress] = useState<{ current: number; total: number } | null>(null);
   const [fabLimitHit, setFabLimitHit] = useState(false);
@@ -484,6 +489,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     setFabUrls(picked.map((f) => URL.createObjectURL(f)));
     setFabCaption("");
     setFabChildId("");
+    setFabDate(todayLocalDateStr());
   }
 
   function removeFabPhoto(index: number) {
@@ -498,6 +504,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   function closeFabSheet() {
     fabUrls.forEach((u) => URL.revokeObjectURL(u));
     setFabFiles([]); setFabUrls([]); setFabCaption(""); setFabChildId("");
+    setFabDate(todayLocalDateStr());
     setFabLimitHit(false); setFabRemaining(null); setFabProgress(null);
     setFabNote(null);
   }
@@ -529,8 +536,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       }
 
       const batch = fabFiles.slice(0, Math.min(fabFiles.length, remaining));
-      const now = new Date();
-      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 
       let saved = 0;
       // Which entries of fabFiles actually landed. batch is a prefix slice of
@@ -557,7 +562,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
             photo_width: width,
             photo_height: height,
             child_id: fabChildId || null,
-            date: today,
+            // The day the family says it happened, not the day they uploaded
+            // it. Defaults to today; the WhenPicker in the sheet is the only
+            // thing that can move it.
+            date: fabDate,
             // include_in_book: true. Photos are IN the book by default,
             // matching the column default and the way the yearbook editor is
             // worded: it offers a Hide toggle, which only makes sense if
@@ -984,6 +992,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                     ))}
                   </div>
                 )}
+                <WhenPicker value={fabDate} onChange={setFabDate} />
                 {fabNote && (
                   <p className="text-xs text-[#7a6f65] leading-snug">{fabNote}</p>
                 )}
