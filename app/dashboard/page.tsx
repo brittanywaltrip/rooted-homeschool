@@ -468,8 +468,9 @@ export default function TodayPage() {
   // of every book count until it is finished from the Reading Log.
   const [bookStillReading,  setBookStillReading]  = useState(false);
   const [bookCoverUrl,      setBookCoverUrl]      = useState<string | null>(null);
-  // The day the book was finished. Reset to today every time the sheet opens,
-  // so a date picked once never carries into the next book.
+  // The day the book was finished. Seeded from captureDate when the Book tile
+  // is tapped, so it opens showing whatever the picker was set to. Editing it
+  // here wins for this book and never writes back to the picker.
   const [bookDate,          setBookDate]          = useState(today);
   const [bookPhotoFile,     setBookPhotoFile]     = useState<File | null>(null);
   const [bookPhotoPreview,  setBookPhotoPreview]  = useState<string | null>(null);
@@ -596,7 +597,8 @@ export default function TodayPage() {
   const [showDrawingSheet, setShowDrawingSheet] = useState(false);
   const [drawingTitle, setDrawingTitle] = useState("");
   const [drawingChild, setDrawingChild] = useState("");
-  // Reset to today every time the drawing sheet opens. Same rule as the book.
+  // Seeded from captureDate when the Drawing tile is tapped. Same rule as the
+  // book: the picker decides where it starts, the sheet decides where it ends.
   const [drawingDate, setDrawingDate] = useState(today);
   const [savingDrawing, setSavingDrawing] = useState(false);
   const [drawingFile, setDrawingFile] = useState<File | null>(null);
@@ -604,11 +606,17 @@ export default function TodayPage() {
   const drawingFileRef = useRef<HTMLInputElement>(null);
   const [showCaptureMenu, setShowCaptureMenu] = useState(false);
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
-  // The Today photo batch has no sheet of its own: the tile opens the OS file
-  // picker and saveCapturedPhotos writes the rows straight away, so the only
-  // surface that exists BEFORE the insert is the memory picker itself. Reset
-  // whenever that picker opens.
-  const [photoDate, setPhotoDate] = useState(today);
+  // The date for THIS capture, chosen in the memory picker before a tile is
+  // tapped. It seeds whichever sheet the tile then opens, and it is the date
+  // the photo batch saves under directly (Photo has no sheet of its own: the
+  // tile opens the OS file picker and saveCapturedPhotos writes the rows on
+  // return).
+  //
+  // This used to be photoDate and fed the photo batch alone, while each sheet
+  // reset itself to today on open. Setting the picker to Yesterday and tapping
+  // Book therefore threw the choice away one tap after it was made, and the
+  // Book sheet said Today with no sign anything had been discarded.
+  const [captureDate, setCaptureDate] = useState(today);
   const [showFieldTripSheet, setShowFieldTripSheet] = useState(false);
   const [showExtraLessons, setShowExtraLessons] = useState(false);
   const [showPhotoLimitModal, setShowPhotoLimitModal] = useState(false);
@@ -620,7 +628,7 @@ export default function TodayPage() {
   const [ftNote, setFtNote] = useState("");
   const [ftChild, setFtChild] = useState("");
   const [ftType, setFtType] = useState<"field_trip" | "project">("field_trip");
-  // Reset to today every time the field trip / project sheet opens.
+  // Seeded from captureDate when the Field Trip or Project tile is tapped.
   const [ftDate, setFtDate] = useState(today);
   const [ftSaving, setFtSaving] = useState(false);
   const captureFileRef = useRef<HTMLInputElement>(null);
@@ -654,7 +662,7 @@ export default function TodayPage() {
   const [winText, setWinText] = useState("");
   const [winType, setWinType] = useState<"win" | "quote">("win");
   const [winChild, setWinChild] = useState("");
-  // Reset to today every time the win / moment sheet opens.
+  // Seeded from captureDate when the Win tile is tapped.
   const [winDate, setWinDate] = useState(today);
   const [savingWin, setSavingWin] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -816,11 +824,16 @@ export default function TodayPage() {
   }, []);
 
   // ── Every capture starts on today ─────────────────────────────────────────
-  // The memory picker is the photo batch's only pre-insert surface, so its
-  // WhenPicker owns photoDate. Resetting on open is what stops a date chosen
-  // for one memory from silently carrying into the next one.
+  // The memory picker owns the date for the capture it starts, so this is the
+  // ONE place the reset belongs. Each sheet seeds itself from captureDate when
+  // its tile is tapped, which is what carries the choice forward within a
+  // single capture; resetting here is what stops it carrying between two.
+  //
+  // Resetting inside each sheet instead (what this did before) got both halves
+  // wrong: it discarded the choice within one capture and left the picker and
+  // the sheet showing different dates at the same moment.
   useEffect(() => {
-    if (showMemoryPicker) setPhotoDate(today);
+    if (showMemoryPicker) setCaptureDate(today);
   }, [showMemoryPicker, today]);
 
   // ── Hide FAB when new-user empty state is showing ─────────────────────────
@@ -3912,7 +3925,7 @@ export default function TodayPage() {
             user_id: user.id, type: memType, title: '',
             photo_url: photoUrl, child_id: null,
             photo_width: width, photo_height: height,
-            date: photoDate, include_in_book: true,
+            date: captureDate, include_in_book: true,
             created_at: now, updated_at: now,
           }).select("id").single();
           if (insErr) throw insErr;
@@ -5277,21 +5290,26 @@ export default function TodayPage() {
             <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mx-4 mb-2">
               <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Every memory earns a leaf for your garden!</span>
             </div>
-            {/* Photo goes straight to the OS file picker and saves on return,
-                so this is the only place its date can be chosen. The other
-                tiles open sheets that carry their own When, each starting on
-                today. */}
+            {/* The date for whatever this capture turns out to be. Photo saves
+                under it directly (it goes straight to the OS file picker and
+                has no sheet); every other tile opens a sheet whose own When?
+                starts here, so the two always agree the moment it opens.
+                Changing it inside the sheet still wins for that memory and is
+                deliberately not written back here. */}
             <div className="px-4 pb-3">
-              <WhenPicker value={photoDate} onChange={setPhotoDate} />
+              <WhenPicker value={captureDate} onChange={setCaptureDate} />
             </div>
             <div className="grid grid-cols-3 gap-2.5 px-4 pb-6">
               {([
                 { emoji: "📸", label: "Photo",      sub: "Snap a moment",      action: () => { setShowMemoryPicker(false); captureTypeRef.current = "photo"; requestAnimationFrame(() => captureFileRef.current?.click()); } },
-                { emoji: "🎨", label: "Drawing",    sub: "Save their art",     action: () => { setShowMemoryPicker(false); setDrawingDate(today); setShowDrawingSheet(true); } },
-                { emoji: "🏆", label: "Win",        sub: "Celebrate a win",    action: () => { setShowMemoryPicker(false); setWinDate(today); setShowWinSheet(true); } },
-                { emoji: "📖", label: "Book",       sub: "Log a read",         action: () => { setShowMemoryPicker(false); setBookDate(today); setShowBookModal(true); } },
-                { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere",  action: () => { setShowMemoryPicker(false); setFtType("field_trip"); setFtDate(today); setShowFieldTripSheet(true); } },
-                { emoji: "🔨", label: "Project",    sub: "We made something",  action: () => { setShowMemoryPicker(false); setFtType("project"); setFtDate(today); setShowFieldTripSheet(true); } },
+                // Each sheet is seeded from captureDate, the date chosen in this
+                // picker a tap ago. Seeding from `today` instead is what made
+                // the two When? controls disagree.
+                { emoji: "🎨", label: "Drawing",    sub: "Save their art",     action: () => { setShowMemoryPicker(false); setDrawingDate(captureDate); setShowDrawingSheet(true); } },
+                { emoji: "🏆", label: "Win",        sub: "Celebrate a win",    action: () => { setShowMemoryPicker(false); setWinDate(captureDate); setShowWinSheet(true); } },
+                { emoji: "📖", label: "Book",       sub: "Log a read",         action: () => { setShowMemoryPicker(false); setBookDate(captureDate); setShowBookModal(true); } },
+                { emoji: "🗺️", label: "Field Trip", sub: "We went somewhere",  action: () => { setShowMemoryPicker(false); setFtType("field_trip"); setFtDate(captureDate); setShowFieldTripSheet(true); } },
+                { emoji: "🔨", label: "Project",    sub: "We made something",  action: () => { setShowMemoryPicker(false); setFtType("project"); setFtDate(captureDate); setShowFieldTripSheet(true); } },
               ] as const).map(tile => (
                 <button key={tile.label} onClick={tile.action}
                   className="flex flex-col items-center justify-center py-5 px-2.5 rounded-2xl border-[1.5px] border-[#e8e5e0] bg-[#fafaf8] hover:border-[#2D5A3D] hover:bg-[#f0f7f2] transition-colors text-center">
