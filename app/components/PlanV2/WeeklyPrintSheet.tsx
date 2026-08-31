@@ -47,6 +47,11 @@ export interface WeeklyPrintSheetProps {
    *  Today page can never disagree — biweekly parity in particular is
    *  anchored to the activity's start_date, not to created_at. */
   activities?: PlanV2Activity[];
+  /** lesson id -> already-signed, already-decoded photo URLs, capped by the
+   *  caller. Undefined (the default) means the family printed with the
+   *  "Include photos" box unchecked, and this sheet renders exactly what it
+   *  rendered before the option existed. */
+  photosByLesson?: Map<string, string[]>;
 }
 
 function ymd(d: Date): string {
@@ -75,7 +80,7 @@ function mondayOf(d: Date): Date {
 }
 
 export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
-  const { weekStart, familyName, lessons, appointments, kids, curriculumGoals, schoolDays, vacationBlocks, activities = [] } = props;
+  const { weekStart, familyName, lessons, appointments, kids, curriculumGoals, schoolDays, vacationBlocks, activities = [], photosByLesson } = props;
   const childIndex = new Map(kids.map((k, i) => [k.id, { child: k, index: i }]));
   const goalById = new Map(curriculumGoals.map((g) => [g.id, g]));
 
@@ -222,6 +227,7 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
                               color={resolveChildColor(k, i)}
                               totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
                               startTime={goalTimeFor(l)}
+                              photos={photosByLesson?.get(l.id)}
                             />
                           ))}
                         </KidBlock>
@@ -243,6 +249,7 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
                               color="#7a6f65"
                               totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
                               startTime={goalTimeFor(l)}
+                              photos={photosByLesson?.get(l.id)}
                             />
                           ))}
                         </KidBlock>
@@ -384,7 +391,7 @@ function KidBlock({
 }
 
 function LessonRow({
-  lesson, color, totalLessons, startTime,
+  lesson, color, totalLessons, startTime, photos,
 }: {
   lesson: PlanV2Lesson;
   color: string;
@@ -392,6 +399,8 @@ function LessonRow({
   /** Raw "HH:MM:SS" from the goal, or null. Null renders nothing at all so
    *  goals without a time look exactly as they did before. */
   startTime?: string | null;
+  /** Signed + decoded URLs. Undefined or empty renders nothing at all. */
+  photos?: string[];
 }) {
   const subject = lessonSubject(lesson);
   const title = lessonTitleText(lesson);
@@ -441,7 +450,55 @@ function LessonRow({
             {lesson.notes}
           </p>
         ) : null}
+        <LessonPhotoStrip photos={photos} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * A lesson's photos, printed under its notes.
+ *
+ * Renders NOTHING when there are none: no container, no margin, no empty
+ * frame. A week whose lessons have no photos has to come off the printer
+ * looking exactly as it did before this existed, which matters more here than
+ * on the daily sheet because a landscape week is already tight for space.
+ *
+ * The URLs arriving here are already signed and already decoded by
+ * loadLessonPhotosForPrint, so these <img> tags paint from cache on first
+ * render. Anything that failed to load was dropped upstream, which is why
+ * there is no error handling and no placeholder in this component.
+ */
+function LessonPhotoStrip({ photos }: { photos?: string[] }) {
+  if (!photos || photos.length === 0) return null;
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 5,
+        margin: "4px 0 1px",
+        pageBreakInside: "avoid",
+        breakInside: "avoid",
+      }}
+    >
+      {photos.map((url) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={url}
+          src={url}
+          alt=""
+          style={{
+            maxWidth: "1.25in",
+            maxHeight: "1.25in",
+            width: "auto",
+            height: "auto",
+            objectFit: "contain",
+            border: `0.5px solid ${HAIRLINE}`,
+            borderRadius: 3,
+          }}
+        />
+      ))}
     </div>
   );
 }
