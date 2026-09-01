@@ -2089,17 +2089,56 @@ export default function PlanV2() {
           return a.child_ids.some((id) => childFilter.has(id));
         });
 
+        // Photos, if asked for, BEFORE the document is built. Same helper the
+        // weekly sheet uses, and reusing it is the point rather than a
+        // convenience: React-PDF fetches every <Image src> itself during
+        // toBlob(), and a rejected fetch throws inside rendering and fails the
+        // whole PDF. loadLessonPhotosForPrint only returns URLs that already
+        // came back once in this browser, so they are warm and known-good by
+        // the time React-PDF asks. Handing it raw signed URLs would put one
+        // dead photo between a family and her whole plan.
+        //
+        // pdfGenerating is already true for this branch, so the button keeps
+        // saying "Generating PDF..." while this runs. No second spinner.
+        let dailyPhotos: Map<string, string[]> | undefined;
+        if (includePhotos) {
+          try {
+            const loaded = await loadLessonPhotosForPrint(todayLessons.map((l) => l.id));
+            if (loaded.size > 0) dailyPhotos = loaded;
+          } catch (e) {
+            console.error("[plan-v2] daily lesson photo prep failed, printing without photos", e);
+          }
+        }
+
         const { pdf } = await import("@react-pdf/renderer");
-        const blob = await pdf(
-          <DailyPrintPDF
-            date={todayDate}
-            familyName={familyName}
-            lessons={todayLessons}
-            appointments={todayAppts}
-            kids={todayKids}
-            curriculumGoals={curriculumGoals}
-          />,
-        ).toBlob();
+        const renderDoc = (photos: Map<string, string[]> | undefined) =>
+          pdf(
+            <DailyPrintPDF
+              date={todayDate}
+              familyName={familyName}
+              lessons={todayLessons}
+              appointments={todayAppts}
+              kids={todayKids}
+              curriculumGoals={curriculumGoals}
+              photosByLesson={photos}
+            />,
+          ).toBlob();
+
+        // A broken photo must never block the print. The preflight above makes
+        // that unlikely, but it cannot prove React-PDF's own fetcher will be
+        // allowed to read the storage origin (an <img> tag and new Image() are
+        // not CORS-checked; React-PDF's fetch is). If the photo-bearing render
+        // fails for any reason, fall back to the document this branch has
+        // always produced rather than handing the family an error.
+        let blob: Blob;
+        try {
+          blob = await renderDoc(dailyPhotos);
+        } catch (photoErr) {
+          if (!dailyPhotos) throw photoErr;
+          console.error("[plan-v2] daily PDF failed with photos, retrying without", photoErr);
+          blob = await renderDoc(undefined);
+          flashNotice("Printed without photos, they couldn't be added this time.");
+        }
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;

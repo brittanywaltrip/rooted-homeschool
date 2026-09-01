@@ -37,6 +37,15 @@ export interface DailyPrintPDFProps {
   appointments: PlanV2Appointment[];
   kids: PlanV2Child[];
   curriculumGoals: Goal[];
+  /** lesson id -> already-signed, already-decoded photo URLs, capped by the
+   *  caller (loadLessonPhotosForPrint). Undefined (the default) means the
+   *  family printed with "Include photos" unchecked, and this document renders
+   *  exactly what it rendered before the option existed.
+   *
+   *  React-PDF fetches these itself during toBlob(), so they must be URLs that
+   *  have already proved they resolve: a failed fetch throws inside rendering
+   *  and rejects the whole PDF rather than skipping one photo. */
+  photosByLesson?: Map<string, string[]>;
 }
 
 const styles = StyleSheet.create({
@@ -138,6 +147,19 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     color: COLORS.noteText,
   },
+  // 90pt is 1.25in at React-PDF's 72pt inch, matching the weekly sheet's
+  // 1.25in cap. Three of them plus gaps is 282pt against 528pt of usable
+  // page width, so a row always fits and needs no wrapping (React-PDF's
+  // flexWrap support is not worth relying on for a fixed count of three).
+  photoRow: { flexDirection: "row", gap: 6, marginTop: 4, marginBottom: 2 },
+  photo: {
+    width: 90,
+    height: 90,
+    objectFit: "contain",
+    borderWidth: 0.5,
+    borderColor: COLORS.hairline,
+    borderStyle: "solid",
+  },
   emptyState: { fontSize: 10, color: COLORS.inkMuted, fontStyle: "italic", paddingVertical: 6, paddingLeft: 10 },
   appts: { marginTop: 14 },
   apptHeader: { fontSize: 10, fontWeight: 700, color: COLORS.brandGreen, textTransform: "uppercase", letterSpacing: 1 },
@@ -184,8 +206,35 @@ function logoSrc(): string {
   return "/rooted-logo-nav.png";
 }
 
+/**
+ * A lesson's photos, printed under its notes.
+ *
+ * Renders NOTHING when there are none: no View, no margin, no empty frame. A
+ * day whose lessons have no photos has to come out of the PDF byte-identical
+ * to what it produced before this existed, which is why the guard is a bare
+ * early return rather than an empty container.
+ *
+ * The URLs are already signed and already proved loadable by
+ * loadLessonPhotosForPrint. That preflight matters more here than on the
+ * window.print() sheets: React-PDF fetches each src itself while building the
+ * document, and a rejected fetch throws inside rendering, which fails the
+ * whole PDF rather than dropping one photo. Nothing may reach this component
+ * that has not already come back once.
+ */
+function LessonPhotoStrip({ photos }: { photos?: string[] }) {
+  if (!photos || photos.length === 0) return null;
+  return (
+    <View style={styles.photoRow}>
+      {photos.map((url) => (
+        // eslint-disable-next-line jsx-a11y/alt-text -- Image is from @react-pdf/renderer, not the DOM
+        <Image key={url} src={url} style={styles.photo} />
+      ))}
+    </View>
+  );
+}
+
 export default function DailyPrintPDF(props: DailyPrintPDFProps) {
-  const { date, familyName, lessons, appointments, kids, curriculumGoals } = props;
+  const { date, familyName, lessons, appointments, kids, curriculumGoals, photosByLesson } = props;
   const goalById = new Map(curriculumGoals.map((g) => [g.id, g]));
   /** The goal's scheduled_start_time for a lesson, or null. */
   const goalTimeFor = (l: PlanV2Lesson): string | null =>
@@ -266,6 +315,7 @@ export default function DailyPrintPDF(props: DailyPrintPDFProps) {
                         </View>
                         <Text style={styles.lessonTitle}>{title}</Text>
                         {l.notes ? <Text style={styles.noteCallout}>{l.notes}</Text> : null}
+                        <LessonPhotoStrip photos={photosByLesson?.get(l.id)} />
                       </View>
                     </View>
                   );
@@ -294,6 +344,7 @@ export default function DailyPrintPDF(props: DailyPrintPDFProps) {
                     <Text style={styles.subject}>{subject}</Text>
                     <Text style={styles.lessonTitle}>{title}</Text>
                     {l.notes ? <Text style={styles.noteCallout}>{l.notes}</Text> : null}
+                    <LessonPhotoStrip photos={photosByLesson?.get(l.id)} />
                   </View>
                 </View>
               );
