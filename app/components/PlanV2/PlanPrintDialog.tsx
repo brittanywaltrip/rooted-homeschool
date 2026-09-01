@@ -16,7 +16,9 @@ export interface PlanPrintDialogProps {
   isOpen: boolean;
   canPrintPaid: boolean; // false for free; true for trial / pro
   onClose: () => void;
-  onPick: (mode: PlanPrintMode) => void;
+  /** `includePhotos` is only ever true for daily / weekly; monthly has no
+   *  checkbox, so it always arrives false. */
+  onPick: (mode: PlanPrintMode, includePhotos: boolean) => void;
   /** True while the parent is generating a PDF blob (daily mode uses
    *  React-PDF). When set, the Print button shows "Generating PDF..." and
    *  is disabled. Weekly + monthly still use window.print() and never
@@ -40,11 +42,30 @@ export default function PlanPrintDialog(props: PlanPrintDialogProps) {
   const { isOpen, canPrintPaid, onClose, onPick, generating } = props;
   const isNative = useIsNativeApp();
   const [selected, setSelected] = useState<PlanPrintMode>("daily");
+  // Off every time the dialog opens. Deliberately not persisted anywhere:
+  // photos make the sheet slower to prepare and longer on paper, so it is a
+  // per-print decision, not a setting.
+  const [includePhotos, setIncludePhotos] = useState(false);
+
+  // Reset on the closed -> open transition, adjusted during render rather than
+  // in an effect. The dialog is never unmounted (the parent keeps it rendered
+  // and flips isOpen), and it can be closed by a route the component never
+  // sees: Escape is handled up in the Plan page, which sets printDialogOpen
+  // false without calling onClose. Watching the prop is the only reset that
+  // covers every way out.
+  const [prevOpen, setPrevOpen] = useState(isOpen);
+  if (isOpen !== prevOpen) {
+    setPrevOpen(isOpen);
+    if (isOpen) setIncludePhotos(false);
+  }
 
   if (!isOpen) return null;
 
   const selectedMode = MODES.find((m) => m.mode === selected);
   const selectedLocked = !!selectedMode && !selectedMode.free && !canPrintPaid;
+  // Monthly is a month-at-a-glance grid with no room for a photo strip, so it
+  // does not offer the option at all.
+  const photosAvailable = selected === "daily" || selected === "weekly";
 
   return (
     <>
@@ -117,14 +138,35 @@ export default function PlanPrintDialog(props: PlanPrintDialogProps) {
             </div>
           ) : null}
 
+          {photosAvailable && !selectedLocked ? (
+            <div className="px-5 pt-1 pb-1">
+              <label className="flex items-start gap-2.5 cursor-pointer select-none rounded-xl border border-[#e8e2d9] px-3 py-2.5 hover:border-[#c5dbc9] transition-colors">
+                <input
+                  type="checkbox"
+                  checked={includePhotos}
+                  onChange={(e) => setIncludePhotos(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 rounded accent-[#2D5A3D]"
+                />
+                <span>
+                  <span className="block text-[13px] font-medium text-[#1a2c22]">Include photos</span>
+                  <span className="block text-[11px] text-[#7a6f65] leading-snug">
+                    Photos attached to a lesson print under its notes. Takes a moment longer to prepare.
+                  </span>
+                </span>
+              </label>
+            </div>
+          ) : null}
+
           <div className="px-5 pb-5 pt-2">
             <button
               type="button"
               disabled={selectedLocked || !!generating}
-              onClick={() => onPick(selected)}
+              onClick={() => onPick(selected, photosAvailable && includePhotos)}
               className="w-full bg-[#2D5A3D] hover:bg-[#244830] text-white text-[14px] font-semibold rounded-xl py-3 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {generating ? "Generating PDF..." : "Print"}
+              {/* Weekly never generates a PDF, so saying so while it collects
+                  photos would be a lie about what is taking the time. */}
+              {generating ? (selected === "daily" ? "Generating PDF..." : "Getting your photos ready...") : "Print"}
             </button>
           </div>
         </div>

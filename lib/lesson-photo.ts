@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabase";
 import { uploadMemoryPhoto } from "@/lib/photo-pipeline";
+import { signedPhotoUrls } from "@/lib/photo-url";
 import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 import { posthog } from "@/lib/posthog";
 
@@ -22,6 +23,131 @@ export async function fetchLessonPhotos(lessonId: string): Promise<LessonPhoto[]
     .eq("lesson_id", lessonId)
     .order("created_at", { ascending: true });
   return (data as LessonPhoto[] | null) ?? [];
+}
+
+/** Storage bucket every lesson photo lives in. Private: see signedPhotoUrls. */
+const MEMORY_PHOTOS_BUCKET = "memory-photos";
+
+/** How many photos a single lesson may print. */
+export const PRINT_PHOTOS_PER_LESSON = 3;
+
+/**
+ * Six hours. The print sheet holds these URLs for as long as the browser's
+ * print dialog stays open, and a family who opens the preview and then goes to
+ * find paper can leave it sitting there. The default hour was long enough to
+ * sign and short enough to expire mid-print.
+ */
+const PRINT_URL_TTL_SECONDS = 6 * 60 * 60;
+
+/**
+ * Wait for one image to be decoded and paintable, or give up on it.
+ *
+ * Resolves true only when the bytes actually arrived, so a photo that 404s, a
+ * URL that could not be signed, or a printer dialog opened over a dead network
+ * costs the print nothing: the caller drops it and prints the rest. Never
+ * rejects, and never hangs, which is the whole point.
+ */
+function preloadPrintImage(url: string, timeoutMs = 15000): Promise<boolean> {
+  if (typeof window === "undefined") return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const img = new window.Image();
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(ok);
+    };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    img.onload = () => {
+      // decode() is what guarantees the frame is paintable rather than merely
+      // fetched. Not every browser has it, and a decode failure on an image
+      // that DID load is not worth dropping the photo over.
+      if (typeof img.decode === "function") {
+        img.decode().then(() => finish(true), () => finish(true));
+      } else {
+        finish(true);
+      }
+    };
+    img.onerror = () => finish(false);
+    img.src = url;
+  });
+}
+
+/**
+ * Signed, decoded, ready-to-print photo URLs for a set of lessons.
+ *
+ * Three round trips total, no matter how many lessons: one SELECT for every
+ * lesson's photo rows, one batched createSignedUrls, and then the image
+ * fetches themselves (which are what the browser would issue anyway). Calling
+ * fetchLessonPhotos in a loop would have fired one SELECT per lesson.
+ *
+ * Everything is resolved BEFORE this returns, because the caller triggers
+ * window.print() on the result. SignedImage resolves its URL in a useEffect,
+ * so a sheet built out of SignedImage would print grey placeholder boxes: the
+ * print dialog snapshots the DOM long before that effect settles.
+ *
+ * A photo that cannot be signed or cannot be loaded is dropped silently. It
+ * never blocks the print and never reaches paper as a broken-image icon.
+ */
+export async function loadLessonPhotosForPrint(
+  lessonIds: string[],
+): Promise<Map<string, string[]>> {
+  const byLesson = new Map<string, string[]>();
+  const ids = Array.from(new Set(lessonIds.filter(Boolean)));
+  if (ids.length === 0) return byLesson;
+
+  // ONE query for every lesson in range. created_at orders it so the cap below
+  // always keeps the same three photos; it is ordered on but not selected.
+  const { data, error } = await supabase
+    .from("memories")
+    .select("id, lesson_id, photo_url")
+    .in("lesson_id", ids)
+    .order("created_at", { ascending: true });
+  if (error || !data) return byLesson;
+
+  type Row = { id: string; lesson_id: string | null; photo_url: string | null };
+  const rows = (data as Row[]).filter(
+    (r): r is Row & { lesson_id: string; photo_url: string } =>
+      !!r.lesson_id && !!r.photo_url && r.photo_url.trim().length > 0,
+  );
+
+  // Group and cap before signing, so the cap decides how much work we do.
+  const capped: { lessonId: string; raw: string }[] = [];
+  const perLesson = new Map<string, number>();
+  for (const r of rows) {
+    const n = perLesson.get(r.lesson_id) ?? 0;
+    if (n >= PRINT_PHOTOS_PER_LESSON) continue;
+    perLesson.set(r.lesson_id, n + 1);
+    capped.push({ lessonId: r.lesson_id, raw: r.photo_url });
+  }
+  if (capped.length === 0) return byLesson;
+
+  // One batched signing call for the whole sheet.
+  const signed = await signedPhotoUrls(
+    supabase,
+    MEMORY_PHOTOS_BUCKET,
+    capped.map((c) => c.raw),
+    PRINT_URL_TTL_SECONDS,
+  );
+
+  // Decode every one of them before returning. allSettled, not all: one bad
+  // photo must not reject the batch and cancel the print.
+  const settled = await Promise.allSettled(
+    signed.map((url) => (url ? preloadPrintImage(url) : Promise.resolve(false))),
+  );
+
+  capped.forEach((c, i) => {
+    const url = signed[i];
+    const outcome = settled[i];
+    const ok = url && outcome.status === "fulfilled" && outcome.value === true;
+    if (!ok) return;
+    const arr = byLesson.get(c.lessonId) ?? [];
+    arr.push(url);
+    byLesson.set(c.lessonId, arr);
+  });
+
+  return byLesson;
 }
 
 /**

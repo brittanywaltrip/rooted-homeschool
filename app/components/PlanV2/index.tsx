@@ -54,6 +54,7 @@ import DailyPrintPDF from "./DailyPrintPDF";
 import WeeklyPrintSheet from "./WeeklyPrintSheet";
 import MonthlyPrintSheet from "./MonthlyPrintSheet";
 import { CornerLeaves } from "./print-decorations";
+import { loadLessonPhotosForPrint } from "@/lib/lesson-photo";
 import { canExport } from "@/lib/user-access";
 import ShiftForwardModal, { type ReprojectGoalPreview } from "./ShiftForwardModal";
 import PushBackModal from "./PushBackModal";
@@ -2052,7 +2053,11 @@ export default function PlanV2() {
   // reliably, no browser print dialog). Weekly + monthly still use the
   // legacy window.print() flow until their migration prompts run.
   const [pdfGenerating, setPdfGenerating] = useState(false);
-  const handlePickPrintMode = useCallback(async (mode: PlanPrintMode) => {
+  // lesson id -> signed, decoded photo URLs for the sheet about to print.
+  // Empty whenever the family printed with "Include photos" unchecked, which
+  // is what keeps the unchecked print byte-identical to the old output.
+  const [printPhotos, setPrintPhotos] = useState<Map<string, string[]>>(new Map());
+  const handlePickPrintMode = useCallback(async (mode: PlanPrintMode, includePhotos: boolean) => {
     if ((mode === "weekly" || mode === "monthly") && !canPrintPaid) {
       // The dialog renders these tiles as Links to /upgrade for free
       // users on web (and as plain compliance text on native), so onPick
@@ -2112,6 +2117,47 @@ export default function PlanV2() {
       }
       return;
     }
+    // Photos, if asked for, BEFORE the print dialog opens. Every signed URL is
+    // resolved and every image decoded inside loadLessonPhotosForPrint, because
+    // window.print() snapshots the DOM synchronously: a sheet that prints while
+    // its URLs are still resolving prints empty frames. A failure here is not
+    // worth losing the print over, so the sheet goes out without photos.
+    let photos = new Map<string, string[]>();
+    if (includePhotos) {
+      const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      // The week window, computed exactly the way the weekly sheet's own lesson
+      // filter computes it further down, so the photos fetched are the photos
+      // that sheet can render.
+      //
+      // Only weekly ever gets here. `mode` is narrowed to "weekly" | "monthly"
+      // by the daily early-return above, and monthly offers no checkbox, so
+      // includePhotos is false for it. A `mode === "daily"` test on this line
+      // does not compile.
+      const weekEndForPrint = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + 6);
+      const from = key(weekStart);
+      const to = key(weekEndForPrint);
+      const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
+      const childKeep = (cid: string | null) => allKidsSelected || (cid != null && childFilter.has(cid));
+      // Only the lessons this sheet will actually render, so the one query
+      // below stays as small as the paper it is feeding.
+      const inRange = lessons.filter((l) => {
+        if (!childKeep(l.child_id)) return false;
+        const d = l.scheduled_date ?? l.date;
+        return !!d && d >= from && d <= to;
+      });
+      setPdfGenerating(true);
+      try {
+        photos = await loadLessonPhotosForPrint(inRange.map((l) => l.id));
+      } catch (e) {
+        console.error("[plan-v2] lesson photo prep failed, printing without photos", e);
+      } finally {
+        setPdfGenerating(false);
+      }
+    }
+    // Only touch this state when there is something to say. With the box
+    // unchecked the map is empty and already empty, so the unchecked print
+    // does not even take an extra render.
+    if (photos.size > 0) setPrintPhotos(photos);
     setPrintDialogOpen(false);
     setActivePrintMode(mode);
     const cls = `print-mode-${mode}`;
@@ -2119,13 +2165,24 @@ export default function PlanV2() {
     const cleanup = () => {
       document.body.classList.remove(cls);
       setActivePrintMode(null);
+      setPrintPhotos(new Map());
       window.removeEventListener("afterprint", cleanup);
     };
     window.addEventListener("afterprint", cleanup);
-    // Defer to next frame so React has flushed the activePrintMode-driven
-    // re-render before the print preview snapshots the DOM.
-    window.requestAnimationFrame(() => window.print());
-  }, [canPrintPaid, childFilter, kids, lessons, appointments, familyName, curriculumGoals]);
+    // Without photos this is the original single frame, unchanged: React
+    // flushes the activePrintMode re-render and the sheet prints. WITH photos
+    // it takes a second frame, so the browser paints the <img> tags that
+    // render brought in before the dialog snapshots the DOM. The images are
+    // already decoded and cached, so the extra frame costs a frame, not a
+    // round trip.
+    if (photos.size > 0) {
+      window.requestAnimationFrame(() =>
+        window.requestAnimationFrame(() => window.print()),
+      );
+    } else {
+      window.requestAnimationFrame(() => window.print());
+    }
+  }, [canPrintPaid, childFilter, kids, lessons, appointments, familyName, curriculumGoals, weekStart]);
 
   // Default: every child selected. Once data loads, ensure filter includes all
   // current child IDs.
@@ -5977,6 +6034,7 @@ export default function PlanV2() {
                   appointments={todayAppts}
                   kids={filteredKids}
                   curriculumGoals={curriculumGoals}
+                  photosByLesson={printPhotos.size > 0 ? printPhotos : undefined}
                 />
               ) : null}
               {activePrintMode === "weekly" ? (
@@ -5991,6 +6049,7 @@ export default function PlanV2() {
                   schoolDays={schoolDays}
                   vacationBlocks={vacationBlocks}
                   activities={filteredActivities}
+                  photosByLesson={printPhotos.size > 0 ? printPhotos : undefined}
                 />
               ) : null}
               {activePrintMode === "monthly" ? (
