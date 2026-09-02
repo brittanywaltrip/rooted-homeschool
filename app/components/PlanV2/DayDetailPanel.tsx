@@ -404,7 +404,7 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
           <h2 className="text-base font-bold text-[#2d2926] leading-tight">{dateLabel}</h2>
           <p className="text-xs text-[#7a6f65] mt-0.5">
             {totalItems === 0
-              ? "Nothing scheduled"
+              ? (isPastDay ? "Nothing logged" : "Nothing scheduled")
               : lessons.length === 0
                 ? `${sortedAppts.length} appointment${sortedAppts.length === 1 ? "" : "s"}`
                 : `${lessonsDone} of ${lessons.length} lesson${lessons.length === 1 ? "" : "s"} complete`}
@@ -614,6 +614,30 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
         </section>
       ) : null}
 
+      {catchUpState === "done" ? (
+        <p className="text-[12px] text-[#5c7f63] font-semibold text-center py-2">
+          Logged on {shortDateLabel} ✓
+        </p>
+      ) : null}
+
+      {/* Empty state. A past day that is empty is not "nothing scheduled" —
+          it is a day whose unchecked work already rolled forward. Saying so
+          is the difference between a dead end and an explanation. */}
+      {totalItems === 0 ? (
+        isPastDay ? (
+          <div className="text-center py-5 px-2">
+            <p className="text-sm text-[#8B7E74]">Nothing was logged on this day.</p>
+            <p className="text-xs text-[#b5aca4] mt-1">
+              Anything you didn&apos;t check off rolled forward to your next school day.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-[#b5aca4] text-center py-6">
+            Nothing scheduled for this day.
+          </p>
+        )
+      ) : null}
+
       {/* ── Past-day catch-up ──────────────────────────────────────────────
           Rooted schedules by queue: anything not checked off is re-dated
           forward on the next load, which leaves the day it was actually done
@@ -682,30 +706,6 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
             ) : null}
           </div>
         </section>
-      ) : null}
-
-      {catchUpState === "done" ? (
-        <p className="text-[12px] text-[#5c7f63] font-semibold text-center py-2">
-          Logged on {shortDateLabel} ✓
-        </p>
-      ) : null}
-
-      {/* Empty state. A past day that is empty is not "nothing scheduled" —
-          it is a day whose unchecked work already rolled forward. Saying so
-          is the difference between a dead end and an explanation. */}
-      {totalItems === 0 ? (
-        isPastDay ? (
-          <div className="text-center py-5 px-2">
-            <p className="text-sm text-[#8B7E74]">Nothing was logged on this day.</p>
-            <p className="text-xs text-[#b5aca4] mt-1">
-              Anything you didn&apos;t check off rolled forward to your next school day.
-            </p>
-          </div>
-        ) : (
-          <p className="text-sm text-[#b5aca4] text-center py-6">
-            Nothing scheduled for this day.
-          </p>
-        )
       ) : null}
 
       {/* Activity on this day — collapsible, only rendered when the parent
