@@ -2313,6 +2313,22 @@ export default function PlanV2() {
           .map((l) => `${l.curriculum_goal_id}|${l.lesson_number ?? ""}`),
       );
 
+      // How much of this day each goal has ALREADY had logged. Logging a
+      // lesson advances current_lesson, so the next projection for the same
+      // date names the goal's next slot — without this the day would keep
+      // offering "one more lesson" forever and never look finished. Subtract
+      // what is already down and the day closes out once it holds its
+      // per-day allowance, the same way Today's completedTodayCount works.
+      const completedOnDayByGoal = new Map<string, number>();
+      for (const l of lessons) {
+        if (!l.completed || !l.curriculum_goal_id) continue;
+        if ((l.scheduled_date ?? l.date) !== dayStr) continue;
+        completedOnDayByGoal.set(
+          l.curriculum_goal_id,
+          (completedOnDayByGoal.get(l.curriculum_goal_id) ?? 0) + 1,
+        );
+      }
+
       const out: CatchUpEntry[] = [];
       for (const raw of goalRows as unknown as (GoalConfigRow & {
         curriculum_name: string | null;
@@ -2330,7 +2346,8 @@ export default function PlanV2() {
           nextMid,
           vacationBlocks as unknown as SchedVacationBlock[],
         );
-        for (const slot of projected) {
+        const alreadyLogged = completedOnDayByGoal.get(config.id) ?? 0;
+        for (const slot of projected.slice(alreadyLogged)) {
           if (alreadyOnDay.has(`${config.id}|${slot.lesson_number}`)) continue;
           out.push({
             goal_id: config.id,
