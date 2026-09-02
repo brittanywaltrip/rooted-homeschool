@@ -22,7 +22,8 @@ import MonthGrid from "./MonthGrid";
 // WeekStrip is preserved on disk (./WeekStrip) but no longer rendered;
 // week mode now uses WeekListView. Restore the import here if reverting.
 import WeekListView from "./WeekListView";
-import DayDetailPanelV2 from "./DayDetailPanel";
+import DayDetailPanelV2, { type CatchUpEntry } from "./DayDetailPanel";
+import { logPastDayLessons } from "@/app/lib/logPastDayLessons";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
 import MissedLessonsBanner from "./MissedLessonsBanner";
@@ -82,6 +83,7 @@ import {
   loadPinsByGoal,
   resolveCustomLessonGoalLink,
   computeNextLessonsForGoal,
+  computeGapLessonsForGoal,
   reconcileGoalScheduleCache,
   toGoalConfig,
   GOAL_CONFIG_COLUMNS,
@@ -2257,6 +2259,120 @@ export default function PlanV2() {
       return a.child_ids.some((id) => childFilter.has(id));
     });
   }, [calendarActivities, childFilter, kids.length]);
+
+  // ── Past-day catch-up ──────────────────────────────────────────────────────
+  // Rooted schedules by queue: reconcileGoalScheduleCache re-dates every
+  // incomplete lesson forward from today on each load, so a school day that
+  // passed without being checked off ends up with an EMPTY calendar cell and
+  // the family loses the ability to say "we did this, on that day."
+  //
+  // When a past day is opened we ask the projector what WOULD have been due
+  // there, given where each goal sits in its queue now, and offer those slots
+  // as a checklist. Nothing is written until the family checks a box.
+  const [catchUpForDay, setCatchUpForDay] = useState<CatchUpEntry[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const dayStr = openDayStr;
+    // Only past days. Today and the future already show their own lessons.
+    if (!dayStr || !effectiveUserId || dayStr >= todayStr || isPartner) {
+      setCatchUpForDay([]);
+      return;
+    }
+    (async () => {
+      // GOAL_CONFIG_COLUMNS + toGoalConfig, never a hand-rolled column list.
+      // The component's own `curriculumGoals` state omits
+      // lessons_per_day_overrides, so a config built from it would silently
+      // project a different spread than the one the family actually has.
+      const { data: goalRows, error } = await supabase
+        .from("curriculum_goals")
+        .select(`${GOAL_CONFIG_COLUMNS}, curriculum_name, subject_label, child_id, archived, completed_at`)
+        .eq("user_id", effectiveUserId)
+        .is("completed_at", null)
+        .neq("archived", true);
+      if (cancelled) return;
+      if (error || !goalRows) {
+        // Silent: this is an optional convenience surface, not the day's
+        // primary content. The day still renders everything else.
+        setCatchUpForDay([]);
+        return;
+      }
+
+      const dayMid = new Date(`${dayStr}T00:00:00`);
+      const nextMid = new Date(dayMid);
+      nextMid.setDate(nextMid.getDate() + 1);
+
+      const childNameById = new Map(kids.map((k) => [k.id, k.name]));
+      const filterOn = childFilter.size > 0 && childFilter.size !== kids.length;
+
+      // Slots already recorded on this day must not be offered again, or
+      // re-opening the day would invite a double-log.
+      const alreadyOnDay = new Set(
+        lessons
+          .filter((l) => (l.scheduled_date ?? l.date) === dayStr && l.curriculum_goal_id)
+          .map((l) => `${l.curriculum_goal_id}|${l.lesson_number ?? ""}`),
+      );
+
+      const out: CatchUpEntry[] = [];
+      for (const raw of goalRows as unknown as (GoalConfigRow & {
+        curriculum_name: string | null;
+        subject_label: string | null;
+        child_id: string | null;
+      })[]) {
+        if (filterOn && raw.child_id && !childFilter.has(raw.child_id)) continue;
+        const config = toGoalConfig(raw);
+        // One day wide. Returns [] when that date is not a school day for this
+        // goal, or sits inside a vacation block, which is exactly right: we
+        // never ask "did you do school on your beach trip?"
+        const projected = computeGapLessonsForGoal(
+          config,
+          dayMid,
+          nextMid,
+          vacationBlocks as unknown as SchedVacationBlock[],
+        );
+        for (const slot of projected) {
+          if (alreadyOnDay.has(`${config.id}|${slot.lesson_number}`)) continue;
+          out.push({
+            goal_id: config.id,
+            lesson_number: slot.lesson_number,
+            date: dayStr,
+            subject_label:
+              raw.subject_label?.trim() || raw.curriculum_name?.trim() || "Lesson",
+            child_id: raw.child_id,
+            child_name: raw.child_id ? (childNameById.get(raw.child_id) ?? null) : null,
+          });
+        }
+      }
+      setCatchUpForDay(out);
+    })();
+    return () => { cancelled = true; };
+  }, [openDayStr, todayStr, effectiveUserId, isPartner, kids, childFilter, vacationBlocks, lessons]);
+
+  const handleLogCatchUp = useCallback(async (selected: CatchUpEntry[]) => {
+    if (!effectiveUserId || selected.length === 0) return;
+    // subjects: [] on purpose. subject_id is only consulted on the rare
+    // insert branch (a goal with no row for that queue slot); the Plan page
+    // holds no subjects list, and a null subject_id there matches what every
+    // other catch-up write already produces.
+    const { okCount, failedCount } = await logPastDayLessons(
+      supabase,
+      effectiveUserId,
+      selected.map((e) => ({ goal_id: e.goal_id, lesson_number: e.lesson_number, date: e.date })),
+      [],
+    );
+    if (okCount === 0) throw new Error("Nothing was logged");
+    for (const e of selected.slice(0, okCount)) {
+      recordEvent("lesson.completed", { goal_id: e.goal_id, date: e.date });
+    }
+    reload();
+    reloadPins();
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+    }
+    if (failedCount > 0) {
+      flashNotice(`Logged ${okCount}, but ${failedCount} didn't save. Try those again.`);
+    }
+  }, [effectiveUserId, recordEvent, reload, reloadPins, flashNotice]);
 
   // Missed = scheduled_date before today AND not completed. Uses filteredLessons
   // so the banner respects the active child filter chips (Amanda grades one
@@ -5527,6 +5643,11 @@ export default function PlanV2() {
           const dayEvents = filterEventsForDay(planEvents, openDayStr);
           return (
             <DayDetailPanelV2
+              // Remount per day. Every piece of state inside the panel is
+              // scoped to the day being viewed (catch-up selection, note
+              // editor, appointment menu), so a fresh instance per day is the
+              // whole reset story.
+              key={openDayStr}
               date={panelDate}
               lessons={panelLessons}
               appointments={panelAppts}
@@ -5535,6 +5656,8 @@ export default function PlanV2() {
               variant="sheet"
               onClose={() => setOpenDayStr(null)}
               onAdd={() => { const d = openDayStr; setOpenDayStr(null); openUnifiedAdd(d); }}
+              catchUpEntries={catchUpForDay}
+              onLogCatchUp={handleLogCatchUp}
               onToggleLesson={(id, current) => { void toggleLessonWithLog(id, current); }}
               onDeleteLesson={(id) => { void deleteLessonWithLog(id); }}
               onSkipLesson={(l) => {

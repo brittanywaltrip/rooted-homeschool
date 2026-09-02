@@ -49,6 +49,11 @@ function formatTimeRange(time: string | null, durationMinutes: number): string |
   return `${fmt(start12, m, startSuffix)} – ${fmt(end12, eM, endSuffix)}`;
 }
 
+/** Stable identity for a catch-up row: one queue slot within one goal. */
+function catchUpKey(e: { goal_id: string; lesson_number: number }): string {
+  return `${e.goal_id}|${e.lesson_number}`;
+}
+
 function sortAppointments(appts: PlanV2Appointment[]): PlanV2Appointment[] {
   return [...appts].sort((a, b) => {
     if (a.completed !== b.completed) return a.completed ? 1 : -1;
@@ -92,6 +97,16 @@ export interface DayDetailPanelV2Props {
    * use on the Today page (which doesn't load Plan audit events) is
    * unaffected. */
   dayEvents?: PlanEventRow[];
+  /** Optional past-day catch-up. When the panel shows a date that has already
+   *  passed, the parent may supply the queue slots that would have been due
+   *  that day so the family can record work they did but never checked off.
+   *  Rooted schedules by queue, so an unchecked day is re-dated forward and
+   *  its calendar cell goes empty; this checklist is the way back. Omitted on
+   *  the Today page's inline variant, which is unaffected. */
+  catchUpEntries?: CatchUpEntry[];
+  /** Called with the entries the family checked. Resolves when the writes
+   *  land, so the section can own its progress and error state. */
+  onLogCatchUp?: (selected: CatchUpEntry[]) => Promise<void>;
   variant?: "inline" | "sheet";
   onClose?: () => void;
   /** Optional "+" button in the sheet header. When provided, renders a
@@ -100,7 +115,19 @@ export interface DayDetailPanelV2Props {
   onAdd?: () => void;
 }
 
+export interface CatchUpEntry {
+  goal_id: string;
+  /** Queue slot index (queue_position), not the printed lesson number. */
+  lesson_number: number;
+  /** YYYY-MM-DD — the day being caught up. */
+  date: string;
+  subject_label: string;
+  child_id: string | null;
+  child_name: string | null;
+}
+
 type NoteSaveState = "idle" | "saving" | "saved" | "error";
+type CatchUpState = "idle" | "logging" | "done" | "error";
 
 export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
   const {
@@ -110,12 +137,23 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
     onLessonChanged,
     onNotesUpdated,
     dayEvents,
+    catchUpEntries, onLogCatchUp,
     variant = "inline", onClose, onAdd,
   } = props;
 
   // Per-day activity section expansion state. Defaults to collapsed — the
   // section is an "on-demand receipt", not primary content.
   const [activityExpanded, setActivityExpanded] = useState(false);
+
+  // ── Past-day catch-up state ────────────────────────────────────────────────
+  // Nothing is pre-checked. Marking a lesson done is the family asserting they
+  // did the work, so it is always an opt-in tap, never a default.
+  //
+  // Day-scoped, and deliberately not reset here. PlanV2 keys this panel on the
+  // open day, so switching days remounts it and every piece of in-panel state
+  // (this, the note editor, the appointment menu) starts clean.
+  const [catchUpChecked, setCatchUpChecked] = useState<Set<string>>(new Set());
+  const [catchUpState, setCatchUpState] = useState<CatchUpState>("idle");
 
   // Which appointment's kebab menu is open (keyed by appointment id). Null =
   // none open. Mirrors the WeekListView appointment-menu pattern.
@@ -270,6 +308,18 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
   const dateLabel = date.toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric",
   });
+  const shortDateLabel = date.toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric",
+  });
+  // Local midnight comparison. The panel is handed a Date built from the
+  // day's own Y/M/D, so comparing against today at local midnight keeps this
+  // free of timezone drift.
+  const todayMidnight = new Date();
+  todayMidnight.setHours(0, 0, 0, 0);
+  const dayMidnight = new Date(date);
+  dayMidnight.setHours(0, 0, 0, 0);
+  const isPastDay = dayMidnight.getTime() < todayMidnight.getTime();
+
   const sortedAppts = sortAppointments(appointments);
 
   const lessonsByChild = new Map<string | null, TodayLessonCardLesson[]>();
@@ -298,6 +348,52 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
         .slice(0, 10),
     [dayEvents],
   );
+
+  // ── Past-day catch-up derived data + handlers ──────────────────────────────
+  const catchUpList = catchUpEntries ?? [];
+  const showCatchUp =
+    !isPartner &&
+    !!onLogCatchUp &&
+    catchUpList.length > 0 &&
+    catchUpState !== "done";
+
+  // Grouped by child so a two-kid day reads as two short lists rather than one
+  // long one. Insertion order is preserved, so the parent controls kid order.
+  const catchUpGroups = (() => {
+    const byChild = new Map<string, { key: string; childName: string | null; entries: CatchUpEntry[] }>();
+    for (const e of catchUpList) {
+      const key = e.child_id ?? "__none__";
+      const existing = byChild.get(key);
+      if (existing) existing.entries.push(e);
+      else byChild.set(key, { key, childName: e.child_name, entries: [e] });
+    }
+    return Array.from(byChild.values());
+  })();
+
+  function toggleCatchUp(key: string) {
+    setCatchUpState("idle");
+    setCatchUpChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  async function handleLogCatchUp() {
+    if (!onLogCatchUp || catchUpChecked.size === 0 || catchUpState === "logging") return;
+    const selected = catchUpList.filter((e) => catchUpChecked.has(catchUpKey(e)));
+    if (selected.length === 0) return;
+    setCatchUpState("logging");
+    try {
+      await onLogCatchUp(selected);
+      setCatchUpChecked(new Set());
+      setCatchUpState("done");
+    } catch {
+      // Leave the boxes exactly as the family left them so a retry is one tap.
+      setCatchUpState("error");
+    }
+  }
 
   // ── Content ────────────────────────────────────────────────────────────────
   const content = (
@@ -518,11 +614,98 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
         </section>
       ) : null}
 
-      {/* Empty state */}
-      {totalItems === 0 ? (
-        <p className="text-sm text-[#b5aca4] text-center py-6">
-          Nothing scheduled for this day.
+      {/* ── Past-day catch-up ──────────────────────────────────────────────
+          Rooted schedules by queue: anything not checked off is re-dated
+          forward on the next load, which leaves the day it was actually done
+          on empty. This is how a family puts the work back where it happened.
+          Hidden for partners, who cannot record completions for someone else.
+         ─────────────────────────────────────────────────────────────────── */}
+      {showCatchUp ? (
+        <section className="rounded-2xl border border-[#e8e2d9] bg-[#faf8f4] px-3.5 py-3">
+          <p className="text-[13px] font-semibold text-[#2d2926] leading-snug">
+            Did you do any of this on {shortDateLabel}?
+          </p>
+          <p className="text-[11px] text-[#7a6f65] mt-0.5">
+            Check what you did and we&apos;ll log it on this day.
+          </p>
+
+          <div className="mt-2.5 flex flex-col gap-2.5">
+            {catchUpGroups.map((group) => (
+              <div key={group.key}>
+                {group.childName ? (
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-1">
+                    {group.childName}
+                  </p>
+                ) : null}
+                <div className="flex flex-col gap-1">
+                  {group.entries.map((entry) => {
+                    const key = catchUpKey(entry);
+                    const checked = catchUpChecked.has(key);
+                    return (
+                      <label
+                        key={key}
+                        className="flex items-center gap-2.5 bg-white rounded-lg border border-[#f0ede8] px-3 py-2 cursor-pointer hover:bg-[#fdfcfa] transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={catchUpState === "logging"}
+                          onChange={() => toggleCatchUp(key)}
+                          className="w-4 h-4 shrink-0 accent-[#5c7f63] cursor-pointer"
+                        />
+                        <span className="text-[12px] text-[#2d2926] min-w-0 truncate">
+                          {entry.subject_label}
+                          <span className="text-[#9a8e84]"> · Lesson {entry.lesson_number}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-2.5 flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              disabled={catchUpChecked.size === 0 || catchUpState === "logging"}
+              onClick={handleLogCatchUp}
+              className="text-[11px] font-bold text-white rounded-lg px-3 py-1.5 min-h-[32px] transition-opacity disabled:opacity-40"
+              style={{ backgroundColor: "#5c7f63" }}
+            >
+              {catchUpState === "logging" ? "Logging..." : "Log these"}
+            </button>
+            {catchUpState === "error" ? (
+              <span className="text-[11px] text-[#a8654a]">
+                Couldn&apos;t log those, try again.
+              </span>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
+      {catchUpState === "done" ? (
+        <p className="text-[12px] text-[#5c7f63] font-semibold text-center py-2">
+          Logged on {shortDateLabel} ✓
         </p>
+      ) : null}
+
+      {/* Empty state. A past day that is empty is not "nothing scheduled" —
+          it is a day whose unchecked work already rolled forward. Saying so
+          is the difference between a dead end and an explanation. */}
+      {totalItems === 0 ? (
+        isPastDay ? (
+          <div className="text-center py-5 px-2">
+            <p className="text-sm text-[#8B7E74]">Nothing was logged on this day.</p>
+            <p className="text-xs text-[#b5aca4] mt-1">
+              Anything you didn&apos;t check off rolled forward to your next school day.
+            </p>
+          </div>
+        ) : (
+          <p className="text-sm text-[#b5aca4] text-center py-6">
+            Nothing scheduled for this day.
+          </p>
+        )
       ) : null}
 
       {/* Activity on this day — collapsible, only rendered when the parent

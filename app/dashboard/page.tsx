@@ -744,9 +744,6 @@ export default function TodayPage() {
   const [showMissedRecovery, setShowMissedRecovery] = useState(false);
   const [missedGoals, setMissedGoals] = useState<MissedGoal[]>([]);
   const [missedEntriesByGoal, setMissedEntriesByGoal] = useState<Map<string, MissedEntry[]>>(new Map());
-  // Tracks whether the user has already seen / acted on the modal this
-  // session. Gates both the modal and the "X lessons from earlier" banner.
-  const [missedRecoveryDismissed, setMissedRecoveryDismissed] = useState(false);
   // Overdue lesson count for the Today-page indicator. Computed from the
   // queue-model gap between last completion and today; matches the catch-up
   // modal's per-goal projection but renders even when gap < 5 days. Stays 0
@@ -1501,28 +1498,67 @@ export default function TodayPage() {
         return;
       }
 
+      // PER-GOAL last completion, not one global maximum.
+      //
+      // This used to select a single most-recent completed_at across every
+      // goal and derive one gapStart from it. Two families' worth of missed
+      // work fell through that: (a) logging even ONE lesson today set
+      // gapStart to today, so computeGapLessonsForGoal saw a zero-day window,
+      // returned [] for every goal, and the prompt never appeared while
+      // yesterday's unlogged work was silently absorbed; (b) a subject
+      // untouched for a week was invisible whenever a different subject had
+      // been completed yesterday. Anchoring each goal to its own last
+      // completion fixes both.
+      //
+      // Newest 500 completions is plenty to contain every active goal's
+      // latest, and keeps a long-running family from pulling their whole
+      // history on every Today load.
       const { data: lastCompRows } = await supabase
         .from("lessons")
-        .select("completed_at")
+        .select("curriculum_goal_id, completed_at")
         .eq("user_id", effectiveUserId)
         .eq("completed", true)
         .not("completed_at", "is", null)
         .order("completed_at", { ascending: false })
-        .limit(1);
-      const lastCompletedAtIso = (lastCompRows?.[0] as { completed_at: string | null } | undefined)?.completed_at ?? null;
-      const lastCompletedAt = lastCompletedAtIso ? new Date(lastCompletedAtIso) : null;
+        .limit(500);
+      const compRows = (lastCompRows ?? []) as Array<{ curriculum_goal_id: string | null; completed_at: string | null }>;
 
-      const todayMid = new Date(today + "T00:00:00");
-      const gapStart = lastCompletedAt
-        ? (() => { const d = new Date(lastCompletedAt); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 1); return d; })()
-        : todayMid; // never completed → no gap to show
+      // Rows arrive newest-first, so the first one seen per goal is its latest.
+      const lastCompletedByGoal = new Map<string, string>();
+      for (const r of compRows) {
+        if (!r.curriculum_goal_id || !r.completed_at) continue;
+        if (!lastCompletedByGoal.has(r.curriculum_goal_id)) {
+          lastCompletedByGoal.set(r.curriculum_goal_id, r.completed_at);
+        }
+      }
 
       // Skip first-time families. The wizard owns their welcome moment;
       // we do not want to nag empty accounts.
-      if (!lastCompletedAt) {
+      if (compRows.length === 0) {
         setShowMissedRecovery(false);
         setOverdueLessonCount(0);
         return;
+      }
+
+      const todayMid = new Date(today + "T00:00:00");
+      // A family coming back from a long break should get "here is the last
+      // two weeks", not a two-hundred-item modal.
+      const MAX_GAP_DAYS = 14;
+      const earliestGapStart = new Date(todayMid);
+      earliestGapStart.setDate(earliestGapStart.getDate() - MAX_GAP_DAYS);
+
+      function gapStartForGoal(goalId: string, goalStartDate: string | null): Date | null {
+        const iso = lastCompletedByGoal.get(goalId);
+        // A goal with no completion at all falls back to its own start_date.
+        // Without one there is nothing to anchor to, so it contributes
+        // nothing rather than inventing a gap for work never begun.
+        const anchor = iso
+          ? (() => { const d = new Date(iso); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + 1); return d; })()
+          : goalStartDate
+            ? new Date(goalStartDate + "T00:00:00")
+            : null;
+        if (!anchor) return null;
+        return anchor < earliestGapStart ? earliestGapStart : anchor;
       }
 
       // Compute per-goal entries. Vacation blocks exclude break days so
@@ -1532,6 +1568,8 @@ export default function TodayPage() {
       const entriesByGoal = new Map<string, MissedEntry[]>();
       let overdueTotal = 0;
       for (const goal of activeGoals) {
+        const gapStart = gapStartForGoal(goal.id, goal.start_date ?? null);
+        if (!gapStart) continue;
         const cfg: CurriculumGoalConfig = toGoalConfig(goal);
         const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
         overdueTotal += entries.length;
@@ -1563,7 +1601,6 @@ export default function TodayPage() {
         typeof window !== "undefined" &&
         window.sessionStorage.getItem("rooted_missed_lesson_prompt_shown") === "1";
       if (alreadyShown) {
-        setMissedRecoveryDismissed(true);
         setShowMissedRecovery(false);
         return;
       }
@@ -2068,7 +2105,6 @@ export default function TodayPage() {
   async function handleMissedRecoveryYes() {
     if (!effectiveUserId) return;
     markMissedRecoveryShown();
-    setMissedRecoveryDismissed(true);
     setShowMissedRecovery(false);
 
     // Flatten all entries across goals — YES means "mark every missed
@@ -2203,7 +2239,6 @@ export default function TodayPage() {
 
   async function handleMissedRecoveryNo() {
     markMissedRecoveryShown();
-    setMissedRecoveryDismissed(true);
     setShowMissedRecovery(false);
     // No DB writes — under Path A the queue projector already absorbs
     // missed lessons into the upcoming schedule going forward from today
@@ -2215,13 +2250,13 @@ export default function TodayPage() {
   }
 
   // X / dismiss: close the prompt without touching any lesson. Same session
-  // gating as YES/NO (markMissedRecoveryShown + missedRecoveryDismissed hide
-  // the prompt and the overdue banner for the rest of this session), but no
-  // DB writes and no data refresh. Nothing changed, so there is nothing to
-  // reload.
+  // gating as YES/NO: markMissedRecoveryShown hides the prompt for the rest
+  // of this session. The "{n} lessons from earlier" link deliberately stays
+  // visible, since it is the only remaining way back to the catch-up flow.
+  // No DB writes and no data refresh. Nothing changed, so there is nothing
+  // to reload.
   function handleMissedRecoveryDismiss() {
     markMissedRecoveryShown();
-    setMissedRecoveryDismissed(true);
     setShowMissedRecovery(false);
   }
 
@@ -4490,10 +4525,12 @@ export default function TodayPage() {
           LESSONS FROM EARLIER — quiet notice for past-dated incomplete
           lessons under the queue model. No auto-reschedule, no alarm.
           Hidden on pace, hidden for brand-new users with no completions.
-          Also hidden once the user has seen / acted on the Missed Lesson
-          Recovery modal this session (gated on missedRecoveryDismissed).
+          Deliberately NOT hidden once the modal has been answered or
+          dismissed for the session: this link is the only remaining way
+          back to the catch-up flow, and hiding it too left the family with
+          no path to log the day they actually worked.
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && overdueLessonCount > 0 && !missedRecoveryDismissed && (
+      {!loading && overdueLessonCount > 0 && (
         <Link
           href="/dashboard/plan"
           className="block px-3.5 py-2.5 rounded-xl bg-[#faf8f4] border border-[#e8e2d9] hover:bg-[#f4f0e8] transition-colors"
