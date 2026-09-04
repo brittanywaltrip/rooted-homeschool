@@ -62,3 +62,29 @@ e2e/.auth/
 
 # Email template audit dumps — review-only, may contain template HTML; never commit
 email-audit/
+
+# ── Local scratch, never committed ───────────────────────────────────────────
+# These sit in the working tree on purpose and are not part of the repo. They
+# are listed here so `git status` stays readable and so a wide `git add -A`
+# cannot sweep them into a commit. Ignoring them does NOT delete them, and it
+# does not affect any file already tracked.
+
+# Scratch files and scrap directories, by the leading-underscore convention
+# (_to_delete/, _gone2.lock, _sid.py). No tracked file starts with one.
+/_*
+
+# One-off helper scripts written to drive a single commit
+/commit-*.sh
+
+# FUSE/NFS leftovers from a file deleted while still open. They appear next to
+# whatever was open at the time, so this is not anchored to the root.
+.fuse_hidden*
+
+# Planning docs and CC prompt drafts. Kept local until the work is real; the
+# docs that ARE part of the repo (CURRICULUM-SCHEDULING.md, PAST-DAY-LOGGING.md,
+# YEARBOOK-CONTENT-REVAMP.md) are already tracked and unaffected by these.
+*-CC-PROMPT.md
+/BUZZ-PLAN-*.md
+/docs/saved-plans/
+/docs/YEARBOOK-00-TODAY-BOOK-STRIP.md
+/docs/YEARBOOK-CUSTOMIZATION-ROADMAP.md

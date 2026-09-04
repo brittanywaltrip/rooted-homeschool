@@ -3207,6 +3207,43 @@ export default function TodayPage() {
       return next;
     });
     try {
+      // The goal itself, FIRST, before anything is written.
+      //
+      // Every part of this action belongs to a goal that exists: the lesson row
+      // carries curriculum_goal_id as a foreign key, the date is derived from
+      // the goal's school_days, and the whole point is to advance that goal's
+      // current_lesson. A client can hold a stale reference to one that has
+      // since been deleted (another tab, another device, a goal removed in the
+      // Schedule Builder while Today sat open), and this prompt is rendered
+      // from state loaded before that happened.
+      //
+      // Fail CLOSED. Left to fall through, the day resolution returned null,
+      // `?? today` supplied a guessed date, and the INSERT then died on
+      // lessons_curriculum_goal_id_fkey — inside a try/finally with no catch,
+      // so it surfaced as an unhandled rejection: no row written, no word to
+      // the family, and the card still sitting there asking. Nothing is lost by
+      // stopping here, because there is nothing left to record against.
+      const { data: goalCfgRow, error: goalCfgErr } = await supabase
+        .from("curriculum_goals")
+        .select(GOAL_CONFIG_COLUMNS)
+        .eq("id", g.goal_id)
+        .maybeSingle();
+      if (goalCfgErr || !goalCfgRow) {
+        captureSupabaseError(
+          "Prior-lesson confirm: goal missing, refusing to write",
+          goalCfgErr ?? new Error(`Goal ${g.goal_id} not found`),
+          {
+            level: "warning",
+            tags: { fn: "confirmPriorLessonComplete", goal_id: g.goal_id },
+          },
+        );
+        // Drop the card: the goal is gone, so re-asking cannot help.
+        setNeedsConfirmation((prev) => prev.filter((u) => u.goal_id !== g.goal_id));
+        showCaptureToast("That curriculum isn't here anymore, so there's nothing to mark done.", null);
+        return;
+      }
+      const goalCfg = toGoalConfig(goalCfgRow as unknown as GoalConfigRow);
+
       // Look up an existing row at the canonical lesson_number so we
       // UPDATE the row when it exists (preserves notes, title, minutes)
       // and INSERT only when no row was ever pre-generated for this
@@ -3244,14 +3281,8 @@ export default function TodayPage() {
       // and run computeNextLessonsForGoal from start_date. That honors
       // school_days, vacation blocks and per-weekday overrides, so the answer is
       // a day this family actually does school on.
-      const resolvePastSchoolDay = async (): Promise<string | null> => {
-        const { data: goalCfgRow, error: goalCfgErr } = await supabase
-          .from("curriculum_goals")
-          .select(GOAL_CONFIG_COLUMNS)
-          .eq("id", g.goal_id)
-          .maybeSingle();
-        if (goalCfgErr || !goalCfgRow) return null;
-        const cfg = toGoalConfig(goalCfgRow as unknown as GoalConfigRow);
+      const resolvePastSchoolDay = (): string | null => {
+        const cfg = goalCfg;
         const vacations: SchedVacationBlock[] = allVacationBlocks.map((v) => ({
           start_date: v.start_date,
           end_date: v.end_date,
@@ -3296,7 +3327,8 @@ export default function TodayPage() {
       const rowDay = existingRow?.scheduled_date ?? existingRow?.date ?? null;
       // Last resort only if the walk finds no school day inside its 10-year
       // lookback (every day a vacation). The clamp below turns it into today.
-      const resolvedDay = rowDay ?? (await resolvePastSchoolDay()) ?? today;
+      // A missing goal can no longer reach this line: it returned above.
+      const resolvedDay = rowDay ?? resolvePastSchoolDay() ?? today;
       // A completion can never be in the future. The row's stored date may sit
       // ahead of today (a stale projected cache), and stamping completed_at from
       // it would file this family's attendance on a day that has not happened.

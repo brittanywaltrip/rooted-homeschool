@@ -2095,10 +2095,15 @@ export function monotonicCompletedAt(
  * so the projector never re-spreads the row (Invariant 3), and tags
  * scheduled_source = 'catchup_resched' per Invariant 10.
  *
- * Use ONLY for past-day completions. The regular "complete today" path
- * (Today page tap, Plan page "mark not done" undo) writes
- * `completed_at = new Date().toISOString()` directly without any of the
- * date-pinning or backfill flags — that path is correct as-is.
+ * Use ONLY for past-day completions. The regular "complete today" paths write
+ * `completed_at = new Date().toISOString()` and set no backfill flag. They DO
+ * pin the date columns, so do not read this as "those paths leave dates alone":
+ * Today pins `date` / `scheduled_date` to today on every completion
+ * (confirmCheckOff and toggleLesson in app/dashboard/page.tsx), and Plan pins
+ * them only when the row's current date is today or later
+ * (usePlanLessonActions), so a past-dated row keeps the day it was scheduled
+ * for. What those paths do not do is stamp a day the user chose, which is the
+ * whole job of this payload.
  *
  * `completedAt` is an ISO 8601 string. The first 10 chars (YYYY-MM-DD)
  * become the row's `date` and `scheduled_date`. Callers should pass

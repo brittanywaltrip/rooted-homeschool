@@ -2937,6 +2937,104 @@ test('confirmPriorLessonComplete resolves a projected school day, never a flat y
   )
 })
 
+// Invariant 10 + the timezone rule. Every synthetic completion stamp in the
+// codebase is noon UTC. `T12:00:00` with no Z is browser-local noon, which
+// serializes to the previous calendar day east of UTC, and attendance buckets
+// on completed_at.slice(0, 10).
+
+test('every synthetic completed_at is noon UTC, never local noon', () => {
+  const sites: { file: string; label: string }[] = [
+    { file: 'app/dashboard/plan/schedule/page.tsx', label: 'historical backfill' },
+    { file: 'app/lib/logPastDayLessons.ts', label: 'past-day logging' },
+    { file: 'app/lib/recalibrate.ts', label: 'recalibrate gap fill' },
+    { file: 'app/dashboard/page.tsx', label: 'Today' },
+  ]
+  for (const site of sites) {
+    const src = stripComments(loadRepoFile(site.file))
+    // Scoped to completed_at payload values only. A bare `T12:00:00` inside a
+    // `new Date(...)` elsewhere is a NOON ANCHOR, which is correct and
+    // deliberate — it keeps the weekday stable across DST when reading a
+    // date's day-of-week. This is about the timestamp that gets STORED.
+    const writes = src.match(/completed_at:\s*[^,\n]+/g) || []
+    for (const w of writes) {
+      const localNoonLiteral = /T12:00:00`/.test(w) && !/T12:00:00Z`/.test(w)
+      const localNoonDate = /new Date\(`[^`]*T12:00:00`\)/.test(w)
+      assert.ok(
+        !localNoonLiteral && !localNoonDate,
+        `${site.label} (${site.file}) stores a local-noon completed_at: ${w.trim()}`,
+      )
+    }
+  }
+})
+
+test('historical backfill stamps completed_at at noon UTC', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /const planHistoricalBackfill = \(\) =>/)
+  assert.ok(
+    /completed_at:\s*`\$\{p\.date\}T12:00:00Z`/.test(body),
+    'the backfill row stamps noon UTC of its own projected day',
+  )
+  assert.ok(
+    !/new Date\(`\$\{p\.date\}T12:00:00`\)/.test(body),
+    'the local-noon Date construction is gone',
+  )
+})
+
+// A deleted goal. A client can hold a stale reference to one (another tab,
+// another device, a goal removed in the Schedule Builder while Today sat open),
+// and lessons.curriculum_goal_id is a foreign key — so writing anyway meant an
+// FK rejection inside a try/finally with no catch: an unhandled rejection, no
+// row, and no word to the family. There is nothing to record against a goal
+// that is gone, so the action stops before it writes.
+
+test('confirmPriorLessonComplete refuses to write when the goal is gone', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+
+  // The goal is fetched BEFORE either write. Order is the guard: a check that
+  // runs after the insert cannot stop it.
+  const goalFetchAt = body.indexOf('.select(GOAL_CONFIG_COLUMNS)')
+  const lessonLookupAt = body.indexOf('.select("id, scheduled_date, date")')
+  const insertAt = body.indexOf('.insert({')
+  const updateAt = body.indexOf('.update({')
+  assert.ok(goalFetchAt > -1, 'the goal config is fetched')
+  assert.ok(
+    goalFetchAt < lessonLookupAt && goalFetchAt < insertAt && goalFetchAt < updateAt,
+    'the goal fetch precedes the lesson lookup and both writes',
+  )
+
+  // A missing goal returns, and returns EARLY — before either write.
+  const guardAt = body.search(/if\s*\(goalCfgErr\s*\|\|\s*!goalCfgRow\)\s*\{/)
+  assert.ok(guardAt > -1, 'a missing goal is guarded')
+  const guardBlock = body.slice(guardAt, body.indexOf('const goalCfg'))
+  assert.ok(/\breturn;/.test(guardBlock), 'the guard returns rather than falling through')
+  assert.ok(guardAt < insertAt && guardAt < updateAt, 'the guard runs before both writes')
+
+  // It says so, in all three places it needs to: Sentry, the card, the family.
+  assert.ok(
+    /captureSupabaseError\(\s*"Prior-lesson confirm: goal missing/.test(guardBlock),
+    'the refusal is reported rather than swallowed',
+  )
+  assert.ok(
+    /setNeedsConfirmation\(\(prev\) => prev\.filter/.test(guardBlock),
+    'the prompt card is dropped, since re-asking cannot help',
+  )
+  assert.ok(/showCaptureToast\(/.test(guardBlock), 'the family is told')
+
+  // And the guessed-date path is closed: the day resolver no longer has a
+  // missing-goal branch to return null from, because it can no longer be
+  // reached with one.
+  assert.ok(
+    !/if\s*\(goalCfgErr\s*\|\|\s*!goalCfgRow\)\s*return null/.test(body),
+    'resolvePastSchoolDay no longer falls through on a missing goal',
+  )
+  assert.equal(
+    (body.match(/\.select\(GOAL_CONFIG_COLUMNS\)/g) || []).length,
+    1,
+    'the goal is fetched once, not again inside the resolver',
+  )
+})
+
 test('confirmPriorLessonComplete clamps completed_at so it can never be in the future', () => {
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
   const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
@@ -2972,7 +3070,7 @@ test('confirmPriorLessonComplete stamps noon UTC of the row’s own day', () => 
     'the row’s own scheduled_date / date wins over any resolution',
   )
   assert.ok(
-    /resolvedDay\s*=\s*rowDay\s*\?\?\s*\(await resolvePastSchoolDay\(\)\)/.test(body),
+    /resolvedDay\s*=\s*rowDay\s*\?\?\s*resolvePastSchoolDay\(\)/.test(body),
     'a missing row resolves a real school day rather than defaulting',
   )
   // The lookup has to SELECT the columns the fallback chain reads.

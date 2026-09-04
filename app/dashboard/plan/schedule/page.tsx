@@ -1822,7 +1822,13 @@ export default function ScheduleBuilderPage() {
               // Invariant 10 in docs/CURRICULUM-SCHEDULING.md.
               scheduled_source: "wizard_create",
               completed: true,
-              completed_at: new Date(`${p.date}T12:00:00`).toISOString(),
+              // Noon UTC, matching logPastDayLessons.ts and recalibrate.ts.
+              // `T12:00:00` with no Z is browser-local noon, which serializes to
+              // the PREVIOUS calendar day east of UTC (local noon at UTC+13 is
+              // 23:00Z the day before). Attendance in app/dashboard/reports
+              // buckets on completed_at.slice(0, 10), so those families had
+              // every backfilled lesson reported a day early.
+              completed_at: `${p.date}T12:00:00Z`,
               is_backfill: true,
               minutes_spent: minutes,
               hours: minutes / 60,
