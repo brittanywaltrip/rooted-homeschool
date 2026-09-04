@@ -3207,7 +3207,6 @@ export default function TodayPage() {
       return next;
     });
     try {
-      const completedAtIso = new Date().toISOString();
       // Look up an existing row at the canonical lesson_number so we
       // UPDATE the row when it exists (preserves notes, title, minutes)
       // and INSERT only when no row was ever pre-generated for this
@@ -3217,32 +3216,52 @@ export default function TodayPage() {
       // is_backfill=true so the queue projector never re-spreads them
       // (Invariant 3) and the Today projector's `is_backfill !== true`
       // filter keeps them out of the daily list.
+      //
+      // Both date columns are read, because this prompt confirms a lesson the
+      // family finished BEFORE today — the queue advanced past it without an
+      // audit trail. Stamping the row with today's date filed that work on the
+      // wrong day: attendance in app/dashboard/reports/page.tsx buckets on
+      // completed_at.slice(0, 10), so today gained a school day the family did
+      // not do and the day they did lost one.
       const { data: existing } = await supabase
         .from("lessons")
-        .select("id")
+        .select("id, scheduled_date, date")
         .eq("user_id", effectiveUserId)
         .eq("curriculum_goal_id", g.goal_id)
         .eq("lesson_number", g.current_lesson)
         .maybeSingle();
+      const existingRow = existing as
+        | { id: string; scheduled_date: string | null; date: string | null }
+        | null;
 
-      if (existing && (existing as { id: string }).id) {
+      // With no row there is no projected day to keep. Yesterday is the same
+      // synthetic "before today, exact day unknown" stamp the orphan-cleanup
+      // trigger writes (Invariant 13, migration 20260730100000); today is the
+      // one date we know to be wrong. In practice this is the branch that runs:
+      // loadData only flags a goal when the slot has NO row at all.
+      const priorDay = addDaysYmd(today, -1);
+      const completedDay = existingRow?.scheduled_date ?? existingRow?.date ?? priorDay;
+      // Noon UTC of the day the work happened, matching logPastDayLessons.ts
+      // and the catch-up modal. Never local noon: east of UTC that lands on the
+      // previous calendar day and buckets attendance a day early.
+      const completedAtIso = `${completedDay}T12:00:00Z`;
+
+      if (existingRow?.id) {
         const { error } = await supabase
           .from("lessons")
           .update({
             completed: true,
             completed_at: completedAtIso,
-            // Pair the INSERT branch below: pin scheduled_date / date to
-            // today so the existing row's stale future scheduled_date
-            // doesn't ghost it back onto a future calendar day.
-            scheduled_date: today,
-            date: today,
+            // scheduled_date / date deliberately untouched: the row keeps the
+            // day it was projected onto, which is the day the work is being
+            // confirmed for. Pinning them to today is what moved the record.
             is_backfill: true,
             // Invariant 10: every lesson write stamps a scheduled_source.
             // 'wizard_create' is the closest existing tag for a confirmed
             // historical completion seeded from the queue position.
             scheduled_source: "wizard_create",
           })
-          .eq("id", (existing as { id: string }).id);
+          .eq("id", existingRow.id);
         if (error) throw error;
       } else {
         const { error } = await supabase.from("lessons").insert({
@@ -3252,8 +3271,8 @@ export default function TodayPage() {
           lesson_number: g.current_lesson,
           queue_position: g.current_lesson,
           title: `${g.curriculum_name} — Lesson ${g.current_lesson}`,
-          scheduled_date: today,
-          date: today,
+          scheduled_date: completedDay,
+          date: completedDay,
           completed: true,
           completed_at: completedAtIso,
           is_backfill: true,

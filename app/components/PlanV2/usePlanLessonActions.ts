@@ -78,6 +78,19 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       update.scheduled_date = todayStr;
       update.date = todayStr;
     }
+    if (!completingNow) {
+      // Un-completing hands the row back to the queue, so it must stop looking
+      // like history. `is_backfill` is what a past-day log sets (see
+      // logPastDayLessons + buildPastDateCompletionPayload), and
+      // syncProjectedScheduledDates skips is_backfill rows — so a row logged on
+      // a day that already passed and then unchecked kept that past date
+      // forever: the reconciler would never roll it forward, and every load
+      // read it as missed. Clearing the flag lets the next reconcile re-date it
+      // like any other incomplete lesson. The date columns are still left
+      // untouched here; moving them is the reconciler's job, not this write's.
+      update.is_backfill = false;
+      update.scheduled_source = "manual_uncomplete";
+    }
     await supabase.from("lessons").update(update).eq("id", id);
     if (lesson?.curriculum_goal_id) {
       await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);

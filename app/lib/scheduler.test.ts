@@ -2748,6 +2748,90 @@ test('past-date completion: out-of-order backfill (complete lesson 5 with lesson
   assert.equal(projection[0]?.lesson_number, 6, 'projection follows current_lesson, not the count of completed rows')
 })
 
+// ── Un-completing releases a backfilled row back to the queue (Sep 2026) ──
+//
+// buildPastDateCompletionPayload above sets is_backfill=true, and
+// syncProjectedScheduledDates skips is_backfill rows. So a lesson logged on a
+// day that had already passed, then unchecked, kept that past date forever: the
+// reconciler could never roll it forward and every load counted it as missed.
+// The uncomplete write has to clear the flag it did not set.
+
+test('uncomplete clears is_backfill so the reconciler can re-date the row', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  const body = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
+  assert.ok(
+    /if\s*\(!completingNow\)\s*\{[^}]*is_backfill\s*=\s*false/.test(body),
+    'the uncomplete branch must set is_backfill = false',
+  )
+  assert.ok(
+    /if\s*\(!completingNow\)\s*\{[^}]*scheduled_source\s*=\s*"manual_uncomplete"/.test(body),
+    'Invariant 10: the uncomplete write tags its source',
+  )
+  // The complete direction is untouched: it never writes is_backfill, so a
+  // past-day log keeps the flag that holds its date.
+  assert.equal(
+    (body.match(/is_backfill/g) || []).length,
+    1,
+    'is_backfill is written on the uncomplete branch only',
+  )
+})
+
+test('uncomplete still leaves both date columns alone', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  const body = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
+  // Both date writes stay behind the pinDateToToday guard, which is
+  // complete-direction only. Un-completing must not move a lesson's day.
+  assert.ok(
+    /if\s*\(pinDateToToday\)\s*\{\s*update\.scheduled_date\s*=\s*todayStr;\s*update\.date\s*=\s*todayStr;\s*\}/.test(body),
+    'scheduled_date / date are written only under the pinDateToToday guard',
+  )
+})
+
+// ── Prior-lesson confirmation keeps the day the work happened (Sep 2026) ──
+//
+// Today's "Did you finish Lesson N?" prompt records a lesson finished BEFORE
+// today. It used to stamp the row with today's date and now(), so attendance
+// (which buckets on completed_at.slice(0, 10)) gained a school day the family
+// did not do and lost the one they did.
+
+test('confirmPriorLessonComplete does not pin the row to today', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  assert.ok(
+    !/scheduled_date:\s*today\b/.test(body) && !/\bdate:\s*today\b/.test(body),
+    'neither date column may be written as today',
+  )
+  assert.ok(
+    !/completed_at:\s*new Date\(\)\.toISOString\(\)/.test(body),
+    'completed_at may not be now() — the work happened on an earlier day',
+  )
+})
+
+test('confirmPriorLessonComplete stamps noon UTC of the row’s own day', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  // Noon UTC, matching logPastDayLessons.ts. Local noon lands on the previous
+  // calendar day east of UTC and buckets attendance a day early.
+  assert.ok(
+    /completedAtIso\s*=\s*`\$\{completedDay\}T12:00:00Z`/.test(body),
+    'completed_at is noon UTC of the day being confirmed',
+  )
+  // The day comes from the row itself; only a missing row falls back.
+  assert.ok(
+    /completedDay\s*=\s*existingRow\?\.scheduled_date\s*\?\?\s*existingRow\?\.date\s*\?\?\s*priorDay/.test(body),
+    'the row’s own scheduled_date / date wins over any fallback',
+  )
+  assert.ok(
+    /priorDay\s*=\s*addDaysYmd\(today,\s*-1\)/.test(body),
+    'the no-row fallback is the day before today, never today',
+  )
+  // The lookup has to SELECT the columns the fallback chain reads.
+  assert.ok(
+    /select\("id, scheduled_date, date"\)/.test(body),
+    'the existing-row lookup selects both date columns',
+  )
+})
+
 // ── Reschedule modal: vacation-aware "next school day" (May 2026) ────────
 //
 // Repro from staging: today=Mon May 4, school_days=Mon-Fri, vacation
