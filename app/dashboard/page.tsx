@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, toGoalConfig, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, toGoalConfig, mostRecentSchoolDayBefore, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib/timezone";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
@@ -3234,17 +3234,77 @@ export default function TodayPage() {
         | { id: string; scheduled_date: string | null; date: string | null }
         | null;
 
-      // With no row there is no projected day to keep. Yesterday is the same
-      // synthetic "before today, exact day unknown" stamp the orphan-cleanup
-      // trigger writes (Invariant 13, migration 20260730100000); today is the
-      // one date we know to be wrong. In practice this is the branch that runs:
-      // loadData only flags a goal when the slot has NO row at all.
-      const priorDay = addDaysYmd(today, -1);
-      const completedDay = existingRow?.scheduled_date ?? existingRow?.date ?? priorDay;
+      // With no row there is no projected day to keep, so the day has to be
+      // derived. In practice this is the branch that runs: loadData only flags a
+      // goal when the slot has NO row at all.
+      //
+      // Ask the projector where this queue slot belonged, exactly the way
+      // planHistoricalBackfill does in app/dashboard/plan/schedule/page.tsx —
+      // rewind the queue to zero, cap total_lessons at the slot being confirmed,
+      // and run computeNextLessonsForGoal from start_date. That honors
+      // school_days, vacation blocks and per-weekday overrides, so the answer is
+      // a day this family actually does school on.
+      const resolvePastSchoolDay = async (): Promise<string | null> => {
+        const { data: goalCfgRow, error: goalCfgErr } = await supabase
+          .from("curriculum_goals")
+          .select(GOAL_CONFIG_COLUMNS)
+          .eq("id", g.goal_id)
+          .maybeSingle();
+        if (goalCfgErr || !goalCfgRow) return null;
+        const cfg = toGoalConfig(goalCfgRow as unknown as GoalConfigRow);
+        const vacations: SchedVacationBlock[] = allVacationBlocks.map((v) => ({
+          start_date: v.start_date,
+          end_date: v.end_date,
+        }));
+
+        if (cfg.start_date && cfg.start_date < today && g.current_lesson > 0) {
+          const startMid = new Date(`${cfg.start_date}T00:00:00`);
+          const todayMid = new Date(`${today}T00:00:00`);
+          // Same span planHistoricalBackfill uses: the whole stretch since the
+          // start date plus a cushion, so the projector never runs out of window
+          // before it has laid every historical slot.
+          const daysSpan = Math.max(
+            1,
+            Math.floor((todayMid.getTime() - startMid.getTime()) / 86400000) + 60,
+          );
+          const histProjected = computeNextLessonsForGoal(
+            { ...cfg, current_lesson: 0, total_lessons: g.current_lesson },
+            startMid,
+            daysSpan,
+            vacations,
+          );
+          // The most recent projected school day STRICTLY before today. For the
+          // ordinary shape (every historical slot behind us) that is this slot's
+          // own day. When the projection runs past today — a recent start_date
+          // with a high starting position — it is the last day that did happen,
+          // which is the honest answer to "when did you finish it".
+          let latest: string | null = null;
+          for (const p of histProjected) {
+            if (p.date >= today) continue;
+            if (!latest || p.date > latest) latest = p.date;
+          }
+          if (latest) return latest;
+        }
+
+        // No start_date, or nothing projected behind us. Fall back to this
+        // goal's most recent school day, which still respects school_days and
+        // vacations — never a flat "yesterday" that would file a Tue/Wed
+        // curriculum's work on a Monday.
+        return mostRecentSchoolDayBefore(today, cfg.school_days, vacations);
+      };
+
+      const rowDay = existingRow?.scheduled_date ?? existingRow?.date ?? null;
+      // Last resort only if the walk finds no school day inside its 10-year
+      // lookback (every day a vacation). The clamp below turns it into today.
+      const resolvedDay = rowDay ?? (await resolvePastSchoolDay()) ?? today;
+      // A completion can never be in the future. The row's stored date may sit
+      // ahead of today (a stale projected cache), and stamping completed_at from
+      // it would file this family's attendance on a day that has not happened.
+      const stampDay = resolvedDay >= today ? today : resolvedDay;
       // Noon UTC of the day the work happened, matching logPastDayLessons.ts
       // and the catch-up modal. Never local noon: east of UTC that lands on the
       // previous calendar day and buckets attendance a day early.
-      const completedAtIso = `${completedDay}T12:00:00Z`;
+      const completedAtIso = `${stampDay}T12:00:00Z`;
 
       if (existingRow?.id) {
         const { error } = await supabase
@@ -3271,8 +3331,8 @@ export default function TodayPage() {
           lesson_number: g.current_lesson,
           queue_position: g.current_lesson,
           title: `${g.curriculum_name} — Lesson ${g.current_lesson}`,
-          scheduled_date: completedDay,
-          date: completedDay,
+          scheduled_date: resolvedDay,
+          date: resolvedDay,
           completed: true,
           completed_at: completedAtIso,
           is_backfill: true,

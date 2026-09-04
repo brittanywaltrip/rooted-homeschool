@@ -1334,6 +1334,45 @@ export function effectiveDueDate(
 }
 
 /**
+ * Walk BACKWARD from `beforeDate` (YYYY-MM-DD, exclusive) to the most recent
+ * date that is BOTH a school day for the curriculum AND not inside a vacation
+ * block. Returns YYYY-MM-DD, or null when nothing qualifies inside the lookback
+ * window.
+ *
+ * The mirror image of `effectiveDueDate`, and it lives here for the same reason
+ * that one does: Invariant 8 keeps every day-walk loop in this file, so there is
+ * one definition of "a day this goal does school on" rather than a second copy
+ * in a page component that can drift from it.
+ *
+ * Used to answer "when did this family most recently have school?" — the
+ * question Today's prior-lesson confirmation asks when it records a lesson
+ * finished before today and the queue has no projected date to offer. Walking
+ * back a flat one day would answer Monday for a Tue/Wed goal, filing the work on
+ * a day that family never does school.
+ *
+ * `schoolDays` falls back to Mon-Fri when null/empty (Invariant 5), so the walk
+ * always terminates on a real weekday rather than running the window out.
+ */
+export function mostRecentSchoolDayBefore(
+  beforeDate: string,
+  schoolDays: string[] | null | undefined,
+  vacationBlocks?: VacationBlock[] | null,
+  maxLookbackDays: number = 3650,
+): string | null {
+  let cursor = addDays(beforeDate, -1);
+  for (let i = 0; i < maxLookbackDays; i++) {
+    if (
+      !isVacationDay(cursor, vacationBlocks) &&
+      isSchoolDay(new Date(cursor + "T12:00:00"), schoolDays)
+    ) {
+      return cursor;
+    }
+    cursor = addDays(cursor, -1);
+  }
+  return null;
+}
+
+/**
  * Convenience wrapper used by every "is this lesson missed?" call site
  * in the app. A lesson is missed iff:
  *

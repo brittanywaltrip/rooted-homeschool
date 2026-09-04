@@ -66,6 +66,7 @@ import {
   isVacationDay,
   isDueDate,
   effectiveDueDate,
+  mostRecentSchoolDayBefore,
   isLessonMissed,
   buildPastDateCompletionPayload,
   nthSchoolDay,
@@ -2807,23 +2808,172 @@ test('confirmPriorLessonComplete does not pin the row to today', () => {
   )
 })
 
+// The backward walk itself. A flat "yesterday" is the thing these pin against:
+// it answers Monday for a Tue/Wed goal, filing the work on a day that family
+// never does school.
+
+test('mostRecentSchoolDayBefore: a Tue/Wed goal never lands on a Monday', () => {
+  const schoolDays = ['Tue', 'Wed']
+  // 2026-09-07 is a Monday. Walking back from it must skip Monday itself
+  // (exclusive), skip the weekend, and land on the Wednesday before.
+  assert.equal(mostRecentSchoolDayBefore('2026-09-07', schoolDays), '2026-09-02')
+  // From Thursday 2026-09-10 the answer is that same week's Wednesday.
+  assert.equal(mostRecentSchoolDayBefore('2026-09-10', schoolDays), '2026-09-09')
+  // From Wednesday itself, exclusive: the day before is Tuesday.
+  assert.equal(mostRecentSchoolDayBefore('2026-09-09', schoolDays), '2026-09-08')
+  // Sweep a whole month: no answer may ever be a Monday, a Thursday, a Friday
+  // or a weekend day for this goal.
+  for (let d = 1; d <= 30; d++) {
+    const from = `2026-09-${String(d).padStart(2, '0')}`
+    const got = mostRecentSchoolDayBefore(from, schoolDays)
+    assert.ok(got, `no school day found before ${from}`)
+    assert.ok(got < from, `${got} must be strictly before ${from}`)
+    const dow = new Date(`${got}T12:00:00`).getDay() // Sun=0..Sat=6
+    assert.ok(dow === 2 || dow === 3, `${got} (from ${from}) is not a Tue/Wed`)
+  }
+})
+
+test('mostRecentSchoolDayBefore: skips vacation days', () => {
+  const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  // Thu 2026-09-10. With Mon 9-07 through Wed 9-09 inside a break, the walk
+  // has to carry past the block and past the weekend to Friday 9-04.
+  const vacations = [{ start_date: '2026-09-07', end_date: '2026-09-09' }]
+  assert.equal(mostRecentSchoolDayBefore('2026-09-10', schoolDays, vacations), '2026-09-04')
+})
+
+test('mostRecentSchoolDayBefore: null/empty school_days falls back to Mon-Fri (Invariant 5)', () => {
+  // Monday 2026-09-07 → the Friday before, not Sunday.
+  assert.equal(mostRecentSchoolDayBefore('2026-09-07', null), '2026-09-04')
+  assert.equal(mostRecentSchoolDayBefore('2026-09-07', []), '2026-09-04')
+})
+
+test('mostRecentSchoolDayBefore: returns null when the lookback finds nothing', () => {
+  // Every day inside the window is a vacation, so there is no honest answer
+  // and the caller has to decide what to do rather than be handed a wrong day.
+  const vacations = [{ start_date: '2020-01-01', end_date: '2030-01-01' }]
+  assert.equal(mostRecentSchoolDayBefore('2026-09-07', ['Mon'], vacations, 30), null)
+})
+
+test('prior-lesson confirm: the projected historical day matches planHistoricalBackfill', () => {
+  // The shape the dashboard builds: rewind the queue to zero, cap
+  // total_lessons at the slot being confirmed, project from start_date. A
+  // Tue/Wed goal starting Tue 2026-09-01 at 1/day lays slots 1..4 on
+  // Sep 1, 2, 8, 9 — so confirming slot 4 with today = Sep 10 resolves to
+  // Sep 9, a Wednesday, never Sep 9's Monday neighbour.
+  const cfg = goalCfg({
+    school_days: ['Tue', 'Wed'],
+    lessons_per_day: 1,
+    current_lesson: 0,
+    total_lessons: 4,
+    start_date: '2026-09-01',
+  })
+  const projected = computeNextLessonsForGoal(cfg, new Date(2026, 8, 1), 60)
+  assert.deepEqual(
+    projected.map((p) => p.date),
+    ['2026-09-01', '2026-09-02', '2026-09-08', '2026-09-09'],
+  )
+  const today = '2026-09-10'
+  let latest: string | null = null
+  for (const p of projected) {
+    if (p.date >= today) continue
+    if (!latest || p.date > latest) latest = p.date
+  }
+  assert.equal(latest, '2026-09-09')
+  const dow = new Date(`${latest}T12:00:00`).getDay()
+  assert.ok(dow === 2 || dow === 3, 'the resolved day is a school day for this goal')
+})
+
+test('prior-lesson confirm: a projection running past today resolves to the last day that happened', () => {
+  // Recent start_date, high starting position: slots 5..8 are still ahead of
+  // today. The answer must be the most recent projected day STRICTLY before
+  // today, not a future one.
+  const cfg = goalCfg({
+    school_days: ['Tue', 'Wed'],
+    lessons_per_day: 1,
+    current_lesson: 0,
+    total_lessons: 8,
+    start_date: '2026-09-01',
+  })
+  const projected = computeNextLessonsForGoal(cfg, new Date(2026, 8, 1), 90)
+  const today = '2026-09-09'
+  let latest: string | null = null
+  for (const p of projected) {
+    if (p.date >= today) continue
+    if (!latest || p.date > latest) latest = p.date
+  }
+  assert.equal(latest, '2026-09-08', 'the last day behind today, not Sep 9 or later')
+})
+
+test('prior-lesson confirm: a resolved day at or after today is clamped to today', () => {
+  // The clamp the dashboard applies before building completed_at. A row whose
+  // stored scheduled_date sits ahead of today (a stale projected cache) must
+  // never stamp a completion in the future.
+  const today = '2026-09-10'
+  const clamp = (resolved: string) => (resolved >= today ? today : resolved)
+  assert.equal(clamp('2026-12-01'), today, 'a future date clamps to today')
+  assert.equal(clamp(today), today, 'today itself clamps to today')
+  assert.equal(clamp('2026-09-09'), '2026-09-09', 'a past date is left alone')
+  assert.equal(`${clamp('2026-12-01')}T12:00:00Z`, '2026-09-10T12:00:00Z')
+})
+
+test('confirmPriorLessonComplete resolves a projected school day, never a flat yesterday', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  assert.ok(
+    !/addDaysYmd\(today,\s*-1\)/.test(body),
+    'the flat yesterday fallback must be gone — it ignores school_days',
+  )
+  assert.ok(
+    /computeNextLessonsForGoal\(/.test(body),
+    'the past day comes from the projector, the same way planHistoricalBackfill derives one',
+  )
+  assert.ok(
+    /current_lesson:\s*0,\s*total_lessons:\s*g\.current_lesson/.test(body),
+    'the synthetic config rewinds the queue and caps total_lessons at the slot being confirmed',
+  )
+  assert.ok(
+    /mostRecentSchoolDayBefore\(today,\s*cfg\.school_days,\s*vacations\)/.test(body),
+    'the no-projection fallback is the school-day walk, honoring school_days and vacations',
+  )
+})
+
+test('confirmPriorLessonComplete clamps completed_at so it can never be in the future', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  assert.ok(
+    /stampDay\s*=\s*resolvedDay\s*>=\s*today\s*\?\s*today\s*:\s*resolvedDay/.test(body),
+    'a resolved day at or after today is clamped to today',
+  )
+  assert.ok(
+    /completedAtIso\s*=\s*`\$\{stampDay\}T12:00:00Z`/.test(body),
+    'completed_at is built from the clamped day, and both branches share it',
+  )
+  // One completed_at, used by the UPDATE and the INSERT alike — the clamp
+  // cannot apply to one branch and miss the other.
+  assert.equal(
+    (body.match(/completed_at:\s*completedAtIso/g) || []).length,
+    2,
+    'both branches stamp the same clamped completed_at',
+  )
+})
+
 test('confirmPriorLessonComplete stamps noon UTC of the row’s own day', () => {
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
   const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
   // Noon UTC, matching logPastDayLessons.ts. Local noon lands on the previous
   // calendar day east of UTC and buckets attendance a day early.
   assert.ok(
-    /completedAtIso\s*=\s*`\$\{completedDay\}T12:00:00Z`/.test(body),
+    /completedAtIso\s*=\s*`\$\{stampDay\}T12:00:00Z`/.test(body),
     'completed_at is noon UTC of the day being confirmed',
   )
-  // The day comes from the row itself; only a missing row falls back.
+  // The day comes from the row itself; only a missing row is resolved.
   assert.ok(
-    /completedDay\s*=\s*existingRow\?\.scheduled_date\s*\?\?\s*existingRow\?\.date\s*\?\?\s*priorDay/.test(body),
-    'the row’s own scheduled_date / date wins over any fallback',
+    /rowDay\s*=\s*existingRow\?\.scheduled_date\s*\?\?\s*existingRow\?\.date\s*\?\?\s*null/.test(body),
+    'the row’s own scheduled_date / date wins over any resolution',
   )
   assert.ok(
-    /priorDay\s*=\s*addDaysYmd\(today,\s*-1\)/.test(body),
-    'the no-row fallback is the day before today, never today',
+    /resolvedDay\s*=\s*rowDay\s*\?\?\s*\(await resolvePastSchoolDay\(\)\)/.test(body),
+    'a missing row resolves a real school day rather than defaulting',
   )
   // The lookup has to SELECT the columns the fallback chain reads.
   assert.ok(
