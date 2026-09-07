@@ -437,6 +437,16 @@ code.
   inside another trigger and no person is in that call stack. There is
   deliberately no setting to switch it off.
 
+**Remediation for the rows already written:**
+`scripts/repair-phantom-completions.ts`, dry run by default. It matches the
+fingerprint exactly (24 hours to the microsecond), reverts only rows that still
+hold a queue slot and show no sign of a person (no notes, no minutes, not
+`is_backfill`, on a live goal), re-dates them from the projector, and prints
+everything else for a human. It refuses to write unless the migration above is
+live, because until it is the next pointer advance re-sweeps whatever it
+reverts. Rows swept before `20260824000000` lost their `queue_position` and need
+`scripts/repair-queue-gaps.ts --apply --restores-only` first.
+
 **Scope, honestly:** the database guard enforces "no TRIGGER completes a
 lesson". It cannot enforce "no server-side path", because an API route holding
 the service-role key reaches the database at depth 1 like any other client.
