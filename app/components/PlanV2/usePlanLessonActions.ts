@@ -77,6 +77,10 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     if (pinDateToToday) {
       update.scheduled_date = todayStr;
       update.date = todayStr;
+      // Invariant 10: every write to lessons.date names its source. Same pin,
+      // same label as the Today page's toggleLesson — one action, one tag,
+      // whichever surface the family tapped it on.
+      update.scheduled_source = "completion_pin";
     }
     if (!completingNow) {
       // Un-completing hands the row back to the queue, so it must stop looking

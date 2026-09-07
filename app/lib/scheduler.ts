@@ -83,9 +83,31 @@ export function forwardScheduleStart(userPickedStart: Date, today: Date): Date {
  * that could change the completion state of a lesson (complete, uncomplete,
  * delete, insert, backfill).
  */
+export interface RecomputeCurrentLessonOptions {
+  /**
+   * A value the pointer may not be written BELOW, on top of the
+   * `start_at_lesson - 1` floor the formula already applies.
+   *
+   * For the caller that has just recorded a completion for a lesson the
+   * pointer already counts (Today's "Did you finish Lesson N?" prompt). That
+   * row can carry a NULL queue_position — the orphan-cleanup trigger stripped
+   * slots for over a year — and MAX(queue_position) over completed rows would
+   * then answer LOWER than where the family actually is, re-opening lessons
+   * they have worked past. Holding the pointer still is always safe; moving it
+   * backwards is not.
+   *
+   * It is a floor, never an advance: it cannot push the pointer past what the
+   * completed rows support, so it can never fire the cleanup trigger or mark a
+   * lesson done that nobody did. Omit it and the formula is byte-identical to
+   * what it has always been.
+   */
+  neverBelow?: number;
+}
+
 export async function recomputeCurrentLesson(
   supabase: SupabaseClient,
   goalId: string,
+  options: RecomputeCurrentLessonOptions = {},
 ): Promise<number | null> {
   const { data: goal, error: goalErr } = await supabase
     .from("curriculum_goals")
@@ -119,7 +141,10 @@ export async function recomputeCurrentLesson(
 
   const maxCompleted = (completedRows?.[0] as { queue_position: number | null } | undefined)?.queue_position ?? 0;
   const floor = Math.max(0, startAt - 1);
-  let value = Math.max(floor, maxCompleted);
+  // `neverBelow` joins the floor rather than overriding the formula: it can
+  // only stop the pointer sliding backwards, never push it forwards.
+  const holdAt = Math.max(0, options.neverBelow ?? 0);
+  let value = Math.max(floor, maxCompleted, holdAt);
   if (total > 0) value = Math.min(value, total);
 
   const { error: updateErr } = await supabase

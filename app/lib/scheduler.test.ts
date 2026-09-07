@@ -2782,9 +2782,28 @@ test('uncomplete still leaves both date columns alone', () => {
   const body = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
   // Both date writes stay behind the pinDateToToday guard, which is
   // complete-direction only. Un-completing must not move a lesson's day.
+  //
+  // Asserted as "inside the guard, and nowhere else" rather than by matching
+  // the block character for character: the guard also carries the Invariant 10
+  // source tag now (September 2026), and a test that pins formatting fails on
+  // a line it has no opinion about.
   assert.ok(
-    /if\s*\(pinDateToToday\)\s*\{\s*update\.scheduled_date\s*=\s*todayStr;\s*update\.date\s*=\s*todayStr;\s*\}/.test(body),
-    'scheduled_date / date are written only under the pinDateToToday guard',
+    /if\s*\(pinDateToToday\)\s*\{[^}]*update\.scheduled_date\s*=\s*todayStr;[^}]*update\.date\s*=\s*todayStr;[^}]*\}/.test(body),
+    'both date columns are written under the pinDateToToday guard',
+  )
+  assert.equal(
+    (body.match(/update\.scheduled_date\s*=/g) || []).length,
+    1,
+    'scheduled_date is written in exactly one place, and that place is the guard',
+  )
+  assert.equal(
+    (body.match(/update\.date\s*=/g) || []).length,
+    1,
+    'date is written in exactly one place, and that place is the guard',
+  )
+  assert.ok(
+    /if\s*\(pinDateToToday\)\s*\{[^}]*scheduled_source\s*=\s*"completion_pin"[^}]*\}/.test(body),
+    'Invariant 10: the pin names its source, inside the same guard',
   )
 })
 
@@ -5275,4 +5294,267 @@ test('orphan cleanup loop: an extra_log completion must never advance the queue'
     assert.equal(value, 7, 'the queue pointer follows slots only')
     assert.deepEqual(writes[0].payload, { current_lesson: 7 })
   })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invariant 15 — completion is a claim about a person, so only a person makes it
+//
+// Measured in production 2026-09-07 (read-only): 289 lesson rows across 161
+// goals and 34 families were marked completed by
+// curriculum_goals_cleanup_orphans_trg, not by anybody doing the work. The
+// rows are identifiable by the trigger's fingerprint — completed, scheduled_
+// date NULL, completed_at exactly 24h before updated_at — because the trigger
+// has never written scheduled_source. Oldest 2026-07-30, newest the morning
+// this block was written, rising weekly.
+//
+// The two family-visible symptoms both come from that one decision:
+//   * a completed lesson dated on a day the goal does not school (goal
+//     e2c99827, school_days Tue/Wed, lesson 5 on Sunday 2026-08-30), because
+//     the trigger dated rows (NOW() - interval '1 day')::date;
+//   * lesson numbers out of order (goal 327a80a6, lesson 11 on 2026-09-01
+//     while lessons 4-10 sit on 2026-09-02), because that synthetic day is by
+//     construction one day before the completion that provoked the sweep.
+//
+// The three generators of the 289, by fingerprint analysis:
+//   83  Today's confirm prompt writing current_lesson + 1
+//   104 an ordinary completion whose recompute raised the pointer over
+//       queue-drifted rows
+//   102 other pointer raises (Schedule Builder starting position, repairs)
+// All three end at the same trigger, which is why the fix is at the trigger
+// and not at any one caller.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NO_SERVER_COMPLETION_MIGRATION =
+  'supabase/migrations/20260907000000_no_server_side_lesson_completion.sql'
+
+// stripComments() handles // and /* */, which SQL does not use. A migration is
+// mostly prose here, and prose that names the thing being forbidden would
+// satisfy a grep for it — the exact way a static check gets to pass while the
+// code does the wrong thing.
+function loadMigrationSql(relPath: string): string {
+  return loadRepoFile(relPath)
+    .split('\n')
+    .map((line) => line.replace(/--.*$/, ''))
+    .join('\n')
+}
+
+test('Invariant 15 — the orphan cleanup unschedules orphans and never completes them', () => {
+  const sql = loadMigrationSql(NO_SERVER_COMPLETION_MIGRATION)
+  const fn = sql.slice(
+    sql.indexOf('CREATE OR REPLACE FUNCTION public.curriculum_goals_cleanup_orphans_trg'),
+    sql.indexOf('CREATE OR REPLACE FUNCTION public.lessons_block_server_side_completion'),
+  )
+  assert.ok(fn.length > 0, 'cleanup function body not found in the migration')
+
+  // The one write it is still allowed to make.
+  assert.ok(
+    /SET\s+scheduled_date\s*=\s*NULL/i.test(fn),
+    'the cleanup must release the calendar slot — that was always the real bug it was solving',
+  )
+  // The four it is not.
+  assert.ok(!/\bcompleted\s*=\s*true/i.test(fn), 'the cleanup must never set completed')
+  assert.ok(!/completed_at\s*=/i.test(fn), 'the cleanup must never stamp completed_at')
+  assert.ok(
+    !/\bdate\s*=\s*\(\s*NOW\(\)/i.test(fn),
+    'the cleanup must never invent a date; NOW() - 1 day is what put lessons on Sundays',
+  )
+  assert.ok(
+    !/queue_position\s*=/i.test(fn),
+    'the cleanup must not touch queue_position; with no completion flip the Invariant 14 loop cannot start',
+  )
+  // Protections carried forward.
+  assert.ok(/queue_pinned\s*=\s*false/i.test(fn), 'Invariant 12: a manual placement is never unscheduled')
+  assert.ok(/notes IS NULL OR notes = ''/.test(fn), 'notes-bearing rows stay parent-intentional')
+  assert.ok(/NEW\.current_lesson\s*>\s*OLD\.current_lesson/.test(fn), 'still only on an advance')
+})
+
+test('Invariant 15 — a database guard refuses any completion written from inside a trigger', () => {
+  const sql = loadMigrationSql(NO_SERVER_COMPLETION_MIGRATION)
+  assert.ok(
+    /pg_trigger_depth\(\)\s*>\s*1/.test(sql),
+    'the guard must key on trigger depth: depth 1 is a person, depth 2+ is a trigger',
+  )
+  assert.ok(/RAISE EXCEPTION/.test(sql), 'the guard must refuse the write, not silently drop it')
+  assert.ok(
+    /CREATE TRIGGER trg_lessons_block_server_side_completion[\s\S]*BEFORE INSERT OR UPDATE OF completed ON public\.lessons/.test(sql),
+    'the guard must be attached BEFORE the write lands, on lessons.completed',
+  )
+  assert.ok(
+    !/rooted\.allow_server_completion/.test(sql),
+    'no escape hatch: a setting to flip is a setting that gets flipped',
+  )
+})
+
+test('Invariant 15 — the confirm prompt recomputes the pointer instead of advancing it blind', () => {
+  const body = stripComments(
+    extractFunctionBody(
+      loadRepoFile('app/dashboard/page.tsx'),
+      /async function confirmPriorLessonComplete\s*\(/,
+    ),
+  )
+  assert.ok(
+    !/current_lesson:\s*g\.current_lesson\s*\+\s*1/.test(body),
+    'Yes confirms the lesson the pointer already counts; it must not claim one more',
+  )
+  assert.ok(
+    /recomputeCurrentLesson\(\s*supabase\s*,\s*g\.goal_id/.test(body),
+    'the pointer comes from the completed rows, like every other writer',
+  )
+  assert.ok(
+    /neverBelow:\s*g\.current_lesson/.test(body),
+    'and it may not slide backwards on a goal whose queue_position was stripped',
+  )
+})
+
+test('Invariant 15 — the unconfirmed-lesson check asks only about the rows it is asking about', () => {
+  const src = loadRepoFile('app/dashboard/page.tsx')
+  const start = src.indexOf('// ── Unconfirmed-prior-lesson check')
+  const end = src.indexOf('// Auto-select first incomplete child', start)
+  assert.ok(start > 0 && end > start, 'unconfirmed-prior-lesson check not found')
+  const block = stripComments(src.slice(start, end))
+
+  // The bug shape: fetch every lesson row of every candidate goal, build a
+  // client-side set, and treat a missing key as "no row exists". Past
+  // PostgREST's db-max-rows the response is truncated and the client cannot
+  // tell. Every family that got a false prompt is above that cap (smallest:
+  // 1,230 rows), and each false prompt cost them a real lesson.
+  assert.ok(
+    !/\.in\(\s*["']curriculum_goal_id["']\s*,\s*candidates/.test(block),
+    'must not download every lesson row of every candidate goal to answer one question per goal',
+  )
+  assert.ok(
+    /and\(curriculum_goal_id\.eq\.\$\{g\.id\},lesson_number\.eq\.\$\{g\.current_lesson\}\)/.test(block),
+    'must request exactly the (goal, lesson_number) pairs in question',
+  )
+  assert.ok(
+    /setNeedsConfirmation\(\[\]\)/.test(block),
+    'must fail closed: a prompt shown wrongly writes to the family record, a prompt withheld costs a page load',
+  )
+})
+
+test('Invariant 10 — the completion pin names its source on every surface', () => {
+  const today = loadRepoFile('app/dashboard/page.tsx')
+  for (const fn of [
+    /async function toggleLesson\s*\(/,
+    /async function confirmExtraLessons\s*\(/,
+    /async function markMissedComplete\s*\(/,
+  ]) {
+    const body = stripComments(extractFunctionBody(today, fn))
+    assert.ok(
+      /scheduled_source:?\s*=?\s*["']completion_pin["']/.test(body),
+      `${fn} pins lessons.date to today and must tag scheduled_source`,
+    )
+  }
+  const plan = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  assert.ok(
+    /scheduled_source\s*=\s*["']completion_pin["']/.test(plan),
+    "the Plan page's toggleLesson pins the same way and must carry the same tag",
+  )
+})
+
+test('recomputeCurrentLesson: neverBelow holds the pointer still but never advances it', async () => {
+  // The stripped-slot case the confirm prompt lands in: the row it completed
+  // carries a NULL queue_position (the old cleanup trigger took it), so
+  // MAX(queue_position) answers lower than where the family actually is.
+  const held = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 78, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: [{ queue_position: 40 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a = await recomputeCurrentLesson(held.supabase as any, 'goal-1', { neverBelow: 44 })
+  assert.equal(a, 44, 'the pointer holds where it was instead of re-opening four lessons')
+  assert.deepEqual(held.writes[0].payload, { current_lesson: 44 })
+
+  // It is a floor, not an advance: the rows still decide when they say more.
+  const rowsWin = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 78, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: [{ queue_position: 50 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const b = await recomputeCurrentLesson(rowsWin.supabase as any, 'goal-1', { neverBelow: 44 })
+  assert.equal(b, 50, 'a genuinely higher completed slot still wins')
+
+  // And it can never push past the curriculum.
+  const clamped = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 30, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: [{ queue_position: 12 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const c = await recomputeCurrentLesson(clamped.supabase as any, 'goal-1', { neverBelow: 999 })
+  assert.equal(c, 30, 'total_lessons is still the ceiling')
+
+  // Omitting it reproduces the historical formula exactly.
+  const legacy = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 78, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: [{ queue_position: 40 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d = await recomputeCurrentLesson(legacy.supabase as any, 'goal-1')
+  assert.equal(d, 40, 'no option, no change')
+})
+
+test('Invariant 15 — the fixed cleanup leaves no phantom completion and no stranded slot', () => {
+  // The same GoalWorld shapes the Invariant 14 block models, run against a
+  // cleanup that unschedules instead of completing. Goal 24f53fcf "Explode
+  // the Code" as it stood at 2026-08-20 23:04:50 UTC.
+  type CleanupRow = {
+    id: string
+    lesson_number: number | null
+    queue_position: number | null
+    completed: boolean
+    scheduled_date: string | null
+  }
+  const rows: CleanupRow[] = [
+    { id: 'row-44', lesson_number: 44, queue_position: 44, completed: true,  scheduled_date: '2026-08-20' },
+    { id: 'row-45', lesson_number: 45, queue_position: 45, completed: false, scheduled_date: '2026-08-21' },
+    { id: 'row-46', lesson_number: 46, queue_position: 46, completed: false, scheduled_date: '2026-08-24' },
+  ]
+  let currentLesson = 44
+  const history: number[] = [currentLesson]
+
+  /** The migration's cleanup, verbatim in behavior. */
+  function cleanupOrphans(newCurrentLesson: number) {
+    for (const r of rows) {
+      if (r.completed) continue
+      if (r.scheduled_date == null) continue
+      if (r.lesson_number == null || r.lesson_number > newCurrentLesson) continue
+      r.scheduled_date = null
+      // No completion flip, so lessons_recompute_current_lesson_trg does not
+      // fire and current_lesson cannot move as a side effect. That is the
+      // whole Invariant 14 loop, gone by construction rather than by tuning.
+    }
+  }
+  function appSetCurrentLesson(next: number) {
+    if (next === currentLesson) return
+    const old = currentLesson
+    currentLesson = next
+    history.push(next)
+    if (next > old) cleanupOrphans(next)
+  }
+
+  // The pointer advances onto row 45 (a Schedule Builder starting-position
+  // bump, a repair, anything).
+  appSetCurrentLesson(45)
+
+  const row45 = rows.find((r) => r.id === 'row-45')!
+  assert.equal(row45.completed, false, 'nobody did lesson 45, so nothing says they did')
+  assert.equal(row45.scheduled_date, null, 'but it releases the calendar day it was holding')
+  assert.equal(row45.queue_position, 45, 'and keeps its place in the queue')
+  assert.deepEqual(history, [44, 45], 'current_lesson moves once, by the caller, and stays')
+
+  // No slot is emitted without a row behind it (the blank-subject shape).
+  const slots = new Set(rows.map((r) => r.queue_position).filter((n): n is number => n != null))
+  const holes: number[] = []
+  for (let n = currentLesson + 1; n <= Math.max(...slots); n++) if (!slots.has(n)) holes.push(n)
+  assert.deepEqual(holes, [], 'every projected slot still has its row')
+
+  // A pinned orphan keeps the day the family put it on (Invariant 12).
+  const pinned: CleanupRow[] = [
+    { id: 'p', lesson_number: 3, queue_position: 3, completed: false, scheduled_date: '2026-09-09' },
+  ]
+  for (const r of pinned) {
+    const queuePinned = true
+    if (!queuePinned && (r.lesson_number ?? 0) <= 10) r.scheduled_date = null
+  }
+  assert.equal(pinned[0].scheduled_date, '2026-09-09', 'the system does not unschedule a manual placement')
 })

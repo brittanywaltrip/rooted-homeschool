@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: August 24, 2026 — adds Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 7, 2026 — adds Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -124,6 +124,13 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'queue_resync'` — Plan / Today data loader aligned the cached scheduled_date with the queue projector's output (no user-visible change, just keeps the cache honest after current_lesson advances or a `plan_move` shifts siblings without re-dating them)
 - `'recalibrate_estimate'` — synthesized completion date written by the "I'm actually on lesson X" recalibration gap-fill. Lessons stamped with this source have completed_at + scheduled_date evenly distributed across the window between the goal's last real completion (or start_date / created_at) and yesterday. The Plan calendar lesson card surfaces an "Estimated date · tap to move." hint for these rows; moving the lesson via `move_lesson_to_date` overwrites the source with `'plan_move'`.
 - `'manual_uncomplete'` — the user unchecked a completed lesson (`toggleLesson` in `app/components/PlanV2/usePlanLessonActions.ts`). This write does NOT move either date column; it exists to mark that the row went back into the queue, and it clears `is_backfill` alongside. Without that clear, a lesson logged on a past day (`catchup_resched` + `is_backfill`) and then unchecked kept its past date permanently: `syncProjectedScheduledDates` skips `is_backfill` rows, so the reconciler could never roll it forward and every load counted it as missed.
+- `'completion_pin'` — a lesson was marked done, so its calendar date was pinned
+  to the day the family tapped it (Today's `toggleLesson` / `confirmExtraLessons` /
+  `markMissedComplete`, and the Plan page's `toggleLesson`). This is the same-row pin
+  Invariant 7 allows, and it deliberately ignores `school_days`: it records when the
+  work happened, which can be any day of the week. Added September 2026 — these four
+  writes had no label at all, so a completion pin was indistinguishable in the data
+  from whatever wrote the row before it.
 - `'cleanup_sql'` — manual cleanup via SQL
 
 **Why:** the May 3 investigation took 90 minutes because every affected lesson row had `scheduled_source = NULL`. Future bugs will be identified in 5 minutes if this is populated.
@@ -264,6 +271,13 @@ reconciler revert and the phase-2 wipe.
 
 ### Invariant 13 — A trigger-completed row holds no future calendar slot
 
+> **Superseded September 7, 2026 by Invariant 15.** There are no
+> trigger-completed rows any more: the cleanup unschedules instead of
+> completing, so the rule it needed (`scheduled_date = NULL`) survives as the
+> cleanup's only write, and the synthetic `date` it also wrote is gone. Kept
+> here for the history and for the companion Schedule Builder guard, which
+> still applies.
+
 When `curriculum_goals_cleanup_orphans_trg` auto-completes orphan rows, it must
 also clear their date caches: `scheduled_date = NULL` and
 `date = (NOW() - interval '1 day')::date`, the same synthetic day as the
@@ -296,6 +310,13 @@ start_date with position N emits nothing at or below N, and simulated
 orphan-completed rows carry no future `scheduled_date` / `date`.
 
 ### Invariant 14 — The orphan cleanup never moves `current_lesson`
+
+> **Retired September 7, 2026 by Invariant 15**, by construction rather than
+> by tuning. The cleanup no longer flips `completed`, so
+> `lessons_recompute_current_lesson_trg` is never fired by it and the loop
+> below cannot start. The `queue_position` CASE this invariant introduced is
+> removed as dead code. Kept here because the failure mode is worth
+> recognising if any future trigger writes to `lessons`.
 
 `trg_curriculum_goals_cleanup_orphans` fires as a SIDE EFFECT of a
 `current_lesson` advance. When it returns, `current_lesson` must be exactly the
@@ -350,6 +371,97 @@ live trigger reverts the pointer and strands the slot; preserving it holds the
 pointer and leaves no hole; the ratchet accumulates one hole per advance; a
 drifted slot above the pointer is still cleared; an `extra_log` row never
 advances the queue.
+
+
+### Invariant 15 — Only a person may complete a lesson
+
+`lessons.completed = true` is a claim about what a family did. No trigger, no
+projector, no repair job and no cleanup may make that claim. Completion results
+from an explicit user action or it does not happen.
+
+**Why:** on 2026-09-07 a read-only audit found **289 lesson rows across 161
+goals and 34 families** marked complete by `curriculum_goals_cleanup_orphans_trg`
+rather than by anyone doing the work. Oldest 2026-07-30, newest that same
+morning, rising weekly. They are identifiable by the trigger's fingerprint —
+`completed = true`, `scheduled_date IS NULL`, and `completed_at` exactly 24
+hours before `updated_at` to the microsecond — because the trigger has never
+written `scheduled_source`.
+
+Two family-visible symptoms, both downstream of that one decision:
+
+- **A completed lesson on a day the goal does not school.** The trigger dated
+  swept rows `(NOW() - interval '1 day')::date`, which is whatever calendar day
+  precedes the write and has nothing to do with `school_days`. Goal `e2c99827`
+  ("Spanish 1:1", `school_days` Tue/Wed) holds lesson 5 on **Sunday**
+  2026-08-30.
+- **Lesson numbers out of chronological order.** That synthetic day is by
+  construction one day BEFORE the completion that provoked the sweep, so an
+  auto-completed row always sorts ahead of the lower-numbered lessons the
+  family finished minutes earlier. Goal `327a80a6` ("Kitchen Math") holds
+  lesson 11 on 2026-09-01 while lessons 4 through 10 sit on 2026-09-02.
+
+Three different callers raised `current_lesson` and all three ended at the same
+trigger, which is why the fix is at the trigger and not at any one caller: 83
+from Today's confirm prompt writing `current_lesson + 1`, 104 from an ordinary
+completion whose recompute stepped over queue-drifted rows, 102 from other
+pointer raises (Schedule Builder starting position, repairs).
+
+**What the cleanup was originally for, and what it does now.** Orphans are
+incomplete rows the pointer has moved past. The harm they do is a CALENDAR
+harm: they keep a real future `scheduled_date`, so they ghost onto Plan and
+double-book days the live queue has already given to lessons ahead of them
+(drift B). Marking them complete conflated releasing the day with asserting the
+work happened. The cleanup now writes `scheduled_date = NULL` and nothing else.
+Every calendar surface selects on `scheduled_date`, so a NULL slot drops out of
+all of them — the same guarantee `20260730100000` reached for, without the lie.
+
+**Invariant 14 is retired by construction, not tuned.**
+`lessons_recompute_current_lesson_trg` fires on an UPDATE only when
+`curriculum_goal_id` changes, `completed` flips, or `queue_position` changes on
+a completed row. The cleanup now writes `scheduled_date` alone, so the recompute
+never runs, `current_lesson` cannot move as a side effect, and no slot can be
+stranded. The `queue_position` CASE from `20260824000000` is removed as dead
+code.
+
+**Enforced by:** migration
+`20260907000000_no_server_side_lesson_completion.sql`.
+
+- The cleanup unschedules and never completes. It also now skips
+  `queue_pinned` rows (Invariant 12 — the system does not silently unschedule a
+  placement the family made by hand) and rows that already have no
+  `scheduled_date`.
+- `trg_lessons_block_server_side_completion` refuses any `false -> true`
+  transition on `lessons.completed` written at `pg_trigger_depth() > 1`, with
+  the goal and lesson in the message. Depth 1 is a statement issued by a
+  client, i.e. a person tapped something; depth 2+ means the write came from
+  inside another trigger and no person is in that call stack. There is
+  deliberately no setting to switch it off.
+
+**Scope, honestly:** the database guard enforces "no TRIGGER completes a
+lesson". It cannot enforce "no server-side path", because an API route holding
+the service-role key reaches the database at depth 1 like any other client.
+That half lives in application code and in the source-level Invariant 15 tests.
+
+**Also fixed in the same batch, because they fed the trigger:**
+
+- Today's "Did you finish Lesson N?" handler wrote `current_lesson + 1`.
+  `current_lesson` IS the count of completed lessons, so a Yes confirms what
+  the pointer already claims and must not add to it. It now calls
+  `recomputeCurrentLesson`, with `neverBelow` so a goal whose `queue_position`
+  was stripped by the old trigger cannot have its pointer dragged backwards.
+- The check that decides whether to show that prompt fetched EVERY lesson row
+  of every candidate goal to answer one membership question per goal. Unbounded,
+  so PostgREST capped it at `db-max-rows` and the client could not tell a
+  truncated answer from a complete one — a missing key read as "no row exists".
+  Every family that got a false prompt is above that cap (14 accounts, smallest
+  1,230 rows). It now requests exactly the `(goal, lesson_number)` pairs in
+  question, in chunks of 25, and fails closed.
+
+**Test case:** the Invariant 15 block in `scheduler.test.ts` — the cleanup
+unschedules and never completes; the depth guard exists with no escape hatch;
+the confirm prompt recomputes instead of advancing; the presence check asks only
+about the pairs in question; `neverBelow` holds but never advances; and the
+fixed cleanup leaves no phantom completion and no stranded slot.
 
 
 ---
@@ -430,6 +542,7 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 17 | queue_resync full-tail (whitley) | With lpd=1, school_days=[Mon,Wed,Fri], and 5 incomplete lessons whose stale cache overlaps today's projector output, a full-tail projection yields 5 distinct dates. Companion test pins the 7-day collision bug. |
 | 18 | Pins (Invariant 12) | Pin honored and unpinned slots filled around it in date order; pinned date consumes capacity; fully pinned tail emitted verbatim; reconciler skips pinned rows; cascade + reconcile round-trip writes nothing; empty pins projects identically to no pins. |
 | 19 | Starting position (Invariant 13) | Future start_date with starting position N projects nothing at or below N; the create batch contains no incomplete row at or below the floor; orphan-completed rows carry no future scheduled_date / date. |
+| 21 | Only a person completes (Invariant 15) | The orphan cleanup writes `scheduled_date = NULL` and never `completed` / `completed_at` / `date` / `queue_position`; the trigger-depth guard is attached with no escape hatch; the confirm prompt recomputes instead of writing `current_lesson + 1`; the presence check requests only the pairs it asks about and fails closed; `neverBelow` holds the pointer but never advances it; the completion pin tags `scheduled_source`. |
 | 20 | Orphan cleanup loop (Invariant 14) | The cleanup never lowers current_lesson: swept rows at or below the new pointer keep their queue_position, so the recompute it provokes writes the pointer back unchanged and no slot is emitted without a row. A drifted slot above the pointer is still cleared; extra_log never advances the queue. |
 
 ---

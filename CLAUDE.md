@@ -114,6 +114,13 @@ The scheduler tests in `app/lib/scheduler.test.ts` enforce those invariants.
 The CI workflow `.github/workflows/scheduler-tests.yml` blocks any merge
 that breaks them.
 
+A lesson is completed by a person or not at all. No trigger, cron, repair
+script or projector may write `lessons.completed = true` — see Invariant 15.
+A database trigger auto-completed 289 lessons across 34 families between July
+30 and September 7, 2026, dating them on days those curriculums do not school
+and out of lesson order. If you are writing SQL that touches `lessons`, that
+rule is the one to read first.
+
 Two production regressions happened in 2026 (April 28 and May 3) because
 this rule wasn't followed. If your change touches scheduling, expect to:
 1. Read `docs/CURRICULUM-SCHEDULING.md`.
