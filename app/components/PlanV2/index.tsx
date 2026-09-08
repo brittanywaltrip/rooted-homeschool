@@ -20,6 +20,7 @@ import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import PageHero from "@/app/components/PageHero";
 import CompletionDateChooser, { labelDate as completionLabelDate } from "@/app/components/CompletionDateChooser";
+import { healEmptyGoal, type HealableGoalRow } from "@/app/lib/healEmptyGoal";
 import MonthGrid from "./MonthGrid";
 // WeekStrip is preserved on disk (./WeekStrip) but no longer rendered;
 // week mode now uses WeekListView. Restore the import here if reverting.
@@ -597,14 +598,49 @@ export default function PlanV2() {
       // legacy null rows to worry about.
       const { data } = await supabase
         .from("curriculum_goals")
-        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, lessons_per_day, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji, scheduled_start_time")
+        .select("id, curriculum_name, subject_label, child_id, total_lessons, current_lesson, lessons_per_day, lessons_per_day_overrides, target_date, school_days, default_minutes, completed_at, created_at, start_date, icon_emoji, scheduled_start_time")
         .eq("user_id", effectiveUserId)
         .eq("archived", false)
         .order("created_at");
       if (cancelled) return;
-      setCurriculumGoals(((data ?? []) as unknown as GoalFull[]));
+      const goals = (data ?? []) as unknown as GoalFull[];
+      setCurriculumGoals(goals);
+
+      // ── A curriculum with settings and no lessons fills itself in ───────
+      // Same helper Today uses; the state is not specific to either page and
+      // whichever the family opens first should fix it. healEmptyGoal asks
+      // the authoritative question per goal (an exact head count) and writes
+      // nothing unless the goal really holds zero rows, so offering it every
+      // active goal here is safe — it is also the only way Plan can know,
+      // since its own lesson query is windowed by date and an empty window
+      // says nothing about whether a goal has rows at all.
+      const healable = goals.filter(
+        (g) => (g.total_lessons ?? 0) > 0 && !g.completed_at,
+      );
+      if (healable.length > 0) {
+        let healed = 0;
+        for (const g of healable) {
+          if (cancelled) return;
+          healed += await healEmptyGoal(supabase, {
+            goal: g as unknown as HealableGoalRow,
+            vacationBlocks: vacationBlocks.map((v) => ({
+              start_date: v.start_date,
+              end_date: v.end_date,
+            })),
+            today: new Date(),
+            userId: effectiveUserId,
+          });
+        }
+        // Only when something was written, so a goal with nothing to plan
+        // cannot loop.
+        if (healed > 0 && !cancelled) reload();
+      }
     })();
     return () => { cancelled = true; };
+    // vacationBlocks is read inside but deliberately not a dependency: it
+    // would re-run the goal load every time the calendar window moves, and
+    // the heal only needs a reasonable set to avoid scheduling onto a break.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [effectiveUserId, goalsReloadNonce]);
 
   // Recovery signal: does the user have ANY curriculum goal (archived or not)?
