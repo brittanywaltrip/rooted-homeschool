@@ -107,3 +107,85 @@ export function buildRecoveryRows(args: {
   }
   return rows;
 }
+
+/* ── Unchecking is an answer ─────────────────────────────────────────────────
+ *
+ * A row the family unchecks means "we did not do this one". Leaving it exactly
+ * as it was made that answer worthless: the gap is recomputed on the next Today
+ * load from (last completion + 1 day) forward, so the same lessons come back
+ * with the same past dates, session after session. A family who skipped a week
+ * got asked every day until they found "No, reschedule them".
+ *
+ * Note what does NOT fix this. The lesson ROWS are already re-projected forward
+ * by reconcileGoalScheduleCache on every load, so the work really has moved
+ * ahead in the plan. But computeGapLessonsForGoal never reads a lesson row — it
+ * projects from the goal's config between two dates — so no amount of re-dating
+ * rows changes what the prompt asks about. The gap is a function of
+ * (last completion, current_lesson, school_days, today) and nothing else.
+ *
+ * What fixes it is recording that the question was ANSWERED for that goal, and
+ * clamping the next gap window to start after that answer. The lessons stay
+ * upcoming work; they simply stop being offered as overdue.
+ * ────────────────────────────────────────────────────────────────────────── */
+
+/** localStorage key holding the day a goal's catch-up prompt was answered. */
+export const CATCHUP_ANSWERED_PREFIX = 'rooted_catchup_answered_';
+
+export function catchupAnsweredKey(goalId: string): string {
+  return `${CATCHUP_ANSWERED_PREFIX}${goalId}`;
+}
+
+/**
+ * Where the next gap window may start, given the day this goal was last
+ * answered for.
+ *
+ * The day AFTER the answer, mirroring how the last-completion anchor works: a
+ * completion on the 4th means the gap starts on the 5th, and an answer on the
+ * 4th means the same. Without the +1 the prompt re-asks about the very day it
+ * was answered on.
+ *
+ * Returns whichever is later, so an answer can only ever narrow the window.
+ */
+export function gapStartAfterAnswer(anchor: Date, answeredYmd: string | null): Date {
+  if (!answeredYmd) return anchor;
+  const [y, m, d] = answeredYmd.split('-').map(Number);
+  if (!y || !m || !d) return anchor;
+  const after = new Date(y, m - 1, d);
+  after.setHours(0, 0, 0, 0);
+  after.setDate(after.getDate() + 1);
+  return after > anchor ? after : anchor;
+}
+
+/**
+ * The goals the family left something unchecked on — the ones whose remaining
+ * lessons are being moved ahead rather than recorded.
+ *
+ * `written` is what buildRecoveryRows produced, so this is exactly "offered
+ * minus written", per goal.
+ */
+export function goalsWithUncheckedRows(args: {
+  entriesByGoal: Map<string, MissedEntry[]>;
+  goalIds: string[];
+  written: Array<{ goal_id: string; lesson_number: number }>;
+}): string[] {
+  const writtenKeys = new Set(args.written.map((r) => entryKey(r)));
+  const out: string[] = [];
+  for (const goalId of args.goalIds) {
+    const entries = args.entriesByGoal.get(goalId) ?? [];
+    if (entries.some((e) => !writtenKeys.has(entryKey(e)))) out.push(goalId);
+  }
+  return out;
+}
+
+/**
+ * The primary button's words.
+ *
+ * It names both halves of what is about to happen, because both are real
+ * changes to the family's plan. "Mark 4 done, move 5 ahead" is the whole
+ * sentence; "Mark 4 done" would hide the other five.
+ */
+export function confirmButtonLabel(checkedCount: number, uncheckedCount: number): string {
+  if (checkedCount === 0) return 'Nothing selected';
+  if (uncheckedCount === 0) return `Mark ${checkedCount} done on these days`;
+  return `Mark ${checkedCount} done, move ${uncheckedCount} ahead`;
+}

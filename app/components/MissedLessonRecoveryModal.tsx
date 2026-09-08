@@ -20,6 +20,7 @@ import CompletionDateChooser, { labelDate } from "@/app/components/CompletionDat
 import {
   COLLAPSE_OVER,
   buildRecoveryRows,
+  confirmButtonLabel,
   entryKey as rowKey,
   initialCheckedKeys,
   isOverCap,
@@ -183,7 +184,7 @@ export default function MissedLessonRecoveryModal({
           </h3>
           <p className="text-[12px] text-[#7a6f65] leading-snug mb-3">
             These are the days Rooted thinks each lesson was due. Uncheck anything you
-            did not do, or tap a date to change it.
+            did not do and it will move ahead in your plan. Tap a date to change it.
           </p>
 
           <div className="space-y-2 mb-4">
@@ -291,9 +292,7 @@ export default function MissedLessonRecoveryModal({
             >
               {submitting === "yes"
                 ? "Marking done..."
-                : checkedCount === 0
-                  ? "Nothing selected"
-                  : `Mark ${checkedCount} done on these days`}
+                : confirmButtonLabel(checkedCount, allEntries.length - checkedCount)}
             </button>
             <button
               type="button"
