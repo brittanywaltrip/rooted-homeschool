@@ -3,6 +3,12 @@
 import { useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { recomputeCurrentLesson, toDateStr } from "@/app/lib/scheduler";
+import {
+  completeLessonOnDate,
+  needsDateChoice,
+  type CompletionChoice,
+  type LessonCompletedEvent,
+} from "@/app/lib/completeLessonOnDate";
 import { onLogAction } from "@/app/lib/onLogAction";
 
 /* ============================================================================
@@ -38,68 +44,75 @@ export type UsePlanLessonActionsOpts<T extends MinimalLesson> = {
   effectiveUserId: string | undefined;
   /** Called after skipLesson succeeds so the page can show its undo UI. */
   onSkipUndo?: (lessonId: string, originalDate: string) => void;
+  /**
+   * Invariant 16. A completion whose day is not today has to be shown to the
+   * family before it is written, and the chooser is UI the host owns. When
+   * this is supplied, `toggleLesson` asks instead of writing and the host
+   * calls `completeWithChoice` with the answer. Without it the hook keeps the
+   * old behaviour, which is what the legacy plan page still relies on.
+   */
+  onNeedsDateChoice?: (lesson: T, plannedDate: string, todayStr: string) => void;
+  /** Fires once per completion, after the write lands. */
+  onLessonCompleted?: (event: LessonCompletedEvent, lesson: T) => void;
 };
 
 export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLessonActionsOpts<T>) {
   const {
     lessons, monthLessons,
     setLessons, setMonthLessons, setAllLessons,
-    effectiveUserId, onSkipUndo,
+    effectiveUserId, onSkipUndo, onNeedsDateChoice, onLessonCompleted,
   } = opts;
 
-  const toggleLesson = useCallback(async (id: string, current: boolean) => {
-    const lesson = lessons.find(l => l.id === id) ?? monthLessons.find(l => l.id === id);
-    const completingNow = !current;
-    // Pin scheduled_date / date to today only when the lesson's current
-    // date is today or future. A future-dated row pinned to today keeps it
-    // from ghosting back onto its scheduled slot after the write lands.
-    // A past-dated row keeps its original date so completed past lessons
-    // stay visible on the calendar on the date they were scheduled —
-    // pinning a past row to today would erase that history. Only applied
-    // on the complete direction; toggling back to incomplete leaves dates
-    // untouched (the user might be undoing a misclick on a real future
-    // lesson). lesson_number is left alone (Invariant 7).
+  const findLesson = useCallback(
+    (id: string): T | undefined =>
+      lessons.find(l => l.id === id) ?? monthLessons.find(l => l.id === id),
+    [lessons, monthLessons],
+  );
+
+  /**
+   * Write one completion on one day. Every completing path in this hook ends
+   * here, and this is the only place it calls completeLessonOnDate.
+   */
+  const completeWithChoice = useCallback(async (
+    id: string,
+    dateStr: string,
+    choice: CompletionChoice,
+  ) => {
+    const lesson = findLesson(id);
     const todayStr = toDateStr(new Date());
-    const currentDate = lesson?.scheduled_date ?? lesson?.date ?? null;
-    const pinDateToToday = completingNow && !!lesson && !!currentDate && currentDate >= todayStr;
+    // Optimistic: the row moves to the day it is being filed under, so the
+    // calendar agrees with the toast before the write lands.
     const patch = (l: T): T =>
-      l.id !== id
-        ? l
-        : pinDateToToday
-          ? { ...l, completed: completingNow, scheduled_date: todayStr, date: todayStr }
-          : { ...l, completed: completingNow };
+      l.id !== id ? l : { ...l, completed: true, scheduled_date: dateStr, date: dateStr };
     setLessons(prev => prev.map(patch));
     setMonthLessons(prev => prev.map(patch));
-    const update: Record<string, unknown> = {
-      completed: completingNow,
-      completed_at: completingNow ? new Date().toISOString() : null,
-    };
-    if (pinDateToToday) {
-      update.scheduled_date = todayStr;
-      update.date = todayStr;
-      // Invariant 10: every write to lessons.date names its source. Same pin,
-      // same label as the Today page's toggleLesson — one action, one tag,
-      // whichever surface the family tapped it on.
-      update.scheduled_source = "completion_pin";
+
+    const { error } = await completeLessonOnDate(supabase, {
+      lessonId: id,
+      dateStr,
+      choice,
+      todayStr,
+      surface: "plan",
+      lessonNumber: (lesson as { lesson_number?: number | null } | undefined)?.lesson_number ?? null,
+      subjectLabel:
+        (lesson as { curriculum_goals?: { subject_label?: string | null } | null } | undefined)
+          ?.curriculum_goals?.subject_label ?? null,
+      track: (event) => {
+        if (lesson) onLessonCompleted?.(event, lesson);
+      },
+    });
+    if (error) {
+      // Roll the optimistic patch back so the row does not read as done.
+      const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: false });
+      setLessons(prev => prev.map(revert));
+      setMonthLessons(prev => prev.map(revert));
+      throw new Error(error.message);
     }
-    if (!completingNow) {
-      // Un-completing hands the row back to the queue, so it must stop looking
-      // like history. `is_backfill` is what a past-day log sets (see
-      // logPastDayLessons + buildPastDateCompletionPayload), and
-      // syncProjectedScheduledDates skips is_backfill rows — so a row logged on
-      // a day that already passed and then unchecked kept that past date
-      // forever: the reconciler would never roll it forward, and every load
-      // read it as missed. Clearing the flag lets the next reconcile re-date it
-      // like any other incomplete lesson. The date columns are still left
-      // untouched here; moving them is the reconciler's job, not this write's.
-      update.is_backfill = false;
-      update.scheduled_source = "manual_uncomplete";
-    }
-    await supabase.from("lessons").update(update).eq("id", id);
+
     if (lesson?.curriculum_goal_id) {
       await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
     }
-    if (!current && effectiveUserId) {
+    if (effectiveUserId) {
       try {
         onLogAction({
           userId: effectiveUserId,
@@ -110,7 +123,61 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
         /* analytics must never block a user action */
       }
     }
-  }, [lessons, monthLessons, setLessons, setMonthLessons, effectiveUserId]);
+  }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted]);
+
+  const toggleLesson = useCallback(async (id: string, current: boolean) => {
+    const lesson = findLesson(id);
+    const completingNow = !current;
+    const todayStr = toDateStr(new Date());
+
+    if (completingNow) {
+      // Invariant 16. The day this would be filed under is the row's own day.
+      // When that is not today the family has not seen us choose it, so ask
+      // (the host owns the chooser and calls completeWithChoice with the
+      // answer). When it IS today, or there is no date at all, write today and
+      // say so in the toast: no new step on the common case.
+      //
+      // This supersedes the old split where a past-dated row silently kept its
+      // planned day while a today-or-future one was silently pinned to today.
+      // Same tap, two different dates, depending on a comparison the family
+      // could not see. See Invariant 16 in docs/CURRICULUM-SCHEDULING.md.
+      const plannedDate = lesson?.scheduled_date ?? lesson?.date ?? null;
+      if (lesson && onNeedsDateChoice && needsDateChoice(plannedDate, todayStr)) {
+        onNeedsDateChoice(lesson, plannedDate as string, todayStr);
+        return;
+      }
+      await completeWithChoice(id, todayStr, "today");
+      return;
+    }
+
+    // ── Uncomplete. Unchanged (Invariant 7 territory). ──────────────────────
+    const patch = (l: T): T => (l.id !== id ? l : { ...l, completed: false });
+    setLessons(prev => prev.map(patch));
+    setMonthLessons(prev => prev.map(patch));
+    // Un-completing hands the row back to the queue, so it must stop looking
+    // like history. `is_backfill` is what a chosen-day completion sets (see
+    // buildCompletionPayload), and syncProjectedScheduledDates skips
+    // is_backfill rows — so a row logged on a day that already passed and then
+    // unchecked kept that past date forever: the reconciler would never roll it
+    // forward, and every load read it as missed. `queue_pinned` comes off for
+    // the same reason: a pin outlives the completion that justified it and
+    // would freeze the row where the projector can no longer move it. The date
+    // columns are still left untouched here; moving them is the reconciler's
+    // job, not this write's.
+    await supabase
+      .from("lessons")
+      .update({
+        completed: false,
+        completed_at: null,
+        is_backfill: false,
+        queue_pinned: false,
+        scheduled_source: "manual_uncomplete",
+      })
+      .eq("id", id);
+    if (lesson?.curriculum_goal_id) {
+      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+    }
+  }, [findLesson, setLessons, setMonthLessons, onNeedsDateChoice, completeWithChoice]);
 
   const deleteLesson = useCallback(async (id: string) => {
     setLessons(prev => prev.filter(l => l.id !== id));
@@ -153,5 +220,5 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     onSkipUndo?.(lesson.id, originalDate);
   }, [setLessons, setMonthLessons, setAllLessons, onSkipUndo]);
 
-  return { toggleLesson, deleteLesson, skipLesson };
+  return { toggleLesson, completeWithChoice, deleteLesson, skipLesson };
 }

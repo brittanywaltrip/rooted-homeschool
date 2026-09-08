@@ -697,7 +697,11 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
               className="text-[11px] font-bold text-white rounded-lg px-3 py-1.5 min-h-[32px] transition-opacity disabled:opacity-40"
               style={{ backgroundColor: "#5c7f63" }}
             >
-              {catchUpState === "logging" ? "Logging..." : "Log these"}
+              {/* Invariant 16: the date goes in the button. This flow is
+                  already date-aware, so it needs no chooser, but the family
+                  should still be able to read the day they are about to write
+                  without inferring it from the heading. */}
+              {catchUpState === "logging" ? "Logging..." : `Log these for ${shortDateLabel}`}
             </button>
             {catchUpState === "error" ? (
               <span className="text-[11px] text-[#a8654a]">
