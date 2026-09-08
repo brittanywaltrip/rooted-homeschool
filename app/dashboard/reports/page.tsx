@@ -12,6 +12,7 @@ import { schoolNameFor } from "@/lib/school-name";
 import { mergeBookRecords, bookBelongsToChild, bookCover, bookHowLabel, ratingLeaves, isFinishedBook, isReadingBook, BOOK_HOW_LABELS, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
+import { lessonReportSubject } from "@/lib/progress-report-rows";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -187,8 +188,15 @@ function PrintReport({
 
   const subjectMap: Record<string, { name: string; color: string | null; count: number; hours: number }> = {};
   completedLessons.forEach((l) => {
-    const key = l.curriculum_goal_id ?? "uncat";
-    const name = l.curriculum_goals?.subject_label ?? "Unassigned";
+    // Same resolution the Progress Report uses, so the two documents cannot
+    // disagree about what a lesson's subject is. "Unassigned" is this page's
+    // wording for the same last resort.
+    const name = lessonReportSubject(l, "Unassigned");
+    // Standalone logs used to collapse into ONE "uncat" bucket, so a family
+    // whose extra logs span Music, Math and Writing saw a single "Unassigned"
+    // line. With a real subject per row they group by that instead, which is
+    // the whole point of resolving it.
+    const key = l.curriculum_goal_id ?? `uncat:${name}`;
     if (!subjectMap[key]) {
       subjectMap[key] = { name, color: null, count: 0, hours: 0 };
     }
