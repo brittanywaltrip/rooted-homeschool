@@ -12,7 +12,10 @@
 /** The lesson fields a printed row reads. */
 export type ReportLessonRow = {
   title: string | null;
-  subjects: { name: string | null } | null;
+  /** Optional: the attendance page's rows carry no subjects join. */
+  subjects?: { name: string | null } | null;
+  /** NULL for a standalone log, which is what makes rule 4 safe. */
+  curriculum_goal_id?: string | null;
   curriculum_goals?: {
     subject_label?: string | null;
     curriculum_name?: string | null;
@@ -42,12 +45,69 @@ export interface DailyLogRow {
  * subject label still has a name the family chose, and their own words beat
  * ours.
  */
-export function lessonReportSubject(l: ReportLessonRow): string {
+/** The separator the add-lesson sheet writes: "Subject · Title". */
+const TITLE_SUBJECT_SEPARATOR = " \u00b7 ";
+
+/** Longer than this and the prefix is a sentence, not a subject. */
+const MAX_TITLE_SUBJECT_LENGTH = 40;
+
+/**
+ * The subject a standalone log carries in its own title.
+ *
+ * A log with no curriculum usually has no subject_id either, so both of the
+ * rules above come back empty and it printed as "General" — even though the
+ * family had already said what it was. The add-lesson sheet bakes the subject
+ * into the title as "Subject · Title" ("Music · Cello Lesson"), so the subject
+ * is right there in the row.
+ *
+ * Guarded three ways, because this is the one rule that INFERS rather than
+ * reads:
+ *   - only for a row with no curriculum. A curriculum lesson is titled
+ *     "{curriculum_name} — Lesson {n}" and cannot contain the separator, but
+ *     the guard is explicit rather than relying on that.
+ *   - only the spaced middle dot, which is what the sheet writes. A plain
+ *     hyphen or an unspaced dot would match half the titles in the database.
+ *   - 1 to 40 characters. Across the 193 rows in this shape, exactly one
+ *     prefix is longer ("Financial Literacy and Entrepreneur Practice", 44),
+ *     and a prefix that long is a description, not a subject heading.
+ */
+function subjectFromTitle(l: ReportLessonRow): string | null {
+  if (l.curriculum_goal_id) return null;
+  const title = l.title ?? "";
+  const at = title.indexOf(TITLE_SUBJECT_SEPARATOR);
+  if (at < 0) return null;
+  const prefix = title.slice(0, at).trim();
+  if (prefix.length < 1 || prefix.length > MAX_TITLE_SUBJECT_LENGTH) return null;
+  return prefix;
+}
+
+/**
+ * The subject a lesson prints under, in order:
+ *
+ *   1. an explicit subject_id
+ *   2. the goal's subject_label
+ *   3. the goal's curriculum_name, which the family chose
+ *   4. the "Subject · " prefix a standalone log carries in its title
+ *   5. the fallback
+ *
+ * Curriculum lessons carry `subject_id` NULL — the subject lives on the goal —
+ * so reading only `subjects.name` printed "General" for essentially every
+ * curriculum lesson a family ever did.
+ *
+ * `fallback` differs by report: the Progress Report says "General", the
+ * Attendance Log's subject grouping says "Unassigned". A parameter rather than
+ * a second copy of the rule, so the two cannot disagree about anything else.
+ */
+export function lessonReportSubject(
+  l: ReportLessonRow,
+  fallback = "General",
+): string {
   return (
     l.subjects?.name ||
     l.curriculum_goals?.subject_label ||
     l.curriculum_goals?.curriculum_name ||
-    "General"
+    subjectFromTitle(l) ||
+    fallback
   );
 }
 
