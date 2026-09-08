@@ -9,12 +9,19 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
 import {
   lessonDailyLogRow,
   lessonReportDescription,
   lessonReportSubject,
   type ReportLessonRow,
 } from './progress-report-rows.ts'
+
+function loadRepoFile(relPath: string): string {
+  return readFileSync(resolve(process.cwd(), relPath), 'utf-8')
+}
 
 const row = (over: Partial<ReportLessonRow> = {}): ReportLessonRow => ({
   title: 'Lesson 12',
@@ -99,4 +106,126 @@ test('the row carries the child, minutes and estimated flag through untouched', 
   assert.equal(r.minutes, 45)
   assert.equal(r.estimated, true)
   assert.equal(r.description, 'Chapter 3')
+})
+
+// ── Rule 4: a standalone log carries its subject in its own title ───────────
+//
+// A log with no curriculum usually has no subject_id either, so it printed as
+// "General" even though the family had already said what it was: the add-lesson
+// sheet writes the title as "Subject · Title". 193 rows across the database are
+// in exactly that shape, and the prefixes are real subjects — Math (34),
+// Reading (32), Science (19), Language Arts (15).
+
+const DOT = ' · '
+
+test('a standalone log takes its subject from the title prefix', () => {
+  const r = logRow(row({ title: `Music${DOT}Cello Lesson`, curriculum_goal_id: null }))
+  assert.equal(r.subject, 'Music')
+  // The description keeps the whole title; only the SUBJECT is inferred.
+  assert.equal(r.description, `Music${DOT}Cello Lesson`)
+})
+
+test('a standalone log with no separator falls back', () => {
+  assert.equal(
+    lessonReportSubject(row({ title: 'Word of the Day', curriculum_goal_id: null })),
+    'General',
+  )
+})
+
+test('a curriculum lesson never takes its subject from the title (rule 2 wins)', () => {
+  // "Kitchen Math — Lesson 3" cannot contain the separator, but the guard is
+  // on curriculum_goal_id rather than on the title's shape.
+  const r = lessonReportSubject(
+    row({
+      title: 'Kitchen Math — Lesson 3',
+      curriculum_goal_id: 'goal-1',
+      curriculum_goals: { subject_label: 'Math', curriculum_name: 'Kitchen Math' },
+    }),
+  )
+  assert.equal(r, 'Math')
+})
+
+test('a curriculum lesson is not given a title-derived subject even if it somehow has a separator', () => {
+  // Belt and braces: the guard is the curriculum link, not the punctuation.
+  assert.equal(
+    lessonReportSubject(row({ title: `Music${DOT}Something`, curriculum_goal_id: 'goal-1' })),
+    'General',
+    'a curriculum row falls to the fallback rather than inferring',
+  )
+})
+
+test('a prefix longer than 40 characters is a description, not a subject', () => {
+  // The one real row in the database that exceeds the bound.
+  const long = 'Financial Literacy and Entrepreneur Practice' // 44 chars
+  assert.equal(long.length, 44)
+  assert.equal(
+    lessonReportSubject(row({ title: `${long}${DOT}Budgeting`, curriculum_goal_id: null })),
+    'General',
+  )
+  // 40 exactly is still a subject.
+  const forty = 'A'.repeat(40)
+  assert.equal(
+    lessonReportSubject(row({ title: `${forty}${DOT}Thing`, curriculum_goal_id: null })),
+    forty,
+  )
+})
+
+test('an empty prefix is not a subject', () => {
+  assert.equal(
+    lessonReportSubject(row({ title: `${DOT}Just a title`, curriculum_goal_id: null })),
+    'General',
+  )
+})
+
+test('only the spaced middle dot counts, not a hyphen or a bare dot', () => {
+  // A looser separator would match half the titles in the database.
+  for (const title of ['Math - Addition', 'Math·Addition', 'Math: Addition', 'Math — Lesson 3']) {
+    assert.equal(
+      lessonReportSubject(row({ title, curriculum_goal_id: null })),
+      'General',
+      `"${title}" must not be split`,
+    )
+  }
+})
+
+test('an explicit subject still beats the title prefix', () => {
+  assert.equal(
+    lessonReportSubject(
+      row({ title: `Music${DOT}Cello`, curriculum_goal_id: null, subjects: { name: 'Band' } }),
+    ),
+    'Band',
+  )
+})
+
+test('the fallback is a parameter, so the two reports word it differently', () => {
+  const r = row({ title: 'Word of the Day', curriculum_goal_id: null })
+  assert.equal(lessonReportSubject(r), 'General', 'the Progress Report default')
+  assert.equal(lessonReportSubject(r, 'Unassigned'), 'Unassigned', 'the Attendance Log wording')
+  // The fallback must not override a subject that actually resolved.
+  assert.equal(
+    lessonReportSubject(row({ title: `Math${DOT}Adding`, curriculum_goal_id: null }), 'Unassigned'),
+    'Math',
+  )
+})
+
+test('the attendance page uses the shared resolver and groups by it', () => {
+  const src = loadRepoFile('app/dashboard/reports/page.tsx')
+  assert.ok(
+    /import \{ lessonReportSubject \} from "@\/lib\/progress-report-rows"/.test(src),
+    'the page imports the shared resolver',
+  )
+  assert.ok(
+    /lessonReportSubject\(l, "Unassigned"\)/.test(src),
+    'and calls it with its own fallback wording',
+  )
+  assert.ok(
+    !/\?\? "Unassigned"/.test(src),
+    'the hand-rolled subject_label fallback is gone',
+  )
+  // Standalone logs must group by their resolved subject, or Music, Math and
+  // Writing all collapse into one "Unassigned" line and the fix is invisible.
+  assert.ok(
+    /uncat:\$\{name\}/.test(src),
+    'standalone logs key by subject, not into one bucket',
+  )
 })
