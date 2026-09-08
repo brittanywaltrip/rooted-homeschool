@@ -1,4 +1,7 @@
--- NOT YET APPLIED. This file is an instruction, not a record.
+-- ALREADY APPLIED 2026-09-08 via Supabase MCP apply_migration. Do not re-run.
+-- Verified after applying: trg_lessons_block_server_side_completion attached;
+-- curriculum_goals_cleanup_orphans_trg sets scheduled_date = NULL only, with no
+-- completed / completed_at / date / queue_position assignment remaining.
 --
 -- Per CLAUDE.md ("Migrations are applied by hand, never by a deploy") and
 -- Anti-pattern J in docs/CURRICULUM-SCHEDULING.md, merging this file changes
