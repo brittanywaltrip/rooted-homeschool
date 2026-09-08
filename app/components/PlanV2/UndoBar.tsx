@@ -24,6 +24,12 @@ export interface UndoAction {
   /** Optional key — changing it restarts the countdown even if message is
    * the same (two consecutive identical moves). */
   key?: string;
+  /**
+   * Label for the action button. Defaults to "Undo". A completion toast says
+   * "Change" instead, because the offer there is to re-date the row rather
+   * than to take the completion back (Invariant 16).
+   */
+  actionLabel?: string;
 }
 
 export interface UndoBarProps {
@@ -121,7 +127,7 @@ export default function UndoBar({ action, onDismiss }: UndoBarProps) {
             onClick={handleUndo}
             className="shrink-0 text-[13px] font-bold text-white bg-[#5c7f63] hover:bg-[var(--g-deep)] rounded-xl px-3 py-1.5 min-h-[36px] transition-colors"
           >
-            Undo
+            {action.actionLabel ?? "Undo"}
           </button>
           <span
             aria-hidden

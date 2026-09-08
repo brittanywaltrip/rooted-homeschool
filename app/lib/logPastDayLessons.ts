@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as Sentry from "@sentry/nextjs";
-import { buildPastDateCompletionPayload, recomputeCurrentLesson } from "./scheduler";
+import { recomputeCurrentLesson } from "./scheduler";
+import { buildCompletionPayload, type LessonCompletedEvent } from "./completeLessonOnDate";
 import { captureSupabaseError } from "../../lib/sentry-error";
 
 /**
@@ -57,13 +58,26 @@ export async function logPastDayLessons(
   userId: string,
   entries: PastDayEntry[],
   subjects: SubjectOption[],
+  /**
+   * Invariant 16: one lesson_completed per completion, on every surface.
+   * Optional so existing callers keep working; PlanV2 passes it.
+   */
+  opts?: { todayStr?: string; track?: (event: LessonCompletedEvent) => void },
 ): Promise<LogPastDayResult> {
   let okCount = 0;
   let failedCount = 0;
   const touchedGoalIds = new Set<string>();
+  const todayStr = opts?.todayStr ?? new Date().toISOString().slice(0, 10);
 
   for (const entry of entries) {
-    const completedAtIso = `${entry.date}T12:00:00Z`;
+    // The family named this day on the checklist, so it is a "picked" choice
+    // and buildCompletionPayload is the one definition of what that writes:
+    // noon UTC, is_backfill, queue_pinned. Same shape the chooser produces.
+    const completionPayload = buildCompletionPayload({
+      dateStr: entry.date,
+      choice: "picked",
+      todayStr,
+    });
     try {
       const { data: existing, error: existingErr } = await supabase
         .from("lessons")
@@ -83,13 +97,13 @@ export async function logPastDayLessons(
       }
 
       if (existing) {
-        // buildPastDateCompletionPayload pins date + scheduled_date to the
-        // chosen day and flags is_backfill so the projector never re-spreads
-        // the row back onto today (Invariant 3).
-        const payload = buildPastDateCompletionPayload(completedAtIso);
+        // The shared completion payload pins date + scheduled_date to the
+        // chosen day, flags is_backfill so the projector never re-spreads the
+        // row back onto today (Invariant 3), and pins the slot because a day
+        // the family named is a manual placement (Invariant 12).
         const { error } = await supabase
           .from("lessons")
-          .update(payload)
+          .update(completionPayload)
           .eq("id", (existing as { id: string }).id);
         if (error) {
           captureSupabaseError("logPastDayLessons: update failed", error, {
@@ -101,6 +115,13 @@ export async function logPastDayLessons(
         }
         okCount += 1;
         touchedGoalIds.add(entry.goal_id);
+        opts?.track?.({
+          lesson_number: entry.lesson_number,
+          subject_label: null,
+          lesson_date: completionPayload.date,
+          date_choice: "picked",
+          surface: "month",
+        });
         continue;
       }
 
@@ -157,22 +178,19 @@ export async function logPastDayLessons(
         : undefined;
       const defaultMinutes = goal?.default_minutes ?? 30;
 
+      // Same completion shape as the update branch. Spread last so the
+      // date rule wins over anything above it.
       const { error: insertErr } = await supabase.from("lessons").insert({
         user_id: userId,
         curriculum_goal_id: entry.goal_id,
         lesson_number: entry.lesson_number,
         queue_position: entry.lesson_number,
         title: `${goalSubjectLabel ?? goal?.curriculum_name ?? "Lesson"}: Lesson ${entry.lesson_number}`,
-        completed: true,
-        completed_at: completedAtIso,
-        date: entry.date,
-        scheduled_date: entry.date,
-        scheduled_source: "catchup_resched",
         child_id: childId,
         subject_id: matchedSubject?.id ?? null,
         minutes_spent: defaultMinutes,
         hours: defaultMinutes / 60,
-        is_backfill: true,
+        ...completionPayload,
       });
       if (insertErr) {
         captureSupabaseError("logPastDayLessons: insert failed", insertErr, {
@@ -184,6 +202,13 @@ export async function logPastDayLessons(
       }
       okCount += 1;
       touchedGoalIds.add(entry.goal_id);
+      opts?.track?.({
+        lesson_number: entry.lesson_number,
+        subject_label: goalSubjectLabel,
+        lesson_date: completionPayload.date,
+        date_choice: "picked",
+        surface: "month",
+      });
     } catch (err) {
       captureSupabaseError("logPastDayLessons: entry threw", err, {
         tags: { fn: "logPastDayLessons" },

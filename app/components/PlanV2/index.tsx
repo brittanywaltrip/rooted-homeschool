@@ -17,7 +17,9 @@ import {
 } from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { posthog } from "@/lib/posthog";
 import PageHero from "@/app/components/PageHero";
+import CompletionDateChooser, { labelDate as completionLabelDate } from "@/app/components/CompletionDateChooser";
 import MonthGrid from "./MonthGrid";
 // WeekStrip is preserved on disk (./WeekStrip) but no longer rendered;
 // week mode now uses WeekListView. Restore the import here if reverting.
@@ -860,7 +862,14 @@ export default function PlanV2() {
   // Lesson mutation handlers. Pass setLessons for both arrays (PlanV2 has one
   // state; the hook's dual setter model collapses cleanly). setAllLessons is
   // omitted — PlanV2 doesn't track an "all lessons" store.
-  const { toggleLesson, deleteLesson, skipLesson } = usePlanLessonActions<PlanV2Lesson>({
+  // Invariant 16. A completion whose day is not today gets shown to the family
+  // before it is written; this holds the lesson while the chooser is open.
+  // Nothing is stored until they answer, so Cancel is free.
+  const [completionChoice, setCompletionChoice] = useState<
+    { lesson: PlanV2Lesson; plannedDate: string } | null
+  >(null);
+
+  const { toggleLesson, completeWithChoice, deleteLesson, skipLesson } = usePlanLessonActions<PlanV2Lesson>({
     lessons,
     monthLessons: lessons,
     setLessons,
@@ -869,6 +878,12 @@ export default function PlanV2() {
     onSkipUndo: () => {
       // Drop + reschedule share UndoBar; skip refresh is good enough here.
       reload();
+    },
+    onNeedsDateChoice: (lesson, plannedDate) => {
+      setCompletionChoice({ lesson, plannedDate });
+    },
+    onLessonCompleted: (event) => {
+      posthog.capture("lesson_completed", event);
     },
   });
 
@@ -905,7 +920,22 @@ export default function PlanV2() {
   const toggleLessonWithLog = useCallback(
     async (id: string, current: boolean) => {
       const snap = lessons.find((l) => l.id === id);
+      // Invariant 16: when the day is not today the hook opens the chooser and
+      // writes nothing, so there is no completion to log yet. The chooser's own
+      // onChoose records the audit event and the toast once the family answers.
+      const plannedDate = snap?.scheduled_date ?? snap?.date ?? null;
+      const willAsk = !current && !!snap && plannedDate !== null && plannedDate !== todayStr;
       await toggleLesson(id, current);
+      if (willAsk) return;
+      if (!current && snap) {
+        // The silent path. Rooted still shows the date it just wrote.
+        setUndoAction({
+          message: `Logged for ${completionLabelDate(todayStr)}`,
+          key: `completion:${id}:${Date.now()}`,
+          actionLabel: "Change",
+          onUndo: () => setCompletionChoice({ lesson: snap, plannedDate: todayStr }),
+        });
+      }
       if (snap) {
         const title = snap.title && snap.title.trim().length > 0
           ? snap.title
@@ -922,7 +952,7 @@ export default function PlanV2() {
         await fireConfettiIfNewlyCompleted(snap.curriculum_goal_id);
       }
     },
-    [lessons, toggleLesson, recordEvent, fireConfettiIfNewlyCompleted],
+    [lessons, toggleLesson, recordEvent, fireConfettiIfNewlyCompleted, todayStr],
   );
 
   const deleteLessonWithLog = useCallback(
@@ -1910,7 +1940,10 @@ export default function PlanV2() {
       scheduled_date: e.date,
       date: e.date,
       completed: true,
-      completed_at: new Date(`${e.date}T12:00:00`).toISOString(),
+      // Noon UTC, matching every other synthetic completion stamp. Local noon
+      // serializes to the previous calendar day east of UTC, and attendance
+      // buckets on completed_at.slice(0, 10).
+      completed_at: `${e.date}T12:00:00Z`,
       minutes_spent: e.minutes,
       hours: e.minutes / 60,
       notes: e.notes,
@@ -2376,6 +2409,8 @@ export default function PlanV2() {
       effectiveUserId,
       selected.map((e) => ({ goal_id: e.goal_id, lesson_number: e.lesson_number, date: e.date })),
       [],
+      // Invariant 16: one lesson_completed per completion, every surface.
+      { todayStr, track: (event) => posthog.capture("lesson_completed", event) },
     );
     if (okCount === 0) throw new Error("Nothing was logged");
     for (const e of selected.slice(0, okCount)) {
@@ -6644,6 +6679,55 @@ export default function PlanV2() {
             </>
           );
         })() : null}
+
+        {/* Invariant 16 — "which day did you do this?", asked before the write
+            whenever the day is not today. Nothing is stored until answered. */}
+        {completionChoice ? (
+          <CompletionDateChooser
+            lessonTitle={
+              completionChoice.lesson.title?.trim() ||
+              (completionChoice.lesson.lesson_number
+                ? `Lesson ${completionChoice.lesson.lesson_number}`
+                : "This lesson")
+            }
+            plannedDate={completionChoice.plannedDate}
+            today={todayStr}
+            onCancel={() => setCompletionChoice(null)}
+            onChoose={async (dateStr, choice) => {
+              const { lesson } = completionChoice;
+              setCompletionChoice(null);
+              try {
+                await completeWithChoice(lesson.id, dateStr, choice);
+              } catch {
+                flashNotice("Couldn't log that, try again.");
+                return;
+              }
+              recordEvent("lesson.completed", {
+                lesson_id: lesson.id,
+                lesson_title:
+                  lesson.title?.trim() ||
+                  (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "lesson"),
+                date: dateStr,
+                actor: "user",
+              });
+              setUndoAction({
+                message: `Logged for ${completionLabelDate(dateStr)}`,
+                key: `completion:${lesson.id}:${Date.now()}`,
+                actionLabel: "Change",
+                // Change reopens the chooser on the same lesson rather than
+                // undoing: the family said they did it, they are only
+                // correcting which day.
+                onUndo: () => {
+                  setCompletionChoice({ lesson, plannedDate: dateStr });
+                },
+              });
+              if (lesson.curriculum_goal_id) {
+                await fireConfettiIfNewlyCompleted(lesson.curriculum_goal_id);
+              }
+              reload();
+            }}
+          />
+        ) : null}
 
         {/* Global undo bar */}
         <UndoBar action={undoAction} onDismiss={() => setUndoAction(null)} />
