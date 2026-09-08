@@ -40,7 +40,7 @@ import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import TodaySchedule from "@/app/components/today/TodaySchedule";
 import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type RecoveryRow } from "@/app/components/MissedLessonRecoveryModal";
-import { catchupAnsweredKey, gapStartAfterAnswer, goalsWithUncheckedRows } from "@/app/lib/recoverySelection";
+import { gapStartAfterAnswer, goalsWithUncheckedRows } from "@/app/lib/recoverySelection";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -1117,7 +1117,7 @@ export default function TodayPage() {
       // Curriculum goals — full config for queue-based scheduling. The same
       // query also feeds the icon emoji + per-goal school_days lookups that
       // used to be its only purpose.
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, lessons_per_day_overrides, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date").eq("user_id", effectiveUserId).eq("archived", false),
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, lessons_per_day_overrides, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date, catchup_answered_on").eq("user_id", effectiveUserId).eq("archived", false),
       // Lessons completed today per goal (local-day window). The queue
       // projector subtracts these from today's slot allocation so that
       // marking complete keeps today's slot count stable instead of
@@ -1276,6 +1276,8 @@ export default function TodayPage() {
       default_minutes: number;
       scheduled_start_time: string | null;
       start_date: string | null;
+      /** The day this goal's catch-up prompt was last answered. */
+      catchup_answered_on: string | null;
     };
     const goalRows = (curriculumGoalsResult.data ?? []) as GoalRow[];
     const emojiMap = new Map<string, string>();
@@ -1577,7 +1579,11 @@ export default function TodayPage() {
       const earliestGapStart = new Date(todayMid);
       earliestGapStart.setDate(earliestGapStart.getDate() - MAX_GAP_DAYS);
 
-      function gapStartForGoal(goalId: string, goalStartDate: string | null): Date | null {
+      function gapStartForGoal(
+        goalId: string,
+        goalStartDate: string | null,
+        answeredOn: string | null,
+      ): Date | null {
         const iso = lastCompletedByGoal.get(goalId);
         // A goal with no completion at all falls back to its own start_date.
         // Without one there is nothing to anchor to, so it contributes
@@ -1593,11 +1599,11 @@ export default function TodayPage() {
         // prompt re-offers the same past dates every session, which made
         // unchecking a row meaningless: the family said "not these" and Rooted
         // asked again tomorrow.
-        const answered =
-          typeof window !== "undefined"
-            ? window.localStorage.getItem(catchupAnsweredKey(goalId))
-            : null;
-        return gapStartAfterAnswer(floored, answered);
+        //
+        // Read off the goal row (curriculum_goals.catchup_answered_on), so the
+        // answer follows the family. This was localStorage first, which meant
+        // the same family on a phone was asked the whole thing again.
+        return gapStartAfterAnswer(floored, answeredOn);
       }
 
       // Compute per-goal entries. Vacation blocks exclude break days so
@@ -1607,7 +1613,7 @@ export default function TodayPage() {
       const entriesByGoal = new Map<string, MissedEntry[]>();
       let overdueTotal = 0;
       for (const goal of activeGoals) {
-        const gapStart = gapStartForGoal(goal.id, goal.start_date ?? null);
+        const gapStart = gapStartForGoal(goal.id, goal.start_date ?? null, goal.catchup_answered_on ?? null);
         if (!gapStart) continue;
         const cfg: CurriculumGoalConfig = toGoalConfig(goal);
         const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
@@ -2204,7 +2210,7 @@ export default function TodayPage() {
       goalIds: offeredGoalIds,
       written: rows,
     });
-    markCatchupAnswered(reschedGoalIds);
+    await markCatchupAnswered(reschedGoalIds);
     const offeredCount = offeredGoalIds.reduce(
       (n, id) => n + (missedEntriesByGoal.get(id) ?? []).length,
       0,
@@ -2375,14 +2381,25 @@ export default function TodayPage() {
    * projects from the goal's config between two dates — so re-dating rows could
    * not stop the prompt returning. Recording the answer is what stops it.
    */
-  function markCatchupAnswered(goalIds: string[]) {
-    if (typeof window === "undefined") return;
-    for (const goalId of goalIds) {
-      try {
-        window.localStorage.setItem(catchupAnsweredKey(goalId), today);
-      } catch {
-        /* a full or blocked localStorage must never break the save */
-      }
+  async function markCatchupAnswered(goalIds: string[]) {
+    if (goalIds.length === 0) return;
+    // One statement, scoped by goal id AND user id. RLS already restricts this
+    // to the family's own goals ("Users manage own goals" is ALL on
+    // auth.uid() = user_id); the explicit user_id filter is belt and braces.
+    const { error } = await supabase
+      .from("curriculum_goals")
+      .update({ catchup_answered_on: today })
+      .in("id", goalIds)
+      .eq("user_id", effectiveUserId);
+    if (error) {
+      // Non-fatal. The completions the family just confirmed are already
+      // written; failing here only means the prompt may ask again, which is
+      // the old behaviour rather than a new harm.
+      captureSupabaseError("Catch-up answer not recorded", error, {
+        level: "warning",
+        tags: { fn: "markCatchupAnswered" },
+        extra: { goalIds },
+      });
     }
   }
 
@@ -2391,7 +2408,7 @@ export default function TodayPage() {
     setShowMissedRecovery(false);
     // Every goal the prompt offered: the family answered "not these" for all
     // of them. Same helper the Yes path uses for its unchecked rows.
-    markCatchupAnswered(Array.from(missedEntriesByGoal.keys()));
+    await markCatchupAnswered(Array.from(missedEntriesByGoal.keys()));
     // Still refresh both surfaces so the dashboard re-renders without the
     // banner. The queue projector has already absorbed the lessons forward.
     await loadData();
