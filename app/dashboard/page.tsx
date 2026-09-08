@@ -40,6 +40,7 @@ import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import TodaySchedule from "@/app/components/today/TodaySchedule";
 import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type RecoveryRow } from "@/app/components/MissedLessonRecoveryModal";
+import { catchupAnsweredKey, gapStartAfterAnswer, goalsWithUncheckedRows } from "@/app/lib/recoverySelection";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -1587,7 +1588,16 @@ export default function TodayPage() {
             ? new Date(goalStartDate + "T00:00:00")
             : null;
         if (!anchor) return null;
-        return anchor < earliestGapStart ? earliestGapStart : anchor;
+        const floored = anchor < earliestGapStart ? earliestGapStart : anchor;
+        // An answered goal's window starts after the answer. Without this the
+        // prompt re-offers the same past dates every session, which made
+        // unchecking a row meaningless: the family said "not these" and Rooted
+        // asked again tomorrow.
+        const answered =
+          typeof window !== "undefined"
+            ? window.localStorage.getItem(catchupAnsweredKey(goalId))
+            : null;
+        return gapStartAfterAnswer(floored, answered);
       }
 
       // Compute per-goal entries. Vacation blocks exclude break days so
@@ -2183,6 +2193,28 @@ export default function TodayPage() {
     setShowMissedRecovery(false);
     if (rows.length === 0) return;
 
+    // Unchecking is an answer, so act on it. Goals the family left something
+    // unchecked on are settled through the SAME helper "No, reschedule them"
+    // uses: those lessons move ahead in the plan and stop being offered as
+    // overdue. Without this the prompt returned next session with the same
+    // past dates, so a family who skipped a week got asked daily.
+    const offeredGoalIds = Array.from(missedEntriesByGoal.keys());
+    const reschedGoalIds = goalsWithUncheckedRows({
+      entriesByGoal: missedEntriesByGoal,
+      goalIds: offeredGoalIds,
+      written: rows,
+    });
+    markCatchupAnswered(reschedGoalIds);
+    const offeredCount = offeredGoalIds.reduce(
+      (n, id) => n + (missedEntriesByGoal.get(id) ?? []).length,
+      0,
+    );
+    posthog.capture("catchup_prompt_confirmed", {
+      checked: rows.length,
+      unchecked: offeredCount - rows.length,
+      goals_rescheduled: reschedGoalIds.length,
+    });
+
     // Only the rows the family left checked, each on the date they saw. A row
     // they unchecked is not written and is not rescheduled either: it stays
     // exactly as it was, and "No, reschedule them" is the way to move it.
@@ -2328,14 +2360,40 @@ export default function TodayPage() {
     await refreshTodayStory();
   }
 
+  /**
+   * Settle a goal's catch-up: the family has answered for it, so stop offering
+   * the same window back to them.
+   *
+   * THE ONE PATH. Both "No, reschedule them" and the unchecked half of a Yes
+   * end here, because they are the same answer about different rows: "we did
+   * not do these, move them ahead."
+   *
+   * No DB write, and none is needed. The lessons themselves are already moving:
+   * reconcileGoalScheduleCache re-projects every unpinned incomplete row from
+   * the pointer on each load, so the work is upcoming before this runs. What
+   * was missing is that computeGapLessonsForGoal never reads a lesson row — it
+   * projects from the goal's config between two dates — so re-dating rows could
+   * not stop the prompt returning. Recording the answer is what stops it.
+   */
+  function markCatchupAnswered(goalIds: string[]) {
+    if (typeof window === "undefined") return;
+    for (const goalId of goalIds) {
+      try {
+        window.localStorage.setItem(catchupAnsweredKey(goalId), today);
+      } catch {
+        /* a full or blocked localStorage must never break the save */
+      }
+    }
+  }
+
   async function handleMissedRecoveryNo() {
     markMissedRecoveryShown();
     setShowMissedRecovery(false);
-    // No DB writes — under Path A the queue projector already absorbs
-    // missed lessons into the upcoming schedule going forward from today
-    // (computeTodayLessons projects from current_lesson without
-    // referencing the missed dates). Still refresh both surfaces so the
-    // dashboard re-renders cleanly without the banner.
+    // Every goal the prompt offered: the family answered "not these" for all
+    // of them. Same helper the Yes path uses for its unchecked rows.
+    markCatchupAnswered(Array.from(missedEntriesByGoal.keys()));
+    // Still refresh both surfaces so the dashboard re-renders without the
+    // banner. The queue projector has already absorbed the lessons forward.
     await loadData();
     await refreshTodayStory();
   }
