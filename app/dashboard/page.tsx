@@ -40,6 +40,7 @@ import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import TodaySchedule from "@/app/components/today/TodaySchedule";
 import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type RecoveryRow } from "@/app/components/MissedLessonRecoveryModal";
+import { gapStartAfterAnswer, goalsWithUncheckedRows } from "@/app/lib/recoverySelection";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -1116,7 +1117,7 @@ export default function TodayPage() {
       // Curriculum goals — full config for queue-based scheduling. The same
       // query also feeds the icon emoji + per-goal school_days lookups that
       // used to be its only purpose.
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, lessons_per_day_overrides, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date").eq("user_id", effectiveUserId).eq("archived", false),
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, lessons_per_day_overrides, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date, catchup_answered_on").eq("user_id", effectiveUserId).eq("archived", false),
       // Lessons completed today per goal (local-day window). The queue
       // projector subtracts these from today's slot allocation so that
       // marking complete keeps today's slot count stable instead of
@@ -1275,6 +1276,8 @@ export default function TodayPage() {
       default_minutes: number;
       scheduled_start_time: string | null;
       start_date: string | null;
+      /** The day this goal's catch-up prompt was last answered. */
+      catchup_answered_on: string | null;
     };
     const goalRows = (curriculumGoalsResult.data ?? []) as GoalRow[];
     const emojiMap = new Map<string, string>();
@@ -1576,7 +1579,11 @@ export default function TodayPage() {
       const earliestGapStart = new Date(todayMid);
       earliestGapStart.setDate(earliestGapStart.getDate() - MAX_GAP_DAYS);
 
-      function gapStartForGoal(goalId: string, goalStartDate: string | null): Date | null {
+      function gapStartForGoal(
+        goalId: string,
+        goalStartDate: string | null,
+        answeredOn: string | null,
+      ): Date | null {
         const iso = lastCompletedByGoal.get(goalId);
         // A goal with no completion at all falls back to its own start_date.
         // Without one there is nothing to anchor to, so it contributes
@@ -1587,7 +1594,16 @@ export default function TodayPage() {
             ? new Date(goalStartDate + "T00:00:00")
             : null;
         if (!anchor) return null;
-        return anchor < earliestGapStart ? earliestGapStart : anchor;
+        const floored = anchor < earliestGapStart ? earliestGapStart : anchor;
+        // An answered goal's window starts after the answer. Without this the
+        // prompt re-offers the same past dates every session, which made
+        // unchecking a row meaningless: the family said "not these" and Rooted
+        // asked again tomorrow.
+        //
+        // Read off the goal row (curriculum_goals.catchup_answered_on), so the
+        // answer follows the family. This was localStorage first, which meant
+        // the same family on a phone was asked the whole thing again.
+        return gapStartAfterAnswer(floored, answeredOn);
       }
 
       // Compute per-goal entries. Vacation blocks exclude break days so
@@ -1597,7 +1613,7 @@ export default function TodayPage() {
       const entriesByGoal = new Map<string, MissedEntry[]>();
       let overdueTotal = 0;
       for (const goal of activeGoals) {
-        const gapStart = gapStartForGoal(goal.id, goal.start_date ?? null);
+        const gapStart = gapStartForGoal(goal.id, goal.start_date ?? null, goal.catchup_answered_on ?? null);
         if (!gapStart) continue;
         const cfg: CurriculumGoalConfig = toGoalConfig(goal);
         const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
@@ -2183,6 +2199,28 @@ export default function TodayPage() {
     setShowMissedRecovery(false);
     if (rows.length === 0) return;
 
+    // Unchecking is an answer, so act on it. Goals the family left something
+    // unchecked on are settled through the SAME helper "No, reschedule them"
+    // uses: those lessons move ahead in the plan and stop being offered as
+    // overdue. Without this the prompt returned next session with the same
+    // past dates, so a family who skipped a week got asked daily.
+    const offeredGoalIds = Array.from(missedEntriesByGoal.keys());
+    const reschedGoalIds = goalsWithUncheckedRows({
+      entriesByGoal: missedEntriesByGoal,
+      goalIds: offeredGoalIds,
+      written: rows,
+    });
+    await markCatchupAnswered(reschedGoalIds);
+    const offeredCount = offeredGoalIds.reduce(
+      (n, id) => n + (missedEntriesByGoal.get(id) ?? []).length,
+      0,
+    );
+    posthog.capture("catchup_prompt_confirmed", {
+      checked: rows.length,
+      unchecked: offeredCount - rows.length,
+      goals_rescheduled: reschedGoalIds.length,
+    });
+
     // Only the rows the family left checked, each on the date they saw. A row
     // they unchecked is not written and is not rescheduled either: it stays
     // exactly as it was, and "No, reschedule them" is the way to move it.
@@ -2328,14 +2366,51 @@ export default function TodayPage() {
     await refreshTodayStory();
   }
 
+  /**
+   * Settle a goal's catch-up: the family has answered for it, so stop offering
+   * the same window back to them.
+   *
+   * THE ONE PATH. Both "No, reschedule them" and the unchecked half of a Yes
+   * end here, because they are the same answer about different rows: "we did
+   * not do these, move them ahead."
+   *
+   * No DB write, and none is needed. The lessons themselves are already moving:
+   * reconcileGoalScheduleCache re-projects every unpinned incomplete row from
+   * the pointer on each load, so the work is upcoming before this runs. What
+   * was missing is that computeGapLessonsForGoal never reads a lesson row — it
+   * projects from the goal's config between two dates — so re-dating rows could
+   * not stop the prompt returning. Recording the answer is what stops it.
+   */
+  async function markCatchupAnswered(goalIds: string[]) {
+    if (goalIds.length === 0) return;
+    // One statement, scoped by goal id AND user id. RLS already restricts this
+    // to the family's own goals ("Users manage own goals" is ALL on
+    // auth.uid() = user_id); the explicit user_id filter is belt and braces.
+    const { error } = await supabase
+      .from("curriculum_goals")
+      .update({ catchup_answered_on: today })
+      .in("id", goalIds)
+      .eq("user_id", effectiveUserId);
+    if (error) {
+      // Non-fatal. The completions the family just confirmed are already
+      // written; failing here only means the prompt may ask again, which is
+      // the old behaviour rather than a new harm.
+      captureSupabaseError("Catch-up answer not recorded", error, {
+        level: "warning",
+        tags: { fn: "markCatchupAnswered" },
+        extra: { goalIds },
+      });
+    }
+  }
+
   async function handleMissedRecoveryNo() {
     markMissedRecoveryShown();
     setShowMissedRecovery(false);
-    // No DB writes — under Path A the queue projector already absorbs
-    // missed lessons into the upcoming schedule going forward from today
-    // (computeTodayLessons projects from current_lesson without
-    // referencing the missed dates). Still refresh both surfaces so the
-    // dashboard re-renders cleanly without the banner.
+    // Every goal the prompt offered: the family answered "not these" for all
+    // of them. Same helper the Yes path uses for its unchecked rows.
+    await markCatchupAnswered(Array.from(missedEntriesByGoal.keys()));
+    // Still refresh both surfaces so the dashboard re-renders without the
+    // banner. The queue projector has already absorbed the lessons forward.
     await loadData();
     await refreshTodayStory();
   }

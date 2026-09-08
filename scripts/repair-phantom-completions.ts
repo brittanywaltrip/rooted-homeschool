@@ -200,35 +200,7 @@ const supabase: SupabaseClient = createClient(
  * halves: the millisecond-truncated instants through Date, and the remaining
  * sub-millisecond digits as text.
  */
-export function isExactly24hApart(completedAt: string, updatedAt: string): boolean {
-  const split = (ts: string): { ms: number; micros: string } | null => {
-    const m = ts.match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d+))?(.*)$/)
-    if (!m) return null
-    const [, day, time, frac = '', zone] = m
-    const fracPadded = (frac + '000000').slice(0, 6)
-    const millis = fracPadded.slice(0, 3)
-    const micros = fracPadded.slice(3, 6)
-    // Normalise the zone. PostgREST hands back '+00:00'; psql and a few
-    // client paths hand back '+00', which Date.parse rejects outright — and a
-    // rejected parse here would report "no damage found" rather than an error,
-    // which is the worst possible failure for this script. A zone-less stamp
-    // is UTC.
-    const zoneRaw = zone?.trim() ?? ''
-    const zoneNorm =
-      zoneRaw.length === 0
-        ? 'Z'
-        : /^[+-]\d{2}$/.test(zoneRaw)
-          ? `${zoneRaw}:00`
-          : zoneRaw
-    const ms = Date.parse(`${day}T${time}.${millis}${zoneNorm}`)
-    if (Number.isNaN(ms)) return null
-    return { ms, micros }
-  }
-  const a = split(completedAt)
-  const b = split(updatedAt)
-  if (!a || !b) return false
-  return b.ms - a.ms === 86_400_000 && a.micros === b.micros
-}
+import { isExactly24hApart, isNearFingerprint } from './phantom-fingerprint'
 
 type LessonRow = {
   id: string
@@ -307,6 +279,12 @@ async function pagedSelect<T>(
   }
 }
 
+/**
+ * Rows within a minute of the fingerprint but not matching it. Set by
+ * loadCandidates, reported by the summary. See isNearFingerprint.
+ */
+let nearFingerprintCount = 0
+
 async function loadCandidates(): Promise<Candidate[]> {
   // The email lives on auth.users, not on profiles — `profiles` has no email
   // column at all, so a lookup there returns nothing and silently stops
@@ -345,6 +323,17 @@ async function loadCandidates(): Promise<Candidate[]> {
   const fingerprinted = rows.filter(
     (r) => r.completed_at != null && isExactly24hApart(r.completed_at, r.updated_at),
   )
+
+  // Rows that look like phantoms but whose stamp is off by a little. Read from
+  // the same result set — every one is already in `rows`, the exact filter
+  // simply drops them — so this costs nothing and is purely a report. Printed
+  // at the top of the run because it changes what the operator should trust:
+  // a non-zero count means something already updated these rows, and whatever
+  // this run finds is a floor rather than the whole picture.
+  nearFingerprintCount = rows.filter(
+    (r) => r.completed_at != null && isNearFingerprint(r.completed_at, r.updated_at),
+  ).length
+
   if (fingerprinted.length === 0) return []
 
   const goalIds = Array.from(
@@ -396,6 +385,19 @@ function report(candidates: Candidate[]): void {
 
   console.log('\n═══ PHANTOM COMPLETIONS ═══════════════════════════════════════════')
   console.log(`matched by fingerprint: ${candidates.length} rows`)
+  if (nearFingerprintCount > 0) {
+    console.log(
+      `\n  ⚠ ${nearFingerprintCount} rows near the fingerprint but not matching; ` +
+        'a prior update may have bumped updated_at. Review by hand.',
+    )
+    console.log(
+      '    Any write to a swept row destroys the fingerprint, so these are invisible',
+    )
+    console.log(
+      '    to the matcher. Run this script BEFORE realigning queue_position — see',
+    )
+    console.log('    the repair section of CLAUDE.md for the order.')
+  }
   for (const klass of ['REVERT', 'SKIP_NO_SLOT', 'REVIEW'] as Klass[]) {
     const list = byClass.get(klass) ?? []
     const users = new Set(list.map((c) => c.goal.user_id)).size

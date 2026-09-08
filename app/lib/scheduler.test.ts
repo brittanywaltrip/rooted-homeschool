@@ -60,6 +60,9 @@ import {
   initialCheckedKeys,
   buildRecoveryRows,
   entryKey,
+  goalsWithUncheckedRows,
+  confirmButtonLabel,
+  gapStartAfterAnswer,
 } from './recoverySelection.ts'
 
 import { readFileSync } from 'node:fs'
@@ -5915,14 +5918,22 @@ test('recovery modal: re-picking the same date is not a "picked" choice', () => 
 
 test('recovery modal: the button names the checked count and disables at zero', () => {
   const src = stripComments(loadRepoFile('app/components/MissedLessonRecoveryModal.tsx'))
+  // The wording moved into confirmButtonLabel so it can be tested directly
+  // (see "the button names both halves"). The component delegates rather than
+  // holding a second copy of the sentence.
   assert.ok(
-    /`Mark \$\{checkedCount\} done on these days`/.test(src),
-    'the primary button counts what is checked, not what was offered',
+    /confirmButtonLabel\(checkedCount, allEntries\.length - checkedCount\)/.test(src),
+    'the label comes from the shared helper, counting what is checked',
+  )
+  assert.ok(
+    !/`Mark \$\{checkedCount\} done/.test(src),
+    'and the component no longer builds the sentence itself',
   )
   assert.ok(
     /disabled=\{submitting !== null \|\| checkedCount === 0\}/.test(src),
-    'and is disabled when nothing is checked',
+    'the button is disabled when nothing is checked',
   )
+  assert.equal(confirmButtonLabel(0, 3), 'Nothing selected')
 })
 
 test('recovery modal: an over-cap goal starts unchecked, everything else starts checked', () => {
@@ -6175,4 +6186,260 @@ test('resolvePriorLessonDay: returns null when there is no honest answer', () =>
     vacationBlocks: [{ start_date: '2016-01-01', end_date: '2036-01-01' }],
   })
   assert.equal(got, null, 'the caller decides what to do rather than being handed a guess')
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Unchecking is an answer (September 2026)
+//
+// The recovery prompt used to leave unchecked rows exactly as they were, which
+// meant the gap recomputed from the same anchor on the next load and the same
+// lessons came back with the same past dates. A family who skipped a week got
+// asked every session until they found "No, reschedule them". Telling Rooted
+// "we did not do these" has to mean something.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('unchecked: confirming 1 of 9 writes one row and settles the goal', () => {
+  const entries = recoveryEntries(
+    'g1',
+    ['2026-08-24', '2026-08-25', '2026-08-26', '2026-08-27', '2026-08-28',
+     '2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03'],
+  )
+  const byGoal = new Map([['g1', entries]])
+  const checked = new Set([entryKey(entries[0])])
+
+  const written = buildRecoveryRows({ entriesByGoal: byGoal, goalIds: ['g1'], checked, editedDates: {} })
+  assert.equal(written.length, 1, 'exactly one completion is written')
+  assert.equal(written[0].lesson_number, 15)
+
+  const resched = goalsWithUncheckedRows({ entriesByGoal: byGoal, goalIds: ['g1'], written })
+  assert.deepEqual(resched, ['g1'], 'the goal is settled so it stops being offered')
+})
+
+test('unchecked: confirming everything settles nothing', () => {
+  const entries = recoveryEntries('g1', ['2026-08-24', '2026-08-25', '2026-08-26'])
+  const byGoal = new Map([['g1', entries]])
+  const checked = new Set(entries.map(entryKey))
+  const written = buildRecoveryRows({ entriesByGoal: byGoal, goalIds: ['g1'], checked, editedDates: {} })
+  assert.equal(written.length, 3, 'every row is written')
+  assert.deepEqual(
+    goalsWithUncheckedRows({ entriesByGoal: byGoal, goalIds: ['g1'], written }),
+    [],
+    'nothing was left unchecked, so nothing is moved ahead',
+  )
+})
+
+test('unchecked: only the goals with an unchecked row are settled', () => {
+  const a = recoveryEntries('g-all', ['2026-08-24', '2026-08-25'])
+  const b = recoveryEntries('g-some', ['2026-08-24', '2026-08-25'])
+  const byGoal = new Map([['g-all', a], ['g-some', b]])
+  // Everything on g-all, only the first on g-some.
+  const checked = new Set([...a.map(entryKey), entryKey(b[0])])
+  const written = buildRecoveryRows({
+    entriesByGoal: byGoal, goalIds: ['g-all', 'g-some'], checked, editedDates: {},
+  })
+  assert.equal(written.length, 3)
+  assert.deepEqual(
+    goalsWithUncheckedRows({ entriesByGoal: byGoal, goalIds: ['g-all', 'g-some'], written }),
+    ['g-some'],
+    'a fully-answered goal is not swept along with its neighbour',
+  )
+})
+
+test('unchecked: the button names both halves of what will happen', () => {
+  assert.equal(confirmButtonLabel(9, 0), 'Mark 9 done on these days', 'all checked')
+  assert.equal(confirmButtonLabel(4, 5), 'Mark 4 done, move 5 ahead', 'some unchecked')
+  assert.equal(confirmButtonLabel(1, 8), 'Mark 1 done, move 8 ahead')
+  assert.equal(confirmButtonLabel(0, 9), 'Nothing selected', 'none checked; the button is disabled')
+})
+
+test('unchecked: an answer narrows the next gap window to after it', () => {
+  const anchor = new Date(2026, 7, 24) // Mon Aug 24
+  // No answer recorded: the window is whatever the completion anchor said.
+  assert.equal(gapStartAfterAnswer(anchor, null).getTime(), anchor.getTime())
+  assert.equal(gapStartAfterAnswer(anchor, '').getTime(), anchor.getTime())
+  assert.equal(gapStartAfterAnswer(anchor, 'nonsense').getTime(), anchor.getTime())
+
+  // Answered Sep 8: the next window opens Sep 9, so the day they answered on
+  // is not offered straight back to them.
+  const after = gapStartAfterAnswer(anchor, '2026-09-08')
+  assert.equal(after.getFullYear(), 2026)
+  assert.equal(after.getMonth(), 8)
+  assert.equal(after.getDate(), 9)
+
+  // An answer can only ever narrow. An old answer does not widen the window
+  // back past a more recent completion.
+  const recent = new Date(2026, 8, 20)
+  assert.equal(gapStartAfterAnswer(recent, '2026-09-08').getTime(), recent.getTime())
+})
+
+test('unchecked: answering today empties the gap that same day', () => {
+  // The acceptance case, exercised through the real projector: a goal answered
+  // today must produce no entries, so the banner reads 0 and the prompt does
+  // not reopen on reload.
+  const today = new Date(2026, 8, 8) // Tue Sep 8
+  const anchor = new Date(2026, 7, 24)
+  const cfg = goalCfg({ current_lesson: 15, total_lessons: 40 })
+
+  const before = computeGapLessonsForGoal(cfg, anchor, today)
+  assert.ok(before.length > 0, 'without an answer the gap is real')
+
+  const gapStart = gapStartAfterAnswer(anchor, '2026-09-08')
+  const after = computeGapLessonsForGoal(cfg, gapStart, today)
+  assert.deepEqual(after, [], 'answered today, so nothing is offered today')
+})
+
+test('unchecked: tomorrow asks only about the day genuinely missed', () => {
+  // The answer must not silence the prompt forever — only the window it
+  // covered. Answered Sep 8, today Sep 10: Sep 9 is a real new miss.
+  const cfg = goalCfg({ current_lesson: 15, total_lessons: 40 })
+  const gapStart = gapStartAfterAnswer(new Date(2026, 7, 24), '2026-09-08')
+  const entries = computeGapLessonsForGoal(cfg, gapStart, new Date(2026, 8, 10))
+  assert.equal(entries.length, 1, 'one newly missed school day')
+  assert.equal(entries[0].date, '2026-09-09')
+})
+
+
+test('unchecked: Yes and No settle through the SAME helper', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const yes = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  const no = extractFunctionBody(src, /async function handleMissedRecoveryNo\s*\(/)
+  assert.ok(/await markCatchupAnswered\(/.test(yes), 'the Yes path settles its unchecked goals')
+  assert.ok(/await markCatchupAnswered\(/.test(no), 'the No path settles every offered goal')
+  // Awaited, both of them: loadData re-reads catchup_answered_on immediately
+  // after, so a fire-and-forget write would race its own refresh and the
+  // prompt could reopen on the very next render.
+  //
+  // One implementation, not two. Neither handler may write the column itself.
+  for (const [name, body] of [['Yes', yes], ['No', no]] as const) {
+    assert.ok(
+      !/catchup_answered_on/.test(body),
+      `the ${name} path must not write the column itself`,
+    )
+  }
+  const helper = extractFunctionBody(src, /async function markCatchupAnswered\s*\(/)
+  assert.ok(
+    /\.update\(\{ catchup_answered_on: today \}\)/.test(helper),
+    'the one implementation records the answer on the goal row',
+  )
+  assert.ok(
+    /\.eq\("user_id", effectiveUserId\)/.test(helper),
+    'and is scoped to the family, not just to the goal ids',
+  )
+  assert.ok(
+    !/localStorage/.test(helper),
+    'the answer is no longer per browser',
+  )
+})
+
+test('unchecked: the confirmation reports both halves', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const yes = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  assert.ok(/catchup_prompt_confirmed/.test(yes), 'confirm is reported once')
+  for (const field of ['checked:', 'unchecked:', 'goals_rescheduled:']) {
+    assert.ok(yes.includes(field), `the event carries ${field}`)
+  }
+})
+
+test('unchecked: the answer is fetched with the goal rows the gap is computed from', () => {
+  // Read and write have to agree on where the answer lives. loadData's own
+  // goal select is what feeds gapStartForGoal, so the column has to be in it —
+  // an absent column reads as undefined and the clamp silently does nothing.
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  assert.ok(
+    /select\("id, icon_emoji[^"]*catchup_answered_on"\)/.test(src),
+    "loadData's goal select must include catchup_answered_on",
+  )
+  assert.ok(
+    /gapStartForGoal\(goal\.id, goal\.start_date \?\? null, goal\.catchup_answered_on \?\? null\)/.test(src),
+    'and the gap must be computed from it',
+  )
+})
+
+test('unchecked: a migration exists for the column and adds it nullable', () => {
+  // Migrations are applied by hand in this repo, so a file is not proof the
+  // database changed — but a missing file IS proof the next environment will
+  // not have the column. Both halves matter.
+  const raw = loadRepoFile('supabase/migrations/20260908000000_curriculum_goals_catchup_answered_on.sql')
+  // Strip `--` comments AND the COMMENT ON body: this migration explains itself
+  // at length, and prose about "no default" is not a DEFAULT clause.
+  const sql = raw
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith('--'))
+    .join('\n')
+    .replace(/COMMENT ON COLUMN[\s\S]*?;/g, '')
+  assert.ok(
+    /ALTER TABLE public\.curriculum_goals\s*\n\s*ADD COLUMN IF NOT EXISTS catchup_answered_on date;/.test(sql),
+    'the column is added to curriculum_goals as a date',
+  )
+  assert.ok(!/NOT NULL/i.test(sql), 'nullable: NULL means never answered, which every existing goal is')
+  assert.ok(!/DEFAULT/i.test(sql), 'no default, so the add does not rewrite the table')
+  assert.ok(!/UPDATE public\.curriculum_goals/i.test(sql), 'and no backfill of existing rows')
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The printed reports say what the record says (September 2026)
+//
+// A family prints these as documentation. Three things they said that the
+// record did not: lessons the family did marked "(imported)", every curriculum
+// lesson filed under "General", and Days Present counted off a UTC instant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('reports: Days Present is the lesson’s day, never the UTC completion instant', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/reports/page.tsx'))
+  // completed_at is a timestamp. A Central-time family checking off Friday's
+  // lesson at 8pm gets a Saturday UTC date, so Saturday counted present and
+  // Friday did not. That number goes on an attendance record.
+  assert.ok(
+    !/completed_at\.slice\(0, 10\)/.test(src),
+    'the attendance day must not be sliced out of the UTC timestamp',
+  )
+  assert.ok(
+    !/completed_at/.test(src),
+    'and with its only reader gone, the column is no longer selected at all',
+  )
+  // The same date rule the page already uses to filter lessons into the range.
+  assert.ok(
+    /const day = l\.date \?\? l\.scheduled_date;\s*\n\s*if \(day\) presentDates\.add\(day\)/.test(src),
+    'Days Present reads the lesson day, with the page’s own date fallback',
+  )
+})
+
+test('reports: the PDF no longer marks a family’s own lessons as imported', () => {
+  const src = stripComments(loadRepoFile('lib/progress-report.ts'))
+  // The lesson loop must not brand anything "(imported)". The activity-log
+  // loop below it still may: activity_logs.is_backfill is a different table's
+  // flag and has not been overloaded.
+  const lessonLoop = src.slice(
+    src.indexOf('for (const l of scopedDone)'),
+    src.indexOf('for (const m of scopedMemories)'),
+  )
+  assert.ok(lessonLoop.length > 0, 'the lesson loop is findable')
+  assert.ok(!/imported/i.test(lessonLoop), 'no "(imported)" on a completed lesson')
+  assert.ok(!/is_backfill/.test(lessonLoop), 'and the flag is not read there at all')
+  assert.ok(
+    /lessonDailyLogRow\(\{/.test(lessonLoop),
+    'the row is built by the shared helper, which is where the rule is tested',
+  )
+})
+
+test('reports: the PDF fetches the subject where it actually lives', () => {
+  const src = stripComments(loadRepoFile('lib/progress-report.ts'))
+  // Curriculum lessons carry subject_id NULL; the subject is on the goal. The
+  // select has to ask for it or the resolver can only ever answer "General".
+  assert.ok(
+    /curriculum_goals\(subject_label, curriculum_name\)/.test(src),
+    'the lessons select must join the goal for its subject',
+  )
+})
+
+test('reports: the activity-log "(imported)" marker is deliberately left alone', () => {
+  // Scoped fix. activity_logs.is_backfill still means what it says, so the
+  // callout and the activity row keep it. Pinned so a later sweep for the word
+  // does not remove a marker that is still true.
+  const src = stripComments(loadRepoFile('lib/progress-report.ts'))
+  const activityLoop = src.slice(src.indexOf('for (const a of scopedActivityLogs)'))
+  assert.ok(
+    /a\.is_backfill \? " \(imported\)" : ""/.test(activityLoop),
+    'the activity row keeps its marker',
+  )
 })
