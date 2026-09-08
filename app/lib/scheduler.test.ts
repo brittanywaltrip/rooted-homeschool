@@ -65,6 +65,12 @@ import {
   gapStartAfterAnswer,
 } from './recoverySelection.ts'
 
+import {
+  planEmptyGoalLessons,
+  healEmptyGoal,
+  isOldEnoughToHeal,
+} from './healEmptyGoal.ts'
+
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -6346,7 +6352,7 @@ test('unchecked: the answer is fetched with the goal rows the gap is computed fr
   // an absent column reads as undefined and the clamp silently does nothing.
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
   assert.ok(
-    /select\("id, icon_emoji[^"]*catchup_answered_on"\)/.test(src),
+    /select\("id, icon_emoji[^"]*catchup_answered_on[^"]*"\)/.test(src),
     "loadData's goal select must include catchup_answered_on",
   )
   assert.ok(
@@ -6442,4 +6448,194 @@ test('reports: the activity-log "(imported)" marker is deliberately left alone',
     /a\.is_backfill \? " \(imported\)" : ""/.test(activityLoop),
     'the activity row keeps its marker',
   )
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Empty curricula heal themselves (September 2026)
+//
+// The Schedule Builder saves in two phases and a dropped connection between
+// them leaves a goal with settings and zero lesson rows. One save on 2026-08-27
+// left six goals that way on one family, and the only recovery was a soft
+// notice at the bottom of a page they had already left.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const healGoal = (over: Record<string, unknown> = {}) => ({
+  id: 'g-empty',
+  child_id: 'kid-1',
+  curriculum_name: 'Core Knowledge',
+  total_lessons: 36,
+  current_lesson: 0,
+  lessons_per_day: 1,
+  lessons_per_day_overrides: null,
+  school_days: ['Mon'],
+  start_date: null,
+  created_at: '2020-01-01T00:00:00.000Z',
+  ...over,
+})
+
+/** Minimal stub: records what was asked, answers what the test wants. */
+function stubClient(opts: { count: number | null; countError?: boolean }) {
+  const calls: { inserts: unknown[][]; counted: number } = { inserts: [], counted: 0 }
+  const client = {
+    from() {
+      return {
+        select() {
+          calls.counted += 1
+          return {
+            eq: async () => ({
+              count: opts.countError ? null : opts.count,
+              error: opts.countError ? { message: 'boom' } : null,
+            }),
+          }
+        },
+        insert: async (rows: unknown[]) => {
+          calls.inserts.push(rows)
+          return { error: null }
+        },
+        update() {
+          return { eq: async () => ({ error: null }) }
+        },
+      }
+    },
+  }
+  return { client, calls }
+}
+
+test('self-heal: a 36-lesson Mon-only goal plans 36 rows, every one a Monday', () => {
+  // Through the real projector, the same way the repair script asserts it.
+  const rows = planEmptyGoalLessons({
+    goal: healGoal() as never,
+    vacationBlocks: [],
+    today: new Date(2026, 8, 8), // Tue Sep 8
+    userId: 'u1',
+  })
+  assert.equal(rows.length, 36)
+  for (const r of rows) {
+    const dow = new Date(`${r.scheduled_date}T12:00:00`).getDay()
+    assert.equal(dow, 1, `${r.scheduled_date} must be a Monday`)
+    assert.equal(r.date, r.scheduled_date, 'both date columns agree')
+    assert.equal(r.scheduled_source, 'self_heal', 'Invariant 10')
+    assert.equal(r.completed, false, 'a heal never claims work was done')
+  }
+  // The queue invariant: slot equals number on a healthy goal.
+  for (const r of rows) assert.equal(r.queue_position, r.lesson_number)
+  assert.deepEqual(
+    rows.map((r) => r.lesson_number),
+    Array.from({ length: 36 }, (_, i) => i + 1),
+    'lessons 1..36, in order, none missing',
+  )
+})
+
+test('self-heal: a goal whose pointer is already at the end plans nothing', () => {
+  // The NOTHING-TO-PLAN shape the repair script reports: current_lesson has
+  // reached total_lessons, so the projector emits nothing and there is no
+  // lesson left to lay.
+  const rows = planEmptyGoalLessons({
+    goal: healGoal({ total_lessons: 1, current_lesson: 1 }) as never,
+    vacationBlocks: [],
+    today: new Date(2026, 8, 8),
+    userId: 'u1',
+  })
+  assert.deepEqual(rows, [])
+})
+
+test('self-heal: vacations are respected, so no row lands inside a break', () => {
+  const rows = planEmptyGoalLessons({
+    goal: healGoal({ school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], total_lessons: 10 }) as never,
+    vacationBlocks: [{ start_date: '2026-09-14', end_date: '2026-09-18' }],
+    today: new Date(2026, 8, 8),
+    userId: 'u1',
+  })
+  assert.equal(rows.length, 10)
+  for (const r of rows) {
+    assert.ok(
+      r.scheduled_date < '2026-09-14' || r.scheduled_date > '2026-09-18',
+      `${r.scheduled_date} falls inside the break`,
+    )
+  }
+})
+
+test('self-heal: a goal that already has ONE row is left completely alone', async () => {
+  const { client, calls } = stubClient({ count: 1 })
+  const written = await healEmptyGoal(client as never, {
+    goal: healGoal() as never,
+    vacationBlocks: [],
+    today: new Date(2026, 8, 8),
+    userId: 'u1',
+  })
+  assert.equal(written, 0)
+  assert.equal(calls.inserts.length, 0, 'nothing was written')
+})
+
+test('self-heal: a goal created 30 seconds ago is left for the builder', async () => {
+  const now = new Date('2026-09-08T12:00:00.000Z')
+  const { client, calls } = stubClient({ count: 0 })
+  const written = await healEmptyGoal(client as never, {
+    goal: healGoal({ created_at: '2026-09-08T11:59:30.000Z' }) as never,
+    vacationBlocks: [],
+    today: new Date(2026, 8, 8),
+    userId: 'u1',
+    now,
+  })
+  assert.equal(written, 0)
+  assert.equal(calls.inserts.length, 0, 'nothing was written')
+  assert.equal(calls.counted, 0, 'and the goal was not even counted: age is checked first')
+})
+
+test('self-heal: the age guard is two minutes, and it is a floor not a window', () => {
+  const now = new Date('2026-09-08T12:00:00.000Z')
+  assert.equal(isOldEnoughToHeal('2026-09-08T11:57:59.000Z', now), true, 'older than 2 min')
+  assert.equal(isOldEnoughToHeal('2026-09-08T11:58:00.000Z', now), true, 'exactly 2 min')
+  assert.equal(isOldEnoughToHeal('2026-09-08T11:58:01.000Z', now), false, 'inside 2 min')
+  assert.equal(isOldEnoughToHeal(null, now), false, 'no created_at is not old enough')
+  assert.equal(isOldEnoughToHeal('nonsense', now), false, 'nor is an unparseable one')
+})
+
+test('self-heal: an unreadable count fails CLOSED', async () => {
+  // A count we could not read is not evidence of emptiness. Guessing wrong
+  // writes a duplicate curriculum over a family's real lessons.
+  const { client, calls } = stubClient({ count: null, countError: true })
+  const written = await healEmptyGoal(client as never, {
+    goal: healGoal() as never,
+    vacationBlocks: [],
+    today: new Date(2026, 8, 8),
+    userId: 'u1',
+  })
+  assert.equal(written, 0)
+  assert.equal(calls.inserts.length, 0)
+})
+
+test('self-heal: a genuinely empty goal is written in batches of 100', async () => {
+  const { client, calls } = stubClient({ count: 0 })
+  const written = await healEmptyGoal(client as never, {
+    goal: healGoal({ school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], total_lessons: 250 }) as never,
+    vacationBlocks: [],
+    today: new Date(2026, 8, 8),
+    userId: 'u1',
+  })
+  assert.equal(written, 250)
+  assert.equal(calls.inserts.length, 3, '250 rows in batches of 100')
+  assert.equal((calls.inserts[0] as unknown[]).length, 100)
+  assert.equal((calls.inserts[2] as unknown[]).length, 50)
+})
+
+test('self-heal: both load paths use the shared helper and neither rolls its own', () => {
+  for (const file of ['app/dashboard/page.tsx', 'app/components/PlanV2/index.tsx']) {
+    const src = stripComments(loadRepoFile(file))
+    assert.ok(
+      /from "@\/app\/lib\/healEmptyGoal"/.test(src),
+      `${file} must import the shared helper`,
+    )
+    assert.ok(/healEmptyGoal\(supabase, \{/.test(src), `${file} must call it`)
+    // No duplicate implementation: neither page may plan or insert its own
+    // rows for an empty goal.
+    assert.ok(
+      !/planPhase2LessonInserts\(/.test(src),
+      `${file} must not plan lesson inserts itself`,
+    )
+    assert.ok(
+      !/scheduled_source: "self_heal"/.test(src),
+      `${file} must not write heal rows itself`,
+    )
+  }
 })

@@ -41,6 +41,7 @@ import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import TodaySchedule from "@/app/components/today/TodaySchedule";
 import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type RecoveryRow } from "@/app/components/MissedLessonRecoveryModal";
 import { gapStartAfterAnswer, goalsWithUncheckedRows } from "@/app/lib/recoverySelection";
+import { healEmptyGoal, type HealableGoalRow } from "@/app/lib/healEmptyGoal";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -1117,7 +1118,7 @@ export default function TodayPage() {
       // Curriculum goals — full config for queue-based scheduling. The same
       // query also feeds the icon emoji + per-goal school_days lookups that
       // used to be its only purpose.
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, lessons_per_day_overrides, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date, catchup_answered_on").eq("user_id", effectiveUserId).eq("archived", false),
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, lessons_per_day_overrides, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date, catchup_answered_on, created_at").eq("user_id", effectiveUserId).eq("archived", false),
       // Lessons completed today per goal (local-day window). The queue
       // projector subtracts these from today's slot allocation so that
       // marking complete keeps today's slot count stable instead of
@@ -1278,6 +1279,8 @@ export default function TodayPage() {
       start_date: string | null;
       /** The day this goal's catch-up prompt was last answered. */
       catchup_answered_on: string | null;
+      /** Age guard for the empty-goal self-heal. */
+      created_at: string | null;
     };
     const goalRows = (curriculumGoalsResult.data ?? []) as GoalRow[];
     const emojiMap = new Map<string, string>();
@@ -1506,6 +1509,42 @@ export default function TodayPage() {
         : null,
     }));
     setLessons(loadedLessons);
+
+    // ── A curriculum with settings and no lessons fills itself in ─────────
+    // The Schedule Builder saves in two phases and a dropped connection
+    // between them leaves a goal with zero lesson rows and a family looking
+    // at an empty subject. Rather than wait for someone to run the repair
+    // script, heal it on the next load.
+    //
+    // Candidates only: a goal whose every projected slot came back without a
+    // row. healEmptyGoal asks the authoritative question itself (an exact head
+    // count on that one goal) before it writes anything, so a goal that merely
+    // projects nothing today is never touched. Fire-and-forget — the page has
+    // already rendered, and the new rows appear on the next load.
+    const healCandidates = goalRows.filter(
+      (g) =>
+        (projectedByGoal.get(g.id) ?? 0) > 0 &&
+        missingByGoal.get(g.id) === projectedByGoal.get(g.id),
+    );
+    if (healCandidates.length > 0) {
+      void (async () => {
+        let healed = 0;
+        for (const g of healCandidates) {
+          healed += await healEmptyGoal(supabase, {
+            goal: g as unknown as HealableGoalRow,
+            vacationBlocks,
+            today: new Date(),
+            userId: effectiveUserId,
+          });
+        }
+        // Only reload when something was actually written, so a goal that
+        // legitimately has nothing to plan cannot loop.
+        if (healed > 0) {
+          loadDataBusy.current = false;
+          await loadData();
+        }
+      })();
+    }
 
     // TODO: remove after queue scheduling verified in production. Missed
     // lessons no longer exist under queue projection — see comment above
