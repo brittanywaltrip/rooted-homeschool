@@ -21,7 +21,7 @@ type Lesson   = {
   curriculum_goal_id: string | null;
   curriculum_goals: { subject_label: string | null } | null;
   title: string; date: string | null; scheduled_date: string | null;
-  completed: boolean; completed_at: string | null;
+  completed: boolean;
   minutes_spent: number | null;
 };
 /**
@@ -209,7 +209,20 @@ function PrintReport({
   // Dates appearing in both contribute once (Set dedupes).
   const presentDates = new Set<string>();
   for (const l of completedLessons) {
-    if (l.completed_at) presentDates.add(l.completed_at.slice(0, 10));
+    // The lesson's own DAY, not the UTC instant it was checked off at.
+    //
+    // completed_at is a timestamp: a family in Central time who checks off
+    // Friday's lesson at 8pm Friday has a completed_at of Saturday 02:00 UTC,
+    // so Saturday was counted present and Friday was absent unless something
+    // else happened to be logged that day. 38 of 139 completed lessons on the
+    // account this was found on have a UTC date that differs from the lesson's
+    // date, and this number goes on an attendance record.
+    //
+    // Invariant 16 made lessons.date the day the family saw and agreed to, so
+    // it is the honest answer. Same `date ?? scheduled_date` rule this page
+    // already uses to filter lessons into the range.
+    const day = l.date ?? l.scheduled_date;
+    if (day) presentDates.add(day);
   }
   for (const a of filteredAppointments) {
     presentDates.add(a.date);
@@ -712,7 +725,7 @@ export default function ReportsPage() {
         { data: exceptionAppts },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-        supabase.from("lessons").select("id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, completed_at, minutes_spent").eq("user_id", effectiveUserId),
+        supabase.from("lessons").select("id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, minutes_spent").eq("user_id", effectiveUserId),
         // Books live in `memories` (type 'book') since March 2026. The legacy
         // app_events read below is kept so pre-March books still count.
         // id / caption / photo_url ride along for the Reading Log: a render

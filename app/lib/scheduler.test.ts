@@ -6375,3 +6375,71 @@ test('unchecked: a migration exists for the column and adds it nullable', () => 
   assert.ok(!/DEFAULT/i.test(sql), 'no default, so the add does not rewrite the table')
   assert.ok(!/UPDATE public\.curriculum_goals/i.test(sql), 'and no backfill of existing rows')
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The printed reports say what the record says (September 2026)
+//
+// A family prints these as documentation. Three things they said that the
+// record did not: lessons the family did marked "(imported)", every curriculum
+// lesson filed under "General", and Days Present counted off a UTC instant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('reports: Days Present is the lesson’s day, never the UTC completion instant', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/reports/page.tsx'))
+  // completed_at is a timestamp. A Central-time family checking off Friday's
+  // lesson at 8pm gets a Saturday UTC date, so Saturday counted present and
+  // Friday did not. That number goes on an attendance record.
+  assert.ok(
+    !/completed_at\.slice\(0, 10\)/.test(src),
+    'the attendance day must not be sliced out of the UTC timestamp',
+  )
+  assert.ok(
+    !/completed_at/.test(src),
+    'and with its only reader gone, the column is no longer selected at all',
+  )
+  // The same date rule the page already uses to filter lessons into the range.
+  assert.ok(
+    /const day = l\.date \?\? l\.scheduled_date;\s*\n\s*if \(day\) presentDates\.add\(day\)/.test(src),
+    'Days Present reads the lesson day, with the page’s own date fallback',
+  )
+})
+
+test('reports: the PDF no longer marks a family’s own lessons as imported', () => {
+  const src = stripComments(loadRepoFile('lib/progress-report.ts'))
+  // The lesson loop must not brand anything "(imported)". The activity-log
+  // loop below it still may: activity_logs.is_backfill is a different table's
+  // flag and has not been overloaded.
+  const lessonLoop = src.slice(
+    src.indexOf('for (const l of scopedDone)'),
+    src.indexOf('for (const m of scopedMemories)'),
+  )
+  assert.ok(lessonLoop.length > 0, 'the lesson loop is findable')
+  assert.ok(!/imported/i.test(lessonLoop), 'no "(imported)" on a completed lesson')
+  assert.ok(!/is_backfill/.test(lessonLoop), 'and the flag is not read there at all')
+  assert.ok(
+    /lessonDailyLogRow\(\{/.test(lessonLoop),
+    'the row is built by the shared helper, which is where the rule is tested',
+  )
+})
+
+test('reports: the PDF fetches the subject where it actually lives', () => {
+  const src = stripComments(loadRepoFile('lib/progress-report.ts'))
+  // Curriculum lessons carry subject_id NULL; the subject is on the goal. The
+  // select has to ask for it or the resolver can only ever answer "General".
+  assert.ok(
+    /curriculum_goals\(subject_label, curriculum_name\)/.test(src),
+    'the lessons select must join the goal for its subject',
+  )
+})
+
+test('reports: the activity-log "(imported)" marker is deliberately left alone', () => {
+  // Scoped fix. activity_logs.is_backfill still means what it says, so the
+  // callout and the activity row keep it. Pinned so a later sweep for the word
+  // does not remove a marker that is still true.
+  const src = stripComments(loadRepoFile('lib/progress-report.ts'))
+  const activityLoop = src.slice(src.indexOf('for (const a of scopedActivityLogs)'))
+  assert.ok(
+    /a\.is_backfill \? " \(imported\)" : ""/.test(activityLoop),
+    'the activity row keeps its marker',
+  )
+})
