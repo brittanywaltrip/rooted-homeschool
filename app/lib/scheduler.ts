@@ -83,9 +83,31 @@ export function forwardScheduleStart(userPickedStart: Date, today: Date): Date {
  * that could change the completion state of a lesson (complete, uncomplete,
  * delete, insert, backfill).
  */
+export interface RecomputeCurrentLessonOptions {
+  /**
+   * A value the pointer may not be written BELOW, on top of the
+   * `start_at_lesson - 1` floor the formula already applies.
+   *
+   * For the caller that has just recorded a completion for a lesson the
+   * pointer already counts (Today's "Did you finish Lesson N?" prompt). That
+   * row can carry a NULL queue_position — the orphan-cleanup trigger stripped
+   * slots for over a year — and MAX(queue_position) over completed rows would
+   * then answer LOWER than where the family actually is, re-opening lessons
+   * they have worked past. Holding the pointer still is always safe; moving it
+   * backwards is not.
+   *
+   * It is a floor, never an advance: it cannot push the pointer past what the
+   * completed rows support, so it can never fire the cleanup trigger or mark a
+   * lesson done that nobody did. Omit it and the formula is byte-identical to
+   * what it has always been.
+   */
+  neverBelow?: number;
+}
+
 export async function recomputeCurrentLesson(
   supabase: SupabaseClient,
   goalId: string,
+  options: RecomputeCurrentLessonOptions = {},
 ): Promise<number | null> {
   const { data: goal, error: goalErr } = await supabase
     .from("curriculum_goals")
@@ -119,7 +141,10 @@ export async function recomputeCurrentLesson(
 
   const maxCompleted = (completedRows?.[0] as { queue_position: number | null } | undefined)?.queue_position ?? 0;
   const floor = Math.max(0, startAt - 1);
-  let value = Math.max(floor, maxCompleted);
+  // `neverBelow` joins the floor rather than overriding the formula: it can
+  // only stop the pointer sliding backwards, never push it forwards.
+  const holdAt = Math.max(0, options.neverBelow ?? 0);
+  let value = Math.max(floor, maxCompleted, holdAt);
   if (total > 0) value = Math.min(value, total);
 
   const { error: updateErr } = await supabase
@@ -1334,6 +1359,45 @@ export function effectiveDueDate(
 }
 
 /**
+ * Walk BACKWARD from `beforeDate` (YYYY-MM-DD, exclusive) to the most recent
+ * date that is BOTH a school day for the curriculum AND not inside a vacation
+ * block. Returns YYYY-MM-DD, or null when nothing qualifies inside the lookback
+ * window.
+ *
+ * The mirror image of `effectiveDueDate`, and it lives here for the same reason
+ * that one does: Invariant 8 keeps every day-walk loop in this file, so there is
+ * one definition of "a day this goal does school on" rather than a second copy
+ * in a page component that can drift from it.
+ *
+ * Used to answer "when did this family most recently have school?" — the
+ * question Today's prior-lesson confirmation asks when it records a lesson
+ * finished before today and the queue has no projected date to offer. Walking
+ * back a flat one day would answer Monday for a Tue/Wed goal, filing the work on
+ * a day that family never does school.
+ *
+ * `schoolDays` falls back to Mon-Fri when null/empty (Invariant 5), so the walk
+ * always terminates on a real weekday rather than running the window out.
+ */
+export function mostRecentSchoolDayBefore(
+  beforeDate: string,
+  schoolDays: string[] | null | undefined,
+  vacationBlocks?: VacationBlock[] | null,
+  maxLookbackDays: number = 3650,
+): string | null {
+  let cursor = addDays(beforeDate, -1);
+  for (let i = 0; i < maxLookbackDays; i++) {
+    if (
+      !isVacationDay(cursor, vacationBlocks) &&
+      isSchoolDay(new Date(cursor + "T12:00:00"), schoolDays)
+    ) {
+      return cursor;
+    }
+    cursor = addDays(cursor, -1);
+  }
+  return null;
+}
+
+/**
  * Convenience wrapper used by every "is this lesson missed?" call site
  * in the app. A lesson is missed iff:
  *
@@ -2056,10 +2120,15 @@ export function monotonicCompletedAt(
  * so the projector never re-spreads the row (Invariant 3), and tags
  * scheduled_source = 'catchup_resched' per Invariant 10.
  *
- * Use ONLY for past-day completions. The regular "complete today" path
- * (Today page tap, Plan page "mark not done" undo) writes
- * `completed_at = new Date().toISOString()` directly without any of the
- * date-pinning or backfill flags — that path is correct as-is.
+ * Use ONLY for past-day completions. The regular "complete today" paths write
+ * `completed_at = new Date().toISOString()` and set no backfill flag. They DO
+ * pin the date columns, so do not read this as "those paths leave dates alone":
+ * Today pins `date` / `scheduled_date` to today on every completion
+ * (confirmCheckOff and toggleLesson in app/dashboard/page.tsx), and Plan pins
+ * them only when the row's current date is today or later
+ * (usePlanLessonActions), so a past-dated row keeps the day it was scheduled
+ * for. What those paths do not do is stamp a day the user chose, which is the
+ * whole job of this payload.
  *
  * `completedAt` is an ISO 8601 string. The first 10 chars (YYYY-MM-DD)
  * become the row's `date` and `scheduled_date`. Callers should pass

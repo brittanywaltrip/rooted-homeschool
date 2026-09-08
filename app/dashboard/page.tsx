@@ -11,7 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, toGoalConfig, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, toGoalConfig, mostRecentSchoolDayBefore, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib/timezone";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
@@ -1627,13 +1627,12 @@ export default function TodayPage() {
         return;
       }
 
-      // One SELECT covers every candidate. We match against lesson_number
-      // (the canonical curriculum index that stays pinned per
-      // docs/CURRICULUM-SCHEDULING.md) rather than queue_position, which
-      // gets nulled by trg_curriculum_goals_cleanup_orphans whenever
-      // current_lesson advances. Without this, the trigger would null
-      // queue_position on the row we just marked complete and the next
-      // load would re-flag the goal as unconfirmed.
+      // We match against lesson_number (the canonical curriculum index that
+      // stays pinned per docs/CURRICULUM-SCHEDULING.md) rather than
+      // queue_position, which trg_curriculum_goals_cleanup_orphans used to
+      // null whenever current_lesson advanced. Without this, that trigger
+      // would null queue_position on the row we just marked complete and the
+      // next load would re-flag the goal as unconfirmed.
       //
       // The check distinguishes "row missing entirely" from "row exists
       // but not yet marked done." Only the missing-row case triggers the
@@ -1646,24 +1645,62 @@ export default function TodayPage() {
       //
       //   * A normal forward lesson at lesson_number = current_lesson
       //     (row present, completed=false) is just today's lesson sitting
-      //     unfinished. The Yes-handler advances current_lesson by 1, so
-      //     re-prompting on every completed=false row would chain a fresh
-      //     prompt after every Yes click. Suppress it.
+      //     unfinished. Prompting there would ask the family to confirm a
+      //     lesson that is on their list for today. Suppress it.
       //
-      // Failure is silent: a transient query error leaves
-      // needsConfirmation untouched rather than showing a stale prompt or
-      // erasing a real one.
-      const { data: presentRows, error: presentErr } = await supabase
-        .from("lessons")
-        .select("curriculum_goal_id, lesson_number")
-        .eq("user_id", effectiveUserId)
-        .in("curriculum_goal_id", candidates.map((g) => g.id))
-        .not("lesson_number", "is", null);
-      if (presentErr) return;
-      const presentSet = new Set(
-        ((presentRows ?? []) as { curriculum_goal_id: string; lesson_number: number }[])
-          .map((r) => `${r.curriculum_goal_id}|${r.lesson_number}`),
-      );
+      // ASK ONLY WHAT IS BEING ASKED (2026-09-07). This used to download
+      // EVERY lesson row of every candidate goal and build a client-side set
+      // of (goal, lesson_number) pairs, to answer at most one membership
+      // question per goal. One row per goal was needed; thousands were
+      // fetched. PostgREST caps an unbounded response at db-max-rows (1000 on
+      // this project) and says so only in the Content-Range header, which the
+      // supabase-js result does not surface here — so past the cap the client
+      // could not tell a truncated answer from a complete one, and a missing
+      // key read as "no row exists". Every family whose confirm prompt fired
+      // on a row that was really there is above that cap: 14 accounts, the
+      // smallest holding 1,230 lesson rows, none below 1,000. Each false
+      // prompt then advanced the queue pointer and the orphan-cleanup trigger
+      // auto-completed the next lesson behind it (83 of the 289 phantom
+      // completions in production on 2026-09-07).
+      //
+      // The fix is not a bigger page size. It is to stop asking a question
+      // whose answer scales with the family's history: request exactly the
+      // (goal, lesson_number) pairs in question, at most one row each, in
+      // chunks small enough that no URL or row cap is anywhere near reach.
+      // lessons_goal_lesson_number_unique guarantees at most one row per pair,
+      // so a chunk that comes back holding fewer rows than it asked about is
+      // reporting genuine absences, not truncation.
+      //
+      // Fail CLOSED. A prompt shown wrongly writes to the family's record; a
+      // prompt withheld costs nothing but a page load. So any error, on any
+      // chunk, clears the list rather than leaving a stale one on screen.
+      const PAIR_CHUNK = 25;
+      const presentSet = new Set<string>();
+      for (let i = 0; i < candidates.length; i += PAIR_CHUNK) {
+        const chunk = candidates.slice(i, i + PAIR_CHUNK);
+        const { data: presentRows, error: presentErr } = await supabase
+          .from("lessons")
+          .select("curriculum_goal_id, lesson_number")
+          .eq("user_id", effectiveUserId)
+          .or(
+            chunk
+              .map(
+                (g) =>
+                  `and(curriculum_goal_id.eq.${g.id},lesson_number.eq.${g.current_lesson})`,
+              )
+              .join(","),
+          );
+        if (presentErr) {
+          setNeedsConfirmation([]);
+          return;
+        }
+        for (const r of (presentRows ?? []) as {
+          curriculum_goal_id: string;
+          lesson_number: number;
+        }[]) {
+          presentSet.add(`${r.curriculum_goal_id}|${r.lesson_number}`);
+        }
+      }
 
       const unconfirmed = candidates
         .filter((g) => !presentSet.has(`${g.id}|${g.current_lesson}`))
@@ -2460,6 +2497,9 @@ export default function TodayPage() {
       hours: minutes / 60.0,
       scheduled_date: today,
       date: today,
+      // Invariant 10. The check-off modal is the main completion path on
+      // Today, and it pins the same way toggleLesson does.
+      scheduled_source: "completion_pin",
     }).eq("id", lesson.id);
     // Update local state
     setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, completed: true, minutes_spent: minutes, hours: minutes / 60.0 } : l));
@@ -2603,6 +2643,12 @@ export default function TodayPage() {
     if (pinDateToToday) {
       update.scheduled_date = todayStr;
       update.date = todayStr;
+      // Invariant 10: a write to lessons.date names its source. This pin was
+      // one of the two paths that had no label, so a completion pinned to the
+      // tap day was indistinguishable in the data from whatever wrote the row
+      // before it — which is why the September 2026 investigation had to date
+      // rows by their microsecond timestamps to work out who wrote them.
+      update.scheduled_source = "completion_pin";
     }
     await supabase.from("lessons").update(update).eq("id", id);
 
@@ -2903,6 +2949,9 @@ export default function TodayPage() {
       completed_at: new Date().toISOString(),
       date: today,
       scheduled_date: today,
+      // Invariant 10. Same pin as toggleLesson, in bulk: these lessons are
+      // being recorded as done today, so their calendar date becomes today.
+      scheduled_source: "completion_pin",
     }).in("id", lessonIds);
     if (batchError) {
       console.error("Failed to save extra lessons:", batchError);
@@ -3084,6 +3133,8 @@ export default function TodayPage() {
       date: today,
       scheduled_date: today,
       minutes_spent: mins,
+      // Invariant 10, same completion pin.
+      scheduled_source: "completion_pin",
     }).eq("id", nextLesson.id);
 
     // Recompute current_lesson from actual rows (Bug 3). No auto-insert of
@@ -3155,6 +3206,8 @@ export default function TodayPage() {
       hours: mins != null ? mins / 60.0 : null,
       scheduled_date: today,
       date: today,
+      // Invariant 10. Third instance of the same completion pin.
+      scheduled_source: "completion_pin",
     }).eq("id", lesson.id);
     setMissedLessons(prev => prev.filter(l => l.id !== lesson.id));
     if (lesson.curriculum_goal_id) {
@@ -3207,7 +3260,43 @@ export default function TodayPage() {
       return next;
     });
     try {
-      const completedAtIso = new Date().toISOString();
+      // The goal itself, FIRST, before anything is written.
+      //
+      // Every part of this action belongs to a goal that exists: the lesson row
+      // carries curriculum_goal_id as a foreign key, the date is derived from
+      // the goal's school_days, and the whole point is to advance that goal's
+      // current_lesson. A client can hold a stale reference to one that has
+      // since been deleted (another tab, another device, a goal removed in the
+      // Schedule Builder while Today sat open), and this prompt is rendered
+      // from state loaded before that happened.
+      //
+      // Fail CLOSED. Left to fall through, the day resolution returned null,
+      // `?? today` supplied a guessed date, and the INSERT then died on
+      // lessons_curriculum_goal_id_fkey — inside a try/finally with no catch,
+      // so it surfaced as an unhandled rejection: no row written, no word to
+      // the family, and the card still sitting there asking. Nothing is lost by
+      // stopping here, because there is nothing left to record against.
+      const { data: goalCfgRow, error: goalCfgErr } = await supabase
+        .from("curriculum_goals")
+        .select(GOAL_CONFIG_COLUMNS)
+        .eq("id", g.goal_id)
+        .maybeSingle();
+      if (goalCfgErr || !goalCfgRow) {
+        captureSupabaseError(
+          "Prior-lesson confirm: goal missing, refusing to write",
+          goalCfgErr ?? new Error(`Goal ${g.goal_id} not found`),
+          {
+            level: "warning",
+            tags: { fn: "confirmPriorLessonComplete", goal_id: g.goal_id },
+          },
+        );
+        // Drop the card: the goal is gone, so re-asking cannot help.
+        setNeedsConfirmation((prev) => prev.filter((u) => u.goal_id !== g.goal_id));
+        showCaptureToast("That curriculum isn't here anymore, so there's nothing to mark done.", null);
+        return;
+      }
+      const goalCfg = toGoalConfig(goalCfgRow as unknown as GoalConfigRow);
+
       // Look up an existing row at the canonical lesson_number so we
       // UPDATE the row when it exists (preserves notes, title, minutes)
       // and INSERT only when no row was ever pre-generated for this
@@ -3217,32 +3306,107 @@ export default function TodayPage() {
       // is_backfill=true so the queue projector never re-spreads them
       // (Invariant 3) and the Today projector's `is_backfill !== true`
       // filter keeps them out of the daily list.
+      //
+      // Both date columns are read, because this prompt confirms a lesson the
+      // family finished BEFORE today — the queue advanced past it without an
+      // audit trail. Stamping the row with today's date filed that work on the
+      // wrong day: attendance in app/dashboard/reports/page.tsx buckets on
+      // completed_at.slice(0, 10), so today gained a school day the family did
+      // not do and the day they did lost one.
       const { data: existing } = await supabase
         .from("lessons")
-        .select("id")
+        .select("id, scheduled_date, date")
         .eq("user_id", effectiveUserId)
         .eq("curriculum_goal_id", g.goal_id)
         .eq("lesson_number", g.current_lesson)
         .maybeSingle();
+      const existingRow = existing as
+        | { id: string; scheduled_date: string | null; date: string | null }
+        | null;
 
-      if (existing && (existing as { id: string }).id) {
+      // With no row there is no projected day to keep, so the day has to be
+      // derived. In practice this is the branch that runs: loadData only flags a
+      // goal when the slot has NO row at all.
+      //
+      // Ask the projector where this queue slot belonged, exactly the way
+      // planHistoricalBackfill does in app/dashboard/plan/schedule/page.tsx —
+      // rewind the queue to zero, cap total_lessons at the slot being confirmed,
+      // and run computeNextLessonsForGoal from start_date. That honors
+      // school_days, vacation blocks and per-weekday overrides, so the answer is
+      // a day this family actually does school on.
+      const resolvePastSchoolDay = (): string | null => {
+        const cfg = goalCfg;
+        const vacations: SchedVacationBlock[] = allVacationBlocks.map((v) => ({
+          start_date: v.start_date,
+          end_date: v.end_date,
+        }));
+
+        if (cfg.start_date && cfg.start_date < today && g.current_lesson > 0) {
+          const startMid = new Date(`${cfg.start_date}T00:00:00`);
+          const todayMid = new Date(`${today}T00:00:00`);
+          // Same span planHistoricalBackfill uses: the whole stretch since the
+          // start date plus a cushion, so the projector never runs out of window
+          // before it has laid every historical slot.
+          const daysSpan = Math.max(
+            1,
+            Math.floor((todayMid.getTime() - startMid.getTime()) / 86400000) + 60,
+          );
+          const histProjected = computeNextLessonsForGoal(
+            { ...cfg, current_lesson: 0, total_lessons: g.current_lesson },
+            startMid,
+            daysSpan,
+            vacations,
+          );
+          // The most recent projected school day STRICTLY before today. For the
+          // ordinary shape (every historical slot behind us) that is this slot's
+          // own day. When the projection runs past today — a recent start_date
+          // with a high starting position — it is the last day that did happen,
+          // which is the honest answer to "when did you finish it".
+          let latest: string | null = null;
+          for (const p of histProjected) {
+            if (p.date >= today) continue;
+            if (!latest || p.date > latest) latest = p.date;
+          }
+          if (latest) return latest;
+        }
+
+        // No start_date, or nothing projected behind us. Fall back to this
+        // goal's most recent school day, which still respects school_days and
+        // vacations — never a flat "yesterday" that would file a Tue/Wed
+        // curriculum's work on a Monday.
+        return mostRecentSchoolDayBefore(today, cfg.school_days, vacations);
+      };
+
+      const rowDay = existingRow?.scheduled_date ?? existingRow?.date ?? null;
+      // Last resort only if the walk finds no school day inside its 10-year
+      // lookback (every day a vacation). The clamp below turns it into today.
+      // A missing goal can no longer reach this line: it returned above.
+      const resolvedDay = rowDay ?? resolvePastSchoolDay() ?? today;
+      // A completion can never be in the future. The row's stored date may sit
+      // ahead of today (a stale projected cache), and stamping completed_at from
+      // it would file this family's attendance on a day that has not happened.
+      const stampDay = resolvedDay >= today ? today : resolvedDay;
+      // Noon UTC of the day the work happened, matching logPastDayLessons.ts
+      // and the catch-up modal. Never local noon: east of UTC that lands on the
+      // previous calendar day and buckets attendance a day early.
+      const completedAtIso = `${stampDay}T12:00:00Z`;
+
+      if (existingRow?.id) {
         const { error } = await supabase
           .from("lessons")
           .update({
             completed: true,
             completed_at: completedAtIso,
-            // Pair the INSERT branch below: pin scheduled_date / date to
-            // today so the existing row's stale future scheduled_date
-            // doesn't ghost it back onto a future calendar day.
-            scheduled_date: today,
-            date: today,
+            // scheduled_date / date deliberately untouched: the row keeps the
+            // day it was projected onto, which is the day the work is being
+            // confirmed for. Pinning them to today is what moved the record.
             is_backfill: true,
             // Invariant 10: every lesson write stamps a scheduled_source.
             // 'wizard_create' is the closest existing tag for a confirmed
             // historical completion seeded from the queue position.
             scheduled_source: "wizard_create",
           })
-          .eq("id", (existing as { id: string }).id);
+          .eq("id", existingRow.id);
         if (error) throw error;
       } else {
         const { error } = await supabase.from("lessons").insert({
@@ -3252,8 +3416,8 @@ export default function TodayPage() {
           lesson_number: g.current_lesson,
           queue_position: g.current_lesson,
           title: `${g.curriculum_name} — Lesson ${g.current_lesson}`,
-          scheduled_date: today,
-          date: today,
+          scheduled_date: resolvedDay,
+          date: resolvedDay,
           completed: true,
           completed_at: completedAtIso,
           is_backfill: true,
@@ -3263,22 +3427,40 @@ export default function TodayPage() {
         if (error) throw error;
       }
 
-      // Advance the queue pointer by one. Per spec: do not call
-      // recomputeCurrentLesson here. Its formula would clamp
-      // current_lesson back to max(queue_position) of completed rows,
-      // which equals the value we just confirmed (no advance). The
-      // confirmation prompt's contract is that Yes moves the family
-      // forward by one lesson.
-      await supabase
-        .from("curriculum_goals")
-        .update({ current_lesson: g.current_lesson + 1 })
-        .eq("id", g.goal_id);
+      // Recompute the pointer from the rows, like every other writer in the
+      // app (2026-09-07). This used to write current_lesson + 1 directly,
+      // and that single line was a third of the phantom-completion damage:
+      //
+      //   The prompt asks "did you finish Lesson N?" where N is
+      //   current_lesson, and current_lesson is DEFINED as the count of
+      //   completed lessons. So a Yes confirms what the pointer already
+      //   claims; it does not add a lesson to it. Writing N + 1 asserted
+      //   that N + 1 lessons were done, which nobody said, and
+      //   trg_curriculum_goals_cleanup_orphans then made the claim true by
+      //   auto-completing the row at N + 1 with a fabricated date. The
+      //   family lost their actual next lesson to a tap that was supposed to
+      //   record history.
+      //
+      // recomputeCurrentLesson answers from the rows: the row we just wrote
+      // sits at queue_position N and is completed, so the pointer lands on N
+      // and does not move. Nothing fires the cleanup trigger.
+      //
+      // neverBelow pins the floor at the value we already had. Completing
+      // through the UPDATE branch touches a row whose queue_position may have
+      // been stripped by the old trigger, and MAX(queue_position) over
+      // completed rows would then come back LOWER than the pointer and re-open
+      // lessons the family has already worked past. Holding the pointer still
+      // is always safe; moving it backwards is not.
+      await recomputeCurrentLesson(supabase, g.goal_id, {
+        neverBelow: g.current_lesson,
+      });
 
       // Hide the prompt locally before the reload lands so the card
       // disappears immediately.
       setNeedsConfirmation((prev) => prev.filter((u) => u.goal_id !== g.goal_id));
-      // Pull Today's data again so the projector emits the next slot
-      // (current_lesson + 1) as today's lesson.
+      // Pull Today's data again. The projector keeps emitting slot
+      // current_lesson + 1 as today's lesson, unchanged by this write — the
+      // prompt goes away because the row it asked about now exists.
       await loadData();
     } finally {
       setConfirmingGoalIds((prev) => {

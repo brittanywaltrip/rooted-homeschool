@@ -66,6 +66,7 @@ import {
   isVacationDay,
   isDueDate,
   effectiveDueDate,
+  mostRecentSchoolDayBefore,
   isLessonMissed,
   buildPastDateCompletionPayload,
   nthSchoolDay,
@@ -2748,6 +2749,356 @@ test('past-date completion: out-of-order backfill (complete lesson 5 with lesson
   assert.equal(projection[0]?.lesson_number, 6, 'projection follows current_lesson, not the count of completed rows')
 })
 
+// ── Un-completing releases a backfilled row back to the queue (Sep 2026) ──
+//
+// buildPastDateCompletionPayload above sets is_backfill=true, and
+// syncProjectedScheduledDates skips is_backfill rows. So a lesson logged on a
+// day that had already passed, then unchecked, kept that past date forever: the
+// reconciler could never roll it forward and every load counted it as missed.
+// The uncomplete write has to clear the flag it did not set.
+
+test('uncomplete clears is_backfill so the reconciler can re-date the row', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  const body = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
+  assert.ok(
+    /if\s*\(!completingNow\)\s*\{[^}]*is_backfill\s*=\s*false/.test(body),
+    'the uncomplete branch must set is_backfill = false',
+  )
+  assert.ok(
+    /if\s*\(!completingNow\)\s*\{[^}]*scheduled_source\s*=\s*"manual_uncomplete"/.test(body),
+    'Invariant 10: the uncomplete write tags its source',
+  )
+  // The complete direction is untouched: it never writes is_backfill, so a
+  // past-day log keeps the flag that holds its date.
+  assert.equal(
+    (body.match(/is_backfill/g) || []).length,
+    1,
+    'is_backfill is written on the uncomplete branch only',
+  )
+})
+
+test('uncomplete still leaves both date columns alone', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  const body = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
+  // Both date writes stay behind the pinDateToToday guard, which is
+  // complete-direction only. Un-completing must not move a lesson's day.
+  //
+  // Asserted as "inside the guard, and nowhere else" rather than by matching
+  // the block character for character: the guard also carries the Invariant 10
+  // source tag now (September 2026), and a test that pins formatting fails on
+  // a line it has no opinion about.
+  assert.ok(
+    /if\s*\(pinDateToToday\)\s*\{[^}]*update\.scheduled_date\s*=\s*todayStr;[^}]*update\.date\s*=\s*todayStr;[^}]*\}/.test(body),
+    'both date columns are written under the pinDateToToday guard',
+  )
+  assert.equal(
+    (body.match(/update\.scheduled_date\s*=/g) || []).length,
+    1,
+    'scheduled_date is written in exactly one place, and that place is the guard',
+  )
+  assert.equal(
+    (body.match(/update\.date\s*=/g) || []).length,
+    1,
+    'date is written in exactly one place, and that place is the guard',
+  )
+  assert.ok(
+    /if\s*\(pinDateToToday\)\s*\{[^}]*scheduled_source\s*=\s*"completion_pin"[^}]*\}/.test(body),
+    'Invariant 10: the pin names its source, inside the same guard',
+  )
+})
+
+// ── Prior-lesson confirmation keeps the day the work happened (Sep 2026) ──
+//
+// Today's "Did you finish Lesson N?" prompt records a lesson finished BEFORE
+// today. It used to stamp the row with today's date and now(), so attendance
+// (which buckets on completed_at.slice(0, 10)) gained a school day the family
+// did not do and lost the one they did.
+
+test('confirmPriorLessonComplete does not pin the row to today', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  assert.ok(
+    !/scheduled_date:\s*today\b/.test(body) && !/\bdate:\s*today\b/.test(body),
+    'neither date column may be written as today',
+  )
+  assert.ok(
+    !/completed_at:\s*new Date\(\)\.toISOString\(\)/.test(body),
+    'completed_at may not be now() — the work happened on an earlier day',
+  )
+})
+
+// The backward walk itself. A flat "yesterday" is the thing these pin against:
+// it answers Monday for a Tue/Wed goal, filing the work on a day that family
+// never does school.
+
+test('mostRecentSchoolDayBefore: a Tue/Wed goal never lands on a Monday', () => {
+  const schoolDays = ['Tue', 'Wed']
+  // 2026-09-07 is a Monday. Walking back from it must skip Monday itself
+  // (exclusive), skip the weekend, and land on the Wednesday before.
+  assert.equal(mostRecentSchoolDayBefore('2026-09-07', schoolDays), '2026-09-02')
+  // From Thursday 2026-09-10 the answer is that same week's Wednesday.
+  assert.equal(mostRecentSchoolDayBefore('2026-09-10', schoolDays), '2026-09-09')
+  // From Wednesday itself, exclusive: the day before is Tuesday.
+  assert.equal(mostRecentSchoolDayBefore('2026-09-09', schoolDays), '2026-09-08')
+  // Sweep a whole month: no answer may ever be a Monday, a Thursday, a Friday
+  // or a weekend day for this goal.
+  for (let d = 1; d <= 30; d++) {
+    const from = `2026-09-${String(d).padStart(2, '0')}`
+    const got = mostRecentSchoolDayBefore(from, schoolDays)
+    assert.ok(got, `no school day found before ${from}`)
+    assert.ok(got < from, `${got} must be strictly before ${from}`)
+    const dow = new Date(`${got}T12:00:00`).getDay() // Sun=0..Sat=6
+    assert.ok(dow === 2 || dow === 3, `${got} (from ${from}) is not a Tue/Wed`)
+  }
+})
+
+test('mostRecentSchoolDayBefore: skips vacation days', () => {
+  const schoolDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+  // Thu 2026-09-10. With Mon 9-07 through Wed 9-09 inside a break, the walk
+  // has to carry past the block and past the weekend to Friday 9-04.
+  const vacations = [{ start_date: '2026-09-07', end_date: '2026-09-09' }]
+  assert.equal(mostRecentSchoolDayBefore('2026-09-10', schoolDays, vacations), '2026-09-04')
+})
+
+test('mostRecentSchoolDayBefore: null/empty school_days falls back to Mon-Fri (Invariant 5)', () => {
+  // Monday 2026-09-07 → the Friday before, not Sunday.
+  assert.equal(mostRecentSchoolDayBefore('2026-09-07', null), '2026-09-04')
+  assert.equal(mostRecentSchoolDayBefore('2026-09-07', []), '2026-09-04')
+})
+
+test('mostRecentSchoolDayBefore: returns null when the lookback finds nothing', () => {
+  // Every day inside the window is a vacation, so there is no honest answer
+  // and the caller has to decide what to do rather than be handed a wrong day.
+  const vacations = [{ start_date: '2020-01-01', end_date: '2030-01-01' }]
+  assert.equal(mostRecentSchoolDayBefore('2026-09-07', ['Mon'], vacations, 30), null)
+})
+
+test('prior-lesson confirm: the projected historical day matches planHistoricalBackfill', () => {
+  // The shape the dashboard builds: rewind the queue to zero, cap
+  // total_lessons at the slot being confirmed, project from start_date. A
+  // Tue/Wed goal starting Tue 2026-09-01 at 1/day lays slots 1..4 on
+  // Sep 1, 2, 8, 9 — so confirming slot 4 with today = Sep 10 resolves to
+  // Sep 9, a Wednesday, never Sep 9's Monday neighbour.
+  const cfg = goalCfg({
+    school_days: ['Tue', 'Wed'],
+    lessons_per_day: 1,
+    current_lesson: 0,
+    total_lessons: 4,
+    start_date: '2026-09-01',
+  })
+  const projected = computeNextLessonsForGoal(cfg, new Date(2026, 8, 1), 60)
+  assert.deepEqual(
+    projected.map((p) => p.date),
+    ['2026-09-01', '2026-09-02', '2026-09-08', '2026-09-09'],
+  )
+  const today = '2026-09-10'
+  let latest: string | null = null
+  for (const p of projected) {
+    if (p.date >= today) continue
+    if (!latest || p.date > latest) latest = p.date
+  }
+  assert.equal(latest, '2026-09-09')
+  const dow = new Date(`${latest}T12:00:00`).getDay()
+  assert.ok(dow === 2 || dow === 3, 'the resolved day is a school day for this goal')
+})
+
+test('prior-lesson confirm: a projection running past today resolves to the last day that happened', () => {
+  // Recent start_date, high starting position: slots 5..8 are still ahead of
+  // today. The answer must be the most recent projected day STRICTLY before
+  // today, not a future one.
+  const cfg = goalCfg({
+    school_days: ['Tue', 'Wed'],
+    lessons_per_day: 1,
+    current_lesson: 0,
+    total_lessons: 8,
+    start_date: '2026-09-01',
+  })
+  const projected = computeNextLessonsForGoal(cfg, new Date(2026, 8, 1), 90)
+  const today = '2026-09-09'
+  let latest: string | null = null
+  for (const p of projected) {
+    if (p.date >= today) continue
+    if (!latest || p.date > latest) latest = p.date
+  }
+  assert.equal(latest, '2026-09-08', 'the last day behind today, not Sep 9 or later')
+})
+
+test('prior-lesson confirm: a resolved day at or after today is clamped to today', () => {
+  // The clamp the dashboard applies before building completed_at. A row whose
+  // stored scheduled_date sits ahead of today (a stale projected cache) must
+  // never stamp a completion in the future.
+  const today = '2026-09-10'
+  const clamp = (resolved: string) => (resolved >= today ? today : resolved)
+  assert.equal(clamp('2026-12-01'), today, 'a future date clamps to today')
+  assert.equal(clamp(today), today, 'today itself clamps to today')
+  assert.equal(clamp('2026-09-09'), '2026-09-09', 'a past date is left alone')
+  assert.equal(`${clamp('2026-12-01')}T12:00:00Z`, '2026-09-10T12:00:00Z')
+})
+
+test('confirmPriorLessonComplete resolves a projected school day, never a flat yesterday', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  assert.ok(
+    !/addDaysYmd\(today,\s*-1\)/.test(body),
+    'the flat yesterday fallback must be gone — it ignores school_days',
+  )
+  assert.ok(
+    /computeNextLessonsForGoal\(/.test(body),
+    'the past day comes from the projector, the same way planHistoricalBackfill derives one',
+  )
+  assert.ok(
+    /current_lesson:\s*0,\s*total_lessons:\s*g\.current_lesson/.test(body),
+    'the synthetic config rewinds the queue and caps total_lessons at the slot being confirmed',
+  )
+  assert.ok(
+    /mostRecentSchoolDayBefore\(today,\s*cfg\.school_days,\s*vacations\)/.test(body),
+    'the no-projection fallback is the school-day walk, honoring school_days and vacations',
+  )
+})
+
+// Invariant 10 + the timezone rule. Every synthetic completion stamp in the
+// codebase is noon UTC. `T12:00:00` with no Z is browser-local noon, which
+// serializes to the previous calendar day east of UTC, and attendance buckets
+// on completed_at.slice(0, 10).
+
+test('every synthetic completed_at is noon UTC, never local noon', () => {
+  const sites: { file: string; label: string }[] = [
+    { file: 'app/dashboard/plan/schedule/page.tsx', label: 'historical backfill' },
+    { file: 'app/lib/logPastDayLessons.ts', label: 'past-day logging' },
+    { file: 'app/lib/recalibrate.ts', label: 'recalibrate gap fill' },
+    { file: 'app/dashboard/page.tsx', label: 'Today' },
+  ]
+  for (const site of sites) {
+    const src = stripComments(loadRepoFile(site.file))
+    // Scoped to completed_at payload values only. A bare `T12:00:00` inside a
+    // `new Date(...)` elsewhere is a NOON ANCHOR, which is correct and
+    // deliberate — it keeps the weekday stable across DST when reading a
+    // date's day-of-week. This is about the timestamp that gets STORED.
+    const writes = src.match(/completed_at:\s*[^,\n]+/g) || []
+    for (const w of writes) {
+      const localNoonLiteral = /T12:00:00`/.test(w) && !/T12:00:00Z`/.test(w)
+      const localNoonDate = /new Date\(`[^`]*T12:00:00`\)/.test(w)
+      assert.ok(
+        !localNoonLiteral && !localNoonDate,
+        `${site.label} (${site.file}) stores a local-noon completed_at: ${w.trim()}`,
+      )
+    }
+  }
+})
+
+test('historical backfill stamps completed_at at noon UTC', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /const planHistoricalBackfill = \(\) =>/)
+  assert.ok(
+    /completed_at:\s*`\$\{p\.date\}T12:00:00Z`/.test(body),
+    'the backfill row stamps noon UTC of its own projected day',
+  )
+  assert.ok(
+    !/new Date\(`\$\{p\.date\}T12:00:00`\)/.test(body),
+    'the local-noon Date construction is gone',
+  )
+})
+
+// A deleted goal. A client can hold a stale reference to one (another tab,
+// another device, a goal removed in the Schedule Builder while Today sat open),
+// and lessons.curriculum_goal_id is a foreign key — so writing anyway meant an
+// FK rejection inside a try/finally with no catch: an unhandled rejection, no
+// row, and no word to the family. There is nothing to record against a goal
+// that is gone, so the action stops before it writes.
+
+test('confirmPriorLessonComplete refuses to write when the goal is gone', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+
+  // The goal is fetched BEFORE either write. Order is the guard: a check that
+  // runs after the insert cannot stop it.
+  const goalFetchAt = body.indexOf('.select(GOAL_CONFIG_COLUMNS)')
+  const lessonLookupAt = body.indexOf('.select("id, scheduled_date, date")')
+  const insertAt = body.indexOf('.insert({')
+  const updateAt = body.indexOf('.update({')
+  assert.ok(goalFetchAt > -1, 'the goal config is fetched')
+  assert.ok(
+    goalFetchAt < lessonLookupAt && goalFetchAt < insertAt && goalFetchAt < updateAt,
+    'the goal fetch precedes the lesson lookup and both writes',
+  )
+
+  // A missing goal returns, and returns EARLY — before either write.
+  const guardAt = body.search(/if\s*\(goalCfgErr\s*\|\|\s*!goalCfgRow\)\s*\{/)
+  assert.ok(guardAt > -1, 'a missing goal is guarded')
+  const guardBlock = body.slice(guardAt, body.indexOf('const goalCfg'))
+  assert.ok(/\breturn;/.test(guardBlock), 'the guard returns rather than falling through')
+  assert.ok(guardAt < insertAt && guardAt < updateAt, 'the guard runs before both writes')
+
+  // It says so, in all three places it needs to: Sentry, the card, the family.
+  assert.ok(
+    /captureSupabaseError\(\s*"Prior-lesson confirm: goal missing/.test(guardBlock),
+    'the refusal is reported rather than swallowed',
+  )
+  assert.ok(
+    /setNeedsConfirmation\(\(prev\) => prev\.filter/.test(guardBlock),
+    'the prompt card is dropped, since re-asking cannot help',
+  )
+  assert.ok(/showCaptureToast\(/.test(guardBlock), 'the family is told')
+
+  // And the guessed-date path is closed: the day resolver no longer has a
+  // missing-goal branch to return null from, because it can no longer be
+  // reached with one.
+  assert.ok(
+    !/if\s*\(goalCfgErr\s*\|\|\s*!goalCfgRow\)\s*return null/.test(body),
+    'resolvePastSchoolDay no longer falls through on a missing goal',
+  )
+  assert.equal(
+    (body.match(/\.select\(GOAL_CONFIG_COLUMNS\)/g) || []).length,
+    1,
+    'the goal is fetched once, not again inside the resolver',
+  )
+})
+
+test('confirmPriorLessonComplete clamps completed_at so it can never be in the future', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  assert.ok(
+    /stampDay\s*=\s*resolvedDay\s*>=\s*today\s*\?\s*today\s*:\s*resolvedDay/.test(body),
+    'a resolved day at or after today is clamped to today',
+  )
+  assert.ok(
+    /completedAtIso\s*=\s*`\$\{stampDay\}T12:00:00Z`/.test(body),
+    'completed_at is built from the clamped day, and both branches share it',
+  )
+  // One completed_at, used by the UPDATE and the INSERT alike — the clamp
+  // cannot apply to one branch and miss the other.
+  assert.equal(
+    (body.match(/completed_at:\s*completedAtIso/g) || []).length,
+    2,
+    'both branches stamp the same clamped completed_at',
+  )
+})
+
+test('confirmPriorLessonComplete stamps noon UTC of the row’s own day', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  // Noon UTC, matching logPastDayLessons.ts. Local noon lands on the previous
+  // calendar day east of UTC and buckets attendance a day early.
+  assert.ok(
+    /completedAtIso\s*=\s*`\$\{stampDay\}T12:00:00Z`/.test(body),
+    'completed_at is noon UTC of the day being confirmed',
+  )
+  // The day comes from the row itself; only a missing row is resolved.
+  assert.ok(
+    /rowDay\s*=\s*existingRow\?\.scheduled_date\s*\?\?\s*existingRow\?\.date\s*\?\?\s*null/.test(body),
+    'the row’s own scheduled_date / date wins over any resolution',
+  )
+  assert.ok(
+    /resolvedDay\s*=\s*rowDay\s*\?\?\s*resolvePastSchoolDay\(\)/.test(body),
+    'a missing row resolves a real school day rather than defaulting',
+  )
+  // The lookup has to SELECT the columns the fallback chain reads.
+  assert.ok(
+    /select\("id, scheduled_date, date"\)/.test(body),
+    'the existing-row lookup selects both date columns',
+  )
+})
+
 // ── Reschedule modal: vacation-aware "next school day" (May 2026) ────────
 //
 // Repro from staging: today=Mon May 4, school_days=Mon-Fri, vacation
@@ -4943,4 +5294,267 @@ test('orphan cleanup loop: an extra_log completion must never advance the queue'
     assert.equal(value, 7, 'the queue pointer follows slots only')
     assert.deepEqual(writes[0].payload, { current_lesson: 7 })
   })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invariant 15 — completion is a claim about a person, so only a person makes it
+//
+// Measured in production 2026-09-07 (read-only): 289 lesson rows across 161
+// goals and 34 families were marked completed by
+// curriculum_goals_cleanup_orphans_trg, not by anybody doing the work. The
+// rows are identifiable by the trigger's fingerprint — completed, scheduled_
+// date NULL, completed_at exactly 24h before updated_at — because the trigger
+// has never written scheduled_source. Oldest 2026-07-30, newest the morning
+// this block was written, rising weekly.
+//
+// The two family-visible symptoms both come from that one decision:
+//   * a completed lesson dated on a day the goal does not school (goal
+//     e2c99827, school_days Tue/Wed, lesson 5 on Sunday 2026-08-30), because
+//     the trigger dated rows (NOW() - interval '1 day')::date;
+//   * lesson numbers out of order (goal 327a80a6, lesson 11 on 2026-09-01
+//     while lessons 4-10 sit on 2026-09-02), because that synthetic day is by
+//     construction one day before the completion that provoked the sweep.
+//
+// The three generators of the 289, by fingerprint analysis:
+//   83  Today's confirm prompt writing current_lesson + 1
+//   104 an ordinary completion whose recompute raised the pointer over
+//       queue-drifted rows
+//   102 other pointer raises (Schedule Builder starting position, repairs)
+// All three end at the same trigger, which is why the fix is at the trigger
+// and not at any one caller.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const NO_SERVER_COMPLETION_MIGRATION =
+  'supabase/migrations/20260907000000_no_server_side_lesson_completion.sql'
+
+// stripComments() handles // and /* */, which SQL does not use. A migration is
+// mostly prose here, and prose that names the thing being forbidden would
+// satisfy a grep for it — the exact way a static check gets to pass while the
+// code does the wrong thing.
+function loadMigrationSql(relPath: string): string {
+  return loadRepoFile(relPath)
+    .split('\n')
+    .map((line) => line.replace(/--.*$/, ''))
+    .join('\n')
+}
+
+test('Invariant 15 — the orphan cleanup unschedules orphans and never completes them', () => {
+  const sql = loadMigrationSql(NO_SERVER_COMPLETION_MIGRATION)
+  const fn = sql.slice(
+    sql.indexOf('CREATE OR REPLACE FUNCTION public.curriculum_goals_cleanup_orphans_trg'),
+    sql.indexOf('CREATE OR REPLACE FUNCTION public.lessons_block_server_side_completion'),
+  )
+  assert.ok(fn.length > 0, 'cleanup function body not found in the migration')
+
+  // The one write it is still allowed to make.
+  assert.ok(
+    /SET\s+scheduled_date\s*=\s*NULL/i.test(fn),
+    'the cleanup must release the calendar slot — that was always the real bug it was solving',
+  )
+  // The four it is not.
+  assert.ok(!/\bcompleted\s*=\s*true/i.test(fn), 'the cleanup must never set completed')
+  assert.ok(!/completed_at\s*=/i.test(fn), 'the cleanup must never stamp completed_at')
+  assert.ok(
+    !/\bdate\s*=\s*\(\s*NOW\(\)/i.test(fn),
+    'the cleanup must never invent a date; NOW() - 1 day is what put lessons on Sundays',
+  )
+  assert.ok(
+    !/queue_position\s*=/i.test(fn),
+    'the cleanup must not touch queue_position; with no completion flip the Invariant 14 loop cannot start',
+  )
+  // Protections carried forward.
+  assert.ok(/queue_pinned\s*=\s*false/i.test(fn), 'Invariant 12: a manual placement is never unscheduled')
+  assert.ok(/notes IS NULL OR notes = ''/.test(fn), 'notes-bearing rows stay parent-intentional')
+  assert.ok(/NEW\.current_lesson\s*>\s*OLD\.current_lesson/.test(fn), 'still only on an advance')
+})
+
+test('Invariant 15 — a database guard refuses any completion written from inside a trigger', () => {
+  const sql = loadMigrationSql(NO_SERVER_COMPLETION_MIGRATION)
+  assert.ok(
+    /pg_trigger_depth\(\)\s*>\s*1/.test(sql),
+    'the guard must key on trigger depth: depth 1 is a person, depth 2+ is a trigger',
+  )
+  assert.ok(/RAISE EXCEPTION/.test(sql), 'the guard must refuse the write, not silently drop it')
+  assert.ok(
+    /CREATE TRIGGER trg_lessons_block_server_side_completion[\s\S]*BEFORE INSERT OR UPDATE OF completed ON public\.lessons/.test(sql),
+    'the guard must be attached BEFORE the write lands, on lessons.completed',
+  )
+  assert.ok(
+    !/rooted\.allow_server_completion/.test(sql),
+    'no escape hatch: a setting to flip is a setting that gets flipped',
+  )
+})
+
+test('Invariant 15 — the confirm prompt recomputes the pointer instead of advancing it blind', () => {
+  const body = stripComments(
+    extractFunctionBody(
+      loadRepoFile('app/dashboard/page.tsx'),
+      /async function confirmPriorLessonComplete\s*\(/,
+    ),
+  )
+  assert.ok(
+    !/current_lesson:\s*g\.current_lesson\s*\+\s*1/.test(body),
+    'Yes confirms the lesson the pointer already counts; it must not claim one more',
+  )
+  assert.ok(
+    /recomputeCurrentLesson\(\s*supabase\s*,\s*g\.goal_id/.test(body),
+    'the pointer comes from the completed rows, like every other writer',
+  )
+  assert.ok(
+    /neverBelow:\s*g\.current_lesson/.test(body),
+    'and it may not slide backwards on a goal whose queue_position was stripped',
+  )
+})
+
+test('Invariant 15 — the unconfirmed-lesson check asks only about the rows it is asking about', () => {
+  const src = loadRepoFile('app/dashboard/page.tsx')
+  const start = src.indexOf('// ── Unconfirmed-prior-lesson check')
+  const end = src.indexOf('// Auto-select first incomplete child', start)
+  assert.ok(start > 0 && end > start, 'unconfirmed-prior-lesson check not found')
+  const block = stripComments(src.slice(start, end))
+
+  // The bug shape: fetch every lesson row of every candidate goal, build a
+  // client-side set, and treat a missing key as "no row exists". Past
+  // PostgREST's db-max-rows the response is truncated and the client cannot
+  // tell. Every family that got a false prompt is above that cap (smallest:
+  // 1,230 rows), and each false prompt cost them a real lesson.
+  assert.ok(
+    !/\.in\(\s*["']curriculum_goal_id["']\s*,\s*candidates/.test(block),
+    'must not download every lesson row of every candidate goal to answer one question per goal',
+  )
+  assert.ok(
+    /and\(curriculum_goal_id\.eq\.\$\{g\.id\},lesson_number\.eq\.\$\{g\.current_lesson\}\)/.test(block),
+    'must request exactly the (goal, lesson_number) pairs in question',
+  )
+  assert.ok(
+    /setNeedsConfirmation\(\[\]\)/.test(block),
+    'must fail closed: a prompt shown wrongly writes to the family record, a prompt withheld costs a page load',
+  )
+})
+
+test('Invariant 10 — the completion pin names its source on every surface', () => {
+  const today = loadRepoFile('app/dashboard/page.tsx')
+  for (const fn of [
+    /async function toggleLesson\s*\(/,
+    /async function confirmExtraLessons\s*\(/,
+    /async function markMissedComplete\s*\(/,
+  ]) {
+    const body = stripComments(extractFunctionBody(today, fn))
+    assert.ok(
+      /scheduled_source:?\s*=?\s*["']completion_pin["']/.test(body),
+      `${fn} pins lessons.date to today and must tag scheduled_source`,
+    )
+  }
+  const plan = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  assert.ok(
+    /scheduled_source\s*=\s*["']completion_pin["']/.test(plan),
+    "the Plan page's toggleLesson pins the same way and must carry the same tag",
+  )
+})
+
+test('recomputeCurrentLesson: neverBelow holds the pointer still but never advances it', async () => {
+  // The stripped-slot case the confirm prompt lands in: the row it completed
+  // carries a NULL queue_position (the old cleanup trigger took it), so
+  // MAX(queue_position) answers lower than where the family actually is.
+  const held = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 78, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: [{ queue_position: 40 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a = await recomputeCurrentLesson(held.supabase as any, 'goal-1', { neverBelow: 44 })
+  assert.equal(a, 44, 'the pointer holds where it was instead of re-opening four lessons')
+  assert.deepEqual(held.writes[0].payload, { current_lesson: 44 })
+
+  // It is a floor, not an advance: the rows still decide when they say more.
+  const rowsWin = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 78, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: [{ queue_position: 50 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const b = await recomputeCurrentLesson(rowsWin.supabase as any, 'goal-1', { neverBelow: 44 })
+  assert.equal(b, 50, 'a genuinely higher completed slot still wins')
+
+  // And it can never push past the curriculum.
+  const clamped = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 30, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: [{ queue_position: 12 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const c = await recomputeCurrentLesson(clamped.supabase as any, 'goal-1', { neverBelow: 999 })
+  assert.equal(c, 30, 'total_lessons is still the ceiling')
+
+  // Omitting it reproduces the historical formula exactly.
+  const legacy = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 78, start_at_lesson: 1 }, error: null },
+    lessonsResult: { data: [{ queue_position: 40 }], error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d = await recomputeCurrentLesson(legacy.supabase as any, 'goal-1')
+  assert.equal(d, 40, 'no option, no change')
+})
+
+test('Invariant 15 — the fixed cleanup leaves no phantom completion and no stranded slot', () => {
+  // The same GoalWorld shapes the Invariant 14 block models, run against a
+  // cleanup that unschedules instead of completing. Goal 24f53fcf "Explode
+  // the Code" as it stood at 2026-08-20 23:04:50 UTC.
+  type CleanupRow = {
+    id: string
+    lesson_number: number | null
+    queue_position: number | null
+    completed: boolean
+    scheduled_date: string | null
+  }
+  const rows: CleanupRow[] = [
+    { id: 'row-44', lesson_number: 44, queue_position: 44, completed: true,  scheduled_date: '2026-08-20' },
+    { id: 'row-45', lesson_number: 45, queue_position: 45, completed: false, scheduled_date: '2026-08-21' },
+    { id: 'row-46', lesson_number: 46, queue_position: 46, completed: false, scheduled_date: '2026-08-24' },
+  ]
+  let currentLesson = 44
+  const history: number[] = [currentLesson]
+
+  /** The migration's cleanup, verbatim in behavior. */
+  function cleanupOrphans(newCurrentLesson: number) {
+    for (const r of rows) {
+      if (r.completed) continue
+      if (r.scheduled_date == null) continue
+      if (r.lesson_number == null || r.lesson_number > newCurrentLesson) continue
+      r.scheduled_date = null
+      // No completion flip, so lessons_recompute_current_lesson_trg does not
+      // fire and current_lesson cannot move as a side effect. That is the
+      // whole Invariant 14 loop, gone by construction rather than by tuning.
+    }
+  }
+  function appSetCurrentLesson(next: number) {
+    if (next === currentLesson) return
+    const old = currentLesson
+    currentLesson = next
+    history.push(next)
+    if (next > old) cleanupOrphans(next)
+  }
+
+  // The pointer advances onto row 45 (a Schedule Builder starting-position
+  // bump, a repair, anything).
+  appSetCurrentLesson(45)
+
+  const row45 = rows.find((r) => r.id === 'row-45')!
+  assert.equal(row45.completed, false, 'nobody did lesson 45, so nothing says they did')
+  assert.equal(row45.scheduled_date, null, 'but it releases the calendar day it was holding')
+  assert.equal(row45.queue_position, 45, 'and keeps its place in the queue')
+  assert.deepEqual(history, [44, 45], 'current_lesson moves once, by the caller, and stays')
+
+  // No slot is emitted without a row behind it (the blank-subject shape).
+  const slots = new Set(rows.map((r) => r.queue_position).filter((n): n is number => n != null))
+  const holes: number[] = []
+  for (let n = currentLesson + 1; n <= Math.max(...slots); n++) if (!slots.has(n)) holes.push(n)
+  assert.deepEqual(holes, [], 'every projected slot still has its row')
+
+  // A pinned orphan keeps the day the family put it on (Invariant 12).
+  const pinned: CleanupRow[] = [
+    { id: 'p', lesson_number: 3, queue_position: 3, completed: false, scheduled_date: '2026-09-09' },
+  ]
+  for (const r of pinned) {
+    const queuePinned = true
+    if (!queuePinned && (r.lesson_number ?? 0) <= 10) r.scheduled_date = null
+  }
+  assert.equal(pinned[0].scheduled_date, '2026-09-09', 'the system does not unschedule a manual placement')
 })
