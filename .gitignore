@@ -95,3 +95,10 @@ email-audit/
 # repair and by anything else that has to be reversible.
 /.repair-backups/
 /scripts/repair-phantom-completions-backup-*.json
+
+# Local tooling, never source. Both are currently hidden only by machine-local
+# rules — .claude/settings.local.json by a global ignore file and
+# .claude/worktrees/ by .git/info/exclude — neither of which travels with the
+# repository. Stating them here is what protects a fresh clone.
+/Claude outputs/
+/.claude/
