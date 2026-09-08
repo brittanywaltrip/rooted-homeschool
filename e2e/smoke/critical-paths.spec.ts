@@ -405,7 +405,7 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     }
   });
 
-  test('advancing current_lesson auto-completes incomplete rows below it (skips notes-protected rows)', async ({ page }) => {
+  test('advancing current_lesson UNSCHEDULES orphans and never completes them (Invariant 15)', async ({ page }) => {
     const sb = adminClient();
     const ctx = await resolveTestUserAndFirstChild();
     if (!sb || !ctx) {
@@ -417,12 +417,13 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     const subject = `Orphan Test ${stamp}`;
     createdLabelsOrphan.push(subject);
 
-    // 1. Seed a curriculum goal with 10 incomplete lesson rows
-    //    (lesson_number 1..10, queue_position matching, all completed=false).
-    //    Row 3 carries a notes value so we can verify the notes carve-out.
-    //    archived=false simply mirrors a freshly created, active goal (the
-    //    Data integrity audit no longer cares about archived+completed — see
-    //    its header for why that pairing is valid). afterEach deletes it.
+    // 1. Seed a goal with 10 incomplete rows dated in the FUTURE, so a trigger
+    //    that fails to unschedule them leaves them ghosting on the calendar
+    //    and this spec catches it.
+    //
+    //    Row 3 carries a note and row 7 is pinned. Both are carve-outs the
+    //    cleanup must not touch at all: a note is a person's own work, and a
+    //    pin is a placement the family made by hand (Invariant 12).
     const { data: goalRow, error: goalErr } = await sb
       .from('curriculum_goals')
       .insert({
@@ -445,165 +446,133 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     createdGoalIdsOrphan.push(goalId);
 
     const baseDate = new Date();
-    baseDate.setDate(baseDate.getDate() + 30); // schedule rows far in the future so they would ghost
-    // Row 5 is the DRIFT case, and it is the only way to reach the second
-    // branch of migration 20260824000000 from this seed. `move_lesson_to_date`
-    // rewrites queue_position and deliberately leaves lesson_number pinned, so
-    // a row selected BY lesson_number can hold a slot far ABOVE the pointer.
-    // The migration clears those: a drifted slot must never drag current_lesson
-    // past what the family actually reached.
-    //
-    // It re-slots the EXISTING row 5 rather than adding an eleventh row.
-    // lesson_number 5 is already seeded and (curriculum_goal_id, lesson_number)
-    // is unique, so a second row numbered 5 would be rejected outright; every
-    // number from 1..10 is taken, and anything above 10 sits past the pointer
-    // and would never be swept at all.
-    const DRIFTED_LESSON_NUMBER = 5;
-    const DRIFTED_SLOT = 50;
+    baseDate.setDate(baseDate.getDate() + 30);
 
+    const NOTED_LESSON = 3;
+    const PINNED_LESSON = 7;
+
+    const seededDates = new Map<number, string>();
     const lessonRows = Array.from({ length: 10 }, (_, i) => {
       const lessonNumber = i + 1;
       const d = new Date(baseDate);
       d.setDate(d.getDate() + lessonNumber);
       const dateStr = d.toISOString().slice(0, 10);
+      seededDates.set(lessonNumber, dateStr);
       return {
         user_id: ctx.userId,
         child_id: ctx.childId,
         curriculum_goal_id: goalId,
         title: `${subject} — Lesson ${lessonNumber}`,
         lesson_number: lessonNumber,
-        queue_position: lessonNumber === DRIFTED_LESSON_NUMBER ? DRIFTED_SLOT : lessonNumber,
+        queue_position: lessonNumber,
         scheduled_date: dateStr,
         date: dateStr,
         completed: false,
         scheduled_source: 'wizard_create',
         hours: 0,
-        // Row 3 has a note. The trigger must NOT touch this row.
-        notes: lessonNumber === 3 ? 'parent: did this manually' : null,
+        queue_pinned: lessonNumber === PINNED_LESSON,
+        notes: lessonNumber === NOTED_LESSON ? 'parent: did this manually' : null,
       };
     });
     const { error: lessonErr } = await sb.from('lessons').insert(lessonRows);
     if (lessonErr) throw new Error(`seed lessons failed: ${lessonErr.message}`);
 
-    // 2. Advance the starting position. start_at_lesson stays at 1, so the
-    //    recompute floor is 0 and nothing but MAX(queue_position) over the
-    //    completed rows can hold current_lesson at 10.
-    //
-    //    This used to bump start_at_lesson to 11 first, and that bump was a
-    //    fossil of the bug migration 20260824000000 fixed: the cleanup nulled
-    //    every swept slot, MAX(queue_position) collapsed, the recompute it
-    //    provokes drove current_lesson back down, and pinning the floor at 10
-    //    was the only way to keep the assertion in step 5 true. With the slots
-    //    preserved the pointer holds on its own, so step 5 is now a real
-    //    assertion rather than an artifact of the floor.
+    // 2. Advance the pointer past every row, which is what fires the cleanup.
     const { error: advErr } = await sb
       .from('curriculum_goals')
       .update({ current_lesson: 10 })
       .eq('id', goalId);
     if (advErr) throw new Error(`advance current_lesson failed: ${advErr.message}`);
 
-    // 3. DB assertion: no incomplete row remains at lesson_number <= 10
-    //    for this goal, EXCEPT the notes-protected row 3.
-    const { data: leftoverIncomplete, error: q1Err } = await sb
+    const { data: afterRows, error: qErr } = await sb
       .from('lessons')
-      .select('lesson_number, completed, queue_position, completed_at, notes')
+      .select('lesson_number, completed, completed_at, queue_position, scheduled_date, date, notes, queue_pinned')
       .eq('curriculum_goal_id', goalId)
-      .eq('completed', false);
-    if (q1Err) throw new Error(`leftover query failed: ${q1Err.message}`);
-    const leftovers = (leftoverIncomplete ?? []) as Array<{
-      lesson_number: number;
-      completed: boolean;
-      queue_position: number | null;
-      completed_at: string | null;
-      notes: string | null;
-    }>;
-
-    expect(leftovers.length, 'only the notes-protected row should remain incomplete').toBe(1);
-    expect(leftovers[0].lesson_number).toBe(3);
-    expect(leftovers[0].notes).toMatch(/parent/);
-    expect(leftovers[0].queue_position).toBe(3); // notes-protected row keeps its queue position
-
-    // 4. The cleaned rows are completed with a backdated completed_at so the
-    //    daily quota anchor on Today is not poisoned by this cleanup, and
-    //    their queue_position follows the two branches of migration
-    //    20260824000000 — kept at or below the pointer, cleared above it.
-    const { data: cleanedRows, error: q2Err } = await sb
-      .from('lessons')
-      .select('lesson_number, completed, queue_position, completed_at, scheduled_date, date')
-      .eq('curriculum_goal_id', goalId)
-      .eq('completed', true)
       .order('lesson_number');
-    if (q2Err) throw new Error(`cleaned-rows query failed: ${q2Err.message}`);
-    const cleaned = (cleanedRows ?? []) as Array<{
+    if (qErr) throw new Error(`post-cleanup query failed: ${qErr.message}`);
+    const rows = (afterRows ?? []) as Array<{
       lesson_number: number;
       completed: boolean;
-      queue_position: number | null;
       completed_at: string | null;
+      queue_position: number | null;
       scheduled_date: string | null;
       date: string | null;
+      notes: string | null;
+      queue_pinned: boolean | null;
     }>;
-    // Rows 1, 2, 4..10 = 9 rows
-    expect(cleaned.length).toBe(9);
-    for (const row of cleaned) {
-      if (row.lesson_number === DRIFTED_LESSON_NUMBER) {
-        // ELSE NULL branch. Its slot (50) is above the pointer (10), so the
-        // cleanup clears it. Keeping it would let MAX(queue_position) drag
-        // current_lesson to 50 and mark 40 lessons done that nobody did —
-        // the exact hazard the migration header calls out. (total_lessons is
-        // 10 here so the recompute's own LEAST() would mask that jump, which
-        // is why this asserts the NULL directly rather than leaning on the
-        // current_lesson check in step 5.)
-        expect(
-          row.queue_position,
-          `row ${row.lesson_number}: a slot above the pointer must be cleared`,
-        ).toBeNull();
-      } else {
-        // Invariant 14 (migration 20260824000000): a swept row at or below the
-        // new pointer KEEPS its slot. This used to assert the opposite. Nulling
-        // it made the recompute that this same statement provokes read a lower
-        // MAX(queue_position) and write current_lesson BACKWARDS, stranding the
-        // slot as a hole the projector emits and no row fills — the blank
-        // subject in ROOTED-HOMESCHOOL-R and -13.
-        expect(
-          row.queue_position,
-          `row ${row.lesson_number} must keep the slot it legitimately occupies`,
-        ).toBe(row.lesson_number);
-      }
-      expect(row.completed_at, `row ${row.lesson_number} completed_at must be set`).toBeTruthy();
-      const completedDate = new Date(row.completed_at as string);
-      const ageDays = (Date.now() - completedDate.getTime()) / 86_400_000;
-      // Backdated by ~1 day; tolerance covers clock skew and the gap
-      // between trigger fire and this assertion.
-      expect(ageDays, `row ${row.lesson_number} should be backdated ~1 day`).toBeGreaterThan(0.5);
-      expect(ageDays, `row ${row.lesson_number} should not be ancient`).toBeLessThan(1.5);
+    expect(rows.length, 'all ten rows survive; the cleanup deletes nothing').toBe(10);
 
-      // Invariant 13 (migration 20260730100000): a trigger-completed row holds
-      // no future calendar slot. Before that migration the trigger flipped the
-      // completion flags but left scheduled_date / date on whatever future
-      // school day the row had been given — so kierrak745's rows 1-7 kept
-      // Aug 10-18, the same days the live queue had assigned lessons 9-15, and
-      // MonthGrid (which renders `scheduled_date ?? date`) drew two lessons a
-      // day for seven school days. This block is why that migration exists;
-      // the seed above dates every row in the FUTURE, so a trigger that does
-      // not clear the caches fails here.
+    // 3. INVARIANT 15. Completion is a claim about what a family did, and no
+    //    trigger may make it. Before migration 20260907000000 this cleanup
+    //    marked swept rows complete, which is how 289 rows across 34 families
+    //    came to be "done" on days nobody worked — dated
+    //    (NOW() - interval '1 day') with no regard for school_days, so a
+    //    Tue/Wed curriculum held a completed lesson on a Sunday.
+    //
+    //    This assertion is the inverse of what this spec used to make. It
+    //    asserted the bug: "advancing current_lesson auto-completes incomplete
+    //    rows below it". That is the behaviour the migration removed.
+    for (const row of rows) {
       expect(
-        row.scheduled_date,
-        `row ${row.lesson_number}: scheduled_date must be cleared so the row owns no calendar day`,
+        row.completed,
+        `row ${row.lesson_number}: no trigger may complete a lesson (Invariant 15)`,
+      ).toBe(false);
+      expect(
+        row.completed_at,
+        `row ${row.lesson_number}: an uncompleted row carries no completion timestamp`,
       ).toBeNull();
-      expect(row.date, `row ${row.lesson_number}: date is NOT NULL and must be set`).toBeTruthy();
-      const todayYmd = new Date().toISOString().slice(0, 10);
-      expect(
-        (row.date as string) < todayYmd,
-        `row ${row.lesson_number}: date ${row.date} must not be today or later — ` +
-          `it should be pinned to the synthetic completed_at day (today is ${todayYmd})`,
-      ).toBe(true);
-      expect(
-        row.date,
-        `row ${row.lesson_number}: date must match the completed_at day`,
-      ).toBe((row.completed_at as string).slice(0, 10));
     }
 
-    // 5. current_lesson held (didn't get reset by the inner recompute loop)
+    // 4. What the cleanup DOES do: release the calendar day. The harm an orphan
+    //    causes is a calendar harm — it keeps a real future scheduled_date and
+    //    double-books a day the live queue has already given to a lesson ahead
+    //    of it. Every calendar surface selects on scheduled_date, so a NULL
+    //    slot drops out of all of them, which is the whole fix without the lie.
+    const swept = rows.filter(
+      (r) => r.lesson_number !== NOTED_LESSON && r.lesson_number !== PINNED_LESSON,
+    );
+    expect(swept.length).toBe(8);
+    for (const row of swept) {
+      expect(
+        row.scheduled_date,
+        `row ${row.lesson_number}: scheduled_date must be released so the row owns no calendar day`,
+      ).toBeNull();
+      // `date` is NOT NULL and is deliberately left alone: it is the row's
+      // history, not its calendar slot, and the cleanup writes scheduled_date
+      // and nothing else.
+      expect(
+        row.date,
+        `row ${row.lesson_number}: date must be untouched`,
+      ).toBe(seededDates.get(row.lesson_number));
+      // Invariant 14 is retired by construction rather than tuned: the cleanup
+      // writes one column, so lessons_recompute_current_lesson_trg never fires
+      // and no slot can be stranded. The slot simply stays.
+      expect(
+        row.queue_position,
+        `row ${row.lesson_number}: the slot is not the cleanup's to touch`,
+      ).toBe(row.lesson_number);
+    }
+
+    // 5. The two carve-outs, untouched ENTIRELY — not merely uncompleted.
+    const noted = rows.find((r) => r.lesson_number === NOTED_LESSON)!;
+    expect(noted.notes, 'the noted row keeps its note').toMatch(/parent/);
+    expect(
+      noted.scheduled_date,
+      'a row carrying a note is a person\'s own work and keeps its day',
+    ).toBe(seededDates.get(NOTED_LESSON));
+    expect(noted.queue_position).toBe(NOTED_LESSON);
+
+    const pinned = rows.find((r) => r.lesson_number === PINNED_LESSON)!;
+    expect(pinned.queue_pinned, 'the pinned row stays pinned').toBe(true);
+    expect(
+      pinned.scheduled_date,
+      'the system does not silently unschedule a placement the family made by hand (Invariant 12)',
+    ).toBe(seededDates.get(PINNED_LESSON));
+    expect(pinned.queue_position).toBe(PINNED_LESSON);
+
+    // 6. The pointer held. The cleanup writes scheduled_date alone, so the
+    //    recompute it used to provoke never runs and current_lesson cannot
+    //    move as a side effect.
     const { data: finalGoal, error: q3Err } = await sb
       .from('curriculum_goals')
       .select('current_lesson')
@@ -612,13 +581,7 @@ test.describe('Orphan cleanup on starting-position advance', () => {
     if (q3Err) throw new Error(`final goal query failed: ${q3Err.message}`);
     expect((finalGoal as { current_lesson: number }).current_lesson).toBe(10);
 
-    // 6. Plan page smoke: confirm Plan still renders without JS errors
-    //    after the cleanup. The deep DB assertions above are the real
-    //    contract; this just guards against the cleanup breaking the
-    //    page-load path. We don't assert that the archived test
-    //    curriculum is invisible — some Plan panels still surface
-    //    archived goals (CurriculumGroupsPanel, Past history of
-    //    backdated completed_at), which is a separate UI concern.
+    // 7. Plan still renders after the cleanup.
     const consoleErrors: string[] = [];
     page.on('pageerror', (err) => consoleErrors.push(err.message));
     await page.goto('/dashboard/plan');
@@ -661,36 +624,35 @@ test.describe('Data integrity', () => {
       return;
     }
 
-    // 1. Distinct curriculum_goal_id referenced by any lesson row. Paged so
-    //    the audit covers every lesson, not just PostgREST's first 1000.
-    const lessonGoalRows = await fetchAllRows<{ curriculum_goal_id: string | null }>(
-      (from, to) =>
-        sb
-          .from('lessons')
-          .select('curriculum_goal_id')
-          .not('curriculum_goal_id', 'is', null)
-          .range(from, to),
-    );
-    const referencedGoalIds = Array.from(
-      new Set(
-        lessonGoalRows
-          .map((r) => r.curriculum_goal_id)
-          .filter((v): v is string => !!v),
-      ),
-    );
-    if (referencedGoalIds.length === 0) return;
+    // ONE query, counted in the database.
+    //
+    // This used to page every lesson row through PostgREST at 1,000 a request,
+    // build the distinct set of referenced goal ids in JS, page every goal row
+    // as well, and diff the two. At 191,795 lessons that is ~192 sequential
+    // round trips and it stopped fitting in the 30s test timeout — so the
+    // audit failed on its own weight while the invariant it guards was
+    // satisfied (verified: 0 orphans at the time of the rewrite). An audit
+    // that times out is worse than no audit: it reads as a red suite and
+    // teaches people to ignore it.
+    //
+    // A left join with `curriculum_goals` null-filtered is the same question
+    // asked once, and `head: true` means the rows never cross the wire — only
+    // the count does. It stays O(1) round trips however large the table gets.
+    const { count, error } = await sb
+      .from('lessons')
+      .select('id, curriculum_goals!left(id)', { count: 'exact', head: true })
+      .not('curriculum_goal_id', 'is', null)
+      .is('curriculum_goals', null);
 
-    // 2. The full set of goal ids that actually exist (also paged).
-    const existingGoalRows = await fetchAllRows<{ id: string }>(
-      (from, to) => sb.from('curriculum_goals').select('id').range(from, to),
-    );
-    const existingGoalIds = new Set(existingGoalRows.map((r) => r.id));
+    if (error) throw new Error(`orphan audit query failed: ${error.message}`);
 
-    // 3. Any referenced goal id with no matching goal row is an orphan.
-    const orphanGoalIds = referencedGoalIds.filter((id) => !existingGoalIds.has(id));
     expect(
-      orphanGoalIds.length,
-      `${orphanGoalIds.length} curriculum_goal_id value(s) on lessons point to a goal that no longer exists (orphans from a delete that removed the goal but not its lessons). Goal IDs: ${orphanGoalIds.join(', ')}`,
+      count ?? 0,
+      `${count} lesson row(s) carry a curriculum_goal_id pointing at a goal that no longer exists ` +
+        '(an orphan from a delete that removed the goal but not its lessons). ' +
+        'Find them with: select id, curriculum_goal_id from lessons l ' +
+        'left join curriculum_goals g on g.id = l.curriculum_goal_id ' +
+        'where l.curriculum_goal_id is not null and g.id is null;',
     ).toBe(0);
   });
 });

@@ -11,7 +11,15 @@ import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, toGoalConfig, mostRecentSchoolDayBefore, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import {
+  completeLessonOnDate,
+  buildCompletionPayload,
+  needsDateChoice,
+  type CompletionChoice,
+  type CompletionSurface,
+} from "@/app/lib/completeLessonOnDate";
+import CompletionDateChooser, { labelDate as completionLabelDate } from "@/app/components/CompletionDateChooser";
 import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib/timezone";
 // TODO: remove after queue scheduling verified in production. Old pinned-date
 // reschedule planners — only consumed by dead functions kept for rollback.
@@ -31,7 +39,7 @@ import ListsSection from "@/app/components/ListsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
 import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import TodaySchedule from "@/app/components/today/TodaySchedule";
-import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal } from "@/app/components/MissedLessonRecoveryModal";
+import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type RecoveryRow } from "@/app/components/MissedLessonRecoveryModal";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -553,6 +561,20 @@ export default function TodayPage() {
   // re-render races with the tap.
   type RescheduleUndoToast = { message: string; snapshot: LessonDateSnapshot[] };
   const [rescheduleUndoToast,    setRescheduleUndoToast]    = useState<RescheduleUndoToast | null>(null);
+  // Invariant 16. The chooser holds a lesson while the family answers "which
+  // day?"; nothing is written until they do. The toast then shows the day that
+  // WAS written, with Change to reopen the chooser on the same lesson.
+  type PendingCompletion = {
+    lesson: Lesson;
+    plannedDate: string;
+    minutes: number | null;
+    surface: CompletionSurface;
+  };
+  const [completionChoice, setCompletionChoice] = useState<PendingCompletion | null>(null);
+  const [completionToast, setCompletionToast] = useState<
+    (PendingCompletion & { message: string }) | null
+  >(null);
+  const completionToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rescheduleUndoSnapshotRef = useRef<RescheduleUndoToast | null>(null);
   const rescheduleUndoTimer      = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Idempotency gate: a single user click sometimes produced 2–4 firings of
@@ -764,6 +786,13 @@ export default function TodayPage() {
     subject_label: string | null;
     current_lesson: number;
     child_id: string | null;
+    /**
+     * The day a Yes would write, resolved by the projector when the card is
+     * built so the card can SHOW it. A prompt proposing a completion date has
+     * to display the date it is proposing, which it cannot do while the
+     * resolution lives inside the click. Null when nothing honest resolves.
+     */
+    resolved_day: string | null;
   };
   const [needsConfirmation, setNeedsConfirmation] = useState<UnconfirmedGoal[]>([]);
   const [confirmingGoalIds, setConfirmingGoalIds] = useState<Set<string>>(() => new Set());
@@ -1718,6 +1747,15 @@ export default function TodayPage() {
           subject_label: g.subject_label,
           current_lesson: g.current_lesson,
           child_id: g.child_id,
+          // Same function, same inputs, as the write path uses. No row exists
+          // for this slot (that is what put the goal on this list), so there
+          // is no rowDay to prefer.
+          resolved_day: resolvePriorLessonDay({
+            goal: toGoalConfig(g),
+            slot: g.current_lesson,
+            todayStr: today,
+            vacationBlocks,
+          }),
         }));
       setNeedsConfirmation(unconfirmed);
     })();
@@ -2139,127 +2177,143 @@ export default function TodayPage() {
     window.sessionStorage.setItem("rooted_missed_lesson_prompt_shown", "1");
   }
 
-  async function handleMissedRecoveryYes() {
+  async function handleMissedRecoveryYes(rows: RecoveryRow[]) {
     if (!effectiveUserId) return;
     markMissedRecoveryShown();
     setShowMissedRecovery(false);
+    if (rows.length === 0) return;
 
-    // Flatten all entries across goals — YES means "mark every missed
-    // lesson done on the gap day it would have been due."
-    const allEntries: MissedEntry[] = [];
-    for (const entries of missedEntriesByGoal.values()) {
-      allEntries.push(...entries);
-    }
-    const goalIds = Array.from(new Set(allEntries.map((e) => e.goal_id)));
+    // Only the rows the family left checked, each on the date they saw. A row
+    // they unchecked is not written and is not rescheduled either: it stays
+    // exactly as it was, and "No, reschedule them" is the way to move it.
+    //
+    // choice is "planned" when the date is the gap day we proposed and
+    // "picked" when they changed it, so the record says whose date it was.
+    const goalIds = Array.from(new Set(rows.map((r) => r.goal_id)));
 
-    // For each entry, update the existing row by (curriculum_goal_id,
-    // queue_position). The projection emits queue slot indices (see
-    // ProjectedLesson docstring); queue_position is the column the Today
-    // page already matches projection slots against, so it is the correct
-    // field here too. CurriculumWizard pre-generates rows at creation;
-    // missing rows fall through to an insert keyed on the same pair.
-    for (const entry of allEntries) {
-      const completedAtIso = `${entry.date}T12:00:00Z`;
+    for (const row of rows) {
+      // Match by (curriculum_goal_id, queue_position): the projection emits
+      // queue slot indices (see ProjectedLesson), and queue_position is the
+      // column Today already matches projection slots against. Rows are
+      // pre-generated at creation; a missing one falls through to an insert.
       const { data: existing } = await supabase
         .from("lessons")
         .select("id")
         .eq("user_id", effectiveUserId)
-        .eq("curriculum_goal_id", entry.goal_id)
-        .eq("queue_position", entry.lesson_number)
+        .eq("curriculum_goal_id", row.goal_id)
+        .eq("queue_position", row.lesson_number)
         .maybeSingle();
+
+      const goal = missedGoals.find((g) => g.id === row.goal_id);
+
       if (existing) {
-        await supabase.from("lessons").update({
-          completed: true,
-          completed_at: completedAtIso,
-          date: entry.date,
-          scheduled_date: entry.date,
-          scheduled_source: "catchup_resched",
-        }).eq("id", (existing as { id: string }).id);
-      } else {
-        const goal = missedGoals.find((g) => g.id === entry.goal_id);
-        const goalRow = await supabase
-          .from("curriculum_goals")
-          .select("child_id, subject_label, default_minutes")
-          .eq("id", entry.goal_id)
-          .maybeSingle();
-        if (goalRow.error) {
-          captureSupabaseError("Missed-lesson recovery: goal read failed", goalRow.error, {
-            tags: { fn: "acceptMissedRecovery" },
-            extra: { goalId: entry.goal_id },
-          });
-        }
-        // child_id MUST come from the goal. Pre-fix this silently fell back to
-        // null when the SELECT failed or returned nothing, inserting a lesson
-        // with no child on a goal that has one (drift F: 6 prod rows across 3
-        // families, created Jul 9-27). A lesson row with no child never renders
-        // under a kid on Today or Plan and never reaches that child's
-        // transcript, so a silent null is worse than a skipped row.
-        //
-        // Three independent sources, in order, because production kept hitting
-        // "no child_id resolvable" on goals whose row genuinely has one:
-        //   1. the goal object already in memory (missedGoals carries child_id
-        //      from loadData's curriculum_goals select),
-        //   2. the per-entry SELECT above,
-        //   3. a narrow retry that reads child_id alone, covering a transient
-        //      failure of the wider select.
-        // Only when all three come back empty do we skip the insert.
-        let childId =
-          goal?.child_id ??
-          (goalRow.data as { child_id?: string | null } | null)?.child_id ??
-          null;
-        if (!childId) {
-          const retry = await supabase
-            .from("curriculum_goals")
-            .select("child_id")
-            .eq("id", entry.goal_id)
-            .maybeSingle();
-          if (retry.error) {
-            captureSupabaseError("Missed-lesson recovery: child_id retry failed", retry.error, {
-              tags: { fn: "acceptMissedRecovery" },
-              extra: { goalId: entry.goal_id },
-            });
-          }
-          childId = (retry.data as { child_id?: string | null } | null)?.child_id ?? null;
-        }
-        if (!childId) {
-          Sentry.captureMessage(
-            `Missed-lesson recovery: no child_id resolvable for goal ${entry.goal_id}; skipping insert`,
-            { level: "error", tags: { fn: "acceptMissedRecovery" } },
-          );
-          continue;
-        }
-        // curriculum_goals has no subject_id column, only subject_label. The
-        // real id comes from matching that label against the already-loaded
-        // subjects state, same case-insensitive lookup saveEdit() uses. No
-        // match means null, which is what this line always produced before.
-        const goalSubjectLabel = (goalRow.data as { subject_label?: string | null } | null)?.subject_label ?? null;
-        const matchedSubject = goalSubjectLabel?.trim()
-          ? subjects.find((s) => s.name.toLowerCase() === goalSubjectLabel.trim().toLowerCase())
-          : undefined;
-        const subjectId = matchedSubject?.id ?? null;
-        // The goal's own pacing, not a flat 30. Pre-fix goalRow.data was always
-        // null (the select above 400'd), so every recovered lesson logged 30
-        // minutes regardless of what the family had set.
-        const defaultMinutes =
-          (goalRow.data as { default_minutes?: number | null } | null)?.default_minutes ?? 30;
-        await supabase.from("lessons").insert({
-          user_id: effectiveUserId,
-          curriculum_goal_id: entry.goal_id,
-          lesson_number: entry.lesson_number,
-          queue_position: entry.lesson_number,
-          title: `${goal?.subject_label ?? goal?.curriculum_name ?? "Lesson"}: Lesson ${entry.lesson_number}`,
-          completed: true,
-          completed_at: completedAtIso,
-          date: entry.date,
-          scheduled_date: entry.date,
-          scheduled_source: "catchup_resched",
-          child_id: childId,
-          subject_id: subjectId,
-          minutes_spent: defaultMinutes,
-          hours: defaultMinutes / 60,
-          is_backfill: true,
+        await completeLessonOnDate(supabase, {
+          lessonId: (existing as { id: string }).id,
+          dateStr: row.date,
+          choice: row.choice,
+          todayStr: today,
+          surface: "recovery",
+          lessonNumber: row.lesson_number,
+          subjectLabel: goal?.subject_label ?? null,
+          track: (event) => posthog.capture("lesson_completed", event),
+        });
+        continue;
+      }
+
+      const goalRow = await supabase
+        .from("curriculum_goals")
+        .select("child_id, subject_label, default_minutes")
+        .eq("id", row.goal_id)
+        .maybeSingle();
+      if (goalRow.error) {
+        captureSupabaseError("Missed-lesson recovery: goal read failed", goalRow.error, {
+          tags: { fn: "acceptMissedRecovery" },
+          extra: { goalId: row.goal_id },
         });
       }
+      // child_id MUST come from the goal. Pre-fix this silently fell back to
+      // null when the SELECT failed or returned nothing, inserting a lesson
+      // with no child on a goal that has one (drift F: 6 prod rows across 3
+      // families, created Jul 9-27). A lesson row with no child never renders
+      // under a kid on Today or Plan and never reaches that child's
+      // transcript, so a silent null is worse than a skipped row.
+      //
+      // Three independent sources, in order, because production kept hitting
+      // "no child_id resolvable" on goals whose row genuinely has one:
+      //   1. the goal object already in memory (missedGoals carries child_id
+      //      from loadData's curriculum_goals select),
+      //   2. the per-entry SELECT above,
+      //   3. a narrow retry that reads child_id alone, covering a transient
+      //      failure of the wider select.
+      // Only when all three come back empty do we skip the insert.
+      let childId =
+        goal?.child_id ??
+        (goalRow.data as { child_id?: string | null } | null)?.child_id ??
+        null;
+      if (!childId) {
+        const retry = await supabase
+          .from("curriculum_goals")
+          .select("child_id")
+          .eq("id", row.goal_id)
+          .maybeSingle();
+        if (retry.error) {
+          captureSupabaseError("Missed-lesson recovery: child_id retry failed", retry.error, {
+            tags: { fn: "acceptMissedRecovery" },
+            extra: { goalId: row.goal_id },
+          });
+        }
+        childId = (retry.data as { child_id?: string | null } | null)?.child_id ?? null;
+      }
+      if (!childId) {
+        Sentry.captureMessage(
+          `Missed-lesson recovery: no child_id resolvable for goal ${row.goal_id}; skipping insert`,
+          { level: "error", tags: { fn: "acceptMissedRecovery" } },
+        );
+        continue;
+      }
+      // curriculum_goals has no subject_id column, only subject_label. The
+      // real id comes from matching that label against the already-loaded
+      // subjects state, same case-insensitive lookup saveEdit() uses.
+      const goalSubjectLabel = (goalRow.data as { subject_label?: string | null } | null)?.subject_label ?? null;
+      const matchedSubject = goalSubjectLabel?.trim()
+        ? subjects.find((s) => s.name.toLowerCase() === goalSubjectLabel.trim().toLowerCase())
+        : undefined;
+      const defaultMinutes =
+        (goalRow.data as { default_minutes?: number | null } | null)?.default_minutes ?? 30;
+      // Same completion shape as the update branch above; the helper cannot be
+      // used for a row that does not exist yet, so the payload is spread last
+      // so the date rule wins over anything above it.
+      const insertPayload = buildCompletionPayload({
+        dateStr: row.date,
+        choice: row.choice,
+        todayStr: today,
+      });
+      const { error: insertErr } = await supabase.from("lessons").insert({
+        user_id: effectiveUserId,
+        curriculum_goal_id: row.goal_id,
+        lesson_number: row.lesson_number,
+        queue_position: row.lesson_number,
+        title: `${goal?.subject_label ?? goal?.curriculum_name ?? "Lesson"}: Lesson ${row.lesson_number}`,
+        child_id: childId,
+        subject_id: matchedSubject?.id ?? null,
+        minutes_spent: defaultMinutes,
+        hours: defaultMinutes / 60,
+        ...insertPayload,
+      });
+      if (insertErr) {
+        captureSupabaseError("Missed-lesson recovery: insert failed", insertErr, {
+          tags: { fn: "acceptMissedRecovery" },
+          extra: { goalId: row.goal_id, slot: row.lesson_number },
+        });
+        continue;
+      }
+      posthog.capture("lesson_completed", {
+        lesson_number: row.lesson_number,
+        subject_label: goalSubjectLabel,
+        lesson_date: insertPayload.date,
+        date_choice: row.choice,
+        surface: "recovery" as const,
+      });
     }
 
     for (const goalId of goalIds) {
@@ -2453,6 +2507,143 @@ export default function TodayPage() {
   }
 
   // Open time confirmation modal before completing a lesson
+  /**
+   * Invariant 16. One completion, one day, one write — every completing path
+   * on this page ends here, and this is the only place Today calls
+   * completeLessonOnDate. Callers decide WHICH day (asking first when it is
+   * not today); this owns what happens once the day is known.
+   */
+  async function runCompletion(args: {
+    lesson: Lesson;
+    dateStr: string;
+    choice: CompletionChoice;
+    surface: CompletionSurface;
+    minutes?: number | null;
+    /** Skip the toast for batch paths that show their own confirmation. */
+    silent?: boolean;
+  }): Promise<boolean> {
+    const { lesson, dateStr, choice, surface } = args;
+    const extra =
+      args.minutes != null
+        ? { minutes_spent: args.minutes, hours: args.minutes / 60.0 }
+        : undefined;
+
+    const { error } = await completeLessonOnDate(supabase, {
+      lessonId: lesson.id,
+      dateStr,
+      choice,
+      todayStr: today,
+      surface,
+      lessonNumber: lesson.lesson_number ?? null,
+      subjectLabel: lesson.curriculum_goals?.subject_label ?? null,
+      extra,
+      // One event per completion, on every surface, carrying the date that was
+      // actually stored. lesson_completed_missed is retired into this.
+      track: (event) => posthog.capture("lesson_completed", event),
+    });
+    if (error) {
+      showCaptureToast("Couldn't log that, try again.", null);
+      return false;
+    }
+
+    const updatedLessons = lessons.map((l) =>
+      l.id === lesson.id
+        ? {
+            ...l,
+            completed: true,
+            scheduled_date: dateStr,
+            date: dateStr,
+            ...(args.minutes != null
+              ? { minutes_spent: args.minutes, hours: args.minutes / 60.0 }
+              : {}),
+          }
+        : l,
+    );
+    setLessons(updatedLessons);
+    setMissedLessons((prev) => prev.filter((l) => l.id !== lesson.id));
+
+    setCelebrating(true);
+    setTimeout(() => setCelebrating(false), 1600);
+    triggerGardenAnimation(lesson.child_id ?? undefined);
+    earnLeaf();
+
+    // Child done toast
+    if (lesson.child_id) {
+      const childLessons = updatedLessons.filter((l) => l.child_id === lesson.child_id);
+      const childAllDone = childLessons.length > 0 && childLessons.every((l) => l.completed);
+      if (childAllDone) {
+        const childName = children.find((c) => c.id === lesson.child_id)?.name;
+        if (childName) {
+          setTimeout(() => {
+            if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
+            setChildDoneToastOut(false);
+            setChildDoneToast(childName);
+            childDoneTimerRef.current = setTimeout(() => {
+              setChildDoneToastOut(true);
+              setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
+            }, 2500);
+          }, 300);
+        }
+      }
+    }
+
+    if (updatedLessons.length > 0 && updatedLessons.every((l) => l.completed)) {
+      setTimeout(() => setAllDoneBanner(true), 800);
+    }
+
+    // Recompute from actual rows so current_lesson never drifts past
+    // max(queue_position) of completed rows (Bug 3).
+    if (lesson.curriculum_goal_id) {
+      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+    }
+    await refreshLeafCounts();
+    checkAndAwardBadges(effectiveUserId);
+    onLogAction({ userId: effectiveUserId, childId: lesson.child_id ?? undefined, actionType: "lesson" });
+
+    // Rooted always shows the date it just wrote. Change reopens the chooser
+    // on the same lesson so a wrong day is one tap from right.
+    if (!args.silent) {
+      setCompletionToast({
+        message: `Logged for ${completionLabelDate(dateStr)}`,
+        lesson,
+        plannedDate: dateStr,
+        minutes: args.minutes ?? null,
+        surface,
+      });
+      if (completionToastTimer.current) clearTimeout(completionToastTimer.current);
+      completionToastTimer.current = setTimeout(() => setCompletionToast(null), 8000);
+    }
+    return true;
+  }
+
+  /**
+   * Ask first when the day is not today, otherwise write today. The single
+   * entry point every Today completion goes through.
+   */
+  async function beginCompletion(args: {
+    lesson: Lesson;
+    surface: CompletionSurface;
+    minutes?: number | null;
+  }) {
+    const plannedDate = args.lesson.scheduled_date ?? args.lesson.date ?? null;
+    if (needsDateChoice(plannedDate, today)) {
+      setCompletionChoice({
+        lesson: args.lesson,
+        plannedDate: plannedDate as string,
+        minutes: args.minutes ?? null,
+        surface: args.surface,
+      });
+      return;
+    }
+    await runCompletion({
+      lesson: args.lesson,
+      dateStr: today,
+      choice: "today",
+      surface: args.surface,
+      minutes: args.minutes ?? null,
+    });
+  }
+
   async function openCheckOffModal(id: string, current: boolean) {
     // If unchecking (undoing), skip modal and toggle directly
     if (current) {
@@ -2486,69 +2677,10 @@ export default function TodayPage() {
     // Close modal
     setCheckOffVisible(false);
     setTimeout(() => setCheckOffLesson(null), 300);
-    // Save minutes_spent and hours alongside completion. completed_at must be
-    // set whenever completed=true (Bug 2 invariant). scheduled_date / date
-    // are pinned to today so a future-scheduled row doesn't ghost back onto
-    // its original calendar slot after this write.
-    await supabase.from("lessons").update({
-      completed: true,
-      completed_at: new Date().toISOString(),
-      minutes_spent: minutes,
-      hours: minutes / 60.0,
-      scheduled_date: today,
-      date: today,
-      // Invariant 10. The check-off modal is the main completion path on
-      // Today, and it pins the same way toggleLesson does.
-      scheduled_source: "completion_pin",
-    }).eq("id", lesson.id);
-    // Update local state
-    setLessons(prev => prev.map(l => l.id === lesson.id ? { ...l, completed: true, minutes_spent: minutes, hours: minutes / 60.0 } : l));
-    // Run all the post-completion effects (celebrations, toasts, goal advancement)
-    posthog.capture('lesson_completed', {
-      lesson_number: lesson.lesson_number ?? null,
-      lesson_date: today,
-      subject_label: lesson.curriculum_goals?.subject_label ?? null,
-      days_late: 0,
-    });
-    setCelebrating(true);
-    setTimeout(() => setCelebrating(false), 1600);
-    triggerGardenAnimation(lesson.child_id ?? undefined);
-    earnLeaf();
-
-    // Child done toast
-    const updatedLessons = lessons.map(l => l.id === lesson.id ? { ...l, completed: true } : l);
-    if (lesson.child_id) {
-      const childLessons = updatedLessons.filter(l => l.child_id === lesson.child_id);
-      const childAllDone = childLessons.length > 0 && childLessons.every(l => l.completed);
-      if (childAllDone) {
-        const childName = children.find(c => c.id === lesson.child_id)?.name;
-        if (childName) {
-          setTimeout(() => {
-            if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
-            setChildDoneToastOut(false);
-            setChildDoneToast(childName);
-            childDoneTimerRef.current = setTimeout(() => {
-              setChildDoneToastOut(true);
-              setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
-            }, 2500);
-          }, 300);
-        }
-      }
-    }
-
-    // All done banner
-    if (updatedLessons.length > 0 && updatedLessons.every(l => l.completed)) {
-      setTimeout(() => setAllDoneBanner(true), 800);
-    }
-
-    // Advance curriculum goal — recompute from actual rows so current_lesson
-    // never drifts past max(lesson_number) of completed rows (Bug 3).
-    if (lesson.curriculum_goal_id) {
-      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
-    }
-
-    checkAndAwardBadges(effectiveUserId);
-    onLogAction({ userId: effectiveUserId, childId: lesson.child_id ?? undefined, actionType: "lesson" });
+    // Invariant 16: beginCompletion writes today when the lesson sits on today
+    // (the ordinary case here, since Today renders today's projected slots) and
+    // asks first when it does not. The minutes ride along either way.
+    await beginCompletion({ lesson, surface: "today", minutes });
   }
 
   function closeCheckOffModal() {
@@ -2615,111 +2747,32 @@ export default function TodayPage() {
 
   async function toggleLesson(id: string, current: boolean) {
     const lesson = lessons.find((l) => l.id === id);
-    // Pin date+scheduled_date to today on the complete direction so the
-    // completed history reflects when the work actually happened — even
-    // when the original scheduled_date sits in the past (missed) or matches
-    // today. Without this universal pin, past-dated rows kept ghosting on
-    // the missed-lessons surface and future-dated rows kept ghosting on
-    // future calendar days. Uncomplete still leaves dates untouched (the
-    // user might be undoing a misclick on a real future lesson).
-    // lesson_number is left alone — queue position is governed by
-    // current_lesson, not date (Invariant 7).
-    const todayStr = toDateStr(new Date());
-    const pinDateToToday = !current && !!lesson;
-    const updatedLessons = lessons.map(l =>
-      l.id === id
-        ? (pinDateToToday
-          ? { ...l, completed: !current, scheduled_date: todayStr, date: todayStr }
-          : { ...l, completed: !current })
-        : l
-    );
-    setLessons(updatedLessons);
-    // Keep completed ↔ completed_at invariant (Bug 2): set timestamp on
-    // complete, clear it on uncomplete.
-    const update: Record<string, unknown> = {
-      completed: !current,
-      completed_at: !current ? new Date().toISOString() : null,
-    };
-    if (pinDateToToday) {
-      update.scheduled_date = todayStr;
-      update.date = todayStr;
-      // Invariant 10: a write to lessons.date names its source. This pin was
-      // one of the two paths that had no label, so a completion pinned to the
-      // tap day was indistinguishable in the data from whatever wrote the row
-      // before it — which is why the September 2026 investigation had to date
-      // rows by their microsecond timestamps to work out who wrote them.
-      update.scheduled_source = "completion_pin";
-    }
-    await supabase.from("lessons").update(update).eq("id", id);
+    if (!lesson) return;
 
-    // Save minutes_spent when completing a lesson
-    if (!current && lesson?.curriculum_goal_id) {
-      const { data: goalRow } = await supabase
-        .from("curriculum_goals")
-        .select("default_minutes")
-        .eq("id", lesson.curriculum_goal_id)
-        .single();
-      const mins = (goalRow as { default_minutes?: number } | null)?.default_minutes ?? 30;
-      await supabase.from("lessons").update({ minutes_spent: mins }).eq("id", id);
-      // Show dismissible time pill
-      if (timePillTimer.current) clearTimeout(timePillTimer.current);
-      setTimePill({ lessonId: id, minutes: mins });
-      setTimePillEdit(false);
-      setTimePillValue(String(mins));
-      timePillTimer.current = setTimeout(() => setTimePill(null), 3000);
-    }
-
+    // ── Complete. Invariant 16: the day is shown before it is written. ──────
+    // This used to pin every completion to today unconditionally, which is
+    // half of the split this invariant closes: the same tap on the same lesson
+    // wrote today here and the planned day on the Plan page.
     if (!current) {
-      posthog.capture('lesson_completed', {
-        lesson_number: lesson?.lesson_number ?? null,
-        lesson_date: today,
-        subject_label: lesson?.curriculum_goals?.subject_label ?? null,
-        days_late: 0,
-      });
-      setCelebrating(true);
-      setTimeout(() => setCelebrating(false), 1600);
-      triggerGardenAnimation(lesson?.child_id ?? undefined);
-      earnLeaf();
+      await beginCompletion({ lesson, surface: "today" });
 
-      // Tier 2: child done toast at 300ms
-      const childId = lesson?.child_id;
-      if (childId) {
-        const childLessons = updatedLessons.filter(l => l.child_id === childId);
-        const childAllDone = childLessons.length > 0 && childLessons.every(l => l.completed);
-        if (childAllDone) {
-          const childName = children.find(c => c.id === childId)?.name;
-          if (childName) {
-            setTimeout(() => {
-              if (childDoneTimerRef.current) clearTimeout(childDoneTimerRef.current);
-              setChildDoneToastOut(false);
-              setChildDoneToast(childName);
-              childDoneTimerRef.current = setTimeout(() => {
-                setChildDoneToastOut(true);
-                setTimeout(() => { setChildDoneToast(null); setChildDoneToastOut(false); }, 300);
-              }, 2500);
-            }, 300);
-          }
-        }
+      // Default minutes, once the completion itself has landed.
+      if (lesson.curriculum_goal_id) {
+        const { data: goalRow } = await supabase
+          .from("curriculum_goals")
+          .select("default_minutes")
+          .eq("id", lesson.curriculum_goal_id)
+          .single();
+        const mins = (goalRow as { default_minutes?: number } | null)?.default_minutes ?? 30;
+        await supabase.from("lessons").update({ minutes_spent: mins }).eq("id", id);
+        if (timePillTimer.current) clearTimeout(timePillTimer.current);
+        setTimePill({ lessonId: id, minutes: mins });
+        setTimePillEdit(false);
+        setTimePillValue(String(mins));
+        timePillTimer.current = setTimeout(() => setTimePill(null), 3000);
       }
 
-      // Tier 3: all done banner at 800ms
-      const allNowDone = updatedLessons.length > 0 && updatedLessons.every(l => l.completed);
-      if (allNowDone) {
-        setTimeout(() => setAllDoneBanner(true), 800);
-      }
-
-      if (lesson?.curriculum_goal_id) {
-        // Recompute current_lesson from actual rows instead of blindly
-        // incrementing (Bug 3). Modern goals pre-generate all rows 1..total
-        // during wizard save, so no auto-insert is needed here — the old code
-        // was creating duplicate lesson_number rows on top of pre-generated
-        // ones (Bug 5) and scheduling them on non-goal school days (Bug 4).
-        await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
-        // Refresh today's lessons so the UI stays current
-        await loadData();
-      }
-
-      if (lesson?.goal_id) {
+      if (lesson.goal_id) {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
           await supabase.from("app_events").insert({
@@ -2729,20 +2782,36 @@ export default function TodayPage() {
           });
         }
       }
-    } else {
-      // Unchecking — immediately hide the all done banner
-      setAllDoneBanner(false);
+
+      if (lesson.curriculum_goal_id) {
+        // Refresh today's lessons so the UI stays current.
+        await loadData();
+      }
+      return;
+    }
+
+    // ── Uncomplete. Unchanged (Invariant 7 territory) except the flags. ─────
+    // Dates are deliberately left alone: the family may be undoing a misclick
+    // on a real future lesson. is_backfill and queue_pinned come off because a
+    // chosen-day completion set them (see buildCompletionPayload) and both
+    // would otherwise outlive the completion that justified them, freezing the
+    // row where the reconciler can no longer move it.
+    setLessons(lessons.map((l) => (l.id === id ? { ...l, completed: false } : l)));
+    await supabase
+      .from("lessons")
+      .update({
+        completed: false,
+        completed_at: null,
+        is_backfill: false,
+        queue_pinned: false,
+        scheduled_source: "manual_uncomplete",
+      })
+      .eq("id", id);
+    setAllDoneBanner(false);
+    if (lesson.curriculum_goal_id) {
+      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
     }
     await refreshLeafCounts();
-
-    // Check for new activity badges + streaks + creative badges (fire-and-forget)
-    if (!current) {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        checkAndAwardBadges(user.id);
-        onLogAction({ userId: user.id, childId: lesson?.child_id ?? undefined, actionType: "lesson" });
-      }
-    }
   }
 
   // ── Extra lessons (log ahead) ──────────────────────────────────────────────
@@ -2944,20 +3013,34 @@ export default function TodayPage() {
       ...checkedLessons.map(l => l.id),
       ...intermediateIds,
     ]));
-    const { error: batchError } = await supabase.from("lessons").update({
-      completed: true,
-      completed_at: new Date().toISOString(),
-      date: today,
-      scheduled_date: today,
-      // Invariant 10. Same pin as toggleLesson, in bulk: these lessons are
-      // being recorded as done today, so their calendar date becomes today.
-      scheduled_source: "completion_pin",
-    }).in("id", lessonIds);
+    // Invariant 16. The sheet says "for {today}" on its button, so today is
+    // what gets written; buildCompletionPayload is the single definition of
+    // what that means, shared with every single-lesson path.
+    const batchPayload = buildCompletionPayload({
+      dateStr: today,
+      choice: "today",
+      todayStr: today,
+    });
+    const { error: batchError } = await supabase
+      .from("lessons")
+      .update(batchPayload)
+      .in("id", lessonIds);
     if (batchError) {
       console.error("Failed to save extra lessons:", batchError);
       setSavingExtra(false);
       showCaptureToast("Something went wrong. Please try again.", null);
       return;
+    }
+    // After the write, never before: one event per completion, carrying the
+    // date that was actually stored.
+    for (const l of checkedLessons) {
+      posthog.capture("lesson_completed", {
+        lesson_number: l.lesson_number ?? null,
+        subject_label: l.curriculum_goals?.subject_label ?? null,
+        lesson_date: batchPayload.date,
+        date_choice: "today" as const,
+        surface: "extra" as const,
+      });
     }
 
     // Advance current_lesson per affected goal. Without this, the
@@ -3126,16 +3209,24 @@ export default function TodayPage() {
     const goalForLesson = activeGoals.find((g: { id: string }) => g.id === nextLesson!.curriculum_goal_id);
     const mins = (goalForLesson as { default_minutes?: number })?.default_minutes ?? 30;
 
-    // Set completed_at to keep the invariant (Bug 2).
-    await supabase.from("lessons").update({
-      completed: true,
-      completed_at: new Date().toISOString(),
-      date: today,
-      scheduled_date: today,
-      minutes_spent: mins,
-      // Invariant 10, same completion pin.
-      scheduled_source: "completion_pin",
-    }).eq("id", nextLesson.id);
+    // Invariant 16: logging an extra is an explicit "we did one more today",
+    // so today is the honest default and the toast names it. Change reopens
+    // the chooser if it was actually done on another day.
+    const { error: extraErr } = await completeLessonOnDate(supabase, {
+      lessonId: nextLesson.id,
+      dateStr: today,
+      choice: "today",
+      todayStr: today,
+      surface: "extra",
+      lessonNumber: nextLesson.lesson_number ?? null,
+      extra: { minutes_spent: mins, hours: mins / 60.0 },
+      track: (event) => posthog.capture("lesson_completed", event),
+    });
+    if (extraErr) {
+      showCaptureToast("Couldn't log that, try again.", null);
+      setExtraLessonLoading(null);
+      return;
+    }
 
     // Recompute current_lesson from actual rows (Bug 3). No auto-insert of
     // the "next" lesson — modern goals pre-generate all rows 1..total, so
@@ -3187,7 +3278,14 @@ export default function TodayPage() {
   }
 
   async function markMissedComplete(lesson: MissedLesson) {
-    const completedAt = new Date().toISOString();
+    // A missed lesson sits on a past day by definition, so Invariant 16 says
+    // ask: "today" and "the day it was planned" are both honest answers and
+    // only the family knows which. beginCompletion opens the chooser.
+    //
+    // The old path pinned to today and fired lesson_completed_missed with a
+    // days_late field. That event is retired: one completion, one
+    // lesson_completed, carrying surface "missed" and the date actually
+    // stored, so a family's history reconstructs from their taps.
     let mins: number | null = null;
     if (lesson.curriculum_goal_id) {
       const { data: goalRow } = await supabase
@@ -3197,39 +3295,7 @@ export default function TodayPage() {
         .single();
       mins = (goalRow as { default_minutes?: number } | null)?.default_minutes ?? 30;
     }
-    // Pin scheduled_date / date to today so the missed row's original
-    // past slot doesn't keep flagging it as missed after the write.
-    await supabase.from("lessons").update({
-      completed: true,
-      completed_at: completedAt,
-      minutes_spent: mins,
-      hours: mins != null ? mins / 60.0 : null,
-      scheduled_date: today,
-      date: today,
-      // Invariant 10. Third instance of the same completion pin.
-      scheduled_source: "completion_pin",
-    }).eq("id", lesson.id);
-    setMissedLessons(prev => prev.filter(l => l.id !== lesson.id));
-    if (lesson.curriculum_goal_id) {
-      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
-    }
-    const missedLessonDate = lesson.scheduled_date ?? lesson.date;
-    const missedDaysLate = missedLessonDate
-      ? Math.max(0, Math.floor((new Date(today + "T00:00:00").getTime() - new Date(missedLessonDate + "T00:00:00").getTime()) / 86400000))
-      : null;
-    posthog.capture('lesson_completed_missed', {
-      lesson_number: lesson.lesson_number ?? null,
-      lesson_date: missedLessonDate,
-      subject_label: lesson.curriculum_goals?.subject_label ?? null,
-      days_late: missedDaysLate,
-    });
-    triggerGardenAnimation(lesson.child_id ?? undefined);
-    earnLeaf();
-    await refreshLeafCounts();
-    if (effectiveUserId) {
-      checkAndAwardBadges(effectiveUserId);
-      onLogAction({ userId: effectiveUserId, childId: lesson.child_id ?? undefined, actionType: "lesson" });
-    }
+    await beginCompletion({ lesson, surface: "missed", minutes: mins });
   }
 
   async function skipMissedLesson(lesson: MissedLesson) {
@@ -3251,7 +3317,10 @@ export default function TodayPage() {
   // render path untouched so a failed write does not strand the user on
   // a half-loaded page.
 
-  async function confirmPriorLessonComplete(g: UnconfirmedGoal) {
+  async function confirmPriorLessonComplete(
+    g: UnconfirmedGoal,
+    choice: "planned" | "today",
+  ) {
     if (!effectiveUserId) return;
     if (confirmingGoalIds.has(g.goal_id)) return;
     setConfirmingGoalIds((prev) => {
@@ -3271,7 +3340,7 @@ export default function TodayPage() {
       // from state loaded before that happened.
       //
       // Fail CLOSED. Left to fall through, the day resolution returned null,
-      // `?? today` supplied a guessed date, and the INSERT then died on
+      // a guessed date got supplied, and the INSERT then died on
       // lessons_curriculum_goal_id_fkey — inside a try/finally with no catch,
       // so it surfaced as an unhandled rejection: no row written, no word to
       // the family, and the card still sitting there asking. Nothing is lost by
@@ -3302,17 +3371,7 @@ export default function TodayPage() {
       // and INSERT only when no row was ever pre-generated for this
       // slot. lesson_number is the stable curriculum index; queue_position
       // gets nulled by the orphan-cleanup trigger and is not safe to key
-      // on across the current_lesson advance below. Both rows get
-      // is_backfill=true so the queue projector never re-spreads them
-      // (Invariant 3) and the Today projector's `is_backfill !== true`
-      // filter keeps them out of the daily list.
-      //
-      // Both date columns are read, because this prompt confirms a lesson the
-      // family finished BEFORE today — the queue advanced past it without an
-      // audit trail. Stamping the row with today's date filed that work on the
-      // wrong day: attendance in app/dashboard/reports/page.tsx buckets on
-      // completed_at.slice(0, 10), so today gained a school day the family did
-      // not do and the day they did lost one.
+      // on across the recompute below.
       const { data: existing } = await supabase
         .from("lessons")
         .select("id, scheduled_date, date")
@@ -3324,91 +3383,48 @@ export default function TodayPage() {
         | { id: string; scheduled_date: string | null; date: string | null }
         | null;
 
-      // With no row there is no projected day to keep, so the day has to be
-      // derived. In practice this is the branch that runs: loadData only flags a
-      // goal when the slot has NO row at all.
-      //
-      // Ask the projector where this queue slot belonged, exactly the way
-      // planHistoricalBackfill does in app/dashboard/plan/schedule/page.tsx —
-      // rewind the queue to zero, cap total_lessons at the slot being confirmed,
-      // and run computeNextLessonsForGoal from start_date. That honors
-      // school_days, vacation blocks and per-weekday overrides, so the answer is
-      // a day this family actually does school on.
-      const resolvePastSchoolDay = (): string | null => {
-        const cfg = goalCfg;
-        const vacations: SchedVacationBlock[] = allVacationBlocks.map((v) => ({
+      // The day the family agreed to, which is the day the card showed them.
+      // "Yes, today" is today. "Yes, on Fri Sep 4" is the resolved day the
+      // card displayed; it is re-derived here from the freshly-read goal so a
+      // stale card cannot write against settings that have since changed, and
+      // the displayed value is preferred when the two agree.
+      const rowDay = existingRow?.scheduled_date ?? existingRow?.date ?? null;
+      const freshlyResolved = resolvePriorLessonDay({
+        goal: goalCfg,
+        slot: g.current_lesson,
+        todayStr: today,
+        vacationBlocks: allVacationBlocks.map((v) => ({
           start_date: v.start_date,
           end_date: v.end_date,
-        }));
-
-        if (cfg.start_date && cfg.start_date < today && g.current_lesson > 0) {
-          const startMid = new Date(`${cfg.start_date}T00:00:00`);
-          const todayMid = new Date(`${today}T00:00:00`);
-          // Same span planHistoricalBackfill uses: the whole stretch since the
-          // start date plus a cushion, so the projector never runs out of window
-          // before it has laid every historical slot.
-          const daysSpan = Math.max(
-            1,
-            Math.floor((todayMid.getTime() - startMid.getTime()) / 86400000) + 60,
-          );
-          const histProjected = computeNextLessonsForGoal(
-            { ...cfg, current_lesson: 0, total_lessons: g.current_lesson },
-            startMid,
-            daysSpan,
-            vacations,
-          );
-          // The most recent projected school day STRICTLY before today. For the
-          // ordinary shape (every historical slot behind us) that is this slot's
-          // own day. When the projection runs past today — a recent start_date
-          // with a high starting position — it is the last day that did happen,
-          // which is the honest answer to "when did you finish it".
-          let latest: string | null = null;
-          for (const p of histProjected) {
-            if (p.date >= today) continue;
-            if (!latest || p.date > latest) latest = p.date;
-          }
-          if (latest) return latest;
-        }
-
-        // No start_date, or nothing projected behind us. Fall back to this
-        // goal's most recent school day, which still respects school_days and
-        // vacations — never a flat "yesterday" that would file a Tue/Wed
-        // curriculum's work on a Monday.
-        return mostRecentSchoolDayBefore(today, cfg.school_days, vacations);
-      };
-
-      const rowDay = existingRow?.scheduled_date ?? existingRow?.date ?? null;
-      // Last resort only if the walk finds no school day inside its 10-year
-      // lookback (every day a vacation). The clamp below turns it into today.
-      // A missing goal can no longer reach this line: it returned above.
-      const resolvedDay = rowDay ?? resolvePastSchoolDay() ?? today;
-      // A completion can never be in the future. The row's stored date may sit
-      // ahead of today (a stale projected cache), and stamping completed_at from
-      // it would file this family's attendance on a day that has not happened.
-      const stampDay = resolvedDay >= today ? today : resolvedDay;
-      // Noon UTC of the day the work happened, matching logPastDayLessons.ts
-      // and the catch-up modal. Never local noon: east of UTC that lands on the
-      // previous calendar day and buckets attendance a day early.
-      const completedAtIso = `${stampDay}T12:00:00Z`;
+        })),
+        rowDay,
+      });
+      // The clamp from 97ed329, still here and now inside the shared payload:
+      // buildCompletionPayload never stamps a future completed_at.
+      const dateStr =
+        choice === "today" ? today : (g.resolved_day ?? freshlyResolved ?? today);
 
       if (existingRow?.id) {
-        const { error } = await supabase
-          .from("lessons")
-          .update({
-            completed: true,
-            completed_at: completedAtIso,
-            // scheduled_date / date deliberately untouched: the row keeps the
-            // day it was projected onto, which is the day the work is being
-            // confirmed for. Pinning them to today is what moved the record.
-            is_backfill: true,
-            // Invariant 10: every lesson write stamps a scheduled_source.
-            // 'wizard_create' is the closest existing tag for a confirmed
-            // historical completion seeded from the queue position.
-            scheduled_source: "wizard_create",
-          })
-          .eq("id", existingRow.id);
-        if (error) throw error;
+        // Invariant 16: one writer, and it is the shared one.
+        const { error } = await completeLessonOnDate(supabase, {
+          lessonId: existingRow.id,
+          dateStr,
+          choice,
+          todayStr: today,
+          surface: "prior_card",
+          lessonNumber: g.current_lesson,
+          subjectLabel: g.subject_label,
+          track: (event) => posthog.capture("lesson_completed", event),
+        });
+        if (error) throw new Error(error.message);
       } else {
+        // No row to update. The helper writes by id, so the insert carries the
+        // same payload spread last, exactly as the recovery modal does.
+        const insertPayload = buildCompletionPayload({
+          dateStr,
+          choice,
+          todayStr: today,
+        });
         const { error } = await supabase.from("lessons").insert({
           user_id: effectiveUserId,
           child_id: g.child_id,
@@ -3416,15 +3432,17 @@ export default function TodayPage() {
           lesson_number: g.current_lesson,
           queue_position: g.current_lesson,
           title: `${g.curriculum_name} — Lesson ${g.current_lesson}`,
-          scheduled_date: resolvedDay,
-          date: resolvedDay,
-          completed: true,
-          completed_at: completedAtIso,
-          is_backfill: true,
-          scheduled_source: "wizard_create",
           hours: 0,
+          ...insertPayload,
         });
         if (error) throw error;
+        posthog.capture("lesson_completed", {
+          lesson_number: g.current_lesson,
+          subject_label: g.subject_label,
+          lesson_date: insertPayload.date,
+          date_choice: choice,
+          surface: "prior_card" as const,
+        });
       }
 
       // Recompute the pointer from the rows, like every other writer in the
@@ -4751,18 +4769,40 @@ export default function TodayPage() {
                     key={g.goal_id}
                     className="rounded-2xl border border-[#e5dec5] bg-[#fdfaef] px-3.5 py-3"
                   >
+                    {/* The date this card would write, shown before it writes
+                        it. Resolved by the projector when the card was built
+                        (see resolved_day), so the family agrees to a specific
+                        day rather than to "mark it done" and finding out
+                        after. */}
                     <p className="text-[13px] text-[#5c4a1a] leading-snug break-words">
-                      Did you finish <span className="font-semibold">{subjectLabel}</span>
-                      {" "}Lesson {g.current_lesson}?
+                      <span className="font-semibold">{subjectLabel}</span>
+                      {" "}Lesson {g.current_lesson}
+                      {g.resolved_day
+                        ? <> was due {completionLabelDate(g.resolved_day)}. Did you do it?</>
+                        : <>: did you do it?</>}
                     </p>
                     <div className="mt-2.5 flex flex-wrap gap-2">
+                      {g.resolved_day && (
+                        <button
+                          type="button"
+                          onClick={() => { void confirmPriorLessonComplete(g, "planned"); }}
+                          disabled={busy}
+                          className="text-[12px] font-semibold text-white bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
+                        >
+                          {busy ? "Saving…" : `Yes, on ${completionLabelDate(g.resolved_day)}`}
+                        </button>
+                      )}
                       <button
                         type="button"
-                        onClick={() => { void confirmPriorLessonComplete(g); }}
+                        onClick={() => { void confirmPriorLessonComplete(g, "today"); }}
                         disabled={busy}
-                        className="text-[12px] font-semibold text-white bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
+                        className={
+                          g.resolved_day
+                            ? "text-[12px] font-semibold text-[#2D5A3D] bg-white border border-[#c5dbc9] hover:bg-[#f0f7f2] disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
+                            : "text-[12px] font-semibold text-white bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
+                        }
                       >
-                        {busy ? "Saving…" : "Yes, mark it done"}
+                        {busy ? "Saving…" : "Yes, today"}
                       </button>
                       <button
                         type="button"
@@ -4770,7 +4810,7 @@ export default function TodayPage() {
                         disabled={busy}
                         className="text-[12px] font-semibold text-[#5c4a1a] bg-white border border-[#e5dec5] hover:bg-[#f8f2e0] disabled:opacity-50 rounded-lg px-3 py-1.5 transition-colors"
                       >
-                        No, show it today
+                        Not yet
                       </button>
                     </div>
                   </div>
@@ -6735,15 +6775,77 @@ export default function TodayPage() {
         <MissedLessonRecoveryModal
           goals={missedGoals}
           entriesByGoal={missedEntriesByGoal}
+          today={today}
           onYes={handleMissedRecoveryYes}
           onNo={handleMissedRecoveryNo}
           onDismiss={handleMissedRecoveryDismiss}
+          onShown={(info) => posthog.capture("catchup_prompt_shown", info)}
         />
       )}
       {recoveryToast && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
           <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg">
             Got it. Today is updated.
+          </div>
+        </div>
+      )}
+
+      {/* ── Invariant 16: which day did you do this? ─────────
+           Shown before the write whenever the day is not today.
+           Nothing is stored until the family answers. */}
+      {completionChoice && (
+        <CompletionDateChooser
+          lessonTitle={
+            completionChoice.lesson.title?.trim() ||
+            (completionChoice.lesson.lesson_number
+              ? `Lesson ${completionChoice.lesson.lesson_number}`
+              : "This lesson")
+          }
+          plannedDate={completionChoice.plannedDate}
+          today={today}
+          onCancel={() => setCompletionChoice(null)}
+          onChoose={async (dateStr, choice) => {
+            const pending = completionChoice;
+            setCompletionChoice(null);
+            await runCompletion({
+              lesson: pending.lesson,
+              dateStr,
+              choice,
+              surface: pending.surface,
+              minutes: pending.minutes,
+            });
+            await loadData();
+          }}
+        />
+      )}
+
+      {/* ── Completion toast: the date that was written, with a way back ──
+           Rooted always shows the date it is about to write. On the silent
+           path (a lesson that sits on today) this is the only place the
+           family sees it, so it names the day and offers Change. */}
+      {completionToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70] px-3 w-full max-w-md">
+          <div className="bg-[var(--g-brand)] text-white rounded-2xl shadow-lg flex items-center gap-3 px-4 py-3">
+            <p className="flex-1 text-[13px] font-medium leading-snug min-w-0">
+              {completionToast.message}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                if (completionToastTimer.current) clearTimeout(completionToastTimer.current);
+                const t = completionToast;
+                setCompletionToast(null);
+                setCompletionChoice({
+                  lesson: t.lesson,
+                  plannedDate: t.plannedDate,
+                  minutes: t.minutes,
+                  surface: t.surface,
+                });
+              }}
+              className="shrink-0 text-[13px] font-bold text-white bg-[#5c7f63] hover:bg-[var(--g-deep)] rounded-xl px-3 py-1.5 min-h-[36px] transition-colors"
+            >
+              Change
+            </button>
           </div>
         </div>
       )}

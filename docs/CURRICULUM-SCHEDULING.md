@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: September 7, 2026 — adds Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 8, 2026 — adds Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -473,6 +473,77 @@ the confirm prompt recomputes instead of advancing; the presence check asks only
 about the pairs in question; `neverBelow` holds but never advances; and the
 fixed cleanup leaves no phantom completion and no stranded slot.
 
+
+### Invariant 16 — A completion is dated by the person, once
+
+A completion is dated by the person, once, through `completeLessonOnDate`. The
+date shown at the moment of tapping is the date stored. Rooted asks only when
+that date is not today.
+
+**Why:** the same action, "I did this lesson", wrote a different date depending
+on which screen the tap happened on. Today's page pinned every completion to
+today. The Plan page kept a past-dated row on its planned day and pinned a
+today-or-future row to today. The month checklist wrote the day the family
+picked. So a family who checked off Wednesday's lesson on Friday got **Friday**
+from Today and **Wednesday** from Plan, for the same lesson, on the same
+afternoon. Support traffic in the week of September 8, 2026 came from exactly
+that split, and a family who has to produce an attendance record could not tell
+which of the two their own app believed.
+
+Note what this is NOT: none of those writes was a bug on its own terms. Each
+was locally reasonable, and the Plan-page split in particular was deliberate
+(see the superseded note below). The defect was that no single rule governed
+them, so the answer depended on a comparison the family never saw.
+
+**The rule:**
+
+- **Today's lesson, tapped complete** → write today, no interruption. A toast
+  names the day and offers Change.
+- **A past or future lesson, tapped complete, from any surface** → the chooser
+  opens BEFORE anything is written. "Today, Tue Sep 8" / "The day it was
+  planned, Wed Sep 2" (or "Keep it on Thu Sep 10" when it is ahead), plus "Pick
+  another day". Cancel writes nothing.
+- **The month-view checklist** is already date-aware and needs no chooser; the
+  date goes in the button instead ("Log these for Wed, Sep 2").
+- **Uncomplete is unchanged** (Invariant 7 territory): dates are left alone.
+  `is_backfill` and `queue_pinned` are cleared, because both were set by a
+  chosen-day completion and would otherwise outlive it.
+
+**Enforced by:** `app/lib/completeLessonOnDate.ts`. `buildCompletionPayload` is
+the single definition of what a completion writes:
+
+| column | value |
+|---|---|
+| `completed_at` | `now()` for "today"; noon UTC of the day otherwise; never a future instant |
+| `date` / `scheduled_date` | the chosen day |
+| `scheduled_source` | `completion_today` / `completion_planned` / `completion_picked` (Invariant 10) |
+| `is_backfill` | true unless the choice was "today" (Invariant 3) |
+| `queue_pinned` | true unless the choice was "today" — a day the family named is a manual placement (Invariant 12) |
+
+The never-future clamp is the one from `97ed329`, kept: a family may keep a
+lesson on Thursday and tell us today that they did it, so the row keeps
+Thursday while the timestamp stays honest.
+
+These writes are issued by a client, at `pg_trigger_depth() = 1`, so
+`trg_lessons_block_server_side_completion` (Invariant 15) is not involved. That
+guard stops a TRIGGER claiming a family did work. A person tapping a lesson is
+exactly what it is written to leave alone.
+
+**Superseded:** the Plan-page special case in `usePlanLessonActions.toggleLesson`
+— "pin to today only when the row's date is today or future, so a past-dated
+row keeps its planned day" — is retired. It was the more thoughtful half of the
+split and it still guessed, silently, at the one thing worth asking about.
+
+**Analytics:** every surface fires ONE `lesson_completed` carrying
+`lesson_number`, `subject_label`, `lesson_date` (the date stored, not the day of
+the tap), `date_choice` and `surface`. `lesson_completed_missed` is retired into
+it as `surface: "missed"`. A family's history reconstructs from their taps only
+if the event and the row agree on the date.
+
+**Test case:** the Invariant 16 block in `scheduler.test.ts` — every completing
+path reaches `completeLessonOnDate` and nothing else writes `completed = true`
+for a tapped lesson; each choice writes its documented columns; a kept future
+day never stamps a future `completed_at`; Cancel writes nothing.
 
 ---
 
