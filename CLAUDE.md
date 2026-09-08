@@ -457,6 +457,45 @@ write). The source bug was closed in the same batch: the Schedule Builder's
 post-save notice is now an alert at the top of the page, and the Today page
 reports a projection with no matching lesson rows to Sentry once per goal.
 
+### Phantom completions and queue realignment: run the script FIRST
+
+`repair-phantom-completions.ts` finds trigger-written rows by fingerprint:
+completed, `scheduled_date` NULL, `updated_at` exactly 24h after `completed_at`.
+ANY update to such a row, including a `queue_position` realignment, bumps
+`updated_at` and destroys the fingerprint. The script can then no longer see
+the row.
+
+Order, always:
+
+1. `npx tsx scripts/repair-phantom-completions.ts --user <uuid>` (dry run)
+2. `... --apply --migration-is-live` (REVERT class)
+3. only then realign `queue_position = lesson_number` for the goal
+4. hand-revert any `SKIP_NO_SLOT` rows the realignment just gave a slot to
+5. surface reverted rows the projector cannot place: `scheduled_date = date`,
+   `queue_pinned = true`, so they show as missed instead of vanishing
+
+Learned the hard way on the Harrison account, 2026-09-08: realigning first cost
+two rows a manual check.
+
+The script now counts rows sitting NEAR the fingerprint (within a minute either
+side of 24h) and prints them for review, so a row whose `updated_at` was already
+bumped is reported rather than silently missed.
+
+### What makes a goal "healthy": queue_position = lesson_number
+
+In a healthy goal, `queue_position = lesson_number` for every slotted row. 96.5%
+of goals satisfied this on 2026-09-08. A goal that does not is either:
+
+- **(a) compacted around a phantom** — realignable; the slots closed up over a
+  row the trigger swept, so restoring the identity is the fix.
+- **(b) carrying a family's own drag** — pinned rows among the misaligned ones.
+  `move_lesson_to_date` rewrites `queue_position` and deliberately leaves
+  `lesson_number` pinned, so the divergence IS the family's placement.
+  **Never auto-realign (b).**
+
+Tell them apart before touching anything: if any misaligned row in the goal has
+`queue_pinned = true`, treat the whole goal as (b) and leave it alone.
+
 ## Cron jobs
 6 jobs in vercel.json. vercel.json is the source of truth; this list has
 drifted before, so re-read the file rather than trusting the count here.
