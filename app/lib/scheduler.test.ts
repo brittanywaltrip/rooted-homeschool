@@ -63,7 +63,6 @@ import {
   goalsWithUncheckedRows,
   confirmButtonLabel,
   gapStartAfterAnswer,
-  catchupAnsweredKey,
 } from './recoverySelection.ts'
 
 import { readFileSync } from 'node:fs'
@@ -6299,31 +6298,36 @@ test('unchecked: tomorrow asks only about the day genuinely missed', () => {
   assert.equal(entries[0].date, '2026-09-09')
 })
 
-test('unchecked: the key is namespaced per goal', () => {
-  assert.equal(catchupAnsweredKey('abc'), 'rooted_catchup_answered_abc')
-  assert.notEqual(catchupAnsweredKey('a'), catchupAnsweredKey('b'))
-})
 
 test('unchecked: Yes and No settle through the SAME helper', () => {
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
   const yes = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
   const no = extractFunctionBody(src, /async function handleMissedRecoveryNo\s*\(/)
-  assert.ok(/markCatchupAnswered\(/.test(yes), 'the Yes path settles its unchecked goals')
-  assert.ok(/markCatchupAnswered\(/.test(no), 'the No path settles every offered goal')
-  // One implementation, not two. The helper writes the key; neither handler
-  // may reach for localStorage itself.
+  assert.ok(/await markCatchupAnswered\(/.test(yes), 'the Yes path settles its unchecked goals')
+  assert.ok(/await markCatchupAnswered\(/.test(no), 'the No path settles every offered goal')
+  // Awaited, both of them: loadData re-reads catchup_answered_on immediately
+  // after, so a fire-and-forget write would race its own refresh and the
+  // prompt could reopen on the very next render.
+  //
+  // One implementation, not two. Neither handler may write the column itself.
+  for (const [name, body] of [['Yes', yes], ['No', no]] as const) {
+    assert.ok(
+      !/catchup_answered_on/.test(body),
+      `the ${name} path must not write the column itself`,
+    )
+  }
+  const helper = extractFunctionBody(src, /async function markCatchupAnswered\s*\(/)
   assert.ok(
-    !/localStorage\.setItem\(catchupAnsweredKey/.test(yes),
-    'the Yes path must not write the marker itself',
+    /\.update\(\{ catchup_answered_on: today \}\)/.test(helper),
+    'the one implementation records the answer on the goal row',
   )
   assert.ok(
-    !/localStorage\.setItem\(catchupAnsweredKey/.test(no),
-    'the No path must not write the marker itself',
+    /\.eq\("user_id", effectiveUserId\)/.test(helper),
+    'and is scoped to the family, not just to the goal ids',
   )
-  const helper = extractFunctionBody(src, /function markCatchupAnswered\s*\(/)
   assert.ok(
-    /localStorage\.setItem\(catchupAnsweredKey\(goalId\), today\)/.test(helper),
-    'the one implementation lives in the shared helper',
+    !/localStorage/.test(helper),
+    'the answer is no longer per browser',
   )
 })
 
@@ -6334,4 +6338,40 @@ test('unchecked: the confirmation reports both halves', () => {
   for (const field of ['checked:', 'unchecked:', 'goals_rescheduled:']) {
     assert.ok(yes.includes(field), `the event carries ${field}`)
   }
+})
+
+test('unchecked: the answer is fetched with the goal rows the gap is computed from', () => {
+  // Read and write have to agree on where the answer lives. loadData's own
+  // goal select is what feeds gapStartForGoal, so the column has to be in it —
+  // an absent column reads as undefined and the clamp silently does nothing.
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  assert.ok(
+    /select\("id, icon_emoji[^"]*catchup_answered_on"\)/.test(src),
+    "loadData's goal select must include catchup_answered_on",
+  )
+  assert.ok(
+    /gapStartForGoal\(goal\.id, goal\.start_date \?\? null, goal\.catchup_answered_on \?\? null\)/.test(src),
+    'and the gap must be computed from it',
+  )
+})
+
+test('unchecked: a migration exists for the column and adds it nullable', () => {
+  // Migrations are applied by hand in this repo, so a file is not proof the
+  // database changed — but a missing file IS proof the next environment will
+  // not have the column. Both halves matter.
+  const raw = loadRepoFile('supabase/migrations/20260908000000_curriculum_goals_catchup_answered_on.sql')
+  // Strip `--` comments AND the COMMENT ON body: this migration explains itself
+  // at length, and prose about "no default" is not a DEFAULT clause.
+  const sql = raw
+    .split('\n')
+    .filter((l) => !l.trimStart().startsWith('--'))
+    .join('\n')
+    .replace(/COMMENT ON COLUMN[\s\S]*?;/g, '')
+  assert.ok(
+    /ALTER TABLE public\.curriculum_goals\s*\n\s*ADD COLUMN IF NOT EXISTS catchup_answered_on date;/.test(sql),
+    'the column is added to curriculum_goals as a date',
+  )
+  assert.ok(!/NOT NULL/i.test(sql), 'nullable: NULL means never answered, which every existing goal is')
+  assert.ok(!/DEFAULT/i.test(sql), 'no default, so the add does not rewrite the table')
+  assert.ok(!/UPDATE public\.curriculum_goals/i.test(sql), 'and no backfill of existing rows')
 })

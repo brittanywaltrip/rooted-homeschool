@@ -126,14 +126,11 @@ export function buildRecoveryRows(args: {
  * What fixes it is recording that the question was ANSWERED for that goal, and
  * clamping the next gap window to start after that answer. The lessons stay
  * upcoming work; they simply stop being offered as overdue.
+ *
+ * The answer lives on curriculum_goals.catchup_answered_on, so it follows the
+ * family rather than the browser. It was localStorage first, which meant the
+ * same family signing in on a phone was asked the whole thing again.
  * ────────────────────────────────────────────────────────────────────────── */
-
-/** localStorage key holding the day a goal's catch-up prompt was answered. */
-export const CATCHUP_ANSWERED_PREFIX = 'rooted_catchup_answered_';
-
-export function catchupAnsweredKey(goalId: string): string {
-  return `${CATCHUP_ANSWERED_PREFIX}${goalId}`;
-}
 
 /**
  * Where the next gap window may start, given the day this goal was last
