@@ -1398,6 +1398,71 @@ export function mostRecentSchoolDayBefore(
 }
 
 /**
+ * Which day did this already-passed queue slot belong to?
+ *
+ * The question Today's prior-lesson card asks when it says "Lesson 14 was due
+ * Fri, Sep 4. Did you do it?" — and the same day its Yes then writes. Pulled
+ * out of the handler so the card can SHOW the date before the family agrees to
+ * it: a prompt that proposes a completion date has to display the date it is
+ * proposing, which it cannot do while the resolution lives inside the click.
+ *
+ * The derivation is unchanged (it is the one verified on staging in 97ed329):
+ * rewind the queue to zero, cap `total_lessons` at the slot being confirmed,
+ * project from `start_date`, and take the most recent projected day strictly
+ * before today. That honors school_days, vacation blocks and per-weekday
+ * overrides. With no start_date to anchor to, or nothing projected behind
+ * today, fall back to the goal's most recent school day — never a flat
+ * "yesterday", which would file a Tue/Wed curriculum's work on a Monday.
+ *
+ * `rowDay` wins when the slot already has a row: that row's own day is the day
+ * the work is being confirmed for, and no derivation beats a stored fact.
+ *
+ * Returns null only when there is no honest answer at all (no row, and ten
+ * years of lookback are vacation). Callers decide what to do about that
+ * rather than being handed a guess.
+ */
+export function resolvePriorLessonDay(args: {
+  goal: CurriculumGoalConfig;
+  /** The queue slot being confirmed (the goal's current_lesson). */
+  slot: number;
+  /** YYYY-MM-DD in the family's timezone. */
+  todayStr: string;
+  vacationBlocks?: VacationBlock[];
+  /** The slot's existing row date, when it has one. */
+  rowDay?: string | null;
+}): string | null {
+  const { goal, slot, todayStr, rowDay } = args;
+  if (rowDay) return rowDay;
+  const vacations = args.vacationBlocks ?? [];
+
+  if (goal.start_date && goal.start_date < todayStr && slot > 0) {
+    const startMid = new Date(`${goal.start_date}T00:00:00`);
+    const todayMid = new Date(`${todayStr}T00:00:00`);
+    // The whole stretch since the start date plus a cushion, so the projector
+    // never runs out of window before it has laid every historical slot. Same
+    // span planHistoricalBackfill uses.
+    const daysSpan = Math.max(
+      1,
+      Math.floor((todayMid.getTime() - startMid.getTime()) / 86400000) + 60,
+    );
+    const histProjected = computeNextLessonsForGoal(
+      { ...goal, current_lesson: 0, total_lessons: slot },
+      startMid,
+      daysSpan,
+      vacations,
+    );
+    let latest: string | null = null;
+    for (const p of histProjected) {
+      if (p.date >= todayStr) continue;
+      if (!latest || p.date > latest) latest = p.date;
+    }
+    if (latest) return latest;
+  }
+
+  return mostRecentSchoolDayBefore(todayStr, goal.school_days, vacations);
+}
+
+/**
  * Convenience wrapper used by every "is this lesson missed?" call site
  * in the app. A lesson is missed iff:
  *

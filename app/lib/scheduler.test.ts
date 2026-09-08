@@ -53,6 +53,15 @@ import {
   needsDateChoice,
 } from './completeLessonOnDate.ts'
 
+import {
+  RECOVERY_SPAN_CAP,
+  schoolDaySpan,
+  isOverCap,
+  initialCheckedKeys,
+  buildRecoveryRows,
+  entryKey,
+} from './recoverySelection.ts'
+
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -73,6 +82,7 @@ import {
   isDueDate,
   effectiveDueDate,
   mostRecentSchoolDayBefore,
+  resolvePriorLessonDay,
   isLessonMissed,
   buildPastDateCompletionPayload,
   nthSchoolDay,
@@ -1765,17 +1775,13 @@ test('Invariant 3 — completed/backfill lessons unchanged after vacation block 
 })
 
 test('Invariant 3 — backfilled lessons unchanged after Missed Lesson Recovery YES', () => {
-  // Static analysis: handleMissedRecoveryYes only writes to rows it
-  // identifies by (curriculum_goal_id, queue_position) for entries projected
-  // by computeGapLessonsForGoal. It must NOT bulk-update forward-dated
-  // lessons or scan by is_backfill, so backfilled rows are safe by
-  // construction.
+  // Static analysis: handleMissedRecoveryYes only writes to rows it identifies
+  // by (curriculum_goal_id, queue_position), one per row the family left
+  // checked. It must NOT bulk-update forward-dated lessons or scan by
+  // is_backfill, so backfilled rows are safe by construction.
   const src = loadRepoFile('app/dashboard/page.tsx')
   const body = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
-  // Sanity: the function does call from("lessons").update, but only inside
-  // the per-entry loop, with .eq("id", ...). It does not run a bulk UPDATE.
-  assert.ok(body.includes('for (const entry of allEntries)'), 'YES must iterate per entry')
-  // And it must scope each write by id (not by goal_id + completed=false).
+  assert.ok(body.includes('for (const row of rows)'), 'YES iterates the chosen rows, one write each')
   assert.ok(
     !/\.update\([\s\S]*?\)\.eq\("curriculum_goal_id"/.test(body),
     'YES must not run a bulk update by curriculum_goal_id',
@@ -2215,31 +2221,34 @@ test("Invariant 10 — PlanV2 vacation batch writes tag scheduled_source='vacati
 
 test("Invariant 10 — Missed Lesson Recovery YES names its source through the shared payload", () => {
   // This used to write scheduled_source='catchup_resched' by hand on both its
-  // update and its insert. Under Invariant 16 the family answering Yes to
-  // "did you do these on their gap days?" is naming a day like any other
-  // chosen-day completion, so it writes buildCompletionPayload's shape and
-  // gets completion_picked. The source is still never absent, which is all
-  // Invariant 10 asks.
+  // update and its insert. The update branch now calls completeLessonOnDate,
+  // whose payload names the source; the insert branch spreads the same payload
+  // (the helper writes by id and a missing row has none yet). Either way the
+  // source is never absent, which is all Invariant 10 asks — and it now
+  // reflects whose date it was rather than a fixed label.
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
   const body = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
   assert.ok(
-    /buildCompletionPayload\(\s*\{[^}]*choice:\s*"picked"/.test(body),
-    'the recovery modal writes the shared chosen-day payload',
+    /completeLessonOnDate\(supabase, \{/.test(body),
+    'the update branch goes through the shared writer',
   )
   assert.ok(
-    /\.update\(recoveryPayload\)/.test(body),
-    'the update branch uses it',
-  )
-  assert.ok(
-    /\.\.\.recoveryPayload,/.test(body),
-    'and so does the insert branch',
+    /buildCompletionPayload\(\{/.test(body) && /\.\.\.insertPayload,/.test(body),
+    'and the insert branch spreads the same payload',
   )
   assert.ok(
     !/scheduled_source:\s*"catchup_resched"/.test(body),
     'the hand-written source is gone',
   )
-  const p = buildCompletionPayload({ dateStr: '2026-09-02', choice: 'picked', todayStr: '2026-09-08' })
-  assert.equal(p.scheduled_source, 'completion_picked')
+  assert.ok(/choice: row\.choice/.test(body), "the family's choice is carried, not assumed")
+  assert.equal(
+    buildCompletionPayload({ dateStr: '2026-09-02', choice: 'picked', todayStr: '2026-09-08' }).scheduled_source,
+    'completion_picked',
+  )
+  assert.equal(
+    buildCompletionPayload({ dateStr: '2026-09-02', choice: 'planned', todayStr: '2026-09-08' }).scheduled_source,
+    'completion_planned',
+  )
 })
 
 test('Invariant 10 — no code path leaves scheduled_source NULL after writing lessons.date', () => {
@@ -2966,24 +2975,25 @@ test('prior-lesson confirm: a resolved day at or after today is clamped to today
 })
 
 test('confirmPriorLessonComplete resolves a projected school day, never a flat yesterday', () => {
+  // The derivation moved into resolvePriorLessonDay so the CARD can show the
+  // date before the family agrees to it. Same inputs, same answer, now
+  // exercised directly rather than grepped.
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
   const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
   assert.ok(
     !/addDaysYmd\(today,\s*-1\)/.test(body),
-    'the flat yesterday fallback must be gone — it ignores school_days',
+    'the flat yesterday fallback must stay gone — it ignores school_days',
   )
   assert.ok(
-    /computeNextLessonsForGoal\(/.test(body),
-    'the past day comes from the projector, the same way planHistoricalBackfill derives one',
+    /resolvePriorLessonDay\(\{/.test(body),
+    'the day comes from the shared projector-backed resolver',
   )
-  assert.ok(
-    /current_lesson:\s*0,\s*total_lessons:\s*g\.current_lesson/.test(body),
-    'the synthetic config rewinds the queue and caps total_lessons at the slot being confirmed',
-  )
-  assert.ok(
-    /mostRecentSchoolDayBefore\(today,\s*cfg\.school_days,\s*vacations\)/.test(body),
-    'the no-projection fallback is the school-day walk, honoring school_days and vacations',
-  )
+  const got = resolvePriorLessonDay({
+    goal: goalCfg({ school_days: ['Tue', 'Wed'], start_date: null }),
+    slot: 4,
+    todayStr: '2026-09-07',
+  })
+  assert.equal(got, '2026-09-02', 'a Tue/Wed goal never resolves to a Monday')
 })
 
 // Invariant 10 + the timezone rule. Every synthetic completion stamp in the
@@ -3040,26 +3050,25 @@ test('confirmPriorLessonComplete refuses to write when the goal is gone', () => 
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
   const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
 
-  // The goal is fetched BEFORE either write. Order is the guard: a check that
-  // runs after the insert cannot stop it.
+  // The goal is fetched BEFORE any write. Order is the guard: a check that
+  // runs after the write cannot stop it. Both writes are considered — the
+  // shared helper for an existing row, the insert for a missing one.
   const goalFetchAt = body.indexOf('.select(GOAL_CONFIG_COLUMNS)')
   const lessonLookupAt = body.indexOf('.select("id, scheduled_date, date")')
   const insertAt = body.indexOf('.insert({')
-  const updateAt = body.indexOf('.update({')
+  const helperAt = body.indexOf('completeLessonOnDate(')
   assert.ok(goalFetchAt > -1, 'the goal config is fetched')
   assert.ok(
-    goalFetchAt < lessonLookupAt && goalFetchAt < insertAt && goalFetchAt < updateAt,
+    goalFetchAt < lessonLookupAt && goalFetchAt < insertAt && goalFetchAt < helperAt,
     'the goal fetch precedes the lesson lookup and both writes',
   )
 
-  // A missing goal returns, and returns EARLY — before either write.
   const guardAt = body.search(/if\s*\(goalCfgErr\s*\|\|\s*!goalCfgRow\)\s*\{/)
   assert.ok(guardAt > -1, 'a missing goal is guarded')
   const guardBlock = body.slice(guardAt, body.indexOf('const goalCfg'))
   assert.ok(/\breturn;/.test(guardBlock), 'the guard returns rather than falling through')
-  assert.ok(guardAt < insertAt && guardAt < updateAt, 'the guard runs before both writes')
+  assert.ok(guardAt < insertAt && guardAt < helperAt, 'the guard runs before both writes')
 
-  // It says so, in all three places it needs to: Sentry, the card, the family.
   assert.ok(
     /captureSupabaseError\(\s*"Prior-lesson confirm: goal missing/.test(guardBlock),
     'the refusal is reported rather than swallowed',
@@ -3069,63 +3078,56 @@ test('confirmPriorLessonComplete refuses to write when the goal is gone', () => 
     'the prompt card is dropped, since re-asking cannot help',
   )
   assert.ok(/showCaptureToast\(/.test(guardBlock), 'the family is told')
-
-  // And the guessed-date path is closed: the day resolver no longer has a
-  // missing-goal branch to return null from, because it can no longer be
-  // reached with one.
-  assert.ok(
-    !/if\s*\(goalCfgErr\s*\|\|\s*!goalCfgRow\)\s*return null/.test(body),
-    'resolvePastSchoolDay no longer falls through on a missing goal',
-  )
   assert.equal(
     (body.match(/\.select\(GOAL_CONFIG_COLUMNS\)/g) || []).length,
     1,
-    'the goal is fetched once, not again inside the resolver',
+    'the goal is fetched once',
   )
 })
 
 test('confirmPriorLessonComplete clamps completed_at so it can never be in the future', () => {
+  // The clamp moved into buildCompletionPayload, which every completion now
+  // shares, so it is asserted there and cannot be lost by one call site.
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
   const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
   assert.ok(
-    /stampDay\s*=\s*resolvedDay\s*>=\s*today\s*\?\s*today\s*:\s*resolvedDay/.test(body),
-    'a resolved day at or after today is clamped to today',
+    !/completed_at:/.test(body),
+    'the handler no longer assembles a timestamp of its own',
   )
   assert.ok(
-    /completedAtIso\s*=\s*`\$\{stampDay\}T12:00:00Z`/.test(body),
-    'completed_at is built from the clamped day, and both branches share it',
+    /completeLessonOnDate\(supabase, \{/.test(body) && /buildCompletionPayload\(\{/.test(body),
+    'both branches take their timestamp from the shared payload',
   )
-  // One completed_at, used by the UPDATE and the INSERT alike — the clamp
-  // cannot apply to one branch and miss the other.
-  assert.equal(
-    (body.match(/completed_at:\s*completedAtIso/g) || []).length,
-    2,
-    'both branches stamp the same clamped completed_at',
-  )
+  const now = new Date('2026-09-08T10:00:00.000Z')
+  for (const choice of ['planned', 'picked'] as const) {
+    const p = buildCompletionPayload({ dateStr: '2026-12-01', choice, todayStr: '2026-09-08', now })
+    assert.equal(p.completed_at, now.toISOString(), `a future ${choice} day still stamps now`)
+  }
 })
 
-test('confirmPriorLessonComplete stamps noon UTC of the row’s own day', () => {
+test('confirmPriorLessonComplete stamps noon UTC of the day being confirmed', () => {
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
   const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
-  // Noon UTC, matching logPastDayLessons.ts. Local noon lands on the previous
-  // calendar day east of UTC and buckets attendance a day early.
+  // The row's own day still wins over any derivation; resolvePriorLessonDay
+  // takes rowDay and returns it untouched.
+  assert.ok(/rowDay,/.test(body), "the existing row's date is fed to the resolver")
   assert.ok(
-    /completedAtIso\s*=\s*`\$\{stampDay\}T12:00:00Z`/.test(body),
-    'completed_at is noon UTC of the day being confirmed',
+    /\.select\("id, scheduled_date, date"\)/.test(body),
+    'so the lookup still selects both date columns',
   )
-  // The day comes from the row itself; only a missing row is resolved.
-  assert.ok(
-    /rowDay\s*=\s*existingRow\?\.scheduled_date\s*\?\?\s*existingRow\?\.date\s*\?\?\s*null/.test(body),
-    'the row’s own scheduled_date / date wins over any resolution',
+  assert.equal(
+    resolvePriorLessonDay({
+      goal: goalCfg({ school_days: ['Tue', 'Wed'], start_date: '2026-09-01' }),
+      slot: 4,
+      todayStr: '2026-09-10',
+      rowDay: '2026-09-03',
+    }),
+    '2026-09-03',
   )
-  assert.ok(
-    /resolvedDay\s*=\s*rowDay\s*\?\?\s*resolvePastSchoolDay\(\)/.test(body),
-    'a missing row resolves a real school day rather than defaulting',
-  )
-  // The lookup has to SELECT the columns the fallback chain reads.
-  assert.ok(
-    /select\("id, scheduled_date, date"\)/.test(body),
-    'the existing-row lookup selects both date columns',
+  // And a past day is stamped at noon UTC, matching logPastDayLessons.
+  assert.equal(
+    buildCompletionPayload({ dateStr: '2026-09-03', choice: 'planned', todayStr: '2026-09-10' }).completed_at,
+    '2026-09-03T12:00:00Z',
   )
 })
 
@@ -5714,22 +5716,7 @@ test('Invariant 16 — no tapped-lesson path hand-rolls its own completed=true',
     'app/lib/logPastDayLessons.ts',
   ]
   for (const file of tapSurfaces) {
-    let src = stripComments(loadRepoFile(file))
-    if (file === 'app/dashboard/page.tsx') {
-      // ONE named exception: confirmPriorLessonComplete. It is a completion a
-      // person taps, but it is not one of the six surfaces and it was
-      // stabilized twice in the days before this rule landed (97ed329,
-      // 07e91cb) — it resolves its own day from the projector, refuses to
-      // write against a deleted goal, and clamps its own stamp. Re-shaping it
-      // here would churn verified behaviour for no gain the family can see.
-      // It is carved out deliberately, not overlooked; fold it in when it next
-      // needs changing for its own reasons.
-      const at = src.indexOf('async function confirmPriorLessonComplete')
-      assert.ok(at > -1, 'the carve-out must name a function that exists')
-      const end = src.indexOf('\n  function dismissPriorLessonPrompt', at)
-      assert.ok(end > at, 'the carve-out must have a findable end')
-      src = src.slice(0, at) + src.slice(end)
-    }
+    const src = stripComments(loadRepoFile(file))
     // Lessons only. activity_logs is a different table with its own shape and
     // no date rule to obey.
     const handRolled: string[] = []
@@ -5817,4 +5804,375 @@ test('Invariant 16 — the completion write is issued from a client, at trigger 
     !/service_role|SUPABASE_SERVICE_ROLE_KEY/.test(src),
     'the completion helper never reaches for the service-role key',
   )
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invariant 16, extended to the bulk prompts (September 2026)
+//
+// A prompt that is about to write completion dates shows every one of those
+// dates, per lesson, before the family confirms. The recovery modal used to
+// render "Zoe · Math: 9 lessons (Lesson 15 through Lesson 23)" and a single Yes
+// stamped nine rows across nine days nobody saw — the shape behind the Sept 2
+// support case (21 lessons in 72 seconds, none on a day the family worked).
+// ─────────────────────────────────────────────────────────────────────────────
+
+const recoveryEntries = (goalId: string, dates: string[], firstSlot = 15) =>
+  dates.map((d, i) => ({ goal_id: goalId, lesson_number: firstSlot + i, date: d }))
+
+test('recovery modal: the span cap counts DISTINCT school days, not entries', () => {
+  // A 2/day goal puts two entries on one date. Counting entries would trip the
+  // cap at five school days and tell a family they had taken a break they had
+  // not. The question is how many DAYS the gap covers.
+  const twoPerDay = [
+    ...recoveryEntries('g1', ['2026-08-24', '2026-08-24', '2026-08-25', '2026-08-25']),
+  ]
+  assert.equal(schoolDaySpan(twoPerDay), 2, 'four entries across two days is a two-day span')
+  assert.equal(isOverCap(twoPerDay), false)
+
+  const elevenDays = recoveryEntries(
+    'g1',
+    Array.from({ length: 11 }, (_, i) => `2026-08-${String(10 + i).padStart(2, '0')}`),
+  )
+  assert.equal(schoolDaySpan(elevenDays), 11)
+  assert.equal(isOverCap(elevenDays), true, 'eleven school days is past the cap')
+
+  const tenDays = elevenDays.slice(0, 10)
+  assert.equal(isOverCap(tenDays), false, 'exactly ten is still inside it')
+})
+
+test('recovery modal: RECOVERY_SPAN_CAP is the documented ten school days', () => {
+  assert.equal(RECOVERY_SPAN_CAP, 10)
+})
+
+test('recovery modal: every entry becomes its own row with its own date', () => {
+  // The modal renders one row per entry, each carrying its lesson number and
+  // its proposed date. This pins the shape the rows are built from — a count
+  // and a range cannot be reconstructed into nine dates.
+  const src = stripComments(loadRepoFile('app/components/MissedLessonRecoveryModal.tsx'))
+  assert.ok(
+    /entries\.map\(\(e\) => \{/.test(src),
+    'the modal maps over entries rather than summarising them',
+  )
+  assert.ok(/labelDate\(shown\)/.test(src), 'each row shows its own date')
+  assert.ok(
+    !/through Lesson/.test(src),
+    'the "Lesson 15 through Lesson 23" summary is gone',
+  )
+  // The dates are in the collapsed line too.
+  assert.ok(
+    /labelDate\(firstDate\)/.test(src) && /labelDate\(lastDate\)/.test(src),
+    'a collapsed goal still shows the first and last date',
+  )
+})
+
+test('recovery modal: only checked rows reach onYes, carrying the date on screen', () => {
+  // Now a real unit test rather than a source grep: the selection rule lives in
+  // app/lib/recoverySelection.ts precisely so it can be run.
+  const entries = recoveryEntries('g1', ['2026-08-24', '2026-08-25', '2026-08-26'])
+  const byGoal = new Map([['g1', entries]])
+  const checked = new Set([entryKey(entries[0]), entryKey(entries[2])])
+
+  const rows = buildRecoveryRows({ entriesByGoal: byGoal, goalIds: ['g1'], checked, editedDates: {} })
+  assert.equal(rows.length, 2, 'the unchecked middle row is not written')
+  assert.deepEqual(rows.map((r) => r.lesson_number), [15, 17])
+  assert.deepEqual(rows.map((r) => r.date), ['2026-08-24', '2026-08-26'])
+  assert.ok(rows.every((r) => r.choice === 'planned'), 'untouched dates are the ones we proposed')
+
+  // Nothing checked writes nothing at all.
+  assert.deepEqual(
+    buildRecoveryRows({ entriesByGoal: byGoal, goalIds: ['g1'], checked: new Set(), editedDates: {} }),
+    [],
+  )
+})
+
+test('recovery modal: an edited date is passed as "picked", an untouched one as "planned"', () => {
+  const entries = recoveryEntries('g1', ['2026-08-24', '2026-08-25'])
+  const byGoal = new Map([['g1', entries]])
+  const checked = new Set(entries.map(entryKey))
+  const rows = buildRecoveryRows({
+    entriesByGoal: byGoal,
+    goalIds: ['g1'],
+    checked,
+    // The family moved lesson 15 to the 21st and left 16 alone.
+    editedDates: { [entryKey(entries[0])]: '2026-08-21' },
+  })
+  assert.deepEqual(rows[0], { goal_id: 'g1', lesson_number: 15, date: '2026-08-21', choice: 'picked' })
+  assert.deepEqual(rows[1], { goal_id: 'g1', lesson_number: 16, date: '2026-08-25', choice: 'planned' })
+})
+
+test('recovery modal: re-picking the same date is not a "picked" choice', () => {
+  // Opening the chooser and choosing the day already shown changed nothing, so
+  // the record should not claim the family named a different date.
+  const entries = recoveryEntries('g1', ['2026-08-24'])
+  const rows = buildRecoveryRows({
+    entriesByGoal: new Map([['g1', entries]]),
+    goalIds: ['g1'],
+    checked: new Set(entries.map(entryKey)),
+    editedDates: { [entryKey(entries[0])]: '2026-08-24' },
+  })
+  assert.equal(rows[0].choice, 'planned')
+})
+
+test('recovery modal: the button names the checked count and disables at zero', () => {
+  const src = stripComments(loadRepoFile('app/components/MissedLessonRecoveryModal.tsx'))
+  assert.ok(
+    /`Mark \$\{checkedCount\} done on these days`/.test(src),
+    'the primary button counts what is checked, not what was offered',
+  )
+  assert.ok(
+    /disabled=\{submitting !== null \|\| checkedCount === 0\}/.test(src),
+    'and is disabled when nothing is checked',
+  )
+})
+
+test('recovery modal: an over-cap goal starts unchecked, everything else starts checked', () => {
+  const normal = recoveryEntries('g-normal', ['2026-08-24', '2026-08-25'])
+  const huge = recoveryEntries(
+    'g-huge',
+    Array.from({ length: 12 }, (_, i) => `2026-08-${String(10 + i).padStart(2, '0')}`),
+  )
+  const byGoal = new Map([['g-normal', normal], ['g-huge', huge]])
+  const initial = initialCheckedKeys(byGoal, ['g-normal', 'g-huge'])
+
+  assert.equal(initial.size, 2, 'only the in-cap goal is pre-checked')
+  assert.ok(normal.every((e) => initial.has(entryKey(e))), 'an honest yes is still one tap')
+  assert.ok(huge.every((e) => !initial.has(entryKey(e))), 'twelve school days has to be opted into')
+
+  // The family can still check them, and then they write like anything else.
+  const rows = buildRecoveryRows({
+    entriesByGoal: byGoal,
+    goalIds: ['g-huge'],
+    checked: new Set([entryKey(huge[0])]),
+    editedDates: {},
+  })
+  assert.equal(rows.length, 1, 'opting one in works')
+
+  // And the component says why.
+  const src = stripComments(loadRepoFile('app/components/MissedLessonRecoveryModal.tsx'))
+  assert.ok(
+    /If you took a break, add it under/.test(src),
+    'the family is told what usually explains a gap that long',
+  )
+  assert.ok(/school days\./.test(src), 'and how many days it is')
+})
+
+test('recovery modal: it never writes to the database itself', () => {
+  // Consent surface only. The write lives in the page, so a dismissed or
+  // cancelled modal cannot leave a row behind.
+  const src = stripComments(loadRepoFile('app/components/MissedLessonRecoveryModal.tsx'))
+  assert.ok(!/from\("lessons"\)/.test(src), 'the modal never touches lessons')
+  assert.ok(!/supabase/.test(src), 'the modal holds no database client')
+})
+
+test('recovery modal: the page writes only the rows it is handed', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  assert.ok(
+    /rows: RecoveryRow\[\]/.test(
+      src.slice(src.indexOf('async function handleMissedRecoveryYes'), src.indexOf('async function handleMissedRecoveryYes') + 120),
+    ),
+    'the handler receives the chosen rows rather than re-flattening every entry',
+  )
+  assert.ok(
+    !/missedEntriesByGoal\.values\(\)/.test(body),
+    'it must not fall back to writing every entry it knows about',
+  )
+  assert.ok(
+    /if \(rows\.length === 0\) return/.test(body),
+    'nothing checked writes nothing',
+  )
+  assert.ok(
+    /completeLessonOnDate\(supabase, \{/.test(body),
+    'the update branch goes through the shared writer',
+  )
+  assert.ok(
+    /choice: row\.choice/.test(body),
+    'and carries the family\'s own choice through to the payload',
+  )
+  assert.ok(
+    /surface: "recovery"/.test(body),
+    'analytics name this surface',
+  )
+})
+
+// ── The prior-lesson card ────────────────────────────────────────────────────
+
+test('prior-lesson card: the resolved day is computed for the card, not inside the click', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  assert.ok(
+    /resolved_day: resolvePriorLessonDay\(\{/.test(src),
+    'the day is resolved where the prompt list is built',
+  )
+  assert.ok(
+    /resolved_day: string \| null/.test(src),
+    'and carried on the prompt so the card can render it',
+  )
+  assert.ok(
+    /was due \{completionLabelDate\(g\.resolved_day\)\}/.test(src),
+    'the card shows the date it would write',
+  )
+})
+
+test('prior-lesson card: both Yes buttons write, with the right choice', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  assert.ok(
+    /confirmPriorLessonComplete\(g, "planned"\)/.test(src),
+    '"Yes, on {day}" writes the resolved day as a planned choice',
+  )
+  assert.ok(
+    /confirmPriorLessonComplete\(g, "today"\)/.test(src),
+    '"Yes, today" writes today',
+  )
+  assert.ok(
+    /`Yes, on \$\{completionLabelDate\(g\.resolved_day\)\}`/.test(src),
+    'and the button names the day rather than saying "mark it done"',
+  )
+  // "Not yet" is the existing dismissal and must still write nothing.
+  assert.ok(
+    /onClick=\{\(\) => dismissPriorLessonPrompt\(g\)\}/.test(src),
+    '"Not yet" only dismisses',
+  )
+  const dismiss = extractFunctionBody(src, /function dismissPriorLessonPrompt\s*\(/)
+  assert.ok(!/from\("lessons"\)/.test(dismiss), 'dismissal never writes a lesson')
+})
+
+test('prior-lesson card: the choice decides the date, and today is honoured', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  assert.ok(
+    /choice === "today" \? today : \(g\.resolved_day \?\? freshlyResolved \?\? today\)/.test(body),
+    'today means today; planned means the day the card showed',
+  )
+})
+
+test('prior-lesson card: every guard from 97ed329 and 07e91cb still holds', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+
+  // The goal is fetched before either write, and a missing one refuses.
+  const goalFetchAt = body.indexOf('.select(GOAL_CONFIG_COLUMNS)')
+  const insertAt = body.indexOf('.insert({')
+  const helperAt = body.indexOf('completeLessonOnDate(')
+  assert.ok(goalFetchAt > -1 && goalFetchAt < insertAt && goalFetchAt < helperAt,
+    'the goal fetch still precedes both writes')
+  assert.ok(
+    /if \(goalCfgErr \|\| !goalCfgRow\) \{/.test(body) &&
+      /captureSupabaseError\(\s*"Prior-lesson confirm: goal missing/.test(body),
+    'a missing goal is still reported and refused',
+  )
+
+  // Update when a row exists, insert only when none does.
+  assert.ok(/if \(existingRow\?\.id\) \{/.test(body), 'still prefers updating the existing row')
+  assert.ok(/\.select\("id, scheduled_date, date"\)/.test(body), 'and still reads its dates')
+
+  // The pointer still recomputes rather than advancing (Invariant 15).
+  assert.ok(
+    /recomputeCurrentLesson\(supabase, g\.goal_id, \{\s*neverBelow: g\.current_lesson/.test(body),
+    'the pointer still recomputes with a floor, never current_lesson + 1',
+  )
+
+  // The never-future clamp moved into the shared payload; assert it there.
+  const future = buildCompletionPayload({
+    dateStr: '2026-12-01',
+    choice: 'planned',
+    todayStr: '2026-09-08',
+    now: new Date('2026-09-08T10:00:00.000Z'),
+  })
+  assert.equal(future.completed_at, '2026-09-08T10:00:00.000Z', 'never a future completed_at')
+})
+
+test('Invariant 16 — confirmPriorLessonComplete is no longer an exception', () => {
+  // It was carved out of the hand-rolled sweep by name while it was being
+  // stabilised. It now reaches the shared writer like every other surface, so
+  // the carve-out is gone and the sweep covers it.
+  // Asserted on the carve-out's CODE, not on a comment: a test that greps its
+  // own file for a phrase it contains can only ever match itself.
+  const sweep = extractFunctionBody(
+    loadRepoFile('app/lib/scheduler.test.ts'),
+    /test\('Invariant 16 — no tapped-lesson path hand-rolls its own completed=true'/,
+  )
+  assert.ok(
+    !/if \(file === 'app\/dashboard\/page\.tsx'\)/.test(sweep),
+    'the sweep no longer special-cases the Today page to skip a function',
+  )
+  assert.ok(
+    !/confirmPriorLessonComplete/.test(sweep),
+    'and names no exception at all',
+  )
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function confirmPriorLessonComplete\s*\(/)
+  assert.ok(
+    /completeLessonOnDate\(supabase, \{/.test(body),
+    'it reaches completeLessonOnDate',
+  )
+  assert.ok(
+    /buildCompletionPayload\(\{/.test(body),
+    'and its insert branch uses the shared payload',
+  )
+  assert.ok(
+    !/scheduled_source: "wizard_create"/.test(body),
+    'the hand-written source is gone; the payload names it now',
+  )
+})
+
+test('catchup_prompt_shown fires once with the numbers behind the prompt', () => {
+  const modal = stripComments(loadRepoFile('app/components/MissedLessonRecoveryModal.tsx'))
+  assert.ok(/onShown\?\.\(\{/.test(modal), 'the modal reports its own impression')
+  assert.ok(
+    /goals: goalsWithEntries\.length/.test(modal) &&
+      /entries: allEntries\.length/.test(modal) &&
+      /entries_over_cap:/.test(modal),
+    'carrying goals, entries and entries_over_cap',
+  )
+  const page = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  assert.ok(
+    /posthog\.capture\("catchup_prompt_shown", info\)/.test(page),
+    'and the page sends it',
+  )
+})
+
+// ── resolvePriorLessonDay, the derivation both the card and the write use ────
+
+test('resolvePriorLessonDay: a stored row date beats any derivation', () => {
+  const goal = goalCfg({ school_days: ['Tue', 'Wed'], start_date: '2026-09-01' })
+  const got = resolvePriorLessonDay({
+    goal,
+    slot: 4,
+    todayStr: '2026-09-10',
+    rowDay: '2026-09-03',
+  })
+  assert.equal(got, '2026-09-03', 'no derivation beats a stored fact')
+})
+
+test('resolvePriorLessonDay: projects the historical slot, honouring school_days', () => {
+  // Tue/Wed goal starting Tue Sep 1 at 1/day lays slots 1..4 on Sep 1, 2, 8, 9.
+  const goal = goalCfg({
+    school_days: ['Tue', 'Wed'],
+    lessons_per_day: 1,
+    start_date: '2026-09-01',
+    total_lessons: 40,
+  })
+  const got = resolvePriorLessonDay({ goal, slot: 4, todayStr: '2026-09-10' })
+  assert.equal(got, '2026-09-09', 'the most recent projected day strictly before today')
+  const dow = new Date(`${got}T12:00:00`).getDay()
+  assert.ok(dow === 2 || dow === 3, 'and it is a day this goal schools on')
+})
+
+test('resolvePriorLessonDay: falls back to the school-day walk, never a flat yesterday', () => {
+  // No start_date to anchor to. Monday Sep 7 for a Tue/Wed goal must resolve to
+  // Wed Sep 2, not Sunday Sep 6.
+  const goal = goalCfg({ school_days: ['Tue', 'Wed'], start_date: null })
+  const got = resolvePriorLessonDay({ goal, slot: 4, todayStr: '2026-09-07' })
+  assert.equal(got, '2026-09-02')
+})
+
+test('resolvePriorLessonDay: returns null when there is no honest answer', () => {
+  const goal = goalCfg({ school_days: ['Mon'], start_date: null })
+  const got = resolvePriorLessonDay({
+    goal,
+    slot: 2,
+    todayStr: '2026-09-07',
+    vacationBlocks: [{ start_date: '2016-01-01', end_date: '2036-01-01' }],
+  })
+  assert.equal(got, null, 'the caller decides what to do rather than being handed a guess')
 })

@@ -33,8 +33,21 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 export type CompletionChoice = "today" | "planned" | "picked";
 
-/** Where the tap happened. Analytics only; it never changes what is written. */
-export type CompletionSurface = "today" | "missed" | "plan" | "month" | "extra";
+/**
+ * Where the tap happened. Analytics only; it never changes what is written.
+ *
+ * "recovery" and "prior_card" are the two prompts that propose dates the family
+ * did not pick themselves. Both now show every date before writing it, so they
+ * are consent surfaces like the rest rather than bulk stamps.
+ */
+export type CompletionSurface =
+  | "today"
+  | "missed"
+  | "plan"
+  | "month"
+  | "extra"
+  | "recovery"
+  | "prior_card";
 
 /** Invariant 10: every write to lessons.date names its source. */
 export type CompletionSource =
