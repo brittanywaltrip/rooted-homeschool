@@ -5,6 +5,8 @@ import { chromium, type BrowserContext, type FullConfig } from '@playwright/test
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { adminClient } from './admin';
+import { seedE2ECurriculum } from './seed-curriculum';
 import { assertIsTestAccount, E2E_EMAIL } from './test-account';
 
 // Required env (set locally via .env.local for `npm run test:e2e`,
@@ -135,6 +137,37 @@ export default async function globalSetup(config: FullConfig) {
       `[global-setup] ✓ logged in as ${TEST_EMAIL} (${signedInUserId}) via /login form, storageState saved to ${STORAGE_PATH}`,
     );
     console.log(`[global-setup] ✓ account guard passed — this is the e2e test account (${E2E_EMAIL})`);
+
+    // ── Seed the curriculum the completion flows need ──────────────────────
+    // AFTER the guard, never before: this writes and deletes, and it must only
+    // ever reach the account the guard has just vouched for.
+    //
+    // Re-run every time because FLOW 2 completes the lesson it depends on, so
+    // yesterday's seed is spent by the time the next run starts. Without this
+    // the suite skips nine tests, including every path that completes a
+    // lesson, and reports a green summary while doing it.
+    const sb = adminClient();
+    if (!sb) {
+      console.warn(
+        '[global-setup] SUPABASE_SERVICE_ROLE_KEY not set — skipping curriculum seed. Lesson-completion flows will skip.',
+      );
+    } else {
+      try {
+        const seeded = await seedE2ECurriculum(sb, signedInUserId as string);
+        if (seeded) {
+          console.log(
+            `[global-setup] ✓ seeded curriculum ${seeded.goalId}: lesson due today (${seeded.todayDate}), pinned past lesson (${seeded.pastDate})`,
+          );
+        }
+      } catch (err) {
+        // Non-fatal. A seed failure must not take the whole suite down — the
+        // specs that need it skip with their own message, which is strictly
+        // more informative than a global-setup crash before anything runs.
+        console.warn(
+          `[global-setup] curriculum seed failed, lesson flows may skip: ${(err as Error).message}`,
+        );
+      }
+    }
   } finally {
     await browser.close();
   }
