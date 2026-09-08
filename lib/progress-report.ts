@@ -11,6 +11,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { generateProgressReport, fmtMins, type ReportData } from "@/lib/pdf";
+import { lessonDailyLogRow } from "@/lib/progress-report-rows";
 
 export type ReportRangePreset = "q1" | "q2" | "q3" | "q4" | "custom" | "full";
 
@@ -38,6 +39,9 @@ type LessonRow = {
   date: string | null;
   curriculum_goal_id: string | null;
   subjects: { name: string } | null;
+  // The subject of a curriculum lesson lives HERE, not on subjects: curriculum
+  // lessons carry subject_id NULL. See lessonReportSubject.
+  curriculum_goals: { subject_label: string | null; curriculum_name: string | null } | null;
   is_backfill?: boolean;
 };
 type MemoryRow = {
@@ -112,7 +116,7 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
   const dateGenerated = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
-    supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), is_backfill").eq("user_id", userId),
+    supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label, curriculum_name), is_backfill").eq("user_id", userId),
     supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", userId),
     supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", userId),
     supabase.from("activity_logs").select("activity_id, date, minutes_spent, completed, is_backfill").eq("user_id", userId).eq("completed", true),
@@ -239,14 +243,14 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
     if (!d) continue;
     if (!dailyLogMap[d]) dailyLogMap[d] = [];
     const r = lessonMinutes(l, goalDefaults);
-    dailyLogMap[d].push({
-      childName: childNameMap[l.child_id] || "",
-      subject: l.subjects?.name || "General",
-      description: l.is_backfill ? `${l.title || "Lesson"} (imported)` : (l.title || "Lesson"),
-      minutes: r.m,
-      type: l.is_backfill ? "Imported" : "Lesson",
-      estimated: r.e,
-    });
+    dailyLogMap[d].push(
+      lessonDailyLogRow({
+        lesson: l,
+        childName: childNameMap[l.child_id] || "",
+        minutes: r.m,
+        estimated: r.e,
+      }),
+    );
   }
   for (const m of scopedMemories) {
     if (!m.duration_minutes || !["field_trip", "project", "activity", "win"].includes(m.type)) continue;
