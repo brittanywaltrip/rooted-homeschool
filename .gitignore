@@ -88,3 +88,10 @@ email-audit/
 /docs/saved-plans/
 /docs/YEARBOOK-00-TODAY-BOOK-STRIP.md
 /docs/YEARBOOK-CUSTOMIZATION-ROADMAP.md
+
+# Data-repair rollback files and script backups. These hold real families'
+# lesson rows — the before-state a repair can be undone from — so they must
+# never reach the repository. Written by the 2026-09-08 phantom-completion
+# repair and by anything else that has to be reversible.
+/.repair-backups/
+/scripts/repair-phantom-completions-backup-*.json
