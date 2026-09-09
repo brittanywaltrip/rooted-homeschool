@@ -19,10 +19,19 @@
 
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
+import { isNonFamilyEmail, classifyGoalSlots } from '../lib/queue-slot-health.ts'
+
 const VERBOSE = process.argv.includes('--verbose')
 
-// How soon a gap has to arrive before it is an emergency rather than a
-// backlog item. 0 means the family is looking at a blank card right now.
+// How soon an INTERIOR hole has to arrive before it is an emergency rather
+// than a backlog item. 0 means the family is looking at a blank card right now.
+//
+// Interior holes only. An ungenerated tail is not urgent and never was: the
+// Schedule Builder writes from the pointer forward and extends on the next
+// save, so a tail fills in as the family moves through the year. Counting it
+// here is what made the first version of this script report "8 blank within 2
+// slots, 1 blank RIGHT NOW" when all eight were tail on a demo account and no
+// family was affected at all. See classifyGoalSlots.
 const URGENT_WITHIN = 2
 
 // Below PostgREST's default 1,000 row cap, so a full page always means "there
@@ -36,30 +45,67 @@ const supabase: SupabaseClient = createClient(
 
 type GoalRow = {
   id: string
+  user_id: string
   curriculum_name: string | null
   current_lesson: number | null
   total_lessons: number | null
 }
 
+/** user_id -> email, for the exclusion test and the per-goal report. Same
+ *  admin listing the three repair scripts use; `profiles` has no email column. */
+async function loadEmails(): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  for (let page = 1; ; page++) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 })
+    if (error) throw new Error(`user listing failed: ${error.message}`)
+    const users = data?.users ?? []
+    for (const u of users) out.set(u.id, u.email ?? '(no email)')
+    if (users.length < 200) break
+  }
+  return out
+}
+
 async function main() {
-  // PAGED, and not because the table is large. The unpaged version of this
-  // read returned exactly 1000 rows on the first run of this script, which is
+  const emailByUser = await loadEmails()
+
+  // PAGED, and not because the table is large. The unpaged version of this read
+  // returned exactly 1000 rows on the first run of this script, which is
   // PostgREST's default cap and not the number of goals -- it silently reported
-  // 2 gapped goals where the same question in SQL finds 17. Every read in this
-  // file is paged for that reason. Short page ends the loop, never an empty
-  // one, so a truncated response cannot read as the end of the table.
+  // 2 gapped goals where the same question in SQL finds 17.
+  //
+  // Keyset paged and count-checked, for the same reason as the lesson sweep
+  // below: an offset loop that stops on a short page treats one transient
+  // response as the end of the table, and a goal that was never read is a goal
+  // that was never checked. Understating is quieter than the invented holes the
+  // lesson sweep produced, and just as wrong.
+  const { count: expectedGoals, error: goalCountErr } = await supabase
+    .from('curriculum_goals')
+    .select('id', { count: 'exact', head: true })
+    .eq('archived', false)
+  if (goalCountErr) throw new Error(`goal count failed: ${goalCountErr.message}`)
+
   const goals: GoalRow[] = []
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+  let lastGoalId = ''
+  for (;;) {
+    let q = supabase
       .from('curriculum_goals')
-      .select('id, curriculum_name, current_lesson, total_lessons')
+      .select('id, user_id, curriculum_name, current_lesson, total_lessons')
       .eq('archived', false)
       .order('id', { ascending: true })
-      .range(from, from + PAGE - 1)
-    if (error) throw new Error(`goals page at ${from} failed: ${error.message}`)
+      .limit(PAGE)
+    if (lastGoalId) q = q.gt('id', lastGoalId)
+    const { data, error } = await q
+    if (error) throw new Error(`goals page after ${lastGoalId || 'start'} failed: ${error.message}`)
     const page = (data ?? []) as GoalRow[]
+    if (page.length === 0) break
     goals.push(...page)
-    if (page.length < PAGE) break
+    lastGoalId = page[page.length - 1].id
+  }
+  if (expectedGoals != null && goals.length !== expectedGoals) {
+    throw new Error(
+      `read ${goals.length} of ${expectedGoals} live goals; refusing to report ` +
+      `against a partial sweep`,
+    )
   }
 
   // ── Assertion 1 (item 3): no live goal has zero lesson rows ──────────────
@@ -68,9 +114,14 @@ async function main() {
   // making them atomic, so a dropped connection between them lands here.
   // app/lib/healEmptyGoal.ts fills one in on the next load of Today or Plan;
   // this counts the ones nobody has opened yet.
-  const empties: GoalRow[] = []
+  const emptyProjecting: GoalRow[] = []
+  const emptyFinished: GoalRow[] = []
   // ── Assertion 2: no live goal blanks within URGENT_WITHIN slots ──────────
-  const gaps: { goal: GoalRow; slotsUntilBlank: number; missing: number }[] = []
+  // An INTERIOR hole only. See URGENT_WITHIN above.
+  type Finding = { goal: GoalRow; health: ReturnType<typeof classifyGoalSlots> }
+  const holes: Finding[] = []
+  const tails: Finding[] = []
+  let excludedGoals = 0
 
   // One paged sweep of the slot columns rather than two queries per goal.
   // The per-goal version was N+1 against ~1,700 live goals and took long
@@ -81,15 +132,45 @@ async function main() {
   // response can never be mistaken for the end of the table. Ordered by id so
   // the ranges are stable across pages.
   const rowsByGoal = new Map<string, { slots: Set<number>; count: number }>()
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase
+
+  // KEYSET paged on the primary key, not offset paged, and checked against an
+  // exact count afterwards.
+  //
+  // The offset version of this loop broke on any page shorter than PAGE, which
+  // it treated as end-of-table. Over ~380 pages one short response is enough to
+  // end the sweep early, and a goal whose rows were never read looks exactly
+  // like a goal whose rows do not exist -- so the check INVENTED interior holes.
+  // Two consecutive runs on 2026-09-09 disagreed: one reported 0 holes, the
+  // other reported 10 across 7 real families, including a "blank RIGHT NOW"
+  // that was not real. A health check that answers differently twice is worse
+  // than none, which is the same lesson as the 1000-row cap a day earlier.
+  //
+  // Keyset paging cannot skip or repeat a row, and the count assertion turns
+  // any remaining shortfall into a loud failure instead of a wrong number.
+  const { count: expectedRows, error: countErr } = await supabase
+    .from('lessons')
+    .select('id', { count: 'exact', head: true })
+    .not('curriculum_goal_id', 'is', null)
+  if (countErr) throw new Error(`lesson count failed: ${countErr.message}`)
+
+  let scanned = 0
+  let lastId = ''
+  for (;;) {
+    let q = supabase
       .from('lessons')
-      .select('curriculum_goal_id, queue_position')
+      .select('id, curriculum_goal_id, queue_position')
       .not('curriculum_goal_id', 'is', null)
       .order('id', { ascending: true })
-      .range(from, from + PAGE - 1)
-    if (error) throw new Error(`lessons page at ${from} failed: ${error.message}`)
-    const page = (data ?? []) as { curriculum_goal_id: string; queue_position: number | null }[]
+      .limit(PAGE)
+    if (lastId) q = q.gt('id', lastId)
+    const { data, error } = await q
+    if (error) throw new Error(`lessons page after ${lastId || 'start'} failed: ${error.message}`)
+    const page = (data ?? []) as {
+      id: string
+      curriculum_goal_id: string
+      queue_position: number | null
+    }[]
+    if (page.length === 0) break
     for (const r of page) {
       let entry = rowsByGoal.get(r.curriculum_goal_id)
       if (!entry) {
@@ -99,54 +180,90 @@ async function main() {
       entry.count += 1
       if (r.queue_position != null) entry.slots.add(r.queue_position)
     }
-    if (page.length < PAGE) break
+    scanned += page.length
+    lastId = page[page.length - 1].id
+  }
+
+  if (expectedRows != null && scanned !== expectedRows) {
+    throw new Error(
+      `read ${scanned} of ${expectedRows} goal-attached lesson rows; refusing to ` +
+      `report holes against a partial sweep`,
+    )
   }
 
   for (const g of goals) {
-    const entry = rowsByGoal.get(g.id)
-    if (!entry || entry.count === 0) {
-      empties.push(g)
+    // Not a family: a demo account, the Playwright account, or one of
+    // Brittany's. Their goals are deliberately in odd states. One shared list,
+    // in lib/queue-slot-health.ts.
+    if (isNonFamilyEmail(emailByUser.get(g.user_id))) {
+      excludedGoals += 1
       continue
     }
 
+    const entry = rowsByGoal.get(g.id)
     const cur = g.current_lesson ?? 0
     const total = g.total_lessons ?? 0
-    if (total <= 0 || cur >= total) continue  // nothing left to project
 
-    let firstBlank: number | null = null
-    let missing = 0
-    for (let s = cur + 1; s <= total; s++) {
-      if (entry.slots.has(s)) continue
-      missing += 1
-      if (firstBlank === null) firstBlank = s
+    if (!entry || entry.count === 0) {
+      // A goal with no rows at all. Only a problem while it still has
+      // something left to project: all 7 in the 2026-09-09 sweep sat at
+      // current_lesson == total_lessons, and repair-empty-goals planned zero
+      // rows for every one of them because there is genuinely nothing to write.
+      if (total > 0 && cur < total) emptyProjecting.push(g)
+      else emptyFinished.push(g)
+      continue
     }
-    if (firstBlank !== null) {
-      gaps.push({ goal: g, slotsUntilBlank: firstBlank - (cur + 1), missing })
+
+    const health = classifyGoalSlots(cur, total, entry.slots)
+    if (health.interiorHoles.length > 0) {
+      holes.push({ goal: g, health })
+    } else if (health.missingTail > 0) {
+      tails.push({ goal: g, health })
     }
   }
 
-  const urgent = gaps.filter((x) => x.slotsUntilBlank <= URGENT_WITHIN)
-  urgent.sort((a, b) => a.slotsUntilBlank - b.slotsUntilBlank)
+  const urgent = holes.filter(
+    (x) => x.health.slotsUntilBlank !== null && x.health.slotsUntilBlank <= URGENT_WITHIN,
+  )
+  urgent.sort((a, b) => (a.health.slotsUntilBlank ?? 0) - (b.health.slotsUntilBlank ?? 0))
+  const blankNow = holes.filter((x) => x.health.slotsUntilBlank === 0)
 
-  console.log(`live goals                       ${goals.length}`)
-  console.log(`goals with zero lesson rows      ${empties.length}   (want 0)`)
-  console.log(`goals with any gap ahead         ${gaps.length}`)
-  console.log(`goals blank within ${URGENT_WITHIN} slots       ${urgent.length}   (want 0)`)
-  console.log(`goals blank RIGHT NOW            ${gaps.filter((x) => x.slotsUntilBlank === 0).length}`)
+  const email = (g: GoalRow) => emailByUser.get(g.user_id) ?? '(unknown)'
+
+  console.log(`family goals scanned             ${goals.length - excludedGoals}`)
+  console.log(`  excluded, not families         ${excludedGoals}`)
+  console.log(`empty and still projecting       ${emptyProjecting.length}   (want 0)`)
+  console.log(`goals with an interior hole      ${holes.length}`)
+  console.log(`  blank within ${URGENT_WITHIN} slots            ${urgent.length}   (want 0)`)
+  console.log(`  blank RIGHT NOW                ${blankNow.length}   (want 0)`)
+  console.log('')
+  console.log(`empty but finished               ${emptyFinished.length}   (informational)`)
+  console.log(`ungenerated tail, no hole        ${tails.length}   (informational)`)
 
   if (VERBOSE) {
-    for (const g of empties) console.log(`  EMPTY  ${g.id}  ${g.curriculum_name}`)
+    for (const g of emptyProjecting) {
+      console.log(`  EMPTY  ${email(g)}  ${g.curriculum_name}  ${g.current_lesson}/${g.total_lessons}  ${g.id}`)
+    }
     for (const x of urgent) {
       console.log(
-        `  GAP    ${x.goal.id}  ${x.goal.curriculum_name}  ` +
-        `blank in ${x.slotsUntilBlank}, ${x.missing} slots missing`,
+        `  HOLE   ${email(x.goal)}  ${x.goal.curriculum_name}  ` +
+        `blank in ${x.health.slotsUntilBlank}, slots [${x.health.interiorHoles.slice(0, 8).join(', ')}]  ${x.goal.id}`,
       )
+    }
+    for (const g of emptyFinished) {
+      console.log(`  done   ${email(g)}  ${g.curriculum_name}  ${g.current_lesson}/${g.total_lessons}`)
+    }
+    for (const x of tails) {
+      console.log(`  tail   ${email(x.goal)}  ${x.goal.curriculum_name}  ${x.health.missingTail} slot(s) not written yet`)
     }
   }
 
   // Repairs live in scripts/repair-empty-goals.ts and
   // scripts/repair-queue-gaps.ts. This script never writes.
-  const failed = empties.length > 0 || urgent.length > 0
+  //
+  // Only the two counts above that say "want 0" can fail the run. A finished
+  // empty goal and an ungenerated tail are reported and do not.
+  const failed = emptyProjecting.length > 0 || urgent.length > 0
   if (failed) {
     console.log('\nFAIL. Repair with scripts/repair-empty-goals.ts (dry run first)')
     console.log('and scripts/repair-queue-gaps.ts, then re-run this check.')

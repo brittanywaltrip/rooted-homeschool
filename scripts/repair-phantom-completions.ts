@@ -136,7 +136,6 @@ const USER_FILTER = (() => {
 // Known test account. Its goals are deliberately in odd states and must never
 // be repaired alongside real families'. Same exclusion repair-queue-gaps and
 // repair-empty-goals use.
-const EXCLUDED_EMAIL = 'garfieldbrittany+test1@gmail.com'
 
 // The projector's safety bound, matching the Schedule Builder's create path.
 // Invariant 11: never a small fixed window.
@@ -201,6 +200,7 @@ const supabase: SupabaseClient = createClient(
  * sub-millisecond digits as text.
  */
 import { isExactly24hApart, isNearFingerprint } from './phantom-fingerprint'
+import { isNonFamilyEmail } from '../lib/queue-slot-health.ts'
 
 type LessonRow = {
   id: string
@@ -289,15 +289,17 @@ async function loadCandidates(): Promise<Candidate[]> {
   // The email lives on auth.users, not on profiles — `profiles` has no email
   // column at all, so a lookup there returns nothing and silently stops
   // excluding the test account. Same admin listing repair-empty-goals uses.
-  let excludedUserId: string | null = null
+  //
+  // The listing runs to the END now rather than breaking on the first hit.
+  // There are four non-family accounts (see NON_FAMILY_EMAILS), so stopping at
+  // the first one found would leave the other three in the candidate set.
+  const excludedUserIds = new Set<string>()
   for (let page = 1; ; page++) {
     const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 200 })
     if (error) throw error
     const users = data?.users ?? []
-    const hit = users.find((u) => u.email === EXCLUDED_EMAIL)
-    if (hit) {
-      excludedUserId = hit.id
-      break
+    for (const u of users) {
+      if (isNonFamilyEmail(u.email)) excludedUserIds.add(u.id)
     }
     if (users.length < 200) break
   }
@@ -355,7 +357,7 @@ async function loadCandidates(): Promise<Candidate[]> {
   for (const row of fingerprinted) {
     const goal = row.curriculum_goal_id ? goals.get(row.curriculum_goal_id) : undefined
     if (!goal) continue
-    if (excludedUserId && goal.user_id === excludedUserId) continue
+    if (excludedUserIds.has(goal.user_id)) continue
     const { klass, reason } = classify(row, goal)
     out.push({ row, goal, klass, reason })
   }

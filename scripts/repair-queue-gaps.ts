@@ -121,6 +121,7 @@ import {
   type VacationBlock,
 } from '../app/lib/scheduler.ts'
 import { isoDowFromYmd } from '../app/lib/timezone.ts'
+import { isNonFamilyEmail } from '../lib/queue-slot-health.ts'
 
 // Dry run is the DEFAULT. Writing requires saying so out loud.
 const APPLY = process.argv.includes('--apply')
@@ -129,7 +130,6 @@ const RESTORES_ONLY = process.argv.includes('--restores-only')
 
 // Known test account. Its goals are deliberately in odd states and must never
 // be repaired alongside real families'. Same exclusion repair-empty-goals uses.
-const EXCLUDED_EMAIL = 'garfieldbrittany+test1@gmail.com'
 
 // Sources that mean "this row is off the queue on purpose". A row carrying one
 // of these must never be handed a queue slot:
@@ -645,11 +645,11 @@ async function main() {
 
   const lessonsByGoal = await loadLessonsByGoal()
 
-  const excluded = goals.filter((g) => emails.get(g.user_id) === EXCLUDED_EMAIL)
-  const candidates = goals.filter((g) => emails.get(g.user_id) !== EXCLUDED_EMAIL)
+  const excluded = goals.filter((g) => isNonFamilyEmail(emails.get(g.user_id)))
+  const candidates = goals.filter((g) => !isNonFamilyEmail(emails.get(g.user_id)))
   if (excluded.length > 0) {
     console.log(
-      `[repair-queue-gaps] excluded ${excluded.length} goal(s) belonging to ${EXCLUDED_EMAIL}`,
+      `[repair-queue-gaps] excluded ${excluded.length} goal(s) belonging to non-family accounts`,
     )
   }
 
