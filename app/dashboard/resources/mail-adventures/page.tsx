@@ -168,9 +168,54 @@ export default function MailAdventuresPage() {
   );
 
   // ── The toggles ───────────────────────────────────────────────────────────
-  // Optimistic, reverted on error. The upsert targets (user_id, listing_id),
-  // which the partial unique index added in 20260909000004 makes a real
-  // conflict target for the child_id null rows this version writes.
+  // Optimistic, reverted on error.
+  //
+  // NOT an upsert, though it reads like one. PostgREST's `on_conflict` takes a
+  // bare column list, and Postgres cannot infer a PARTIAL unique index from
+  // one: matching mailbox_progress_family_listing_uniq needs the statement to
+  // repeat the index predicate (WHERE child_id IS NULL), which PostgREST has no
+  // way to send. Upserting on (user_id, listing_id) returns 42P10, "there is no
+  // unique or exclusion constraint matching the ON CONFLICT specification", and
+  // every tap silently 400s. Verified against staging.
+  //
+  // So the write is explicit: UPDATE when we already hold the family's row,
+  // INSERT when we do not, and fall back to UPDATE on a 23505 in case another
+  // tab created it in between. The partial index still earns its place, as the
+  // guard that makes that duplicate impossible rather than as a conflict target.
+  async function writeProgress(
+    listingId: string,
+    next: { requested_at: string | null; received_at: string | null },
+    now: string,
+    existing: MailProgress | undefined
+  ) {
+    const patch = { ...next, updated_at: now };
+
+    if (existing) {
+      const { error } = await supabase
+        .from("mailbox_progress")
+        .update(patch)
+        .eq("user_id", userId as string)
+        .eq("listing_id", listingId)
+        .is("child_id", null);
+      return error;
+    }
+
+    const { error: insErr } = await supabase
+      .from("mailbox_progress")
+      .insert({ user_id: userId as string, child_id: null, listing_id: listingId, ...patch });
+
+    if (insErr && insErr.code === "23505") {
+      const { error } = await supabase
+        .from("mailbox_progress")
+        .update(patch)
+        .eq("user_id", userId as string)
+        .eq("listing_id", listingId)
+        .is("child_id", null);
+      return error;
+    }
+    return insErr;
+  }
+
   async function toggle(listing: MailListing, mark: "requested" | "received") {
     if (!userId) { setToast("You're not signed in."); return; }
 
@@ -186,12 +231,7 @@ export default function MailAdventuresPage() {
       on: mark === "requested" ? !!next.requested_at : !!next.received_at,
     });
 
-    const { error } = await supabase
-      .from("mailbox_progress")
-      .upsert(
-        { user_id: userId, child_id: null, listing_id: listing.id, ...next, updated_at: now },
-        { onConflict: "user_id,listing_id" }
-      );
+    const error = await writeProgress(listing.id, next, now, before);
 
     if (error) {
       setProgress((prev) => {

@@ -27,8 +27,17 @@
 -- could accumulate one row per tap of Requested, and the page would read back
 -- whichever the planner happened to return.
 --
--- A partial unique index over the non-null columns closes it, and gives the
--- toggle a real conflict target to upsert on (user_id, listing_id).
+-- A partial unique index over the non-null columns closes it.
+--
+-- It is a DUPLICATE GUARD, not an upsert conflict target. Postgres cannot infer
+-- a partial index from a bare column list: the statement has to repeat the index
+-- predicate (WHERE child_id IS NULL), and PostgREST's `on_conflict` parameter
+-- takes column names only, with no way to send it. An upsert on
+-- (user_id, listing_id) therefore fails with 42P10, "there is no unique or
+-- exclusion constraint matching the ON CONFLICT specification". That was tried
+-- against staging first, and every toggle 400d. The page writes an explicit
+-- UPDATE-or-INSERT instead, with a 23505 fallback that this index is what
+-- raises. Do not "simplify" it back to an upsert.
 --
 -- The per-child split is deliberately not in this version. When it arrives it
 -- needs its own index over (user_id, child_id, listing_id) where child_id is
@@ -39,7 +48,7 @@ create unique index if not exists mailbox_progress_family_listing_uniq
   where child_id is null;
 
 comment on index public.mailbox_progress_family_listing_uniq is
-  'Family-level (child_id null) uniqueness. The table constraint cannot enforce this because NULLs never collide. Upsert conflict target for the Mail Adventures toggles.';
+  'Family-level (child_id null) uniqueness. The table constraint cannot enforce this because NULLs never collide. A duplicate guard, NOT an ON CONFLICT target: a partial index cannot be inferred from a bare column list, so PostgREST upserts on it fail with 42P10.';
 
 
 -- ---------------------------------------------------------------------------
@@ -55,9 +64,8 @@ comment on index public.mailbox_progress_family_listing_uniq is
 --   families delete their own mailbox progress   DELETE  auth.uid() = user_id
 --
 -- The UPDATE policy carries both USING and WITH CHECK, so a family cannot move
--- one of its rows onto another user_id. The upsert the page performs is an
--- INSERT ... ON CONFLICT DO UPDATE and is covered by the INSERT and UPDATE
--- policies together. Nothing to add here. Do not "helpfully" re-create these:
+-- one of its rows onto another user_id. The page's UPDATE-or-INSERT write is
+-- covered by the INSERT and UPDATE policies together. Nothing to add here. Do not "helpfully" re-create these:
 -- a redefinition that dropped the WITH CHECK would open exactly that hole.
 -- ---------------------------------------------------------------------------
 

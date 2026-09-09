@@ -205,3 +205,25 @@ test("the official link opens safely in a new tab", () => {
   assert.match(anchor, /target="_blank"/);
   assert.match(anchor, /rel="noopener noreferrer"/);
 });
+
+// ── The progress write ───────────────────────────────────────────────────────
+
+test("the toggles do not upsert on the partial index", () => {
+  // mailbox_progress_family_listing_uniq is partial (WHERE child_id IS NULL).
+  // Postgres cannot infer a partial index from a bare column list, and
+  // PostgREST's on_conflict sends nothing else, so an upsert here returns 42P10
+  // and every tap 400s. Reproduced against staging before this test existed.
+  const src = read(MAIL_PAGE);
+  assert.ok(
+    !/\.upsert\(/.test(src),
+    "Mail Adventures must not upsert: the conflict target is a partial index and cannot be inferred. Use the explicit UPDATE-or-INSERT."
+  );
+  assert.ok(!src.includes("onConflict"), "onConflict cannot express the index predicate");
+});
+
+test("the progress write handles the row already existing", () => {
+  const src = read(MAIL_PAGE);
+  assert.match(src, /\.insert\(\{ user_id: userId as string, child_id: null/, "must insert a family-scoped row");
+  assert.match(src, /insErr\.code === "23505"/, "a concurrent insert must fall back to an update");
+  assert.match(src, /\.is\("child_id", null\)/, "the update must target the family row, not a per-child one");
+});
