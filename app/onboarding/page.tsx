@@ -163,6 +163,97 @@ function ProgressDots({ current, total }: { current: number; total: number }) {
   );
 }
 
+// ─── A date field that looks empty when it is empty ────────────────────────
+//
+// An <input type="date"> with no value renders as a blank box on iPhone. There
+// is no "mm/dd/yyyy" hint the way desktop browsers show one, so on the school
+// year step both fields read as already filled in, the family taps Continue,
+// and the only thing that happens is a message they have no reason to connect
+// to the two boxes above. This puts the empty state where they are looking.
+//
+// The label is an overlay rather than a real placeholder because date inputs
+// do not support one. pointer-events-none keeps the whole box tappable, and
+// the transparent text colour while empty hides the desktop browsers' own
+// "mm/dd/yyyy" so the two never stack on top of each other. The calendar
+// indicator is drawn from a background image, so it is unaffected.
+function DateField({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="relative">
+      <input
+        id={id}
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        style={value ? undefined : { color: "transparent" }}
+        className="w-full px-4 py-3.5 rounded-2xl bg-white/15 border border-white/20 text-white text-sm focus:outline-none focus:border-white/50 focus:bg-white/20 transition"
+      />
+      {!value && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-sm text-white/45"
+        >
+          Pick a date
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ─── Saying why, where the thumb is ─────────────────────────────────────────
+//
+// A "Continue →" that cannot proceed used to do nothing a family could see on
+// a phone. PostHog dead-click events on one App Store reviewer's account:
+// "Continue" repeatedly in onboarding, plus "+ Add curriculum" and "Preview
+// schedule" in the builder. They described the app as "so glitchy I couldn't
+// enjoy it".
+//
+// The rule this file now follows: no primary button in onboarding is silently
+// disabled. Every step's Continue is tappable whenever it is not mid-save, the
+// tap produces a reason, and the reason is announced and paired with a move to
+// the field that needs fixing.
+
+/** The one place a step's blocked reason is rendered. */
+function StepError({ message }: { message: string }) {
+  if (!message) return null;
+  return (
+    <p
+      role="alert"
+      className="text-sm text-red-300 text-center mb-4"
+    >
+      {message}
+    </p>
+  );
+}
+
+/**
+ * Put the first thing that needs fixing on screen and in focus.
+ *
+ * The error text alone is not enough on a phone: the field it refers to is
+ * often above the fold, and on the school-year step the tap that produced the
+ * message may itself have been swallowed by iOS closing a date picker. Runs on
+ * the next frame so the message has rendered and the layout has settled before
+ * anything is scrolled.
+ */
+function focusFirstInvalid(elementId: string) {
+  if (typeof document === "undefined") return;
+  requestAnimationFrame(() => {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    // preventScroll: the smooth scroll above owns the movement; letting focus
+    // jump as well makes the page lurch.
+    el.focus({ preventScroll: true });
+  });
+}
+
 function StepShell({
   children,
   green = true,
@@ -378,6 +469,7 @@ function AboutStep({
   onContinue,
   onBack,
   saving,
+  error,
   current,
   total,
 }: {
@@ -388,10 +480,10 @@ function AboutStep({
   onContinue: () => void;
   onBack: () => void;
   saving: boolean;
+  error: string;
   current: number;
   total: number;
 }) {
-  const canContinue = experience !== "" && goals.length > 0;
   return (
     <StepShell>
       <ProgressDots current={current} total={total} />
@@ -408,7 +500,9 @@ function AboutStep({
       <p className="text-white/80 text-sm font-medium mb-3">
         How long have you been homeschooling?
       </p>
-      <div className="space-y-2.5 mb-8">
+      {/* tabIndex -1 so focusFirstInvalid can move focus here. A group of
+          choice cards has no single input to land on. */}
+      <div id="onb-experience" tabIndex={-1} className="space-y-2.5 mb-8 focus:outline-none">
         {EXPERIENCE_OPTIONS.map((o) => (
           <ChoiceCard
             key={o.value}
@@ -423,7 +517,7 @@ function AboutStep({
         What brings you to Rooted?
       </p>
       <p className="text-white/40 text-xs mb-3">Choose all that apply.</p>
-      <div className="space-y-2.5 mb-8">
+      <div id="onb-goals" tabIndex={-1} className="space-y-2.5 mb-8 focus:outline-none">
         {GOAL_OPTIONS.map((o) => (
           <ChoiceCard
             key={o.value}
@@ -434,9 +528,17 @@ function AboutStep({
         ))}
       </div>
 
+      {/* Tappable unless it is mid-save. It used to be disabled until both
+          questions were answered, which on a phone means a tap that does
+          nothing at all: no message, no movement, no way to tell whether the
+          app registered it. saveStep2 already knows how to say
+          "Please answer both questions to continue" — it just never got the
+          chance to. */}
+      <StepError message={error} />
+
       <button
         onClick={onContinue}
-        disabled={saving || !canContinue}
+        disabled={saving}
         className="w-full py-4 rounded-2xl bg-white text-[var(--g-brand)] font-semibold text-base transition-all hover:bg-white/90 active:scale-[0.98] disabled:opacity-40 mb-3"
       >
         {saving ? "Saving..." : "Continue →"}
@@ -493,27 +595,17 @@ function SchoolYearStep({
 
       <div className="grid grid-cols-2 gap-3 mb-8">
         <div>
-          <label className="text-white/70 text-xs font-medium block mb-1.5 px-1">Start date</label>
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => onStart(e.target.value)}
-            className="w-full px-4 py-3.5 rounded-2xl bg-white/15 border border-white/20 text-white text-sm focus:outline-none focus:border-white/50 focus:bg-white/20 transition"
-          />
+          <label htmlFor="onb-start-date" className="text-white/70 text-xs font-medium block mb-1.5 px-1">Start date</label>
+          <DateField id="onb-start-date" value={startDate} onChange={onStart} />
         </div>
         <div>
-          <label className="text-white/70 text-xs font-medium block mb-1.5 px-1">End date</label>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => onEnd(e.target.value)}
-            className="w-full px-4 py-3.5 rounded-2xl bg-white/15 border border-white/20 text-white text-sm focus:outline-none focus:border-white/50 focus:bg-white/20 transition"
-          />
+          <label htmlFor="onb-end-date" className="text-white/70 text-xs font-medium block mb-1.5 px-1">End date</label>
+          <DateField id="onb-end-date" value={endDate} onChange={onEnd} />
         </div>
       </div>
 
       <p className="text-white/80 text-sm font-medium mb-3">Which days do you do school?</p>
-      <div className="flex flex-wrap justify-center gap-2 mb-8">
+      <div id="onb-school-days" tabIndex={-1} className="flex flex-wrap justify-center gap-2 mb-8 focus:outline-none">
         {DAYS.map((d) => {
           const selected = schoolDays.includes(d.value);
           return (
@@ -533,7 +625,7 @@ function SchoolYearStep({
         })}
       </div>
 
-      {error && <p className="text-sm text-red-300 text-center mb-4">{error}</p>}
+      <StepError message={error} />
 
       <button
         onClick={onContinue}
@@ -709,7 +801,11 @@ export default function OnboardingPage() {
     // fields so the UI matches exactly what we persist.
     const fn = firstName.trim();
     const ln = lastName.trim();
-    if (!fn) { setError("Please enter your first name to continue"); return; }
+    if (!fn) {
+      setError("Please enter your first name to continue");
+      focusFirstInvalid("onb-first-name");
+      return;
+    }
     if (fn !== firstName) setFirstName(fn);
     if (ln !== lastName) setLastName(ln);
     setSaving(true);
@@ -750,7 +846,12 @@ export default function OnboardingPage() {
   }
 
   async function saveAbout() {
-    if (!experience || goals.length === 0) { setError("Please answer both questions to continue"); return; }
+    if (!experience || goals.length === 0) {
+      setError("Please answer both questions to continue");
+      // Whichever question is still unanswered, in the order they are read.
+      focusFirstInvalid(!experience ? "onb-experience" : "onb-goals");
+      return;
+    }
     setSaving(true);
     const token = (await supabase.auth.getSession()).data.session?.access_token ?? "";
     await fetch("/api/profile/update", {
@@ -764,12 +865,25 @@ export default function OnboardingPage() {
 
   function toggleDay(value: string) {
     setSchoolDays((prev) => (prev.includes(value) ? prev.filter((d) => d !== value) : [...prev, value]));
+    setError("");
   }
 
   async function saveSchoolYear() {
-    if (!schoolYearStart || !schoolYearEnd) { setError("Please choose start and end dates to continue"); return; }
-    if (schoolYearEnd <= schoolYearStart) { setError("Your end date needs to come after your start date"); return; }
-    if (schoolDays.length === 0) { setError("Please choose at least one school day"); return; }
+    if (!schoolYearStart || !schoolYearEnd) {
+      setError("Please choose start and end dates to continue");
+      focusFirstInvalid(!schoolYearStart ? "onb-start-date" : "onb-end-date");
+      return;
+    }
+    if (schoolYearEnd <= schoolYearStart) {
+      setError("Your end date needs to come after your start date");
+      focusFirstInvalid("onb-end-date");
+      return;
+    }
+    if (schoolDays.length === 0) {
+      setError("Please choose at least one school day");
+      focusFirstInvalid("onb-school-days");
+      return;
+    }
     setSaving(true);
     const startY = schoolYearStart.slice(0, 4);
     const endY = schoolYearEnd.slice(0, 4);
@@ -807,7 +921,11 @@ export default function OnboardingPage() {
 
   async function saveStep4() {
     const filled = childRows.filter(r => r.name.trim());
-    if (filled.length === 0) { setError("Please add your child's name to continue"); return; }
+    if (filled.length === 0) {
+      setError("Please add your child's name to continue");
+      focusFirstInvalid("onb-child-0-name");
+      return;
+    }
     setSaving(true);
 
     // Idempotent submit: going Back from the school-year step and tapping
@@ -988,6 +1106,7 @@ export default function OnboardingPage() {
           </p>
 
           <input
+            id="onb-first-name"
             type="text"
             value={firstName}
             onChange={(e) => { setFirstName(e.target.value); setError(""); }}
@@ -1003,7 +1122,7 @@ export default function OnboardingPage() {
             className="w-full px-5 py-3.5 rounded-2xl bg-white/10 border border-white/15 text-white text-base placeholder-white/30 focus:outline-none focus:border-white/40 focus:bg-white/15 transition mb-6"
           />
 
-          {error && <p className="text-sm text-red-300 text-center mb-4">{error}</p>}
+          <StepError message={error} />
 
           <button
             onClick={saveStep1}
@@ -1090,12 +1209,13 @@ export default function OnboardingPage() {
     return (
       <AboutStep
         experience={experience}
-        onSelectExperience={setExperience}
+        onSelectExperience={(v) => { setExperience(v); setError(""); }}
         goals={goals}
-        onToggleGoal={toggleGoal}
+        onToggleGoal={(v) => { toggleGoal(v); setError(""); }}
         onContinue={saveAbout}
         onBack={() => goTo(1)}
         saving={saving}
+        error={error}
         current={currentDot}
         total={totalDots}
       />
@@ -1139,6 +1259,7 @@ export default function OnboardingPage() {
               <div key={idx} className="space-y-3">
                 <div className="flex items-center gap-2">
                   <input
+                    id={idx === 0 ? "onb-child-0-name" : undefined}
                     type="text"
                     value={row.name}
                     onChange={(e) => updateRow(idx, { name: e.target.value })}
@@ -1201,7 +1322,7 @@ export default function OnboardingPage() {
             </button>
           )}
 
-          {error && <p className="text-sm text-red-300 text-center mb-4">{error}</p>}
+          <StepError message={error} />
 
           <button
             onClick={saveStep4}

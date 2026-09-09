@@ -1,12 +1,14 @@
+import { MarketingBackLink, MarketingLogo } from "@/app/components/MarketingHeaderLinks";
+
 export default function ContactPage() {
   return (
     <main className="min-h-screen bg-[#f8f7f4]">
       <div className="max-w-2xl mx-auto px-6 py-16">
         <div className="mb-10">
-          <a href="/" className="text-sm text-[#5c7f63] hover:underline">← Back to Rooted</a>
+          <MarketingBackLink />
         </div>
         <div className="flex items-center gap-3 mb-8">
-          <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
+          <MarketingLogo />
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">Get in Touch</h1>
         <p className="text-[#7a6f65] mb-10">We&apos;re a small family-run team and we read every message personally.</p>

@@ -1,6 +1,10 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 import { getCookieDomain } from '@/lib/cookie-domain'
+import {
+  isSupabaseAuthCookieName,
+  shouldRedirectHomeToDashboard,
+} from '@/lib/app-landing'
 
 // Standard @supabase/ssr middleware pattern. Runs on every request that
 // the matcher below lets through and calls supabase.auth.getUser(),
@@ -85,23 +89,42 @@ export async function middleware(request: NextRequest) {
   // requests: client-side navigation in the dashboard is an RSC fetch, and
   // skipping those would starve the refresh and reintroduce the original
   // expiry bug this middleware was written to fix.
-  // The PKCE code-verifier cookie is literally named
-  // `<storageKey>-auth-token-code-verifier`, so a naive startsWith('sb-')
-  // + includes('auth-token') test matches it and lets a mid-OAuth visitor
-  // through to getUser() with no session to refresh. Exclude it explicitly.
+  // The name test lives in lib/app-landing.ts so this guard and the login
+  // page cannot drift apart about what "signed in" means. It excludes the
+  // PKCE code-verifier cookie, which is literally named
+  // `<storageKey>-auth-token-code-verifier` and so matches a naive
+  // startsWith('sb-') + includes('auth-token') test even though the visitor
+  // holding it is mid-OAuth with no session at all.
   const hasAuthCookie = request.cookies
     .getAll()
-    .some(
-      (c) =>
-        c.name.startsWith('sb-') &&
-        c.name.includes('auth-token') &&
-        !c.name.includes('code-verifier'),
-    )
+    .some((c) => isSupabaseAuthCookieName(c.name))
   if (!hasAuthCookie) {
     return NextResponse.next()
   }
   if (request.headers.get('next-router-prefetch') === '1') {
     return NextResponse.next()
+  }
+
+  // ── Reopening the app lands in the app ─────────────────────────────────
+  // The iOS shell's server.url is the marketing site, so every cold launch
+  // asks for "/". Send a family who already has a session to the dashboard
+  // instead of the homepage they have to log in from. Cookie presence is the
+  // whole test: see shouldRedirectHomeToDashboard for why this must not call
+  // getUser(), and why a query string opts out.
+  //
+  // Placed AFTER the prefetch guard, not before it. Next prefetches every
+  // <Link href="/"> on the marketing pages, and redirecting a prefetch would
+  // make the router speculatively pull the entire dashboard payload for a link
+  // the family may never tap. Real document loads (the cold launch that this
+  // exists for) and real client navigations both still redirect.
+  if (
+    shouldRedirectHomeToDashboard({
+      pathname,
+      search: request.nextUrl.search,
+      hasAuthCookie,
+    })
+  ) {
+    return NextResponse.redirect(new URL('/dashboard', request.url), 307)
   }
 
   let supabaseResponse = NextResponse.next({ request })
