@@ -39,6 +39,9 @@ import {
   isPinProjectable,
   isStartAtLessonInRange,
   toGoalConfig,
+  planGoalReassign,
+  planGoalDelete,
+  isTotalLessonsAboveProgress,
   type PinnedSlot,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
@@ -6637,5 +6640,360 @@ test('self-heal: both load paths use the shared helper and neither rolls its own
       !/scheduled_source: "self_heal"/.test(src),
       `${file} must not write heal rows itself`,
     )
+  }
+})
+
+/* ── Item 1: the lesson edit form may not vacate a queue slot ──────────────
+ * Reproduces the three app_events `lesson.updated` rows where
+ * changes.curriculum_goal_id went {from: <goal>, to: null} and left the goal a
+ * permanent hole. See planGoalReassign in scheduler.ts.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+test('detach: djdillon88 Sept 7 — clearing the goal on a slot-holding row splits instead', () => {
+  // "Apologia — Lesson 1", incomplete, holding slot 1, renamed to
+  // "Math · Math Review-Lesson 1" with the curriculum picker set to (none).
+  const plan = planGoalReassign(
+    { curriculum_goal_id: 'apologia', lesson_number: 1, completed: false },
+    null,
+  )
+  assert.equal(plan.kind, 'split', 'the goal keeps lesson 1; the edit becomes a new row')
+})
+
+test('detach: re-pointing a slot-holder at ANOTHER goal splits too', () => {
+  // The old row vacated slot 1 on the original goal either way — "to: null" is
+  // just the shape the three logged events happened to take.
+  const plan = planGoalReassign(
+    { curriculum_goal_id: 'apologia', lesson_number: 1, completed: false },
+    'saxon',
+  )
+  assert.equal(plan.kind, 'split')
+})
+
+test('detach: a completed slot-holder refuses rather than splitting', () => {
+  // Detaching would drop it out of MAX(queue_position) and drag current_lesson
+  // backwards; splitting would double-count its minutes on the report.
+  const plan = planGoalReassign(
+    { curriculum_goal_id: 'apologia', lesson_number: 4, completed: true },
+    null,
+  )
+  assert.equal(plan.kind, 'refuse')
+  if (plan.kind !== 'refuse') return
+  assert.match(plan.reason, /curriculum/i)
+})
+
+test('detach: a row at or behind the pointer is still a slot-holder', () => {
+  // The orphan cleanup NULLs queue_position on rows behind current_lesson
+  // (20260824000000). lesson_number is what says the goal owns this lesson, so
+  // a NULL queue_position must not read as "safe to detach".
+  const plan = planGoalReassign(
+    { curriculum_goal_id: 'apologia', lesson_number: 2, completed: false },
+    null,
+  )
+  assert.equal(plan.kind, 'split')
+})
+
+test('detach: the ordinary edits still go straight through', () => {
+  // No goal change at all.
+  assert.equal(
+    planGoalReassign(
+      { curriculum_goal_id: 'apologia', lesson_number: 1, completed: false },
+      'apologia',
+    ).kind,
+    'update',
+  )
+  // A standalone one-off: the picker is exactly what it is for.
+  assert.equal(
+    planGoalReassign(
+      { curriculum_goal_id: null, lesson_number: null, completed: false },
+      'apologia',
+    ).kind,
+    'update',
+  )
+  // Goal-linked but off-queue (an extra log / a continuation): no slot answers
+  // for it, so nothing goes blank.
+  assert.equal(
+    planGoalReassign(
+      { curriculum_goal_id: 'apologia', lesson_number: null, completed: false },
+      null,
+    ).kind,
+    'update',
+  )
+})
+
+test('detach: the edit handler routes through planGoalReassign, it does not write the null itself', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  assert.ok(
+    /planGoalReassign\(/.test(src),
+    'handleSubmitEditLesson must ask the planner before touching curriculum_goal_id',
+  )
+})
+
+/* ── Item 4: a rebuild never deletes the parent's own work ────────────────
+ * djdillon88, 2026-09-07: notes written at 00:05 on an unpinned incomplete row
+ * were gone at 00:38, when a wizard_create rebuild deleted every unpinned row
+ * on all five of his goals and reinserted them with new ids.
+ *
+ * The rule lives in the Schedule Builder's phase 2, which is a 500-line async
+ * block against PostgREST and cannot be called from here. These assert the
+ * shape of the source, the same way the self-heal and updater-purity tests do.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+test('rebuild: the floor delete holds back rows carrying notes or minutes', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.ok(
+    /const holdsParentWork = /.test(src),
+    'phase 2 must define what "the parent put this here" means, once',
+  )
+  assert.ok(
+    /notes != null && r\.notes\.trim\(\)\.length > 0\) \|\| r\.minutes_spent != null/.test(src),
+    'notes and minutes_spent are both parent-authored and both protected',
+  )
+  // The simulated delete and the real one must read from the same set. They
+  // drifted apart once already, over the pin exclusion.
+  assert.ok(/!heldBackIds\.has\(r\.id\)/.test(src), 'the simulation excludes held-back rows')
+  assert.ok(
+    /floorDelete\.not\("id", "in", `\(\$\{\[\.\.\.heldBackIds\]\.join\(","\)\}\)`\)/.test(src),
+    'the real delete excludes the same set',
+  )
+})
+
+test('rebuild: shortening a curriculum unschedules notes rows instead of deleting them', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.ok(/overCeilingWorkIds/.test(src), 'the over-ceiling cleanup must except them')
+  assert.ok(
+    /scheduled_date: null, queue_position: null, queue_pinned: false/.test(src),
+    'a retired notes row leaves the calendar and the queue but keeps its text',
+  )
+})
+
+test('rebuild: kept rows are re-dated in place, and pins are never re-dated', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.ok(/projDateBySlot/.test(src), 'kept rows take the projector date for their slot')
+  assert.ok(
+    /if \(r\.queue_pinned\) continue;/.test(src),
+    'Invariant 12: the system never re-dates a manual placement',
+  )
+})
+
+test('rebuild: the rebuild logs what it did', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.ok(/type: "schedule\.rebuilt"/.test(src), 'phase 2 must log the rebuild')
+  for (const k of ['inserted:', 'updated:', 'skipped:']) {
+    assert.ok(src.includes(k), `the payload must carry ${k}`)
+  }
+})
+
+/* ── Item 5: deleting a curriculum ────────────────────────────────────────
+ * kierrak745, 2026-08-03: four curricula deleted, 329 rows orphaned rather than
+ * removed, 237 still open and dated out to March 2027.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+test('goal delete: completed history is kept, open ghost rows go', () => {
+  const plan = planGoalDelete([
+    { id: 'done-1', completed: true, notes: null },
+    { id: 'done-2', completed: true, notes: 'she liked this one' },
+    { id: 'open-1', completed: false, notes: null },
+    { id: 'open-2', completed: false, notes: '   ' },
+  ])
+  assert.deepEqual(plan.keepIds, ['done-1', 'done-2'], 'a completed lesson is history')
+  assert.deepEqual(plan.deleteIds, ['open-1', 'open-2'], 'whitespace is not notes')
+  assert.deepEqual(plan.unscheduleIds, [])
+})
+
+test('goal delete: an unfinished row with notes is unscheduled, never deleted', () => {
+  const plan = planGoalDelete([{ id: 'open-notes', completed: false, notes: 'ask about ch. 4' }])
+  assert.deepEqual(plan.unscheduleIds, ['open-notes'])
+  assert.deepEqual(plan.deleteIds, [])
+  assert.deepEqual(plan.keepIds, [])
+})
+
+test('goal delete: every row lands in exactly one group', () => {
+  const rows = [
+    { id: 'a', completed: true, notes: 'x' },
+    { id: 'b', completed: false, notes: 'x' },
+    { id: 'c', completed: false, notes: null },
+  ]
+  const plan = planGoalDelete(rows)
+  const all = [...plan.keepIds, ...plan.unscheduleIds, ...plan.deleteIds]
+  assert.equal(all.length, rows.length)
+  assert.equal(new Set(all).size, rows.length, 'no row is in two groups')
+})
+
+test('goal delete: the handler checks every error and carries the subject across', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const handler = src.slice(src.indexOf('handleConfirmDeleteGoal'))
+  const body = handler.slice(0, handler.indexOf('handleConfirmStopGoal'))
+  assert.ok(/planGoalDelete\(/.test(body), 'the handler must use the shared rule')
+  // The original bug: supabase-js resolves on failure, so an unchecked delete
+  // let the goal delete run anyway and the FK orphaned the rows.
+  assert.ok(!/await supabase\.from\("lessons"\)\.delete\(\)\.eq\("curriculum_goal_id"/.test(body),
+    'the blind delete-by-goal-id is what orphaned 329 rows; it must be gone')
+  for (const guard of ['rowsErr', 'goalErr']) {
+    assert.ok(body.includes(`if (${guard})`), `${guard} must be checked`)
+  }
+  // Subject carried BEFORE the goal row goes, or the FK has already nulled the
+  // link and there is nothing left to read it from.
+  const carryAt = body.indexOf('subject_id: subjectId')
+  const goalDeleteAt = body.indexOf('from("curriculum_goals")')
+  assert.ok(carryAt > -1 && goalDeleteAt > -1)
+  assert.ok(carryAt < goalDeleteAt, 'the subject is carried before the goal is deleted')
+  // Never clobber a subject the parent set by hand.
+  assert.ok(/\.is\("subject_id", null\)/.test(body), 'only fills an empty subject')
+})
+
+/* ── Item 6: a curriculum's numbers have to be possible ───────────────────
+ * ksausten's "Weather" reads "22 of 13" on the goal card: 21 lessons completed,
+ * total_lessons lowered to 13 underneath them. current_lesson past the end also
+ * means the projector emits nothing at all.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+test('total_lessons: cannot be lowered below the work already logged', () => {
+  assert.equal(isTotalLessonsAboveProgress(13, 21), false, 'the "22 of 13" shape')
+  assert.equal(isTotalLessonsAboveProgress(170, 174), false, '"Kindergarten", 174 done')
+  assert.equal(isTotalLessonsAboveProgress(21, 21), true, 'exactly finished is fine')
+  assert.equal(isTotalLessonsAboveProgress(22, 21), true)
+})
+
+test('total_lessons: a row with no progress yet accepts any real total', () => {
+  assert.equal(isTotalLessonsAboveProgress(1, 0), true)
+  assert.equal(isTotalLessonsAboveProgress(500, 0), true)
+})
+
+test('total_lessons: a missing or nonsense total is still refused', () => {
+  for (const bad of [null, 0, -3, 1.5]) {
+    assert.equal(isTotalLessonsAboveProgress(bad as number | null, 0), false, `total ${bad}`)
+  }
+})
+
+test('total_lessons: this is NOT the mirror of the start_at_lesson bound', () => {
+  // isStartAtLessonInRange allows total + 1, because "start one past the end"
+  // is how a finished curriculum is encoded — 28 live goals sit there, and a
+  // constraint that rejected them would be rejecting healthy data.
+  assert.equal(isStartAtLessonInRange(14, 13), true)
+  // Completing one past the end is not a thing, so this one stops at total.
+  assert.equal(isTotalLessonsAboveProgress(13, 14), false)
+})
+
+test('total_lessons: the builder blocks the save and says why', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.ok(/isTotalLessonsAboveProgress\(row\.total_lessons, completedThrough\(row\)\)/.test(src),
+    'rowIsValid must apply the rule')
+  assert.ok(/already has \$\{done\} lesson/.test(src), 'and rowMissingLabel must explain it')
+})
+
+/* ── Item 2: the queue_resync invariants ──────────────────────────────────
+ * The brief attributes jamie.lepior's scrambled queue to the resync: on
+ * 2026-08-25 at 21:14:44 lesson 3 of "Always Ice Cream- Life Skills" was
+ * completed, at 21:14:45 uncompleted, and at 21:15:27 the goal came out with
+ * slots reading L5, (empty), L6, L3, L2, L4 and lesson 1 holding
+ * queue_position NULL while incomplete.
+ *
+ * IT WAS NOT THE RESYNC. syncProjectedScheduledDates writes three columns --
+ * scheduled_date, date, scheduled_source -- and has never written
+ * queue_position, so it cannot renumber a slot or strip one. What it does is
+ * stamp `queue_resync` on rows it re-dates, which is why the label is sitting
+ * on the damage; scripts/repair-phantom-completions.ts makes the same point
+ * about these rows carrying "the label of whatever wrote them last".
+ *
+ * The strip came from curriculum_goals_cleanup_orphans_trg, which nulled
+ * queue_position on rows at or below the pointer -- exactly what a
+ * complete-then-uncomplete pair moves. That was fixed in
+ * 20260824000000_orphan_cleanup_preserve_queue_position.sql, and the
+ * server-side completion that provoked it in 20260907000000. Production now
+ * holds ZERO incomplete rows ahead of the pointer with a NULL queue_position.
+ *
+ * So there is no resync change to make here. These tests exist to keep it that
+ * way: they pin the invariants the brief asks for against the exact Aug 25
+ * layout, and they pin the fact that this helper does not touch the queue.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+// The Aug 25 21:15 shape, before the goal was repaired by hand on Sept 8:
+// six slots, one of them pinned by an earlier plan_move, lesson 1 stripped.
+const AUG25_ROWS: (Omit<ResyncSentRow, 'queue_position'> & { lesson_number: number; queue_position: number | null })[] = [
+  // The damage itself: incomplete, ahead of current_lesson = 0, and holding no
+  // slot at all. Slot 2 was left empty and this row was what should have been
+  // in it.
+  { id: 'L1', lesson_number: 1, queue_position: null, curriculum_goal_id: 'g', scheduled_date: '2026-08-24', completed: false },
+  { id: 'L5', lesson_number: 5, queue_position: 1, curriculum_goal_id: 'g', scheduled_date: '2026-08-25', completed: false },
+  { id: 'L6', lesson_number: 6, queue_position: 3, curriculum_goal_id: 'g', scheduled_date: '2026-08-27', completed: false },
+  { id: 'L3', lesson_number: 3, queue_position: 4, curriculum_goal_id: 'g', scheduled_date: '2026-08-31', completed: false },
+  { id: 'L2', lesson_number: 2, queue_position: 5, curriculum_goal_id: 'g', scheduled_date: '2026-09-01', completed: false },
+  { id: 'L4', lesson_number: 4, queue_position: 6, curriculum_goal_id: 'g', scheduled_date: '2026-09-03', completed: false, queue_pinned: true },
+]
+
+test('resync: never writes queue_position, so it cannot scramble or strip a slot', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const proj = new Map<string, string>([
+    ['g|1', '2026-09-10'],
+    ['g|3', '2026-09-11'],
+    ['g|4', '2026-09-12'],
+    ['g|5', '2026-09-13'],
+    ['g|6', '2026-09-14'],
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, AUG25_ROWS, proj, (r) => `g|${r.queue_position}`)
+  assert.ok(writes.length > 0, 'it did re-date rows, so the assertion below is meaningful')
+  for (const w of writes) {
+    assert.ok(!('queue_position' in w.payload), 'queue_position is not the resync\'s to write')
+    assert.ok(!('lesson_number' in w.payload), 'nor is lesson_number')
+    assert.deepEqual(
+      Object.keys(w.payload).sort(),
+      ['date', 'scheduled_date', 'scheduled_source'],
+      'the resync is a DATE cache sync and nothing more',
+    )
+  }
+})
+
+test('resync: the pinned row keeps its slot and its date', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const proj = new Map<string, string>([['g|6', '2026-09-30']])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, AUG25_ROWS, proj, (r) => `g|${r.queue_position}`)
+  const touched = writes.flatMap((w) => w.ids)
+  assert.ok(!touched.includes('L4'), 'L4 was pinned by a plan_move; Invariant 12 protects it')
+})
+
+test('resync: a complete-then-uncomplete pair round-trips to the first state', async () => {
+  // The brief asks the resync not to fire twice on a same-second pair. It does
+  // not need debouncing: it is idempotent by construction, because it skips
+  // every row whose cache already matches the projection. Completing then
+  // uncompleting returns current_lesson to where it was, so the second pass
+  // sees the state the first pass wrote and issues nothing.
+  const proj = new Map<string, string>([['g|1', '2026-09-10'], ['g|3', '2026-09-11']])
+  const first = makeResyncSupabase()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(first.supabase as any, AUG25_ROWS, proj, (r) => `g|${r.queue_position}`)
+  assert.ok(first.writes.length > 0)
+
+  // Second pass over the rows as the first pass left them.
+  const settled = AUG25_ROWS.map((r) => {
+    const key = `g|${r.queue_position}`
+    return proj.has(key) ? { ...r, scheduled_date: proj.get(key)! } : r
+  })
+  const second = makeResyncSupabase()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(second.supabase as any, settled, proj, (r) => `g|${r.queue_position}`)
+  assert.equal(second.writes.length, 0, 'a settled goal issues zero writes')
+})
+
+test('resync: an incomplete row ahead of the pointer is never left unqueued', () => {
+  // The invariant the brief asks for, stated as a check over a goal's rows. It
+  // holds on the Aug 25 layout only AFTER the hand repair, which is the point:
+  // nothing in the app can produce the violation any more, but the assertion is
+  // here so a future trigger or planner change trips a test instead of a
+  // family's Today page.
+  const repaired = AUG25_ROWS.map((r) => ({ ...r, queue_position: r.lesson_number }))
+  const currentLesson = 0
+  const totalLessons = 6
+  for (const r of repaired) {
+    if (!r.completed && r.lesson_number > currentLesson) {
+      assert.notEqual(r.queue_position, null, `lesson ${r.lesson_number} must hold a slot`)
+    }
+  }
+  // And every slot from current_lesson+1 .. total_lessons is answered exactly
+  // once, so the Today projector finds a row for each and nothing renders blank.
+  for (let slot = currentLesson + 1; slot <= totalLessons; slot++) {
+    const holders = repaired.filter((r) => r.queue_position === slot)
+    assert.equal(holders.length, 1, `slot ${slot} must have exactly one row`)
   }
 })

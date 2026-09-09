@@ -2534,3 +2534,212 @@ export function planQueueMove(args: {
 
   return { movedNewQp: newQp, shifts, noop: false };
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Goal reassignment from the lesson edit form (item 1 of the 2026-09-08
+ * queue-slot brief)
+ *
+ * THE BUG. EditLessonModal offers a "Curriculum goal" picker on any lesson,
+ * including the rows the Schedule Builder generated. Picking "(none)" wrote
+ * `curriculum_goal_id = null` straight onto that row. The row keeps its
+ * lesson_number and queue_position, but the Today projector looks slots up by
+ * `(curriculum_goal_id, queue_position)`, so the slot the row used to answer
+ * for now has no row at all and the family sees a blank subject card from then
+ * on. Three occurrences in app_events `lesson.updated`: djdillon88 on Sept 7
+ * ("Apologia - Lesson 1" renamed to "Math . Math Review-Lesson 1"), and two on
+ * tearinie.ink Aug 18 and 19.
+ *
+ * THE RULE. A row that holds a queue slot is the goal's answer for that slot.
+ * The parent may rename it, re-date it, move it to another child - but the slot
+ * itself is not theirs to vacate from this form, because nothing refills it.
+ *
+ * So the goal picker no longer edits the link on a slot-holding row. It SPLITS:
+ * the goal row stays exactly where it is, and the parent's edit becomes a new
+ * standalone lesson carrying the title, notes, date and child they asked for.
+ * They get the custom lesson they wanted and the queue stays whole. This is the
+ * brief's preferred option over "convert + backfill", because a backfilled
+ * replacement row is a lesson nobody wrote, and the parent's real intent here is
+ * always "I want a different lesson on this day", never "delete lesson 1 of
+ * Apologia".
+ *
+ * COMPLETED ROWS REFUSE INSTEAD. A completed row is what
+ * recompute_curriculum_current_lesson reads MAX(queue_position) over, so
+ * detaching one drags current_lesson backwards and blanks every slot between
+ * the old pointer and the new one - the same cascade as
+ * 20260824000000_orphan_cleanup_preserve_queue_position. Splitting is no good
+ * either: two completed rows for one lesson double-counts the minutes on the
+ * progress report. So the goal change is refused and the parent is pointed at
+ * "log an extra lesson", which is the surface built for this.
+ *
+ * The DB backstop is trg_lessons_block_goal_detach
+ * (20260909000000_lessons_block_goal_detach.sql), which refuses the same write
+ * from any caller, including paths added later.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface GoalReassignRow {
+  curriculum_goal_id: string | null;
+  /**
+   * The slot test. Deliberately NOT queue_position: a row at or behind
+   * current_lesson legitimately carries a NULL queue_position (the orphan
+   * cleanup clears it, 20260824000000) and is still the goal's row for that
+   * lesson number.
+   */
+  lesson_number: number | null;
+  completed: boolean;
+}
+
+export type GoalReassignPlan =
+  /** Not a slot-holder, or the goal did not change: write the edit as-is. */
+  | { kind: "update" }
+  /**
+   * Slot-holder, incomplete. Leave the original row untouched and create the
+   * parent's edit as a new standalone row.
+   */
+  | { kind: "split" }
+  /** Slot-holder, completed. Apply every other field, drop the goal change. */
+  | { kind: "refuse"; reason: string };
+
+/**
+ * Decide what the lesson edit form does when the curriculum goal changes.
+ *
+ * `nextGoalId` is what the form is asking for - `null` for "(none)", another
+ * goal's id for a re-point. Both are treated the same way, because both vacate
+ * the slot on the original goal and that is the part that breaks Today.
+ *
+ * A row is a "slot-holder" when it has a goal AND a lesson_number. The
+ * lesson_number is the test rather than queue_position because a row at or
+ * behind current_lesson legitimately carries a NULL queue_position (the orphan
+ * cleanup clears it) and is still the goal's row for that lesson.
+ */
+export function planGoalReassign(
+  row: GoalReassignRow,
+  nextGoalId: string | null,
+): GoalReassignPlan {
+  // The form did not touch the picker.
+  if (nextGoalId === row.curriculum_goal_id) return { kind: "update" };
+  // Standalone rows have no slot to protect - this is the one-off lesson the
+  // parent created themselves, and re-pointing it is exactly what the picker is
+  // for.
+  if (!row.curriculum_goal_id) return { kind: "update" };
+  // Goal-linked but off-queue (an "extra log", a continuation). No slot answers
+  // for it, so nothing goes blank.
+  if (row.lesson_number == null) return { kind: "update" };
+
+  if (row.completed) {
+    return {
+      kind: "refuse",
+      reason:
+        "This lesson is part of a curriculum and already marked done, so it has to stay with it. Your other changes were saved. To add a different lesson on this day, use “log an extra lesson”.",
+    };
+  }
+  return { kind: "split" };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Deleting a curriculum (item 5 of the 2026-09-08 queue-slot brief)
+ *
+ * THE DAMAGE. kierrak745 deleted four curricula on 2026-08-03 and 329 lesson
+ * rows survived with curriculum_goal_id NULL, 237 of them still uncompleted and
+ * dated out to March 2027, 23 in the week that followed. If she comes back,
+ * Today and Plan show ghost cards for curricula that no longer exist. Across the
+ * database the shape covers 357 rows on 5 families.
+ *
+ * THE MECHANISM, which is not the one the brief guessed. The delete handler
+ * does clear the lessons first:
+ *
+ *     await supabase.from("lessons").delete().eq("curriculum_goal_id", goal.id);
+ *     await supabase.from("curriculum_goals").delete().eq("id", goal.id);
+ *
+ * but supabase-js RESOLVES on a failed request, it does not reject: the failure
+ * arrives as `{ error }` on the result. Both calls sat inside a try/catch that
+ * therefore caught nothing. When the first delete failed the second still ran,
+ * and lessons_curriculum_goal_id_fkey is ON DELETE SET NULL, so every row it
+ * had just failed to remove was orphaned instead. That is the whole bug, and it
+ * is why the orphans are whole curricula rather than a scattering.
+ *
+ * WHAT THE DELETE DOES NOW. Three groups, because "delete the curriculum" does
+ * not mean the same thing for all of its rows:
+ *
+ *   completed  -> KEPT as history. A child did that work and the reports must
+ *                 keep counting it; erasing it because the book was retired is
+ *                 not something a parent asked for. The FK nulls their goal
+ *                 link, and carrySubject below is what keeps them printing
+ *                 under their own subject afterwards.
+ *   open+notes -> KEPT, unscheduled. Never destroy something a parent typed.
+ *                 scheduled_date and queue_position both go NULL, so the row
+ *                 leaves every calendar surface (they all select on
+ *                 scheduled_date) and holds no slot, and the text survives.
+ *   open       -> DELETED. These are the ghost cards.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface GoalDeleteRow {
+  id: string;
+  completed: boolean;
+  notes: string | null;
+}
+
+export interface GoalDeletePlan {
+  /** Rows to remove outright: unfinished, and carrying nothing a person wrote. */
+  deleteIds: string[];
+  /** Rows to strip off the calendar and the queue, but keep. */
+  unscheduleIds: string[];
+  /** Rows left exactly as they are; the FK will null their goal link. */
+  keepIds: string[];
+}
+
+/**
+ * Sort a deleted curriculum's lesson rows into the three groups above.
+ *
+ * Pure so the rule is pinned by tests rather than by reading a 40-line async
+ * handler. The caller must act on `deleteIds` and `unscheduleIds` BEFORE
+ * deleting the goal row, and must check the error on every call: the FK is
+ * ON DELETE SET NULL, so a skipped or silently failed step does not leave the
+ * rows alone, it orphans them.
+ */
+export function planGoalDelete(rows: GoalDeleteRow[]): GoalDeletePlan {
+  const plan: GoalDeletePlan = { deleteIds: [], unscheduleIds: [], keepIds: [] };
+  for (const r of rows) {
+    if (r.completed) {
+      plan.keepIds.push(r.id);
+      continue;
+    }
+    if (r.notes != null && r.notes.trim().length > 0) {
+      plan.unscheduleIds.push(r.id);
+      continue;
+    }
+    plan.deleteIds.push(r.id);
+  }
+  return plan;
+}
+
+/**
+ * May `total_lessons` be set to this, given the progress already logged?
+ *
+ * Item 6 of the 2026-09-08 queue-slot brief. Lowering the total below the work
+ * already done leaves `current_lesson > total_lessons`, which the goal card
+ * renders literally: ksausten's "Weather" reads "22 of 13", and the projector
+ * emits nothing at all because the pointer is past the end. Three live goals sit
+ * in that state, "Kindergarten" (174 done, total 170) among them.
+ *
+ * The answer is to REFUSE rather than to clamp `current_lesson` down. Those 21
+ * completed lessons are real work a child did and the reports count them; the
+ * wrong number is the total, not the progress. Refusing says so, and tells the
+ * parent the floor.
+ *
+ * `completedThrough` is `current_lesson` — the highest completed slot. The
+ * Schedule Builder holds it as `start_at_lesson_initial - 1`. A goal with no
+ * progress passes anything, which is what a brand-new row needs.
+ *
+ * Deliberately NOT the mirror of isStartAtLessonInRange's `total + 1` bound.
+ * That one is about where the queue STARTS, where "one past the end" is the
+ * legitimate encoding of a finished curriculum (28 live goals). This one is
+ * about how much has been FINISHED, where "one past the end" is just wrong.
+ */
+export function isTotalLessonsAboveProgress(
+  totalLessons: number | null,
+  completedThrough: number,
+): boolean {
+  if (totalLessons == null || !Number.isInteger(totalLessons) || totalLessons <= 0) return false;
+  if (!Number.isInteger(completedThrough) || completedThrough <= 0) return true;
+  return totalLessons >= completedThrough;
+}
