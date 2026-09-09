@@ -2889,7 +2889,8 @@ export default function SettingsPage() {
           // Reset PostHog identity so the next user on this browser doesn't
           // inherit the previous user's distinct_id.
           posthog.reset();
-          window.location.href = "/login";
+          // ?switch=1 keeps /login on the form; see app/dashboard/layout.tsx.
+          window.location.href = "/login?switch=1";
         }}
         className="w-full text-center text-sm text-red-500 font-semibold py-4 mt-2"
       >

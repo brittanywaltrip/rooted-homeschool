@@ -548,6 +548,44 @@ function calcPace(row: Row, today: Date): Pace | null {
   };
 }
 
+// ─── Answering a tap that cannot proceed ───────────────────────────────────
+//
+// On a phone, a tap on a disabled button and a tap that iOS swallowed while it
+// dismissed a keyboard look identical: nothing happens. PostHog dead-click
+// events from one App Store reviewer's evening in this builder: "+ Add
+// curriculum" three times, "Preview schedule" twice, "Next" and "Review" once
+// each. They wrote that the app was "so glitchy I couldn't enjoy it".
+//
+// So every builder tap now moves something the family can see. Adding a row
+// scrolls to it and opens the keyboard on its name; a blocked "Preview
+// schedule" says why in the sticky bar and scrolls to the row that is holding
+// it up.
+
+/**
+ * Bring a row card on screen, and optionally put the cursor in its name field.
+ *
+ * Two frames, not one: the first lets React commit a row that may not exist in
+ * the DOM yet, the second lets layout settle before anything is measured.
+ * `preventScroll` because the smooth scroll owns the movement, and letting
+ * focus scroll as well makes the page jump.
+ */
+function revealRow(localId: string, options: { focus: boolean }) {
+  if (typeof document === "undefined") return;
+  requestAnimationFrame(() =>
+    requestAnimationFrame(() => {
+      const card = document.querySelector<HTMLElement>(
+        `[data-local-id="${localId}"]`,
+      );
+      if (!card) return;
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (!options.focus) return;
+      card
+        .querySelector<HTMLInputElement>("[data-row-first-input]")
+        ?.focus({ preventScroll: true });
+    }),
+  );
+}
+
 function rowIsValid(row: Row): boolean {
   if (row.pendingDelete) return true;
   if (row.readOnly) return true;
@@ -798,6 +836,11 @@ export default function ScheduleBuilderPage() {
   // lands on the curriculum they clicked from instead of the first child.
   const [targetGoalId, setTargetGoalId] = useState<string | null>(null);
   const [highlightedGoalId, setHighlightedGoalId] = useState<string | null>(null);
+  // A tap on "Preview schedule" while it cannot proceed. `previewNudge` turns
+  // the standing grey hint in the sticky bar into a message that announces
+  // itself; `nudgedLocalId` rings the row the family has to go fix.
+  const [previewNudge, setPreviewNudge] = useState(false);
+  const [nudgedLocalId, setNudgedLocalId] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -1056,8 +1099,16 @@ export default function ScheduleBuilderPage() {
   }
 
   function addRow(child_id: string, type: RowType) {
-    setRows((prev) => [...prev, blankRow(child_id, type)]);
+    // The row is built here rather than inside the updater so its localId is
+    // available to scroll to. The updater must stay pure: see
+    // app/components/updaterPurity.test.ts.
+    const row = blankRow(child_id, type);
+    setRows((prev) => [...prev, row]);
     markDirty();
+    // A new row lands at the bottom of that child's list, which on a phone is
+    // usually below the fold. Without this the tap produces nothing the family
+    // can see and they tap again, which is what the dead-click events show.
+    revealRow(row.localId, { focus: true });
   }
 
   function deleteRow(localId: string) {
@@ -1202,6 +1253,45 @@ export default function ScheduleBuilderPage() {
     if (issues.length <= 3) return issues.join(" ");
     return `${issues.slice(0, 3).join(" ")} And ${issues.length - 3} more to finish.`;
   }, [rows, allValid, anyEditableRow]);
+
+  // ── A tap on "Preview schedule" that cannot proceed ──────────────────────
+  //
+  // The reason has been sitting in the sticky bar all along, as 12px grey text
+  // that nobody reads. It is the tap that has to answer, so the tap is what
+  // promotes it: the hint becomes a dark message that screen readers announce,
+  // and the first row standing in the way is scrolled to and ringed.
+  //
+  // The disabled button cannot report its own clicks. Browsers do not dispatch
+  // pointer events to a disabled control, and the event does not reach an
+  // ancestor either, so the button carries `disabled:pointer-events-none` and
+  // the wrapper below it hears the tap instead.
+  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (nudgeTimer.current) clearTimeout(nudgeTimer.current); }, []);
+
+  function handleBlockedPreviewTap() {
+    if (!previewBlockedReason) return;
+    setPreviewNudge(true);
+    const firstIncomplete = rows.find(
+      (r) => !r.pendingDelete && !r.readOnly && !rowIsValid(r),
+    );
+    // "Add a curriculum above to continue." has no row to point at; the
+    // message is the whole answer in that case.
+    setNudgedLocalId(firstIncomplete?.localId ?? null);
+    if (firstIncomplete) revealRow(firstIncomplete.localId, { focus: false });
+    if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
+    nudgeTimer.current = setTimeout(() => {
+      setPreviewNudge(false);
+      setNudgedLocalId(null);
+    }, 6000);
+  }
+
+  // Fixing the thing that was blocking clears the message with it, rather than
+  // leaving a stale complaint on screen for the rest of the six seconds.
+  useEffect(() => {
+    if (previewBlockedReason) return;
+    setPreviewNudge(false);
+    setNudgedLocalId(null);
+  }, [previewBlockedReason]);
 
   // ── Per-child weekly total ───────────────────────────────────────────────
   function weeklyHoursFor(child_id: string): number {
@@ -2707,6 +2797,7 @@ export default function ScheduleBuilderPage() {
             addingChild={addingChild}
             onAddChild={handleAddChild}
             highlightedGoalId={highlightedGoalId}
+            nudgedLocalId={nudgedLocalId}
             menuOpenLocalId={menuOpenLocalId}
             setMenuOpenLocalId={setMenuOpenLocalId}
             recalibratingLocalId={recalibratingLocalId}
@@ -2737,13 +2828,27 @@ export default function ScheduleBuilderPage() {
           Save / Preview button on mobile. */}
       <div className="fixed bottom-[3.75rem] md:bottom-0 inset-x-0 border-t border-[#e8e2d9] bg-white px-4 pr-20 py-3 z-50 pb-[env(safe-area-inset-bottom,0px)]">
         <div className="max-w-5xl mx-auto">
+          {/* One node, two treatments, so aria-describedby always resolves and
+              the reason is never on screen twice. Swapping the element type is
+              deliberate: React remounts it, and role="alert" only announces on
+              a node that has just entered the document. */}
           {view === "builder" && previewBlockedReason && (
-            <p
-              id="preview-blocked-reason"
-              className="mb-2 text-xs text-[#7a6f65] leading-snug sm:text-right"
-            >
-              {previewBlockedReason}
-            </p>
+            previewNudge ? (
+              <div
+                id="preview-blocked-reason"
+                role="alert"
+                className="mb-2 rounded-xl bg-[#2d2926] text-white text-[13px] leading-snug px-3.5 py-2.5 shadow-lg"
+              >
+                {previewBlockedReason}
+              </div>
+            ) : (
+              <p
+                id="preview-blocked-reason"
+                className="mb-2 text-xs text-[#7a6f65] leading-snug sm:text-right"
+              >
+                {previewBlockedReason}
+              </p>
+            )
           )}
           <div className="flex items-center gap-2">
             {view === "builder" && (
@@ -2756,15 +2861,21 @@ export default function ScheduleBuilderPage() {
                 </button>
                 {dirty && <UnsavedIndicator />}
                 <div className="flex-1" />
-                <button
-                  onClick={() => setView("preview")}
-                  disabled={!allValid || !anyEditableRow}
-                  aria-describedby={previewBlockedReason ? "preview-blocked-reason" : undefined}
-                  className="px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-40"
-                  style={{ background: "var(--g-brand)" }}
+                <span
+                  onClick={handleBlockedPreviewTap}
+                  className="inline-flex"
+                  style={{ touchAction: "manipulation" }}
                 >
-                  Preview schedule →
-                </button>
+                  <button
+                    onClick={() => setView("preview")}
+                    disabled={!allValid || !anyEditableRow}
+                    aria-describedby={previewBlockedReason ? "preview-blocked-reason" : undefined}
+                    className="px-5 py-2.5 rounded-xl text-white text-sm font-medium disabled:opacity-40 disabled:pointer-events-none"
+                    style={{ background: "var(--g-brand)", touchAction: "manipulation" }}
+                  >
+                    Preview schedule →
+                  </button>
+                </span>
               </>
             )}
             {view === "preview" && (
@@ -2839,6 +2950,7 @@ function BuilderView(props: {
   addingChild: boolean;
   onAddChild: () => void | Promise<void>;
   highlightedGoalId: string | null;
+  nudgedLocalId: string | null;
   menuOpenLocalId: string | null;
   setMenuOpenLocalId: (id: string | null) => void;
   recalibratingLocalId: string | null;
@@ -2852,7 +2964,11 @@ function BuilderView(props: {
     props.rows.filter((r) => r.child_id === childId && !r.pendingDelete);
 
   return (
-    <div className="space-y-5">
+    // touch-manipulation on the whole builder: it drops the ~300ms
+    // double-tap-zoom wait Safari otherwise puts in front of every tap in
+    // here. On a page whose complaint is that taps do nothing, a third of a
+    // second of nothing before every response is the wrong default.
+    <div className="space-y-5 touch-manipulation">
       {props.rowActionError && (
         <div className="bg-white border border-[#e8c8c8] rounded-2xl px-3 py-2 flex items-start gap-2">
           <p className="flex-1 text-sm text-[#9a3a3a]">{props.rowActionError}</p>
@@ -2907,7 +3023,9 @@ function BuilderView(props: {
                   onToggleDay={props.onToggleDay}
                   onCycleCount={props.onCycleCount}
                   isHighlighted={
-                    !!props.highlightedGoalId && row.dbId === props.highlightedGoalId
+                    (!!props.highlightedGoalId &&
+                      row.dbId === props.highlightedGoalId) ||
+                    row.localId === props.nudgedLocalId
                   }
                   menuOpen={props.menuOpenLocalId === row.localId}
                   onMenuOpenChange={(open) =>
@@ -3047,6 +3165,7 @@ function RowCard(props: {
   return (
     <div
       data-goal-id={row.dbId ?? undefined}
+      data-local-id={row.localId}
       className={`px-4 py-4 border-b border-[#f0ede8] last:border-b-0 ${isReadOnly ? "opacity-70" : ""} ${props.isHighlighted ? "ring-2 ring-[var(--g-brand)] ring-inset bg-[#f0f7f2]" : ""}`}
     >
       {/* Header strip */}
@@ -3126,6 +3245,7 @@ function RowCard(props: {
 
       {/* Name */}
       <input
+        data-row-first-input=""
         type="text"
         value={row.name}
         onChange={(e) => props.onPatchRow(row.localId, { name: e.target.value })}

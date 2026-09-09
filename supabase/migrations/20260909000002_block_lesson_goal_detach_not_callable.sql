@@ -1,0 +1,21 @@
+-- ALREADY APPLIED 2026-09-09 via MCP, do not re-run.
+--
+-- Repo-record only. The grant change was made directly on production during
+-- the 2026-09-09 safety audit; this file exists so the migrations directory
+-- describes the database that is actually running.
+--
+-- block_lesson_goal_detach() is the trigger function added in
+-- 20260909000000_lessons_block_goal_detach.sql. It was reachable over
+-- /rest/v1/rpc by anon and authenticated, the same shape that was closed for
+-- recompute_curriculum_current_lesson in July 2026. The TRIGGER still fires
+-- either way: a trigger function runs as the owner of the table it is attached
+-- to, not as the caller, so revoking EXECUTE takes away the RPC path and
+-- nothing else.
+--
+-- Verified after applying, and again on 2026-09-09 before committing this file:
+--   select p.proacl from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+--   where n.nspname = 'public' and p.proname = 'block_lesson_goal_detach';
+--   -> {postgres=X/postgres,service_role=X/postgres}
+-- No anon, no authenticated, no PUBLIC.
+
+REVOKE EXECUTE ON FUNCTION public.block_lesson_goal_detach() FROM PUBLIC, anon, authenticated;

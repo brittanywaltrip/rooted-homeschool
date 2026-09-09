@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { useIsOAuthHandoffContext } from "@/lib/platform";
+import { documentHasAuthCookie, loginLandingFor } from "@/lib/app-landing";
 import AppSignInNotice from "@/app/components/AppSignInNotice";
 import { posthog } from "@/lib/posthog";
 
@@ -97,49 +98,77 @@ function LoginContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Tell anyone who already has a session that they do, WITHOUT taking the
-  // form away from them.
+  // A family who already has a session gets taken to their dashboard, not
+  // asked to log in again.
   //
-  // This is the other half of the "app keeps signing me out" fix. The
-  // dashboard used to redirect here whenever getUser() failed on a flaky
-  // network, and /login had no idea a valid session existed, so it showed the
-  // password form and the family typed their password again. Surfacing the
-  // session rescues anyone the old behavior already stranded here.
+  // This is the second half of the "app keeps signing me out" fix; the first is
+  // the "/" redirect in middleware.ts. The iOS shell opens the marketing site,
+  // so reopening the app used to mean: homepage, tap "Log In", read a banner
+  // saying you were already signed in, tap that, wait through the dashboard
+  // skeleton. This page was the third of those four steps.
   //
-  // Deliberately a banner and not a redirect. An auto-bounce would take two
-  // things away that people legitimately come to this page for:
-  //   - reading a sign-in failure. /login?error=pkce_cross_device is a
-  //     documented landing (auth invariant 7); bouncing off it hides the very
-  //     message the family needs. The `arrivedWithError` ref below skips the
-  //     check entirely in that case.
-  //   - switching accounts. A parent signed in as themselves navigating here
-  //     to sign in as someone else must still get a usable form.
+  // It used to show a banner rather than redirect, to protect two landings that
+  // are legitimate reasons to be here holding a session. Both are still
+  // protected, by an explicit signal rather than by refusing to redirect
+  // anyone:
+  //   - ?error=…  a sign-in failure, a documented destination (auth invariant
+  //     7). `arrivedWithError` skips the session check entirely, exactly as
+  //     before, so the message the family needs stays on screen.
+  //   - ?switch=1 switching accounts. Keeps the form AND the banner. Every
+  //     sign-out path now sends people here, which also closes a race:
+  //     signOut() clears cookies in the browser, and if the redirect lands
+  //     first a plain /login would read the expiring session and bounce the
+  //     family straight back into the account they just left.
   //
   // getSession() reads the cookie LOCALLY, no network call, so a bad
   // connection cannot make this fire wrongly. Auth cookies are deliberately
   // not httpOnly (see app/api/auth/login/route.ts) precisely so the browser
   // client can read them.
-  const [hasLiveSession, setHasLiveSession] = useState(false);
-  // Captured on the FIRST render, before the effect above strips ?error= from
-  // the URL with history.replaceState. Reading searchParams later would race
-  // that strip.
+  //
+  // null means "still checking". It is only ever the starting value when an
+  // auth cookie is actually sitting in document.cookie, so a signed-out
+  // visitor paints the form on the first frame with nothing to wait for, and a
+  // signed-in family never sees a flash of the login form before the redirect.
   const arrivedWithError = useRef<boolean>(!!searchParams.get("error"));
+  const arrivedWithSwitch = useRef<boolean>(searchParams.get("switch") === "1");
+  const [hasLiveSession, setHasLiveSession] = useState<boolean | null>(() => {
+    if (typeof document === "undefined") return false;
+    if (arrivedWithError.current) return false;
+    return documentHasAuthCookie(document.cookie) ? null : false;
+  });
   useEffect(() => {
     if (arrivedWithError.current) return;
+    if (hasLiveSession !== null) return;
     let cancelled = false;
     void (async () => {
       try {
         const client = createSupabaseBrowserClient();
         const { data, error } = await client.auth.getSession();
-        if (cancelled || error || !data?.session) return;
-        setHasLiveSession(true);
+        if (cancelled) return;
+        setHasLiveSession(!error && !!data?.session);
       } catch {
         // Never block the login form on this check.
+        if (!cancelled) setHasLiveSession(false);
       }
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const landing = loginLandingFor({
+    hasSession: hasLiveSession === true,
+    arrivedWithError: arrivedWithError.current,
+    arrivedWithSwitch: arrivedWithSwitch.current,
+  });
+
+  // Blank only while a redirect is still on the table. ?switch=1 is never
+  // redirected, so that form paints immediately and the banner catches up.
+  const resolvingSession = hasLiveSession === null && !arrivedWithSwitch.current;
+
+  useEffect(() => {
+    if (landing !== "redirect") return;
+    router.replace("/dashboard");
+  }, [landing, router]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -233,6 +262,11 @@ function LoginContent() {
     "Look back on everything they've learned this year",
   ];
 
+  // Render nothing rather than the form. A family reopening the app is on
+  // their way to the dashboard; a flash of a password prompt is the exact
+  // thing this change exists to remove.
+  if (resolvingSession || landing === "redirect") return null;
+
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
 
@@ -283,7 +317,7 @@ function LoginContent() {
                   <p className="text-sm font-medium text-[#2d5a3d]">Password updated! Log in with your new password.</p>
                 </div>
               )}
-              {hasLiveSession && (
+              {landing === "form-with-banner" && (
                 <div className="bg-[#e8f0e9] border border-[#c8ddb8] rounded-xl px-4 py-3 mb-5 flex items-center gap-3">
                   <p className="flex-1 text-sm font-medium text-[#2d5a3d] m-0">
                     You&apos;re already signed in.
