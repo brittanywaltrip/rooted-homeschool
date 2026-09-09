@@ -14,6 +14,17 @@ type CheckResult = {
   status: number | null;
   category: "broken" | "server_error" | "blocked" | "connection_failed";
   consecutive_failures: number;
+  /** Which table the row came from, so the email can say where to fix it. */
+  source: "resources" | "mailbox_listings";
+};
+
+/** One row to check, flattened so both tables walk the same code path. */
+type CheckTarget = {
+  id: string;
+  title: string;
+  url: string;
+  consecutive_failures: number;
+  source: CheckResult["source"];
 };
 
 async function checkUrl(url: string): Promise<{ status: number | null }> {
@@ -47,58 +58,113 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: resources } = await supabase
-    .from("resources")
-    .select("id, title, url, consecutive_failures");
+  // ── Gather both tables ────────────────────────────────────────────────────
+  // public.resources and public.mailbox_listings are checked the same way and
+  // flattened into one list first, so the walk, the retry and the write-back
+  // logic exist once. mailbox_listings keeps its link in `official_url` rather
+  // than `url`, which is the only difference between them here.
+  const [resourcesRes, listingsRes] = await Promise.all([
+    supabase.from("resources").select("id, title, url, consecutive_failures"),
+    supabase
+      .from("mailbox_listings")
+      .select("id, title, official_url, consecutive_failures")
+      .eq("is_active", true),
+  ]);
 
-  if (!resources?.length) {
+  const targets: CheckTarget[] = [
+    ...(resourcesRes.data ?? []).map((r) => ({
+      id: r.id as string,
+      title: r.title as string,
+      url: r.url as string,
+      consecutive_failures: (r.consecutive_failures as number) ?? 0,
+      source: "resources" as const,
+    })),
+    ...(listingsRes.data ?? []).map((l) => ({
+      id: l.id as string,
+      title: l.title as string,
+      url: l.official_url as string,
+      consecutive_failures: (l.consecutive_failures as number) ?? 0,
+      source: "mailbox_listings" as const,
+    })),
+  ].filter((t) => !!t.url);
+
+  if (targets.length === 0) {
     return NextResponse.json({ checked: 0, broken: 0 });
   }
 
   const results: CheckResult[] = [];
 
-  await Promise.all(
-    resources.map(async (r) => {
-      let { status } = await checkUrl(r.url);
+  // ── Check one row ─────────────────────────────────────────────────────────
+  //
+  // THE RULE THIS FUNCTION MUST KEEP: it writes last_check_status and
+  // consecutive_failures, and NOTHING else. It must never set
+  // verification_status or is_active on a listing, and a "blocked" result must
+  // never hide anything.
+  //
+  // 403 here is mostly a false positive. Government and tourism sites, which
+  // are most of the Mail Adventures catalog, routinely refuse automated
+  // requests while working perfectly in a browser. Hiding a listing on that
+  // signal would quietly delete working listings from a page families rely on.
+  // Only a family report or Brittany flips a listing.
+  async function checkOne(t: CheckTarget) {
+    let { status } = await checkUrl(t.url);
 
-      // Retry 403s once after a 2-second delay
-      if (status === 403) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        ({ status } = await checkUrl(r.url));
+    // Retry 403s once after a 2-second delay
+    if (status === 403) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      ({ status } = await checkUrl(t.url));
+    }
+
+    const prevFailures = t.consecutive_failures;
+
+    if (status !== null && status < 400) {
+      // Link is healthy, reset tracking
+      if (prevFailures > 0) {
+        await supabase
+          .from(t.source)
+          .update({ last_check_status: "ok", consecutive_failures: 0 })
+          .eq("id", t.id);
       }
+      return;
+    }
 
-      const prevFailures: number = r.consecutive_failures ?? 0;
+    const category = categorize(status);
+    const newFailures = prevFailures + 1;
 
-      if (status !== null && status < 400) {
-        // Link is healthy — reset tracking
-        if (prevFailures > 0) {
-          await supabase
-            .from("resources")
-            .update({ last_check_status: "ok", consecutive_failures: 0 })
-            .eq("id", r.id);
-        }
-        return;
-      }
-
-      const category = categorize(status);
-      const newFailures = prevFailures + 1;
-
-      await supabase
-        .from("resources")
-        .update({
-          last_check_status: category,
-          consecutive_failures: newFailures,
-        })
-        .eq("id", r.id);
-
-      results.push({
-        id: r.id,
-        title: r.title,
-        url: r.url,
-        status,
-        category,
+    await supabase
+      .from(t.source)
+      .update({
+        last_check_status: category,
         consecutive_failures: newFailures,
-      });
+      })
+      .eq("id", t.id);
+
+    results.push({
+      id: t.id,
+      title: t.title,
+      url: t.url,
+      status,
+      category,
+      consecutive_failures: newFailures,
+      source: t.source,
+    });
+  }
+
+  // ── Walk them a pool at a time ────────────────────────────────────────────
+  // This used to be one unbounded Promise.all over 70 resources. Adding the
+  // mailbox listings takes it to roughly 190 rows, each able to open a second
+  // request on a 403 retry, and firing all of them at once from one serverless
+  // invocation is how a link checker starts reporting connection failures it
+  // caused itself. A pool of 10 keeps the whole sweep well inside the cron's
+  // budget without that.
+  const POOL = 10;
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(POOL, targets.length) }, async () => {
+      while (cursor < targets.length) {
+        const t = targets[cursor++];
+        await checkOne(t);
+      }
     })
   );
 
@@ -133,7 +199,7 @@ export async function GET(request: Request) {
             .map(
               (b) =>
                 `<li style="margin-bottom:8px;">
-                  <strong>${b.title}</strong> — ${b.status ?? "timeout/DNS"}<br/>
+                  <strong>${b.title}</strong> (${b.source === "mailbox_listings" ? "Mail Adventures" : "Resources"}), ${b.status ?? "timeout/DNS"}<br/>
                   <a href="${b.url}" style="color:#5c7f63;">${b.url}</a>
                 </li>`
             )
@@ -162,7 +228,7 @@ export async function GET(request: Request) {
       subject,
       html: `
         <p style="font-family:sans-serif; color:#2d2926;">
-          The weekly link check found issues with ${results.length} resource${results.length > 1 ? "s" : ""}.<br/>
+          The weekly link check swept ${targets.length} link${targets.length > 1 ? "s" : ""} across Resources and Mail Adventures, and found issues with ${results.length}.<br/>
           <strong>${summaryParts.join(" · ")}</strong>
         </p>
         ${renderSection("🔴 Broken Links (404/410 — page removed)", broken, true)}
@@ -176,7 +242,9 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({
-    checked: resources.length,
+    checked: targets.length,
+    checked_resources: targets.filter((t) => t.source === "resources").length,
+    checked_mailbox_listings: targets.filter((t) => t.source === "mailbox_listings").length,
     broken: broken.length,
     server_errors: serverErrors.length,
     blocked: blocked.length,

@@ -8,6 +8,7 @@ import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import { posthog } from "@/lib/posthog";
 import { PRINTABLES } from "@/lib/printables";
+import ResourceReportSheet, { type ReportTarget } from "@/components/ResourceReportSheet";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -308,7 +309,7 @@ function GradePill({ grade }: { grade: string }) {
   );
 }
 
-function ResourceCard({ r, savedMap, onToggle }: { r: DbResource; savedMap: Record<string, string>; onToggle: (id: string) => void }) {
+function ResourceCard({ r, savedMap, onToggle, onReport }: { r: DbResource; savedMap: Record<string, string>; onToggle: (id: string) => void; onReport: (t: ReportTarget) => void }) {
   const isNew = isNewThisWeek(r.created_at);
   return (
     <div className="bg-white rounded-2xl border border-[#e8e5e0] hover:bg-[#faf9f7] transition-all p-5">
@@ -337,6 +338,12 @@ function ResourceCard({ r, savedMap, onToggle }: { r: DbResource; savedMap: Reco
               <span className="text-[10px] font-bold bg-[#fef5e4] text-[#8b6820] px-2 py-0.5 rounded-full">New 🌱</span>
             )}
           </div>
+          <button
+            onClick={() => onReport({ kind: "resource", resourceId: r.id, title: r.title })}
+            className="mt-2.5 text-[11px] text-[#b5aca4] hover:text-[#7a6f65] underline transition-colors"
+          >
+            This didn&apos;t work for us
+          </button>
         </div>
       </div>
     </div>
@@ -348,11 +355,20 @@ function ResourceCard({ r, savedMap, onToggle }: { r: DbResource; savedMap: Reco
 export default function ResourcesPage() {
   const { effectiveUserId } = usePartner();
 
+  const [reportTarget,   setReportTarget]   = useState<ReportTarget | null>(null);
+  const [reportToast,    setReportToast]    = useState<string | null>(null);
   const [browseFilter,   setBrowseFilter]   = useState("all");
   const [searchQuery,    setSearchQuery]    = useState("");
   const [showAllWins,    setShowAllWins]    = useState(false);
   const [stateExpanded,  setStateExpanded]  = useState(false);
   const [stateSearch,    setStateSearch]    = useState("");
+
+  // The report toast clears itself; nothing else on this page dismisses it.
+  useEffect(() => {
+    if (!reportToast) return;
+    const t = setTimeout(() => setReportToast(null), 3200);
+    return () => clearTimeout(t);
+  }, [reportToast]);
   const [selectedLevel,  setSelectedLevel]  = useState<RegLevel | "all">("all");
   const [expandedState,  setExpandedState]  = useState<string | null>(null);
   const [savedMap,       setSavedMap]       = useState<Record<string, string>>({});
@@ -490,6 +506,28 @@ export default function ResourcesPage() {
     <PageHero overline="Discover" title="Resources 🌿" subtitle="Curated for your homeschool." />
     <div className="max-w-3xl px-4 pt-6 pb-8 space-y-8" style={{ background: "#faf9f6" }}>
 
+      {/* ── Mail Adventures ──────────────────────────────────────
+          Top of the page, above everything else. It is free for every
+          family on every plan, and it is the only thing on this page that
+          puts something physical in a child's hands.
+         ──────────────────────────────────────────────────────── */}
+      <Link
+        href="/dashboard/resources/mail-adventures"
+        className="group flex items-center gap-4 bg-white rounded-2xl border border-[#e8e5e0] hover:border-[var(--g-accent)] hover:bg-[#faf9f7] transition-all p-5"
+      >
+        <div className="text-3xl shrink-0">📬</div>
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-[#2d2926] text-sm leading-snug mb-1">Mail Adventures</p>
+          <p className="text-xs text-[#7a6f65] leading-relaxed">
+            Free maps, guides, activity books and more, requested from real parks, museums and state agencies. 119 listings.
+          </p>
+        </div>
+        <span className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-[var(--g-brand)] group-hover:bg-[var(--g-mid)] px-3 py-1.5 rounded-lg transition-colors">
+          Open
+          <ArrowRight size={13} />
+        </span>
+      </Link>
+
       {/* ── Free Printables ──────────────────────────────────────
           Top of the page on purpose: it is the one thing here that is
           ours, free, and new every month. Rendered from PRINTABLES so
@@ -554,6 +592,17 @@ export default function ResourcesPage() {
                       </a>
                     )}
                   </div>
+                  {/* Only wins that came from the resources table can be
+                      reported: resource_reports needs a real resource_id, and
+                      the hardcoded EASY_WINS fallback has no row to point at. */}
+                  {win.id && (
+                    <button
+                      onClick={() => setReportTarget({ kind: "resource", resourceId: win.id as string, title: win.title })}
+                      className="mt-2.5 text-[11px] text-[#b5aca4] hover:text-[#7a6f65] underline transition-colors"
+                    >
+                      This didn&apos;t work for us
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -706,7 +755,7 @@ export default function ResourcesPage() {
           <p className="text-[12px] text-[#8B7E74] mb-3 pl-1">Fresh picks for a fresh school year.</p>
           <div className="space-y-3">
             {backToSchoolResources.map((r) => (
-              <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} />
+              <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} />
             ))}
           </div>
         </div>
@@ -767,7 +816,7 @@ export default function ResourcesPage() {
               </p>
             ) : (
               filteredBrowse.map((r) => (
-                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} />
+                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} />
               ))
             )}
           </div>
@@ -877,7 +926,7 @@ export default function ResourcesPage() {
               </div>
             ) : (
               savedItems.map((r) => (
-                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} />
+                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} />
               ))
             )}
           </div>
@@ -899,6 +948,25 @@ export default function ResourcesPage() {
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── "This didn't work for us" ─────────────────────────
+          One sheet, shared with Mail Adventures. The link checker cannot
+          tell a dead link from a government site refusing a bot, so a
+          family saying so is the better signal.
+         ──────────────────────────────────────────────────── */}
+      {reportTarget && (
+        <ResourceReportSheet
+          target={reportTarget}
+          onClose={() => setReportTarget(null)}
+          onSent={(m) => setReportToast(m)}
+        />
+      )}
+
+      {reportToast && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-2xl bg-[#2d2926] text-white text-sm shadow-lg max-w-[90vw] text-center">
+          {reportToast}
         </div>
       )}
     </div>
