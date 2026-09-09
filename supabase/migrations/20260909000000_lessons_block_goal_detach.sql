@@ -1,8 +1,24 @@
--- NOT YET APPLIED. Apply by hand (Supabase MCP apply_migration or the SQL
--- editor), then add an "ALREADY APPLIED" header line the way the 2026-08
--- migrations carry. Per CLAUDE.md ("Migrations are applied by hand, never by a
--- deploy") and Anti-pattern J in docs/CURRICULUM-SCHEDULING.md, merging this
--- file changes nothing in the live database.
+-- ALREADY APPLIED 2026-09-09 via Supabase MCP apply_migration. Do not re-run.
+--
+-- Live version stamp is `20260909010014`. The MCP records its own apply-time
+-- timestamp, so it does not match this filename -- the same drift every
+-- MCP-applied file in this directory carries. Match them on the name, not the
+-- number.
+--
+-- Verified after applying:
+--   * trg_lessons_block_goal_detach attached, and pg_get_triggerdef reads
+--     BEFORE UPDATE OF curriculum_goal_id ... FOR EACH ROW, so the guard only
+--     runs on statements that actually touch the column;
+--   * block_lesson_goal_detach present;
+--   * the self-test below PASSED on the way in, which is the proof that an
+--     ON DELETE SET NULL cascade still deletes a curriculum cleanly;
+--   * zero rows left behind on either table from its fixtures
+--     (curriculum_name / title = '__detach_guard_selftest__'), confirming the
+--     block rolled back as designed.
+--
+-- Per CLAUDE.md ("Migrations are applied by hand, never by a deploy") and
+-- Anti-pattern J in docs/CURRICULUM-SCHEDULING.md, merging this file changes
+-- nothing further in the live database.
 --
 -- ============================================================================
 -- A GOAL-GENERATED LESSON MAY NOT BE DETACHED FROM ITS CURRICULUM

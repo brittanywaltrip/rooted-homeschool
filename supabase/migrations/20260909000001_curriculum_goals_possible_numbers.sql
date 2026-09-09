@@ -1,9 +1,18 @@
--- NOT YET APPLIED. Applicable as written: the rows that blocked it are clean as
--- of 2026-09-09 and the violating count is now ZERO, archived rows included.
--- Apply by hand (Supabase MCP apply_migration or the SQL editor), then add an
--- "ALREADY APPLIED" header line the way the 2026-08 migrations carry. Per
--- CLAUDE.md ("Migrations are applied by hand, never by a deploy"), merging this
--- file changes nothing in the live database.
+-- ALREADY APPLIED 2026-09-09 via Supabase MCP apply_migration. Do not re-run.
+--
+-- Live version stamp is `20260909010030`. The MCP records its own apply-time
+-- timestamp, so it does not match this filename -- the same drift every
+-- MCP-applied file in this directory carries. Match them on the name, not the
+-- number.
+--
+-- Verified after applying: curriculum_goals_start_at_lesson_in_range exists,
+-- convalidated = true (so the existing rows were scanned, archived ones
+-- included, and none violated), and pg_get_constraintdef reads
+-- `start_at_lesson <= (total_lessons + 1)` -- the + 1 is load-bearing, see
+-- below.
+--
+-- Per CLAUDE.md ("Migrations are applied by hand, never by a deploy"), merging
+-- this file changes nothing further in the live database.
 --
 -- ============================================================================
 -- A CURRICULUM'S NUMBERS HAVE TO BE POSSIBLE
