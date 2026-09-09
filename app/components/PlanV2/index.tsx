@@ -85,6 +85,8 @@ import {
   buildPastDateCompletionPayload,
   loadPinsByGoal,
   resolveCustomLessonGoalLink,
+  planGoalReassign,
+  planGoalDelete,
   computeNextLessonsForGoal,
   computeGapLessonsForGoal,
   reconcileGoalScheduleCache,
@@ -1468,6 +1470,82 @@ export default function PlanV2() {
       const m = changes.minutes_spent;
       update.hours = m != null ? m / 60 : 0;
     }
+
+    // A row that holds a queue slot may not have its goal link edited away
+    // here: the Today projector looks slots up by (curriculum_goal_id,
+    // queue_position), so vacating one leaves a blank subject card nothing
+    // refills. planGoalReassign decides; see item 1 of the 2026-09-08
+    // queue-slot brief and trg_lessons_block_goal_detach.
+    const editing = lessons.find((l) => l.id === lessonId);
+    const goalPlan =
+      editing && "curriculum_goal_id" in changes
+        ? planGoalReassign(
+            {
+              curriculum_goal_id: editing.curriculum_goal_id ?? null,
+              lesson_number: editing.lesson_number ?? null,
+              completed: !!editing.completed,
+            },
+            (changes.curriculum_goal_id ?? null) as string | null,
+          )
+        : ({ kind: "update" } as const);
+
+    if (goalPlan.kind === "refuse") {
+      // Everything except the goal change still saves.
+      delete update.curriculum_goal_id;
+      flashNotice(goalPlan.reason);
+    }
+
+    if (goalPlan.kind === "split") {
+      // The goal row stays exactly as it is. The parent's edit becomes a new
+      // standalone lesson carrying the title, notes, date and child they asked
+      // for. resolveCustomLessonGoalLink settles its goal link: an incomplete
+      // row with a goal and no slot is the shape Today cannot hydrate (drift
+      // E), so re-pointing at another curriculum still lands standalone.
+      const link = resolveCustomLessonGoalLink({
+        curriculum_goal_id: (changes.curriculum_goal_id ?? null) as string | null,
+        lesson_number: null,
+        completed: false,
+      });
+      const splitDate =
+        (changes.scheduled_date as string | undefined) ??
+        editing!.scheduled_date ??
+        editing!.date ??
+        null;
+      const splitMinutes =
+        "minutes_spent" in changes ? changes.minutes_spent ?? null : editing!.minutes_spent ?? null;
+      const { data: splitRow, error: splitErr } = await supabase
+        .from("lessons")
+        .insert({
+          user_id: effectiveUserId,
+          child_id: (changes.child_id as string | undefined) ?? editing!.child_id,
+          curriculum_goal_id: link.curriculum_goal_id,
+          title: (changes.title as string | undefined) ?? editing!.title,
+          lesson_number: null,
+          queue_position: null,
+          notes: editing!.notes ?? null,
+          minutes_spent: splitMinutes,
+          hours: splitMinutes != null ? splitMinutes / 60 : 0,
+          scheduled_date: splitDate,
+          date: splitDate,
+          completed: false,
+          scheduled_source: "edit_split",
+        })
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
+        .single();
+      if (splitErr || !splitRow) throw new Error(splitErr?.message ?? "Couldn't add that lesson");
+      recordEvent("lesson.created", {
+        lesson_id: (splitRow as { id: string }).id,
+        lesson_title: (splitRow as { title: string | null }).title ?? "lesson",
+        source: "edit_split",
+        kept_goal_slot: {
+          curriculum_goal_id: editing!.curriculum_goal_id,
+          lesson_number: editing!.lesson_number,
+        },
+      });
+      flashNotice("Added as a separate lesson so your curriculum keeps its place.");
+      reload();
+      return;
+    }
     // Keep the legacy `date` column in step with `scheduled_date` — PlanV2
     // reads both interchangeably elsewhere; a stale `date` would misplace
     // the lesson in any consumer that hasn't migrated.
@@ -1583,7 +1661,7 @@ export default function PlanV2() {
         reload();
       },
     });
-  }, [lessons, setLessons, recordEvent, reload]);
+  }, [lessons, setLessons, recordEvent, reload, effectiveUserId]);
 
   // Fired when a lesson's notes have been auto-saved by the day panel. The
   // panel doesn't know about PLAN_EVENT_TYPES, so it just passes the id +
@@ -1668,11 +1746,78 @@ export default function PlanV2() {
     if (!deleteGoalConfirm) return;
     const { goal } = deleteGoalConfirm;
     setDeleteGoalConfirm(null);
+    // Item 5 of the 2026-09-08 queue-slot brief. Two things were wrong here.
+    //
+    // (1) supabase-js RESOLVES on a failed request; the failure arrives as
+    //     `{ error }`. So this try/catch caught nothing, and when the lessons
+    //     delete failed the goal delete still ran. The FK is ON DELETE SET
+    //     NULL, so every row that had just failed to delete was orphaned
+    //     instead — 329 rows on kierrak745 alone, dated out to March 2027 and
+    //     still rendering as ghost cards. Every call below is error-checked and
+    //     the goal delete does not run unless its lessons were dealt with.
+    //
+    // (2) It deleted a family's completed lessons along with the unfinished
+    //     ones. Retiring a book is not a reason to erase the work a child did
+    //     out of their own reports, so completed rows are kept as history now,
+    //     and so are unfinished rows carrying notes.
     try {
-      // Match legacy: delete the goal AND its lessons. Lessons cascade is
-      // not enabled in the schema, so we do it explicitly.
-      await supabase.from("lessons").delete().eq("curriculum_goal_id", goal.id);
-      await supabase.from("curriculum_goals").delete().eq("id", goal.id);
+      const { data: rowsData, error: rowsErr } = await supabase
+        .from("lessons")
+        .select("id, completed, notes")
+        .eq("curriculum_goal_id", goal.id);
+      if (rowsErr) throw new Error(rowsErr.message);
+      const plan = planGoalDelete((rowsData ?? []) as { id: string; completed: boolean; notes: string | null }[]);
+
+      // Carry the subject across BEFORE the FK nulls the goal link, so the kept
+      // rows keep printing under their own heading on the progress report and
+      // the attendance log. The goal's subject_label is the family's own
+      // wording; its curriculum_name is the fallback. We only ever point at a
+      // `subjects` row that already exists — inventing one on a delete would
+      // put a heading in their settings they never asked for. Rows where
+      // nothing matched are covered by lessonReportSubject's rule 5, which
+      // reads the curriculum name back out of the title.
+      const keptIds = [...plan.keepIds, ...plan.unscheduleIds];
+      if (keptIds.length > 0) {
+        const wanted = (goal.subject_label ?? goal.curriculum_name ?? "").trim();
+        if (wanted.length > 0 && effectiveUserId) {
+          const { data: subjRow } = await supabase
+            .from("subjects")
+            .select("id")
+            .eq("user_id", effectiveUserId)
+            .ilike("name", wanted)
+            .maybeSingle();
+          const subjectId = (subjRow as { id: string } | null)?.id ?? null;
+          if (subjectId) {
+            // Never overwrite a subject the parent set by hand.
+            const { error: carryErr } = await supabase
+              .from("lessons")
+              .update({ subject_id: subjectId })
+              .in("id", keptIds)
+              .is("subject_id", null);
+            if (carryErr) throw new Error(carryErr.message);
+          }
+        }
+      }
+
+      if (plan.unscheduleIds.length > 0) {
+        const { error: unschedErr } = await supabase
+          .from("lessons")
+          .update({ scheduled_date: null, queue_position: null, queue_pinned: false })
+          .in("id", plan.unscheduleIds);
+        if (unschedErr) throw new Error(unschedErr.message);
+      }
+      if (plan.deleteIds.length > 0) {
+        const { error: delErr } = await supabase
+          .from("lessons")
+          .delete()
+          .in("id", plan.deleteIds);
+        if (delErr) throw new Error(delErr.message);
+      }
+      const { error: goalErr } = await supabase
+        .from("curriculum_goals")
+        .delete()
+        .eq("id", goal.id);
+      if (goalErr) throw new Error(goalErr.message);
     } catch {
       flashNotice("Couldn't delete curriculum, try again.");
       return;
@@ -1685,7 +1830,7 @@ export default function PlanV2() {
     setOpenBackfillGoalId((id) => (id === goal.id ? null : id));
     reloadGoals();
     reload();
-  }, [deleteGoalConfirm, recordEvent, reloadGoals, reload]);
+  }, [deleteGoalConfirm, recordEvent, reloadGoals, reload, effectiveUserId]);
 
   // "Stop this curriculum" — distinct from delete. Caps total_lessons at
   // the current_lesson count and stamps completed_at, then clears all
@@ -6446,7 +6591,17 @@ export default function PlanV2() {
         {deleteGoalConfirm ? (
           <ConfirmDialog
             title={`Delete ${deleteGoalConfirm.goal.curriculum_name}?`}
-            body={`This removes the goal and ${deleteGoalConfirm.lessonCount} lesson${deleteGoalConfirm.lessonCount === 1 ? "" : "s"} tied to it. Memories and activities are unaffected.`}
+            // The copy has to match what the delete now actually does (item 5
+            // of the 2026-09-08 brief): unfinished lessons go, finished ones
+            // stay on the reports.
+            //
+            // No count any more. `lessonCount` is whatever the Plan's current
+            // DATE WINDOW happens to hold for this goal, and the second entry
+            // point passes a literal 0, so the old "and N lessons tied to it"
+            // was quoting a number that meant nothing to the reader. Saying
+            // which lessons go is the part that matters, and that we can say
+            // truthfully.
+            body={"Unfinished lessons are removed from your calendar. Lessons already marked done stay on your reports, and any notes you wrote are kept. Memories and activities are unaffected."}
             confirmLabel="Delete curriculum"
             destructive
             onCancel={() => setDeleteGoalConfirm(null)}
