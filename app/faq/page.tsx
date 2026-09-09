@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
+import { MarketingBackLink, MarketingLogo } from "@/app/components/MarketingHeaderLinks";
 
 // ─── Data ────────────────────────────────────────────────────────────────────
 
@@ -313,14 +314,12 @@ export default function FAQPage() {
 
         {/* Back link */}
         <div className="mb-10">
-          <Link href="/" className="text-sm text-[#5c7f63] hover:underline">
-            ← Back to Rooted
-          </Link>
+          <MarketingBackLink />
         </div>
 
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
-          <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
+          <MarketingLogo />
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">
           Frequently Asked Questions

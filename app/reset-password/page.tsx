@@ -100,7 +100,9 @@ export default function ResetPasswordPage() {
     }
 
     await supabase.auth.signOut();
-    router.push("/login?passwordReset=true");
+    // switch=1 alongside passwordReset so /login stays on the form even if the
+    // sign-out above has not finished clearing cookies by the time we land.
+    router.push("/login?passwordReset=true&switch=1");
   }
 
   return (

@@ -65,13 +65,31 @@ The Google OAuth flow broke multiple times because these rules weren't documente
 
 ### Auth file manifest — these files are the only ones touching auth:
 - app/auth/callback/route.ts
-- middleware.ts  (runs getUser() on every non-bypassed request)
+- middleware.ts  (runs getUser() on every non-bypassed request, and redirects
+  a signed-in family from "/" to /dashboard)
 - app/api/auth/login/route.ts  (server-side password sign-in)
 - lib/supabase.ts and lib/supabase-browser.ts
 - lib/cookie-domain.ts
+- lib/app-landing.ts  (the shared cookie-name test, plus where "/" and /login
+  send someone who already has a session. Pure functions, no cookie jar and no
+  network; covered by lib/app-landing.test.ts)
 - app/login/page.tsx and app/signup/page.tsx  (BOTH Google and Apple buttons)
+- app/hooks/useHasSession.ts  (getSession() only, for marketing-page links)
 - app/onboarding/page.tsx
 - app/dashboard/layout.tsx
+
+### Signing out goes to /login?switch=1, never to bare /login
+`/login` redirects anyone holding a live session straight to /dashboard, which
+is what makes reopening the iOS app land in the app. `signOut()` clears the
+cookies in the browser and the redirect that follows it can win that race, so a
+sign-out that landed on a bare `/login` would read the session on its way out
+and send the family back into the account they just left. `?switch=1` keeps the
+form (and shows the "you're already signed in" banner, which is also the
+account-switching case). `?error=` is the other landing that never redirects,
+per invariant 7. Enforced by lib/app-landing.test.ts.
+
+An auth-check FAILURE that bounces to `/login` is different and correctly stays
+bare: there is no session for the page to find either way.
 
 ### BEFORE merging anything that touches the files above, manually verify this end-to-end flow on staging:
 1. Clear cookies for the staging domain (or use a private window)

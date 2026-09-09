@@ -6,6 +6,7 @@ import { Suspense, useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { normalizeAffiliateCode } from "@/lib/referrals";
+import { MarketingSignInLink } from "@/app/components/MarketingHeaderLinks";
 
 // ─── Founding Family deadline countdown ────────────────────────────────────
 //
@@ -360,12 +361,7 @@ function HomeInner() {
 
           {/* Right side */}
           <div className="flex items-center gap-2">
-            <Link
-              href="/login"
-              className="inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-2 sm:px-3 py-2 rounded-lg hover:bg-[#f0ede8]"
-            >
-              Log In
-            </Link>
+            <MarketingSignInLink className="inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-2 sm:px-3 py-2 rounded-lg hover:bg-[#f0ede8]" />
             <Link
               href="/signup"
               className="inline-flex items-center gap-1.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[#3d5c42] text-white px-5 py-2.5 rounded-xl transition-colors shadow-sm"
@@ -1228,7 +1224,7 @@ function HomeInner() {
 
             {/* Links */}
             <div className="flex items-center justify-center gap-5 flex-wrap">
-              <Link href="/login"   className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Log In</Link>
+              <MarketingSignInLink className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors" />
               <Link href="/signup"  className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Sign Up</Link>
               <Link href="/privacy" className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Privacy</Link>
               <Link href="/terms"   className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Terms</Link>

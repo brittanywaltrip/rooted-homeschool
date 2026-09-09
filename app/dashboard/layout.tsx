@@ -402,7 +402,11 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     // browser starts a fresh analytics identity instead of inheriting the
     // previous user's distinct_id.
     posthog.reset();
-    router.replace("/login");
+    // ?switch=1 keeps /login on the form. signOut() clears the cookies in the
+    // browser, and this redirect can land before that finishes; a plain /login
+    // would read the session on its way out and send the family straight back
+    // into the account they just signed out of.
+    router.replace("/login?switch=1");
   }
 
   function isActive(href: string) {

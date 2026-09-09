@@ -1,12 +1,14 @@
+import { MarketingBackLink, MarketingLogo } from "@/app/components/MarketingHeaderLinks";
+
 export default function PrivacyPage() {
   return (
     <main className="min-h-screen bg-[#f8f7f4]">
       <div className="max-w-3xl mx-auto px-6 py-16">
         <div className="mb-10">
-          <a href="/" className="text-sm text-[#5c7f63] hover:underline">← Back to Rooted</a>
+          <MarketingBackLink />
         </div>
         <div className="flex items-center gap-3 mb-8">
-          <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
+          <MarketingLogo />
         </div>
         <h1 className="text-3xl font-bold text-[#2d2926] mb-2">Privacy Policy</h1>
         <p className="text-sm text-[#b5aca4] mb-10">Last updated: August 2026</p>
