@@ -52,6 +52,7 @@ import { isSchoolDayDate } from "@/lib/school-days";
 import { mergeMemoryRecords, countByChild, LEGACY_MEMORY_EVENT_TYPES } from "@/lib/memory-leaves";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { captureSupabaseError } from "@/lib/sentry-error";
+import { MAX_PREFILL_TITLE } from "@/lib/mail-adventures";
 import { useIsNativeApp } from "@/lib/platform";
 import LogSomethingModal from "@/app/components/LogSomethingModal";
 import WhenPicker from "@/app/components/WhenPicker";
@@ -657,6 +658,10 @@ export default function TodayPage() {
   const [ftSaving, setFtSaving] = useState(false);
   const captureFileRef = useRef<HTMLInputElement>(null);
   const captureTypeRef = useRef<"photo" | "drawing">("photo");
+  // A memory title suggested by the page that opened this capture (Mail
+  // Adventures). Held in a ref, not state: it is read once inside the save
+  // handler and must not re-render the picker or be re-read at render time.
+  const prefillTitleRef = useRef<string | null>(null);
   const loadDataBusy = useRef(false);
   // Goals already reported for a projection gap this session. Without it the
   // report below re-fires on every loadData (page load, poll, memory save).
@@ -841,12 +846,23 @@ export default function TodayPage() {
   }, [today]);
 
   // ── Open capture menu from URL param (used by other pages) ─────────────────
+  // `title` is optional and carries a suggested memory title from the page that
+  // sent the family here, currently Mail Adventures ("Junior Ranger Booklet
+  // arrived from National Park Service"). Over-long values are ignored rather
+  // than truncated: a title cut mid-word helps nobody, and the parent can type
+  // their own. Both params are stripped once the sheet is open so a refresh
+  // does not reopen it.
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.search.includes("capture=1")) {
+      const url = new URL(window.location.href);
+      const suggested = url.searchParams.get("title");
+      if (suggested && suggested.length <= MAX_PREFILL_TITLE) {
+        prefillTitleRef.current = suggested;
+      }
       setShowMemoryPicker(true);
       // Clean up URL
-      const url = new URL(window.location.href);
       url.searchParams.delete("capture");
+      url.searchParams.delete("title");
       window.history.replaceState({}, "", url.pathname + url.search);
     }
   }, []);
@@ -4225,6 +4241,10 @@ export default function TodayPage() {
       return;
     }
     const memType = captureTypeRef.current;
+    // Read once and clear, so a suggested title is used by this capture only and
+    // never leaks onto the next batch of photos.
+    const prefillTitle = prefillTitleRef.current;
+    prefillTitleRef.current = null;
     setCapturing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -4271,7 +4291,10 @@ export default function TodayPage() {
           // photo Rooted has ever stored never reached a page. The way out is
           // the editor's Hide toggle, not the capture path.
           const { data: ins, error: insErr } = await supabase.from("memories").insert({
-            user_id: user.id, type: memType, title: '',
+            // The suggested title lands on the first photo of the batch only:
+            // one envelope arriving is one memory, and stamping the same title
+            // on ten photos would be wrong.
+            user_id: user.id, type: memType, title: i === 0 ? (prefillTitle ?? '') : '',
             photo_url: photoUrl, child_id: null,
             photo_width: width, photo_height: height,
             date: captureDate, include_in_book: true,
