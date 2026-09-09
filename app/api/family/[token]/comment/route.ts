@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { sendResendTemplate, TEMPLATES, sanitizeSubjectText } from "@/lib/resend-template";
+import {
+  asFamilyPortalClient,
+  assertMemoryBelongsToInvite,
+  tooManyFamilyActions,
+  tooManyNotificationsForMemory,
+  viewerNameTooLong,
+  MAX_VIEWER_NAME_LENGTH,
+} from "@/lib/family-portal-guard";
 
 export async function POST(
   req: NextRequest,
@@ -17,6 +25,13 @@ export async function POST(
     return NextResponse.json({ error: "Comment too long (max 500 characters)" }, { status: 400 });
   }
 
+  if (viewerNameTooLong(commenter_name)) {
+    return NextResponse.json(
+      { error: `Name too long (max ${MAX_VIEWER_NAME_LENGTH} characters)` },
+      { status: 400 },
+    );
+  }
+
   // Validate token
   const { data: invite } = await supabaseAdmin
     .from("family_invites")
@@ -26,6 +41,32 @@ export async function POST(
 
   if (!invite || !invite.is_active) {
     return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+  }
+
+  // The token says which family this viewer belongs to; it says nothing about
+  // the memory_id they sent with it. Until this check, a viewer holding any
+  // valid link who knew another family's memory UUID could hang a comment on
+  // it. Same 404 as a bad token, deliberately: a stranger poking at UUIDs
+  // learns nothing from the difference. Before any write, always.
+  const guard = asFamilyPortalClient(supabaseAdmin);
+  const memoryRow = await assertMemoryBelongsToInvite(
+    guard,
+    memory_id,
+    invite.user_id,
+  );
+  if (!memoryRow) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
+
+  // Every comment emails the mother. Two limiters, because they catch
+  // different shapes of the same problem: the first stops one link spraying
+  // the whole feed, the second stops one memory being used as a megaphone.
+  // See lib/family-portal-guard.ts for the volume this leaves untouched.
+  if (
+    (await tooManyFamilyActions(guard, token, "memory_comments", 10, 20)) ||
+    (await tooManyNotificationsForMemory(guard, memory_id, "comment", 10, 20))
+  ) {
+    return NextResponse.json({ error: "slow_down" }, { status: 429 });
   }
 
   // Insert comment

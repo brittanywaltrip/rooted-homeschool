@@ -2,6 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { sendResendTemplate, TEMPLATES, sanitizeSubjectText } from "@/lib/resend-template";
 import { REACTION_EMOJIS } from "@/lib/family-reactions";
+import {
+  asFamilyPortalClient,
+  assertMemoryBelongsToInvite,
+  tooManyFamilyActions,
+  tooManyNotificationsForMemory,
+  viewerNameTooLong,
+  MAX_VIEWER_NAME_LENGTH,
+} from "@/lib/family-portal-guard";
 
 export async function POST(
   req: NextRequest,
@@ -20,6 +28,13 @@ export async function POST(
     return NextResponse.json({ error: "Invalid emoji" }, { status: 400 });
   }
 
+  if (viewerNameTooLong(reactor_name)) {
+    return NextResponse.json(
+      { error: `Name too long (max ${MAX_VIEWER_NAME_LENGTH} characters)` },
+      { status: 400 },
+    );
+  }
+
   // Validate token
   const { data: invite } = await supabaseAdmin
     .from("family_invites")
@@ -29,6 +44,21 @@ export async function POST(
 
   if (!invite || !invite.is_active) {
     return NextResponse.json({ error: "Invalid link" }, { status: 404 });
+  }
+
+  // The token says which family this viewer belongs to; it says nothing about
+  // the memory_id they sent with it. Until this check, a viewer holding any
+  // valid link who knew another family's memory UUID could hang a reaction on
+  // it, or delete one below. Same 404 as a bad token, deliberately. Ahead of
+  // the toggle branch, so it covers the delete as well as the insert.
+  const guard = asFamilyPortalClient(supabaseAdmin);
+  const memoryRow = await assertMemoryBelongsToInvite(
+    guard,
+    memory_id,
+    invite.user_id,
+  );
+  if (!memoryRow) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
   // Check if already reacted — toggle off
@@ -43,6 +73,22 @@ export async function POST(
   if (existing) {
     await supabaseAdmin.from("memory_reactions").delete().eq("id", existing.id);
     return NextResponse.json({ action: "removed" });
+  }
+
+  // Past the toggle branch, so only the path that actually emails is limited.
+  // Blocking a toggle-OFF would strand a viewer unable to take a reaction back.
+  //
+  // The row count alone would not be enough here, which is why the second
+  // check exists: an off-tap deletes the row, so tapping one emoji on and off
+  // repeatedly emails the mother every second tap while memory_reactions never
+  // holds more than one row for that viewer. Notification rows are never
+  // deleted, so counting those sees the loop. Full reasoning in
+  // lib/family-portal-guard.ts.
+  if (
+    (await tooManyFamilyActions(guard, token, "memory_reactions", 10, 60)) ||
+    (await tooManyNotificationsForMemory(guard, memory_id, "reaction", 10, 20))
+  ) {
+    return NextResponse.json({ error: "slow_down" }, { status: 429 });
   }
 
   // Insert reaction. Bail loudly if it fails so we never notify or email mom
