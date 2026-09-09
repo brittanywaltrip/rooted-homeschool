@@ -36,13 +36,11 @@ import {
   type VacationBlock,
 } from '../app/lib/scheduler.ts'
 import { isoDowFromYmd } from '../app/lib/timezone.ts'
+import { isNonFamilyEmail } from '../lib/queue-slot-health.ts'
 
 // Dry run is the DEFAULT. Writing requires saying so out loud.
 const APPLY = process.argv.includes('--apply')
 
-// Known test account. Its goals are deliberately in odd states and must never
-// be repaired alongside real families'.
-const EXCLUDED_EMAIL = 'garfieldbrittany+test1@gmail.com'
 
 // Goals held back for a human to decide on, permanently.
 //
@@ -253,11 +251,11 @@ async function main() {
   )
 
   // Test account never gets repaired.
-  const excluded = empty.filter((g) => emails.get(g.user_id) === EXCLUDED_EMAIL)
-  const candidates = empty.filter((g) => emails.get(g.user_id) !== EXCLUDED_EMAIL)
+  const excluded = empty.filter((g) => isNonFamilyEmail(emails.get(g.user_id)))
+  const candidates = empty.filter((g) => !isNonFamilyEmail(emails.get(g.user_id)))
   if (excluded.length > 0) {
     console.log(
-      `[repair-empty-goals] excluded ${excluded.length} goal(s) belonging to ${EXCLUDED_EMAIL}`,
+      `[repair-empty-goals] excluded ${excluded.length} goal(s) belonging to non-family accounts`,
     )
   }
 

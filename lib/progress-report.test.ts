@@ -179,7 +179,14 @@ test('an empty prefix is not a subject', () => {
 
 test('only the spaced middle dot counts, not a hyphen or a bare dot', () => {
   // A looser separator would match half the titles in the database.
-  for (const title of ['Math - Addition', 'Math·Addition', 'Math: Addition', 'Math — Lesson 3']) {
+  //
+  // 'Math — Lesson 3' was in this list until 2026-09-09. It is no longer a
+  // "must not be split" case: the spaced em dash is the Schedule Builder's own
+  // title format, so on a row with NO curriculum it now identifies an orphaned
+  // curriculum lesson and resolves to 'Math' under rule 5. See "an orphaned
+  // curriculum lesson takes its subject from the title" below. The middle-dot
+  // rule itself is unchanged, which is what this test is about.
+  for (const title of ['Math - Addition', 'Math·Addition', 'Math: Addition']) {
     assert.equal(
       lessonReportSubject(row({ title, curriculum_goal_id: null })),
       'General',
@@ -227,5 +234,69 @@ test('the attendance page uses the shared resolver and groups by it', () => {
   assert.ok(
     /uncat:\$\{name\}/.test(src),
     'standalone logs key by subject, not into one bucket',
+  )
+})
+
+/* ── Item 5: an orphaned curriculum lesson still prints under its subject ──
+ * Deleting a curriculum keeps its completed lessons as history, and the FK
+ * (ON DELETE SET NULL) clears curriculum_goal_id on the way out. Rules 2 and 3
+ * go empty, so without a fallback the work a child really did prints as
+ * "General" on a document handed to a school district.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+const MDASH = ' — Lesson '
+
+test('an orphaned curriculum lesson takes its subject from the title', () => {
+  assert.equal(
+    lessonReportSubject(row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null })),
+    'Apologia',
+  )
+  // Both report fallbacks, since the Attendance Log passes its own.
+  assert.equal(
+    lessonReportSubject(row({ title: `Happy Cheetah${MDASH}12`, curriculum_goal_id: null }), 'Unassigned'),
+    'Happy Cheetah',
+  )
+})
+
+test('the orphan rule keeps the whole title as the description', () => {
+  const r = logRow(row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null }))
+  assert.equal(r.subject, 'Apologia')
+  assert.equal(r.description, `Apologia${MDASH}1`)
+})
+
+test('a row that still has its curriculum never uses the orphan rule', () => {
+  // Rule 2 wins. Otherwise a live goal renamed since its lessons were written
+  // would print under the OLD name still sitting in the titles.
+  assert.equal(
+    lessonReportSubject(
+      row({
+        title: `Old Name${MDASH}1`,
+        curriculum_goal_id: 'g1',
+        curriculum_goals: { subject_label: 'Science', curriculum_name: 'New Name' },
+      }),
+    ),
+    'Science',
+  )
+})
+
+test('the orphan rule is bounded the same way the middle-dot rule is', () => {
+  // 41 characters: a description, not a subject heading.
+  const long = 'Financial Literacy and Entrepreneur Practic'
+  assert.ok(long.length > 40)
+  assert.equal(
+    lessonReportSubject(row({ title: `${long}${MDASH}3`, curriculum_goal_id: null })),
+    'General',
+  )
+  // A plain hyphen is not the builder's separator and must not match.
+  assert.equal(
+    lessonReportSubject(row({ title: 'Apologia - Lesson 1', curriculum_goal_id: null })),
+    'General',
+  )
+})
+
+test('the middle-dot rule still wins over the orphan rule when both could match', () => {
+  assert.equal(
+    lessonReportSubject(row({ title: `Music · Apologia${MDASH}1`, curriculum_goal_id: null })),
+    'Music',
   )
 })

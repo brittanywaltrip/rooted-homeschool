@@ -215,6 +215,7 @@ export const PLAN_EVENT_TYPES = [
   "curriculum_goal.created",
   "curriculum_goal.updated",
   "curriculum_goal.deleted",
+  "schedule.rebuilt",
   "activity.created",
   "activity.updated",
   "activity.deleted",
@@ -673,6 +674,27 @@ export function formatEvent(row: PlanEventRow): FormattedEvent {
         summary: `Deleted curriculum: ${name}`,
         category: "deleted",
         icon: "🗑",
+      };
+    }
+    // Item 4 of the 2026-09-08 queue-slot brief. The Schedule Builder's phase 2
+    // rewrites a goal's pending lessons in bulk and used to log nothing at all,
+    // so djdillon88's notes going missing on 2026-09-07 left no trace to read.
+    // The counts are what a support answer needs: how many rows were added,
+    // re-dated, and held back untouched.
+    case "schedule.rebuilt": {
+      const name = typeof p.curriculum_name === "string" ? p.curriculum_name : "curriculum";
+      const ins = Number(p.inserted ?? 0);
+      const upd = Number(p.updated ?? 0);
+      const skip = Number(p.skipped ?? 0);
+      const parts = [
+        `${ins} added`,
+        `${upd} re-dated`,
+        ...(skip > 0 ? [`${skip} left alone`] : []),
+      ];
+      return {
+        summary: `Rebuilt the schedule for ${name} (${parts.join(", ")})`,
+        category: "moved",
+        icon: "🗓",
       };
     }
     case "activity.created": {

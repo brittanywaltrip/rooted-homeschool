@@ -694,6 +694,89 @@ The pure JS mirror `planQueueMove` in `scheduler.ts` exists for unit tests and a
 
 Catch-up and vacation handlers re-date lessons via the existing `planRescheduleLessons` path. Those re-spreads do **not** touch `queue_position` — they preserve queue order and just shift dates. Only an explicit user reorder rewrites `queue_position`.
 
+### Invariant 17 — A queue slot is only ever vacated by the thing that can refill it
+
+A lesson row holding a `lesson_number` for a live goal is that goal's answer for
+that slot. Nothing may take the row out of the goal and leave the slot empty:
+not the edit form, not a delete, not a rebuild.
+
+**Why:** the projector emits slots `current_lesson+1 .. total_lessons` and
+hydrates each by `(curriculum_goal_id, queue_position)`. A slot with no row
+renders a blank subject card, and no path in the app refills it — the Schedule
+Builder's phase 2 only inserts lesson numbers that are MISSING, and a detached
+row's number is not missing, it is sitting right there with a null goal. So the
+blank is permanent. Three families reached this through the edit form's
+curriculum picker (djdillon88 2026-09-07, tearinie.ink 2026-08-18 and 08-19) and
+all three were still blank three weeks later.
+
+**The rule:** `planGoalReassign` in `scheduler.ts` decides. A slot-holding
+incomplete row SPLITS (the goal keeps its row; the parent's edit becomes a new
+standalone lesson); a slot-holding completed row REFUSES, because detaching it
+drags `current_lesson` backwards through `MAX(queue_position)` and splitting it
+double-counts its minutes. The DB backstop is
+`trg_lessons_block_goal_detach`, which exempts `ON DELETE SET NULL` cascades
+(the goal is already gone by then), archived goals, and an explicit
+`rooted.allow_goal_detach`.
+
+### Invariant 18 — A rebuild may move a lesson, never erase what a person put on it
+
+The Schedule Builder's phase 2 may re-date and re-slot a row. It may not delete
+one that carries `notes`, `minutes_spent`, `completed = true`, or
+`queue_pinned = true`.
+
+**Why:** phase 2 was a delete-then-reinsert, and the delete took every unpinned
+incomplete row. djdillon88 wrote 46 characters of notes on an unpinned lesson at
+00:05 on 2026-09-07; a save at 00:38 re-spread all five of his goals, and the
+notes came back as a new row with a new id and an empty notes column. He retyped
+them at 01:54. Nothing was logged, because a bulk delete logs nothing.
+
+**The rule:** completed and pinned rows were already held back; notes and
+minutes join them, because those are the other two things only a person can put
+on a row. Held-back rows are UPDATED in place — they keep their id, their notes
+and their lesson number, and take the projector's date for their slot — except
+pinned ones, which are never re-dated (Invariant 12). Shortening a curriculum
+past a notes-bearing row UNSCHEDULES it (`scheduled_date` and `queue_position`
+null) rather than deleting it. Every rebuild logs a `schedule.rebuilt` event
+with inserted / updated / skipped counts.
+
+### Invariant 19 — Deleting a curriculum keeps the work the child did
+
+Deleting a goal removes its unfinished lessons. It keeps every completed one as
+history, and keeps unfinished rows carrying notes, unscheduled.
+
+**Why:** two things were wrong. `supabase-js` RESOLVES on a failed request, so
+the old handler's `try/catch` caught nothing and the goal delete ran even when
+the lessons delete had failed; `lessons_curriculum_goal_id_fkey` is
+`ON DELETE SET NULL`, so those rows were orphaned rather than removed — 329 rows
+on kierrak745 alone, dated out to March 2027 and still rendering as ghost cards,
+357 across five families. And separately, it deleted completed lessons, taking a
+child's finished work off their own reports because a book was retired.
+
+**The rule:** `planGoalDelete` sorts the rows into keep / unschedule / delete;
+every call is error-checked and the goal row is not deleted unless its lessons
+were dealt with first. Before the FK nulls the link, the goal's `subject_label`
+(or `curriculum_name`) is copied onto the kept rows' `subject_id` when a matching
+`subjects` row exists, so they keep printing under their own heading. Rows where
+nothing matched fall through to `lessonReportSubject`'s rule 5, which reads the
+curriculum name back out of the `"{name} — Lesson {n}"` title.
+
+### Invariant 20 — `total_lessons` may not be lowered below the work already logged
+
+**Why:** `current_lesson` is computed as `MAX(queue_position)` over completed
+rows, so it is a measurement of real work, not a settable field. Lowering the
+total underneath it gives a goal card that reads "22 of 13" (ksausten,
+"Weather") and a projector that emits nothing at all, because the pointer is
+past the end.
+
+**The rule:** `isTotalLessonsAboveProgress` refuses the save and the builder
+says what the floor is. Note it is deliberately NOT the mirror of
+`isStartAtLessonInRange`, which allows `total_lessons + 1`: starting one past
+the end is how a FINISHED curriculum is encoded (28 live goals), while
+completing one past the end is not a thing. `curriculum_goals_start_at_lesson_in_range`
+is the backstop, and `current_lesson` is deliberately left unconstrained — a
+CHECK on it would make the recompute trigger throw and block a family from
+completing a lesson.
+
 ### Invariant 2 carve-out for manual moves
 
 `lessons_per_day` remains a hard ceiling for the **scheduler-driven** day walk (wizard create, vacation re-spread, catch-up). For an explicit user move on the Plan page, the ceiling is downgraded to a soft warning toast. If the user drags two lessons onto the same Friday for a 1/day goal, the move succeeds; the toast says "That day now has 2 lessons for this goal (planned 1/day)." The user opted in.

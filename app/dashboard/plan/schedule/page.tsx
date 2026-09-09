@@ -7,7 +7,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
@@ -573,8 +573,22 @@ function rowIsValid(row: Row): boolean {
     // projector returns [] the moment that reaches total_lessons. Four
     // production goals were saved empty this way. See isStartAtLessonInRange.
     if (!isStartAtLessonInRange(row.start_at_lesson, row.total_lessons)) return false;
+    // A total below the progress already logged leaves current_lesson past the
+    // end: the card reads "22 of 13" and the projector emits nothing. See
+    // isTotalLessonsAboveProgress. start_at_lesson_initial is current_lesson+1
+    // as loaded from the DB, and is null for a row that has never been saved.
+    if (!isTotalLessonsAboveProgress(row.total_lessons, completedThrough(row))) return false;
   }
   return true;
+}
+
+/**
+ * How far this goal has actually been completed, as the builder knows it.
+ * `start_at_lesson_initial` is the DB's `current_lesson + 1` at load time; a
+ * never-saved row has no progress to protect.
+ */
+function completedThrough(row: Row): number {
+  return row.start_at_lesson_initial != null ? row.start_at_lesson_initial - 1 : 0;
 }
 
 /**
@@ -609,6 +623,13 @@ function rowMissingLabel(row: Row): string | null {
       return (
         `${label} starts at lesson ${row.start_at_lesson} but only has ` +
         `${row.total_lessons}. Use ${row.total_lessons + 1} if it is finished.`
+      );
+    }
+    const done = completedThrough(row);
+    if (!isTotalLessonsAboveProgress(row.total_lessons, done)) {
+      return (
+        `${label} already has ${done} lesson${done === 1 ? "" : "s"} marked done, ` +
+        `so the total can't be less than ${done}.`
       );
     }
   }
@@ -1696,7 +1717,7 @@ export default function ScheduleBuilderPage() {
           count: beforeRowsCount,
         } = await supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, completed", { count: "exact" })
+          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned", { count: "exact" })
           .eq("curriculum_goal_id", goalId);
         if (beforeRowsErr) throw beforeRowsErr;
         const beforeRows = (beforeRowsData ?? []) as {
@@ -1704,6 +1725,9 @@ export default function ScheduleBuilderPage() {
           lesson_number: number | null;
           queue_position: number | null;
           completed: boolean;
+          notes: string | null;
+          minutes_spent: number | null;
+          queue_pinned: boolean | null;
         }[];
         // A partial snapshot is worse than no snapshot: rows PostgREST capped
         // out of the response look "missing", the batch plans inserts for
@@ -1723,6 +1747,31 @@ export default function ScheduleBuilderPage() {
         // rows held back. PostgREST's `gt` never matches a NULL, so rows with no
         // lesson_number survive the real delete and must survive this one too.
         const keepPinnedIds = new Set(pinnedIdsToKeep);
+
+        // ITEM 4 of the 2026-09-08 queue-slot brief: a rebuild never deletes a
+        // row carrying the parent's own work.
+        //
+        // djdillon88, 2026-09-07: at 00:05 he wrote 46 characters of notes on
+        // "Happy Cheetah — Lesson 1", unpinned and incomplete. At 00:38 a save
+        // re-spread all five of his goals, the floor delete took every unpinned
+        // incomplete row with it, and the reinsert brought them back with new
+        // ids and no notes. He retyped them at 01:54. No lesson.deleted event
+        // was logged, because this delete is a bulk statement and logs nothing.
+        //
+        // Completed and pinned rows were already held back. Notes and
+        // minutes_spent are the other two things only a person can put on a
+        // row, so they join them. The row keeps its id, its notes and its
+        // lesson_number; what the rebuild is still allowed to do is re-date it,
+        // which happens in COMMIT below.
+        const holdsParentWork = (r: { notes: string | null; minutes_spent: number | null }) =>
+          (r.notes != null && r.notes.trim().length > 0) || r.minutes_spent != null;
+        const workRowIds = new Set(
+          beforeRows.filter((r) => !r.completed && holdsParentWork(r)).map((r) => r.id),
+        );
+        // One set for both the simulation and the real delete, so they cannot
+        // drift apart the way the pin exclusion once did.
+        const heldBackIds = new Set([...keepPinnedIds, ...workRowIds]);
+
         const deletedIds = new Set(
           beforeRows
             .filter(
@@ -1730,7 +1779,7 @@ export default function ScheduleBuilderPage() {
                 !r.completed &&
                 r.lesson_number != null &&
                 r.lesson_number > completedFloor &&
-                !keepPinnedIds.has(r.id),
+                !heldBackIds.has(r.id),
             )
             .map((r) => r.id),
         );
@@ -2048,8 +2097,8 @@ export default function ScheduleBuilderPage() {
         // schedule changed, in which case pinnedIdsToKeep is empty and they were
         // already released above). Without this exclusion the delete wiped them
         // and the reinsert brought them back unpinned at projector dates.
-        if (pinnedIdsToKeep.length > 0) {
-          floorDelete = floorDelete.not("id", "in", `(${pinnedIdsToKeep.join(",")})`);
+        if (heldBackIds.size > 0) {
+          floorDelete = floorDelete.not("id", "in", `(${[...heldBackIds].join(",")})`);
         }
         const { error: incompleteDeleteErr } = await floorDelete;
         if (incompleteDeleteErr) throw incompleteDeleteErr;
@@ -2083,13 +2132,89 @@ export default function ScheduleBuilderPage() {
         // to 100 retires lesson 120 whether or not it was hand-placed. Note
         // that shortening total_lessons is itself a schedule-field change, so
         // scheduleFieldsChangedForRow already released this goal's pins above.
-        const { error: cleanupErr } = await supabase
+        let overCeilingDelete = supabase
           .from("lessons")
           .delete()
           .eq("curriculum_goal_id", goalId)
           .gt("lesson_number", row.total_lessons)
           .eq("completed", false);
+        // Item 4 again. Shortening a curriculum retires the lessons past the
+        // new end, but it does not entitle the app to shred what the parent
+        // wrote on one of them. A retired row carrying notes or logged minutes
+        // is UNSCHEDULED instead of deleted: it leaves every calendar surface
+        // (they all select on scheduled_date) and it stops holding a queue
+        // slot, so it can blank nothing, and the text survives.
+        const overCeilingWorkIds = beforeRows
+          .filter(
+            (r) =>
+              !r.completed &&
+              r.lesson_number != null &&
+              // Unknown ceiling retires nothing, matching how PostgREST's `gt`
+              // treats the NULL in the delete above.
+              row.total_lessons != null &&
+              r.lesson_number > row.total_lessons &&
+              holdsParentWork(r),
+          )
+          .map((r) => r.id);
+        if (overCeilingWorkIds.length > 0) {
+          overCeilingDelete = overCeilingDelete.not("id", "in", `(${overCeilingWorkIds.join(",")})`);
+          const { error: unscheduleErr } = await supabase
+            .from("lessons")
+            .update({ scheduled_date: null, queue_position: null, queue_pinned: false })
+            .in("id", overCeilingWorkIds);
+          if (unscheduleErr) throw unscheduleErr;
+        }
+        const { error: cleanupErr } = await overCeilingDelete;
         if (cleanupErr) throw cleanupErr;
+
+        // Item 4: the held-back rows are UPDATED rather than deleted and
+        // recreated. They keep their id, their notes and their lesson_number;
+        // what the rebuild is entitled to change is where they sit. The
+        // projector's date for a slot is read out of `upcoming`, the same
+        // output the fresh inserts were built from, so a kept row lands on the
+        // same day the row that replaced it would have.
+        //
+        // Pinned rows are excluded: a pin is the parent saying "this lesson
+        // belongs on this day" and Invariant 12 is that the system never
+        // re-dates a manual placement. They were already surviving the delete
+        // before this change and they keep surviving it untouched.
+        // ProjectedLesson.lesson_number IS the queue slot, not the lesson
+        // number — see its doc comment. That is the column a kept row is
+        // matched on, the same way the fresh inserts take their date from the
+        // slot they land in.
+        const projDateBySlot = new Map<number, string>();
+        for (const u of upcoming) {
+          if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date);
+        }
+        let rebuiltUpdated = 0;
+        for (const r of beforeRows) {
+          if (!workRowIds.has(r.id)) continue;
+          if (r.queue_pinned) continue;
+          if (r.queue_position == null) continue;
+          const projDate = projDateBySlot.get(r.queue_position);
+          if (!projDate) continue;
+          const { error: redateErr } = await supabase
+            .from("lessons")
+            .update({ scheduled_date: projDate, date: projDate, scheduled_source: "wizard_create" })
+            .eq("id", r.id);
+          if (redateErr) throw redateErr;
+          rebuiltUpdated += 1;
+        }
+
+        void logPlanEvent({
+          userId: effectiveUserId,
+          type: "schedule.rebuilt",
+          payload: {
+            goal_id: goalId,
+            curriculum_name: row.name,
+            inserted: toInsert.length + histToInsert.length,
+            updated: rebuiltUpdated,
+            // Rows the rebuild deliberately did not touch: completed history,
+            // pins, and the notes/minutes rows it is no longer allowed to
+            // delete.
+            skipped: survivors.length,
+          },
+        });
 
         // Row-count invariant, part 2 of 2: a goal must never come out of a save
         // holding fewer lesson rows than it went in with.

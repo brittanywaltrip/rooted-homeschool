@@ -52,6 +52,13 @@ const TITLE_SUBJECT_SEPARATOR = " \u00b7 ";
 const MAX_TITLE_SUBJECT_LENGTH = 40;
 
 /**
+ * The separator every goal-generated lesson carries: the Schedule Builder
+ * titles them `${curriculum_name} \u2014 Lesson ${n}`, so the curriculum's own
+ * name is sitting in the title of every row it ever wrote.
+ */
+const TITLE_LESSON_SEPARATOR = " \u2014 Lesson ";
+
+/**
  * The subject a standalone log carries in its own title.
  *
  * A log with no curriculum usually has no subject_id either, so both of the
@@ -82,13 +89,40 @@ function subjectFromTitle(l: ReportLessonRow): string | null {
 }
 
 /**
+ * The curriculum name still readable in an ORPHANED lesson's title.
+ *
+ * When a family deletes a curriculum, its completed lessons are kept as history
+ * (item 5 of the 2026-09-08 queue-slot brief) and the FK sets their
+ * curriculum_goal_id to NULL, so rules 2 and 3 below go empty and work the
+ * child really did printed as "General" on a document handed to a school
+ * district. The delete path copies the goal's subject onto the row's subject_id
+ * first, which is rule 1 and the answer the family actually chose; this is the
+ * fallback for the rows where no `subjects` row matched, and for the 357 rows
+ * already orphaned before that code existed.
+ *
+ * Guarded exactly like subjectFromTitle, for the same reasons: only a row with
+ * no curriculum, only the spaced em dash the builder writes, and 1 to 40
+ * characters.
+ */
+function subjectFromLessonTitle(l: ReportLessonRow): string | null {
+  if (l.curriculum_goal_id) return null;
+  const title = l.title ?? "";
+  const at = title.indexOf(TITLE_LESSON_SEPARATOR);
+  if (at < 0) return null;
+  const prefix = title.slice(0, at).trim();
+  if (prefix.length < 1 || prefix.length > MAX_TITLE_SUBJECT_LENGTH) return null;
+  return prefix;
+}
+
+/**
  * The subject a lesson prints under, in order:
  *
  *   1. an explicit subject_id
  *   2. the goal's subject_label
  *   3. the goal's curriculum_name, which the family chose
  *   4. the "Subject · " prefix a standalone log carries in its title
- *   5. the fallback
+ *   5. the "Curriculum — Lesson n" prefix an orphaned goal row carries
+ *   6. the fallback
  *
  * Curriculum lessons carry `subject_id` NULL — the subject lives on the goal —
  * so reading only `subjects.name` printed "General" for essentially every
@@ -107,6 +141,7 @@ export function lessonReportSubject(
     l.curriculum_goals?.subject_label ||
     l.curriculum_goals?.curriculum_name ||
     subjectFromTitle(l) ||
+    subjectFromLessonTitle(l) ||
     fallback
   );
 }
