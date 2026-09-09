@@ -112,11 +112,15 @@ export async function middleware(request: NextRequest) {
   // whole test: see shouldRedirectHomeToDashboard for why this must not call
   // getUser(), and why a query string opts out.
   //
-  // Placed AFTER the prefetch guard, not before it. Next prefetches every
-  // <Link href="/"> on the marketing pages, and redirecting a prefetch would
-  // make the router speculatively pull the entire dashboard payload for a link
-  // the family may never tap. Real document loads (the cold launch that this
-  // exists for) and real client navigations both still redirect.
+  // Placed AFTER the prefetch guard so a speculative prefetch of a
+  // <Link href="/"> does not go and pull the whole dashboard payload for a
+  // link the family may never tap. Do not lean on that: probing staging on
+  // 2026-09-09 with `next-router-prefetch: 1` still produced the redirect, so
+  // Vercel appears to strip the header off inbound public requests and the
+  // guard never sees it. It costs nothing either way, because after this
+  // change a signed-in family has almost no <Link href="/"> left to hover:
+  // the marketing pages point their back link and logo at /dashboard, and
+  // /login redirects before it renders its own.
   if (
     shouldRedirectHomeToDashboard({
       pathname,
