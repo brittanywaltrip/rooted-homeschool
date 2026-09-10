@@ -1873,6 +1873,19 @@ export default function SettingsPage() {
             <span>🎓</span>
             Close This School Year
           </button>
+
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => router.push('/dashboard/years/add')}
+              className="text-sm text-[#5c7f63] hover:underline"
+            >
+              Add a past year
+            </button>
+            <p className="text-xs text-[#7a6f65] leading-relaxed mt-0.5">
+              Homeschooled before you found Rooted? Add that year so it counts on reports and transcripts. Your current year stays exactly as it is.
+            </p>
+          </div>
         </div>
 
       </section>}
