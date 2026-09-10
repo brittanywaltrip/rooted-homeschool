@@ -12,7 +12,8 @@
  * subjects and not others. The load exists precisely to refuse a partial
  * schedule, and it could not tell it had one.
  *
- * Two paged reads now, through lib/supabase-all-rows.ts:
+ * Two paged reads now, through lib/supabase-all-rows.ts, each ordered by
+ * (scheduled_date, id) so the page boundary is stable:
  *   - missed: scheduled before today, the full row, because the modal
  *     previews these.
  *   - future: scheduled today or later, only the columns the flows use (the
@@ -124,6 +125,13 @@ export async function loadCatchUpRows(
         base(MISSED_COLUMNS)
           .lt("scheduled_date", todayStr)
           .order("scheduled_date", { ascending: true })
+          // The tie-breaker that makes the pages stable. scheduled_date is
+          // nowhere near unique for the families this is for (the 2,341-row
+          // family has 170 dates carrying more than one open row), and
+          // PostgreSQL does not promise the same tie order for LIMIT 1000 and
+          // LIMIT 1000 OFFSET 1000, so without a unique second key a row can
+          // land on both pages or on neither. Neither is the missing goal.
+          .order("id", { ascending: true })
           .range(from, to),
       pageSize,
     ),
@@ -132,6 +140,13 @@ export async function loadCatchUpRows(
         base(FUTURE_COLUMNS)
           .gte("scheduled_date", todayStr)
           .order("scheduled_date", { ascending: true })
+          // The tie-breaker that makes the pages stable. scheduled_date is
+          // nowhere near unique for the families this is for (the 2,341-row
+          // family has 170 dates carrying more than one open row), and
+          // PostgreSQL does not promise the same tie order for LIMIT 1000 and
+          // LIMIT 1000 OFFSET 1000, so without a unique second key a row can
+          // land on both pages or on neither. Neither is the missing goal.
+          .order("id", { ascending: true })
           .range(from, to),
       pageSize,
     ),

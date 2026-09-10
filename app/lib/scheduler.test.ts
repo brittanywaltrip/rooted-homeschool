@@ -7025,6 +7025,11 @@ test('catch-up: every lessons read in the loader is ranged, and a failure is a n
   assert.equal(reads, 1, 'one base lessons query')
   assert.equal(ranged, 2, 'both halves end in .range(from, to)')
   assert.equal(paged, 2, 'both halves go through selectAllRowsResult')
+  // Page order has to be stable and scheduled_date is not unique, so each
+  // half breaks ties on id. Without it a row can sit on both pages or on
+  // neither, and "neither" is the missing goal.
+  const tieBreaks = (src.match(/\.order\("id", \{ ascending: true \}\)/g) ?? []).length
+  assert.equal(tieBreaks, 2, 'both halves order by id after scheduled_date')
   assert.ok(/if \(missedRes\.error \|\| !missedRes\.data\) return null/.test(src), 'a missed-half failure is a null')
   assert.ok(/if \(futureRes\.error \|\| !futureRes\.data\) return null/.test(src), 'a future-half failure is a null')
   // The upcoming half is not bounded to a window: a goal whose next open row
