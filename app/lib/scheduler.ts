@@ -1520,6 +1520,33 @@ export function isSchoolDay(date: Date, schoolDays: string[] | null | undefined)
 }
 
 /**
+ * Every school day from `startYmd` through `endYmd`, both inclusive, in order.
+ *
+ * This is the day walk the "Add a past year" flow uses (Invariant 8: the walk
+ * lives here and nowhere else). It answers "which days did this family
+ * school between these two dates"; how many lessons land on each of those
+ * days is the caller's arithmetic (app/lib/past-year-dates.ts), which never
+ * touches a calendar itself. No vacation blocks: a past year is filed after
+ * the fact and its breaks are already baked into the count the family gives.
+ *
+ * Throws when the range is backwards, so a caller cannot get an empty list
+ * and read it as "no school days".
+ */
+export function schoolDaysBetween(startYmd: string, endYmd: string, schoolDays: string[] | null | undefined): string[] {
+  if (startYmd > endYmd) throw new Error(`schoolDaysBetween: start ${startYmd} is after end ${endYmd}`);
+  const days = normalizeSchoolDays(schoolDays);
+  const out: string[] = [];
+  const cursor = new Date(startYmd + "T12:00:00");
+  for (let i = 0; i < 3660; i++) {
+    const ymd = toDateStr(cursor);
+    if (ymd > endYmd) break;
+    if (isSchoolDay(cursor, days)) out.push(ymd);
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return out;
+}
+
+/**
  * Project the next `daysAhead` calendar days of lessons for one goal.
  * Returns one entry per (school day, lesson slot) pair, in queue order.
  *
