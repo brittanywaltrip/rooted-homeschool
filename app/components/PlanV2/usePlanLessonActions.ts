@@ -84,8 +84,11 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     id: string,
     dateStr: string,
     choice: CompletionChoice,
-  ) => {
-    if (inFlightRef.current.has(id)) return;
+  ): Promise<boolean> => {
+    // false: a write for this lesson is already in flight and this tap was
+    // dropped. The caller must not log, toast or celebrate a tap that wrote
+    // nothing.
+    if (inFlightRef.current.has(id)) return false;
     inFlightRef.current.add(id);
     try {
       const lesson = findLesson(id);
@@ -133,13 +136,14 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
           /* analytics must never block a user action */
         }
       }
+      return true;
     } finally {
       inFlightRef.current.delete(id);
     }
   }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted]);
 
-  const toggleLesson = useCallback(async (id: string, current: boolean) => {
-    if (inFlightRef.current.has(id)) return;
+  const toggleLesson = useCallback(async (id: string, current: boolean): Promise<boolean> => {
+    if (inFlightRef.current.has(id)) return false;
     const lesson = findLesson(id);
     const completingNow = !current;
     const todayStr = toDateStr(new Date());
@@ -158,10 +162,9 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       const plannedDate = lesson?.scheduled_date ?? lesson?.date ?? null;
       if (lesson && onNeedsDateChoice && needsDateChoice(plannedDate, todayStr)) {
         onNeedsDateChoice(lesson, plannedDate as string, todayStr);
-        return;
+        return false;
       }
-      await completeWithChoice(id, todayStr, "today");
-      return;
+      return completeWithChoice(id, todayStr, "today");
     }
 
     // ── Uncomplete. Unchanged (Invariant 7 territory). ──────────────────────
@@ -193,6 +196,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       if (lesson?.curriculum_goal_id) {
         await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
       }
+      return true;
     } finally {
       inFlightRef.current.delete(id);
     }

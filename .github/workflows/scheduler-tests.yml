@@ -19,6 +19,17 @@ on:
       - 'app/api/lessons/**'
       - 'docs/CURRICULUM-SCHEDULING.md'
       - 'scripts/cleanup-bunched-lessons*.ts'
+      - 'app/dashboard/plan/schedule/page.tsx'
+      - 'app/components/PlanV2/usePlanLessonActions.ts'
+      - 'app/components/PlanV2/index.tsx'
+      - 'app/lib/badge-checker.ts'
+      - 'app/lib/batches.ts'
+      - 'app/lib/batches.test.ts'
+      - 'app/lib/healEmptyGoal.ts'
+      - 'app/lib/completeLessonOnDate.ts'
+      - 'app/lib/past-year-dates.ts'
+      - 'app/lib/past-year-dates.test.ts'
+      - 'app/dashboard/years/add/page.tsx'
       - '.github/workflows/scheduler-tests.yml'
   pull_request:
     paths:
@@ -31,6 +42,17 @@ on:
       - 'app/api/lessons/**'
       - 'docs/CURRICULUM-SCHEDULING.md'
       - 'scripts/cleanup-bunched-lessons*.ts'
+      - 'app/dashboard/plan/schedule/page.tsx'
+      - 'app/components/PlanV2/usePlanLessonActions.ts'
+      - 'app/components/PlanV2/index.tsx'
+      - 'app/lib/badge-checker.ts'
+      - 'app/lib/batches.ts'
+      - 'app/lib/batches.test.ts'
+      - 'app/lib/healEmptyGoal.ts'
+      - 'app/lib/completeLessonOnDate.ts'
+      - 'app/lib/past-year-dates.ts'
+      - 'app/lib/past-year-dates.test.ts'
+      - 'app/dashboard/years/add/page.tsx'
 
 jobs:
   scheduler-tests:
@@ -58,6 +80,11 @@ jobs:
         # If the test runner changes, update this command and the regex
         # in the next step.
         run: node --test app/lib/scheduler.test.ts
+
+      - name: Run the lesson-write helper tests
+        # The batch helper every lesson insert goes through, and the past-year
+        # flow's date helper. Both are swept by the scheduler tests above.
+        run: node --test app/lib/batches.test.ts app/lib/past-year-dates.test.ts
 
       - name: Run cleanup-bunched-lessons tests
         # The cleanup script mirrors planRescheduleLessons; its tests guard

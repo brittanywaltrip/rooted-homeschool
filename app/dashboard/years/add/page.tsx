@@ -28,9 +28,9 @@ import { capitalizeName, childNameKey } from "@/lib/utils";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { todayLocalDateStr } from "@/app/components/WhenPicker";
 import { schoolDaysBetween } from "@/app/lib/scheduler";
+import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
 import {
   DEFAULT_SCHOOL_DAYS,
-  batches,
   buildPastYearGoal,
   buildPastYearLessons,
   defaultYearName,
@@ -329,7 +329,7 @@ export default function AddPastYearPage() {
           curriculumName: row.curriculumName, completedLessons: row.completedLessons,
           minutesPerLesson: row.minutesPerLesson, schoolDaysInYear: daysInYear,
         });
-        for (const batch of batches(lessons)) {
+        for (const batch of batches(lessons, LESSON_INSERT_BATCH)) {
           const { error: lessonErr } = await supabase.from("lessons").insert(batch);
           if (lessonErr) throw lessonErr;
         }

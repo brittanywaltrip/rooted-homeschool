@@ -78,7 +78,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { todayInTz, isoDowFromYmd, addDays, ymdInTz } from './timezone.ts'
-import { schoolDaysBetween } from './scheduler.ts'
+import { schoolDaysBetween, isPhase2NoOp, type Phase2BeforeRow, type Phase2InsertRow } from './scheduler.ts'
 import { mapLessonDateAcrossVacation } from '../components/PlanV2/handleVacationSave.shift.ts'
 import {
   countSchoolDaysInRange,
@@ -6609,7 +6609,7 @@ test('self-heal: an unreadable count fails CLOSED', async () => {
   assert.equal(calls.inserts.length, 0)
 })
 
-test('self-heal: a genuinely empty goal is written in batches of 100', async () => {
+test('self-heal: a genuinely empty goal is written in batches through the shared helper', async () => {
   const { client, calls } = stubClient({ count: 0 })
   const written = await healEmptyGoal(client as never, {
     goal: healGoal({ school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], total_lessons: 250 }) as never,
@@ -6618,9 +6618,9 @@ test('self-heal: a genuinely empty goal is written in batches of 100', async () 
     userId: 'u1',
   })
   assert.equal(written, 250)
-  assert.equal(calls.inserts.length, 3, '250 rows in batches of 100')
-  assert.equal((calls.inserts[0] as unknown[]).length, 100)
-  assert.equal((calls.inserts[2] as unknown[]).length, 50)
+  // 250 rows fit one batch of LESSON_INSERT_BATCH (500): one request.
+  assert.equal(calls.inserts.length, 1, '250 rows in one batch of 500')
+  assert.equal((calls.inserts[0] as unknown[]).length, 250)
 })
 
 test('self-heal: both load paths use the shared helper and neither rolls its own', () => {
@@ -7172,7 +7172,7 @@ test('past year: writes run in order and a failure rolls everything back before 
   const lessons = at('.from("lessons")')
   const memory = at('.from("memories")')
   assert.ok(year < goals && goals < lessons && lessons < memory, 'year, then goals, then lessons, then the note')
-  assert.match(body, /batches\(lessons\)/, 'lessons go in batches')
+  assert.match(body, /batches\(lessons, LESSON_INSERT_BATCH\)/, 'lessons go in batches of 500 through the shared helper')
   assert.ok(body.indexOf('await rollback(yearId)') > body.indexOf('catch'), 'a failure rolls back')
   assert.match(body, /Nothing was added\. Try again\?/)
   const rb = extractFunctionBody(src, /const rollback = useCallback\(async \(yearId: string\) =>/)
@@ -7226,9 +7226,17 @@ test('big families: a second tap on a lesson still in flight is ignored, not que
   const complete = extractFunctionBody(src, /const completeWithChoice = useCallback\(async \(/)
   const toggle = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
   for (const body of [complete, toggle]) {
-    assert.ok(body.indexOf('if (inFlightRef.current.has(id)) return;') < body.indexOf('await '), 'the guard runs before any write')
+    assert.ok(body.indexOf('if (inFlightRef.current.has(id)) return false;') < body.indexOf('await '), 'the guard runs before any write and says the tap was dropped')
     assert.match(body, /inFlightRef\.current\.delete\(id\)/, 'the guard is released')
   }
+  // A dropped tap must not be logged, toasted or celebrated: the row and the
+  // audit history have to keep agreeing.
+  const plan = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const withLog = extractFunctionBody(plan, /const toggleLessonWithLog = useCallback\(/)
+  assert.match(withLog, /const wrote = await toggleLesson\(id, current\)/)
+  assert.ok(withLog.indexOf('if (willAsk || !wrote) return;') < withLog.indexOf('recordEvent('), 'no audit event for a dropped tap')
+  const chooser = plan.slice(plan.indexOf('onChoose={async (dateStr, choice) => {'))
+  assert.ok(chooser.indexOf('if (!wrote) return;') !== -1 && chooser.indexOf('if (!wrote) return;') < chooser.indexOf('recordEvent("lesson.completed"'), 'the chooser skips the event when nothing was written')
 })
 
 test('big families: the builder inserts lessons through the shared batch helper, 500 at a time', () => {
@@ -7239,7 +7247,8 @@ test('big families: the builder inserts lessons through the shared batch helper,
   assert.ok(!/\.slice\(i, i \+ 100\)/.test(body), 'no hand-rolled 100-row chunks remain')
   const helper = stripComments(loadRepoFile('app/lib/batches.ts'))
   assert.match(helper, /export const LESSON_INSERT_BATCH = 500/)
-  assert.match(stripComments(loadRepoFile('app/lib/past-year-dates.ts')), /from "\.\/batches\.ts"/, 'the past-year flow uses the same helper')
+  assert.match(stripComments(loadRepoFile('app/dashboard/years/add/page.tsx')), /from "@\/app\/lib\/batches"/, 'the past-year flow uses the same helper')
+  assert.match(stripComments(loadRepoFile('app/lib/healEmptyGoal.ts')), /batches\(rows, LESSON_INSERT_BATCH\)/, 'the empty-goal self-heal uses it too')
 })
 
 test('big families: the post-save recompute is called with a goal id, never over the family', () => {
@@ -7253,18 +7262,99 @@ test('big families: the post-save recompute is called with a goal id, never over
   }
 })
 
-test('big families: an unchanged sibling goal writes nothing in phase 2, and goals run a few at a time', () => {
+// ── isPhase2NoOp: the decision itself, on fixtures ───────────────────────────
+
+function noopFixture() {
+  // A goal with 5 lessons: 1-2 completed, 3-5 incomplete on the projector's
+  // days, one of them (5) carrying a note, no pins. The plan re-inserts 3-4
+  // exactly as they are and keeps 5 in place.
+  const beforeRows: Phase2BeforeRow[] = [
+    { id: 'r1', lesson_number: 1, queue_position: 1, completed: true,  queue_pinned: false, scheduled_date: '2026-09-01', date: '2026-09-01', title: 'Math — Lesson 1' },
+    { id: 'r2', lesson_number: 2, queue_position: 2, completed: true,  queue_pinned: false, scheduled_date: '2026-09-02', date: '2026-09-02', title: 'Math — Lesson 2' },
+    { id: 'r3', lesson_number: 3, queue_position: 3, completed: false, queue_pinned: false, scheduled_date: '2026-09-14', date: '2026-09-14', title: 'Math — Lesson 3' },
+    { id: 'r4', lesson_number: 4, queue_position: 4, completed: false, queue_pinned: false, scheduled_date: '2026-09-15', date: '2026-09-15', title: 'Math — Lesson 4' },
+    { id: 'r5', lesson_number: 5, queue_position: 5, completed: false, queue_pinned: false, scheduled_date: '2026-09-16', date: '2026-09-16', title: 'Math — Lesson 5' },
+  ]
+  const toInsert: Phase2InsertRow[] = [
+    { lesson_number: 3, queue_position: 3, scheduled_date: '2026-09-14', date: '2026-09-14', title: 'Math — Lesson 3' },
+    { lesson_number: 4, queue_position: 4, scheduled_date: '2026-09-15', date: '2026-09-15', title: 'Math — Lesson 4' },
+  ]
+  return {
+    beforeRows,
+    deletedIds: new Set(['r3', 'r4']),
+    workRowIds: new Set(['r5']),
+    toInsert,
+    histToInsertCount: 0,
+    projDateBySlot: new Map([[3, '2026-09-14'], [4, '2026-09-15'], [5, '2026-09-16']]),
+    releasesPins: false,
+    totalLessons: 5,
+    todayYmd: '2026-09-10',
+    perDayAllowed: () => 1,
+  }
+}
+
+test('isPhase2NoOp: an unchanged sibling is a no-op', () => {
+  const v = isPhase2NoOp(noopFixture())
+  assert.equal(v.noop, true, v.reason)
+})
+
+test('isPhase2NoOp: one slot on another day takes the full path', () => {
+  const f = noopFixture()
+  f.toInsert = f.toInsert.map((t) => (t.lesson_number === 4 ? { ...t, scheduled_date: '2026-09-17', date: '2026-09-17' } : t))
+  assert.equal(isPhase2NoOp(f).noop, false)
+  assert.match(isPhase2NoOp(f).reason, /lesson 4 moves/)
+})
+
+test('isPhase2NoOp: a deleted row that does not come back, or a new one, takes the full path', () => {
+  const f = noopFixture()
+  f.toInsert = f.toInsert.slice(0, 1)
+  assert.match(isPhase2NoOp(f).reason, /row set differs/)
+  const g = noopFixture()
+  g.toInsert = [...g.toInsert, { lesson_number: 6, queue_position: 6, scheduled_date: '2026-09-18', date: '2026-09-18', title: 'Math — Lesson 6' }]
+  assert.equal(isPhase2NoOp(g).noop, false)
+})
+
+test('isPhase2NoOp: released pins, planned backfill, or rows past the ceiling take the full path', () => {
+  assert.match(isPhase2NoOp({ ...noopFixture(), releasesPins: true }).reason, /pins released/)
+  assert.match(isPhase2NoOp({ ...noopFixture(), histToInsertCount: 3 }).reason, /backfill/)
+  assert.match(isPhase2NoOp({ ...noopFixture(), totalLessons: 4 }).reason, /past total_lessons/)
+})
+
+test('isPhase2NoOp: a renamed curriculum takes the full path, so its lessons are retitled', () => {
+  const f = noopFixture()
+  f.toInsert = f.toInsert.map((t) => ({ ...t, title: t.title.replace('Math', 'Saxon Math 5/4') }))
+  assert.match(isPhase2NoOp(f).reason, /retitled/)
+})
+
+test('isPhase2NoOp: a held-back row the projector would move takes the full path', () => {
+  const f = noopFixture()
+  f.projDateBySlot = new Map([[3, '2026-09-14'], [4, '2026-09-15'], [5, '2026-09-21']])
+  assert.match(isPhase2NoOp(f).reason, /held-back row moves/)
+})
+
+test('isPhase2NoOp: survivors that already double-book a day are not hidden by the skip', () => {
+  const f = noopFixture()
+  // A gap row below the floor sitting on lesson 3's day: the post-write
+  // assertion used to throw on this; the no-op path must not swallow it.
+  f.beforeRows = [...f.beforeRows, { id: 'gap', lesson_number: 9, queue_position: null, completed: false, queue_pinned: false, scheduled_date: '2026-09-14', date: '2026-09-14', title: 'Math — Lesson 9' }]
+  f.totalLessons = 9
+  assert.match(isPhase2NoOp(f).reason, /2026-09-14 holds 2 lessons/)
+})
+
+test('big families: the no-op decision runs before the first phase-2 write, logs the skip, and goals run in a pool', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
-  // The no-op check sits before the first write of phase 2 (the unpin), and
-  // it compares slot, scheduled_date and date, so a drifted goal still takes
-  // the full path.
-  const noop = body.indexOf('const nothingToWrite =')
+  const verdict = body.indexOf('const verdict = isPhase2NoOp({')
   const firstWrite = body.indexOf('if (clearPins && pinnedRows.length > 0)')
-  assert.ok(noop !== -1 && firstWrite !== -1 && noop < firstWrite, 'the no-op check runs before the first phase-2 write')
-  assert.match(body, /d\.queue_position === t\.queue_position &&\s*d\.scheduled_date === t\.scheduled_date &&\s*d\.date === t\.date/)
-  assert.match(body, /reinsertIsIdentical/)
+  assert.ok(verdict !== -1 && firstWrite !== -1 && verdict < firstWrite, 'the no-op check runs before the first phase-2 write')
+  const skip = body.slice(verdict, firstWrite)
+  assert.match(skip, /type: "schedule\.rebuilt"/, 'Invariant 18: a rebuild that writes nothing still logs')
+  assert.match(skip, /unchanged: true/)
   assert.ok(!/for \(const \{ id: goalId, row \} of savedCurriculumGoals\)/.test(body), 'phase 2 is no longer one goal after another')
-  assert.match(body, /const PHASE2_CONCURRENCY = 4/)
-  assert.match(body, /const phase1Results = await Promise\.all\(rows\.map\(async \(row\)/, 'phase 1 rows are written together')
+  assert.match(body, /runPhase2ForGoal\(item\)/, 'goals go through the pool')
+  assert.match(body, /Promise\.allSettled\(rows\.map\(async \(row\)/, 'phase 1 rows settle together')
+  assert.match(body, /if \(firstPhase1Failure !== null\) throw firstPhase1Failure/, 'the first failure is thrown after every row settled')
+  // One read of the goal per phase-2 pass: pins and the floor come from it.
+  const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
+  assert.equal((phase2.match(/\.from\("lessons"\)\s*\.select\(/g) ?? []).length, 3, 'beforeRows, the post-write afterRows read and the overcapacity check; no separate pinned or floor reads')
 })

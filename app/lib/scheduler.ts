@@ -111,7 +111,7 @@ export async function recomputeCurrentLesson(
 ): Promise<number | null> {
   const { data: goal, error: goalErr } = await supabase
     .from("curriculum_goals")
-    .select("total_lessons, start_at_lesson")
+    .select("total_lessons, start_at_lesson, current_lesson")
     .eq("id", goalId)
     .maybeSingle();
   // Bail without writing if the read failed. Pre-fix, a network blip on
@@ -121,6 +121,7 @@ export async function recomputeCurrentLesson(
 
   const total = (goal as { total_lessons: number | null }).total_lessons ?? 0;
   const startAt = (goal as { start_at_lesson: number | null }).start_at_lesson ?? 1;
+  const stored = (goal as { current_lesson: number | null }).current_lesson;
 
   // Read queue_position, not lesson_number. The two are equal at curriculum
   // creation but diverge once the user reorders a lesson on the Plan page
@@ -146,6 +147,11 @@ export async function recomputeCurrentLesson(
   const holdAt = Math.max(0, options.neverBelow ?? 0);
   let value = Math.max(floor, maxCompleted, holdAt);
   if (total > 0) value = Math.min(value, total);
+
+  // The pointer already says this. Writing it again costs a round trip and
+  // fires the goal's triggers for nothing; the Schedule Builder calls this
+  // once per goal on every save, including the siblings that did not change.
+  if (stored === value) return value;
 
   const { error: updateErr } = await supabase
     .from("curriculum_goals")
@@ -1772,6 +1778,95 @@ export interface PlannedLessonInsert {
   queue_position: number;
   /** The date the projector chose for that slot. */
   date: string;
+}
+
+/**
+ * Would the Schedule Builder's phase 2 change anything for this goal?
+ *
+ * Phase 2 re-spreads every curriculum row in the builder on every save. For
+ * an unchanged sibling that used to mean deleting its incomplete tail and
+ * re-inserting it with the same numbers, dates and titles: on a 12-goal
+ * family, adding one goal churned about 2,000 rows and took 30 seconds. The
+ * plan is complete before the first write, so it can be compared with what
+ * the goal already holds. It is a no-op only when:
+ *   - no pins would be released,
+ *   - no historical backfill rows are planned,
+ *   - no incomplete row sits past total_lessons (nothing to retire),
+ *   - no held-back row (notes / minutes) would move to another day,
+ *   - every row the floor delete would remove comes straight back with the
+ *     same lesson number, queue slot, both dates AND title (a rename is not a
+ *     schedule field, and the re-insert was the only thing retitling rows),
+ *   - and the rows that survive do not already double-book a day past the
+ *     per-day cap: the post-write assertion used to catch that, so the no-op
+ *     path must not hide it. Such a goal takes the full path and fails the
+ *     same way it always did.
+ * Returns the reason so a debug line can say which.
+ */
+export type Phase2BeforeRow = {
+  id: string;
+  lesson_number: number | null;
+  queue_position: number | null;
+  completed: boolean;
+  queue_pinned: boolean | null;
+  scheduled_date: string | null;
+  date: string | null;
+  title?: string | null;
+};
+export type Phase2InsertRow = {
+  lesson_number: number;
+  queue_position: number | null;
+  scheduled_date: string;
+  date: string;
+  title: string;
+};
+export type Phase2NoOpArgs = {
+  beforeRows: readonly Phase2BeforeRow[];
+  deletedIds: ReadonlySet<string>;
+  workRowIds: ReadonlySet<string>;
+  toInsert: readonly Phase2InsertRow[];
+  histToInsertCount: number;
+  projDateBySlot: ReadonlyMap<number, string>;
+  releasesPins: boolean;
+  totalLessons: number | null;
+  todayYmd: string;
+  perDayAllowed: (ymd: string) => number;
+};
+export function isPhase2NoOp(a: Phase2NoOpArgs): { noop: boolean; reason: string } {
+  if (a.releasesPins) return { noop: false, reason: "pins released" };
+  if (a.histToInsertCount > 0) return { noop: false, reason: "backfill rows planned" };
+  const overCeiling = a.beforeRows.some(
+    (r) => !r.completed && r.lesson_number != null && a.totalLessons != null && r.lesson_number > a.totalLessons,
+  );
+  if (overCeiling) return { noop: false, reason: "rows past total_lessons" };
+  const redate = a.beforeRows.some((r) => {
+    if (!a.workRowIds.has(r.id) || r.queue_pinned || r.queue_position == null) return false;
+    const projDate = a.projDateBySlot.get(r.queue_position);
+    return projDate !== undefined && projDate !== r.scheduled_date;
+  });
+  if (redate) return { noop: false, reason: "a held-back row moves" };
+  const deletedByNumber = new Map<number, Phase2BeforeRow>();
+  for (const r of a.beforeRows) {
+    if (a.deletedIds.has(r.id) && r.lesson_number != null) deletedByNumber.set(r.lesson_number, r);
+  }
+  if (deletedByNumber.size !== a.deletedIds.size || deletedByNumber.size !== a.toInsert.length) {
+    return { noop: false, reason: "row set differs" };
+  }
+  for (const t of a.toInsert) {
+    const d = deletedByNumber.get(t.lesson_number);
+    if (!d) return { noop: false, reason: `lesson ${t.lesson_number} is new` };
+    if (d.queue_position !== t.queue_position) return { noop: false, reason: `lesson ${t.lesson_number} changes slot` };
+    if (d.scheduled_date !== t.scheduled_date || d.date !== t.date) return { noop: false, reason: `lesson ${t.lesson_number} moves` };
+    if (d.title != null && d.title !== t.title) return { noop: false, reason: `lesson ${t.lesson_number} is retitled` };
+  }
+  const perDate = new Map<string, number>();
+  for (const r of a.beforeRows) {
+    if (r.completed || r.queue_pinned || !r.scheduled_date || r.scheduled_date < a.todayYmd) continue;
+    perDate.set(r.scheduled_date, (perDate.get(r.scheduled_date) ?? 0) + 1);
+  }
+  for (const [ymd, n] of perDate) {
+    if (n > a.perDayAllowed(ymd)) return { noop: false, reason: `${ymd} holds ${n} lessons` };
+  }
+  return { noop: true, reason: "schedule already matches the projector" };
 }
 
 export function planPhase2LessonInserts(args: {
