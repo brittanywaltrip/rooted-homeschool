@@ -16,6 +16,7 @@
     "health:queue-slots": "node --env-file=.env.local scripts/health-queue-slots.ts",
     "cleanup:bunched": "node --env-file=.env.local scripts/cleanup-bunched-lessons.ts",
     "purge:orphan-storage": "node --env-file=.env.local scripts/purge-orphan-storage.ts",
+    "clean:orphan-photos": "node --env-file=.env.local scripts/clean-orphan-photos.ts",
     "cap:sync": "npx cap sync",
     "cap:ios": "npx cap open ios",
     "cap:android": "npx cap open android"
