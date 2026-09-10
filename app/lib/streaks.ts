@@ -121,17 +121,29 @@ export async function updateStreak(
  * `longest_streak_days` is never touched — that's the user's record.
  * Safe to call fire-and-forget; errors are swallowed.
  */
+export type StreakProfile = {
+  current_streak_days: number | null;
+  last_logged_date: string | null;
+  school_days: string[] | null;
+};
+
 export async function recomputeStaleStreak(
   userId: string,
-  opts: { supabase?: SupabaseClient; now?: Date } = {},
+  opts: { supabase?: SupabaseClient; now?: Date; profile?: StreakProfile | null } = {},
 ): Promise<"reset" | "kept" | "skipped"> {
   const supabase = opts.supabase ?? (await getDefaultSupabase());
   try {
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("current_streak_days, last_logged_date, school_days")
-      .eq("id", userId)
-      .single();
+    // The Today page already holds the profile from the layout's one read
+    // and passes it in; reading it again here was one of the profiles
+    // requests on every dashboard load. Callers without it still read.
+    let profile: StreakProfile | null | undefined = opts.profile;
+    if (profile === undefined) {
+      ({ data: profile } = await supabase
+        .from("profiles")
+        .select("current_streak_days, last_logged_date, school_days")
+        .eq("id", userId)
+        .single());
+    }
     if (!profile) return "skipped";
 
     const stored = profile.current_streak_days ?? 0;
