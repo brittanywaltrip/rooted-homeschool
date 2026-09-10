@@ -33,10 +33,16 @@ type VacationBlock = { start_date: string; end_date: string; name: string };
 
 // ─── Growth stages (8-stage leaf system) ────────────────────────────────────────
 
+// Every emoji in this table is Emoji 1.0 (2015) on purpose. 🫘 (Seed) and
+// 🪴 (Seedling) were Emoji 14.0 and 13.0, which Windows 10 and older macOS
+// system fonts do not carry, so both stages rendered as a blank box on a
+// desktop while the same family's iPhone showed them. A mother's first look
+// at her garden is the Seed stage, and hers was empty.
+// Guard: lib/garden-stage-emoji.test.ts.
 const GROWTH_STAGES = [
-  { name: "Seed",          emoji: "🫘", label: "Just getting started",       min: 0,   scale: 1.0 },
+  { name: "Seed",          emoji: "🌰", label: "Just getting started",       min: 0,   scale: 1.0 },
   { name: "Sprouting",     emoji: "🌱", label: "A tiny shoot appears",       min: 1,   scale: 1.0 },
-  { name: "Seedling",      emoji: "🪴", label: "Putting down roots",         min: 10,  scale: 1.0 },
+  { name: "Seedling",      emoji: "🍃", label: "Putting down roots",         min: 10,  scale: 1.0 },
   { name: "Growing",       emoji: "🌿", label: "Putting down roots",         min: 25,  scale: 0.8 },
   { name: "Young Tree",    emoji: "🌳", label: "Standing tall",              min: 50,  scale: 1.0 },
   { name: "Flourishing",   emoji: "🌲", label: "Strong and steady",          min: 100, scale: 1.1 },

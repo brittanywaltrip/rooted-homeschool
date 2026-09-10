@@ -68,7 +68,7 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeDef | nu
     { data: legacyBookData },
     { data: legacyWinData },
     { data: inBookData },
-    { data: lessonData },
+    { count: lessonCount },
     { data: profileData },
   ] = await Promise.all([
     // memories table counts
@@ -86,8 +86,10 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeDef | nu
       .in("type", ["memory_activity", "memory_project"]),
     // yearbook curator count
     supabase.from("memories").select("id").eq("user_id", userId).eq("include_in_book", true),
-    // lesson count (for first_leaf badge)
-    supabase.from("lessons").select("id").eq("user_id", userId).eq("completed", true),
+    // lesson count (for first_leaf badge). A head count, not a row read:
+    // the badge only asks "at least one", and an unranged read would stop at
+    // PostgREST's 1,000 rows anyway. See lib/supabase-all-rows.ts.
+    supabase.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("completed", true),
     // profile created_at (for rooted badge)
     supabase.from("profiles").select("created_at").eq("id", userId).single(),
   ]);
@@ -150,7 +152,7 @@ export async function checkAndAwardBadges(userId: string): Promise<BadgeDef | nu
     .gte("date", yStart)
     .lte("date", yEnd);
   const onThisDayCount = onThisDayData?.length ?? 0;
-  const totalLessons = lessonData?.length ?? 0;
+  const totalLessons = lessonCount ?? 0;
   const createdAt = (profileData as { created_at?: string } | null)?.created_at;
   const daysSinceSignup = createdAt
     ? Math.floor((Date.now() - new Date(createdAt).getTime()) / 86400000)

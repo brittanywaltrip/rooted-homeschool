@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { deriveEndYear, rolloverYearName } from "@/lib/school-year-name";
+import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 
 export const dynamic = "force-dynamic";
 
@@ -188,8 +189,16 @@ export async function POST(req: NextRequest) {
       .eq("user_id", userId).eq("type", "win").gte("date", yearStart).lte("date", todayDate),
     supabaseAdmin.from("badges").select("id", { count: "exact", head: true })
       .eq("school_year_id", yearId),
-    supabaseAdmin.from("lessons").select("minutes_spent")
-      .eq("school_year_id", yearId).eq("completed", true),
+    // Paged: a big family can log more than 1,000 completed lessons in one
+    // year, and PostgREST would hand back the first 1,000 with no error, so
+    // the keepsake's hours figure would just be short. selectAllRowsResult
+    // returns { data, error } and never throws, so this stays a NON-FATAL
+    // step: an error warns and the hours degrade to 0, exactly as before.
+    // See lib/supabase-all-rows.ts.
+    selectAllRowsResult<{ minutes_spent: number | null }>((from, to) =>
+      supabaseAdmin.from("lessons").select("minutes_spent")
+        .eq("school_year_id", yearId).eq("completed", true)
+        .order("id").range(from, to)),
   ]);
 
   // Any failed count degrades to 0 (via the `?? 0` defaults below) rather than
