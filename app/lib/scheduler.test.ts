@@ -74,6 +74,12 @@ import {
   isOldEnoughToHeal,
 } from './healEmptyGoal.ts'
 
+import {
+  splitProjectionGaps,
+  projectionGapReports,
+  unhealedGapReports,
+} from './projection-gaps.ts'
+
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -6483,8 +6489,11 @@ function stubClient(opts: { count: number | null; countError?: boolean }) {
   const client = {
     from() {
       return {
-        select() {
-          calls.counted += 1
+        // Only the exact head count is tallied. recomputeCurrentLesson selects
+        // through this same stub after an insert, and that read is not the
+        // question "does this goal hold any rows".
+        select(_columns?: string, selectOpts?: { head?: boolean }) {
+          if (selectOpts?.head) calls.counted += 1
           return {
             eq: async () => ({
               count: opts.countError ? null : opts.count,
@@ -6642,6 +6651,190 @@ test('self-heal: both load paths use the shared helper and neither rolls its own
       `${file} must not write heal rows itself`,
     )
   }
+})
+
+/* ── The heal counts the candidate set once ───────────────────────────────
+ * A family with a dozen active curricula paid a dozen head requests on every
+ * Plan load, because the count that decides was asked one goal at a time.
+ * The grouped count answers for the whole set; the per-goal count stays as
+ * the guard for any goal that grouped read did not answer for.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+test('self-heal: a supplied count of zero writes the rows without asking again', async () => {
+  const { client, calls } = stubClient({ count: null, countError: true })
+  const written = await healEmptyGoal(client as never, {
+    goal: healGoal() as never,
+    vacationBlocks: [],
+    today: new Date(2026, 8, 8),
+    userId: 'u1',
+    existingLessonCount: 0,
+  })
+  assert.equal(written, 36, 'the grouped count is authority enough')
+  assert.equal(calls.counted, 0, 'and no head request was made for this goal')
+})
+
+test('self-heal: a supplied count above zero leaves the goal alone, silently', async () => {
+  const { client, calls } = stubClient({ count: 0 })
+  const written = await healEmptyGoal(client as never, {
+    goal: healGoal() as never,
+    vacationBlocks: [],
+    today: new Date(2026, 8, 8),
+    userId: 'u1',
+    existingLessonCount: 7,
+  })
+  assert.equal(written, 0)
+  assert.equal(calls.inserts.length, 0, 'a goal with rows is never touched')
+  assert.equal(calls.counted, 0, 'and the stub count that says 0 is never consulted')
+})
+
+test('self-heal: no supplied count means the goal counts itself', async () => {
+  // The grouped read had no answer for this goal. Its own head count decides,
+  // exactly as it did before the grouped count existed.
+  for (const hint of [null, undefined]) {
+    const { client, calls } = stubClient({ count: 1 })
+    const written = await healEmptyGoal(client as never, {
+      goal: healGoal() as never,
+      vacationBlocks: [],
+      today: new Date(2026, 8, 8),
+      userId: 'u1',
+      existingLessonCount: hint,
+    })
+    assert.equal(written, 0, `hint ${String(hint)}: the goal's own count says it has a row`)
+    assert.equal(calls.counted, 1, `hint ${String(hint)}: and that count was actually asked`)
+    assert.equal(calls.inserts.length, 0)
+  }
+})
+
+/* ── Sentry hears about a gap the app cannot close, and no other ───────────
+ * 22 "Today projection missing lesson rows" warnings landed in one second on
+ * 2026-09-10, all from one family's load, every one of them a goal the heal
+ * filled in on that same load.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+test('gaps: a goal missing every projected row files no report at detection', () => {
+  const { partial, full } = splitProjectionGaps(
+    new Map([['g1', 5]]),
+    new Map([['g1', 5]]),
+  )
+  assert.deepEqual(projectionGapReports(partial), [], 'nothing is filed at detection')
+  assert.deepEqual(full, [{ goalId: 'g1', projected: 5, missing: 5 }], 'it is a heal candidate')
+})
+
+test('gaps: that same goal files ONE unhealed report when the heal writes nothing', () => {
+  const { full } = splitProjectionGaps(new Map([['g1', 5]]), new Map([['g1', 5]]))
+  const reports = unhealedGapReports(full, new Map([['g1', 0]]))
+  assert.equal(reports.length, 1)
+  assert.equal(reports[0].kind, 'unhealed')
+  assert.equal(reports[0].message, 'Goal g1 projected 5 lessons but 5 had no row')
+})
+
+test('gaps: a heal that wrote rows, threw, or was skipped for age files nothing', () => {
+  const { full } = splitProjectionGaps(
+    new Map([['healed', 5], ['threw', 5], ['young', 5]]),
+    new Map([['healed', 5], ['threw', 5], ['young', 5]]),
+  )
+  const reports = unhealedGapReports(
+    full,
+    // 'threw' has no entry: healEmptyGoal reports its own failures, and a
+    // second report here would double-count one broken goal.
+    new Map([['healed', 36], ['young', 0]]),
+    new Set(['young']),
+  )
+  assert.deepEqual(reports, [], 'none of the three is news')
+})
+
+test('gaps: a goal missing SOME rows reports at detection and never reaches the heal', () => {
+  const { partial, full } = splitProjectionGaps(
+    new Map([['g1', 5]]),
+    new Map([['g1', 2]]),
+  )
+  assert.deepEqual(full, [], 'healEmptyGoal will not touch a goal that holds rows')
+  const reports = projectionGapReports(partial)
+  assert.equal(reports.length, 1, 'one report per goal, not one per missing row')
+  assert.equal(reports[0].kind, 'partial')
+  assert.equal(reports[0].message, 'Goal g1 projected 5 lessons but 2 had no row')
+})
+
+test('gaps: the two states are sorted independently, one load at a time', () => {
+  const { partial, full } = splitProjectionGaps(
+    new Map([['whole', 12], ['some', 12], ['fine', 12]]),
+    new Map([['whole', 12], ['some', 3]]),
+  )
+  assert.deepEqual(partial.map((g) => g.goalId), ['some'])
+  assert.deepEqual(full.map((g) => g.goalId), ['whole'])
+})
+
+test('gaps: a goal that projected nothing is in neither list', () => {
+  const { partial, full } = splitProjectionGaps(new Map(), new Map([['g1', 3]]))
+  assert.deepEqual(partial, [])
+  assert.deepEqual(full, [])
+})
+
+test('gaps: Today reports the partial state at detection and the full state only after the heal', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  // The detection loop walks the partial half and nothing else.
+  assert.ok(
+    /for \(const report of projectionGapReports\(partialGaps\)\)/.test(src),
+    'detection files reports for partial gaps only',
+  )
+  // No report is filed from the detection path for a full gap: the only
+  // reporter is fileGapReport, and the full half reaches it through
+  // unhealedGapReports, after the heal has had its turn.
+  const detection = src.slice(
+    src.indexOf('const { partial: partialGaps, full: fullGaps }'),
+    src.indexOf('const fullGapById'),
+  )
+  assert.ok(detection.length > 0, 'the detection block was found')
+  assert.ok(
+    !/captureSupabaseError\(/.test(detection.replace(/const fileGapReport[\s\S]*?\n    \};/, '')),
+    'detection captures nothing outside the one shared reporter',
+  )
+  assert.ok(
+    !/unhealedGapReports\(/.test(detection),
+    'and it does not pre-judge the full gaps it has not healed yet',
+  )
+  assert.ok(
+    /for \(const report of unhealedGapReports\(candidateGaps, written, skipped\)\)/.test(src),
+    'the unhealed report is filed from inside the heal block',
+  )
+  assert.ok(
+    /gap: report\.kind/.test(src),
+    'every report says which of the two states it is',
+  )
+})
+
+test('gaps: both load paths count the candidate set in one request', () => {
+  for (const file of ['app/dashboard/page.tsx', 'app/components/PlanV2/index.tsx']) {
+    const src = stripComments(loadRepoFile(file))
+    assert.ok(
+      /countLessonRowsByGoal\(\s*supabase,/.test(src),
+      `${file} must ask for the whole candidate set at once`,
+    )
+    assert.ok(
+      /existingLessonCount: countByGoal\?\.get\(g\.id\) \?\? null/.test(src),
+      `${file} must hand each goal its own count, and null when there is none`,
+    )
+  }
+  // And the guard the grouped count replaces is still in the helper, for
+  // every goal the grouped read did not answer for.
+  const heal = stripComments(loadRepoFile('app/lib/healEmptyGoal.ts'))
+  assert.ok(
+    /select\("id", \{ count: "exact", head: true \}\)/.test(heal),
+    'healEmptyGoal still performs its own exact head count',
+  )
+  assert.ok(
+    /if \(typeof args\.existingLessonCount === "number"\)/.test(heal),
+    'and only a real number handed in stands in for it',
+  )
+  assert.ok(
+    /if \(count == null \|\| count > 0\) return 0;/.test(heal),
+    'a count that could not be read still fails closed',
+  )
+  // The grouped count is a count, not a filtered list of lesson rows.
+  assert.ok(
+    /\.select\("id, lessons\(count\)"\)/.test(heal),
+    'the grouped count is an aggregate over goals, not a list of lessons',
+  )
 })
 
 /* ── Item 1: the lesson edit form may not vacate a queue slot ──────────────
