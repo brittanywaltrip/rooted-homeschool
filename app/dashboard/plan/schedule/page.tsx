@@ -9,6 +9,7 @@ import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
 import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
+import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
@@ -2307,32 +2308,48 @@ export default function ScheduleBuilderPage() {
         });
 
         // Row-count invariant, part 2 of 2: a goal must never come out of a save
-        // holding fewer lesson rows than it went in with.
+        // holding fewer lesson rows than it should.
         //
-        // Deliberately NOT `rows === total_lessons`. That is not a true
-        // invariant: plenty of healthy goals hold fewer rows than
-        // total_lessons, because the projector only writes from current_lesson
-        // forward. The never-shrink comparison is the honest one and does not
-        // false positive. Shrinking is legitimate in exactly one case, the user
-        // reducing total_lessons, which the cleanup delete above acts on.
+        // "Should" is total_lessons - start_at_lesson + 1, plus the completed
+        // rows below start_at_lesson that every save keeps. It is deliberately
+        // NOT `rows === total_lessons` (plenty of healthy goals hold fewer rows
+        // than that, because the projector only writes from current_lesson
+        // forward) and no longer plain never-shrink either: that version fired
+        // for a family who moved start_at_lesson from 3 to 5, whose two
+        // uncompleted rows in slots 3 and 4 were correctly removed. The helper
+        // excuses a drop of exactly the change in expectation and reports
+        // anything beyond it. See app/lib/lost-lesson-rows.ts.
         //
         // Detect and report only. By the time this runs the rows are already
         // gone, so throwing would show a frightening notice about something
         // this save cannot undo. Sentry is where it needs to land.
         const { data: afterRowsData, error: afterRowsErr } = await supabase
           .from("lessons")
-          .select("lesson_number")
+          .select("lesson_number, completed")
           .eq("curriculum_goal_id", goalId);
         if (!afterRowsErr && afterRowsData) {
-          const afterRows = afterRowsData as { lesson_number: number | null }[];
+          const afterRows = afterRowsData as { lesson_number: number | null; completed: boolean | null }[];
           const beforeCount = beforeRows.length;
           const afterCount = afterRows.length;
-          const originalTotal = row._originalSchedule?.total_lessons ?? null;
-          const reducedTotalLessons =
-            originalTotal != null &&
-            row.total_lessons != null &&
-            row.total_lessons < originalTotal;
-          if (afterCount < beforeCount && !reducedTotalLessons) {
+          const totalBefore = row._originalSchedule?.total_lessons ?? row.total_lessons ?? 0;
+          const totalAfter = row.total_lessons ?? 0;
+          const startBefore = row.start_at_lesson_initial ?? row.start_at_lesson;
+          const startAfter = clampStartAtLesson(row.start_at_lesson, totalAfter);
+          const lost = lostLessonRows(
+            {
+              totalLessons: totalBefore,
+              startAtLesson: startBefore,
+              completedBelowStart: countCompletedBelowStart(beforeRows, startBefore),
+              rows: beforeCount,
+            },
+            {
+              totalLessons: totalAfter,
+              startAtLesson: startAfter,
+              completedBelowStart: countCompletedBelowStart(afterRows, startAfter),
+              rows: afterCount,
+            },
+          );
+          if (lost) {
             const afterNums = new Set(
               afterRows
                 .map((r) => r.lesson_number)
@@ -2346,19 +2363,32 @@ export default function ScheduleBuilderPage() {
               goalId,
               beforeCount,
               afterCount,
+              expected: lost.expectedAfter,
               missingLessonNumbers,
             });
             captureSupabaseError(
               "Curriculum save phase 2 lost lesson rows",
               new Error(
-                `Goal ${goalId} went from ${beforeCount} to ${afterCount} lesson rows with no reduction in total_lessons`,
+                `Goal ${goalId} went from ${beforeCount} to ${afterCount} lesson rows, expected ${lost.expectedAfter} (start_at_lesson ${startBefore} to ${startAfter}, total_lessons ${totalBefore} to ${totalAfter})`,
               ),
               {
                 tags: {
                   phase: "curriculum_save_phase2_invariant",
                   goal_id: goalId,
                 },
-                extra: { beforeCount, afterCount, missingLessonNumbers },
+                extra: {
+                  beforeCount,
+                  afterCount,
+                  expected: lost.expectedAfter,
+                  expectedBefore: lost.expectedBefore,
+                  allowedDrop: lost.allowedDrop,
+                  actualDrop: lost.actualDrop,
+                  startBefore,
+                  startAfter,
+                  totalBefore,
+                  totalAfter,
+                  missingLessonNumbers,
+                },
               },
             );
           }
