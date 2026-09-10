@@ -20,7 +20,7 @@ import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import PageHero from "@/app/components/PageHero";
 import CompletionDateChooser, { labelDate as completionLabelDate } from "@/app/components/CompletionDateChooser";
-import { healEmptyGoal, type HealableGoalRow } from "@/app/lib/healEmptyGoal";
+import { healEmptyGoal, countLessonRowsByGoal, type HealableGoalRow } from "@/app/lib/healEmptyGoal";
 import MonthGrid from "./MonthGrid";
 // WeekStrip is preserved on disk (./WeekStrip) but no longer rendered;
 // week mode now uses WeekListView. Restore the import here if reverting.
@@ -617,10 +617,18 @@ export default function PlanV2() {
         (g) => (g.total_lessons ?? 0) > 0 && !g.completed_at,
       );
       if (healable.length > 0) {
+        // One count for the whole set instead of one head request per goal: a
+        // family with a dozen active curricula paid a dozen round trips on
+        // every Plan load, and this page offers the heal EVERY active goal.
+        // Null means the grouped read gave no answer, and each goal then
+        // counts itself inside healEmptyGoal exactly as before.
+        const countByGoal = await countLessonRowsByGoal(supabase, healable.map((g) => g.id));
+        if (cancelled) return;
         let healed = 0;
         for (const g of healable) {
           if (cancelled) return;
           healed += await healEmptyGoal(supabase, {
+            existingLessonCount: countByGoal?.get(g.id) ?? null,
             goal: g as unknown as HealableGoalRow,
             vacationBlocks: vacationBlocks.map((v) => ({
               start_date: v.start_date,
