@@ -44,7 +44,8 @@ import ManageScheduleModal from "@/app/components/ManageScheduleModal";
 import TodaySchedule from "@/app/components/today/TodaySchedule";
 import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type RecoveryRow } from "@/app/components/MissedLessonRecoveryModal";
 import { gapStartAfterAnswer, goalsWithUncheckedRows } from "@/app/lib/recoverySelection";
-import { healEmptyGoal, type HealableGoalRow } from "@/app/lib/healEmptyGoal";
+import { healEmptyGoal, countLessonRowsByGoal, isOldEnoughToHeal, type HealableGoalRow } from "@/app/lib/healEmptyGoal";
+import { splitProjectionGaps, projectionGapReports, unhealedGapReports, type ProjectionGapReport } from "@/app/lib/projection-gaps";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -1550,21 +1551,27 @@ export default function TodayPage() {
         missingByGoal.set(p.goal_id, (missingByGoal.get(p.goal_id) ?? 0) + 1);
       }
     }
+    // Two states, two treatments. A goal missing SOME of its rows is the real
+    // signal: healEmptyGoal will not touch a goal that holds any row, so
+    // nothing fixes that on its own and it is reported here. A goal missing
+    // EVERY row is the zero-row state the heal exists for, so it is not
+    // reported at detection — the heal runs a few lines below and only what it
+    // fails to fix is worth a warning. Reporting both here filed 22 warnings in
+    // one second on 2026-09-10 for a family whose load healed all 22.
+    const { partial: partialGaps, full: fullGaps } = splitProjectionGaps(projectedByGoal, missingByGoal);
     // ONE report per goal per session, not one per lesson: a goal with 180
     // missing rows would otherwise file 180 events on every single page load.
     // Warning, not error, because the page still renders and the family is not
     // blocked; it is the data that needs a human.
-    for (const [goalId, missing] of missingByGoal) {
-      if (reportedProjectionGapsRef.current.has(goalId)) continue;
-      reportedProjectionGapsRef.current.add(goalId);
-      captureSupabaseError(
-        "Today projection missing lesson rows",
-        new Error(
-          `Goal ${goalId} projected ${projectedByGoal.get(goalId) ?? 0} lessons but ${missing} had no row`,
-        ),
-        { tags: { goal_id: goalId }, level: "warning" },
-      );
-    }
+    const fileGapReport = (report: ProjectionGapReport) => {
+      if (reportedProjectionGapsRef.current.has(report.goalId)) return;
+      reportedProjectionGapsRef.current.add(report.goalId);
+      captureSupabaseError("Today projection missing lesson rows", new Error(report.message), {
+        tags: { goal_id: report.goalId, gap: report.kind },
+        level: "warning",
+      });
+    };
+    for (const report of projectionGapReports(partialGaps)) fileGapReport(report);
 
     // The subject's start time lives on the GOAL, not on the lesson row, so
     // it has to be attached here the same way icon_emoji is. Everything
@@ -1590,25 +1597,48 @@ export default function TodayPage() {
     // script, heal it on the next load.
     //
     // Candidates only: a goal whose every projected slot came back without a
-    // row. healEmptyGoal asks the authoritative question itself (an exact head
-    // count on that one goal) before it writes anything, so a goal that merely
+    // row — exactly the `full` half of the split above. healEmptyGoal asks the
+    // authoritative question before it writes anything, so a goal that merely
     // projects nothing today is never touched. Fire-and-forget — the page has
     // already rendered, and the new rows appear on the next load.
-    const healCandidates = goalRows.filter(
-      (g) =>
-        (projectedByGoal.get(g.id) ?? 0) > 0 &&
-        missingByGoal.get(g.id) === projectedByGoal.get(g.id),
-    );
+    const fullGapById = new Map(fullGaps.map((g) => [g.goalId, g]));
+    const healCandidates = goalRows.filter((g) => fullGapById.has(g.id));
     if (healCandidates.length > 0) {
       void (async () => {
+        // One count for the whole candidate set instead of one per goal. Null
+        // means the grouped read gave no answer, and every goal then counts
+        // itself inside healEmptyGoal exactly as before.
+        const countByGoal = await countLessonRowsByGoal(
+          supabase,
+          healCandidates.map((g) => g.id),
+        );
         let healed = 0;
+        const written = new Map<string, number>();
+        const skipped = new Set<string>();
         for (const g of healCandidates) {
-          healed += await healEmptyGoal(supabase, {
+          // A goal saved in the last two minutes may have its phase 2 still in
+          // flight in another tab. healEmptyGoal declines it, and so does the
+          // report: a save that is still happening is not a state anyone needs
+          // to be told about.
+          if (!isOldEnoughToHeal(g.created_at)) skipped.add(g.id);
+          const rows = await healEmptyGoal(supabase, {
             goal: g as unknown as HealableGoalRow,
             vacationBlocks,
             today: new Date(),
             userId: effectiveUserId,
+            existingLessonCount: countByGoal?.get(g.id) ?? null,
           });
+          written.set(g.id, rows);
+          healed += rows;
+        }
+        // Now, and only now, is a full gap worth a warning: the app tried to
+        // fix it on this load and wrote nothing. A heal that threw or whose
+        // insert failed has already reported itself from inside healEmptyGoal.
+        const candidateGaps = healCandidates
+          .map((g) => fullGapById.get(g.id))
+          .filter((gap): gap is NonNullable<typeof gap> => gap !== undefined);
+        for (const report of unhealedGapReports(candidateGaps, written, skipped)) {
+          fileGapReport(report);
         }
         // Only reload when something was actually written, so a goal that
         // legitimately has nothing to plan cannot loop.

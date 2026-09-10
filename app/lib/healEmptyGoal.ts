@@ -40,6 +40,16 @@ import { captureSupabaseError } from "../../lib/sentry-error.ts";
  * by PostgREST's row cap, and a truncated read that looks like "no rows" would
  * make this insert a duplicate set over a family's real lessons. That failure
  * mode is the reason the check is shaped this way.
+ *
+ * ONE COUNT FOR THE WHOLE CANDIDATE SET. Asking that question once per goal
+ * cost a family with a dozen active curricula a dozen head requests on every
+ * Plan load. countLessonRowsByGoal asks it once for the whole set and each
+ * answer may be handed in as `existingLessonCount`. That is still a count and
+ * not a list: PostgREST computes the embedded `lessons(count)` in the database
+ * and returns one row per GOAL, so there is no row cap to truncate and nothing
+ * to miscount. Every other rule above stands — a goal with no answer in that
+ * read falls back to its own head count, and a count that could not be read
+ * still fails closed.
  * ==========================================================================*/
 
 /** A goal younger than this may be mid-save in another tab. Leave it be. */
@@ -124,6 +134,61 @@ export function planEmptyGoalLessons(args: {
   }));
 }
 
+/** The shape PostgREST returns for `select("id, lessons(count)")`. */
+type GoalLessonCountRow = { id: string; lessons: { count: number }[] | null };
+
+/**
+ * How many lesson rows each of these goals holds, in ONE request.
+ *
+ * The embedded `lessons(count)` is an aggregate the database computes; the
+ * response carries one row per goal, so the row cap that makes a filtered
+ * lesson list unsafe cannot apply here. Read under the caller's own session,
+ * so RLS scopes it exactly the way the per-goal head count is scoped.
+ *
+ * Returns null when the read failed or came back unusable — a URL too long for
+ * an enormous id list included. Null means "no answer", and every caller then
+ * lets healEmptyGoal ask for itself. It never means zero.
+ */
+export async function countLessonRowsByGoal(
+  supabase: SupabaseClient,
+  goalIds: readonly string[],
+): Promise<Map<string, number> | null> {
+  if (goalIds.length === 0) return new Map();
+  try {
+    const { data, error } = await supabase
+      .from("curriculum_goals")
+      .select("id, lessons(count)")
+      .in("id", goalIds as string[]);
+    if (error || !data) {
+      if (error) {
+        captureSupabaseError("Empty-goal self-heal: grouped lesson count failed", error, {
+          level: "warning",
+          tags: { phase: "empty_goal_self_heal" },
+          extra: { goals: goalIds.length },
+        });
+      }
+      return null;
+    }
+    const counts = new Map<string, number>();
+    for (const row of data as unknown as GoalLessonCountRow[]) {
+      const n = row?.lessons?.[0]?.count;
+      // A goal whose count did not parse is simply left out: no entry means
+      // its own head count decides, which is the answer this replaces.
+      if (row?.id && typeof n === "number" && Number.isFinite(n) && n >= 0) {
+        counts.set(row.id, n);
+      }
+    }
+    return counts;
+  } catch (err) {
+    captureSupabaseError("Empty-goal self-heal: grouped lesson count failed", err, {
+      level: "warning",
+      tags: { phase: "empty_goal_self_heal" },
+      extra: { goals: goalIds.length },
+    });
+    return null;
+  }
+}
+
 /** Is this goal old enough to be sure no save is still in flight for it? */
 export function isOldEnoughToHeal(
   createdAt: string | null | undefined,
@@ -151,6 +216,14 @@ export async function healEmptyGoal(
     today: Date;
     userId: string;
     now?: Date;
+    /**
+     * This goal's lesson-row count, already read for the whole candidate set by
+     * countLessonRowsByGoal. Omit it — or pass null / undefined — and the goal
+     * is counted here instead. Only a number read from that grouped count may
+     * be passed: it answers the same question, in the same session, with the
+     * same authority.
+     */
+    existingLessonCount?: number | null;
   },
 ): Promise<number> {
   const goalId = args.goal.id;
@@ -160,14 +233,22 @@ export async function healEmptyGoal(
     if (!isOldEnoughToHeal(args.goal.created_at, args.now ?? new Date())) return 0;
 
     // 2. Zero rows, asked authoritatively. head + exact count cannot be
-    //    truncated the way a selected list can.
-    const { count, error: countErr } = await supabase
-      .from("lessons")
-      .select("id", { count: "exact", head: true })
-      .eq("curriculum_goal_id", goalId);
+    //    truncated the way a selected list can. The caller may have asked the
+    //    same question for the whole candidate set already; when it did not,
+    //    ask here, because a goal that was never counted is not an empty one.
+    let count: number | null;
+    if (typeof args.existingLessonCount === "number") {
+      count = args.existingLessonCount;
+    } else {
+      const { count: own, error: countErr } = await supabase
+        .from("lessons")
+        .select("id", { count: "exact", head: true })
+        .eq("curriculum_goal_id", goalId);
+      count = countErr ? null : own;
+    }
     // Fail CLOSED. A count we could not read is not evidence of emptiness, and
     // guessing wrong here writes a duplicate curriculum over a real one.
-    if (countErr || count == null || count > 0) return 0;
+    if (count == null || count > 0) return 0;
 
     // 3. Plan.
     const rows = planEmptyGoalLessons({
