@@ -67,6 +67,8 @@ type FakeOpts = {
   failOnPage?: number;
   /** Every page's from/to, for asserting paging happened. */
   ranges?: [number, number][];
+  /** Every order() call as "column:asc|desc", per query, in call order. */
+  orders?: string[][];
 };
 
 /**
@@ -78,6 +80,19 @@ function fakeClient(opts: FakeOpts): CatchUpClient {
   function filterFor(table: string): CatchUpFilter {
     let rows: Record<string, unknown>[] =
       table === "lessons" ? [...opts.lessons] : [...(opts.goals ?? [])];
+    // Chained order() calls compose like SQL: the first is the primary key,
+    // each later one breaks ties within the previous. Applied at read time.
+    const sortKeys: { col: string; asc: boolean }[] = [];
+    const orderLog: string[] = [];
+    opts.orders?.push(orderLog);
+    const sorted = () =>
+      [...rows].sort((a, b) => {
+        for (const { col, asc } of sortKeys) {
+          const c = String(a[col]).localeCompare(String(b[col]));
+          if (c !== 0) return asc ? c : -c;
+        }
+        return 0;
+      });
     const self: CatchUpFilter = {
       eq(col, v) { rows = rows.filter((r) => r[col] === v); return self; },
       not(col, op, v) {
@@ -96,7 +111,8 @@ function fakeClient(opts: FakeOpts): CatchUpClient {
       },
       order(col, o) {
         const asc = o?.ascending !== false;
-        rows = [...rows].sort((a, b) => String(a[col]).localeCompare(String(b[col])) * (asc ? 1 : -1));
+        sortKeys.push({ col, asc });
+        orderLog.push(`${col}:${asc ? "asc" : "desc"}`);
         return self;
       },
       range(from, to) {
@@ -105,11 +121,11 @@ function fakeClient(opts: FakeOpts): CatchUpClient {
         if (opts.failOnPage === page) {
           return Promise.resolve({ data: null, error: { message: `page ${page} timed out` } });
         }
-        return Promise.resolve({ data: rows.slice(from, to + 1), error: null });
+        return Promise.resolve({ data: sorted().slice(from, to + 1), error: null });
       },
       then(onFulfilled, onRejected) {
         // An unranged await: the whole set, the way a real client answers.
-        return Promise.resolve({ data: rows, error: null }).then(onFulfilled, onRejected);
+        return Promise.resolve({ data: sorted(), error: null }).then(onFulfilled, onRejected);
       },
     };
     return self;
@@ -120,8 +136,23 @@ function fakeClient(opts: FakeOpts): CatchUpClient {
 test("2,350 rows across three pages: future holds every goal id in the source", async () => {
   const lessons = bigFamily();
   const ranges: [number, number][] = [];
-  const sets = await loadCatchUpRows(fakeClient({ lessons, ranges }), { userId: USER, todayStr: TODAY });
+  const orders: string[][] = [];
+  const sets = await loadCatchUpRows(fakeClient({ lessons, ranges, orders }), { userId: USER, todayStr: TODAY });
   assert.ok(sets, "the load succeeds");
+
+  // Both lessons reads order by scheduled_date THEN id. scheduled_date alone
+  // is not a stable page order (the 2,341-row family has 170 dates carrying
+  // more than one open row), and an unstable order can drop a row between
+  // pages, which is exactly the missing goal this loader exists to prevent.
+  // Every page is its own query (selectAllRowsResult rebuilds per page), so
+  // there is one log per page across both halves; the archived-goal read is
+  // the only unordered one.
+  const lessonOrders = orders.filter((o) => o.length > 0);
+  assert.equal(orders.length - lessonOrders.length, 1, "only the archived-goal read is unordered");
+  assert.ok(lessonOrders.length >= 4, `one ordered query per page, got ${lessonOrders.length}`);
+  for (const o of lessonOrders) {
+    assert.deepEqual(o, ["scheduled_date:asc", "id:asc"], "ordered by (scheduled_date, id)");
+  }
 
   const sourceFuture = lessons.filter((r) => r.scheduled_date! >= TODAY);
   const sourceMissed = lessons.filter((r) => r.scheduled_date! < TODAY);
