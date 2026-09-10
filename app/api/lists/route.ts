@@ -1,44 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+// Verified locally from the token's signature; no auth round trip per request.
+import { userIdFromRequest } from '@/lib/access-token'
 
 export const dynamic = 'force-dynamic'
 
-async function getUser(req: NextRequest) {
-  const token = req.headers.get('authorization')?.replace('Bearer ', '')
-  if (!token) return null
-  const { data: { user } } = await supabaseAdmin.auth.getUser(token)
-  return user
-}
 
 export async function GET(req: NextRequest) {
-  const user = await getUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await userIdFromRequest(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const showArchived = req.nextUrl.searchParams.get('archived') === 'true'
 
-  // Auto-purge: permanently delete lists archived > 30 days ago
-  try {
-    const cutoff = new Date()
-    cutoff.setDate(cutoff.getDate() - 30)
-    const { data: stale } = await supabaseAdmin
-      .from('lists')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('archived', true)
-      .lt('archived_at', cutoff.toISOString())
-    if (stale && stale.length > 0) {
-      const staleIds = stale.map((r: { id: string }) => r.id)
-      await supabaseAdmin.from('list_items').delete().in('list_id', staleIds)
-      await supabaseAdmin.from('lists').delete().in('id', staleIds)
-    }
-  } catch { /* non-critical */ }
+  // Auto-purge: permanently delete lists archived > 30 days ago. The lookup
+  // runs alongside the read below; the delete, when there is one, follows.
+  // Archived lists are what the purge removes, so the archived view waits
+  // for it and the active view does not.
+  const cutoff = new Date()
+  cutoff.setDate(cutoff.getDate() - 30)
+  const purge = (async () => {
+    try {
+      const { data: stale } = await supabaseAdmin
+        .from('lists')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('archived', true)
+        .lt('archived_at', cutoff.toISOString())
+      if (stale && stale.length > 0) {
+        const staleIds = stale.map((r: { id: string }) => r.id)
+        await supabaseAdmin.from('list_items').delete().in('list_id', staleIds)
+        await supabaseAdmin.from('lists').delete().in('id', staleIds)
+      }
+    } catch { /* non-critical */ }
+  })()
 
   if (showArchived) {
+    await purge
     // Return archived lists for the "recently deleted" section
     const { data, error } = await supabaseAdmin
       .from('lists')
       .select('*')
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .eq('archived', true)
       .order('archived_at', { ascending: false })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -46,12 +48,15 @@ export async function GET(req: NextRequest) {
   }
 
   // Fetch non-archived lists ordered by sort_order
-  const { data: lists, error } = await supabaseAdmin
-    .from('lists')
-    .select('*')
-    .eq('user_id', user.id)
-    .eq('archived', false)
-    .order('sort_order', { ascending: true })
+  const [{ data: lists, error }] = await Promise.all([
+    supabaseAdmin
+      .from('lists')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('archived', false)
+      .order('sort_order', { ascending: true }),
+    purge,
+  ])
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -59,7 +64,7 @@ export async function GET(req: NextRequest) {
   if (!lists || lists.length === 0) {
     const { data: newList, error: insertErr } = await supabaseAdmin
       .from('lists')
-      .insert({ user_id: user.id, name: "To-Do's", emoji: '✅', sort_order: 0 })
+      .insert({ user_id: userId, name: "To-Do's", emoji: '✅', sort_order: 0 })
       .select()
       .single()
     if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
@@ -70,15 +75,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const user = await getUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await userIdFromRequest(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { name, emoji, sort_order } = await req.json()
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
 
   const { data, error } = await supabaseAdmin
     .from('lists')
-    .insert({ user_id: user.id, name, emoji: emoji ?? '📝', sort_order: sort_order ?? 0 })
+    .insert({ user_id: userId, name, emoji: emoji ?? '📝', sort_order: sort_order ?? 0 })
     .select()
     .single()
 
@@ -87,8 +92,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  const user = await getUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await userIdFromRequest(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id, ...fields } = await req.json()
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -112,7 +117,7 @@ export async function PATCH(req: NextRequest) {
     .from('lists')
     .update(patch)
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .select()
     .single()
 
@@ -121,8 +126,8 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const user = await getUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await userIdFromRequest(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id, permanent } = await req.json()
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
@@ -134,7 +139,7 @@ export async function DELETE(req: NextRequest) {
       .from('lists')
       .delete()
       .eq('id', id)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   } else {
     // Soft delete: archive
@@ -142,7 +147,7 @@ export async function DELETE(req: NextRequest) {
       .from('lists')
       .update({ archived: true, archived_at: new Date().toISOString() })
       .eq('id', id)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

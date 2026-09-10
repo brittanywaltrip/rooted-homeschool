@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+// Verified locally from the token's signature; no auth round trip per request.
+import { userIdFromRequest } from '@/lib/access-token'
 import { nativeToApptDayIdx } from '@/app/lib/day-of-week'
 
 export const dynamic = 'force-dynamic'
 
-async function getUser(req: NextRequest) {
-  const token = req.headers.get('authorization')?.replace('Bearer ', '')
-  if (!token) return null
-  const { data: { user } } = await supabaseAdmin.auth.getUser(token)
-  return user
-}
 
 // ─── Recurrence expansion ────────────────────────────────────────────────────
 
@@ -199,8 +195,8 @@ function expandRecurring(
 // ─── GET ─────────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest) {
-  const user = await getUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await userIdFromRequest(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const dateParam = req.nextUrl.searchParams.get('date')
   const endParam = req.nextUrl.searchParams.get('end')
@@ -219,27 +215,27 @@ export async function GET(req: NextRequest) {
     rangeEnd = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, '0')}-${String(end.getDate()).padStart(2, '0')}`
   }
 
-  // Fetch one-off appointments in the range
-  const { data: oneOff, error: e1 } = await supabaseAdmin
-    .from('appointments')
-    .select('*')
-    .eq('user_id', user.id)
-    .eq('is_recurring', false)
-    .gte('date', rangeStart)
-    .lte('date', rangeEnd)
-    .order('date', { ascending: true })
-    .order('time', { ascending: true, nullsFirst: true })
+  // One-off appointments in the range, and recurring ones that started on or
+  // before rangeEnd. Independent reads, one wave.
+  const [{ data: oneOff, error: e1 }, { data: recurring, error: e2 }] = await Promise.all([
+    supabaseAdmin
+      .from('appointments')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_recurring', false)
+      .gte('date', rangeStart)
+      .lte('date', rangeEnd)
+      .order('date', { ascending: true })
+      .order('time', { ascending: true, nullsFirst: true }),
+    supabaseAdmin
+      .from('appointments')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('is_recurring', true)
+      .lte('date', rangeEnd),
+  ])
 
   if (e1) return NextResponse.json({ error: e1.message }, { status: 500 })
-
-  // Fetch recurring appointments that started on or before rangeEnd
-  const { data: recurring, error: e2 } = await supabaseAdmin
-    .from('appointments')
-    .select('*')
-    .eq('user_id', user.id)
-    .eq('is_recurring', true)
-    .lte('date', rangeEnd)
-
   if (e2) return NextResponse.json({ error: e2.message }, { status: 500 })
 
   // Batch-load exceptions for the recurring appointments in this range. We
@@ -291,8 +287,8 @@ export async function GET(req: NextRequest) {
 // ─── POST ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const user = await getUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await userIdFromRequest(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
   const { title, date } = body
@@ -301,7 +297,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from('appointments')
     .insert({
-      user_id: user.id,
+      user_id: userId,
       title,
       emoji: body.emoji ?? '📅',
       date,
@@ -337,8 +333,8 @@ export async function POST(req: NextRequest) {
 // Non-recurring PATCH calls (scope absent or "series") keep their existing
 // behavior — this is safety rule 4 in the phase spec.
 export async function PATCH(req: NextRequest) {
-  const user = await getUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await userIdFromRequest(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as Record<string, unknown>
   const id = body.id as string | undefined
@@ -363,7 +359,7 @@ export async function PATCH(req: NextRequest) {
       .select('id, user_id')
       .eq('id', id)
       .maybeSingle()
-    if (!baseOwn || (baseOwn as { user_id: string }).user_id !== user.id) {
+    if (!baseOwn || (baseOwn as { user_id: string }).user_id !== userId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
     const { data, error } = await supabaseAdmin
@@ -394,7 +390,7 @@ export async function PATCH(req: NextRequest) {
       .from('appointments')
       .select('*')
       .eq('id', id)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .maybeSingle()
     if (!base) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const baseRow = base as AppointmentRow
@@ -408,7 +404,7 @@ export async function PATCH(req: NextRequest) {
       .from('appointments')
       .update({ recurrence_rule: capped })
       .eq('id', id)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
     if (capErr) return NextResponse.json({ error: capErr.message }, { status: 500 })
 
     // Any exceptions on dates >= instance_date now belong to a series window
@@ -429,7 +425,7 @@ export async function PATCH(req: NextRequest) {
       id: undefined as unknown as string,
       created_at: undefined as unknown as string,
       date: instanceDate,
-      user_id: user.id,
+      user_id: userId,
       is_recurring: true,
       recurrence_rule: oldRule ? { ...oldRule } : null,
     }
@@ -451,7 +447,7 @@ export async function PATCH(req: NextRequest) {
     .from('appointments')
     .update(patch)
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .select()
     .single()
 
@@ -467,8 +463,8 @@ export async function PATCH(req: NextRequest) {
 //   - "this"                        → upsert a skipped exception for that date
 //   - "future"                      → cap the base row's recurrence_rule.end_date
 export async function DELETE(req: NextRequest) {
-  const user = await getUser(req)
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const userId = await userIdFromRequest(req)
+  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as Record<string, unknown>
   const id = body.id as string | undefined
@@ -485,7 +481,7 @@ export async function DELETE(req: NextRequest) {
       .select('id, user_id')
       .eq('id', id)
       .maybeSingle()
-    if (!baseOwn || (baseOwn as { user_id: string }).user_id !== user.id) {
+    if (!baseOwn || (baseOwn as { user_id: string }).user_id !== userId) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
     const { error } = await supabaseAdmin
@@ -511,7 +507,7 @@ export async function DELETE(req: NextRequest) {
       .from('appointments')
       .select('recurrence_rule')
       .eq('id', id)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
       .maybeSingle()
     if (!base) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const oldRule = (base as { recurrence_rule: RecurrenceRule | null }).recurrence_rule
@@ -522,7 +518,7 @@ export async function DELETE(req: NextRequest) {
       .from('appointments')
       .update({ recurrence_rule: capped })
       .eq('id', id)
-      .eq('user_id', user.id)
+      .eq('user_id', userId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     // Clear exceptions beyond the cap.
     await supabaseAdmin
@@ -538,7 +534,7 @@ export async function DELETE(req: NextRequest) {
     .from('appointments')
     .delete()
     .eq('id', id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })

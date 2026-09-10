@@ -12,7 +12,9 @@ import {
 } from "@/lib/auth-retry";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
-import { ProfileProvider, useProfile } from "@/lib/profile-context";
+import { ProfileContext, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile, type ProfileContextType } from "@/lib/profile-context";
+import { SessionContext } from "@/lib/session-context";
+import type { User } from "@supabase/supabase-js";
 import { BadgeNotificationListener } from "@/components/BadgeNotification";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
@@ -110,6 +112,58 @@ async function wasAccountDeleted(
   }
 }
 
+// ── Partner answer cache ─────────────────────────────────────────────────────
+// sessionStorage, keyed by user so a different account signing in on the same
+// tab never inherits it. Both answers are cached: before 2026-09-09 only "is a
+// partner" was, so every load by every ordinary family paid the lookup again
+// and the page could not start until it came back.
+const PARTNER_CACHE_KEY = "rooted_partner";
+
+function readPartnerCache(userId: string): PartnerContextType | null {
+  try {
+    const raw = sessionStorage.getItem(PARTNER_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { userId?: string; ctx?: PartnerContextType };
+    return parsed.userId === userId && parsed.ctx ? parsed.ctx : null;
+  } catch {
+    return null;
+  }
+}
+
+function writePartnerCache(userId: string, ctx: PartnerContextType) {
+  try {
+    sessionStorage.setItem(PARTNER_CACHE_KEY, JSON.stringify({ userId, ctx }));
+  } catch {
+    /* storage full or blocked: the next load looks it up again */
+  }
+}
+
+// ── Onboarding verdict cache ────────────────────────────────────────────────
+// Only the positive verdict is cached, keyed by user, for the session. On a
+// hit the layout renders the page as soon as the partner answer is known and
+// the profile read lands alongside the page's first wave. On a miss (the
+// first load of a session) the gate waits for the profile before rendering,
+// so a family with no profile, a not-yet-onboarded one, or a deleted account
+// is sent on without ever seeing the dashboard, and without the page firing
+// a wave of queries and writes for an account that is about to leave.
+const ONBOARDED_CACHE_KEY = "rooted_onboarded";
+
+function readOnboardedCache(userId: string): boolean {
+  try {
+    return sessionStorage.getItem(ONBOARDED_CACHE_KEY) === userId;
+  } catch {
+    return false;
+  }
+}
+
+function writeOnboardedCache(userId: string) {
+  try {
+    sessionStorage.setItem(ONBOARDED_CACHE_KEY, userId);
+  } catch {
+    /* storage full or blocked: the next load gates on the read again */
+  }
+}
+
 function nameInitial(name: string): string {
   const stripped = name.replace(/^the\s+/i, "").replace(/\s+family$/i, "").trim();
   return stripped ? stripped.charAt(0).toUpperCase() : "🌿";
@@ -117,13 +171,11 @@ function nameInitial(name: string): string {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <ProfileProvider>
-      <LeafAnimationProvider>
-        <DashboardLayoutProvider>
-          <DashboardLayoutInner>{children}</DashboardLayoutInner>
-        </DashboardLayoutProvider>
-      </LeafAnimationProvider>
-    </ProfileProvider>
+    <LeafAnimationProvider>
+      <DashboardLayoutProvider>
+        <DashboardLayoutInner>{children}</DashboardLayoutInner>
+      </DashboardLayoutProvider>
+    </LeafAnimationProvider>
   );
 }
 
@@ -137,14 +189,26 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const router   = useRouter();
   const pathname = usePathname();
   const supabase = useMemo(() => createSupabaseBrowserClient(), []);
-  const { displayName: profileName, familyPhotoUrl: ctxPhotoUrl } = useProfile();
   const { hideFab } = useDashboardLayout();
   const [checking,  setChecking]  = useState(true);
   const [menuOpen,  setMenuOpen]  = useState(false);
   const [isAdmin,   setIsAdmin]   = useState(false);
-  const [profileData, setProfileData] = useState<{ first_name?: string | null; family_photo_url?: string | null }>({});
-  const [isPro, setIsPro] = useState(false);
-  const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
+
+  // ── Session and profile, read once here and shared through context ────────
+  // See lib/session-context.tsx and lib/profile-context.tsx for why.
+  const [sessionUser, setSessionUser] = useState<User | null>(null);
+  const sessionUserRef = useRef<User | null>(null);
+  const [profile, setProfile] = useState<DashboardProfile | null>(null);
+  const [profileReady, setProfileReady] = useState(false);
+  const profileRef = useRef<DashboardProfile | null>(null);
+  const profileFetchedAt = useRef(0);
+  const profileInFlight = useRef<Promise<DashboardProfile | null> | null>(null);
+  const mountedRef = useRef(true);
+  const profileName = profile?.display_name ?? "";
+  const ctxPhotoUrl = profile?.family_photo_url ?? null;
+  const profileData = { first_name: profile?.first_name ?? null, family_photo_url: profile?.family_photo_url ?? null };
+  const isPro = profile?.is_pro ?? false;
+  const trialStartedAt = profile?.trial_started_at ?? null;
 
   // ── Floating camera FAB state ────────────────────────────────────────────
   // Two file inputs, not one: the `capture` attribute suppresses multi-select,
@@ -180,8 +244,111 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     ownerName: "",
   });
 
+  // ── Profile: one read per dashboard load, shared through ProfileContext ───
+  const readProfile = useCallback(async (userId: string): Promise<{ profile: DashboardProfile | null; error: unknown }> => {
+    // The error is NOT discarded. A transient read failure returns
+    // { data: null, error }, which the old code read as "no profile" and
+    // used to route an established family into the new-family wizard. One
+    // retry, then stay put: a missing profile is only believable when the
+    // read actually succeeded.
+    let { data, error } = await supabase
+      .from("profiles")
+      .select(DASHBOARD_PROFILE_COLUMNS)
+      .eq("id", userId)
+      .maybeSingle();
+    if (error) {
+      await new Promise((r) => setTimeout(r, 1000));
+      ({ data, error } = await supabase
+        .from("profiles")
+        .select(DASHBOARD_PROFILE_COLUMNS)
+        .eq("id", userId)
+        .maybeSingle());
+    }
+    return { profile: error ? null : ((data as DashboardProfile | null) ?? null), error };
+  }, [supabase]);
+
+  const loadProfile = useCallback((userId: string) => {
+    const read = readProfile(userId);
+    const settled = read.then((r) => {
+      if (mountedRef.current && !r.error) {
+        profileRef.current = r.profile;
+        profileFetchedAt.current = Date.now();
+        setProfile(r.profile);
+      }
+      if (mountedRef.current) setProfileReady(true);
+      return r.profile;
+    });
+    profileInFlight.current = settled;
+    void settled.finally(() => {
+      if (profileInFlight.current === settled) profileInFlight.current = null;
+    });
+    return read;
+  }, [readProfile]);
+
+  // Any page under the layout may write profiles (Settings, the yearbook
+  // editor and reader) and the layout stays mounted across those routes, so
+  // a route change marks the row stale. A page that mounts by client-side
+  // navigation then re-reads, as every page did before the row was shared;
+  // the one-read-per-load promise is for the initial load.
+  useEffect(() => {
+    profileFetchedAt.current = 0;
+  }, [pathname]);
+
+  const getProfile = useCallback(async (maxAgeMs = 5000): Promise<DashboardProfile | null> => {
+    if (profileInFlight.current) return profileInFlight.current;
+    const uid = sessionUserRef.current?.id;
+    if (!uid) return null;
+    if (profileFetchedAt.current > 0 && Date.now() - profileFetchedAt.current < maxAgeMs) return profileRef.current;
+    return (await loadProfile(uid)).profile;
+  }, [loadProfile]);
+
+  const refreshProfile = useCallback(async () => {
+    const uid = sessionUserRef.current?.id;
+    if (!uid) return;
+    await loadProfile(uid);
+  }, [loadProfile]);
+
+  const profileCtx = useMemo<ProfileContextType>(() => ({
+    profile,
+    ready: profileReady,
+    displayName: profile?.display_name ?? "",
+    familyPhotoUrl: profile?.family_photo_url ?? null,
+    getProfile,
+    refreshProfile,
+  }), [profile, profileReady, getProfile, refreshProfile]);
+
+  // ── Partner detection ──────────────────────────────────────────────────────
+  // Whose data this session shows. Answered without a request when the account
+  // is the admin's or the answer is cached for this session; otherwise one
+  // lookup on profiles.partner_email.
+  const resolvePartner = useCallback(async (user: User): Promise<PartnerContextType> => {
+    const self: PartnerContextType = { isPartner: false, effectiveUserId: user.id, ownerName: "" };
+    // The owner/admin account is never a partner view — skip the check entirely.
+    if (user.email === "garfieldbrittany@gmail.com") {
+      sessionStorage.removeItem(PARTNER_CACHE_KEY);
+      return self;
+    }
+    const cached = readPartnerCache(user.id);
+    if (cached) return cached;
+    // Check if this user's email appears as partner_email in any profile.
+    const email = user.email;
+    if (!email) return self;
+    const { data: ownerProfile, error: partnerErr } = await supabase
+      .from("profiles")
+      .select("id, display_name")
+      .eq("partner_email", email)
+      .maybeSingle();
+    if (partnerErr) return self;
+    const ctx: PartnerContextType = ownerProfile
+      ? { isPartner: true, effectiveUserId: ownerProfile.id, ownerName: ownerProfile.display_name || "" }
+      : self;
+    writePartnerCache(user.id, ctx);
+    return ctx;
+  }, [supabase]);
+
   useEffect(() => {
     let mounted = true;
+    mountedRef.current = true;
 
     // getUser() reaches Supabase's auth server with whichever session it can
     // find (cookie or localStorage). Middleware refreshes the cookie on every
@@ -196,6 +363,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     // families back on the login form typing a password they did not need to
     // type. getUserWithRetry retries transport failures and only reports
     // "signed-out" when the auth server actually answered.
+    //
+    // This is the ONE auth read on the dashboard load path. The user it
+    // returns is shared through SessionContext; nothing under the layout
+    // should call getUser() again to render.
     void (async () => {
       const auth = await getUserWithRetry(supabase);
       if (!mounted) return;
@@ -234,6 +405,9 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         }
       }
 
+      sessionUserRef.current = user;
+      setSessionUser(user);
+
       // Every Sentry event from here on says whose account it came from (id
       // only, never the email) and whether that account is a family or one of
       // the test/demo accounts in lib/queue-slot-health.ts. Global scope so
@@ -247,30 +421,26 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         setIsAdmin(true);
       }
 
-      // Load family name + subscription status.
-      //
-      // The error is NOT discarded any more. A transient read failure returns
-      // { data: null, error }, which the old code read as "no profile" and
-      // used to route an established family into the new-family wizard. One
-      // retry, then stay put: a missing profile is only believable when the
-      // read actually succeeded.
-      const PROFILE_COLUMNS =
-        "display_name, subscription_status, family_photo_url, first_name, onboarded, is_pro, trial_started_at";
-      let { data: profile, error: profileErr } = await supabase
-        .from("profiles")
-        .select(PROFILE_COLUMNS)
-        .eq("id", user.id)
-        .maybeSingle();
-      if (profileErr) {
-        await new Promise((r) => setTimeout(r, 1000));
-        if (!mounted) return;
-        ({ data: profile, error: profileErr } = await supabase
-          .from("profiles")
-          .select(PROFILE_COLUMNS)
-          .eq("id", user.id)
-          .maybeSingle());
-      }
+      // ── Everything below needs only the user id, so it all starts now ─────
+      // Before 2026-09-09 these ran one after another (profile, then the
+      // partner lookup, then the unread count) and the page could not render
+      // until the last one answered: four round trips before its first query.
+      // Now the profile read and the partner lookup start together. Once this
+      // session has seen the family pass the onboarding gate, the page
+      // renders as soon as the partner answer is known (immediately when it
+      // is cached too) and its first wave overlaps the profile read, which
+      // the Today page waits for through ProfileContext.getProfile(). The
+      // first load of a session still waits for the gate.
+      const profileRead = loadProfile(user.id);
+      const partnerPromise = resolvePartner(user);
+      const gateKnown = readOnboardedCache(user.id);
 
+      const partner = await partnerPromise;
+      if (!mounted) return;
+      setPartnerCtx(partner);
+      if (gateKnown) setChecking(false);
+
+      const { profile: loadedProfile, error: profileErr } = await profileRead;
       if (!mounted) return;
 
       if (profileErr) {
@@ -279,7 +449,6 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         reportAuthCheckUnavailable("dashboard-layout-profile", "profile-read-failed", {
           message: (profileErr as { message?: string }).message ?? null,
         });
-        setPartnerCtx({ isPartner: false, effectiveUserId: user.id, ownerName: "" });
         setChecking(false);
         return;
       }
@@ -287,7 +456,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       // Gate: send new (no profile yet) or non-onboarded users through the wizard
       // onboarded is NULL for new users (not false), so check !== true
       // Reached only when the read succeeded, so "no profile" is a real fact.
-      if (!profile || (profile as { onboarded?: boolean | null } | null)?.onboarded !== true) {
+      if (!loadedProfile || loadedProfile.onboarded !== true) {
         // No profile row usually means "new family". It also means "this
         // account was deleted but its auth.users row survived the wipe" (see
         // lib/deleted-account.ts), and handing THAT family the new-family
@@ -300,7 +469,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         // Only runs when there is genuinely no profile row. Families with a
         // profile, meaning everyone who is fine, reach the code below without
         // an extra request.
-        if (!profile) {
+        if (!loadedProfile) {
           const deleted = await wasAccountDeleted(supabase);
           if (!mounted) return;
           if (deleted) {
@@ -312,73 +481,25 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // ── Partner detection ──────────────────────────────────────────────────
-      // The owner/admin account is never a partner view — skip the check entirely.
-      if (user.email === "garfieldbrittany@gmail.com") {
-        sessionStorage.removeItem("rooted_partner");
-        setPartnerCtx({ isPartner: false, effectiveUserId: user.id, ownerName: "" });
-        if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
-        setIsPro((profile as any).is_pro ?? false);
-        setTrialStartedAt((profile as any).trial_started_at ?? null);
-        setChecking(false);
-        return;
-      }
+      writeOnboardedCache(user.id);
+      setChecking(false);
 
-      // Check sessionStorage cache first (avoids extra DB call on nav)
-      const cached = sessionStorage.getItem("rooted_partner");
-      if (cached) {
-        const parsed: PartnerContextType = JSON.parse(cached);
-        setPartnerCtx(parsed);
-        setChecking(false);
-        return;
-      }
-
-      // Check if this user's email appears as partner_email in any profile.
-      // Requires: ALTER TABLE profiles ADD COLUMN IF NOT EXISTS partner_email text;
-      const email = user.email;
-      if (email) {
-        const { data: ownerProfile, error: partnerErr } = await supabase
-          .from("profiles")
-          .select("id, display_name")
-          .eq("partner_email", email)
-          .maybeSingle();
-
-        if (!mounted) return;
-
-        if (!partnerErr && ownerProfile) {
-          const ctx: PartnerContextType = {
-            isPartner: true,
-            effectiveUserId: ownerProfile.id,
-            ownerName: ownerProfile.display_name || "",
-          };
-          sessionStorage.setItem("rooted_partner", JSON.stringify(ctx));
-          setPartnerCtx(ctx);
-          setChecking(false);
-          return;
+      // Check for unread family notifications (a partner never sees the bell,
+      // so a partner session never asks). A failed count is no bell, not a
+      // crash.
+      if (!partner.isPartner) {
+        try {
+          const { count } = await supabase
+            .from("family_notifications")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", user.id)
+            .is("read_at", null);
+          if (!mounted) return;
+          setUnreadFamilyNotifs(count ?? 0);
+        } catch {
+          /* non-critical */
         }
       }
-
-      // Normal user
-      setPartnerCtx({
-        isPartner: false,
-        effectiveUserId: user.id,
-        ownerName: "",
-      });
-      if (profile) setProfileData({ first_name: (profile as any).first_name, family_photo_url: (profile as any).family_photo_url });
-      setIsPro((profile as any).is_pro ?? false);
-      setTrialStartedAt((profile as any).trial_started_at ?? null);
-
-      // Check for unread family notifications
-      const { count } = await supabase
-        .from("family_notifications")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", user.id)
-        .is("read_at", null);
-
-      if (!mounted) return;
-      setUnreadFamilyNotifs(count ?? 0);
-
-      setChecking(false);
     })();
 
     // Keep the auth-state subscription for cross-tab sign-outs and to absorb
@@ -402,15 +523,17 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      mountedRef.current = false;
       subscription.unsubscribe();
     };
-  }, [router]);
+  }, [router, supabase, loadProfile, resolvePartner]);
 
   // Prefer context photo (updates after settings save) over one-time local fetch
   const avatarPhotoUrl = ctxPhotoUrl ?? profileData.family_photo_url ?? null;
 
   async function handleSignOut() {
-    sessionStorage.removeItem("rooted_partner");
+    sessionStorage.removeItem(PARTNER_CACHE_KEY);
+    sessionStorage.removeItem(ONBOARDED_CACHE_KEY);
     await supabase.auth.signOut();
     // Clear the PostHog identity so the next user who signs in on this same
     // browser starts a fresh analytics identity instead of inheriting the
@@ -807,6 +930,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   );
 
   return (
+    <SessionContext.Provider value={sessionUser}>
+    <ProfileContext.Provider value={profileCtx}>
     <PartnerContext.Provider value={partnerCtx}>
       <div className="min-h-screen bg-[#f8f7f4] flex">
         {/* Desktop sidebar */}
@@ -1081,5 +1206,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         <BadgeNotificationListener />
       </div>
     </PartnerContext.Provider>
+    </ProfileContext.Provider>
+    </SessionContext.Provider>
   );
 }
