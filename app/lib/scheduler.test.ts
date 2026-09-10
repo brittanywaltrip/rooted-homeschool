@@ -74,10 +74,11 @@ import {
   isOldEnoughToHeal,
 } from './healEmptyGoal.ts'
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { todayInTz, isoDowFromYmd, addDays, ymdInTz } from './timezone.ts'
+import { schoolDaysBetween } from './scheduler.ts'
 import { mapLessonDateAcrossVacation } from '../components/PlanV2/handleVacationSave.shift.ts'
 import {
   countSchoolDaysInRange,
@@ -7086,4 +7087,104 @@ test('catch-up: the page keeps the sheet open until every write has landed', () 
 
   const no = extractFunctionBody(src, /async function handleMissedRecoveryNo\s*\(/)
   assert.ok(no.indexOf('setShowMissedRecovery(false)') > no.indexOf('await markCatchupAnswered('), 'No closes after its write too')
+})
+
+// ===========================================================================
+// Add a past year (September 2026). See "Adding a past year" in
+// docs/CURRICULUM-SCHEDULING.md. The flow writes completed = true, which
+// Invariant 15 reserves for a person: it must be a client component acting
+// under the family's session, its rows must be invisible to the live
+// scheduler (archived goal, archived year, is_backfill), and it must never
+// call the helpers that move a live schedule.
+// ===========================================================================
+
+const PAST_YEAR_FILES = ['app/dashboard/years/add/page.tsx', 'app/lib/past-year-dates.ts']
+
+test('past year: completion is written only from the browser flow; no file under app/api knows past_year', () => {
+  const apiRoot = resolve(process.cwd(), 'app/api')
+  const offenders: string[] = []
+  for (const entry of readdirSync(apiRoot, { recursive: true }) as string[]) {
+    if (!/\.(ts|tsx)$/.test(entry)) continue
+    const src = stripComments(readFileSync(resolve(apiRoot, entry), 'utf-8'))
+    if (/past_year|past-year-dates|buildPastYearLessons/.test(src)) offenders.push(entry)
+  }
+  assert.deepEqual(offenders, [], 'the past-year writes belong to the browser, under RLS, never to a route with the service role')
+  const page = loadRepoFile('app/dashboard/years/add/page.tsx')
+  assert.match(page, /^"use client";/, 'the flow is a client component')
+  assert.ok(!/supabase-admin|SUPABASE_SERVICE_ROLE_KEY/.test(page), 'no service role in the flow')
+})
+
+test('past year: every goal is archived, every lesson is backfill tagged past_year, and the year is archived', () => {
+  const helper = stripComments(loadRepoFile('app/lib/past-year-dates.ts'))
+  // These builders take an object-typed parameter, so a brace scan would stop
+  // at the type. Slice from the signature to the next export instead.
+  const exportSlice = (name: string) => {
+    const start = helper.indexOf(`export function ${name}(`)
+    assert.notEqual(start, -1, `${name} exists`)
+    const next = helper.indexOf('\nexport ', start + 1)
+    return helper.slice(start, next === -1 ? undefined : next)
+  }
+  const goal = exportSlice('buildPastYearGoal')
+  assert.match(goal, /archived:\s*true/, 'goal rows are archived')
+  assert.match(goal, /current_lesson:\s*row\.completedLessons/, 'the pointer is the completed count')
+  const lesson = exportSlice('buildPastYearLessons')
+  for (const needle of [/completed:\s*true/, /is_backfill:\s*true/, /queue_pinned:\s*true/, /scheduled_source:\s*PAST_YEAR_SOURCE/, /queue_position:\s*i \+ 1/, /completed_at:\s*`\$\{date\}T12:00:00Z`/]) {
+    assert.match(lesson, needle, `lesson rows: ${needle}`)
+  }
+  assert.match(helper, /PAST_YEAR_SOURCE = "past_year"/)
+  const page = stripComments(loadRepoFile('app/dashboard/years/add/page.tsx'))
+  assert.match(page, /status:\s*"archived"/, 'the school_years row is archived from the first write')
+  assert.ok(!/status:\s*"(active|upcoming)"/.test(page), 'never active or upcoming')
+  // The inline add-child insert writes children.archived = false, which is a
+  // different table. Nothing else in the flow may write archived: false.
+  const addChildBody = extractFunctionBody(page, /const addChild = async \(\) =>/)
+  const outsideAddChild = (page.match(/archived:\s*false/g) ?? []).length - (addChildBody.match(/archived:\s*false/g) ?? []).length
+  assert.equal(outsideAddChild, 0, 'nothing in the flow un-archives a goal or a year')
+  assert.ok(!/archived:\s*false/.test(helper), 'the helper never writes archived: false')
+})
+
+test('past year: the flow calls none of the helpers that move a live schedule', () => {
+  const banned = [
+    'recomputeCurrentLesson', 'reconcileGoalScheduleCache', 'healGoalIntegrity', 'healEmptyGoal',
+    'syncProjectedScheduledDates', 'loadCatchUpLessons', 'loadCatchUpRows', 'computeNextLessonsForGoal',
+    'planRescheduleLessons', 'pickNextAvailableDate', 'rescheduleLessonsInVacationBlock',
+  ]
+  for (const f of PAST_YEAR_FILES) {
+    const src = stripComments(loadRepoFile(f))
+    for (const name of banned) assert.ok(!src.includes(name + '('), `${f} must not call ${name}`)
+  }
+})
+
+test('past year: the day walk is schoolDaysBetween in scheduler.ts and nowhere in the flow (Invariant 8)', () => {
+  for (const f of PAST_YEAR_FILES) {
+    const src = stripComments(loadRepoFile(f))
+    assert.ok(!/setDate\(|setUTCDate\(/.test(src), `${f} walks no calendar of its own`)
+  }
+  assert.match(stripComments(loadRepoFile('app/dashboard/years/add/page.tsx')), /schoolDaysBetween\(startDate, endDate, schoolDays\)/)
+})
+
+test('past year: writes run in order and a failure rolls everything back before the family hears about it', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/years/add/page.tsx'))
+  const body = extractFunctionBody(src, /async function addThisYear\s*\(/)
+  const at = (needle: string) => { const i = body.indexOf(needle); assert.notEqual(i, -1, `addThisYear must contain ${needle}`); return i }
+  const year = at('.from("school_years")')
+  const goals = at('.from("curriculum_goals")')
+  const lessons = at('.from("lessons")')
+  const memory = at('.from("memories")')
+  assert.ok(year < goals && goals < lessons && lessons < memory, 'year, then goals, then lessons, then the note')
+  assert.match(body, /batches\(lessons\)/, 'lessons go in batches')
+  assert.ok(body.indexOf('await rollback(yearId)') > body.indexOf('catch'), 'a failure rolls back')
+  assert.match(body, /Nothing was added\. Try again\?/)
+  const rb = extractFunctionBody(src, /const rollback = useCallback\(async \(yearId: string\) =>/)
+  const l = rb.indexOf('.from("lessons").delete()'); const g = rb.indexOf('.from("curriculum_goals").delete()'); const y = rb.indexOf('.from("school_years").delete()')
+  assert.ok(l !== -1 && g !== -1 && y !== -1 && l < g && g < y, 'rollback deletes lessons, then goals, then the year')
+  assert.ok(!/\.from\("lessons"\)\s*\.update/.test(src) && !/\.from\("curriculum_goals"\)\s*\.update/.test(src), 'the flow never updates an existing row')
+})
+
+test('schoolDaysBetween: both ends inclusive, chosen days only, backwards throws, empty falls back to Mon-Fri', () => {
+  assert.deepEqual(schoolDaysBetween('2025-09-01', '2025-09-07', ['Mon', 'Wed', 'Fri']), ['2025-09-01', '2025-09-03', '2025-09-05'])
+  assert.deepEqual(schoolDaysBetween('2025-09-05', '2025-09-05', ['Fri']), ['2025-09-05'])
+  assert.equal(schoolDaysBetween('2025-08-19', '2026-05-22', ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']).length, 199)
+  assert.equal(schoolDaysBetween('2025-09-01', '2025-09-07', []).length, 5)
+  assert.throws(() => schoolDaysBetween('2025-09-08', '2025-09-07', ['Mon']), /after end/)
 })

@@ -70,9 +70,19 @@ export default function YearsArchivePage() {
         >
           Your archived years
         </h1>
-        <p className="text-sm text-[#8B7E74] mb-8">
+        <p className="text-sm text-[#8B7E74] mb-6">
           Every year you close lives here. Tap one to revisit the keepsake.
         </p>
+
+        <Link
+          href="/dashboard/years/add"
+          className="block bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5 mb-6 hover:opacity-90 transition-opacity"
+        >
+          <p className="text-base font-medium text-[#1a2c22]">Add a past year</p>
+          <p className="text-sm text-[#8B7E74] mt-1">
+            Homeschooled before you found Rooted? Add that year so it counts on reports and transcripts. Your current year stays exactly as it is.
+          </p>
+        </Link>
 
         {loading ? (
           <p className="text-sm text-[#7a6f65]">Loading...</p>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 
 export const dynamic = "force-dynamic";
 
@@ -48,12 +49,18 @@ export async function GET(
     return NextResponse.json({ error: "School year not found" }, { status: 404 });
   }
 
-  const { data: completedLessons, error: lessonsErr } = await supabaseAdmin
-    .from("lessons")
-    .select("minutes_spent")
-    .eq("user_id", userId)
-    .eq("school_year_id", schoolYearId)
-    .eq("completed", true);
+  // Paged: a year filed after the fact ("Add a past year") can hold well over
+  // 1,000 completed rows, and an unranged read would return the first 1,000
+  // with no error, so the hours and lesson count would simply be short.
+  const { data: completedLessons, error: lessonsErr } = await selectAllRowsResult<{ minutes_spent: number | null }>((from, to) =>
+    supabaseAdmin
+      .from("lessons")
+      .select("minutes_spent")
+      .eq("user_id", userId)
+      .eq("school_year_id", schoolYearId)
+      .eq("completed", true)
+      .order("id")
+      .range(from, to));
 
   if (lessonsErr) {
     return NextResponse.json({ error: lessonsErr.message }, { status: 500 });

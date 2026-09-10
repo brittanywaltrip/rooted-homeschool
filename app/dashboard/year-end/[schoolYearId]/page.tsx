@@ -124,6 +124,19 @@ export default function YearEndSummaryPage() {
   const [data, setData] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // "Add a past year" lands here with ?added=<name>; say so once, then clean the URL.
+  const [addedToast, setAddedToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const added = url.searchParams.get("added");
+    if (!added) return;
+    setAddedToast(added);
+    url.searchParams.delete("added");
+    window.history.replaceState({}, "", url.pathname + url.search);
+    const t = setTimeout(() => setAddedToast(null), 6000);
+    return () => clearTimeout(t);
+  }, []);
 
   // Rename year state
   const [editingName, setEditingName] = useState(false);
@@ -306,6 +319,14 @@ export default function YearEndSummaryPage() {
         }
       `}</style>
     <div className="print-page year-end-print-page year-end-printable" style={{ background: "#F8F7F4", minHeight: "100vh" }}>
+      {addedToast && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[70] max-w-sm w-[calc(100%-2rem)] bg-[#2d5a3d] text-white text-sm rounded-xl px-4 py-3 shadow-lg"
+        >
+          {addedToast} added. It is in Years whenever you need it.
+        </div>
+      )}
 
       <section className="bg-[#2D5A3D] rounded-b-[24px] py-16 px-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row md:items-end md:justify-between gap-6">

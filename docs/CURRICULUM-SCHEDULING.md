@@ -131,6 +131,10 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
   work happened, which can be any day of the week. Added September 2026 — these four
   writes had no label at all, so a completion pin was indistinguishable in the data
   from whatever wrote the row before it.
+- `'past_year'` — a lesson filed by the family through "Add a past year"
+  (`app/dashboard/years/add/page.tsx`): completed history on an ARCHIVED goal
+  in an ARCHIVED school year, dated by `spreadLessonDates` in
+  `app/lib/past-year-dates.ts`. Never on a live goal.
 - `'cleanup_sql'` — manual cleanup via SQL
 
 **Why:** the May 3 investigation took 90 minutes because every affected lesson row had `scheduled_source = NULL`. Future bugs will be identified in 5 minutes if this is populated.
@@ -802,8 +806,43 @@ Auto-scheduling never bunches; only the user can.
   re-project the tail. Undo restores the snapshot. The only path that may pin
   is `move_lesson_to_date`, which writes the slot and the flag in the same
   statement. **If you are about to write `queue_pinned: true` anywhere else,
-  you are reintroducing this bug.**
+  you are reintroducing this bug.** The one carve-out is "Add a past year"
+  (below): its rows are on archived goals in an archived year, which no
+  projector or reconciler ever reads, and they carry the slot and the flag
+  together as `move_lesson_to_date` does.
 - `lesson_number` semantics are unchanged everywhere. Display, Past-tab grouping, and lesson titles all still read `lesson_number`.
+
+---
+
+### Adding a past year (September 2026)
+
+A family who homeschooled before they found Rooted can file that year from
+`/dashboard/years/add`. The flow inserts a `school_years` row with status
+`archived` (never `active` or `upcoming`), one `curriculum_goals` row per
+curriculum with `archived = true` and `current_lesson = completed`, and one
+`lessons` row per completed lesson: `completed = true`, `is_backfill = true`,
+`queue_pinned = true`, `queue_position = lesson_number`, `scheduled_source =
+'past_year'`, `completed_at` noon UTC of the day, the builder's
+`"{name} — Lesson {n}"` title. Dates come from `schoolDaysBetween`
+(`scheduler.ts`, Invariant 8: the walk lives there) and `spreadLessonDates`
+(`app/lib/past-year-dates.ts`): even across the year's school days, in order,
+at most `ceil(N / days)` per day.
+
+**Why this does not touch the invariants above:** every row belongs to an
+archived goal in an archived year. Today, Plan, the projector, the reconciler
+and the catch-up flows all exclude archived goals, so none of them ever reads
+these rows. They exist for Years, the year-end summary, Reports and (in a
+follow-up) the transcript. The writes are issued from the browser under the
+family's session, at trigger depth 1: a person filing what their family did,
+which is what Invariant 15 reserves completion for. No API route contains
+`past_year`, and the flow calls none of `recomputeCurrentLesson`,
+`reconcileGoalScheduleCache`, `healGoalIntegrity`,
+`syncProjectedScheduledDates` or the catch-up loaders. The "past year" block
+in `scheduler.test.ts` holds all of that.
+
+If any step fails, the flow deletes what it inserted (lessons, then goals,
+then the year, each by the new year's id) and says so. There is no partial
+year.
 
 ---
 

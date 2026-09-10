@@ -585,6 +585,25 @@ function ReadingLogPrintSheet({
 
 export default function ReportsPage() {
   const { effectiveUserId } = usePartner();
+  // Archived years become presets, so a year a family filed after the fact
+  // ("Add a past year") is one tap away. Completed lessons are read with no
+  // date filter, so those rows are already in the data; this only points the
+  // range at them.
+  const [archivedYears, setArchivedYears] = useState<{ id: string; name: string; start_date: string; end_date: string }[]>([]);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    supabase
+      .from("school_years")
+      .select("id, name, start_date, end_date")
+      .eq("user_id", effectiveUserId)
+      .eq("status", "archived")
+      .order("start_date", { ascending: false })
+      .then(({ data }) => {
+        if (!cancelled) setArchivedYears((data ?? []) as { id: string; name: string; start_date: string; end_date: string }[]);
+      });
+    return () => { cancelled = true; };
+  }, [effectiveUserId]);
   const [children,   setChildren]   = useState<Child[]>([]);
   const [lessons,    setLessons]    = useState<Lesson[]>([]);
   const [books,      setBooks]      = useState<BookRecord[]>([]);
@@ -1044,6 +1063,7 @@ export default function ReportsPage() {
             { label: "This Year",  from: schoolYearStart(),                         to: toDateStr(new Date()) },
             { label: "This Month", from: toDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: toDateStr(new Date()) },
             { label: "Last 30 days", from: toDateStr(new Date(Date.now() - 30 * 86400000)), to: toDateStr(new Date()) },
+            ...archivedYears.map((y) => ({ label: y.name, from: y.start_date, to: y.end_date })),
           ].map((p) => (
             <button
               key={p.label}
