@@ -1,7 +1,14 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
+import { sentryEnvironment } from "./lib/sentry-environment";
 
 const nextConfig: NextConfig = {
+  // Sentry environment for the browser bundle. The Vercel system env vars are
+  // available at build time but not to client code, so the value is computed
+  // here and inlined. Server and edge read the same helper at runtime.
+  env: {
+    NEXT_PUBLIC_SENTRY_ENVIRONMENT: sentryEnvironment(process.env),
+  },
   images: {
     remotePatterns: [
       {
