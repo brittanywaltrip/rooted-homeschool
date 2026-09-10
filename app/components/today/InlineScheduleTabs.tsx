@@ -10,6 +10,7 @@
 // re-mounts it, the queries re-fire — current behavior.
 
 import { useCallback, useState, useEffect, useRef } from "react";
+import { useSessionUser } from "@/lib/session-context";
 import { supabase } from "@/lib/supabase";
 import { Pencil } from "lucide-react";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -130,6 +131,9 @@ export default function InlineScheduleTabs({
   onManage: () => void;
   isPartner: boolean;
 }) {
+  const sessionUser = useSessionUser();
+  const sessionUserRef = useRef(sessionUser);
+  sessionUserRef.current = sessionUser;
   const [tab, setTab] = useState<"upcoming" | "recurring" | "past">("upcoming");
   const [upcoming, setUpcoming] = useState<TabAppt[]>([]);
   const [recurring, setRecurring] = useState<TabAppt[]>([]);
@@ -163,7 +167,9 @@ export default function InlineScheduleTabs({
   const loadTabsData = useCallback(async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return;
-      const { data: { user } } = await supabase.auth.getUser();
+      // The layout already asked the auth server who this is; a second
+      // getUser() here was one of four on every dashboard load.
+      const user = sessionUserRef.current;
       if (!user) return;
       const token = session.access_token;
       const sevenAgoYmd = (() => {

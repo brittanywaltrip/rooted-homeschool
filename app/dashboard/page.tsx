@@ -9,6 +9,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/lib/profile-context";
+import { useSessionUser } from "@/lib/session-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
 import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
@@ -437,6 +439,24 @@ export default function TodayPage() {
   const isNativeApp = useIsNativeApp();
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
   const { isPartner, effectiveUserId } = usePartner();
+  // The layout's one auth read and one profile read, shared through context.
+  // Refs so loadData can read them without re-running when the objects change.
+  const sessionUser = useSessionUser();
+  const sessionUserRef = useRef(sessionUser);
+  sessionUserRef.current = sessionUser;
+  const { getProfile } = useProfile();
+  // The profile this page renders. A partner (view-only co-teacher) sees the
+  // OWNER's data, and the context only holds the signed-in user's own row, so
+  // that one case still reads the owner's row here.
+  const loadPageProfile = useCallback(async (maxAgeMs?: number): Promise<DashboardProfile | null> => {
+    if (!isPartner) return getProfile(maxAgeMs);
+    const { data } = await supabase
+      .from("profiles")
+      .select(DASHBOARD_PROFILE_COLUMNS)
+      .eq("id", effectiveUserId)
+      .maybeSingle();
+    return (data as DashboardProfile | null) ?? null;
+  }, [isPartner, effectiveUserId, getProfile]);
   const { setHideFab } = useDashboardLayout();
   const { earnLeaf } = useLeafAnimationContext();
 
@@ -1016,28 +1036,26 @@ export default function TodayPage() {
     const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     setUserTz(browserTz);
 
-    // Profile fetched up front so the rest of loadData can read its
-    // fields and so we can compare its stored timezone against the
-    // browser-detected value for the self-heal write below.
-    const profileResult = await supabase
-      .from("profiles")
-      .select("display_name, onboarded, school_days, school_year_start, family_photo_url, school_start_time, is_pro, plan_type, trial_started_at, created_at, timezone, yearbook_opened_at, yearbook_closed_at, yearbook_settings")
-      .eq("id", effectiveUserId)
-      .maybeSingle();
-    const tzFromProfile = (profileResult.data as { timezone?: string | null } | null)?.timezone ?? null;
+    // ── Profile: the layout's read, not a second request ────────────────────
+    // ProfileContext.getProfile() hands back the layout's in-flight read on a
+    // fresh load, so this wave overlaps it instead of waiting for it, and
+    // re-reads only when the row is more than a few seconds old (a remount
+    // after the yearbook or Settings may have written it). Used to be an
+    // awaited profiles read that every other query below queued behind.
+    const profilePromise = loadPageProfile();
 
-    // Self-heal: if profiles.timezone disagrees with the browser-detected
-    // TZ, push an update in the background. Fire-and-forget so first paint
-    // is never blocked. The constraint at profiles_timezone_format accepts
-    // standard IANA strings; unusual values (e.g. "Etc/GMT+5") may bounce
-    // — silently ignored, browserTz is still used in-page.
-    if (browserTz && tzFromProfile !== browserTz) {
-      void supabase
-        .from("profiles")
-        .update({ timezone: browserTz })
-        .eq("id", effectiveUserId)
-        .then(() => {}, () => {});
-    }
+    // Lists + appointments go through API routes. Started here, alongside
+    // the first wave, and collected at the very end; they used to wait for
+    // every wave before this one to finish.
+    const apiFetches = (async () => {
+      const { data: { session: apiSession } } = await supabase.auth.getSession();
+      if (!apiSession?.access_token) return null;
+      const headers = { Authorization: `Bearer ${apiSession.access_token}` };
+      return Promise.all([
+        fetch("/api/lists", { headers }),
+        fetch(`/api/appointments?date=${today}`, { headers }),
+      ]);
+    })().catch(() => null);
 
     // Local-day window for today's per-goal completion counts. Computed
     // in the browser's TZ so a Pacific-time mom's late-night completions
@@ -1054,27 +1072,33 @@ export default function TodayPage() {
     // August 1 when the book has never been opened) to yearbook_closed_at, and
     // in-book rows only. Any other window gives a number the book won't match.
     // Mirrors app/dashboard/memories/yearbook/read/page.tsx's loader.
-    const ybOpenedAt =
-      (profileResult.data as { yearbook_opened_at?: string | null } | null)?.yearbook_opened_at ??
-      new Date(syYear, schoolYearStartMonth, 1).toISOString();
-    const ybClosedAt = (profileResult.data as { yearbook_closed_at?: string | null } | null)?.yearbook_closed_at ?? null;
-    const ybOpenedMonth = new Date(ybOpenedAt).getUTCMonth();
-    const ybOpenedYear = new Date(ybOpenedAt).getUTCFullYear();
-    const ybStartYear = ybOpenedMonth >= 7 ? ybOpenedYear : ybOpenedYear - 1;
-    const yearbookKeyForCount = `${ybStartYear}-${String(ybStartYear + 1).slice(2)}`;
+    // Chained off the profile so the two queries that need it join the first
+    // wave the moment it lands, while everything else is already in flight.
+    const yearbookWindow = profilePromise.then((p) => {
+      const ybOpenedAt = p?.yearbook_opened_at ?? new Date(syYear, schoolYearStartMonth, 1).toISOString();
+      const ybClosedAt = p?.yearbook_closed_at ?? null;
+      const ybOpenedMonth = new Date(ybOpenedAt).getUTCMonth();
+      const ybOpenedYear = new Date(ybOpenedAt).getUTCFullYear();
+      const ybStartYear = ybOpenedMonth >= 7 ? ybOpenedYear : ybOpenedYear - 1;
+      const yearbookKeyForCount = `${ybStartYear}-${String(ybStartYear + 1).slice(2)}`;
+      return { ybOpenedAt, ybClosedAt, yearbookKeyForCount };
+    });
 
     // Minimal column list, plus title/caption because the recap drops blank
     // items and collapses duplicates before it paginates, so counting rows
     // instead would put the recap on the wrong page. Current families hold at
     // most 61 memories, so this is cheap. If a family ever passes a few
     // thousand rows, move this to a grouped RPC rather than widening it.
-    let bookMemsQuery = supabase
-      .from("memories")
-      .select("id, child_id, type, include_in_book, photo_url, title, caption, featured")
-      .eq("user_id", effectiveUserId)
-      .eq("include_in_book", true)
-      .gte("date", ybOpenedAt.slice(0, 10));
-    if (ybClosedAt) bookMemsQuery = bookMemsQuery.lte("date", ybClosedAt.slice(0, 10));
+    const bookMemsQuery = yearbookWindow.then(({ ybOpenedAt, ybClosedAt }) => {
+      let q = supabase
+        .from("memories")
+        .select("id, child_id, type, include_in_book, photo_url, title, caption, featured")
+        .eq("user_id", effectiveUserId)
+        .eq("include_in_book", true)
+        .gte("date", ybOpenedAt.slice(0, 10));
+      if (ybClosedAt) q = q.lte("date", ybClosedAt.slice(0, 10));
+      return q;
+    });
     const [
       authResult,
       childrenResult,
@@ -1103,7 +1127,8 @@ export default function TodayPage() {
       ybContentResult,
       monthlyReflectionsResult,
     ] = await Promise.all([
-      supabase.auth.getUser(),
+      // The layout's one auth read, through SessionContext. Not a request.
+      Promise.resolve({ data: { user: sessionUserRef.current } }),
       supabase.from("children").select("id, name, color, birthday").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
       // TODO: remove after queue scheduling verified in production. Old
       // pinned-date Today loader. Replaced by queue projection: see Phase 1.5
@@ -1164,12 +1189,14 @@ export default function TodayPage() {
       // Which written sections exist. content_type / child_id / question_key
       // are what decide whether a section costs pages, so a bare row count
       // would not be enough to tell them apart.
-      supabase
-        .from("yearbook_content")
-        .select("content_type, child_id, question_key, content")
-        .eq("user_id", effectiveUserId)
-        .eq("yearbook_key", yearbookKeyForCount)
-        .neq("content", ""),
+      yearbookWindow.then(({ yearbookKeyForCount }) =>
+        supabase
+          .from("yearbook_content")
+          .select("content_type, child_id, question_key, content")
+          .eq("user_id", effectiveUserId)
+          .eq("yearbook_key", yearbookKeyForCount)
+          .neq("content", ""),
+      ),
       supabase.from("monthly_reflections").select("month, answer").eq("user_id", effectiveUserId),
     ]);
 
@@ -1183,26 +1210,43 @@ export default function TodayPage() {
 
     // ── Phase 2: Process all results (no awaits) ────────────────────────
 
-    // Profile
-    const profile = profileResult.data;
+    // Profile (resolved long ago: the wave above waited on it)
+    const profile = await profilePromise;
+    const { ybOpenedAt, ybClosedAt, yearbookKeyForCount } = await yearbookWindow;
     const authUser = authResult.data?.user;
+
+    // Self-heal: if profiles.timezone disagrees with the browser-detected
+    // TZ, push an update in the background. Fire-and-forget so first paint
+    // is never blocked. The constraint at profiles_timezone_format accepts
+    // standard IANA strings; unusual values (e.g. "Etc/GMT+5") may bounce
+    // — silently ignored, browserTz is still used in-page.
+    // profiles.timezone was added 2026-05-03 with a DEFAULT of America/New_York
+    // and has never been self-updated, so the browser is the ground truth.
+    const tzFromProfile = profile?.timezone ?? null;
+    if (browserTz && tzFromProfile !== browserTz) {
+      void supabase
+        .from("profiles")
+        .update({ timezone: browserTz })
+        .eq("id", effectiveUserId)
+        .then(() => {}, () => {});
+    }
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
     setFirstName(authUser?.user_metadata?.first_name || "");
-    setOnboarded((profile as { onboarded?: boolean } | null)?.onboarded ?? null);
-    setProfileCreatedAt((profile as { created_at?: string | null } | null)?.created_at ?? null);
-    setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
-    setTrialStartedAt((profile as any)?.trial_started_at ?? null);
-    const pt = (profile as { plan_type?: string } | null)?.plan_type ?? null;
+    setOnboarded(profile?.onboarded ?? null);
+    setProfileCreatedAt(profile?.created_at ?? null);
+    setIsPro(profile?.is_pro ?? false);
+    setTrialStartedAt(profile?.trial_started_at ?? null);
+    const pt = profile?.plan_type ?? null;
     setPlanType(pt);
     const isFreeUser = !pt || pt === "free";
     const showTeaser = isFreeUser || previewFree;
     console.log('[YearbookTeaser] plan_type:', pt, 'showing teaser:', showTeaser, 'previewFree:', previewFree);
-    setFamilyPhotoUrl((profile as { family_photo_url?: string } | null)?.family_photo_url ?? null);
+    setFamilyPhotoUrl(profile?.family_photo_url ?? null);
 
     // School days
-    const schoolDays: string[] = (profile as { school_days?: string[] } | null)?.school_days ?? [];
+    const schoolDays: string[] = profile?.school_days ?? [];
     setSchoolDaysArr(schoolDays);
-    setSchoolStartTime((profile as { school_start_time?: string } | null)?.school_start_time ?? null);
+    setSchoolStartTime(profile?.school_start_time ?? null);
     if (schoolDays.length > 0) {
       // school_days stores short-form labels ("Mon".."Sun"); isSchoolDayDate
       // normalizes either format before comparing, so this works for both the
@@ -1211,7 +1255,7 @@ export default function TodayPage() {
     }
 
     // Milestone
-    const schoolYearStart = (profile as { school_year_start?: string } | null)?.school_year_start;
+    const schoolYearStart = profile?.school_year_start;
     if (schoolYearStart) {
       const now = new Date();
       const milestoneKey = `milestone_shown_${now.getFullYear()}_${now.getMonth()}`;
@@ -1926,7 +1970,7 @@ export default function TodayPage() {
     // key the family has never toggled is simply absent. The reader spreads
     // its DEFAULT_YB_SETTINGS underneath, so an absent key means on.
     const ybSettingsRow =
-      (profile as { yearbook_settings?: Record<string, boolean> | null } | null)?.yearbook_settings ?? null;
+      profile?.yearbook_settings ?? null;
     const sectionOn = (k: string) => ybSettingsRow?.[k] ?? true;
     const bookSections: BookSections = {
       showLetter: sectionOn("show_letter"),
@@ -1998,14 +2042,11 @@ export default function TodayPage() {
     // Today's story
     setTodayStory((todayStoryResult.data ?? []) as typeof todayStory);
 
-    // Lists + Appointments — fetch via API routes
+    // Lists + Appointments, started with the first wave above
     try {
-      const { data: { session: apiSession } } = await supabase.auth.getSession();
-      if (apiSession?.access_token) {
-        const [listsRes, apptsRes] = await Promise.all([
-          fetch("/api/lists", { headers: { Authorization: `Bearer ${apiSession.access_token}` } }),
-          fetch(`/api/appointments?date=${today}`, { headers: { Authorization: `Bearer ${apiSession.access_token}` } }),
-        ]);
+      const responses = await apiFetches;
+      if (responses) {
+        const [listsRes, apptsRes] = responses;
         if (listsRes.ok) setLists(await listsRes.json());
         if (apptsRes.ok) setTodayAppointments(await apptsRes.json());
       }
@@ -2018,7 +2059,7 @@ export default function TodayPage() {
       setLoading(false);
       loadDataBusy.current = false;
     }
-  }, [today, effectiveUserId]);
+  }, [today, effectiveUserId, loadPageProfile]);
 
   useEffect(() => { loadData(); loadTodayActivities(); }, [loadData, loadTodayActivities]);
 
@@ -2038,22 +2079,25 @@ export default function TodayPage() {
       try {
         const { checkAndGrantAwards } = await import("@/lib/award-unlocks");
         const { AWARD_META } = await import("@/lib/certificate-templates");
-        const { data: { user } } = await supabase.auth.getUser();
+        // The layout's auth read, not another /auth/v1/user round trip.
+        const user = sessionUserRef.current;
         if (!user) return;
 
-        const [{ data: lessons }, { data: memories }, { data: prof }] = await Promise.all([
+        const [{ data: lessons }, { data: memories }, prof] = await Promise.all([
           // Paged: award thresholds count completed lessons and distinct
           // school days, so a capped read hands out the wrong certificates.
           selectAllRowsResult<{ child_id: string; date: string; scheduled_date?: string }>((from, to) =>
             supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true)
               .order("id").range(from, to)),
           supabase.from("memories").select("id, type, child_id, title, date").eq("user_id", effectiveUserId),
-          supabase.from("profiles").select("display_name, last_name").eq("id", effectiveUserId).maybeSingle(),
+          // The profile the page already holds; a minute of staleness is fine
+          // for a certificate's academy name.
+          loadPageProfile(60_000),
         ]);
         const allDates = new Set<string>();
         for (const l of (lessons || []) as { date?: string }[]) { if (l.date) allDates.add(l.date); }
-        const displayName = (prof as { display_name?: string } | null)?.display_name || "";
-        const lastName = (prof as { last_name?: string } | null)?.last_name || "";
+        const displayName = prof?.display_name || "";
+        const lastName = prof?.last_name || "";
         // Certificates render this verbatim. See lib/school-name.ts.
         const academy = schoolNameFor(displayName, lastName);
 
@@ -2096,7 +2140,7 @@ export default function TodayPage() {
         }
       } catch (e) { console.error("[Achievement check]", e); }
     })();
-  }, [effectiveUserId, loading, children]);
+  }, [effectiveUserId, loading, children, loadPageProfile]);
 
   // Load unread family notifications
   useEffect(() => {

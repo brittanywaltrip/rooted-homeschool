@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { supabase } from "@/lib/supabase";
+import { useProfile } from "@/lib/profile-context";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { useIsNativeApp } from "@/lib/platform";
 
@@ -13,43 +13,36 @@ export default function UpgradeBanner() {
     () => typeof window !== "undefined" && sessionStorage.getItem("rooted_banner_dismissed") === "1"
   );
 
+  // The layout reads the profile once per dashboard load and shares it; this
+  // used to be its own session read plus its own profiles read.
+  const { profile, ready } = useProfile();
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session) return;
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("is_pro, trial_started_at, created_at")
-        .eq("id", session.user.id)
-        .single();
-      if (!profile) return;
+    if (!ready || !profile) return;
 
-      const access = getUserAccess({
-        is_pro: (profile as any).is_pro,
-        trial_started_at: (profile as any).trial_started_at,
-      });
-
-      if (access === "pro") return; // paying user — no banner
-
-      if (access === "trial") {
-        const left = getTrialDaysLeft((profile as any).trial_started_at);
-        setDaysLeft(left);
-        // Only show the trial banner in the last 8 days AND while days actually
-        // remain. getTrialDaysLeft already clamps to 0 and getUserAccess returns
-        // 'free' once expired, but guarding on left > 0 here means an expired or
-        // zero-day trial can never render "ends in 0 days"/"ends today" — those
-        // users fall through to the upgrade banner instead.
-        if (left > 0 && left <= 8) setBannerState("trial");
-        return;
-      }
-
-      // Free user (trial expired) — show upgrade banner
-      // But only if account is 48+ hours old (don't nag brand new users)
-      const accountAge = Date.now() - new Date((profile as any).created_at).getTime();
-      if (accountAge > 48 * 60 * 60 * 1000) {
-        setBannerState("upgrade");
-      }
+    const access = getUserAccess({
+      is_pro: profile.is_pro,
+      trial_started_at: profile.trial_started_at,
     });
-  }, []);
+
+    if (access === "pro") { setBannerState("hidden"); return; } // paying user — no banner
+
+    if (access === "trial") {
+      const left = getTrialDaysLeft(profile.trial_started_at);
+      setDaysLeft(left);
+      // Only show the trial banner in the last 8 days AND while days actually
+      // remain. getTrialDaysLeft already clamps to 0 and getUserAccess returns
+      // 'free' once expired, but guarding on left > 0 here means an expired or
+      // zero-day trial can never render "ends in 0 days"/"ends today" — those
+      // users fall through to the upgrade banner instead.
+      setBannerState(left > 0 && left <= 8 ? "trial" : "hidden");
+      return;
+    }
+
+    // Free user (trial expired) — show upgrade banner
+    // But only if account is 48+ hours old (don't nag brand new users)
+    const accountAge = Date.now() - new Date(profile.created_at ?? 0).getTime();
+    setBannerState(accountAge > 48 * 60 * 60 * 1000 ? "upgrade" : "hidden");
+  }, [ready, profile]);
 
   if (bannerState === "hidden" || dismissed) return null;
 
