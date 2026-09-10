@@ -46,7 +46,7 @@ const sections = [
       },
       {
         q: "I homeschooled before I found Rooted. Can I add that year?",
-        a: "Yes. Go to Years > Add a past year, give the year its dates and school days, and enter each child's curricula with how many lessons they finished. The year is filed as closed, so it shows in Years, on Reports for those dates, and on the year-end summary, and your current year is not changed.",
+        a: "Yes. Go to More, then Years, and tap Add a past year. Give the year its dates and school days, and enter each child's curricula with how many lessons they finished. The year is filed as closed, so it shows in Years, on Reports for those dates, and on the year-end summary, and your current year is not changed.",
       },
       {
         q: "What is the curriculum planner?",

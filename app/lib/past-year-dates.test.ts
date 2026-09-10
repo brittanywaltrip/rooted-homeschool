@@ -1,6 +1,8 @@
 // Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   spreadLessonDates, pastYearProblem, defaultYearName, buildPastYearLessons, buildPastYearGoal,
   summarizePastYear, pastYearReviewSentence, describeSchoolDays, rowProblem, usableRows, MAX_PAST_YEAR_DAYS,
@@ -211,4 +213,16 @@ test("overlap: a year longer than the cap is refused as a typo", () => {
 
 test("schoolDaysBetween refuses a range past its bound instead of truncating", () => {
   assert.throws(() => schoolDaysBetween("2000-01-01", "2020-01-01", MON_FRI), /longer than/);
+});
+
+test("More lists Years, between Reports and What's New, so the FAQ's path is real", () => {
+  const src = readFileSync(resolve(process.cwd(), "app/dashboard/more/page.tsx"), "utf8");
+  const reports = src.indexOf('href: "/dashboard/reports"');
+  const years = src.indexOf('href: "/dashboard/years"');
+  const whatsNew = src.indexOf('href: "/dashboard/more/whats-new"');
+  assert.ok(years !== -1, "More links to /dashboard/years");
+  assert.ok(reports < years && years < whatsNew, "Years sits between Reports and What's New");
+  const faq = readFileSync(resolve(process.cwd(), "app/faq/page.tsx"), "utf8");
+  assert.match(faq, /Go to More, then Years, and tap Add a past year/);
+  assert.ok(!faq.includes("Years > Add a past year"), "the old path is gone");
 });
