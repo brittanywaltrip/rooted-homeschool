@@ -18,7 +18,7 @@
 // inserted is deleted again and the family sees one sentence, never a partial
 // year. Nothing about the active year is read for writing.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -117,6 +117,15 @@ export default function AddPastYearPage() {
   const [loading, setLoading] = useState(true);
   const [children, setChildren] = useState<Child[]>([]);
   const [existingYears, setExistingYears] = useState<ExistingYear[]>([]);
+  // The years list is the only overlap guard (nothing in the database stops
+  // an archived year from overlapping another), so a failed read must block
+  // the flow rather than read as "no other years".
+  const [loadFailed, setLoadFailed] = useState(false);
+  // True once the session provider has had a fair chance to answer.
+  const [sessionTimedOut, setSessionTimedOut] = useState(false);
+  // Synchronous re-entry guard: the `busy` state does not update between two
+  // taps that land before React re-renders.
+  const submittingRef = useRef(false);
 
   // Step 1
   const [startDate, setStartDate] = useState("");
@@ -145,6 +154,12 @@ export default function AddPastYearPage() {
   }, []);
 
   useEffect(() => {
+    if (userId) return;
+    const t = setTimeout(() => setSessionTimedOut(true), 8000);
+    return () => clearTimeout(t);
+  }, [userId]);
+
+  useEffect(() => {
     if (!userId) return;
     let cancelled = false;
     (async () => {
@@ -153,6 +168,12 @@ export default function AddPastYearPage() {
         supabase.from("school_years").select("id, name, start_date, end_date, status").eq("user_id", userId).order("start_date", { ascending: false }),
       ]);
       if (cancelled) return;
+      if (kidsRes.error || yearsRes.error) {
+        captureSupabaseError("Add a past year: load failed", kidsRes.error ?? yearsRes.error, { tags: { flow: "add_past_year" } });
+        setLoadFailed(true);
+        setLoading(false);
+        return;
+      }
       const kids = ((kidsRes.data ?? []) as Child[]).map((c) => ({ ...c, name: capitalizeName(c.name) }));
       setChildren(kids);
       setRows(kids.map((k) => newRow(k.id)));
@@ -183,9 +204,17 @@ export default function AddPastYearPage() {
 
   // ── Step gates. A tap that cannot proceed says why; nothing is disabled. ──
   const step1Problem = (): string | null => {
+    if (loadFailed) return "Rooted couldn't load your years just now. Reload the page and try again.";
     if (!yearName.trim()) return "Give the year a name.";
     if (schoolDays.length === 0) return "Pick at least one school day.";
-    return pastYearProblem(startDate, endDate, existingYears, today);
+    const p = pastYearProblem(startDate, endDate, existingYears, today);
+    if (p) return p;
+    // A range the chosen days never fall in (a weekend with Mon to Fri, say)
+    // would otherwise fail deep inside the writes.
+    if (schoolDaysBetween(startDate, endDate, schoolDays).length === 0) {
+      return "None of the days you picked fall between those dates. Pick more school days or a wider range.";
+    }
+    return null;
   };
 
   const step2Problem = (): string | null => {
@@ -252,19 +281,25 @@ export default function AddPastYearPage() {
 
   // ── The writes ───────────────────────────────────────────────────────────
   const rollback = useCallback(async (yearId: string) => {
-    if (!userId) return;
+    if (!userId) throw new Error("rollback without a user");
     // Lessons first, then goals, then the year: each delete is scoped to the
     // year this run created, so nothing else of the family's can be touched.
-    await supabase.from("lessons").delete().eq("user_id", userId).eq("school_year_id", yearId);
-    await supabase.from("curriculum_goals").delete().eq("user_id", userId).eq("school_year_id", yearId);
-    await supabase.from("school_years").delete().eq("user_id", userId).eq("id", yearId);
+    // supabase-js resolves on a failed request, so each result is checked;
+    // a delete that did not happen is an error, not a success.
+    const l = await supabase.from("lessons").delete().eq("user_id", userId).eq("school_year_id", yearId);
+    if (l.error) throw l.error;
+    const g = await supabase.from("curriculum_goals").delete().eq("user_id", userId).eq("school_year_id", yearId);
+    if (g.error) throw g.error;
+    const y = await supabase.from("school_years").delete().eq("user_id", userId).eq("id", yearId);
+    if (y.error) throw y.error;
   }, [userId]);
 
   async function addThisYear() {
-    if (busy || !userId) return;
+    if (busy || submittingRef.current || !userId) return;
     const p1 = step1Problem();
     const p2 = step2Problem();
     if (p1 || p2) { setError(p1 ?? p2); return; }
+    submittingRef.current = true;
     setBusy(true);
     setError(null);
 
@@ -317,12 +352,19 @@ export default function AddPastYearPage() {
       router.push(`/dashboard/year-end/${yearId}?added=${encodeURIComponent(name)}`);
     } catch (e) {
       captureSupabaseError("Add a past year failed", e, { tags: { flow: "add_past_year" }, extra: { yearId, rows: usable.length } });
+      let cleanedUp = true;
       if (yearId) {
         try { await rollback(yearId); } catch (rollbackErr) {
+          cleanedUp = false;
           captureSupabaseError("Add a past year rollback failed", rollbackErr, { tags: { flow: "add_past_year" }, extra: { yearId } });
         }
       }
-      setError("That didn't save. Nothing was added. Try again?");
+      setError(
+        cleanedUp
+          ? "That didn't save. Nothing was added. Try again?"
+          : "That didn't save, and Rooted couldn't fully undo it. Please email hello@rootedhomeschoolapp.com and we'll put it right.",
+      );
+      submittingRef.current = false;
       setBusy(false);
     }
   }
@@ -361,8 +403,12 @@ export default function AddPastYearPage() {
           </p>
         </div>
 
-        {loading ? (
+        {!userId && sessionTimedOut ? (
+          <p className="text-sm text-[#7a6f65]">Rooted couldn't confirm who is signed in. Reload the page to try again.</p>
+        ) : loading ? (
           <p className="text-sm text-[#7a6f65]">Loading...</p>
+        ) : loadFailed ? (
+          <p className="text-sm text-[#7a6f65]">Rooted couldn't load your years just now. Reload the page and try again.</p>
         ) : step === 1 ? (
           <>
             <div className={cardClass}>
@@ -565,6 +611,7 @@ export default function AddPastYearPage() {
                 type="button"
                 onClick={addThisYear}
                 aria-busy={busy}
+                disabled={busy}
                 className={primaryButton}
                 style={{ background: "var(--g-brand)", opacity: busy ? 0.85 : 1 }}
               >

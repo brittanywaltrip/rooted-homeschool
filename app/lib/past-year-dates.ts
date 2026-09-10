@@ -51,6 +51,13 @@ function fmtLong(ymd: string): string {
  * year starts (before today when there is no active year); and it may not
  * overlap any year the family already has, touching included.
  */
+/** The longest span a single filed year may cover. Longer is a typo in the year. */
+export const MAX_PAST_YEAR_DAYS = 400;
+
+function daysBetween(start: string, end: string): number {
+  return Math.round((Date.parse(end + "T12:00:00Z") - Date.parse(start + "T12:00:00Z")) / 86400000);
+}
+
 export function pastYearProblem(
   start: string,
   end: string,
@@ -60,20 +67,34 @@ export function pastYearProblem(
   const iso = /^\d{4}-\d{2}-\d{2}$/;
   if (!iso.test(start) || !iso.test(end)) return "Pick a start date and an end date.";
   if (end <= start) return "The end date needs to come after the start date.";
+  if (daysBetween(start, end) > MAX_PAST_YEAR_DAYS) {
+    return `That is more than ${MAX_PAST_YEAR_DAYS} days. Add each school year on its own.`;
+  }
   const active = existing.find((y) => y.status === "active");
-  if (active) {
-    if (end >= active.start_date) {
-      return `That overlaps your ${active.name} year (starts ${fmtLong(active.start_date)}). Pick an end date before it.`;
-    }
-  } else if (end >= today) {
-    return "A past year has to end before today.";
+  if (!active && end >= today) return "A past year has to end before today.";
+
+  // Every year the range touches, so a family who is told about one does not
+  // fix it only to be told about the next. The active year counts as touched
+  // from its start date onward, whatever its end date says.
+  const touched = existing
+    .filter((y) => {
+      if (y.status === "active") return end >= y.start_date;
+      return start <= y.end_date && end >= y.start_date;
+    })
+    .sort((a, b) => a.start_date.localeCompare(b.start_date));
+  const describe = (y: ExistingYear) =>
+    y.status === "active"
+      ? `your ${y.name} year (starts ${fmtLong(y.start_date)})`
+      : `your ${y.name} year (${fmtLong(y.start_date)} to ${fmtLong(y.end_date)})`;
+  if (touched.length === 0) return null;
+  if (touched.length === 1) {
+    const y = touched[0];
+    return y.status === "active"
+      ? `That overlaps ${describe(y)}. Pick an end date before it.`
+      : `That overlaps ${describe(y)}. Pick dates that don't touch it.`;
   }
-  for (const y of existing) {
-    if (start <= y.end_date && end >= y.start_date) {
-      return `That overlaps your ${y.name} year (${fmtLong(y.start_date)} to ${fmtLong(y.end_date)}). Pick dates that don't touch it.`;
-    }
-  }
-  return null;
+  const names = touched.map(describe);
+  return `That overlaps ${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}. Pick dates that don't touch either.`;
 }
 
 /** "2025-2026" from the dates; the two years, or one when they match. */

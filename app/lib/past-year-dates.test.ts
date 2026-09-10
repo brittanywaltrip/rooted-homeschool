@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   spreadLessonDates, pastYearProblem, defaultYearName, buildPastYearLessons, buildPastYearGoal,
-  summarizePastYear, pastYearReviewSentence, describeSchoolDays, rowProblem, batches, usableRows,
+  summarizePastYear, pastYearReviewSentence, describeSchoolDays, rowProblem, batches, usableRows, MAX_PAST_YEAR_DAYS,
 } from "./past-year-dates.ts";
 import { schoolDaysBetween } from "./scheduler.ts";
 
@@ -199,4 +199,19 @@ test("batches of 500", () => {
   const b = batches(Array.from({ length: 1201 }, (_, i) => i));
   assert.deepEqual(b.map((x) => x.length), [500, 500, 201]);
   assert.deepEqual(batches([]), []);
+});
+
+test("overlap: a range touching two years names both in one sentence", () => {
+  const msg = pastYearProblem("2025-05-01", "2026-02-01", [ACTIVE, OLD], TODAY) ?? "";
+  assert.match(msg, /your 2024-2025 year \(Aug 20, 2024 to May 30, 2025\) and your 2026-2027 year \(starts Aug 18, 2026\)/);
+  assert.match(msg, /don't touch either/);
+});
+
+test("overlap: a year longer than the cap is refused as a typo", () => {
+  assert.match(pastYearProblem("2023-08-18", "2025-05-22", [], TODAY) ?? "", new RegExp(`more than ${MAX_PAST_YEAR_DAYS} days`));
+  assert.equal(pastYearProblem("2024-08-18", "2025-08-18", [], TODAY), null, "a full calendar year is fine");
+});
+
+test("schoolDaysBetween refuses a range past its bound instead of truncating", () => {
+  assert.throws(() => schoolDaysBetween("2000-01-01", "2020-01-01", MON_FRI), /longer than/);
 });

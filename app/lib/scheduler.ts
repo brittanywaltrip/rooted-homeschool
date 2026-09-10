@@ -1532,14 +1532,19 @@ export function isSchoolDay(date: Date, schoolDays: string[] | null | undefined)
  * Throws when the range is backwards, so a caller cannot get an empty list
  * and read it as "no school days".
  */
+export const SCHOOL_DAYS_BETWEEN_MAX_SPAN = 3660;
+
 export function schoolDaysBetween(startYmd: string, endYmd: string, schoolDays: string[] | null | undefined): string[] {
   if (startYmd > endYmd) throw new Error(`schoolDaysBetween: start ${startYmd} is after end ${endYmd}`);
   const days = normalizeSchoolDays(schoolDays);
   const out: string[] = [];
   const cursor = new Date(startYmd + "T12:00:00");
-  for (let i = 0; i < 3660; i++) {
+  for (let i = 0; ; i++) {
     const ymd = toDateStr(cursor);
     if (ymd > endYmd) break;
+    // A silently truncated list would place every lesson in the first ten
+    // years of a typo'd range and leave the rest empty. Refuse instead.
+    if (i >= SCHOOL_DAYS_BETWEEN_MAX_SPAN) throw new Error(`schoolDaysBetween: ${startYmd} to ${endYmd} is longer than ${SCHOOL_DAYS_BETWEEN_MAX_SPAN} days`);
     if (isSchoolDay(cursor, days)) out.push(ymd);
     cursor.setDate(cursor.getDate() + 1);
   }
