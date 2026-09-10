@@ -2,13 +2,14 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { BookOpen, FileText, Sparkles, HelpCircle, Mail, Settings, ChevronRight, GraduationCap } from "lucide-react";
+import { BookOpen, FileText, Sparkles, HelpCircle, Mail, Settings, ChevronRight, GraduationCap, Archive } from "lucide-react";
 import PageHero from "@/app/components/PageHero";
 
 const items = [
   { label: "Resources",  sub: "Deals, freebies & field trips",       href: "/dashboard/resources",        icon: BookOpen  },
   { label: "Transcripts", sub: "Courses, GPA & official transcripts", href: "/dashboard/transcript",       icon: GraduationCap },
   { label: "Reports",    sub: "Hours, attendance & reading log",      href: "/dashboard/reports",          icon: FileText  },
+  { label: "Years",      sub: "Past years & year-end summaries",      href: "/dashboard/years",            icon: Archive   },
   { label: "What's New", sub: "Latest updates & improvements",       href: "/dashboard/more/whats-new",   icon: Sparkles  },
   { label: "FAQ",        sub: "Common questions",                    href: "/faq",                        icon: HelpCircle },
   { label: "Contact",    sub: "Get in touch",                        href: "/contact",                    icon: Mail      },
