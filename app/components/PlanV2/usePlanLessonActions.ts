@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { recomputeCurrentLesson, toDateStr } from "@/app/lib/scheduler";
 import {
@@ -63,6 +63,13 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     effectiveUserId, onSkipUndo, onNeedsDateChoice, onLessonCompleted,
   } = opts;
 
+  // Lessons with a write in flight. A second tap on the same circle while the
+  // first is still writing is IGNORED, not queued: on a slow connection a
+  // family taps again, and two completions racing for one row is how a row
+  // reads done, then not done, then done. Same guard the past-year confirm
+  // button uses.
+  const inFlightRef = useRef<Set<string>>(new Set());
+
   const findLesson = useCallback(
     (id: string): T | undefined =>
       lessons.find(l => l.id === id) ?? monthLessons.find(l => l.id === id),
@@ -78,54 +85,61 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     dateStr: string,
     choice: CompletionChoice,
   ) => {
-    const lesson = findLesson(id);
-    const todayStr = toDateStr(new Date());
-    // Optimistic: the row moves to the day it is being filed under, so the
-    // calendar agrees with the toast before the write lands.
-    const patch = (l: T): T =>
-      l.id !== id ? l : { ...l, completed: true, scheduled_date: dateStr, date: dateStr };
-    setLessons(prev => prev.map(patch));
-    setMonthLessons(prev => prev.map(patch));
+    if (inFlightRef.current.has(id)) return;
+    inFlightRef.current.add(id);
+    try {
+      const lesson = findLesson(id);
+      const todayStr = toDateStr(new Date());
+      // Optimistic: the row moves to the day it is being filed under, so the
+      // calendar agrees with the toast before the write lands.
+      const patch = (l: T): T =>
+        l.id !== id ? l : { ...l, completed: true, scheduled_date: dateStr, date: dateStr };
+      setLessons(prev => prev.map(patch));
+      setMonthLessons(prev => prev.map(patch));
 
-    const { error } = await completeLessonOnDate(supabase, {
-      lessonId: id,
-      dateStr,
-      choice,
-      todayStr,
-      surface: "plan",
-      lessonNumber: (lesson as { lesson_number?: number | null } | undefined)?.lesson_number ?? null,
-      subjectLabel:
-        (lesson as { curriculum_goals?: { subject_label?: string | null } | null } | undefined)
-          ?.curriculum_goals?.subject_label ?? null,
-      track: (event) => {
-        if (lesson) onLessonCompleted?.(event, lesson);
-      },
-    });
-    if (error) {
-      // Roll the optimistic patch back so the row does not read as done.
-      const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: false });
-      setLessons(prev => prev.map(revert));
-      setMonthLessons(prev => prev.map(revert));
-      throw new Error(error.message);
-    }
-
-    if (lesson?.curriculum_goal_id) {
-      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
-    }
-    if (effectiveUserId) {
-      try {
-        onLogAction({
-          userId: effectiveUserId,
-          childId: lesson?.child_id ?? undefined,
-          actionType: "lesson",
-        });
-      } catch {
-        /* analytics must never block a user action */
+      const { error } = await completeLessonOnDate(supabase, {
+        lessonId: id,
+        dateStr,
+        choice,
+        todayStr,
+        surface: "plan",
+        lessonNumber: (lesson as { lesson_number?: number | null } | undefined)?.lesson_number ?? null,
+        subjectLabel:
+          (lesson as { curriculum_goals?: { subject_label?: string | null } | null } | undefined)
+            ?.curriculum_goals?.subject_label ?? null,
+        track: (event) => {
+          if (lesson) onLessonCompleted?.(event, lesson);
+        },
+      });
+      if (error) {
+        // Roll the optimistic patch back so the row does not read as done.
+        const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: false });
+        setLessons(prev => prev.map(revert));
+        setMonthLessons(prev => prev.map(revert));
+        throw new Error(error.message);
       }
+
+      if (lesson?.curriculum_goal_id) {
+        await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+      }
+      if (effectiveUserId) {
+        try {
+          onLogAction({
+            userId: effectiveUserId,
+            childId: lesson?.child_id ?? undefined,
+            actionType: "lesson",
+          });
+        } catch {
+          /* analytics must never block a user action */
+        }
+      }
+    } finally {
+      inFlightRef.current.delete(id);
     }
   }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted]);
 
   const toggleLesson = useCallback(async (id: string, current: boolean) => {
+    if (inFlightRef.current.has(id)) return;
     const lesson = findLesson(id);
     const completingNow = !current;
     const todayStr = toDateStr(new Date());
@@ -164,18 +178,23 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     // would freeze the row where the projector can no longer move it. The date
     // columns are still left untouched here; moving them is the reconciler's
     // job, not this write's.
-    await supabase
-      .from("lessons")
-      .update({
-        completed: false,
-        completed_at: null,
-        is_backfill: false,
-        queue_pinned: false,
-        scheduled_source: "manual_uncomplete",
-      })
-      .eq("id", id);
-    if (lesson?.curriculum_goal_id) {
-      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+    inFlightRef.current.add(id);
+    try {
+      await supabase
+        .from("lessons")
+        .update({
+          completed: false,
+          completed_at: null,
+          is_backfill: false,
+          queue_pinned: false,
+          scheduled_source: "manual_uncomplete",
+        })
+        .eq("id", id);
+      if (lesson?.curriculum_goal_id) {
+        await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+      }
+    } finally {
+      inFlightRef.current.delete(id);
     }
   }, [findLesson, setLessons, setMonthLessons, onNeedsDateChoice, completeWithChoice]);
 

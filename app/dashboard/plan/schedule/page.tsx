@@ -10,6 +10,7 @@ import { usePartner } from "@/lib/partner-context";
 import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
+import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
@@ -1443,7 +1444,13 @@ export default function ScheduleBuilderPage() {
       const activeSchoolYearId = (activeYearRow as { id?: string } | null)?.id ?? null;
 
       // 1. Per-row writes via the (previouslySavedAs, type, pendingDelete) matrix.
-      for (const row of rows) {
+      // Phase 1 writes one row per curriculum or activity and none of them
+      // depend on another, so they run together. Before 2026-09-10 this was a
+      // sequential loop: a 13-row builder paid 13 round trips in a row, about
+      // 2.4 s, before phase 2 could even start. Each row's result is returned
+      // and gathered in row order so phase 2 sees the same order it always did.
+      const phase1Results = await Promise.all(rows.map(async (row): Promise<{ id: string; row: Row } | null> => {
+        let saved: { id: string; row: Row } | null = null;
         if (row.readOnly) {
           // Preserve membership so the sweep doesn't archive them.
           if (row.previouslySavedAs === "curriculum_goals" && row.dbId) {
@@ -1451,7 +1458,7 @@ export default function ScheduleBuilderPage() {
           } else if (row.previouslySavedAs === "activities" && row.dbId) {
             localActivityIds.add(row.dbId);
           }
-          continue;
+          return null;
         }
 
         if (row.pendingDelete) {
@@ -1469,7 +1476,7 @@ export default function ScheduleBuilderPage() {
               .eq("id", row.dbId);
             if (error) throw error;
           }
-          continue;
+          return null;
         }
 
         if (row.type === "curriculum") {
@@ -1505,7 +1512,7 @@ export default function ScheduleBuilderPage() {
               .eq("id", row.dbId);
             if (error) throw error;
             localCurriculumIds.add(row.dbId);
-            savedCurriculumGoals.push({ id: row.dbId, row });
+            saved = { id: row.dbId, row };
           } else if (row.previouslySavedAs === "activities" && row.dbId) {
             // Type changed activity → curriculum: archive the activity row,
             // insert as new curriculum_goals row.
@@ -1532,7 +1539,7 @@ export default function ScheduleBuilderPage() {
             if (insErr || !inserted) throw insErr ?? new Error("insert failed");
             const newId = (inserted as { id: string }).id;
             localCurriculumIds.add(newId);
-            savedCurriculumGoals.push({ id: newId, row });
+            saved = { id: newId, row };
           } else {
             // Brand-new row. Same seed as above so the post-INSERT row is
             // consistent before Phase 2 runs.
@@ -1549,7 +1556,7 @@ export default function ScheduleBuilderPage() {
             if (error || !inserted) throw error ?? new Error("insert failed");
             const newId = (inserted as { id: string }).id;
             localCurriculumIds.add(newId);
-            savedCurriculumGoals.push({ id: newId, row });
+            saved = { id: newId, row };
           }
         } else {
           // Destination = activities (coop or activity rows)
@@ -1599,6 +1606,10 @@ export default function ScheduleBuilderPage() {
             localActivityIds.add((inserted as { id: string }).id);
           }
         }
+              return saved;
+      }));
+      for (const saved of phase1Results) {
+        if (saved) savedCurriculumGoals.push(saved);
       }
 
       // 2. Reconciliation sweep — anything in DB at load time that didn't end
@@ -1808,7 +1819,7 @@ export default function ScheduleBuilderPage() {
           count: beforeRowsCount,
         } = await supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned", { count: "exact" })
+          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned, scheduled_date, date", { count: "exact" })
           .eq("curriculum_goal_id", goalId);
         if (beforeRowsErr) throw beforeRowsErr;
         const beforeRows = (beforeRowsData ?? []) as {
@@ -1819,6 +1830,8 @@ export default function ScheduleBuilderPage() {
           notes: string | null;
           minutes_spent: number | null;
           queue_pinned: boolean | null;
+          scheduled_date: string | null;
+          date: string | null;
         }[];
         // A partial snapshot is worse than no snapshot: rows PostgREST capped
         // out of the response look "missing", the batch plans inserts for
@@ -2170,6 +2183,68 @@ export default function ScheduleBuilderPage() {
         // than just ignoring them: leaving queue_pinned=true on rows we are
         // about to re-date would freeze them at their new projector dates and
         // make the next sibling save unable to move them either.
+        // ProjectedLesson.lesson_number IS the queue slot (see its doc
+        // comment); this is the slot-to-date map the held-back rows and the
+        // no-op check below both read.
+        const projDateBySlot = new Map<number, string>();
+        for (const u of upcoming) {
+          if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date);
+        }
+
+        // ── An unchanged sibling writes nothing ──────────────────────────────
+        // Phase 2 re-spreads every curriculum row in the builder on every
+        // save, and until 2026-09-10 that meant deleting and re-inserting a
+        // sibling's whole incomplete tail even when the projector put every
+        // lesson back on the day it already sat. Measured on a 12-goal family
+        // with 2,196 rows: adding ONE goal churned about 2,000 rows across
+        // 186 requests and took 30 seconds. The plan above is complete before
+        // anything is written, so it can be compared with what the goal
+        // already holds: when nothing would be unpinned, nothing inserted,
+        // nothing unscheduled or re-dated, and every row the floor delete
+        // would remove comes straight back with the same lesson number, slot
+        // and dates, there is no write to make and no post-write check to
+        // run. Same rows, same values, none of them touched. A goal that has
+        // drifted, or whose schedule the family changed, takes the full path
+        // exactly as before.
+        const overCeilingIncomplete = beforeRows.some(
+          (r) =>
+            !r.completed &&
+            r.lesson_number != null &&
+            row.total_lessons != null &&
+            r.lesson_number > row.total_lessons,
+        );
+        const redateNeeded = beforeRows.some((r) => {
+          if (!workRowIds.has(r.id) || r.queue_pinned || r.queue_position == null) return false;
+          const projDate = projDateBySlot.get(r.queue_position);
+          return projDate !== undefined && projDate !== r.scheduled_date;
+        });
+        const deletedByNumber = new Map<number, (typeof beforeRows)[number]>();
+        for (const r of beforeRows) {
+          if (deletedIds.has(r.id) && r.lesson_number != null) deletedByNumber.set(r.lesson_number, r);
+        }
+        const reinsertIsIdentical =
+          deletedByNumber.size === deletedIds.size &&
+          deletedByNumber.size === toInsert.length &&
+          toInsert.every((t) => {
+            const d = deletedByNumber.get(t.lesson_number);
+            return (
+              !!d &&
+              d.queue_position === t.queue_position &&
+              d.scheduled_date === t.scheduled_date &&
+              d.date === t.date
+            );
+          });
+        const nothingToWrite =
+          !(clearPins && pinnedRows.length > 0) &&
+          histToInsert.length === 0 &&
+          !overCeilingIncomplete &&
+          !redateNeeded &&
+          reinsertIsIdentical;
+        if (nothingToWrite) {
+          console.debug(`[handleSave] goal ${goalId}: schedule already matches the projector, no rows written`);
+          return;
+        }
+
         if (clearPins && pinnedRows.length > 0) {
           const { error: unpinErr } = await supabase
             .from("lessons")
@@ -2194,22 +2269,16 @@ export default function ScheduleBuilderPage() {
         const { error: incompleteDeleteErr } = await floorDelete;
         if (incompleteDeleteErr) throw incompleteDeleteErr;
 
-        if (histToInsert.length > 0) {
-          for (let i = 0; i < histToInsert.length; i += 100) {
-            const { error: histErr } = await supabase
-              .from("lessons")
-              .insert(histToInsert.slice(i, i + 100));
-            if (histErr) throw histErr;
-          }
+        // One request per batch of 500 (app/lib/batches.ts), the same helper
+        // "Add a past year" writes with. 100 per request cost a 180-lesson
+        // goal two round trips where one does.
+        for (const batch of batches(histToInsert, LESSON_INSERT_BATCH)) {
+          const { error: histErr } = await supabase.from("lessons").insert(batch);
+          if (histErr) throw histErr;
         }
-
-        if (toInsert.length > 0) {
-          for (let i = 0; i < toInsert.length; i += 100) {
-            const { error: lessonErr } = await supabase
-              .from("lessons")
-              .insert(toInsert.slice(i, i + 100));
-            if (lessonErr) throw lessonErr;
-          }
+        for (const batch of batches(toInsert, LESSON_INSERT_BATCH)) {
+          const { error: lessonErr } = await supabase.from("lessons").insert(batch);
+          if (lessonErr) throw lessonErr;
         }
 
         // Cleanup: if the user reduced total_lessons on an edit, any rows
@@ -2273,10 +2342,6 @@ export default function ScheduleBuilderPage() {
         // number — see its doc comment. That is the column a kept row is
         // matched on, the same way the fresh inserts take their date from the
         // slot they land in.
-        const projDateBySlot = new Map<number, string>();
-        for (const u of upcoming) {
-          if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date);
-        }
         let rebuiltUpdated = 0;
         for (const r of beforeRows) {
           if (!workRowIds.has(r.id)) continue;
@@ -2469,7 +2534,7 @@ export default function ScheduleBuilderPage() {
       // attempt and go straight to the failure path (see
       // isDeterministicPhase2Failure).
       const phase2Failures: { goalId: string; err: unknown }[] = [];
-      for (const { id: goalId, row } of savedCurriculumGoals) {
+      const runPhase2ForGoal = async ({ id: goalId, row }: { id: string; row: Row }) => {
         let lastErr: unknown = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
@@ -2493,7 +2558,22 @@ export default function ScheduleBuilderPage() {
           });
           phase2Failures.push({ goalId, err: lastErr });
         }
-      }
+            };
+      // Every goal's phase 2 reads and writes only its own rows, so goals run
+      // a few at a time instead of one after another. Four keeps the browser
+      // under its per-host connection limit while the reads of one goal
+      // overlap the writes of another. Failures are gathered exactly as the
+      // sequential loop gathered them.
+      const PHASE2_CONCURRENCY = 4;
+      let nextGoal = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(PHASE2_CONCURRENCY, savedCurriculumGoals.length) }, async () => {
+          while (nextGoal < savedCurriculumGoals.length) {
+            const item = savedCurriculumGoals[nextGoal++];
+            await runPhase2ForGoal(item);
+          }
+        }),
+      );
       if (phase2Failures.length > 0) {
         // Surface a DETERMINISTIC failure over a transient one when the save
         // hit both. Re-throwing phase2Failures[0] meant goal A failing on a
