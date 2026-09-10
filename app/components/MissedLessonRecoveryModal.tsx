@@ -13,6 +13,13 @@
 // Every row starts checked, so an honest yes is still one tap. Anything the
 // family unchecks is not written and not rescheduled either; it stays exactly
 // as it was.
+//
+// The confirm button answers the tap. No primary button here is ever silently
+// disabled or silently busy: on tap it goes busy at once (disabled, a spinner,
+// "Marking…"), the sheet stays open until the page's writes finish, and on a
+// failure it comes back with the reason. PostHog showed 8 families in 7 days
+// tapping "Yes, mark them done" repeatedly because the page used to hide the
+// sheet before its first write, so the tap looked like nothing.
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
@@ -30,6 +37,29 @@ import {
 } from "@/app/lib/recoverySelection";
 
 export type { MissedEntry, RecoveryRow };
+
+/** A small ring that spins beside the busy label. Decorative; the label carries the meaning. */
+function Spinner({ dark = false }: { dark?: boolean }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={`inline-block w-4 h-4 rounded-full border-2 animate-spin ${
+        dark ? "border-[#cfc9c0] border-t-[#2d2926]" : "border-white/40 border-t-white"
+      }`}
+    />
+  );
+}
+
+/** One sentence for the family, with the error's own words when it has any. */
+function failureReason(err: unknown, lead: string): string {
+  const detail =
+    err instanceof Error && err.message.trim()
+      ? err.message.trim()
+      : typeof err === "string" && err.trim()
+        ? err.trim()
+        : "";
+  return detail ? `${lead}: ${detail}. Try again.` : `${lead}. Check your connection and try again.`;
+}
 
 export type MissedGoal = {
   id: string;
@@ -62,6 +92,8 @@ export default function MissedLessonRecoveryModal({
   onShown,
 }: Props) {
   const [submitting, setSubmitting] = useState<"yes" | "no" | null>(null);
+  // Why the last submit failed, shown under the buttons until the next try.
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const goalsWithEntries = useMemo(
     () => goals.filter((g) => (entriesByGoal.get(g.id) ?? []).length > 0),
@@ -138,9 +170,12 @@ export default function MissedLessonRecoveryModal({
       checked,
       editedDates,
     });
+    setSubmitError(null);
     setSubmitting("yes");
     try {
       await onYes(rows);
+    } catch (err) {
+      setSubmitError(failureReason(err, "Couldn't finish marking those done"));
     } finally {
       setSubmitting(null);
     }
@@ -148,9 +183,12 @@ export default function MissedLessonRecoveryModal({
 
   async function handleNo() {
     if (submitting) return;
+    setSubmitError(null);
     setSubmitting("no");
     try {
       await onNo();
+    } catch (err) {
+      setSubmitError(failureReason(err, "Couldn't move those ahead"));
     } finally {
       setSubmitting(null);
     }
@@ -288,20 +326,43 @@ export default function MissedLessonRecoveryModal({
               type="button"
               onClick={handleYes}
               disabled={submitting !== null || checkedCount === 0}
+              aria-busy={submitting === "yes"}
               className="w-full py-3 rounded-xl bg-[#2D5A3D] text-white text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:pointer-events-none"
             >
-              {submitting === "yes"
-                ? "Marking done..."
-                : confirmButtonLabel(checkedCount, allEntries.length - checkedCount)}
+              {submitting === "yes" ? (
+                <span className="inline-flex items-center justify-center gap-2">
+                  <Spinner />
+                  Marking…
+                </span>
+              ) : (
+                confirmButtonLabel(checkedCount, allEntries.length - checkedCount)
+              )}
             </button>
             <button
               type="button"
               onClick={handleNo}
               disabled={submitting !== null}
+              aria-busy={submitting === "no"}
               className="w-full py-3 rounded-xl bg-white border border-[#cfc9c0] text-[#2d2926] text-sm font-medium hover:bg-[#f4f0e8] transition-colors disabled:opacity-60 disabled:pointer-events-none"
             >
-              {submitting === "no" ? "Rescheduling..." : "No, reschedule them"}
+              {submitting === "no" ? (
+                <span className="inline-flex items-center justify-center gap-2">
+                  <Spinner dark />
+                  Rescheduling…
+                </span>
+              ) : (
+                "No, reschedule them"
+              )}
             </button>
+            {submitError && (
+              <p
+                role="alert"
+                aria-live="polite"
+                className="text-[12px] text-[#a13d2d] bg-[#fdf1ee] border border-[#efc9c0] rounded-lg px-2.5 py-2 leading-snug"
+              >
+                {submitError}
+              </p>
+            )}
           </div>
         </div>
         <div className="h-6" />
