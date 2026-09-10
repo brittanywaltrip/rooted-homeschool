@@ -36,6 +36,7 @@ import {
   defaultYearName,
   pastYearProblem,
   pastYearReviewSentence,
+  describeSchoolDays,
   rowProblem,
   summarizePastYear,
   usableRows,
@@ -96,6 +97,10 @@ function toPastYearRow(d: DraftRow): PastYearRow {
     completedLessons: toInt(d.completed),
     minutesPerLesson: minutes,
   };
+}
+
+function fmtDate(ymd: string): string {
+  return new Date(ymd + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function Spinner() {
@@ -601,8 +606,17 @@ export default function AddPastYearPage() {
                   Your note is saved as a win dated {new Date(endDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.
                 </p>
               )}
-              <p className="text-xs text-[#7a6f65]">
-                {yearName.trim()}: {summary.lessons.toLocaleString("en-US")} lessons, {summary.subjects} {summary.subjects === 1 ? "subject" : "subjects"}, {summary.children} {summary.children === 1 ? "child" : "children"}.
+              <p className="text-sm text-[#7a6f65]">
+                Dated {fmtDate(startDate)} to {fmtDate(endDate)}, on {describeSchoolDays(schoolDays)}.{" "}
+                <button type="button" onClick={() => goTo(1)} className={secondaryButton}>
+                  Change
+                </button>
+              </p>
+              <p className="text-sm text-[#7a6f65]">
+                {summary.lessons.toLocaleString("en-US")} completed {summary.lessons === 1 ? "lesson" : "lessons"} across {summary.subjects} {summary.subjects === 1 ? "subject" : "subjects"} for {summary.children} {summary.children === 1 ? "child" : "children"}.{" "}
+                <button type="button" onClick={() => goTo(2)} className={secondaryButton}>
+                  Change
+                </button>
               </p>
             </div>
             {error && <p className="text-sm text-[#a94442]" role="alert">{error}</p>}
@@ -616,7 +630,7 @@ export default function AddPastYearPage() {
                 style={{ background: "var(--g-brand)", opacity: busy ? 0.85 : 1 }}
               >
                 {busy && <Spinner />}
-                {busy ? "Adding…" : "Add this year"}
+                {busy ? "Adding…" : `Add ${yearName.trim() || "this year"}`}
               </button>
               {!busy && (
                 <button type="button" onClick={() => goTo(2)} className={`${secondaryButton} block mx-auto`}>
