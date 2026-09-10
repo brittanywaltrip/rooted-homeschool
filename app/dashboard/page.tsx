@@ -34,6 +34,7 @@ import { useDashboardLayout } from "@/lib/dashboard-layout-context";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { schoolNameFor } from "@/lib/school-name";
+import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { useLeafAnimationContext } from "@/app/contexts/LeafAnimationContext";
 import ListsSection from "@/app/components/ListsSection";
 import AppointmentWizard from "@/app/components/AppointmentWizard";
@@ -896,7 +897,11 @@ export default function TodayPage() {
   const refreshLeafCounts = useCallback(async () => {
     if (!effectiveUserId) return;
     const [{ data: completed }, { data: memoryRows }, { data: legacyEvents }] = await Promise.all([
-      supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true),
+      // Paged: a leaf is a completed lesson, so a family past 1,000 of them
+      // would watch her trees stop growing. See lib/supabase-all-rows.ts.
+      selectAllRowsResult<{ child_id: string | null }>((from, to) =>
+        supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true)
+          .order("id").range(from, to)),
       supabase.from("memories").select("child_id, type, title, date").eq("user_id", effectiveUserId),
       supabase.from("app_events").select("type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_MEMORY_EVENT_TYPES]),
     ]);
@@ -1107,12 +1112,19 @@ export default function TodayPage() {
       // Kept as a tombstone (resolves to null data) so the destructure
       // index slot stays stable for one-line rollback.
       Promise.resolve({ data: null, error: null }),
-      supabase.from("lessons").select("id").eq("user_id", effectiveUserId),
+      // Only ever asked whether this family has logged anything at all, so a
+      // head count answers it without dragging 1,000 ids across the wire.
+      supabase.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId),
       supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
       // child_id for the leaf counts; date/scheduled_date so the Your Book strip
       // can count both completed lessons and the distinct days they fall on
       // without a second and third round trip for the same rows.
-      supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true),
+      // Paged for the same reason as refreshLeafCounts: this feeds the leaf
+      // counts AND the Your Book strip's school-day count, and both go wrong
+      // quietly once a family passes 1,000 completed lessons.
+      selectAllRowsResult<{ child_id: string | null; date: string | null; scheduled_date: string | null }>((from, to) =>
+        supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true)
+          .order("id").range(from, to)),
       // Leaf sources: the memories table first, legacy app_events merged in
       // behind it. Books moved to `memories` in March 2026, so reading the
       // legacy table alone hid every book logged since. See lib/memory-leaves.ts.
@@ -1568,7 +1580,7 @@ export default function TodayPage() {
     // the UI tree (collapsed under feature-gate) doesn't break during the
     // transition.
     setMissedLessons([]);
-    setHasAnyLessons((allLessonsResult.data?.length ?? 0) > 0);
+    setHasAnyLessons((allLessonsResult.count ?? 0) > 0);
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
     // ── Missed-lesson eligibility (Path A queue scheduling) ──────────────
@@ -2030,7 +2042,11 @@ export default function TodayPage() {
         if (!user) return;
 
         const [{ data: lessons }, { data: memories }, { data: prof }] = await Promise.all([
-          supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true),
+          // Paged: award thresholds count completed lessons and distinct
+          // school days, so a capped read hands out the wrong certificates.
+          selectAllRowsResult<{ child_id: string; date: string; scheduled_date?: string }>((from, to) =>
+            supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true)
+              .order("id").range(from, to)),
           supabase.from("memories").select("id, type, child_id, title, date").eq("user_id", effectiveUserId),
           supabase.from("profiles").select("display_name, last_name").eq("id", effectiveUserId).maybeSingle(),
         ]);

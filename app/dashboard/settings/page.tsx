@@ -1896,7 +1896,7 @@ export default function SettingsPage() {
                     const left = getTrialDaysLeft(trialStartedAt);
                     return `🌿 Rooted+ Trial, ${left} day${left !== 1 ? 's' : ''} remaining`;
                   }
-                  return '🪴 Rooted (Free)';
+                  return '🍃 Rooted (Free)';
                 })()}
               </p>
               {currentPeriodEnd && subscriptionStatus === 'active' && (

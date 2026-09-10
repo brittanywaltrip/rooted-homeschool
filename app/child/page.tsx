@@ -19,10 +19,16 @@ type Child = { id: string; name: string; color: string | null; birthday?: string
 
 // ─── 8-stage system (synced with garden page) ─────────────────────────────────
 
+// Every emoji in this table is Emoji 1.0 (2015) on purpose. 🫘 (Seed) and
+// 🪴 (Seedling) were Emoji 14.0 and 13.0, which Windows 10 and older macOS
+// system fonts do not carry, so both stages rendered as a blank box on a
+// desktop while the same family's iPhone showed them. A mother's first look
+// at her garden is the Seed stage, and hers was empty.
+// Guard: lib/garden-stage-emoji.test.ts.
 const GROWTH_STAGES = [
-  { name: "Seed",          emoji: "🫘", min: 0,   color: "#c4956a", msg: "You're just getting started, and that's amazing!" },
+  { name: "Seed",          emoji: "🌰", min: 0,   color: "#c4956a", msg: "You're just getting started, and that's amazing!" },
   { name: "Sprouting",     emoji: "🌱", min: 1,   color: "#5c7f63", msg: "A tiny shoot appears!" },
-  { name: "Seedling",      emoji: "🪴", min: 10,  color: "#e8927c", msg: "Look at you grow!" },
+  { name: "Seedling",      emoji: "🍃", min: 10,  color: "#e8927c", msg: "Look at you grow!" },
   { name: "Growing",       emoji: "🌿", min: 25,  color: "#5c7f63", msg: "Growing stronger every single day!" },
   { name: "Young Tree",    emoji: "🌳", min: 50,  color: "#2d5c38", msg: "Standing tall!" },
   { name: "Flourishing",   emoji: "🌲", min: 100, color: "#1e4828", msg: "Strong and steady!" },

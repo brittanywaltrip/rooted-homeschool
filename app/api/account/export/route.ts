@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import archiver from "archiver";
 import { PassThrough } from "stream";
 
@@ -56,7 +57,11 @@ export async function POST(req: NextRequest) {
       supabaseAdmin.from("profiles").select("*").eq("id", userId),
       supabaseAdmin.from("children").select("*").eq("user_id", userId),
       supabaseAdmin.from("memories").select("*").eq("user_id", userId),
-      supabaseAdmin.from("lessons").select("*").eq("user_id", userId),
+      // Paged. This is the family's copy of her own record; handing her the
+      // first 1,000 lessons and calling it an export would be worse than
+      // failing. See lib/supabase-all-rows.ts.
+      selectAllRowsResult((from, to) =>
+        supabaseAdmin.from("lessons").select("*").eq("user_id", userId).order("id").range(from, to)),
       supabaseAdmin.from("subjects").select("*").eq("user_id", userId),
       supabaseAdmin.from("curriculum_goals").select("*").eq("user_id", userId),
       supabaseAdmin.from("daily_reflections").select("*").eq("user_id", userId),
