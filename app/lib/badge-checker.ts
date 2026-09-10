@@ -38,8 +38,8 @@ async function gatherBadgeData(
 
   // Run all queries in parallel
   const [
-    { data: completedLessons },
-    { data: memories },
+    { count: completedLessonCount },
+    { count: memoryCount },
     { data: activityLogs },
     { data: activityDefs },
     { data: profile },
@@ -51,14 +51,17 @@ async function gatherBadgeData(
     { data: monthActivityLogs },
     { data: curricula },
   ] = await Promise.all([
-    // Total leaves: completed lessons for this child
+    // Total leaves: completed lessons for this child. A count, not the rows:
+    // this runs after every completion tap on Plan and Today, and it used to
+    // pull every completed lesson id for the child (thousands, for the
+    // families this matters to) to take .length of the array.
     childId
-      ? supabase.from("lessons").select("id").eq("user_id", userId).eq("child_id", childId).eq("completed", true)
-      : supabase.from("lessons").select("id").eq("user_id", userId).eq("completed", true),
-    // Total leaves: memories for this child
+      ? supabase.from("lessons").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("child_id", childId).eq("completed", true)
+      : supabase.from("lessons").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("completed", true),
+    // Total leaves: memories for this child. Same: a count.
     childId
-      ? supabase.from("memories").select("id").eq("user_id", userId).eq("child_id", childId)
-      : supabase.from("memories").select("id").eq("user_id", userId),
+      ? supabase.from("memories").select("*", { count: "exact", head: true }).eq("user_id", userId).eq("child_id", childId)
+      : supabase.from("memories").select("*", { count: "exact", head: true }).eq("user_id", userId),
     // Total leaves: activity logs (completed)
     supabase.from("activity_logs").select("activity_id").eq("user_id", userId).eq("completed", true),
     // Activity definitions (to map child_ids)
@@ -86,7 +89,7 @@ async function gatherBadgeData(
   ]);
 
   // Calculate total leaves for child
-  let leafCount = (completedLessons?.length ?? 0) + (memories?.length ?? 0);
+  let leafCount = (completedLessonCount ?? 0) + (memoryCount ?? 0);
   if (childId && activityLogs && activityDefs) {
     const actMap = new Map<string, string[]>();
     for (const a of activityDefs as { id: string; child_ids: string[] }[]) {

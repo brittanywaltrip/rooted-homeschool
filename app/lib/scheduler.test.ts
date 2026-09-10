@@ -7188,3 +7188,83 @@ test('schoolDaysBetween: both ends inclusive, chosen days only, backwards throws
   assert.equal(schoolDaysBetween('2025-09-01', '2025-09-07', []).length, 5)
   assert.throws(() => schoolDaysBetween('2025-09-08', '2025-09-07', ['Mon']), /after end/)
 })
+
+// ===========================================================================
+// Big families (September 2026): the Plan page and the Schedule Builder do
+// what they already did, with fewer round trips. Measured on a synthetic
+// family of 4 children, 12 goals and 2,196 lesson rows on staging: a
+// completion tap fired 21 requests including three reads of every completed
+// lesson; Save & build for ONE new goal took 30 s and 186 requests because
+// every unchanged sibling goal was deleted and re-inserted 100 rows at a
+// time, one goal after another. These hold the fixes in place.
+// ===========================================================================
+
+test('big families: the completion tap handler reads lessons only by id or by goal', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  const bodies = [
+    extractFunctionBody(src, /const completeWithChoice = useCallback\(async \(/),
+    extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/),
+  ]
+  for (const body of bodies) {
+    for (const m of body.matchAll(/\.from\("lessons"\)\s*\.select\(/g)) {
+      const after = body.slice(m.index, m.index + 300)
+      assert.ok(/\.eq\("(id|curriculum_goal_id)"/.test(after), `an unfiltered lessons read after a tap: ${after.slice(0, 120)}`)
+    }
+  }
+  // The badge checker runs after every tap through onLogAction and used to
+  // list every completed lesson id for the child to count them.
+  const badges = stripComments(loadRepoFile('app/lib/badge-checker.ts'))
+  for (const m of badges.matchAll(/\.from\("(lessons|memories)"\)\.select\("id"\)/g)) {
+    assert.fail(`badge-checker lists ids to count them: ${m[0]}`)
+  }
+  assert.match(badges, /from\("lessons"\)\.select\("\*", \{ count: "exact", head: true \}\)/, 'the leaf count is a head count')
+})
+
+test('big families: a second tap on a lesson still in flight is ignored, not queued', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  assert.match(src, /const inFlightRef = useRef<Set<string>>\(new Set\(\)\)/)
+  const complete = extractFunctionBody(src, /const completeWithChoice = useCallback\(async \(/)
+  const toggle = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
+  for (const body of [complete, toggle]) {
+    assert.ok(body.indexOf('if (inFlightRef.current.has(id)) return;') < body.indexOf('await '), 'the guard runs before any write')
+    assert.match(body, /inFlightRef\.current\.delete\(id\)/, 'the guard is released')
+  }
+})
+
+test('big families: the builder inserts lessons through the shared batch helper, 500 at a time', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  assert.match(body, /batches\(histToInsert, LESSON_INSERT_BATCH\)/)
+  assert.match(body, /batches\(toInsert, LESSON_INSERT_BATCH\)/)
+  assert.ok(!/\.slice\(i, i \+ 100\)/.test(body), 'no hand-rolled 100-row chunks remain')
+  const helper = stripComments(loadRepoFile('app/lib/batches.ts'))
+  assert.match(helper, /export const LESSON_INSERT_BATCH = 500/)
+  assert.match(stripComments(loadRepoFile('app/lib/past-year-dates.ts')), /from "\.\/batches\.ts"/, 'the past-year flow uses the same helper')
+})
+
+test('big families: the post-save recompute is called with a goal id, never over the family', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  const calls = [...body.matchAll(/recomputeCurrentLesson\(([^)]*)\)/g)].map((m) => m[1].replace(/\s+/g, ''))
+  assert.ok(calls.length > 0)
+  for (const args of calls) assert.match(args, /^supabase,goalId/, `recomputeCurrentLesson must take the goal: got (${args})`)
+  for (const name of ['reconcileGoalScheduleCache', 'syncProjectedScheduledDates', 'healGoalIntegrity']) {
+    assert.ok(!body.includes(name + '('), `handleSave must not run ${name} over the family`)
+  }
+})
+
+test('big families: an unchanged sibling goal writes nothing in phase 2, and goals run a few at a time', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  // The no-op check sits before the first write of phase 2 (the unpin), and
+  // it compares slot, scheduled_date and date, so a drifted goal still takes
+  // the full path.
+  const noop = body.indexOf('const nothingToWrite =')
+  const firstWrite = body.indexOf('if (clearPins && pinnedRows.length > 0)')
+  assert.ok(noop !== -1 && firstWrite !== -1 && noop < firstWrite, 'the no-op check runs before the first phase-2 write')
+  assert.match(body, /d\.queue_position === t\.queue_position &&\s*d\.scheduled_date === t\.scheduled_date &&\s*d\.date === t\.date/)
+  assert.match(body, /reinsertIsIdentical/)
+  assert.ok(!/for \(const \{ id: goalId, row \} of savedCurriculumGoals\)/.test(body), 'phase 2 is no longer one goal after another')
+  assert.match(body, /const PHASE2_CONCURRENCY = 4/)
+  assert.match(body, /const phase1Results = await Promise\.all\(rows\.map\(async \(row\)/, 'phase 1 rows are written together')
+})
