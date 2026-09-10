@@ -19,6 +19,8 @@ import { onLogAction } from "@/app/lib/onLogAction";
 import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
 import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 import { captureSupabaseError } from "@/lib/sentry-error";
+import * as Sentry from "@sentry/nextjs";
+import { accountKindTag } from "@/lib/sentry-scope";
 import SignedImage from "@/components/SignedImage";
 import WhenPicker, { todayLocalDateStr } from "@/app/components/WhenPicker";
 import { DashboardLayoutProvider, useDashboardLayout } from "@/lib/dashboard-layout-context";
@@ -232,6 +234,14 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         }
       }
 
+      // Every Sentry event from here on says whose account it came from (id
+      // only, never the email) and whether that account is a family or one of
+      // the test/demo accounts in lib/queue-slot-health.ts. Global scope so
+      // the tag survives route changes; cleared again in handleSignOut.
+      Sentry.setUser({ id: user.id });
+      Sentry.getGlobalScope().setTag("account_kind", await accountKindTag(user.email));
+      if (!mounted) return;
+
       const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
       if (ADMIN_EMAILS.includes(user.email ?? "")) {
         setIsAdmin(true);
@@ -378,6 +388,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (!mounted) return;
       if (event === "SIGNED_OUT") {
+        // Another tab signed out. This tab never runs handleSignOut, so drop
+        // the Sentry identity here too or it outlives the session.
+        Sentry.setUser(null);
+        Sentry.getGlobalScope().setTag("account_kind", undefined);
         reportAuthRedirect("dashboard-layout", "SIGNED_OUT-event");
         router.replace("/login");
         return;
@@ -402,6 +416,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     // browser starts a fresh analytics identity instead of inheriting the
     // previous user's distinct_id.
     posthog.reset();
+    // Same for Sentry: the next family on this browser must not report under
+    // this one's id or account kind.
+    Sentry.setUser(null);
+    Sentry.getGlobalScope().setTag("account_kind", undefined);
     // ?switch=1 keeps /login on the form. signOut() clears the cookies in the
     // browser, and this redirect can land before that finishes; a plain /login
     // would read the session on its way out and send the family straight back
