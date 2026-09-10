@@ -2325,10 +2325,10 @@ export default function ScheduleBuilderPage() {
         // this save cannot undo. Sentry is where it needs to land.
         const { data: afterRowsData, error: afterRowsErr } = await supabase
           .from("lessons")
-          .select("lesson_number, completed")
+          .select("lesson_number")
           .eq("curriculum_goal_id", goalId);
         if (!afterRowsErr && afterRowsData) {
-          const afterRows = afterRowsData as { lesson_number: number | null; completed: boolean | null }[];
+          const afterRows = afterRowsData as { lesson_number: number | null }[];
           const beforeCount = beforeRows.length;
           const afterCount = afterRows.length;
           const totalBefore = row._originalSchedule?.total_lessons ?? row.total_lessons ?? 0;
@@ -2345,7 +2345,12 @@ export default function ScheduleBuilderPage() {
             {
               totalLessons: totalAfter,
               startAtLesson: startAfter,
-              completedBelowStart: countCompletedBelowStart(afterRows, startAfter),
+              // From the BEFORE snapshot on purpose. Completed history is kept
+              // by every save (Invariant 3), so the rows that were completed
+              // below the new start going in must all still be there coming
+              // out. Counting them from the after snapshot would let a deleted
+              // completed row lower the expectation along with the count.
+              completedBelowStart: countCompletedBelowStart(beforeRows, startAfter),
               rows: afterCount,
             },
           );

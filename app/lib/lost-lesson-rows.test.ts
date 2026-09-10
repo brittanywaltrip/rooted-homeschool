@@ -47,6 +47,16 @@ test("an ungenerated tail is not a loss", () => {
   assert.ok(lostLessonRows(counts(57, 3, 2, 30), counts(57, 5, 2, 27)));
 });
 
+test("a deleted completed history row is a loss, with the kept count from the before snapshot", () => {
+  // start 3, lessons 1 and 2 completed. A save that drops lesson 1's row
+  // leaves 56 rows; the after side still expects the 2 kept history rows
+  // because the caller counted them from the before snapshot.
+  const report = lostLessonRows(counts(57, 3, 2, 57), counts(57, 3, 2, 56));
+  assert.ok(report);
+  assert.equal(report.expectedAfter, 57);
+  assert.equal(report.actualDrop, 1);
+});
+
 test("a goal that grew is never reported", () => {
   assert.equal(lostLessonRows(counts(57, 1, 0, 30), counts(57, 1, 0, 57)), null);
 });

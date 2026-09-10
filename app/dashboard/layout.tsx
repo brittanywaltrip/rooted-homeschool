@@ -239,7 +239,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       // the test/demo accounts in lib/queue-slot-health.ts. Global scope so
       // the tag survives route changes; cleared again in handleSignOut.
       Sentry.setUser({ id: user.id });
-      Sentry.getGlobalScope().setTag("account_kind", accountKindTag(user.email));
+      Sentry.getGlobalScope().setTag("account_kind", await accountKindTag(user.email));
+      if (!mounted) return;
 
       const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
       if (ADMIN_EMAILS.includes(user.email ?? "")) {
@@ -387,6 +388,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       if (!mounted) return;
       if (event === "SIGNED_OUT") {
+        // Another tab signed out. This tab never runs handleSignOut, so drop
+        // the Sentry identity here too or it outlives the session.
+        Sentry.setUser(null);
+        Sentry.getGlobalScope().setTag("account_kind", undefined);
         reportAuthRedirect("dashboard-layout", "SIGNED_OUT-event");
         router.replace("/login");
         return;

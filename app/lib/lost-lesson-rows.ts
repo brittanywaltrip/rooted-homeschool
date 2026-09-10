@@ -24,7 +24,13 @@
 export type LessonRowCounts = {
   totalLessons: number;
   startAtLesson: number;
-  /** Completed rows whose lesson_number is below startAtLesson. Kept by every save. */
+  /**
+   * Completed rows whose lesson_number is below startAtLesson. Kept by every
+   * save, so the caller must count the AFTER side from the before snapshot
+   * (against the after start): a count taken from the after rows would shrink
+   * in step with a deleted completed row and hide exactly the loss this
+   * check is for.
+   */
   completedBelowStart: number;
   /** Rows the goal actually holds. */
   rows: number;

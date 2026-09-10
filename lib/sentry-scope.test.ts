@@ -14,7 +14,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { sentryEnvironment } from "./sentry-environment.ts";
-import { accountKindTag, isHeadlessUserAgent } from "./sentry-scope.ts";
+import { accountKindTag, emailDigest, isHeadlessUserAgent, NON_FAMILY_EMAIL_DIGESTS } from "./sentry-scope.ts";
+import { NON_FAMILY_EMAILS } from "./queue-slot-health.ts";
 
 const read = (rel: string) => readFileSync(resolve(process.cwd(), rel), "utf8");
 
@@ -26,11 +27,26 @@ test("environment: production, preview:<branch>, development", () => {
   assert.equal(sentryEnvironment({}), "development");
 });
 
-test("account_kind: the non-family list is the only thing that says test", () => {
-  assert.equal(accountKindTag("rooted.e2e@rootedhomeschoolapp.com"), "test");
-  assert.equal(accountKindTag("TEST@rootedhomeschoolapp.com"), "test");
-  assert.equal(accountKindTag("someone@example.com"), "family");
-  assert.equal(accountKindTag(null), "family");
+test("account_kind: the non-family list is the only thing that says test", async () => {
+  assert.equal(await accountKindTag("rooted.e2e@rootedhomeschoolapp.com"), "test");
+  assert.equal(await accountKindTag("  TEST@rootedhomeschoolapp.com "), "test");
+  assert.equal(await accountKindTag("someone@example.com"), "family");
+  assert.equal(await accountKindTag(null), "family");
+});
+
+test("the digest list is exactly the non-family list, so neither can drift", async () => {
+  const fromList = await Promise.all(NON_FAMILY_EMAILS.map(emailDigest));
+  assert.deepEqual([...fromList].sort(), [...NON_FAMILY_EMAIL_DIGESTS].sort());
+});
+
+test("no client-reachable Sentry file names a non-family address", () => {
+  for (const f of ["lib/sentry-scope.ts", "app/dashboard/layout.tsx", "sentry.client.config.ts"]) {
+    const src = read(f);
+    for (const email of NON_FAMILY_EMAILS) {
+      assert.ok(!src.includes(email), `${f} must not contain ${email}`);
+    }
+    assert.doesNotMatch(src, /import[^;]*queue-slot-health/, `${f} must not import the email list`);
+  }
 });
 
 test("e2e: HeadlessChrome and nothing else", () => {
@@ -61,5 +77,7 @@ test("the dashboard layout sets the Sentry user by id only, and clears it on sig
   assert.equal(objectCalls.length, 1, "exactly one setUser with an object");
   assert.equal(objectCalls[0].replace(/\s+/g, ""), "{id:user.id}");
   assert.ok(calls.includes("null"), "sign-out clears the user");
-  assert.match(src, /setTag\("account_kind",\s*accountKindTag\(user\.email\)\)/);
+  assert.match(src, /setTag\("account_kind",\s*await accountKindTag\(user\.email\)\)/);
+  // Both sign-out paths clear it: handleSignOut and the cross-tab SIGNED_OUT event.
+  assert.equal(calls.filter((c) => c === "null").length, 2, "both sign-out paths clear the user");
 });
