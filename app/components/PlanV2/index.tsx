@@ -27,6 +27,7 @@ import MonthGrid from "./MonthGrid";
 import WeekListView from "./WeekListView";
 import DayDetailPanelV2, { type CatchUpEntry } from "./DayDetailPanel";
 import { logPastDayLessons } from "@/app/lib/logPastDayLessons";
+import { loadCatchUpRows, type CatchUpClient, type CatchUpRow, type CatchUpGoalRow } from "./loadCatchUpLessons";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
 import MissedLessonsBanner from "./MissedLessonsBanner";
@@ -239,10 +240,6 @@ type ViewMode = "week" | "month";
 /** The slice of a lesson the two catch-up modals need: enough to identify the
  *  row, date it, and label it in their preview lists. Both ShiftForwardModal
  *  and PushBackModal accept this shape, so one wide query feeds both. */
-type CatchUpRow = Pick<
-  PlanV2Lesson,
-  "id" | "title" | "lesson_number" | "scheduled_date" | "date"
-> & { child_id: string | null; curriculum_goal_id: string | null };
 
 /** One goal queued for re-projection by the catch-up flow. The config is
  *  captured when the modal opens and reused on confirm, so the family gets
@@ -2640,48 +2637,26 @@ export default function PlanV2() {
   //
   // Returns null on failure so callers can abort without writing anything.
   const loadCatchUpLessons = useCallback(async (): Promise<
-    { missed: CatchUpRow[]; future: CatchUpRow[] } | null
+    { missed: CatchUpRow[]; future: CatchUpGoalRow[] } | null
   > => {
     if (!effectiveUserId) return null;
 
-    const { data: archivedData, error: archivedErr } = await supabase
-      .from("curriculum_goals")
-      .select("id")
-      .eq("user_id", effectiveUserId)
-      .eq("archived", true);
-    if (archivedErr) return null;
+    // Paged, both halves, through loadCatchUpRows. The old single unranged
+    // read stopped at PostgREST's 1,000-row cap without saying so, and a
+    // family with 1,950 uncompleted scheduled rows confirmed against a
+    // schedule missing every late-year curriculum. See the loader's header.
+    // The structural client type is what lets the loader be unit tested with
+    // a fake; checking the real SupabaseClient against it makes tsc recurse
+    // through supabase-js's generics until it gives up, hence the cast.
+    const sets = await loadCatchUpRows(supabase as unknown as CatchUpClient, { userId: effectiveUserId, todayStr });
+    if (!sets) return null;
 
-    let req = supabase
-      .from("lessons")
-      .select("id, title, lesson_number, scheduled_date, date, child_id, curriculum_goal_id, queue_pinned")
-      .eq("user_id", effectiveUserId)
-      .eq("completed", false)
-      .not("scheduled_date", "is", null)
-      .order("scheduled_date", { ascending: true });
-    const archivedGoalIds = ((archivedData ?? []) as { id: string }[]).map((g) => g.id);
-    if (archivedGoalIds.length > 0) {
-      // Deliberately NOT a bare `.not("curriculum_goal_id","in",...)`. That
-      // compiles to `NOT (col IN (...))`, which evaluates to NULL (and so
-      // drops the row) for standalone lessons with no goal. Verified against
-      // the DB: the bare form keeps 0 of the incomplete no-goal rows, this
-      // explicit IS NULL branch keeps all of them.
-      req = req.or(
-        `curriculum_goal_id.is.null,curriculum_goal_id.not.in.(${archivedGoalIds.join(",")})`,
-      );
-    }
-    const { data, error } = await req;
-    if (error) return null;
-
-    const rows = (data ?? []) as CatchUpRow[];
     const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
-    const visible = rows.filter((r) => {
-      if (!(r.scheduled_date ?? r.date)) return false;
-      if (allKidsSelected) return true;
-      return r.child_id ? childFilter.has(r.child_id) : true;
-    });
+    const inView = <T extends { child_id: string | null }>(r: T) =>
+      allKidsSelected || (r.child_id ? childFilter.has(r.child_id) : true);
     return {
-      missed: visible.filter((r) => (r.scheduled_date ?? r.date)! < todayStr),
-      future: visible.filter((r) => (r.scheduled_date ?? r.date)! >= todayStr),
+      missed: sets.missed.filter(inView),
+      future: sets.future.filter(inView),
     };
   }, [effectiveUserId, childFilter, kids.length, todayStr]);
 

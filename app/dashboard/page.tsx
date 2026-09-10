@@ -2257,7 +2257,8 @@ export default function TodayPage() {
 
   // ── Catch-up modal handlers (queue-based scheduling) ──────────────────
   // Success toast after the Missed Lesson Recovery YES path lands.
-  const [recoveryToast, setRecoveryToast] = useState(false);
+  // The number of lessons the last Yes marked done, while its toast shows.
+  const [recoveryToast, setRecoveryToast] = useState<number | null>(null);
 
   function markMissedRecoveryShown() {
     if (typeof window === "undefined") return;
@@ -2267,9 +2268,17 @@ export default function TodayPage() {
   async function handleMissedRecoveryYes(rows: RecoveryRow[]) {
     if (!effectiveUserId) return;
     markMissedRecoveryShown();
-    setShowMissedRecovery(false);
-    if (rows.length === 0) return;
+    // Nothing checked writes nothing; the sheet just closes.
+    if (rows.length === 0) return setShowMissedRecovery(false);
 
+    // The sheet stays up, busy, until the last write below has landed. It
+    // used to close on the line above, before the first write, so a family
+    // with a dozen rows watched nothing happen for several seconds and tapped
+    // again (8 families in 7 days, per PostHog). The modal owns the busy
+    // state; this handler's job is to not hide it early and to throw when
+    // something goes wrong so the modal can say why and re-enable the button.
+    // Nothing about what is written, or the order, changes below.
+    try {
     // Unchecking is an answer, so act on it. Goals the family left something
     // unchecked on are settled through the SAME helper "No, reschedule them"
     // uses: those lessons move ahead in the plan and stop being offered as
@@ -2428,9 +2437,19 @@ export default function TodayPage() {
     for (const goalId of goalIds) {
       await recomputeCurrentLesson(supabase, goalId);
     }
+    } catch (err) {
+      Sentry.captureException(err, { tags: { fn: "acceptMissedRecovery" } });
+      // Some rows may already be written, so Today must show what landed
+      // before the modal reports the failure and hands the button back.
+      await loadData();
+      await refreshTodayStory();
+      throw err;
+    }
 
-    setRecoveryToast(true);
-    setTimeout(() => setRecoveryToast(false), 2500);
+    // Every write is in. Only now does the sheet go, with the count.
+    setShowMissedRecovery(false);
+    setRecoveryToast(rows.length);
+    setTimeout(() => setRecoveryToast(null), 2500);
 
     // Regression guard: loadData first, then refreshTodayStory.
     await loadData();
@@ -2476,10 +2495,11 @@ export default function TodayPage() {
 
   async function handleMissedRecoveryNo() {
     markMissedRecoveryShown();
-    setShowMissedRecovery(false);
     // Every goal the prompt offered: the family answered "not these" for all
-    // of them. Same helper the Yes path uses for its unchecked rows.
+    // of them. Same helper the Yes path uses for its unchecked rows. The sheet
+    // stays up ("Rescheduling…") until this has landed, same as Yes.
     await markCatchupAnswered(Array.from(missedEntriesByGoal.keys()));
+    setShowMissedRecovery(false);
     // Still refresh both surfaces so the dashboard re-renders without the
     // banner. The queue projector has already absorbed the lessons forward.
     await loadData();
@@ -6935,10 +6955,10 @@ export default function TodayPage() {
           onShown={(info) => posthog.capture("catchup_prompt_shown", info)}
         />
       )}
-      {recoveryToast && (
+      {recoveryToast !== null && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
           <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg">
-            Got it. Today is updated.
+            Marked {recoveryToast} {recoveryToast === 1 ? "lesson" : "lessons"} done. Today is updated.
           </div>
         </div>
       )}
