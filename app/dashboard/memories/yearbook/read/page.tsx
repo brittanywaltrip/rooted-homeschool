@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useSwipeable } from "react-swipeable";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { useProfile } from "@/lib/profile-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { getUserAccess } from "@/lib/user-access";
 import { useIsNativeApp } from "@/lib/platform";
@@ -902,6 +903,8 @@ const pageTransition = { duration: 0.3, ease: "easeInOut" as const };
 
 export default function YearbookReadPage() {
   const { effectiveUserId } = usePartner();
+  // The layout shares the profile row; tell it this page wrote it.
+  const { refreshProfile } = useProfile();
   const isNative = useIsNativeApp();
   const [loading, setLoading] = useState(true);
   const [memories, setMemories] = useState<MemoryRow[]>([]);
@@ -1082,6 +1085,7 @@ export default function YearbookReadPage() {
     setCurrentPage(0); // reset to cover when toggling sections
     if (!effectiveUserId) return;
     await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
+        void refreshProfile();
   }
 
   // ── Keyboard navigation ─────────────────────────────────────────────────────

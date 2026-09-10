@@ -138,6 +138,32 @@ function writePartnerCache(userId: string, ctx: PartnerContextType) {
   }
 }
 
+// ── Onboarding verdict cache ────────────────────────────────────────────────
+// Only the positive verdict is cached, keyed by user, for the session. On a
+// hit the layout renders the page as soon as the partner answer is known and
+// the profile read lands alongside the page's first wave. On a miss (the
+// first load of a session) the gate waits for the profile before rendering,
+// so a family with no profile, a not-yet-onboarded one, or a deleted account
+// is sent on without ever seeing the dashboard, and without the page firing
+// a wave of queries and writes for an account that is about to leave.
+const ONBOARDED_CACHE_KEY = "rooted_onboarded";
+
+function readOnboardedCache(userId: string): boolean {
+  try {
+    return sessionStorage.getItem(ONBOARDED_CACHE_KEY) === userId;
+  } catch {
+    return false;
+  }
+}
+
+function writeOnboardedCache(userId: string) {
+  try {
+    sessionStorage.setItem(ONBOARDED_CACHE_KEY, userId);
+  } catch {
+    /* storage full or blocked: the next load gates on the read again */
+  }
+}
+
 function nameInitial(name: string): string {
   const stripped = name.replace(/^the\s+/i, "").replace(/\s+family$/i, "").trim();
   return stripped ? stripped.charAt(0).toUpperCase() : "🌿";
@@ -258,6 +284,15 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     });
     return read;
   }, [readProfile]);
+
+  // Any page under the layout may write profiles (Settings, the yearbook
+  // editor and reader) and the layout stays mounted across those routes, so
+  // a route change marks the row stale. A page that mounts by client-side
+  // navigation then re-reads, as every page did before the row was shared;
+  // the one-read-per-load promise is for the initial load.
+  useEffect(() => {
+    profileFetchedAt.current = 0;
+  }, [pathname]);
 
   const getProfile = useCallback(async (maxAgeMs = 5000): Promise<DashboardProfile | null> => {
     if (profileInFlight.current) return profileInFlight.current;
@@ -390,25 +425,20 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       // Before 2026-09-09 these ran one after another (profile, then the
       // partner lookup, then the unread count) and the page could not render
       // until the last one answered: four round trips before its first query.
-      // Now the page renders as soon as the partner answer is known, which is
-      // immediately when it is cached, and its first wave overlaps the
-      // profile read. The Today page waits for the profile through
-      // ProfileContext.getProfile() from inside that wave.
+      // Now the profile read and the partner lookup start together. Once this
+      // session has seen the family pass the onboarding gate, the page
+      // renders as soon as the partner answer is known (immediately when it
+      // is cached too) and its first wave overlaps the profile read, which
+      // the Today page waits for through ProfileContext.getProfile(). The
+      // first load of a session still waits for the gate.
       const profileRead = loadProfile(user.id);
-      // Promise.resolve() is what starts a PostgREST builder; the builder
-      // itself is lazy until something awaits it.
-      const unreadCount = Promise.resolve(
-        supabase
-          .from("family_notifications")
-          .select("id", { count: "exact", head: true })
-          .eq("user_id", user.id)
-          .is("read_at", null),
-      );
+      const partnerPromise = resolvePartner(user);
+      const gateKnown = readOnboardedCache(user.id);
 
-      const partner = await resolvePartner(user);
+      const partner = await partnerPromise;
       if (!mounted) return;
       setPartnerCtx(partner);
-      setChecking(false);
+      if (gateKnown) setChecking(false);
 
       const { profile: loadedProfile, error: profileErr } = await profileRead;
       if (!mounted) return;
@@ -419,6 +449,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         reportAuthCheckUnavailable("dashboard-layout-profile", "profile-read-failed", {
           message: (profileErr as { message?: string }).message ?? null,
         });
+        setChecking(false);
         return;
       }
 
@@ -450,11 +481,24 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
         return;
       }
 
-      // Check for unread family notifications (a partner never sees the bell)
+      writeOnboardedCache(user.id);
+      setChecking(false);
+
+      // Check for unread family notifications (a partner never sees the bell,
+      // so a partner session never asks). A failed count is no bell, not a
+      // crash.
       if (!partner.isPartner) {
-        const { count } = await unreadCount;
-        if (!mounted) return;
-        setUnreadFamilyNotifs(count ?? 0);
+        try {
+          const { count } = await supabase
+            .from("family_notifications")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", user.id)
+            .is("read_at", null);
+          if (!mounted) return;
+          setUnreadFamilyNotifs(count ?? 0);
+        } catch {
+          /* non-critical */
+        }
       }
     })();
 
@@ -488,7 +532,8 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const avatarPhotoUrl = ctxPhotoUrl ?? profileData.family_photo_url ?? null;
 
   async function handleSignOut() {
-    sessionStorage.removeItem("rooted_partner");
+    sessionStorage.removeItem(PARTNER_CACHE_KEY);
+    sessionStorage.removeItem(ONBOARDED_CACHE_KEY);
     await supabase.auth.signOut();
     // Clear the PostHog identity so the next user who signs in on this same
     // browser starts a fresh analytics identity instead of inheriting the
