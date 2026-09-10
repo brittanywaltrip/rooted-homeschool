@@ -201,9 +201,12 @@ test("batches of 500", () => {
   assert.deepEqual(batches([]), []);
 });
 
-test("overlap: a range touching two years names both in one sentence", () => {
-  const msg = pastYearProblem("2025-05-01", "2026-02-01", [ACTIVE, OLD], TODAY) ?? "";
-  assert.match(msg, /your 2024-2025 year \(Aug 20, 2024 to May 30, 2025\) and your 2026-2027 year \(starts Aug 18, 2026\)/);
+test("overlap: a range touching two years names both in one sentence, earliest first", () => {
+  // An archived year that ends just before the active one starts, and a
+  // range that reaches into both while staying under the 400-day cap.
+  const LAST = { id: "l", name: "2025-2026", start_date: "2025-08-20", end_date: "2026-05-30", status: "archived" };
+  const msg = pastYearProblem("2026-05-30", "2026-08-18", [ACTIVE, LAST], TODAY) ?? "";
+  assert.match(msg, /your 2025-2026 year \(Aug 20, 2025 to May 30, 2026\) and your 2026-2027 year \(starts Aug 18, 2026\)/);
   assert.match(msg, /don't touch either/);
 });
 
