@@ -17,7 +17,6 @@
 import { capitalizeName } from "../../lib/utils.ts";
 
 export const PAST_YEAR_SOURCE = "past_year";
-export const PAST_YEAR_LESSON_BATCH = 500;
 export const DEFAULT_SCHOOL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
 /**
@@ -241,12 +240,6 @@ export function buildPastYearLessons(args: {
   }));
 }
 
-/** Split rows into insert batches. */
-export function batches<T>(rows: readonly T[], size = PAST_YEAR_LESSON_BATCH): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
-  return out;
-}
 
 export type PastYearSummary = {
   lessons: number;

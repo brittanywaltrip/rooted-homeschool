@@ -7,9 +7,10 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
+import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
@@ -1443,7 +1444,13 @@ export default function ScheduleBuilderPage() {
       const activeSchoolYearId = (activeYearRow as { id?: string } | null)?.id ?? null;
 
       // 1. Per-row writes via the (previouslySavedAs, type, pendingDelete) matrix.
-      for (const row of rows) {
+      // Phase 1 writes one row per curriculum or activity and none of them
+      // depend on another, so they run together. Before 2026-09-10 this was a
+      // sequential loop: a 13-row builder paid 13 round trips in a row, about
+      // 2.4 s, before phase 2 could even start. Each row's result is returned
+      // and gathered in row order so phase 2 sees the same order it always did.
+      const phase1Settled = await Promise.allSettled(rows.map(async (row): Promise<{ id: string; row: Row } | null> => {
+        let saved: { id: string; row: Row } | null = null;
         if (row.readOnly) {
           // Preserve membership so the sweep doesn't archive them.
           if (row.previouslySavedAs === "curriculum_goals" && row.dbId) {
@@ -1451,7 +1458,7 @@ export default function ScheduleBuilderPage() {
           } else if (row.previouslySavedAs === "activities" && row.dbId) {
             localActivityIds.add(row.dbId);
           }
-          continue;
+          return null;
         }
 
         if (row.pendingDelete) {
@@ -1469,7 +1476,7 @@ export default function ScheduleBuilderPage() {
               .eq("id", row.dbId);
             if (error) throw error;
           }
-          continue;
+          return null;
         }
 
         if (row.type === "curriculum") {
@@ -1505,7 +1512,7 @@ export default function ScheduleBuilderPage() {
               .eq("id", row.dbId);
             if (error) throw error;
             localCurriculumIds.add(row.dbId);
-            savedCurriculumGoals.push({ id: row.dbId, row });
+            saved = { id: row.dbId, row };
           } else if (row.previouslySavedAs === "activities" && row.dbId) {
             // Type changed activity → curriculum: archive the activity row,
             // insert as new curriculum_goals row.
@@ -1532,7 +1539,7 @@ export default function ScheduleBuilderPage() {
             if (insErr || !inserted) throw insErr ?? new Error("insert failed");
             const newId = (inserted as { id: string }).id;
             localCurriculumIds.add(newId);
-            savedCurriculumGoals.push({ id: newId, row });
+            saved = { id: newId, row };
           } else {
             // Brand-new row. Same seed as above so the post-INSERT row is
             // consistent before Phase 2 runs.
@@ -1549,7 +1556,7 @@ export default function ScheduleBuilderPage() {
             if (error || !inserted) throw error ?? new Error("insert failed");
             const newId = (inserted as { id: string }).id;
             localCurriculumIds.add(newId);
-            savedCurriculumGoals.push({ id: newId, row });
+            saved = { id: newId, row };
           }
         } else {
           // Destination = activities (coop or activity rows)
@@ -1599,7 +1606,38 @@ export default function ScheduleBuilderPage() {
             localActivityIds.add((inserted as { id: string }).id);
           }
         }
+              return saved;
+      }));
+      // Every row has settled, so nothing is still landing behind the error
+      // the family sees. A brand-new goal that DID land is written back onto
+      // its row as saved, so the retry updates it instead of inserting a twin
+      // (the live-DB duplicate check would otherwise refuse the retry with
+      // "You already have a goal called ..."). Then the first failure, in row
+      // order, is thrown exactly as the sequential loop threw it.
+      const landedNewGoals: { localId: string; id: string }[] = [];
+      let firstPhase1Failure: unknown = null;
+      phase1Settled.forEach((result, i) => {
+        if (result.status === "fulfilled") {
+          if (result.value) {
+            savedCurriculumGoals.push(result.value);
+            const r = rows[i];
+            if (!(r.previouslySavedAs === "curriculum_goals" && r.dbId)) {
+              landedNewGoals.push({ localId: r.localId, id: result.value.id });
+            }
+          }
+        } else if (firstPhase1Failure === null) {
+          firstPhase1Failure = result.reason;
+        }
+      });
+      if (landedNewGoals.length > 0) {
+        setRows((prev) =>
+          prev.map((r) => {
+            const landed = landedNewGoals.find((l) => l.localId === r.localId);
+            return landed ? { ...r, dbId: landed.id, previouslySavedAs: "curriculum_goals" as const } : r;
+          }),
+        );
       }
+      if (firstPhase1Failure !== null) throw firstPhase1Failure;
 
       // 2. Reconciliation sweep — anything in DB at load time that didn't end
       //    up in the local-id set is a row the user removed (or whose origin
@@ -1697,24 +1735,66 @@ export default function ScheduleBuilderPage() {
         // scheduleFieldsChangedForRow is the single documented exception: see
         // its doc comment for why an intentional re-spread of THIS goal clears
         // its pins while a sibling save must respect them.
-        const clearPins = scheduleFieldsChangedForRow(row);
-        const { data: pinnedRowsData, error: pinnedErr } = await supabase
+        // Every row this goal holds right now. Two jobs:
+        //
+        //   1. It is the input the post-delete state is simulated from, which
+        //      is what lets the assertions run before anything is destroyed.
+        //   2. Row-count invariant, part 1 of 2 — what the goal held BEFORE the
+        //      delete. Phase 2 deletes and re-inserts, so a bug in what the
+        //      batch decides to write can destroy a lesson and still report
+        //      success. Not hypothetical: commit 6905c4f dropped exactly one
+        //      row per drifted pin, and goal 5d6ac7b5 came out of a save with
+        //      99 rows instead of 100, lesson 4 gone, Wednesday empty, no error.
+        //
+        // A read failure used to be non-fatal here, because this read was only
+        // job 2 — a guard rail, not worth failing a save over. It is job 1 now,
+        // so it throws: without it the batch cannot be checked, and deleting
+        // rows we cannot check is exactly the bug being fixed. Throwing costs
+        // the family nothing — nothing has been written yet, the retry wrapper
+        // gets a non-deterministic error and tries again, and the worst case is
+        // the soft "save again to sync" notice with every lesson still intact.
+        const {
+          data: beforeRowsData,
+          error: beforeRowsErr,
+          count: beforeRowsCount,
+        } = await supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, scheduled_date, date, completed, queue_pinned, curriculum_goal_id")
-          .eq("curriculum_goal_id", goalId)
-          .eq("completed", false)
-          .eq("queue_pinned", true);
-        if (pinnedErr) throw pinnedErr;
-        const pinnedRows = (pinnedRowsData ?? []) as Array<{
+          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned, scheduled_date, date, title", { count: "exact" })
+          .eq("curriculum_goal_id", goalId);
+        if (beforeRowsErr) throw beforeRowsErr;
+        const beforeRows = (beforeRowsData ?? []) as {
           id: string;
           lesson_number: number | null;
           queue_position: number | null;
+          completed: boolean;
+          notes: string | null;
+          minutes_spent: number | null;
+          queue_pinned: boolean | null;
           scheduled_date: string | null;
           date: string | null;
-          completed: boolean;
-          queue_pinned: boolean;
-          curriculum_goal_id: string | null;
-        }>;
+          title: string | null;
+        }[];
+        // A partial snapshot is worse than no snapshot: rows PostgREST capped
+        // out of the response look "missing", the batch plans inserts for
+        // lesson numbers that already exist, and the delete has run by the time
+        // the unique index says so. This is the row cap that already truncated
+        // the Today reconciler's cross-goal fetch (see
+        // reconcileGoalScheduleCache), so it gets checked rather than assumed.
+        // The exact count comes back in the same round trip.
+        if (beforeRowsCount != null && beforeRowsCount !== beforeRows.length) {
+          throw new Error(
+            `Phase 2 read ${beforeRows.length} of ${beforeRowsCount} lesson rows for goal ${goalId}; refusing to plan against a truncated snapshot`,
+          );
+        }
+        const clearPins = scheduleFieldsChangedForRow(row);
+        // Derived from the one read of the goal's rows above; this used to be
+        // its own request, and the completed floor below a third.
+        // (Spread, not a literal: this is an in-memory view of rows already
+        // read, not a payload, and Invariant 10's source sweep reads any
+        // literal carrying scheduled_date as a write.)
+        const pinnedRows = beforeRows
+          .filter((r) => !r.completed && r.queue_pinned)
+          .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
 
         const survivingPins = clearPins ? [] : pinnedRows;
         // Keyed by queue_position, which is what the projector's slots mean.
@@ -1772,66 +1852,12 @@ export default function ScheduleBuilderPage() {
         // 0, which collapses to "delete every pending row," matching the
         // pre-floor behavior of the create path and closing the same
         // multi-tab / retry race it always guarded against.
-        const { data: completedTop, error: completedTopErr } = await supabase
-          .from("lessons")
-          .select("lesson_number")
-          .eq("curriculum_goal_id", goalId)
-          .eq("completed", true)
-          .not("lesson_number", "is", null)
-          .order("lesson_number", { ascending: false })
-          .limit(1);
-        if (completedTopErr) throw completedTopErr;
-        const completedFloor =
-          (completedTop?.[0] as { lesson_number: number } | undefined)?.lesson_number ?? 0;
+        const completedFloor = beforeRows.reduce(
+          (m, r) => (r.completed && r.lesson_number != null ? Math.max(m, r.lesson_number) : m),
+          0,
+        );
 
-        // Every row this goal holds right now. Two jobs:
-        //
-        //   1. It is the input the post-delete state is simulated from, which
-        //      is what lets the assertions run before anything is destroyed.
-        //   2. Row-count invariant, part 1 of 2 — what the goal held BEFORE the
-        //      delete. Phase 2 deletes and re-inserts, so a bug in what the
-        //      batch decides to write can destroy a lesson and still report
-        //      success. Not hypothetical: commit 6905c4f dropped exactly one
-        //      row per drifted pin, and goal 5d6ac7b5 came out of a save with
-        //      99 rows instead of 100, lesson 4 gone, Wednesday empty, no error.
-        //
-        // A read failure used to be non-fatal here, because this read was only
-        // job 2 — a guard rail, not worth failing a save over. It is job 1 now,
-        // so it throws: without it the batch cannot be checked, and deleting
-        // rows we cannot check is exactly the bug being fixed. Throwing costs
-        // the family nothing — nothing has been written yet, the retry wrapper
-        // gets a non-deterministic error and tries again, and the worst case is
-        // the soft "save again to sync" notice with every lesson still intact.
-        const {
-          data: beforeRowsData,
-          error: beforeRowsErr,
-          count: beforeRowsCount,
-        } = await supabase
-          .from("lessons")
-          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned", { count: "exact" })
-          .eq("curriculum_goal_id", goalId);
-        if (beforeRowsErr) throw beforeRowsErr;
-        const beforeRows = (beforeRowsData ?? []) as {
-          id: string;
-          lesson_number: number | null;
-          queue_position: number | null;
-          completed: boolean;
-          notes: string | null;
-          minutes_spent: number | null;
-          queue_pinned: boolean | null;
-        }[];
-        // A partial snapshot is worse than no snapshot: rows PostgREST capped
-        // out of the response look "missing", the batch plans inserts for
-        // lesson numbers that already exist, and the delete has run by the time
-        // the unique index says so. This is the row cap that already truncated
-        // the Today reconciler's cross-goal fetch (see
-        // reconcileGoalScheduleCache), so it gets checked rather than assumed.
-        // The exact count comes back in the same round trip.
-        if (beforeRowsCount != null && beforeRowsCount !== beforeRows.length) {
-          throw new Error(
-            `Phase 2 read ${beforeRows.length} of ${beforeRowsCount} lesson rows for goal ${goalId}; refusing to plan against a truncated snapshot`,
-          );
-        }
+
 
         // Simulate the floor delete. Mirrors the query issued in COMMIT exactly:
         // incomplete, lesson_number strictly above the floor, minus the pinned
@@ -2170,6 +2196,48 @@ export default function ScheduleBuilderPage() {
         // than just ignoring them: leaving queue_pinned=true on rows we are
         // about to re-date would freeze them at their new projector dates and
         // make the next sibling save unable to move them either.
+        // ProjectedLesson.lesson_number IS the queue slot (see its doc
+        // comment); this is the slot-to-date map the held-back rows and the
+        // no-op check below both read.
+        const projDateBySlot = new Map<number, string>();
+        for (const u of upcoming) {
+          if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date);
+        }
+
+        // ── An unchanged sibling writes nothing ──────────────────────────────
+        // See isPhase2NoOp in scheduler.ts for the rule and the reasons. The
+        // decision is made on the completed plan, before the first write, and
+        // logs a schedule.rebuilt event (Invariant 18) saying nothing moved.
+        const verdict = isPhase2NoOp({
+          beforeRows,
+          deletedIds,
+          workRowIds,
+          toInsert,
+          histToInsertCount: histToInsert.length,
+          projDateBySlot,
+          releasesPins: clearPins && pinnedRows.length > 0,
+          totalLessons: row.total_lessons,
+          todayYmd: ymd(todayMid),
+          perDayAllowed,
+        });
+        if (verdict.noop) {
+          console.debug(`[handleSave] goal ${goalId}: ${verdict.reason}, no rows written`);
+          void logPlanEvent({
+            userId: effectiveUserId,
+            type: "schedule.rebuilt",
+            payload: {
+              goal_id: goalId,
+              curriculum_name: row.name,
+              inserted: 0,
+              updated: 0,
+              skipped: beforeRows.length,
+              unchanged: true,
+            },
+          });
+          return;
+        }
+
+
         if (clearPins && pinnedRows.length > 0) {
           const { error: unpinErr } = await supabase
             .from("lessons")
@@ -2194,22 +2262,16 @@ export default function ScheduleBuilderPage() {
         const { error: incompleteDeleteErr } = await floorDelete;
         if (incompleteDeleteErr) throw incompleteDeleteErr;
 
-        if (histToInsert.length > 0) {
-          for (let i = 0; i < histToInsert.length; i += 100) {
-            const { error: histErr } = await supabase
-              .from("lessons")
-              .insert(histToInsert.slice(i, i + 100));
-            if (histErr) throw histErr;
-          }
+        // One request per batch of 500 (app/lib/batches.ts), the same helper
+        // "Add a past year" writes with. 100 per request cost a 180-lesson
+        // goal two round trips where one does.
+        for (const batch of batches(histToInsert, LESSON_INSERT_BATCH)) {
+          const { error: histErr } = await supabase.from("lessons").insert(batch);
+          if (histErr) throw histErr;
         }
-
-        if (toInsert.length > 0) {
-          for (let i = 0; i < toInsert.length; i += 100) {
-            const { error: lessonErr } = await supabase
-              .from("lessons")
-              .insert(toInsert.slice(i, i + 100));
-            if (lessonErr) throw lessonErr;
-          }
+        for (const batch of batches(toInsert, LESSON_INSERT_BATCH)) {
+          const { error: lessonErr } = await supabase.from("lessons").insert(batch);
+          if (lessonErr) throw lessonErr;
         }
 
         // Cleanup: if the user reduced total_lessons on an edit, any rows
@@ -2273,10 +2335,6 @@ export default function ScheduleBuilderPage() {
         // number — see its doc comment. That is the column a kept row is
         // matched on, the same way the fresh inserts take their date from the
         // slot they land in.
-        const projDateBySlot = new Map<number, string>();
-        for (const u of upcoming) {
-          if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date);
-        }
         let rebuiltUpdated = 0;
         for (const r of beforeRows) {
           if (!workRowIds.has(r.id)) continue;
@@ -2469,7 +2527,7 @@ export default function ScheduleBuilderPage() {
       // attempt and go straight to the failure path (see
       // isDeterministicPhase2Failure).
       const phase2Failures: { goalId: string; err: unknown }[] = [];
-      for (const { id: goalId, row } of savedCurriculumGoals) {
+      const runPhase2ForGoal = async ({ id: goalId, row }: { id: string; row: Row }) => {
         let lastErr: unknown = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
@@ -2493,7 +2551,22 @@ export default function ScheduleBuilderPage() {
           });
           phase2Failures.push({ goalId, err: lastErr });
         }
-      }
+            };
+      // Every goal's phase 2 reads and writes only its own rows, so goals run
+      // a few at a time instead of one after another. Four keeps the browser
+      // under its per-host connection limit while the reads of one goal
+      // overlap the writes of another. Failures are gathered as they land and
+      // put back in builder order before one is chosen.
+      const PHASE2_CONCURRENCY = 4;
+      let nextGoal = 0;
+      await Promise.all(
+        Array.from({ length: Math.min(PHASE2_CONCURRENCY, savedCurriculumGoals.length) }, async () => {
+          while (nextGoal < savedCurriculumGoals.length) {
+            const item = savedCurriculumGoals[nextGoal++];
+            await runPhase2ForGoal(item);
+          }
+        }),
+      );
       if (phase2Failures.length > 0) {
         // Surface a DETERMINISTIC failure over a transient one when the save
         // hit both. Re-throwing phase2Failures[0] meant goal A failing on a
@@ -2501,6 +2574,11 @@ export default function ScheduleBuilderPage() {
         // goal B hit a unique violation was told to "save again" for a
         // conflict that reproduces identically every time: a loop with no way
         // out. The transient goal still heals on that next save either way.
+        // The pool finishes goals in whatever order they complete; put the
+        // failures back in builder order so the fallback is the same goal on
+        // every save.
+        const goalOrder = new Map(savedCurriculumGoals.map((g, i) => [g.id, i]));
+        phase2Failures.sort((a, b) => (goalOrder.get(a.goalId) ?? 0) - (goalOrder.get(b.goalId) ?? 0));
         const chosen =
           phase2Failures.find((f) => isDeterministicPhase2Failure(f.err)) ??
           phase2Failures[0];

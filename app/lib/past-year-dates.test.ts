@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   spreadLessonDates, pastYearProblem, defaultYearName, buildPastYearLessons, buildPastYearGoal,
-  summarizePastYear, pastYearReviewSentence, describeSchoolDays, rowProblem, batches, usableRows, MAX_PAST_YEAR_DAYS,
+  summarizePastYear, pastYearReviewSentence, describeSchoolDays, rowProblem, usableRows, MAX_PAST_YEAR_DAYS,
 } from "./past-year-dates.ts";
 import { schoolDaysBetween } from "./scheduler.ts";
 
@@ -195,12 +195,6 @@ test("every lesson row is completed history in the builder's shape, tagged past_
   const noMinutes = buildPastYearLessons({ userId: "u", schoolYearId: "y", yearName: "2025-2026", goalId: "g", childId: "k1", curriculumName: "Art", completedLessons: 2, minutesPerLesson: null, schoolDaysInYear: days });
   assert.equal(noMinutes[0].minutes_spent, null);
   assert.equal(noMinutes[0].hours, 0);
-});
-
-test("batches of 500", () => {
-  const b = batches(Array.from({ length: 1201 }, (_, i) => i));
-  assert.deepEqual(b.map((x) => x.length), [500, 500, 201]);
-  assert.deepEqual(batches([]), []);
 });
 
 test("overlap: a range touching two years names both in one sentence, earliest first", () => {
