@@ -6997,3 +6997,88 @@ test('resync: an incomplete row ahead of the pointer is never left unqueued', ()
     assert.equal(holders.length, 1, `slot ${slot} must have exactly one row`)
   }
 })
+
+// ===========================================================================
+// The catch-up flows read the whole schedule, and the confirm button answers
+// the tap (September 2026).
+// ===========================================================================
+
+test('catch-up: loadCatchUpLessons reads lessons only through the paged loader', () => {
+  // The old single unranged read stopped at PostgREST's 1,000-row cap without
+  // saying so. 45 families are past it; one holds 1,950 uncompleted scheduled
+  // rows, and for her the affected-goal set missed every late-year curriculum.
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  // The signature spans a Promise<{ missed; future } | null> type literal, so
+  // the brace scan has to start after the arrow, not at the type's own brace.
+  const body = extractFunctionBody(src, /const loadCatchUpLessons = useCallback\(async \(\): Promise<[\s\S]*?> => \{/)
+  assert.ok(!body.includes('from("lessons")'), 'no direct lessons read inside loadCatchUpLessons')
+  assert.ok(body.includes('loadCatchUpRows('), 'it goes through loadCatchUpRows')
+})
+
+test('catch-up: every lessons read in the loader is ranged, and a failure is a null', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/loadCatchUpLessons.ts'))
+  // Both halves build on one base query that is only ever awaited through
+  // selectAllRowsResult's (from, to) callback, so every read carries .range().
+  const reads = (src.match(/from\("lessons"\)/g) ?? []).length
+  const ranged = (src.match(/\.range\(from, to\)/g) ?? []).length
+  const paged = (src.match(/selectAllRowsResult</g) ?? []).length
+  assert.equal(reads, 1, 'one base lessons query')
+  assert.equal(ranged, 2, 'both halves end in .range(from, to)')
+  assert.equal(paged, 2, 'both halves go through selectAllRowsResult')
+  assert.ok(/if \(missedRes\.error \|\| !missedRes\.data\) return null/.test(src), 'a missed-half failure is a null')
+  assert.ok(/if \(futureRes\.error \|\| !futureRes\.data\) return null/.test(src), 'a future-half failure is a null')
+  // The upcoming half is not bounded to a window: a goal whose next open row
+  // is in May must still count as affected.
+  const future = src.slice(src.indexOf('FUTURE_COLUMNS)'), src.indexOf('FUTURE_COLUMNS)') + 300)
+  assert.ok(/\.gte\("scheduled_date", todayStr\)/.test(future), 'future starts at today')
+  assert.ok(!/\.lte\("scheduled_date"/.test(future) && !/\.lt\("scheduled_date"/.test(future), 'and has no upper bound')
+})
+
+test('catch-up: "Yes, mark them done" answers the tap', () => {
+  // Rule from the relaunch branch: no primary button is ever silently
+  // disabled or silently busy. The button reads a busy state, shows
+  // "Marking…" while it is set, and the handler sets it before its first
+  // await and clears it in finally.
+  const src = stripComments(loadRepoFile('app/components/MissedLessonRecoveryModal.tsx'))
+  assert.ok(/submitting === "yes" \? \(/.test(src), 'the confirm button reads the busy state')
+  assert.ok(/Marking…/.test(src), 'and renders "Marking…" while it is set')
+  assert.ok(/aria-busy=\{submitting === "yes"\}/.test(src), 'and says so to assistive tech')
+  assert.ok(/<Spinner \/>/.test(src), 'with a spinner')
+
+  const yes = extractFunctionBody(src, /async function handleYes\s*\(/)
+  const busyAt = yes.indexOf('setSubmitting("yes")')
+  const firstAwait = yes.indexOf('await ')
+  assert.ok(busyAt !== -1 && firstAwait !== -1, 'handleYes sets busy and awaits')
+  assert.ok(busyAt < firstAwait, 'busy is set before the first await')
+  assert.ok(/finally \{\s*setSubmitting\(null\);?\s*\}/.test(yes), 'and cleared in finally')
+  assert.ok(/catch \(err\) \{\s*setSubmitError\(/.test(yes), 'a failure shows its reason and hands the button back')
+
+  // Same treatment for the other confirm button.
+  const no = extractFunctionBody(src, /async function handleNo\s*\(/)
+  assert.ok(no.indexOf('setSubmitting("no")') < no.indexOf('await '), 'No goes busy before its await')
+  assert.ok(/Rescheduling…/.test(src), 'and says so')
+})
+
+test('catch-up: the page keeps the sheet open until every write has landed', () => {
+  // The dead tap: handleMissedRecoveryYes hid the modal on its first line,
+  // before the first write, so the modal\'s busy state never showed and the
+  // family saw nothing until the toast seconds later.
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  const beforeFirstAwait = body
+    .slice(0, body.indexOf('await '))
+    // The only early close allowed is the nothing-to-write return.
+    .replace(/if \(rows\.length === 0\) return[^\n;]*;/, '')
+  assert.ok(!beforeFirstAwait.includes('setShowMissedRecovery(false)'), 'the sheet is not hidden before the first write')
+  const lastRecompute = body.lastIndexOf('recomputeCurrentLesson(')
+  const close = body.lastIndexOf('setShowMissedRecovery(false)')
+  assert.ok(close > lastRecompute, 'it closes after the last write')
+  assert.ok(/setRecoveryToast\(rows\.length\)/.test(body), 'and toasts the count')
+  assert.ok(/throw err/.test(body), 'a failure reaches the modal')
+  // Regression guard: both refreshes still awaited on the way out.
+  const tail = body.slice(close)
+  assert.ok(/await loadData\(\)/.test(tail) && /await refreshTodayStory\(\)/.test(tail), 'loadData and refreshTodayStory stay awaited after a save')
+
+  const no = extractFunctionBody(src, /async function handleMissedRecoveryNo\s*\(/)
+  assert.ok(no.indexOf('setShowMissedRecovery(false)') > no.indexOf('await markCatchupAnswered('), 'No closes after its write too')
+})
