@@ -15,10 +15,8 @@
 // completed_at, the "{name} — Lesson {n}" title lessonReportSubject reads).
 
 import { capitalizeName } from "../../lib/utils.ts";
-import { batches as splitBatches, LESSON_INSERT_BATCH } from "./batches.ts";
 
 export const PAST_YEAR_SOURCE = "past_year";
-export const PAST_YEAR_LESSON_BATCH = LESSON_INSERT_BATCH;
 export const DEFAULT_SCHOOL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
 /**
@@ -242,10 +240,6 @@ export function buildPastYearLessons(args: {
   }));
 }
 
-/** Split rows into insert batches. The same helper the Schedule Builder uses. */
-export function batches<T>(rows: readonly T[], size = PAST_YEAR_LESSON_BATCH): T[][] {
-  return splitBatches(rows, size);
-}
 
 export type PastYearSummary = {
   lessons: number;

@@ -960,8 +960,10 @@ export default function PlanV2() {
       // onChoose records the audit event and the toast once the family answers.
       const plannedDate = snap?.scheduled_date ?? snap?.date ?? null;
       const willAsk = !current && !!snap && plannedDate !== null && plannedDate !== todayStr;
-      await toggleLesson(id, current);
-      if (willAsk) return;
+      const wrote = await toggleLesson(id, current);
+      // A tap dropped because the first one is still writing is not an event,
+      // a toast or a completion: the row and the history must keep agreeing.
+      if (willAsk || !wrote) return;
       if (!current && snap) {
         // The silent path. Rooted still shows the date it just wrote.
         setUndoAction({
@@ -6862,12 +6864,14 @@ export default function PlanV2() {
             onChoose={async (dateStr, choice) => {
               const { lesson } = completionChoice;
               setCompletionChoice(null);
+              let wrote = false;
               try {
-                await completeWithChoice(lesson.id, dateStr, choice);
+                wrote = await completeWithChoice(lesson.id, dateStr, choice);
               } catch {
                 flashNotice("Couldn't log that, try again.");
                 return;
               }
+              if (!wrote) return;
               recordEvent("lesson.completed", {
                 lesson_id: lesson.id,
                 lesson_title:

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { batches, LESSON_INSERT_BATCH } from "./batches.ts";
 import {
   computeNextLessonsForGoal,
   planPhase2LessonInserts,
@@ -177,17 +178,19 @@ export async function healEmptyGoal(
     });
     if (rows.length === 0) return 0;
 
-    // 4. Write, in batches, the way the builder does.
-    for (let i = 0; i < rows.length; i += 100) {
-      const { error } = await supabase.from("lessons").insert(rows.slice(i, i + 100));
+    // 4. Write, in batches, through the same helper the builder uses.
+    let written = 0;
+    for (const batch of batches(rows, LESSON_INSERT_BATCH)) {
+      const { error } = await supabase.from("lessons").insert(batch);
       if (error) {
         captureSupabaseError("Empty-goal self-heal: insert failed", error, {
           level: "warning",
           tags: { phase: "empty_goal_self_heal", goal_id: goalId },
-          extra: { planned: rows.length, writtenBefore: i },
+          extra: { planned: rows.length, writtenBefore: written },
         });
-        return i;
+        return written;
       }
+      written += batch.length;
     }
 
     // 5. Same as the builder: let the pointer be recomputed from the rows
