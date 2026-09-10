@@ -17,7 +17,7 @@ import { createContext, useContext } from "react";
 
 /** Every profile column any dashboard load-path consumer reads. */
 export const DASHBOARD_PROFILE_COLUMNS =
-  "display_name, first_name, last_name, subscription_status, family_photo_url, onboarded, is_pro, plan_type, trial_started_at, created_at, school_days, school_year_start, school_start_time, timezone, yearbook_opened_at, yearbook_closed_at, yearbook_settings";
+  "display_name, first_name, last_name, subscription_status, family_photo_url, onboarded, is_pro, plan_type, trial_started_at, created_at, school_days, school_year_start, school_start_time, timezone, yearbook_opened_at, yearbook_closed_at, yearbook_settings, current_streak_days, last_logged_date";
 
 export type DashboardProfile = {
   display_name: string | null;
@@ -37,6 +37,8 @@ export type DashboardProfile = {
   yearbook_opened_at: string | null;
   yearbook_closed_at: string | null;
   yearbook_settings: Record<string, boolean> | null;
+  current_streak_days: number | null;
+  last_logged_date: string | null;
 };
 
 export type ProfileContextType = {

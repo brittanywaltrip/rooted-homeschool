@@ -1009,7 +1009,7 @@ export default function TodayPage() {
     // last_logged_date is older than the previous school day. Fire-and-forget
     // — the Today UI computes its own live streak; this keeps the Garden
     // page and badge checker honest. longest_streak_days is untouched.
-    recomputeStaleStreak(effectiveUserId);
+    // Runs off the profile below once it lands, so it costs no read of its own.
 
     // ── Phase 1: Fire all independent queries in parallel ────────────────
     const thirtyDaysAgo = new Date();
@@ -1043,6 +1043,7 @@ export default function TodayPage() {
     // after the yearbook or Settings may have written it). Used to be an
     // awaited profiles read that every other query below queued behind.
     const profilePromise = loadPageProfile();
+    void profilePromise.then((p) => recomputeStaleStreak(effectiveUserId, { profile: p }), () => {});
 
     // Lists + appointments go through API routes. Started here, alongside
     // the first wave, and collected at the very end; they used to wait for

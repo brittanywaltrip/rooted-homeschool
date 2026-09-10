@@ -212,3 +212,44 @@ test('recomputeStaleStreak: already-zero streak is a no-op', async () => {
   assert.equal(result, 'kept')
   assert.equal(updateCalls.length, 0)
 })
+
+test('recomputeStaleStreak: a caller that already holds the profile costs no profiles read', async () => {
+  const { client, updateCalls } = makeSupabase({
+    current_streak_days: 9,
+    longest_streak_days: 20,
+    last_logged_date: '2026-03-15',
+    school_days: MON_FRI,
+  })
+  let selects = 0
+  const counting = new Proxy(client, {
+    get(target, prop, receiver) {
+      if (prop === 'from') {
+        return (table: string) => {
+          const chain = (target as { from: (t: string) => Record<string, unknown> }).from(table)
+          return new Proxy(chain, {
+            get(c, p, r) {
+              if (p === 'select') selects += 1
+              return Reflect.get(c, p, r)
+            },
+          })
+        }
+      }
+      return Reflect.get(target, prop, receiver)
+    },
+  })
+  const result = await recomputeStaleStreak('user-1', {
+    supabase: sb(counting),
+    now: new Date('2026-04-22T10:00:00-07:00'),
+    profile: { current_streak_days: 9, last_logged_date: '2026-03-15', school_days: MON_FRI },
+  })
+  assert.equal(result, 'reset')
+  assert.equal(selects, 0, 'no profiles read when the profile is passed in')
+  assert.equal(updateCalls.length, 1)
+})
+
+test('recomputeStaleStreak: a passed-in null profile is "skipped", not a read', async () => {
+  const { client, updateCalls } = makeSupabase(null)
+  const result = await recomputeStaleStreak('user-1', { supabase: sb(client), profile: null })
+  assert.equal(result, 'skipped')
+  assert.equal(updateCalls.length, 0)
+})

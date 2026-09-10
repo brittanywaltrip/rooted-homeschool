@@ -71,6 +71,8 @@ test("one profiles read on the load path: the layout's, through ProfileContext",
   assert.equal(reads.length, 1, "loadData touches profiles once");
   assert.match(reads[0].slice(0, 60), /\.update\(/, "and that touch is the timezone write");
   assert.equal(count(pageLoadData, "loadPageProfile()"), 1);
+  // The streak reset runs off that same profile rather than reading its own.
+  assert.match(pageLoadData, /recomputeStaleStreak\(effectiveUserId, \{ profile: p \}\)/);
   assert.equal(count(pageAwards, 'from("profiles")'), 0);
   const banner = read("app/components/UpgradeBanner.tsx");
   assert.equal(count(banner, 'from("profiles")'), 0);
