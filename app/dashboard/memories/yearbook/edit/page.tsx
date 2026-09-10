@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
+import { useProfile } from "@/lib/profile-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { signedPhotoUrl, coverBucketFor } from "@/lib/photo-url";
 import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS, COVER_MAX_DIMENSION } from "@/lib/photo-pipeline";
@@ -408,6 +409,8 @@ function KeepsakeFieldGroup({
 export default function YearbookEditPage() {
   const router = useRouter();
   const { effectiveUserId, isPartner } = usePartner();
+  // The layout shares the profile row; tell it this page wrote it.
+  const { refreshProfile } = useProfile();
   const [loading, setLoading] = useState(true);
   const [children, setChildren] = useState<Child[]>([]);
   const [yearbookKey, setYearbookKey] = useState("");
@@ -693,6 +696,7 @@ export default function YearbookEditPage() {
       if (!openedAt) {
         const now = new Date().toISOString();
         await supabase.from("profiles").update({ yearbook_opened_at: now }).eq("id", effectiveUserId);
+        void refreshProfile();
         openedAt = now;
       }
 
@@ -940,6 +944,7 @@ export default function YearbookEditPage() {
                     setYbSettings(next);
                     if (effectiveUserId) {
                       await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
+        void refreshProfile();
                     }
                   }}
                   disabled={isReadOnly}
@@ -989,6 +994,7 @@ export default function YearbookEditPage() {
                   setYbSettings(next);
                   if (effectiveUserId) {
                     await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
+        void refreshProfile();
                   }
                 }}
                 disabled={isReadOnly}
