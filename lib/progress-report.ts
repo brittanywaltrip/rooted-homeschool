@@ -12,6 +12,7 @@
 import { supabase } from "@/lib/supabase";
 import { generateProgressReport, fmtMins, type ReportData } from "@/lib/pdf";
 import { lessonDailyLogRow } from "@/lib/progress-report-rows";
+import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 
 export type ReportRangePreset = "q1" | "q2" | "q3" | "q4" | "custom" | "full";
 
@@ -116,7 +117,13 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
   const dateGenerated = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
-    supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label, curriculum_name), is_backfill").eq("user_id", userId),
+    // Paged. The report's own range filter runs below, in JS, so this read
+    // has to bring back the family's whole history or the range can land
+    // entirely past PostgREST's 1,000-row cap and print an empty report.
+    // See lib/supabase-all-rows.ts.
+    selectAllRowsResult<LessonRow>((from, to) =>
+      supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label, curriculum_name), is_backfill").eq("user_id", userId)
+        .order("id").range(from, to)),
     supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", userId),
     supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", userId),
     supabase.from("activity_logs").select("activity_id, date, minutes_spent, completed, is_backfill").eq("user_id", userId).eq("completed", true),

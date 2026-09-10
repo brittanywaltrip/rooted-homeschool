@@ -20,6 +20,7 @@ import { monthEntriesFor, monthLabel, type MonthEntry } from "@/lib/monthly-ques
 import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, type MosaicPage, type PlacedCell, type PhotoItem, type ChapterPhotoUnit } from "@/lib/yearbook-photo-pages";
 import { focalObjectPosition } from "@/lib/focal-point";
 import { coverBucketFor } from "@/lib/photo-url";
+import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { orderPhotos } from "@/lib/photo-order";
 import { featureCaptionText, photoCaptionLine, photoMetaLine, photoDateLabel, SAFE_AREA_X, SAFE_AREA_Y } from "@/lib/photo-caption";
 import { resolveTheme, themeCssVars, THEMES, type YearbookTheme } from "@/lib/yearbook-theme";
@@ -994,8 +995,15 @@ export default function YearbookReadPage() {
         // The closing note counts the year's lessons and school days. Scoped to
         // the same window as the memories, because "your year" has to mean the
         // year the book covers and not everything the family has ever logged.
-        supabase.from("lessons").select("date, scheduled_date")
-          .eq("user_id", effectiveUserId).eq("completed", true),
+        // That scoping is the JS filter below, not a filter here, because the
+        // window's start is only derived once this returns. So the read itself
+        // is all-time, and has to be paged: PostgREST stops at 1,000 rows
+        // without saying so, which would quietly shrink the count for a family
+        // who has schooled a while. See lib/supabase-all-rows.ts.
+        selectAllRowsResult<{ date: string | null; scheduled_date: string | null }>((from, to) =>
+          supabase.from("lessons").select("date, scheduled_date")
+            .eq("user_id", effectiveUserId).eq("completed", true)
+            .order("id").range(from, to)),
       ]);
 
       const windowStart = openedAt.slice(0, 10);

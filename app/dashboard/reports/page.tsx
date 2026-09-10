@@ -13,6 +13,7 @@ import { mergeBookRecords, bookBelongsToChild, bookCover, bookHowLabel, ratingLe
 import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
 import { lessonReportSubject } from "@/lib/progress-report-rows";
+import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,36 @@ function schoolYearStart() {
   const now = new Date();
   const year = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
   return `${year}-08-01`;
+}
+
+/** Every column this page reads off a lesson row. Shared by both reads. */
+const LESSON_COLUMNS =
+  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, minutes_spent";
+
+/**
+ * The window the UNCOMPLETED half of the lesson read covers.
+ *
+ * Completed lessons are fetched with no date filter at all, because hours and
+ * attendance have to be right for whatever range the family picks, including
+ * a range from three years ago. Uncompleted lessons are different: they carry
+ * no hours and no attendance, so they only matter inside a range that is on
+ * screen. This window is the widest the range controls above reach on their
+ * own: Aug 1 of the current school year (the "This Year" preset, and the
+ * default dateFrom) through today (the default dateTo).
+ *
+ * Bounding it, rather than reading uncompleted rows unfiltered, is what keeps
+ * the fix from costing more than the bug. The family this was found on has
+ * 1,950 uncompleted lessons scheduled out across the coming year and 12 inside
+ * this window; the rest are a future schedule no report renders. Fixing it
+ * off the pickers rather than off dateFrom/dateTo also keeps typing in a date
+ * field from re-running all eight of this page's queries.
+ *
+ * A hand-typed dateTo in the future can therefore reach past this window, and
+ * that is deliberate: nothing on this page reads an uncompleted lesson today.
+ * If that changes, widen this and page it, do not drop the bound.
+ */
+function openLessonWindow(): { from: string; to: string } {
+  return { from: schoolYearStart(), to: toDateStr(new Date()) };
 }
 
 // ─── Reading log helpers ──────────────────────────────────────────────────────
@@ -722,9 +753,11 @@ export default function ReportsPage() {
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
     {
+      const { from: openFrom, to: openTo } = openLessonWindow();
       const [
         { data: kids },
-        { data: lessons_ },
+        { data: doneLessons },
+        { data: openLessons },
         { data: bookMemories },
         { data: bookEvts },
         { data: memActivities },
@@ -733,7 +766,26 @@ export default function ReportsPage() {
         { data: exceptionAppts },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-        supabase.from("lessons").select("id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, minutes_spent").eq("user_id", effectiveUserId),
+        // PostgREST caps a response at 1,000 rows and says nothing about the
+        // rest, so the old single unranged read lost every lesson past that
+        // for the 45 families who have more. One of them saw zero hours and
+        // zero courses for a child whose nine completed lessons were real.
+        // See lib/supabase-all-rows.ts.
+        //
+        // Completed rows come back in full, whatever their date: they are the
+        // hours and the attendance. Uncompleted rows are bounded to
+        // openLessonWindow() and mirror this page's own `date ?? scheduled_date`
+        // rule, so a row dated inside the window counts even when its
+        // scheduled_date sits outside it.
+        selectAllRowsResult<Lesson>((from, to) =>
+          supabase.from("lessons").select(LESSON_COLUMNS)
+            .eq("user_id", effectiveUserId).eq("completed", true)
+            .order("id").range(from, to)),
+        selectAllRowsResult<Lesson>((from, to) =>
+          supabase.from("lessons").select(LESSON_COLUMNS)
+            .eq("user_id", effectiveUserId).eq("completed", false)
+            .or(`and(date.gte.${openFrom},date.lte.${openTo}),and(date.is.null,scheduled_date.gte.${openFrom},scheduled_date.lte.${openTo})`)
+            .order("id").range(from, to)),
         // Books live in `memories` (type 'book') since March 2026. The legacy
         // app_events read below is kept so pre-March books still count.
         // id / caption / photo_url ride along for the Reading Log: a render
@@ -761,7 +813,7 @@ export default function ReportsPage() {
       ]);
 
       setChildren(capitalizeChildNames(kids ?? []));
-      setLessons((lessons_ as unknown as Lesson[]) ?? []);
+      setLessons([...(doneLessons ?? []), ...(openLessons ?? [])]);
       setBooks(mergeBookRecords(bookMemories ?? [], (bookEvts as unknown as { id?: string; type: string; payload: { title?: string; caption?: string; photo_url?: string; child_id?: string; date?: string } | null }[]) ?? []));
       setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
 
