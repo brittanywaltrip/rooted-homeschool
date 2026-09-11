@@ -38,6 +38,8 @@ import {
   lessonsPerDayForDate,
   isPinProjectable,
   isStartAtLessonInRange,
+  historyBackfillRefusal,
+  formatYmdShort,
   toGoalConfig,
   planGoalReassign,
   planGoalDelete,
@@ -7550,4 +7552,525 @@ test('big families: the no-op decision runs before the first phase-2 write, logs
   // One read of the goal per phase-2 pass: pins and the floor come from it.
   const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
   assert.equal((phase2.match(/\.from\("lessons"\)\s*\.select\(/g) ?? []).length, 3, 'beforeRows, the post-write afterRows read and the overcapacity check; no separate pinned or floor reads')
+})
+
+// ===========================================================================
+// The history/forward seam, Invariant 1 on creation, and Invariant 21
+// (a stated completion count is never silently reduced).
+//
+// Three defects, all in the Schedule Builder's phase 2, all found together on
+// 2026-09-11:
+//
+//   1. The historical backfill filtered its projection with `date < today`,
+//      so the slot landing on today was dropped. The forward planner starts at
+//      current_lesson + 1, so that lesson was claimed by neither planner and
+//      no row was ever written. Live on 32 curricula across 23 families.
+//   2. `forwardScheduleStart` was exported, tested, and documented as the
+//      enforcement of Invariant 1, and imported by nothing but this file. The
+//      builder anchored every projection at today, so a brand-new curriculum
+//      dropped a lesson onto the day it was created. 101 curricula, 32
+//      families.
+//   3. Stated progress that did not fit between start_date and today was
+//      thrown away by the same date filter, silently. One family said 182 and
+//      got 1.
+//
+// `simulateBuilderPhase2` below mirrors the two projector call sites in
+// `applyPhase2ForGoal` exactly. The source-level test at the end of this block
+// is what stops it drifting from the page.
+// ===========================================================================
+
+type BuilderSaveInput = {
+  goalId: string
+  schoolDays: string[]
+  lessonsPerDay: number
+  totalLessons: number
+  /** What the family says is already done (the goal's current_lesson). */
+  currentLesson: number
+  startDate: string | null
+  todayYmd: string
+  /** False for an in-place edit of a goal that already exists in the DB. */
+  isNewGoal: boolean
+  vacations?: VacationBlock[]
+  pins?: PinnedSlot[]
+  curriculumName?: string
+  /** Lesson numbers the goal already holds a row for (page.tsx: survivors). */
+  alreadyRecorded?: number[]
+  /** page.tsx: beforeRows.length. Zero means the goal holds no lessons yet. */
+  existingRowCount?: number
+}
+
+function simulateBuilderPhase2(input: BuilderSaveInput): {
+  history: { lesson_number: number; date: string }[]
+  forward: { lesson_number: number; date: string }[]
+  refusal: string | null
+} {
+  const {
+    goalId, schoolDays, lessonsPerDay, totalLessons, currentLesson,
+    startDate, todayYmd, isNewGoal,
+  } = input
+  const vacations = input.vacations ?? []
+  const pins = input.pins ?? []
+  const todayMid = new Date(`${todayYmd}T00:00:00`)
+
+  // ── Forward projection (page.tsx: the `upcoming` call) ──────────────────
+  const goalConfig: CurriculumGoalConfig = {
+    id: goalId,
+    school_days: schoolDays,
+    lessons_per_day: lessonsPerDay,
+    current_lesson: currentLesson,
+    total_lessons: totalLessons,
+    start_date: startDate ?? undefined,
+  }
+  const startPick = startDate ? new Date(`${startDate}T00:00:00`) : todayMid
+  const existingRowCount = input.existingRowCount ?? (input.alreadyRecorded?.length ?? 0)
+  const treatAsNew = isNewGoal || existingRowCount === 0
+  const forwardAnchor = treatAsNew ? forwardScheduleStart(startPick, todayMid) : todayMid
+  const forward = computeNextLessonsForGoal(goalConfig, forwardAnchor, 3650, vacations, 0, pins)
+
+  // ── Historical backfill (page.tsx: planHistoricalBackfill) ──────────────
+  if (!startDate || startDate >= todayYmd || currentLesson <= 0) {
+    return { history: [], forward, refusal: null }
+  }
+  const startMid = new Date(`${startDate}T00:00:00`)
+  const histConfig: CurriculumGoalConfig = {
+    id: goalId,
+    school_days: schoolDays,
+    lessons_per_day: lessonsPerDay,
+    current_lesson: 0,
+    total_lessons: currentLesson,
+    start_date: startDate,
+  }
+  const daysSpan = Math.max(
+    1,
+    Math.floor((todayMid.getTime() - startMid.getTime()) / 86400000) + 60,
+  )
+  const histProjected = computeNextLessonsForGoal(histConfig, startMid, daysSpan, vacations)
+  const refusal = historyBackfillRefusal({
+    curriculumName: input.curriculumName ?? 'This curriculum',
+    statedCompleted: currentLesson,
+    startDate,
+    todayYmd,
+    projected: histProjected,
+    alreadyRecorded: input.alreadyRecorded ?? [],
+  })
+  // Production THROWS here, so a refused goal gets no rows at all: not the
+  // backfill, and not the forward queue either. Mirror that, or a test could
+  // pass on a forward schedule the family never receives.
+  if (refusal) return { history: [], forward: [], refusal }
+  return {
+    history: histProjected.filter((p) => p.date <= todayYmd),
+    forward,
+    refusal: null,
+  }
+}
+
+test('the seam: history reaches today inclusive and the forward queue resumes the next school day', () => {
+  // The live repro. Start 2026-08-31, Mon-Fri, "already completed 10" so
+  // start_at_lesson = 11 and current_lesson = 10. Today is Fri 2026-09-11.
+  // There are exactly 10 school days from 08-31 through 09-11 inclusive.
+  const { history, forward, refusal } = simulateBuilderPhase2({
+    goalId: 'seam',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 120,
+    currentLesson: 10,
+    startDate: '2026-08-31',
+    todayYmd: '2026-09-11',
+    isNewGoal: true,
+  })
+
+  assert.equal(refusal, null, '10 lessons fit in 10 school days')
+
+  // Lessons 1 through 10, no gaps. Before the fix this was 1 through 9 and
+  // lesson 10 had no row at all.
+  assert.deepEqual(
+    history.map((h) => h.lesson_number),
+    [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    'every lesson the family said they finished gets a row',
+  )
+  assert.equal(history[0].date, '2026-08-31', 'history starts on the chosen start date')
+  assert.equal(history[9].date, '2026-09-11', 'lesson 10 lands on today, not nowhere')
+
+  // The forward queue picks up at 11 and skips the weekend.
+  assert.equal(forward[0].lesson_number, 11, 'the forward queue resumes at current_lesson + 1')
+  assert.equal(forward[0].date, '2026-09-14', 'Monday, not today')
+
+  // The seam holds from both sides: nothing is duplicated and nothing is lost.
+  const seen = [...history, ...forward].map((l) => l.lesson_number)
+  assert.equal(new Set(seen).size, seen.length, 'no lesson number is emitted twice')
+  assert.ok(!forward.some((f) => f.date <= '2026-09-11'), 'no forward lesson on or before today')
+})
+
+test('Invariant 1 on creation: a brand-new curriculum dates nothing forward on or before today', () => {
+  const { history, forward } = simulateBuilderPhase2({
+    goalId: 'inv1',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 120,
+    currentLesson: 5,
+    startDate: '2026-08-31',
+    todayYmd: '2026-09-11',
+    isNewGoal: true,
+  })
+
+  const onOrBefore = forward.filter((f) => f.date <= '2026-09-11')
+  assert.deepEqual(onOrBefore, [], 'Invariant 1: no forward lesson is dated on or before today')
+  assert.equal(forward[0].lesson_number, 6)
+  assert.equal(forward[0].date, '2026-09-14')
+
+  // The five the family said they did still land on the five school days
+  // starting from their chosen start date, well before today.
+  assert.deepEqual(
+    history.map((h) => h.date),
+    ['2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04'],
+  )
+})
+
+test('the seam on a weekly cadence: Fridays only, lesson 2 on today and lesson 3 next Friday', () => {
+  // One school day a week is where the off-by-one is loudest: the lost lesson
+  // leaves a seven-day hole, and a forward anchor of today would put lesson 3
+  // on the same Friday as lesson 2.
+  const { history, forward, refusal } = simulateBuilderPhase2({
+    goalId: 'weekly',
+    schoolDays: ['Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 30,
+    currentLesson: 2,
+    startDate: '2026-08-31',
+    todayYmd: '2026-09-11',
+    isNewGoal: true,
+  })
+
+  assert.equal(refusal, null)
+  assert.deepEqual(history, [
+    { goal_id: 'weekly', lesson_number: 1, date: '2026-09-04' },
+    { goal_id: 'weekly', lesson_number: 2, date: '2026-09-11' },
+  ])
+  assert.equal(forward[0].lesson_number, 3)
+  assert.equal(forward[0].date, '2026-09-18')
+})
+
+test('Invariant 21: progress that cannot fit is refused, not trimmed', () => {
+  // start_date 2026-09-09 (Wed), Mon-Fri, today Fri 2026-09-11: three school
+  // days have passed and the family says 100 lessons are done. The old filter
+  // recorded 3 and discarded 97 with a success message.
+  const { history, refusal } = simulateBuilderPhase2({
+    goalId: 'overflow',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 200,
+    currentLesson: 100,
+    startDate: '2026-09-09',
+    todayYmd: '2026-09-11',
+    isNewGoal: true,
+    curriculumName: "Zoe's Math",
+  })
+
+  assert.ok(refusal, 'the save is refused')
+  assert.deepEqual(history, [], 'nothing is written when the count does not fit')
+  assert.match(refusal!, /100 lessons are already done/, 'names the count the family stated')
+  assert.match(refusal!, /only 3 school days have passed/, 'names the days actually available')
+  assert.match(refusal!, /can only record 3/, 'names what Rooted would have recorded')
+  assert.match(refusal!, /Sep 9/, 'names the start date the family picked')
+  assert.match(refusal!, /Zoe's Math/, 'names the curriculum')
+  assert.match(refusal!, /Move the start date earlier, or lower the completed count/)
+})
+
+test('Invariant 21: the live 182-lesson shape, and the singular reads as English', () => {
+  // The worst live example: start 2026-08-19, "on lesson 182", one school day
+  // in the window. Rooted recorded 1 and discarded 180.
+  const { refusal } = simulateBuilderPhase2({
+    goalId: 'live',
+    schoolDays: ['Wed'],
+    lessonsPerDay: 1,
+    totalLessons: 200,
+    currentLesson: 181,
+    startDate: '2026-08-19',
+    todayYmd: '2026-08-20',
+    isNewGoal: true,
+    curriculumName: "Zoe's Math",
+  })
+  assert.equal(
+    refusal,
+    "Zoe's Math: you said 181 lessons are already done, but only 1 school day has passed " +
+    'since your start date of Aug 19. Rooted can only record 1. ' +
+    'Move the start date earlier, or lower the completed count.',
+  )
+})
+
+test('Invariant 21: a count that exactly fills the window is not refused', () => {
+  // The boundary the `<=` fix creates. Ten school days, ten lessons, the last
+  // one on today: this is the seam case and it must pass, not refuse.
+  const { history, refusal } = simulateBuilderPhase2({
+    goalId: 'exact',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 120,
+    currentLesson: 10,
+    startDate: '2026-08-31',
+    todayYmd: '2026-09-11',
+    isNewGoal: true,
+  })
+  assert.equal(refusal, null)
+  assert.equal(history.length, 10)
+})
+
+test('the update path is untouched: an existing lesson due today stays on today', () => {
+  // Phase 2 re-spreads every curriculum row in the builder on every save. A
+  // family editing a different subject must not have today's lesson pushed to
+  // tomorrow, so an existing goal keeps its todayMid anchor.
+  const existing = simulateBuilderPhase2({
+    goalId: 'update',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 20,
+    currentLesson: 4,
+    startDate: null,
+    todayYmd: '2026-09-11',
+    isNewGoal: false,
+    existingRowCount: 20,
+  })
+  assert.equal(existing.forward[0].lesson_number, 5)
+  assert.equal(existing.forward[0].date, '2026-09-11', 'lesson 5 keeps today')
+
+  // Same config created fresh would be bumped past today. The branch is what
+  // separates them, so assert it actually separates them.
+  const created = simulateBuilderPhase2({
+    goalId: 'update',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 20,
+    currentLesson: 4,
+    startDate: null,
+    todayYmd: '2026-09-11',
+    isNewGoal: true,
+  })
+  assert.equal(created.forward[0].date, '2026-09-14', 'a brand-new goal starts after today')
+})
+
+test('the update path is untouched: a pinned lesson on today survives a sibling save', () => {
+  // The same rule, with the manual placement Invariant 12 protects. Pins are
+  // emitted verbatim, so this holds on either anchor, but it is the shape the
+  // regression would have been reported as.
+  const { forward } = simulateBuilderPhase2({
+    goalId: 'pinned',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 20,
+    currentLesson: 4,
+    startDate: null,
+    todayYmd: '2026-09-11',
+    isNewGoal: false,
+    existingRowCount: 20,
+    pins: [{ slot: 5, date: '2026-09-11' }],
+  })
+  const slot5 = forward.find((f) => f.lesson_number === 5)
+  assert.equal(slot5?.date, '2026-09-11')
+})
+
+test('formatYmdShort reads the string, so no timezone can shift the date', () => {
+  assert.equal(formatYmdShort('2026-08-19'), 'Aug 19')
+  assert.equal(formatYmdShort('2026-01-01'), 'Jan 1')
+  assert.equal(formatYmdShort('2026-12-31'), 'Dec 31')
+})
+
+test('the Schedule Builder wires all three fixes into phase 2 itself', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
+
+  // Defect 1: the backfill reaches today.
+  assert.match(
+    phase2,
+    /histProjected\.filter\(\(p\) => p\.date <= ymdToday\)/,
+    'the historical backfill keeps the slot that lands on today',
+  )
+  assert.ok(
+    !/histProjected\.filter\(\(p\) => p\.date < ymdToday\)/.test(phase2),
+    'the strictly-before filter that lost the lesson at the seam is gone',
+  )
+
+  // Defect 2: Invariant 1 is enforced, on the INSERT path only.
+  assert.match(
+    phase2,
+    /forwardScheduleStart\(startPick, todayMid\)/,
+    'Invariant 1 is enforced by the documented helper, not a local rule',
+  )
+  assert.match(
+    phase2,
+    /const isNewGoal =\s*!\(row\.previouslySavedAs === "curriculum_goals" && row\.dbId\) \|\| beforeRows\.length === 0/,
+    'the anchor branches on whether the goal is being created, and survives a retry',
+  )
+  assert.match(
+    phase2,
+    /isNewGoal \? forwardScheduleStart\(startPick, todayMid\) : todayMid/,
+    'an existing goal keeps todayMid so a lesson due today is not re-dated',
+  )
+  assert.match(
+    phase2,
+    /alreadyRecorded: existingHistNums/,
+    'the refusal only counts lessons the goal cannot already account for',
+  )
+  assert.match(
+    phase2,
+    /computeNextLessonsForGoal\(goalConfig, forwardAnchor, 3650, vacations, 0, pins\)/,
+    'the forward projection reads the anchor; no new flag threaded through the projector',
+  )
+
+  // Defect 3: the refusal is planned, not written around, and it runs before
+  // the first destructive call.
+  assert.match(phase2, /historyBackfillRefusal\(\{/, 'the overflow rule has one definition')
+  assert.match(phase2, /if \(refusal\) throw new ScheduleRefusedError\(refusal\)/)
+  const refusalAt = phase2.indexOf('historyBackfillRefusal({')
+  const firstWrite = phase2.indexOf('if (clearPins && pinnedRows.length > 0)')
+  assert.ok(
+    refusalAt !== -1 && firstWrite !== -1 && refusalAt < firstWrite,
+    'the refusal is decided in PLAN, before phase 2 writes anything',
+  )
+
+  // The message reaches the family rather than the console.
+  assert.match(
+    stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx')),
+    /setPostSaveNotice\(\s*err instanceof ScheduleRefusedError/,
+    'a refusal is surfaced through the notice the builder already uses',
+  )
+  assert.match(
+    src,
+    /class ScheduleRefusedError extends ScheduleAssertionError/,
+    'a refusal is deterministic by construction, so it is never retried',
+  )
+})
+
+test('Invariant 21 does not refuse a family who is ahead of their own pace', () => {
+  // current_lesson measures real work, not a rate. A 1/day goal started
+  // 2026-09-01 whose family did two or three a day legitimately reaches lesson
+  // 15 in nine school days, and all fifteen rows are on disk and completed.
+  // The first version of this rule asked only "does the projection run past
+  // today", saw lessons 10-15 land on Sep 14-22, and refused the save. Nothing
+  // was missing and there was nothing the family could do about it. Phase 2
+  // re-spreads every row on every save, so that goal blocked the whole builder.
+  const { refusal } = simulateBuilderPhase2({
+    goalId: 'ahead',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 120,
+    currentLesson: 15,
+    startDate: '2026-09-01',
+    todayYmd: '2026-09-11',
+    isNewGoal: false,
+    existingRowCount: 120,
+    alreadyRecorded: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  })
+  assert.equal(refusal, null, 'every stated lesson already has a row, so nothing is lost')
+})
+
+test('Invariant 21 still refuses when only SOME of the stated lessons exist', () => {
+  // Ten rows on disk, nine school days of room, twenty claimed: eleven of them
+  // can be neither found nor dated, so the save is still refused.
+  const { refusal } = simulateBuilderPhase2({
+    goalId: 'partial',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 120,
+    currentLesson: 20,
+    startDate: '2026-09-01',
+    todayYmd: '2026-09-11',
+    isNewGoal: false,
+    existingRowCount: 120,
+    alreadyRecorded: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+  })
+  assert.ok(refusal, 'eleven stated lessons are unaccounted for')
+  assert.match(refusal!, /you said 20 lessons are already done/)
+})
+
+test('Invariant 21 counts what fits, so a vacation that swallows the window still refuses', () => {
+  // The caller caps its projection at (today - start) + 60 days. A break
+  // covering every remaining school day in that window means the projector
+  // emits nothing PAST today either, so "did a slot overflow" answers no while
+  // progress is still being dropped. Counting what fits is what catches it.
+  const { refusal } = simulateBuilderPhase2({
+    goalId: 'vac',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 120,
+    currentLesson: 30,
+    startDate: '2026-09-07',
+    todayYmd: '2026-09-11',
+    isNewGoal: true,
+    vacations: [{ start_date: '2026-09-12', end_date: '2026-12-31' }],
+  })
+  assert.ok(refusal, 'the shortfall is caught even with nothing projected past today')
+  assert.match(refusal!, /only 5 school days have passed/)
+  assert.match(refusal!, /can only record 5/)
+})
+
+test('Invariant 1 survives the retry the refusal notice asks the family to make', () => {
+  // Phase 1 stamps a landed insert back onto its row as
+  // previouslySavedAs: "curriculum_goals", so on the SECOND save the flag alone
+  // reads a brand-new curriculum as an existing one. Both notices that survive
+  // a phase-2 failure ask for exactly that second save. A goal holding no
+  // lesson rows is still being created, whatever its flag says.
+  const retry = simulateBuilderPhase2({
+    goalId: 'retry',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 120,
+    currentLesson: 10,
+    startDate: '2026-08-31',
+    todayYmd: '2026-09-11',
+    isNewGoal: false,        // the flag phase 1 wrote back on the first attempt
+    existingRowCount: 0,     // but phase 2 never landed a row
+  })
+  assert.equal(retry.history.at(-1)?.date, '2026-09-11', 'lesson 10 still reaches today')
+  assert.equal(retry.forward[0].date, '2026-09-14', 'and lesson 11 still clears today')
+  assert.ok(
+    !retry.forward.some((f) => f.date <= '2026-09-11'),
+    'Invariant 1 holds on the retry, not just the first attempt',
+  )
+})
+
+test('a refused goal gets no forward lessons either, which is what the notice says', () => {
+  // The refusal throws out of applyPhase2ForGoal, so the forward queue goes
+  // with it. Worth pinning: the family is told "the lessons for this curriculum
+  // were not created", and that has to be the whole truth.
+  const { history, forward, refusal } = simulateBuilderPhase2({
+    goalId: 'refused',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    totalLessons: 200,
+    currentLesson: 100,
+    startDate: '2026-09-09',
+    todayYmd: '2026-09-11',
+    isNewGoal: true,
+  })
+  assert.ok(refusal)
+  assert.deepEqual(history, [])
+  assert.deepEqual(forward, [], 'no rows at all, matching the throw in production')
+})
+
+test('historyBackfillRefusal: a lesson already on disk is accounted for whatever its date', () => {
+  // The unit-level statement of the same rule, independent of the simulator.
+  const projected = [
+    { goal_id: 'g', lesson_number: 1, date: '2026-09-10' },
+    { goal_id: 'g', lesson_number: 2, date: '2026-09-11' },
+    { goal_id: 'g', lesson_number: 3, date: '2026-09-14' },
+  ]
+  const base = {
+    curriculumName: 'Math',
+    statedCompleted: 3,
+    startDate: '2026-09-10',
+    todayYmd: '2026-09-11',
+    projected,
+  }
+  assert.ok(historyBackfillRefusal(base), 'lesson 3 is past today and has no row')
+  assert.equal(
+    historyBackfillRefusal({ ...base, alreadyRecorded: [3] }),
+    null,
+    'lesson 3 already has a row, so nothing is being dropped',
+  )
+  assert.equal(
+    historyBackfillRefusal({ ...base, alreadyRecorded: [99] }),
+    historyBackfillRefusal(base),
+    'a row outside 1..stated accounts for nothing',
+  )
 })

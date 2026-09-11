@@ -7,7 +7,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { isPhase2NoOp, computeNextLessonsForGoal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, computeNextLessonsForGoal, forwardScheduleStart, historyBackfillRefusal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
@@ -720,6 +720,24 @@ class ScheduleAssertionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ScheduleAssertionError";
+  }
+}
+
+/**
+ * A phase 2 refusal the FAMILY can act on, carrying the words they should see.
+ *
+ * A ScheduleAssertionError says the projector built something the assertions
+ * reject: nothing the family typed explains it, so the notice sends them to
+ * support. A refusal is the opposite. The numbers they entered do not
+ * reconcile with the calendar, both numbers are theirs to change, and the
+ * message already names them. It extends ScheduleAssertionError so it is
+ * deterministic by construction (a retry rebuilds the identical batch); the
+ * catch in handleSave shows `message` verbatim instead of the support copy.
+ */
+class ScheduleRefusedError extends ScheduleAssertionError {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScheduleRefusedError";
   }
 }
 
@@ -1819,7 +1837,38 @@ export default function ScheduleBuilderPage() {
         // where they sit and fills unpinned slots around them without stacking
         // on their days — the same occupancy discipline the vacation re-spread
         // relies on.
-        const upcoming = computeNextLessonsForGoal(goalConfig, todayMid, 3650, vacations, 0, pins);
+        //
+        // ── Invariant 1: nothing NEW is dated on or before today ─────────────
+        // A brand-new curriculum anchors its forward projection at
+        // forwardScheduleStart, so its first lesson lands strictly after today
+        // (or on the family's own later start date). The invariant was written
+        // in May 2026 and the helper has been exported and tested ever since,
+        // but until today nothing in the app called it: the builder anchored
+        // every projection at todayMid, so creating a curriculum dropped a
+        // lesson onto the very day the family set it up. 101 curricula across
+        // 32 families arrived that way. It is also the other half of the
+        // history/forward seam. The last backfilled lesson now lands on
+        // today, and an anchor of todayMid would put lesson N+1 on top of it.
+        //
+        // An EXISTING goal keeps todayMid. Its lesson due today is legitimate
+        // work the family planned, and phase 2 re-spreads every row in the
+        // builder on every save: moving that lesson to tomorrow because they
+        // opened the builder to edit a different subject would be its own
+        // regression.
+        // `beforeRows.length === 0` is the half that survives a RETRY. Phase 1
+        // stamps a landed insert back onto its row as
+        // previouslySavedAs: "curriculum_goals", so on the family's second tap
+        // of Save (which the refusal notice and the transient notice both ask
+        // for) the flag alone reads the brand-new goal as an existing one and
+        // the anchor falls back to today, re-introducing the violation this
+        // change exists to fix. A goal holding no lesson rows is still being
+        // created however its flag reads, and it has no lesson due today for
+        // the todayMid branch to protect.
+        const isNewGoal =
+          !(row.previouslySavedAs === "curriculum_goals" && row.dbId) || beforeRows.length === 0;
+        const startPick = row.start_date ? new Date(`${row.start_date}T00:00:00`) : todayMid;
+        const forwardAnchor = isNewGoal ? forwardScheduleStart(startPick, todayMid) : todayMid;
+        const upcoming = computeNextLessonsForGoal(goalConfig, forwardAnchor, 3650, vacations, 0, pins);
         if (upcoming.length === 0) return;
 
         /* ── PLAN ─────────────────────────────────────────────────────────────
@@ -1939,11 +1988,6 @@ export default function ScheduleBuilderPage() {
             daysSpan,
             vacations,
           );
-          // Only backfill slots that land STRICTLY before today. Today's
-          // slot still belongs to the normal Today flow, not a pre-fab
-          // "already done" stamp.
-          const pastSlots = histProjected.filter((p) => p.date < ymdToday);
-
           // Respect the (curriculum_goal_id, lesson_number) unique index.
           // The floor delete clears incomplete rows 1..currentLesson; anything
           // left is either a real completion or a previously inserted backfill
@@ -1954,6 +1998,50 @@ export default function ScheduleBuilderPage() {
               .map((r) => r.lesson_number)
               .filter((n): n is number => n != null && n >= 1 && n <= currentLesson),
           );
+
+          // ── Invariant 21: the stated count is never silently reduced ────
+          // Progress that cannot fit in the school days between start_date and
+          // today used to be dropped by the filter below and the save reported
+          // success. One family set a start date of 2026-08-19 and said they
+          // were on lesson 182: one school day had passed, Rooted recorded 1
+          // lesson and discarded 180 without a word. Refuse instead, and say
+          // which two numbers do not reconcile.
+          //
+          // `existingHistNums` is what keeps this off the back of a family who
+          // is merely ahead of their own pace. current_lesson measures real
+          // work, not a rate, so a 1/day goal whose family did three a day
+          // reaches lesson 15 in nine school days with all fifteen rows on
+          // disk. Nothing is missing there and nothing needs writing, so
+          // nothing is refused. See historyBackfillRefusal.
+          //
+          // No lesson row has been written for this goal yet: this is the PLAN
+          // phase, and the only write behind us is the recomputeCurrentLesson
+          // that produced `currentLesson` in the first place.
+          const refusal = historyBackfillRefusal({
+            curriculumName: row.name.trim() || "This curriculum",
+            statedCompleted: currentLesson,
+            startDate: row.start_date,
+            todayYmd: ymdToday,
+            projected: histProjected,
+            alreadyRecorded: existingHistNums,
+          });
+          if (refusal) throw new ScheduleRefusedError(refusal);
+
+          // Everything from start_date through today INCLUSIVE is history the
+          // family asserted. `histProjected` is built with
+          // `total_lessons: currentLesson`, so it holds exactly one slot per
+          // lesson they told us they finished, including the one that lands
+          // on today.
+          //
+          // This used to read `<`, on the reasoning that today's slot "still
+          // belongs to the normal Today flow". It does not: the forward planner
+          // starts at current_lesson + 1, so the slot on today was claimed by
+          // neither planner and the lesson was lost at the seam. A family who
+          // started 2026-08-31 Mon-Fri and said 10 were done got lessons 1-9
+          // and no row at all for lesson 10. Live on 32 curricula across 23
+          // families. Invariant 1 (above) is what keeps the forward projection
+          // off today now that history reaches it.
+          const pastSlots = histProjected.filter((p) => p.date <= ymdToday);
 
           // Slots the surviving rows already occupy. The forward planner
           // (planPhase2LessonInserts) has always respected this; THIS planner
@@ -2546,9 +2634,25 @@ export default function ScheduleBuilderPage() {
           // Phase 2 throws raw Supabase errors (`throw lessonErr` etc.), which
           // Sentry titled "Object captured as exception with keys: code,
           // details, hint, message". Wrap so the real message is the title.
-          captureSupabaseError("Curriculum save phase 2 failed", lastErr, {
-            tags: { phase: "curriculum_save_phase2", goal_id: goalId },
-          });
+          //
+          // A refusal is not a fault: the family entered more progress than
+          // the calendar holds and the save stopped before writing anything.
+          // Worth counting (about 70 curricula are in that shape) but not
+          // worth paging anyone, so it lands as a warning.
+          const refused = lastErr instanceof ScheduleRefusedError;
+          captureSupabaseError(
+            refused
+              ? "Curriculum save phase 2 refused: stated progress does not fit"
+              : "Curriculum save phase 2 failed",
+            lastErr,
+            {
+              ...(refused ? { level: "warning" as const } : {}),
+              tags: {
+                phase: refused ? "curriculum_save_phase2_refused" : "curriculum_save_phase2",
+                goal_id: goalId,
+              },
+            },
+          );
           phase2Failures.push({ goalId, err: lastErr });
         }
             };
@@ -2579,7 +2683,11 @@ export default function ScheduleBuilderPage() {
         // every save.
         const goalOrder = new Map(savedCurriculumGoals.map((g, i) => [g.id, i]));
         phase2Failures.sort((a, b) => (goalOrder.get(a.goalId) ?? 0) - (goalOrder.get(b.goalId) ?? 0));
+        // A refusal outranks everything: it is the only failure shape whose
+        // message tells the family what to change, and it is the only one they
+        // can clear themselves.
         const chosen =
+          phase2Failures.find((f) => f.err instanceof ScheduleRefusedError) ??
           phase2Failures.find((f) => isDeterministicPhase2Failure(f.err)) ??
           phase2Failures[0];
         failedPhase2GoalId = chosen.goalId;
@@ -2639,14 +2747,23 @@ export default function ScheduleBuilderPage() {
         // with "Curriculum changes saved", which reads as "you are done" to
         // anyone skimming, and the thing that did NOT happen is the whole
         // point of the message.
+        // A refusal already says what is wrong and what to change, in the
+        // family's own numbers. The support copy below would bury that under
+        // "we've been notified" for a problem nobody but they can fix.
         setPostSaveNotice(
-          deterministic
-            ? "Your curriculum settings were saved, but the lessons hit a conflict and did not generate. We've been notified. Email hello@rootedhomeschoolapp.com and we'll fix it for you."
-            : "Your curriculum settings were saved, but the lessons themselves did not generate. Tap Save again to finish. Nothing you entered was lost.",
+          err instanceof ScheduleRefusedError
+            ? `${err.message} Your other settings were saved. The lessons for this curriculum were not created.`
+            : deterministic
+              ? "Your curriculum settings were saved, but the lessons hit a conflict and did not generate. We've been notified. Email hello@rootedhomeschoolapp.com and we'll fix it for you."
+              : "Your curriculum settings were saved, but the lessons themselves did not generate. Tap Save again to finish. Nothing you entered was lost.",
         );
-        if (deterministic) {
-          // Saving again reproduces the same failure, so there is nothing to
-          // trap the family here for. Let them leave without the guard.
+        // A refusal is the one deterministic failure with something to do
+        // about it, so it keeps the draft and the leave-guard: the family
+        // lowers the count or moves the start date and saves again, on the
+        // same rows they are looking at. Every other deterministic failure
+        // reproduces identically no matter what they change, so there is
+        // nothing to trap them here for.
+        if (deterministic && !(err instanceof ScheduleRefusedError)) {
           setDirty(false);
           setDraftNotice(null);
           clearScheduleDraft(effectiveUserId);

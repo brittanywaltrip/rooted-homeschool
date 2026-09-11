@@ -1869,6 +1869,113 @@ export function isPhase2NoOp(a: Phase2NoOpArgs): { noop: boolean; reason: string
   return { noop: true, reason: "schedule already matches the projector" };
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * Invariant 21: a stated completion count is never silently reduced.
+ *
+ * The Schedule Builder's historical backfill writes one row per lesson the
+ * family says they already finished, from start_date through today. The
+ * projection it plans from is built with `total_lessons = current_lesson`, so
+ * it holds exactly the slots the family claimed. Slots that land past today
+ * are progress that does not fit in the calendar days available.
+ *
+ * They used to be dropped by the date filter and the save reported success. A
+ * family who set a start date of 2026-08-19 and said they were on lesson 182
+ * had ONE school day to put 181 lessons on: Rooted recorded 1 and discarded
+ * 180 without a word. About 70 curricula are in that shape, the worst losing
+ * 268 lessons.
+ *
+ * Inventing dates for the surplus would be worse. Rooted has no idea when
+ * that work happened, and a completed row dated in the future is a lie of a
+ * different kind. So the save is refused and the family is told the two
+ * numbers that do not reconcile, both of which they control.
+ *
+ * WHAT THIS MUST NOT DO is refuse a family who is simply ahead of their own
+ * pace. `current_lesson` is a measurement of real work (MAX(queue_position)
+ * over completed rows), not a rate: a 1/day goal started 2026-09-01 whose
+ * family did two or three a day legitimately reaches lesson 15 in nine school
+ * days. Those fifteen rows EXIST and are completed. A rule that only asked
+ * "does the projection run past today" refused that save, forever, with
+ * nothing missing and nothing to fix, and phase 2 re-spreads every row in the
+ * builder on every save, so one goal in that shape blocks the whole page.
+ *
+ * So the question is not "does the stated count fit the projection" but "is
+ * there a lesson the family says they did that Rooted can neither find nor
+ * date". A lesson already on disk is accounted for whatever its date. Only
+ * the rest have to fit between start_date and today.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+const MONTH_ABBREV = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+] as const;
+
+/** "2026-08-19" → "Aug 19". String math only: no Date, so no timezone drift. */
+export function formatYmdShort(ymdStr: string): string {
+  const [, mm, dd] = ymdStr.split("-");
+  const monthIdx = Number(mm) - 1;
+  const month = MONTH_ABBREV[monthIdx] ?? mm;
+  return `${month} ${Number(dd)}`;
+}
+
+export interface HistoryBackfillRefusalArgs {
+  /** The curriculum's name, as the family typed it. */
+  curriculumName: string;
+  /** How many lessons the family said are already done (current_lesson). */
+  statedCompleted: number;
+  /** The goal's start_date, YYYY-MM-DD. */
+  startDate: string;
+  /** Today in the family's timezone, YYYY-MM-DD. */
+  todayYmd: string;
+  /** The historical projection: one slot per stated lesson, in date order. */
+  projected: readonly ProjectedLesson[];
+  /**
+   * Lesson numbers this goal ALREADY holds a row for. Those lessons are
+   * recorded whatever date they carry, so they need no slot in the window and
+   * can never be the thing that is lost. Omit for a goal with no rows yet.
+   */
+  alreadyRecorded?: Iterable<number>;
+}
+
+/**
+ * Can Rooted account for every lesson this family says they finished?
+ *
+ * Returns null when it can. Otherwise returns the message the family sees,
+ * naming the count they entered, the school days they actually have, and the
+ * number Rooted would end up holding. The caller refuses the save for that row.
+ *
+ * A lesson is accounted for if the goal already holds a row for it, or if the
+ * projection puts it on a day at or before today. Anything else is progress
+ * that would be dropped, which is what the refusal exists to prevent.
+ *
+ * Note the test is on the COUNT accounted for, not on "a slot landed past
+ * today". The caller caps its projection at a finite window, so a long vacation
+ * block can swallow every remaining school day and emit nothing past today at
+ * all. Counting what fits catches that; counting what overflows does not.
+ */
+export function historyBackfillRefusal(a: HistoryBackfillRefusalArgs): string | null {
+  const accounted = new Set<number>();
+  for (const n of a.alreadyRecorded ?? []) {
+    if (n >= 1 && n <= a.statedCompleted) accounted.add(n);
+  }
+  const fits = a.projected.filter((p) => p.date <= a.todayYmd);
+  for (const p of fits) {
+    if (p.lesson_number >= 1 && p.lesson_number <= a.statedCompleted) {
+      accounted.add(p.lesson_number);
+    }
+  }
+  if (accounted.size >= a.statedCompleted) return null;
+
+  const schoolDays = new Set(fits.map((p) => p.date)).size;
+  const dayWord = schoolDays === 1 ? "school day has" : "school days have";
+
+  return (
+    `${a.curriculumName}: you said ${a.statedCompleted} lessons are already done, ` +
+    `but only ${schoolDays} ${dayWord} passed since your start date of ` +
+    `${formatYmdShort(a.startDate)}. Rooted can only record ${accounted.size}. ` +
+    `Move the start date earlier, or lower the completed count.`
+  );
+}
+
 export function planPhase2LessonInserts(args: {
   /** `computeNextLessonsForGoal` output: the goal's emitted slots, in order. */
   upcoming: ProjectedLesson[];

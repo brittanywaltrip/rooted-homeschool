@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: September 8, 2026 — adds Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -28,7 +28,39 @@ The first forward lesson goes to **the next calendar day strictly after today**,
 
 **Why:** users actively using the app today should never see their Today page suddenly bloat by a day's worth of lessons just because they created a new curriculum. Their schedule for today was already what they planned.
 
-**Enforced by:** `forwardScheduleStart(userPickedStart, today)` in `app/lib/scheduler.ts`.
+**Enforced by:** `forwardScheduleStart(userPickedStart, today)` in
+`app/lib/scheduler.ts`, called from `applyPhase2ForGoal` in
+`app/dashboard/plan/schedule/page.tsx`. That call is the anchor of the
+builder's forward projection:
+
+```js
+const isNewGoal = !(row.previouslySavedAs === "curriculum_goals" && row.dbId);
+const startPick = row.start_date ? new Date(`${row.start_date}T00:00:00`) : todayMid;
+const forwardAnchor = isNewGoal ? forwardScheduleStart(startPick, todayMid) : todayMid;
+```
+
+**Documented May 2026, wired up September 11, 2026.** For four months this
+section named a helper that nothing but `scheduler.test.ts` imported. The
+helper was correct and its four tests passed the whole time; the Schedule
+Builder simply never called it, anchoring every projection at `todayMid`, so
+today was a legal slot for a brand-new lesson and the invariant had never once
+held in production. **101 curricula across 32 families had a lesson dropped
+onto the very day they set the curriculum up.** A green test on an uncalled
+function proves the function, not the rule: when an invariant names its
+enforcement, grep for the call site, not the definition.
+
+**The INSERT path only.** An existing goal keeps `todayMid`. Phase 2 re-spreads
+every curriculum row in the builder on every save, so anchoring an existing
+goal past today would move a lesson the family legitimately has due today
+because they opened the builder to edit a different subject.
+
+**`beforeRows.length === 0` is the half that survives a retry.** Phase 1 stamps
+a landed insert back onto its row as `previouslySavedAs: "curriculum_goals"`,
+so on the family's SECOND tap of Save the flag alone reads a brand-new
+curriculum as an existing one. Both post-save notices that leave the builder
+open ask for exactly that second tap. A goal holding no lesson rows is still
+being created however its flag reads, and it has no lesson due today for the
+`todayMid` branch to protect, so it is anchored as a creation either way.
 
 **Test case:** "Kendra-shaped repro" in `scheduler.test.ts` — given 62 lessons, 3/day Mon-Fri, 15 backfilled through Feb 17, today=Tue Apr 28 → first forward lesson lands on Wed Apr 29, no date holds more than 3 lessons.
 
@@ -628,6 +660,7 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 18 | Pins (Invariant 12) | Pin honored and unpinned slots filled around it in date order; pinned date consumes capacity; fully pinned tail emitted verbatim; reconciler skips pinned rows; cascade + reconcile round-trip writes nothing; empty pins projects identically to no pins. |
 | 19 | Starting position (Invariant 13) | Future start_date with starting position N projects nothing at or below N; the create batch contains no incomplete row at or below the floor; orphan-completed rows carry no future scheduled_date / date. |
 | 21 | Only a person completes (Invariant 15) | The orphan cleanup writes `scheduled_date = NULL` and never `completed` / `completed_at` / `date` / `queue_position`; the trigger-depth guard is attached with no escape hatch; the confirm prompt recomputes instead of writing `current_lesson + 1`; the presence check requests only the pairs it asks about and fails closed; `neverBelow` holds the pointer but never advances it; the completion pin tags `scheduled_source`. |
+| 22 | The seam + Invariant 21 | History covers `start_date` through today INCLUSIVE, so the slot on today is written, not dropped; the forward queue resumes at `current_lesson + 1` on the next school day strictly after today (Invariant 1, INSERT path); a stated count that overflows the window is refused with the stated count, the school days available and the recordable number all named; an existing goal's lesson due today is not re-dated. |
 | 20 | Orphan cleanup loop (Invariant 14) | The cleanup never lowers current_lesson: swept rows at or below the new pointer keep their queue_position, so the recompute it provokes writes the pointer back unchanged and no slot is emitted without a row. A drifted slot above the pointer is still cleared; extra_log never advances the queue. |
 
 ---
@@ -780,6 +813,96 @@ completing one past the end is not a thing. `curriculum_goals_start_at_lesson_in
 is the backstop, and `current_lesson` is deliberately left unconstrained — a
 CHECK on it would make the recompute trigger throw and block a family from
 completing a lesson.
+
+### Invariant 21 — A stated completion count is never silently reduced
+
+The historical backfill writes one row per lesson the family says is done,
+from `start_date` through today **inclusive**. If the count does not fit in the
+school days available, the save is refused and the family is told the real
+numbers. Rooted never records less progress than the family reported without
+saying so.
+
+**Why, part one: the lesson lost at the seam.** The backfill filtered its
+projection with `date < today`. The projection is built with
+`total_lessons = current_lesson`, so it holds exactly one slot per lesson the
+family claimed, and the strict `<` threw away the one that landed on today.
+The forward planner starts at `current_lesson + 1`, so that lesson belonged to
+neither planner and no row was ever written for it. A family who started
+2026-08-31 Mon-Fri and said 10 lessons were done got lessons 1 through 9 dated
+08-31 through 09-10, **no row at all for lesson 10**, and lesson 11 dated on
+today. Live on 32 curricula across 23 families.
+
+The comment defending the `<` argued that today's slot "still belongs to the
+normal Today flow, not a pre-fab 'already done' stamp." That only holds if
+something else claims the slot, and nothing did. Everything from `start_date`
+through today is history the family asserted. Invariant 1, now actually wired
+up, is what keeps the forward projection off today so the two planners meet
+without overlapping.
+
+**Why, part two: progress that cannot fit.** When the stated count needs more
+school days than exist between `start_date` and today, the surplus slots
+project past today and the same date filter discarded them. The save reported
+success. A family set a start date of 2026-08-19 and said they were on lesson
+182; one school day had passed, so **Rooted recorded 1 completed lesson and
+discarded 180**, silently. About 70 curricula are in that shape, the worst
+losing 268.
+
+Inventing dates for the surplus would be worse. Rooted has no idea when that
+work happened, and a completed row dated in the future is a different lie. So
+the save is refused for that row and the family is given the two numbers that
+do not reconcile, both of which they control:
+
+> Zoe's Math: you said 181 lessons are already done, but only 1 school day has
+> passed since your start date of Aug 19. Rooted can only record 1. Move the
+> start date earlier, or lower the completed count.
+
+**The question is "is anything LOST", not "does the count fit the pace".**
+`current_lesson` measures real work (`MAX(queue_position)` over completed
+rows), not a rate. A 1/day goal started 2026-09-01 whose family did two or
+three a day legitimately reaches lesson 15 in nine school days, with all
+fifteen rows on disk and completed. A rule that only asked whether the
+projection ran past today refused that save, forever, with nothing missing and
+nothing the family could change; and because phase 2 re-spreads every row in
+the builder on every save, one goal in that shape blocked the whole page. So a
+lesson that already has a row is accounted for whatever date it carries, and
+only the rest have to fit between `start_date` and today.
+
+For the same reason the test is on the COUNT accounted for, not on "a slot
+landed past today". The caller caps its projection at a finite window, so a
+long break can swallow every remaining school day and emit nothing past today
+at all, while progress is still being dropped.
+
+**Enforced by:** `historyBackfillRefusal` in `app/lib/scheduler.ts` is the one
+definition of "can Rooted account for this progress", called from
+`planHistoricalBackfill` in `app/dashboard/plan/schedule/page.tsx` and fed the
+goal's existing lesson numbers. It is pure, it runs in the PLAN phase before
+the first destructive call (see Invariant 12's "assertions run before the
+delete"), and a non-null return is thrown as a `ScheduleRefusedError`.
+
+A refusal aborts the whole of `applyPhase2ForGoal` for that row, forward queue
+included, which is what the notice means by "the lessons for this curriculum
+were not created". Sibling goals in the same save are unaffected.
+
+`ScheduleRefusedError` extends `ScheduleAssertionError`, so it is deterministic
+by construction and never retried. It is the one failure shape whose message
+reaches the family verbatim, through the same `postSaveNotice` the builder
+already uses for a blocked save: an assertion means the projector built
+something nobody can explain and the copy sends them to support, while a
+refusal names what they typed and what to change. It goes to Sentry as a
+**warning**, not an error, for the same reason the stacked-pin report does.
+
+**The refusal applies on edit too, deliberately.** A goal already in the bad
+shape still refuses, even on a cosmetic save, because the progress is still
+missing and the family has still never been told. The alternative is a
+curriculum that reports success forever while holding 1 of 181 lessons. Note
+this only reaches goals that are genuinely short rows, not goals that are
+merely ahead of pace, per the rule above.
+
+**Test case:** the seam block in `scheduler.test.ts` — history covers 1 through
+10 with lesson 10 on today and the forward queue resuming at 11 the next school
+day; the same shape on a Fridays-only cadence; a count that exactly fills the
+window is not refused; an overflowing one is refused with both numbers named;
+and the update path keeps a lesson due today on today.
 
 ### Invariant 2 carve-out for manual moves
 
