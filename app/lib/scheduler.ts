@@ -1917,6 +1917,82 @@ export function formatYmdShort(ymdStr: string): string {
   return `${month} ${Number(dd)}`;
 }
 
+/**
+ * Where `current_lesson` will land, without asking the database.
+ *
+ * Mirrors `recomputeCurrentLesson`'s formula exactly:
+ *   min(total_lessons, max(start_at_lesson - 1, max completed queue slot, 0))
+ * so the Schedule Builder can know a goal's progress BEFORE phase 1 writes
+ * anything. Invariant 21 has to be decided there: deciding it in phase 2 means
+ * the `curriculum_goals` row is already on disk, and refusing then leaves a
+ * curriculum with the family's stated history missing (which `healEmptyGoal`
+ * then fills with forward lessons only, a day later, silently).
+ *
+ * `maxCompletedQueuePosition` is queue_position, not lesson_number: the two
+ * diverge once a lesson is dragged on the Plan calendar, and the queue slot is
+ * what the pointer measures. Pass 0 for a goal with no completed rows, which
+ * is every brand-new curriculum.
+ */
+export function currentLessonFor(a: {
+  startAtLesson: number;
+  totalLessons: number;
+  maxCompletedQueuePosition: number;
+}): number {
+  const floor = Math.max(0, a.startAtLesson - 1);
+  let value = Math.max(floor, a.maxCompletedQueuePosition, 0);
+  if (a.totalLessons > 0) value = Math.min(value, a.totalLessons);
+  return value;
+}
+
+/**
+ * The historical backfill's projection: one slot per lesson the family says
+ * they already finished, laid down from `start_date` on the goal's own school
+ * days.
+ *
+ * The single definition, because two call sites now need the identical answer:
+ * the pre-flight that decides Invariant 21 before any write, and the phase 2
+ * block that actually builds the rows. A second copy of the `daysSpan` maths
+ * would be the Invariant 8 mistake in miniature.
+ *
+ * `current_lesson: 0` with `total_lessons: statedCompleted` is what makes the
+ * projector number the slots 1..statedCompleted from the start date forward.
+ */
+export function projectHistoryBackfill(a: {
+  goalId: string;
+  schoolDays: string[];
+  lessonsPerDay: number;
+  lessonsPerDayOverrides?: Record<string, number> | null;
+  statedCompleted: number;
+  startDate: string;
+  todayYmd: string;
+  vacations?: VacationBlock[];
+}): ProjectedLesson[] {
+  if (a.statedCompleted <= 0) return [];
+  const startMid = new Date(`${a.startDate}T00:00:00`);
+  const todayMid = new Date(`${a.todayYmd}T00:00:00`);
+  // 60 days past today so a shortfall always projects something beyond the
+  // window's start; the refusal counts what FITS, so the bound only has to be
+  // generous, not exact.
+  const daysSpan = Math.max(
+    1,
+    Math.floor((todayMid.getTime() - startMid.getTime()) / 86400000) + 60,
+  );
+  return computeNextLessonsForGoal(
+    {
+      id: a.goalId,
+      school_days: a.schoolDays,
+      lessons_per_day: a.lessonsPerDay,
+      lessons_per_day_overrides: a.lessonsPerDayOverrides ?? null,
+      current_lesson: 0,
+      total_lessons: a.statedCompleted,
+      start_date: a.startDate,
+    },
+    startMid,
+    daysSpan,
+    a.vacations ?? [],
+  );
+}
+
 export interface HistoryBackfillRefusalArgs {
   /** The curriculum's name, as the family typed it. */
   curriculumName: string;

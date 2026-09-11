@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -660,6 +660,7 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 18 | Pins (Invariant 12) | Pin honored and unpinned slots filled around it in date order; pinned date consumes capacity; fully pinned tail emitted verbatim; reconciler skips pinned rows; cascade + reconcile round-trip writes nothing; empty pins projects identically to no pins. |
 | 19 | Starting position (Invariant 13) | Future start_date with starting position N projects nothing at or below N; the create batch contains no incomplete row at or below the floor; orphan-completed rows carry no future scheduled_date / date. |
 | 21 | Only a person completes (Invariant 15) | The orphan cleanup writes `scheduled_date = NULL` and never `completed` / `completed_at` / `date` / `queue_position`; the trigger-depth guard is attached with no escape hatch; the confirm prompt recomputes instead of writing `current_lesson + 1`; the presence check requests only the pairs it asks about and fails closed; `neverBelow` holds the pointer but never advances it; the completion pin tags `scheduled_source`. |
+| 23 | Invariant 21 pre-flight | The refusal is decided before phase 1: no `curriculum_goals` row, no activity row and no lesson row is written for ANY row in the save when one is refused; a family merely ahead of their configured pace is not refused; a goal whose history fits issues no lesson read; `currentLessonFor` matches `recomputeCurrentLesson`; phase 2 keeps the check as a separately tagged backstop. |
 | 22 | The seam + Invariant 21 | History covers `start_date` through today INCLUSIVE, so the slot on today is written, not dropped; the forward queue resumes at `current_lesson + 1` on the next school day strictly after today (Invariant 1, INSERT path); a stated count that overflows the window is refused with the stated count, the school days available and the recordable number all named; an existing goal's lesson due today is not re-dated. |
 | 20 | Orphan cleanup loop (Invariant 14) | The cleanup never lowers current_lesson: swept rows at or below the new pointer keep their queue_position, so the recompute it provokes writes the pointer back unchanged and no slot is emitted without a row. A drifted slot above the pointer is still cleared; extra_log never advances the queue. |
 
@@ -872,16 +873,86 @@ landed past today". The caller caps its projection at a finite window, so a
 long break can swallow every remaining school day and emit nothing past today
 at all, while progress is still being dropped.
 
-**Enforced by:** `historyBackfillRefusal` in `app/lib/scheduler.ts` is the one
-definition of "can Rooted account for this progress", called from
-`planHistoricalBackfill` in `app/dashboard/plan/schedule/page.tsx` and fed the
-goal's existing lesson numbers. It is pure, it runs in the PLAN phase before
-the first destructive call (see Invariant 12's "assertions run before the
-delete"), and a non-null return is thrown as a `ScheduleRefusedError`.
+**The refusal happens before the FIRST write, not before the first lesson
+write.** This lived in phase 2 to begin with, which runs after the
+`curriculum_goals` row has already committed. A refused family was left with a
+curriculum holding no lessons and none of the history they had stated, and
+`healEmptyGoal` filled it with a forward queue 24 hours later. That is the same
+silent reduction this invariant exists to stop, one day late and harder to see:
+the family came back to a curriculum that looked finished setting up and had
+quietly dropped their past work.
 
-A refusal aborts the whole of `applyPhase2ForGoal` for that row, forward queue
-included, which is what the notice means by "the lessons for this curriculum
-were not created". Sibling goals in the same save are unaffected.
+Everything the check needs is knowable before phase 1, so it is decided there:
+
+- `current_lesson` is `currentLessonFor({ startAtLesson, totalLessons,
+  maxCompletedQueuePosition })`, the same formula `recomputeCurrentLesson`
+  runs. For an INSERT the max-completed term is 0 (the goal has no rows), which
+  is exactly the seed phase 1 writes. For an UPDATE it comes off the goal's
+  completed rows.
+- The projection is `projectHistoryBackfill`, the single definition of the
+  backfill's slot layout, read by the pre-flight and by phase 2 alike.
+
+**Enforced by:** the Invariant 21 pre-flight in `handleSave`
+(`app/dashboard/plan/schedule/page.tsx`), which exits through
+`dupReleaseAndExit` exactly as the duplicate-name pre-check does.
+`historyBackfillRefusal` in `app/lib/scheduler.ts` is the one definition of
+"can Rooted account for this progress".
+
+**One refused row refuses the whole save.** Nothing is written: no goal row, no
+activity row, no lesson row. Every refused row is named in the message, the
+builder switches back from the preview (Save is only reachable from the
+preview, where the row cards are not mounted) and scrolls to the first one, and
+those rows are ringed through the same highlight `nudgedLocalId` uses. The
+family's edits and their draft are untouched.
+
+**Know what this costs the existing cohort.** About 70 curricula are already in
+the refused shape. Before this rule their saves committed everything except the
+bad goal's lessons, behind a soft notice. Now a family holding one of them
+cannot save ANY builder change, including renaming an activity or fixing a
+different child's schedule, until they lower that curriculum's completed count
+or move its start date. That is deliberate: the alternative is a curriculum
+that reports success forever while holding 1 of 181 lessons. It is two taps to
+clear, and the message names both numbers and both remedies. Phase 2 re-spreads
+every curriculum in the builder on every save, so a partial save would leave
+the page and the database disagreeing about what just happened.
+
+**It costs an ordinary save nothing.** A coarse pass runs entirely in the
+browser off an upper bound on `current_lesson`; a goal whose history already
+fits between its start date and today is cleared there, with no query. Only a
+goal that cannot be cleared that way reads the database, and those reads run
+together rather than one row after another.
+
+Two things the bound has to get right, both learned the hard way:
+
+- **The carried `current_lesson` is not a bound once `total_lessons` is
+  raised.** `recomputeCurrentLesson` clamps the stored pointer with the total,
+  so a goal holding a completed slot at 120 under a total of 30 reads back as
+  30. Raise the total to 180 and the recompute answers 120, which 30 never
+  bounded, and the cheap exit drops a row it should have queried. When the
+  total has gone up, the new total is the bound.
+- **Only COMPLETED rows count as already recorded.** An incomplete row at
+  lesson 100 is not a record that lesson 100 was done, and phase 2's floor
+  delete removes every incomplete row above the completed floor before it asks
+  the same question. Counting them made the pre-flight MORE permissive than the
+  backstop it fronts: a goal with lessons 1-5 completed and 6-200 sitting as
+  future rows, whose family sets the starting position to 150, sailed through
+  the pre-flight and threw `LateInvariant21Error` in phase 2 with the goal row
+  already committed. The pre-flight must never be the looser of the two.
+
+**Both checks read one clock.** `today` is memoised when the builder mounts, so
+a tab left open across midnight would have the pre-flight and phase 2 counting
+different numbers of school days. `handleSave` takes the date once and hands it
+to both.
+
+**Phase 2 keeps the check as a backstop.** It should now be unreachable: both
+sites run the same formula over the same projection. If it ever fires the goal
+row has already committed and the two disagree, so it throws a
+`LateInvariant21Error` and is tagged `phase: invariant_21_late` in Sentry
+rather than being filed as an ordinary refusal. Do not delete it and do not
+soften it into a trim: trimming is the original bug.
+
+A late firing aborts the whole of `applyPhase2ForGoal` for that row, forward
+queue included. Sibling goals in the same save are unaffected.
 
 `ScheduleRefusedError` extends `ScheduleAssertionError`, so it is deterministic
 by construction and never retried. It is the one failure shape whose message
@@ -902,7 +973,11 @@ merely ahead of pace, per the rule above.
 10 with lesson 10 on today and the forward queue resuming at 11 the next school
 day; the same shape on a Fridays-only cadence; a count that exactly fills the
 window is not refused; an overflowing one is refused with both numbers named;
-and the update path keeps a lesson due today on today.
+and the update path keeps a lesson due today on today. The pre-flight block
+adds: the refusal is decided with no goal row written, one refused row stops a
+healthy sibling from being written too, every refused row is named, a family
+ahead of their own pace is not refused, a goal whose history fits never reaches
+the database, and `currentLessonFor` predicts what phase 1 seeds.
 
 ### Invariant 2 carve-out for manual moves
 

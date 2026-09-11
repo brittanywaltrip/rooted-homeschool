@@ -7,7 +7,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { isPhase2NoOp, computeNextLessonsForGoal, forwardScheduleStart, historyBackfillRefusal, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, computeNextLessonsForGoal, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
@@ -76,6 +76,12 @@ type Row = {
   // Flips true once the user has confirmed they want to override the
   // pre-fill. Prevents re-prompting on every subsequent +/- click.
   progress_confirmed: boolean;
+  // curriculum_goals.current_lesson as loaded. Null for never-saved rows.
+  // The Invariant 21 pre-flight needs to know where progress stands BEFORE
+  // phase 1 writes, and start_at_lesson alone cannot say: the pre-fill seeds
+  // it to max(current_lesson + 1, start_at_lesson), so a family who lowers it
+  // would otherwise read as having less progress than the database holds.
+  _dbCurrentLesson: number | null;
 
   // activity-only
   emoji: string;
@@ -202,6 +208,7 @@ function blankRow(child_id: string, type: RowType): Row {
     start_at_lesson: 1,
     start_at_lesson_initial: null,
     progress_confirmed: false,
+    _dbCurrentLesson: null,
     emoji: type === "curriculum" ? "" : type === "coop" ? COOP_DEFAULT_EMOJI : ACTIVITY_DEFAULT_EMOJI,
     readOnly: false,
     readOnlyReason: null,
@@ -276,6 +283,7 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     start_at_lesson: startAtLesson,
     start_at_lesson_initial: startAtLesson,
     progress_confirmed: false,
+    _dbCurrentLesson: g.current_lesson ?? 0,
     emoji: "",
     readOnly: false,
     readOnlyReason: null,
@@ -348,6 +356,7 @@ function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
     start_at_lesson: 1,
     start_at_lesson_initial: null,
     progress_confirmed: false,
+    _dbCurrentLesson: null,
     emoji: fallbackEmoji,
     readOnly,
     readOnlyReason: reason,
@@ -698,6 +707,7 @@ function carryDbFieldsOntoDraftRow(draftRow: Row, freshRow: Row): Row {
     readOnly: freshRow.readOnly,
     readOnlyReason: freshRow.readOnlyReason,
     start_at_lesson_initial: freshRow.start_at_lesson_initial,
+    _dbCurrentLesson: freshRow._dbCurrentLesson,
     _originalSchedule: freshRow._originalSchedule,
     _legacyTargetDate: freshRow._legacyTargetDate,
     _legacyIconEmoji: freshRow._legacyIconEmoji,
@@ -738,6 +748,23 @@ class ScheduleRefusedError extends ScheduleAssertionError {
   constructor(message: string) {
     super(message);
     this.name = "ScheduleRefusedError";
+  }
+}
+
+/**
+ * Invariant 21 fired in phase 2, which should now be impossible.
+ *
+ * The refusal is decided in the pre-flight before phase 1 writes anything, off
+ * the same formula and the same projection. If this type is ever constructed,
+ * the two disagreed: the pre-flight let a row through that the backfill then
+ * could not record. It keeps the family-facing message (it extends
+ * ScheduleRefusedError, so the notice still says what to change) and carries
+ * its own Sentry tag so a late firing is never filed as an ordinary refusal.
+ */
+class LateInvariant21Error extends ScheduleRefusedError {
+  constructor(message: string) {
+    super(message);
+    this.name = "LateInvariant21Error";
   }
 }
 
@@ -861,6 +888,10 @@ export default function ScheduleBuilderPage() {
   // itself; `nudgedLocalId` rings the row the family has to go fix.
   const [previewNudge, setPreviewNudge] = useState(false);
   const [nudgedLocalId, setNudgedLocalId] = useState<string | null>(null);
+  // Rows the Invariant 21 pre-flight refused. Plural, because one save can
+  // carry several curricula and the family needs to see every one that has to
+  // change, not just the first. Rings the same rows `nudgedLocalId` does.
+  const [refusedLocalIds, setRefusedLocalIds] = useState<Set<string>>(new Set());
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -1305,6 +1336,15 @@ export default function ScheduleBuilderPage() {
     }, 6000);
   }
 
+  // A refusal names numbers on specific rows. The moment the family changes
+  // anything, the rings are stale, so they come off with the next edit rather
+  // than sitting on rows that may already be fixed.
+  // `rows` is the only trigger on purpose. Listing refusedLocalIds as well
+  // would re-run the effect on its own clear.
+  useEffect(() => {
+    setRefusedLocalIds((prev) => (prev.size === 0 ? prev : new Set()));
+  }, [rows]);
+
   // Fixing the thing that was blocking clears the message with it, rather than
   // leaving a stale complaint on screen for the rest of the six seconds.
   useEffect(() => {
@@ -1427,6 +1467,282 @@ export default function ScheduleBuilderPage() {
         }
       }
     }
+    /* ── Invariant 21 pre-flight: decided BEFORE phase 1 writes anything ──
+     *
+     * The refusal used to live in phase 2, which runs after the
+     * `curriculum_goals` row has committed. A refused family was left holding a
+     * curriculum with no lessons and none of the history they had stated, and
+     * `healEmptyGoal` filled it with a forward queue 24 hours later. That is
+     * the same silent reduction Invariant 21 exists to stop, one day late and
+     * harder to see.
+     *
+     * Everything the check needs is knowable here. `current_lesson` is
+     * `currentLessonFor(...)`, the same formula `recomputeCurrentLesson` runs:
+     * for an INSERT the max-completed term is 0 (there are no rows yet), which
+     * is exactly the seed phase 1 writes; for an UPDATE it comes off the goal's
+     * completed rows. The projection is the shared `projectHistoryBackfill`.
+     *
+     * Nothing here writes. A refusal returns before phase 1, so no goal row,
+     * no activity row and no lesson row is created, and the builder keeps the
+     * family's edits and their draft.
+     */
+    // One clock for the whole save. `today` is memoised at mount, so a builder
+    // left open across midnight would have the pre-flight and phase 2
+    // projecting against different days: the pre-flight could refuse a save
+    // phase 2 would have taken, or wave one through that it then refuses after
+    // phase 1 has written. Both read this.
+    const saveTodayMid = todayDate();
+    const saveTodayStr = ymd(saveTodayMid);
+
+    // Vacation blocks are needed twice: here, to know which days between
+    // start_date and today were actually school days, and by phase 2's
+    // projector. Read once, before either.
+    const { data: preflightVacationData, error: preflightVacationErr } = await supabase
+      .from("vacation_blocks")
+      .select("start_date, end_date")
+      .eq("user_id", effectiveUserId);
+    if (preflightVacationErr) {
+      console.error("[handleSave] vacation-block read failed", preflightVacationErr);
+      dupReleaseAndExit(preflightVacationErr.message);
+      return;
+    }
+    const preflightVacations = (preflightVacationData ?? []) as {
+      start_date: string;
+      end_date: string;
+    }[];
+
+    const refusalCandidates = rows.filter(
+      (r) =>
+        r.type === "curriculum" &&
+        !r.pendingDelete &&
+        !r.readOnly &&
+        !!r.start_date &&
+        r.start_date < saveTodayStr &&
+        !!r.total_lessons &&
+        r.total_lessons > 0,
+    );
+
+    type RefusalCheck = {
+      row: Row;
+      schoolDays: string[];
+      lessonsPerDay: number;
+      overrides: Record<string, number> | null;
+      /** Upper bound on current_lesson, before the database is consulted. */
+      coarse: number;
+      /**
+       * How many of those slots land on or before today. The projection places
+       * slots 1..datable in the window, so only lesson numbers ABOVE it can
+       * still be rescued by a row that already exists.
+       */
+      datable: number;
+    };
+    const atRisk: RefusalCheck[] = [];
+    for (const r of refusalCandidates) {
+      const { lessons_per_day, lessons_per_day_overrides, school_days } =
+        compactCurriculumPerDay(r);
+      if (school_days.length === 0) continue;
+      const total = r.total_lessons ?? 0;
+      // An UPPER BOUND on where current_lesson can land, used only to decide
+      // whether this row is worth a database read at all. Overstating is the
+      // safe direction: it can only pull MORE rows into the exact pass below,
+      // never let one slip past it.
+      //
+      // The carried pointer usually serves, because it is itself a max that
+      // already includes the goal's highest completed queue position. The one
+      // case where it does NOT is a curriculum whose total was just RAISED:
+      // `recomputeCurrentLesson` clamps the stored pointer with the old
+      // `total_lessons`, so a goal holding a completed slot at 120 under a
+      // total of 30 reads back as 30. Raise the total to 180 and the recompute
+      // answers 120, which the stored 30 never bounded. Fall back to the new
+      // total there, which bounds it by construction.
+      const raisedTotal =
+        r._originalSchedule?.total_lessons != null && total > r._originalSchedule.total_lessons;
+      const coarse = raisedTotal
+        ? total
+        : currentLessonFor({
+            startAtLesson: clampStartAtLesson(r.start_at_lesson, total),
+            totalLessons: total,
+            maxCompletedQueuePosition: r._dbCurrentLesson ?? 0,
+          });
+      if (coarse <= 0) continue;
+      const projected = projectHistoryBackfill({
+        goalId: r.dbId ?? r.localId,
+        schoolDays: school_days,
+        lessonsPerDay: lessons_per_day,
+        lessonsPerDayOverrides: lessons_per_day_overrides,
+        statedCompleted: coarse,
+        startDate: r.start_date!,
+        todayYmd: saveTodayStr,
+        vacations: preflightVacations,
+      });
+      // Every slot the family could need already fits on or before today, and
+      // the true current_lesson is never above `coarse`, so this row is safe
+      // whatever the database says. No query, which is the common case.
+      const datable = projected.filter((p) => p.date <= saveTodayStr).length;
+      if (datable >= coarse) continue;
+      atRisk.push({
+        row: r,
+        schoolDays: school_days,
+        lessonsPerDay: lessons_per_day,
+        overrides: lessons_per_day_overrides,
+        coarse,
+        datable,
+      });
+    }
+
+    // Each at-risk row needs two small reads and none of them depend on each
+    // other, so they go together. Phase 1 settles its rows the same way and for
+    // the same reason: a family with several at-risk curricula should not pay
+    // for them one after another before the save has even started.
+    type RefusalProbe =
+      | { ok: true; localId: string; message: string | null }
+      | { ok: false; message: string };
+    const probes = await Promise.all(
+      atRisk.map(async (check): Promise<RefusalProbe> => {
+        const r = check.row;
+        const total = r.total_lessons ?? 0;
+        let maxCompleted = 0;
+        let alreadyRecorded: number[] = [];
+
+        // Only a saved goal can already hold rows. A brand-new curriculum is
+        // decided entirely in the browser.
+        if (r.previouslySavedAs === "curriculum_goals" && r.dbId) {
+          const { data: maxRow, error: maxErr } = await supabase
+            .from("lessons")
+            .select("queue_position")
+            .eq("curriculum_goal_id", r.dbId)
+            .eq("completed", true)
+            .not("queue_position", "is", null)
+            .order("queue_position", { ascending: false })
+            .limit(1);
+          if (maxErr) {
+            console.error("[handleSave] progress pre-flight read failed", maxErr);
+            return { ok: false, message: maxErr.message };
+          }
+          maxCompleted =
+            (maxRow?.[0] as { queue_position: number | null } | undefined)?.queue_position ?? 0;
+
+          // COMPLETED rows only. An incomplete row at lesson 100 is not a record
+          // that lesson 100 was done, it is a lesson waiting to be done, and
+          // phase 2's floor delete removes every one of them above the completed
+          // floor before it asks this same question. Counting them made the
+          // pre-flight MORE permissive than the backstop it fronts: a goal with
+          // lessons 1-5 completed and 6-200 sitting as future rows, whose family
+          // sets the starting position to 150, sailed through here and then threw
+          // LateInvariant21Error in phase 2 with the goal row already committed.
+          //
+          // Only lesson numbers ABOVE the datable window can change the answer:
+          // everything at or below it is already accounted for by a slot. That
+          // bounds this read to the shortfall itself rather than the goal's whole
+          // history, which is what keeps it clear of PostgREST's row cap.
+          const {
+            data: haveRows,
+            error: haveErr,
+            count: haveCount,
+          } = await supabase
+            .from("lessons")
+            .select("lesson_number", { count: "exact" })
+            .eq("curriculum_goal_id", r.dbId)
+            .eq("completed", true)
+            .gt("lesson_number", check.datable)
+            .lte("lesson_number", Math.max(check.coarse, maxCompleted));
+          if (haveErr) {
+            console.error("[handleSave] progress pre-flight read failed", haveErr);
+            return { ok: false, message: haveErr.message };
+          }
+          const have = (haveRows ?? []) as { lesson_number: number | null }[];
+          alreadyRecorded = have
+            .map((x) => x.lesson_number)
+            .filter((n): n is number => n != null);
+          // A shortfall bigger than PostgREST will return in one page needs a
+          // curriculum with more than a thousand COMPLETED lessons the calendar
+          // cannot date. Counting only what came back understates what the goal
+          // holds, so the check errs toward refusing, which is the safe
+          // direction. Reported so it is never invisible.
+          if (haveCount != null && haveCount !== have.length) {
+            captureSupabaseError(
+              "Invariant 21 pre-flight read a truncated lesson-number page",
+              new Error(
+                `Goal ${r.dbId}: read ${have.length} of ${haveCount} completed lesson numbers above slot ${check.datable}`,
+              ),
+              {
+                level: "warning",
+                tags: { phase: "invariant_21_preflight_truncated", goal_id: r.dbId },
+                extra: { got: have.length, expected: haveCount, datable: check.datable },
+              },
+            );
+          }
+        }
+
+        const statedCompleted = currentLessonFor({
+          startAtLesson: clampStartAtLesson(r.start_at_lesson, total),
+          totalLessons: total,
+          maxCompletedQueuePosition: maxCompleted,
+        });
+        if (statedCompleted <= 0) return { ok: true, localId: r.localId, message: null };
+
+        const projected = projectHistoryBackfill({
+          goalId: r.dbId ?? r.localId,
+          schoolDays: check.schoolDays,
+          lessonsPerDay: check.lessonsPerDay,
+          lessonsPerDayOverrides: check.overrides,
+          statedCompleted,
+          startDate: r.start_date!,
+          todayYmd: saveTodayStr,
+          vacations: preflightVacations,
+        });
+        return {
+          ok: true,
+          localId: r.localId,
+          message: historyBackfillRefusal({
+            curriculumName: r.name.trim() || "This curriculum",
+            statedCompleted,
+            startDate: r.start_date!,
+            todayYmd: saveTodayStr,
+            projected,
+            alreadyRecorded,
+          }),
+        };
+      }),
+    );
+
+    // A read that failed tells us nothing about whether progress fits, and
+    // guessing is what this whole invariant exists to stop. Fail the save
+    // before phase 1 rather than write on an unanswered question.
+    const probeFailure = probes.find((x): x is Extract<RefusalProbe, { ok: false }> => !x.ok);
+    if (probeFailure) {
+      dupReleaseAndExit(probeFailure.message);
+      return;
+    }
+    const refusals = probes
+      .filter((x): x is Extract<RefusalProbe, { ok: true }> => x.ok)
+      .filter((x) => x.message !== null)
+      .map((x) => ({ localId: x.localId, message: x.message as string }));
+
+    if (refusals.length > 0) {
+      // One refused row refuses the WHOLE save. Phase 2 re-spreads every
+      // curriculum in the builder anyway, so a partial save would leave the
+      // family's page and their database disagreeing about what they just did.
+      setRefusedLocalIds(new Set(refusals.map((x) => x.localId)));
+      // Save is only reachable from the preview, where BuilderView and its
+      // data-local-id cards are not mounted: revealing without switching back
+      // silently found nothing and left the family on the preview with a
+      // message about rows they could not see. Switch first, then reveal.
+      setView("builder");
+      revealRow(refusals[0].localId, { focus: false });
+      captureSupabaseError(
+        "Curriculum save refused before phase 1: stated progress does not fit",
+        new Error(refusals.map((x) => x.message).join(" | ")),
+        {
+          level: "warning",
+          tags: { phase: "invariant_21_preflight" },
+          extra: { refusedCount: refusals.length },
+        },
+      );
+      dupReleaseAndExit(refusals.map((x) => x.message).join(" "));
+      return;
+    }
+
     // Phase tracking so the catch can distinguish a true write failure
     // (curriculum_goals / activities never committed) from a post-save
     // hiccup (writes committed; lesson regen / recompute / overcapacity
@@ -1710,13 +2026,13 @@ export default function ScheduleBuilderPage() {
       //    bug: pending rows above the floor were left in place at stale
       //    dates and the reinsert skipped them, so different lesson_numbers
       //    landed on the same date across multiple runs).
-      const { data: vacationData, error: vacationErr } = await supabase
-        .from("vacation_blocks")
-        .select("start_date, end_date")
-        .eq("user_id", effectiveUserId);
-      if (vacationErr) throw vacationErr;
-      const vacations = (vacationData ?? []) as { start_date: string; end_date: string }[];
-      const todayMid = todayDate();
+      // Read once, above the Invariant 21 pre-flight, which needs the same
+      // blocks to know which days between start_date and today were school
+      // days at all.
+      const vacations = preflightVacations;
+      // The same instant the Invariant 21 pre-flight used, so the two cannot
+      // straddle midnight and disagree about how many school days have passed.
+      const todayMid = saveTodayMid;
 
       // Per-goal Phase 2 with one-shot retry. Phase 1 (curriculum_goals +
       // activities) has already committed; a throw here means the lesson
@@ -2014,9 +2330,13 @@ export default function ScheduleBuilderPage() {
           // disk. Nothing is missing there and nothing needs writing, so
           // nothing is refused. See historyBackfillRefusal.
           //
-          // No lesson row has been written for this goal yet: this is the PLAN
-          // phase, and the only write behind us is the recomputeCurrentLesson
-          // that produced `currentLesson` in the first place.
+          // BELT AND BRACES. This is decided before phase 1 now (see the
+          // Invariant 21 pre-flight in handleSave), off the same formula and
+          // the same projection, so reaching a refusal here means the two
+          // disagreed and the `curriculum_goals` row is already on disk. It
+          // throws rather than trimming, because trimming is the bug, but it
+          // is tagged separately so a late firing is visible as the defect it
+          // would be rather than as an ordinary refusal.
           const refusal = historyBackfillRefusal({
             curriculumName: row.name.trim() || "This curriculum",
             statedCompleted: currentLesson,
@@ -2025,7 +2345,7 @@ export default function ScheduleBuilderPage() {
             projected: histProjected,
             alreadyRecorded: existingHistNums,
           });
-          if (refusal) throw new ScheduleRefusedError(refusal);
+          if (refusal) throw new LateInvariant21Error(refusal);
 
           // Everything from start_date through today INCLUSIVE is history the
           // family asserted. `histProjected` is built with
@@ -2639,16 +2959,25 @@ export default function ScheduleBuilderPage() {
           // the calendar holds and the save stopped before writing anything.
           // Worth counting (about 70 curricula are in that shape) but not
           // worth paging anyone, so it lands as a warning.
+          const late = lastErr instanceof LateInvariant21Error;
           const refused = lastErr instanceof ScheduleRefusedError;
           captureSupabaseError(
-            refused
-              ? "Curriculum save phase 2 refused: stated progress does not fit"
-              : "Curriculum save phase 2 failed",
+            late
+              ? "Invariant 21 fired in phase 2; the pre-flight should have caught it"
+              : refused
+                ? "Curriculum save phase 2 refused: stated progress does not fit"
+                : "Curriculum save phase 2 failed",
             lastErr,
             {
-              ...(refused ? { level: "warning" as const } : {}),
+              // A late firing is an error, not a warning: the goal row has
+              // already committed and the two checks disagree.
+              ...(refused && !late ? { level: "warning" as const } : {}),
               tags: {
-                phase: refused ? "curriculum_save_phase2_refused" : "curriculum_save_phase2",
+                phase: late
+                  ? "invariant_21_late"
+                  : refused
+                    ? "curriculum_save_phase2_refused"
+                    : "curriculum_save_phase2",
                 goal_id: goalId,
               },
             },
@@ -3028,6 +3357,7 @@ export default function ScheduleBuilderPage() {
             onAddChild={handleAddChild}
             highlightedGoalId={highlightedGoalId}
             nudgedLocalId={nudgedLocalId}
+            refusedLocalIds={refusedLocalIds}
             menuOpenLocalId={menuOpenLocalId}
             setMenuOpenLocalId={setMenuOpenLocalId}
             recalibratingLocalId={recalibratingLocalId}
@@ -3181,6 +3511,7 @@ function BuilderView(props: {
   onAddChild: () => void | Promise<void>;
   highlightedGoalId: string | null;
   nudgedLocalId: string | null;
+  refusedLocalIds: Set<string>;
   menuOpenLocalId: string | null;
   setMenuOpenLocalId: (id: string | null) => void;
   recalibratingLocalId: string | null;
@@ -3255,7 +3586,8 @@ function BuilderView(props: {
                   isHighlighted={
                     (!!props.highlightedGoalId &&
                       row.dbId === props.highlightedGoalId) ||
-                    row.localId === props.nudgedLocalId
+                    row.localId === props.nudgedLocalId ||
+                    props.refusedLocalIds.has(row.localId)
                   }
                   menuOpen={props.menuOpenLocalId === row.localId}
                   onMenuOpenChange={(open) =>

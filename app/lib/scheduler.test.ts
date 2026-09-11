@@ -39,6 +39,9 @@ import {
   isPinProjectable,
   isStartAtLessonInRange,
   historyBackfillRefusal,
+  projectHistoryBackfill,
+  currentLessonFor,
+  clampStartAtLesson,
   formatYmdShort,
   toGoalConfig,
   planGoalReassign,
@@ -7920,7 +7923,7 @@ test('the Schedule Builder wires all three fixes into phase 2 itself', () => {
   // Defect 3: the refusal is planned, not written around, and it runs before
   // the first destructive call.
   assert.match(phase2, /historyBackfillRefusal\(\{/, 'the overflow rule has one definition')
-  assert.match(phase2, /if \(refusal\) throw new ScheduleRefusedError\(refusal\)/)
+  assert.match(phase2, /if \(refusal\) throw new LateInvariant21Error\(refusal\)/)
   const refusalAt = phase2.indexOf('historyBackfillRefusal({')
   const firstWrite = phase2.indexOf('if (clearPins && pinnedRows.length > 0)')
   assert.ok(
@@ -8073,4 +8076,450 @@ test('historyBackfillRefusal: a lesson already on disk is accounted for whatever
     historyBackfillRefusal(base),
     'a row outside 1..stated accounts for nothing',
   )
+})
+
+// ===========================================================================
+// Invariant 21 is decided BEFORE phase 1 writes anything (CC #1b).
+//
+// The refusal used to live in phase 2, which runs after `curriculum_goals` has
+// committed. A refused family was left holding a curriculum with no lessons and
+// none of the history they stated, and healEmptyGoal filled it with a forward
+// queue 24 hours later: the same silent reduction Invariant 21 exists to stop,
+// one day late. `simulatePreflight` mirrors the pre-flight in handleSave; the
+// source test below is what stops it drifting.
+// ===========================================================================
+
+type PreflightRow = {
+  localId: string
+  name: string
+  schoolDays: string[]
+  lessonsPerDay: number
+  totalLessons: number
+  startAtLesson: number
+  startDate: string | null
+  /** curriculum_goals.current_lesson as loaded; null for a never-saved row. */
+  dbCurrentLesson: number | null
+  /** COMPLETED lesson rows the goal already holds. Incomplete ones do not
+   *  count: they are not a record that the lesson was done, and phase 2's
+   *  floor delete removes them before it asks the same question. */
+  existingLessonNumbers?: number[]
+  /** total_lessons as loaded, when the family has since raised it. */
+  originalTotalLessons?: number | null
+  /** max(queue_position) over completed rows. */
+  maxCompletedQueuePosition?: number
+  isSaved: boolean
+}
+
+function simulatePreflight(
+  rows: PreflightRow[],
+  todayYmd: string,
+  vacations: VacationBlock[] = [],
+): { localId: string; message: string }[] {
+  const refusals: { localId: string; message: string }[] = []
+  for (const r of rows) {
+    if (!r.startDate || r.startDate >= todayYmd) continue
+    if (!r.totalLessons || r.totalLessons <= 0) continue
+
+    // A raised total_lessons invalidates the carried pointer as a bound:
+    // recomputeCurrentLesson clamped it with the OLD total.
+    const raisedTotal =
+      r.originalTotalLessons != null && r.totalLessons > r.originalTotalLessons
+    const coarse = raisedTotal
+      ? r.totalLessons
+      : currentLessonFor({
+          startAtLesson: clampStartAtLesson(r.startAtLesson, r.totalLessons),
+          totalLessons: r.totalLessons,
+          maxCompletedQueuePosition: r.dbCurrentLesson ?? 0,
+        })
+    if (coarse <= 0) continue
+    const coarseProjection = projectHistoryBackfill({
+      goalId: r.localId,
+      schoolDays: r.schoolDays,
+      lessonsPerDay: r.lessonsPerDay,
+      statedCompleted: coarse,
+      startDate: r.startDate,
+      todayYmd,
+      vacations,
+    })
+    // Cheap exit: every slot already fits, so no database read is needed.
+    if (coarseProjection.filter((p) => p.date <= todayYmd).length >= coarse) continue
+
+    const datable = coarseProjection.filter((p) => p.date <= todayYmd).length
+    const maxCompleted = r.isSaved ? (r.maxCompletedQueuePosition ?? 0) : 0
+    // The page reads only the lesson numbers ABOVE the datable window:
+    // everything at or below it is already covered by a slot.
+    const alreadyRecorded = r.isSaved
+      ? (r.existingLessonNumbers ?? []).filter((n) => n > datable)
+      : []
+    const statedCompleted = currentLessonFor({
+      startAtLesson: clampStartAtLesson(r.startAtLesson, r.totalLessons),
+      totalLessons: r.totalLessons,
+      maxCompletedQueuePosition: maxCompleted,
+    })
+    if (statedCompleted <= 0) continue
+    const projected = projectHistoryBackfill({
+      goalId: r.localId,
+      schoolDays: r.schoolDays,
+      lessonsPerDay: r.lessonsPerDay,
+      statedCompleted,
+      startDate: r.startDate,
+      todayYmd,
+      vacations,
+    })
+    const message = historyBackfillRefusal({
+      curriculumName: r.name,
+      statedCompleted,
+      startDate: r.startDate,
+      todayYmd,
+      projected,
+      alreadyRecorded,
+    })
+    if (message) refusals.push({ localId: r.localId, message })
+  }
+  return refusals
+}
+
+const newCurriculum = (over: Partial<PreflightRow> = {}): PreflightRow => ({
+  localId: 'a',
+  name: "Zoe's Math",
+  schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+  lessonsPerDay: 1,
+  totalLessons: 200,
+  startAtLesson: 101,
+  startDate: '2026-09-09',
+  dbCurrentLesson: null,
+  isSaved: false,
+  ...over,
+})
+
+test('pre-flight: the refusal is decided with no goal row and no lesson row written', () => {
+  // start_date 2026-09-09 (Wed), Mon-Fri, today Fri 2026-09-11: three school
+  // days, and the family says 100 are done. Decided entirely in the browser,
+  // from start_at_lesson alone, before phase 1 exists.
+  const refusals = simulatePreflight([newCurriculum()], '2026-09-11')
+  assert.equal(refusals.length, 1)
+  assert.match(refusals[0].message, /you said 100 lessons are already done/)
+  assert.match(refusals[0].message, /only 3 school days have passed/)
+  assert.match(refusals[0].message, /can only record 3/)
+})
+
+test('pre-flight: one refused row refuses the whole save, so a healthy sibling is not written either', () => {
+  // Row A is fine: 3 stated, 3 school days. Row B is the 100-lesson claim.
+  // The save is refused as a unit, so NEITHER goal row is created.
+  const rowA = newCurriculum({ localId: 'a', name: 'Reading', startAtLesson: 4 })
+  const rowB = newCurriculum({ localId: 'b', name: "Zoe's Math", startAtLesson: 101 })
+  const refusals = simulatePreflight([rowA, rowB], '2026-09-11')
+  assert.deepEqual(refusals.map((x) => x.localId), ['b'], 'only B is at fault')
+  // The page turns any non-empty result into a single return before phase 1.
+  assert.ok(refusals.length > 0, 'a non-empty result stops the save for every row')
+})
+
+test('pre-flight: every refused row is named, not just the first', () => {
+  const refusals = simulatePreflight(
+    [
+      newCurriculum({ localId: 'a', name: 'Math', startAtLesson: 101 }),
+      newCurriculum({ localId: 'b', name: 'Latin', startAtLesson: 61 }),
+    ],
+    '2026-09-11',
+  )
+  assert.deepEqual(refusals.map((x) => x.localId), ['a', 'b'])
+  assert.match(refusals[0].message, /Math/)
+  assert.match(refusals[1].message, /Latin/)
+})
+
+test('pre-flight: a family ahead of their own pace is not refused, and asks the database nothing', () => {
+  // 15 done on a 1/day goal started 2026-09-01 is nine school days of room and
+  // fifteen real rows. The coarse pass cannot clear it (9 < 15), so the exact
+  // pass runs and the existing rows account for every stated lesson.
+  const refusals = simulatePreflight(
+    [
+      newCurriculum({
+        localId: 'ahead',
+        name: 'Math',
+        startDate: '2026-09-01',
+        startAtLesson: 1,
+        dbCurrentLesson: 15,
+        isSaved: true,
+        maxCompletedQueuePosition: 15,
+        existingLessonNumbers: Array.from({ length: 120 }, (_, i) => i + 1),
+      }),
+    ],
+    '2026-09-11',
+  )
+  assert.deepEqual(refusals, [], 'nothing is missing, so nothing is refused')
+})
+
+test('pre-flight: a goal whose history comfortably fits never reaches the database read', () => {
+  // 10 stated, 10 school days from 2026-08-31. The coarse pass clears it, which
+  // is the common case and the reason the pre-flight costs a normal save
+  // nothing.
+  const row = newCurriculum({
+    localId: 'fits',
+    startDate: '2026-08-31',
+    startAtLesson: 11,
+    totalLessons: 120,
+  })
+  const coarse = currentLessonFor({
+    startAtLesson: clampStartAtLesson(row.startAtLesson, row.totalLessons),
+    totalLessons: row.totalLessons,
+    maxCompletedQueuePosition: row.dbCurrentLesson ?? 0,
+  })
+  const projected = projectHistoryBackfill({
+    goalId: 'fits',
+    schoolDays: row.schoolDays,
+    lessonsPerDay: row.lessonsPerDay,
+    statedCompleted: coarse,
+    startDate: row.startDate!,
+    todayYmd: '2026-09-11',
+  })
+  assert.equal(coarse, 10)
+  assert.ok(
+    projected.filter((p) => p.date <= '2026-09-11').length >= coarse,
+    'the cheap exit fires, so no lesson read is issued',
+  )
+  assert.deepEqual(simulatePreflight([row], '2026-09-11'), [])
+})
+
+test('currentLessonFor mirrors recomputeCurrentLesson, so the pre-flight predicts phase 1', () => {
+  // INSERT: no completed rows, so the value is the seed phase 1 writes,
+  // max(0, start_at_lesson - 1).
+  assert.equal(
+    currentLessonFor({ startAtLesson: 11, totalLessons: 120, maxCompletedQueuePosition: 0 }),
+    10,
+  )
+  assert.equal(
+    currentLessonFor({ startAtLesson: 1, totalLessons: 120, maxCompletedQueuePosition: 0 }),
+    0,
+  )
+  // UPDATE: real completions win when they are further along.
+  assert.equal(
+    currentLessonFor({ startAtLesson: 1, totalLessons: 120, maxCompletedQueuePosition: 15 }),
+    15,
+  )
+  // Never past the end of the curriculum.
+  assert.equal(
+    currentLessonFor({ startAtLesson: 200, totalLessons: 120, maxCompletedQueuePosition: 0 }),
+    120,
+  )
+})
+
+test('projectHistoryBackfill is the one definition both Invariant 21 call sites read', () => {
+  // Same inputs, same answer as the inline projection the builder used to run
+  // in phase 2: slots numbered from 1, on the goal's school days, from the
+  // start date forward.
+  const out = projectHistoryBackfill({
+    goalId: 'g',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    statedCompleted: 10,
+    startDate: '2026-08-31',
+    todayYmd: '2026-09-11',
+  })
+  assert.equal(out.length, 10)
+  assert.equal(out[0].date, '2026-08-31')
+  assert.equal(out[9].date, '2026-09-11')
+  assert.deepEqual(out.map((p) => p.lesson_number), [1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+  assert.deepEqual(
+    projectHistoryBackfill({
+      goalId: 'g',
+      schoolDays: ['Mon'],
+      lessonsPerDay: 1,
+      statedCompleted: 0,
+      startDate: '2026-08-31',
+      todayYmd: '2026-09-11',
+    }),
+    [],
+    'nothing stated, nothing projected',
+  )
+})
+
+test('the builder decides Invariant 21 before phase 1 and keeps phase 2 as a tagged backstop', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+
+  const preflight = body.indexOf('const refusalCandidates = rows.filter(')
+  const phaseMarker = body.indexOf('let phase: "write" | "post_save" = "write"')
+  const firstWrite = body.search(/\.from\("curriculum_goals"\)\s*\.update|\.from\("curriculum_goals"\)\s*\.insert/)
+  assert.ok(preflight !== -1, 'the pre-flight exists')
+  assert.ok(preflight < phaseMarker, 'it runs before the write phase even begins')
+  assert.ok(preflight < firstWrite, 'and before the first curriculum_goals write')
+
+  // It refuses by returning, not by writing and undoing. The plan phase stays
+  // write-free (the August 2026 data-loss fix).
+  const block = body.slice(preflight, phaseMarker)
+  assert.match(block, /historyBackfillRefusal\(\{/)
+  assert.match(block, /currentLessonFor\(\{/, 'current_lesson is computed, not read back after a write')
+  assert.match(block, /projectHistoryBackfill\(\{/, 'one definition of the history projection')
+  assert.match(block, /if \(refusals\.length > 0\)/)
+  assert.match(block, /setRefusedLocalIds\(/, 'the refused rows are highlighted')
+  assert.match(block, /dupReleaseAndExit\(/, 'it exits through the existing pre-write refusal path')
+  assert.ok(
+    !/\.insert\(|\.delete\(/.test(block),
+    'the pre-flight writes nothing and deletes nothing',
+  )
+
+  // Phase 2 keeps the check, now as an assertion with its own tag.
+  assert.match(src, /class LateInvariant21Error extends ScheduleRefusedError/)
+  assert.match(body, /throw new LateInvariant21Error\(refusal\)/)
+  assert.match(body, /"invariant_21_late"/, 'a late firing is tagged separately in Sentry')
+  assert.match(body, /phase: "invariant_21_preflight"/, 'and a pre-flight refusal has its own tag')
+})
+
+test('pre-flight: the lesson read is bounded to the shortfall, not the whole history', () => {
+  // A goal claiming 100 from 2026-09-09 has three datable school days, so only
+  // lesson numbers 4..100 can change the answer. The page queries exactly that
+  // range; rows 1..3 are already covered by slots and asking for them would
+  // walk a long history toward PostgREST's row cap for nothing.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  assert.match(body, /\.gt\("lesson_number", check\.datable\)/)
+  assert.ok(
+    !/\.gte\("lesson_number", 1\)/.test(body),
+    'the unbounded form that could truncate on a long history is gone',
+  )
+  // And a truncated page is reported rather than silently trusted.
+  assert.match(body, /invariant_21_preflight_truncated/)
+})
+
+test('pre-flight: rows already recorded above the window rescue the save', () => {
+  // Same 100-lesson claim, but the goal really does hold rows 1..100 (a family
+  // who is simply far ahead). Nothing is missing, so nothing is refused, and
+  // the rescue comes entirely from numbers above the datable window.
+  const refusals = simulatePreflight(
+    [
+      newCurriculum({
+        localId: 'rescued',
+        startDate: '2026-09-09',
+        startAtLesson: 101,
+        dbCurrentLesson: 100,
+        isSaved: true,
+        maxCompletedQueuePosition: 100,
+        existingLessonNumbers: Array.from({ length: 100 }, (_, i) => i + 1),
+      }),
+    ],
+    '2026-09-11',
+  )
+  assert.deepEqual(refusals, [])
+})
+
+test('pre-flight: an incomplete forward row is not a record that the lesson was done', () => {
+  // The hole the first cut of the pre-flight had. Goal of 200, started
+  // 2026-06-01, lessons 1-5 completed and 6-200 sitting as future rows. The
+  // family sets the starting position to 150. Counting ANY row as "recorded"
+  // waved this through, and phase 2's floor delete (which removes every
+  // incomplete row above the completed floor) then refused it with the goal
+  // row already committed: the exact half-made curriculum this work removes.
+  const completedOnly = simulatePreflight(
+    [
+      newCurriculum({
+        localId: 'forward-rows',
+        name: 'Math',
+        totalLessons: 200,
+        startDate: '2026-06-01',
+        startAtLesson: 150,
+        dbCurrentLesson: 5,
+        isSaved: true,
+        maxCompletedQueuePosition: 5,
+        existingLessonNumbers: [1, 2, 3, 4, 5],
+      }),
+    ],
+    '2026-09-11',
+  )
+  assert.equal(completedOnly.length, 1, 'refused here, before phase 1, not late in phase 2')
+  assert.match(completedOnly[0].message, /you said 149 lessons are already done/)
+})
+
+test('pre-flight: raising total_lessons re-opens a goal the carried pointer under-bounded', () => {
+  // recomputeCurrentLesson clamps current_lesson with total_lessons, so a goal
+  // holding a completed slot at 120 under a total of 30 reads back as 30.
+  // Raise the total to 180 and the recompute answers 120, which 30 never
+  // bounded. The start date is chosen so the cheap exit WOULD fire on the
+  // under-bound: 53 school days have passed, comfortably more than 30, so
+  // without the fallback the row was dropped with no query at all and phase 2
+  // refused it after phase 1 had written.
+  const row = newCurriculum({
+    localId: 'raised',
+    name: 'Math',
+    totalLessons: 180,
+    originalTotalLessons: 30,
+    startDate: '2026-07-01',
+    startAtLesson: 1,
+    dbCurrentLesson: 30,
+    isSaved: true,
+    maxCompletedQueuePosition: 120,
+    existingLessonNumbers: [120],
+  })
+  const available = projectHistoryBackfill({
+    goalId: 'raised',
+    schoolDays: row.schoolDays,
+    lessonsPerDay: 1,
+    statedCompleted: 500,
+    startDate: row.startDate!,
+    todayYmd: '2026-09-11',
+  }).filter((p) => p.date <= '2026-09-11').length
+  assert.ok(available > 30, 'the under-bound would have cleared the cheap exit')
+  assert.ok(available < 120, 'the true progress does not fit')
+
+  const refusals = simulatePreflight([row], '2026-09-11')
+  assert.equal(refusals.length, 1, 'the exact pass runs and catches it')
+  assert.match(refusals[0].message, /you said 120 lessons are already done/)
+})
+
+test('pre-flight: an unraised total still takes the cheap exit', () => {
+  // The guard must not turn every save into a database read. Same goal, total
+  // unchanged, history fits: no refusal and no query.
+  assert.deepEqual(
+    simulatePreflight(
+      [
+        newCurriculum({
+          localId: 'unraised',
+          totalLessons: 120,
+          originalTotalLessons: 120,
+          startDate: '2026-08-31',
+          startAtLesson: 11,
+          dbCurrentLesson: 10,
+          isSaved: true,
+          maxCompletedQueuePosition: 10,
+          existingLessonNumbers: Array.from({ length: 10 }, (_, i) => i + 1),
+        }),
+      ],
+      '2026-09-11',
+    ),
+    [],
+  )
+})
+
+test('the pre-flight reads completed rows only, shares one clock with phase 2, and reveals the rows', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+
+  // The completed filter is what keeps the pre-flight no more permissive than
+  // the phase-2 backstop it fronts.
+  const probe = body.slice(body.indexOf('const probes = await Promise.all('), body.indexOf('const probeFailure'))
+  assert.match(probe, /\.eq\("completed", true\)[\s\S]*\.gt\("lesson_number", check\.datable\)/)
+
+  // One clock. A builder open across midnight must not make the two disagree.
+  assert.match(body, /const saveTodayMid = todayDate\(\)/)
+  assert.match(body, /const saveTodayStr = ymd\(saveTodayMid\)/)
+  assert.match(body, /const todayMid = saveTodayMid/)
+  assert.ok(
+    !/const todayMid = todayDate\(\)/.test(body),
+    'phase 2 no longer reads its own clock',
+  )
+
+  // coarse is a real upper bound even when total_lessons was just raised.
+  assert.match(body, /const raisedTotal =/)
+  assert.match(body, /const coarse = raisedTotal\s*\?\s*total/)
+
+  // The refusal sends the family back to rows they can actually see.
+  const refuse = body.slice(body.indexOf('if (refusals.length > 0)'))
+  assert.match(refuse, /setView\("builder"\)/, 'Save runs from the preview, so switch before revealing')
+  assert.ok(
+    refuse.indexOf('setView("builder")') < refuse.indexOf('revealRow('),
+    'the switch happens before the reveal, or the card is still unmounted',
+  )
+
+  // The at-risk reads go together rather than one after another.
+  assert.match(body, /const probes = await Promise\.all\(/)
+  assert.ok(!/for \(const check of atRisk\)/.test(body), 'no serial per-row await loop')
 })
