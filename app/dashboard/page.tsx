@@ -28,7 +28,7 @@ import { todayInTz, addDays as addDaysYmd, startOfDayInTzAsUtc } from "@/app/lib
 import { planAddToNextSchoolDays as libPlanAddToNextSchoolDays, planPushBackNDays as libPlanPushBackNDays } from "@/app/lib/scheduler";
 import { buildPushBackMessage } from "@/app/lib/pushback-message";
 import { recomputeStaleStreak } from "@/app/lib/streaks";
-import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
+import { uploadMemoryPhoto, PhotoReadError, type PhotoStage } from "@/lib/photo-pipeline";
 import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 import { LESSON_PHOTO_SAVED_EVENT } from "@/lib/lesson-photo";
 import SignedImage from "@/components/SignedImage";
@@ -689,7 +689,15 @@ export default function TodayPage() {
   // report below re-fires on every loadData (page load, poll, memory save).
   const reportedProjectionGapsRef = useRef<Set<string>>(new Set());
   const [todayStory, setTodayStory] = useState<{ id: string; type: string; title: string | null; caption: string | null; child_id: string | null; photo_url: string | null; include_in_book: boolean; created_at: string }[]>([]);
-  const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null } | null>(null);
+  const [captureToast, setCaptureToast] = useState<{ message: string; memoryId: string | null; retry?: boolean } | null>(null);
+  // Photos that were picked and did NOT save. Held so "Try again" can re-run
+  // the same save without sending a parent back into a camera roll of hundreds
+  // to find the one that failed. Cleared when a retry starts or succeeds.
+  const [retryPhotos, setRetryPhotos] = useState<{ files: File[]; memType: string; title: string | null } | null>(null);
+  // What the pipeline is doing right now, for the progress toast. A HEIC
+  // conversion is the slow one: up to 90 seconds of wasm on the main thread,
+  // which without this reads as a frozen app.
+  const [captureStage, setCaptureStage] = useState<PhotoStage | null>(null);
   // The caption card. The photos are already saved when this opens: the queue is
   // what to OFFER a caption for, one at a time, and dismissing it loses nothing.
   const [captionQueue, setCaptionQueue] = useState<{ id: string; photoUrl: string; type: string }[]>([]);
@@ -4274,7 +4282,11 @@ export default function TodayPage() {
           // Scoped to the upload alone so it cannot reach the outer catch,
           // which abandons the drawing.
           try {
-            const uploaded = await uploadMemoryPhoto(supabase, user.id, drawingFile);
+            // The 2026-09-09 loss was here: a HEIC under a .jpg name, a
+            // conversion that needed longer than the old 30s, and a button that
+            // said "Saving…" the whole time. The budget is 90s now and the
+            // button says which part is slow.
+            const uploaded = await uploadMemoryPhoto(supabase, user.id, drawingFile, setCaptureStage);
             photoUrl = uploaded.photoUrl;
             photoDims = { width: uploaded.width, height: uploaded.height };
           } catch (err) {
@@ -4308,6 +4320,7 @@ export default function TodayPage() {
       showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again", null);
     } finally {
       setSavingDrawing(false);
+      setCaptureStage(null);
     }
   }
 
@@ -4336,6 +4349,16 @@ export default function TodayPage() {
   }
 
   /**
+   * A failure a parent can act on: no auto-dismiss timer, and a Try again
+   * button beside it. Every other toast fades after four seconds, which is the
+   * right call for good news and the wrong one for an offer to rescue a photo.
+   */
+  function showRetryToast(message: string) {
+    if (captureToastTimer.current) { clearTimeout(captureToastTimer.current); captureToastTimer.current = null; }
+    setCaptureToast({ message, memoryId: null, retry: true });
+  }
+
+  /**
    * Save one or more photos picked from the Today capture tile.
    *
    * Always settles: uploadMemoryPhoto throws PhotoReadError instead of hanging,
@@ -4343,7 +4366,13 @@ export default function TodayPage() {
    * Photos upload one at a time (parallel uploads from a phone on cellular
    * stall), and the refresh + badge + streak calls fire ONCE for the batch.
    */
-  async function saveCapturedPhotos(picked: File[]) {
+  async function saveCapturedPhotos(
+    picked: File[],
+    // Set only by Try again. The type and suggested title came off the refs on
+    // the first attempt and the refs have moved on since, so a retry carries
+    // them rather than re-reading them.
+    resume?: { memType: string; title: string | null },
+  ) {
     if (picked.length === 0) return;
     if (capturing) {
       // The input value is cleared before this runs, so a silent return would
@@ -4351,11 +4380,14 @@ export default function TodayPage() {
       showCaptureToast("Still saving your last photos, one moment.", null);
       return;
     }
-    const memType = captureTypeRef.current;
+    const memType = resume?.memType ?? captureTypeRef.current;
     // Read once and clear, so a suggested title is used by this capture only and
     // never leaks onto the next batch of photos.
-    const prefillTitle = prefillTitleRef.current;
-    prefillTitleRef.current = null;
+    const prefillTitle = resume ? resume.title : prefillTitleRef.current;
+    if (!resume) prefillTitleRef.current = null;
+    // This attempt owns the retry slot now. Leaving the previous failure's
+    // files in place would let a second failure offer to retry the first batch.
+    setRetryPhotos(null);
     setCapturing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -4389,10 +4421,28 @@ export default function TodayPage() {
       // a photo that failed to save has nothing to caption.
       const savedRows: { id: string; photoUrl: string; type: string }[] = [];
 
+      // The ones that did not land, kept for Try again.
+      const failedFiles: File[] = [];
+
       for (let i = 0; i < batch.length; i++) {
-        showProgressToast(batch.length > 1 ? `Saving ${i + 1} of ${batch.length}...` : "Saving your photo...");
+        const base = batch.length > 1 ? `Saving ${i + 1} of ${batch.length}` : "Saving your photo";
+        showProgressToast(`${base}...`);
         try {
-          const { photoUrl, width, height } = await uploadMemoryPhoto(supabase, user.id, batch[i]);
+          const { photoUrl, width, height } = await uploadMemoryPhoto(
+            supabase,
+            user.id,
+            batch[i],
+            // A HEIC conversion can run for most of a minute. Saying so beats a
+            // button that looks broken, which is what a parent saw before.
+            (stage) => {
+              setCaptureStage(stage);
+              showProgressToast(
+                stage === "converting"
+                  ? `${base}. Converting your photo, this can take a moment...`
+                  : `${base}...`,
+              );
+            },
+          );
           const now = new Date().toISOString();
           // include_in_book: true. Photos are IN the book by default, matching
           // the column default and the way the yearbook editor is worded: it
@@ -4417,16 +4467,23 @@ export default function TodayPage() {
           if (lastId) savedRows.push({ id: lastId, photoUrl, type: memType });
         } catch (err) {
           captureSupabaseError("today photo capture", err);
+          // The file itself is still perfectly good; only this attempt failed.
+          // Holding it is what makes Try again possible.
+          failedFiles.push(batch[i]);
           if (!firstFailure) {
             firstFailure = err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again";
           }
         }
       }
 
+      if (failedFiles.length > 0) {
+        setRetryPhotos({ files: failedFiles, memType, title: prefillTitle });
+      }
+
       if (saved === 0) {
         // droppedNote belongs here too: photos were trimmed off this batch even
         // though none of the rest saved, and dropping the note hid that.
-        showCaptureToast(`${firstFailure ?? "Save failed, please try again"}${droppedNote}`, null);
+        showRetryToast(`${firstFailure ?? "Save failed, please try again"}${droppedNote}`);
         return;
       }
 
@@ -4463,9 +4520,13 @@ export default function TodayPage() {
       }
     } catch (err) {
       captureSupabaseError("today photo capture", err);
-      showCaptureToast(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again", null);
+      // Nothing in the loop ran, or something outside it threw, so the whole
+      // selection is still unsaved and still worth offering back.
+      setRetryPhotos({ files: picked, memType, title: prefillTitle });
+      showRetryToast(err instanceof PhotoReadError ? err.userMessage : "Save failed, please try again");
     } finally {
       setCapturing(false);
+      setCaptureStage(null);
     }
   }
 
@@ -4490,6 +4551,7 @@ export default function TodayPage() {
     if (next >= captionQueue.length) {
       setCaptionQueue([]);
       setCaptionIndex(0);
+      offerRetryAfterCaptions();
     } else {
       setCaptionIndex(next);
     }
@@ -4501,6 +4563,19 @@ export default function TodayPage() {
     setCaptionIndex(0);
     setCaptionText("");
     setCaptionChild("");
+    offerRetryAfterCaptions();
+  }
+
+  /**
+   * Part of a batch saved and part did not. The caption card owns the screen
+   * first, and it clears the toast on its way in, so the offer to retry the
+   * ones that failed waits here until the card is done rather than being
+   * covered up and lost.
+   */
+  function offerRetryAfterCaptions() {
+    if (!retryPhotos) return;
+    const n = retryPhotos.files.length;
+    showRetryToast(n > 1 ? `${n} photos didn't save.` : "One photo didn't save.");
   }
 
   async function saveCaptionCard() {
@@ -6584,7 +6659,9 @@ export default function TodayPage() {
               </div>
               <button onClick={saveDrawing} disabled={savingDrawing || !drawingTitle.trim()}
                 className="w-full py-3.5 rounded-xl bg-[#2D5A3D] hover:opacity-90 disabled:opacity-50 text-white text-[15px] font-semibold transition-colors">
-                {savingDrawing ? "Saving…" : "Save Drawing 🌿"}
+                {savingDrawing
+                  ? (captureStage === "converting" ? "Converting your photo…" : "Saving…")
+                  : "Save Drawing 🌿"}
               </button>
             </div>
           </div>
@@ -6596,6 +6673,28 @@ export default function TodayPage() {
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
           <div className="bg-[var(--g-brand)] text-white text-sm font-semibold px-5 py-3 rounded-2xl shadow-lg max-w-[90vw] flex items-center gap-3">
             <span>{captureToast.message}</span>
+            {captureToast.retry && retryPhotos && (
+              <button
+                onClick={() => {
+                  const pending = retryPhotos;
+                  setCaptureToast(null);
+                  void saveCapturedPhotos(pending.files, { memType: pending.memType, title: pending.title });
+                }}
+                disabled={capturing}
+                className="text-white underline underline-offset-2 text-xs font-semibold disabled:opacity-50"
+              >
+                Try again
+              </button>
+            )}
+            {captureToast.retry && (
+              <button
+                onClick={() => { setRetryPhotos(null); setCaptureToast(null); }}
+                aria-label="Dismiss"
+                className="text-white/70 hover:text-white text-xs font-medium transition-colors"
+              >
+                ✕
+              </button>
+            )}
             {captureToast.memoryId && (
               <button
                 onClick={async () => {

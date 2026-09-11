@@ -18,7 +18,7 @@ import type { User } from "@supabase/supabase-js";
 import { BadgeNotificationListener } from "@/components/BadgeNotification";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { uploadMemoryPhoto, PhotoReadError } from "@/lib/photo-pipeline";
+import { uploadMemoryPhoto, PhotoReadError, type PhotoStage } from "@/lib/photo-pipeline";
 import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import * as Sentry from "@sentry/nextjs";
@@ -227,6 +227,10 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
   const [fabDate, setFabDate] = useState(todayLocalDateStr());
   const [fabSaving, setFabSaving] = useState(false);
   const [fabProgress, setFabProgress] = useState<{ current: number; total: number } | null>(null);
+  // Which slow step the pipeline is on. A HEIC conversion runs in wasm on the
+  // main thread and can take most of a minute; without this the Save button
+  // just said "Saving..." and looked stuck.
+  const [fabStage, setFabStage] = useState<PhotoStage | null>(null);
   const [fabLimitHit, setFabLimitHit] = useState(false);
   // Partial-batch outcome ("Saved 3 of 5..."), shown IN the sheet, which stays
   // open holding the photos that failed.
@@ -693,7 +697,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
       for (let i = 0; i < batch.length; i++) {
         setFabProgress({ current: i + 1, total: batch.length });
         try {
-          const { photoUrl, width, height } = await uploadMemoryPhoto(supabase, user.id, batch[i]);
+          const { photoUrl, width, height } = await uploadMemoryPhoto(supabase, user.id, batch[i], setFabStage);
           const { error: insErr } = await supabase.from("memories").insert({
             user_id: user.id,
             type: "photo",
@@ -779,6 +783,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
     } finally {
       setFabSaving(false);
       setFabProgress(null);
+      setFabStage(null);
     }
   }
 
@@ -1157,9 +1162,11 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
                   className="w-full py-3 rounded-xl text-sm font-bold text-white transition-all shadow-sm disabled:opacity-60"
                   style={{ backgroundColor: "var(--g-brand)" }}>
                   {fabSaving
-                    ? (fabProgress && fabProgress.total > 1
-                        ? `Saving ${fabProgress.current} of ${fabProgress.total}...`
-                        : "Saving...")
+                    ? (fabStage === "converting"
+                        ? "Converting your photo..."
+                        : fabProgress && fabProgress.total > 1
+                          ? `Saving ${fabProgress.current} of ${fabProgress.total}...`
+                          : "Saving...")
                     : fabFiles.length > 1
                       ? `Save ${fabFiles.length} photos 🌱`
                       : "Save 🌱"}

@@ -6,7 +6,7 @@ import { usePartner } from "@/lib/partner-context";
 import { useProfile } from "@/lib/profile-context";
 import { capitalizeChildNames } from "@/lib/utils";
 import { signedPhotoUrl, coverBucketFor } from "@/lib/photo-url";
-import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS, COVER_MAX_DIMENSION } from "@/lib/photo-pipeline";
+import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS, COVER_MAX_DIMENSION, type PhotoStage } from "@/lib/photo-pipeline";
 import { clampFocal } from "@/lib/focal-point";
 import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
 import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
@@ -435,6 +435,9 @@ export default function YearbookEditPage() {
   // Cover / meta state
   const [coverPhotoUrl, setCoverPhotoUrl] = useState("");
   const [coverUploading, setCoverUploading] = useState(false);
+  // Which slow step the photo pipeline is on, so a long HEIC conversion reads
+  // as work in progress rather than a stuck button.
+  const [coverStage, setCoverStage] = useState<PhotoStage | null>(null);
   const [coverSaved, setCoverSaved] = useState(false);
   const [coverError, setCoverError] = useState<string | null>(null);
   // Set when the uploaded cover's natural size is too small to print sharply.
@@ -541,7 +544,10 @@ export default function YearbookEditPage() {
     try {
       // COVER_MAX_DIMENSION, not the memory cap: the front panel of a casewrap
       // cover is 10in wide once the board wrap is added.
-      const prepared = await preparePhoto(file, COVER_MAX_DIMENSION);
+      // A cover is the largest photo the app prepares (3000px), so it is also
+      // the one most likely to sit on a slow decode or a HEIC conversion. The
+      // stage drives the button copy below instead of a silent "Uploading...".
+      const prepared = await preparePhoto(file, COVER_MAX_DIMENSION, setCoverStage);
       const path = `${effectiveUserId}/cover.jpg`;
       const { error: upErr } = await supabase.storage
         .from("yearbook-covers")
@@ -567,6 +573,7 @@ export default function YearbookEditPage() {
       );
     } finally {
       setCoverUploading(false);
+      setCoverStage(null);
     }
   }, [effectiveUserId, saveContent]);
 
@@ -1054,7 +1061,7 @@ export default function YearbookEditPage() {
           ) : (
             !isReadOnly && (
               <label className="flex items-center justify-center w-full py-6 rounded-lg border-2 border-dashed border-[#d4cfc8] text-[12px] text-[#9a8f85] hover:border-[#5c7f63] transition-colors cursor-pointer">
-                {coverUploading ? "Uploading…" : "Upload cover photo"}
+                {coverUploading ? (coverStage === "converting" ? "Converting your photo…" : "Uploading…") : "Upload cover photo"}
                 <input
                   type="file"
                   accept="image/*"
