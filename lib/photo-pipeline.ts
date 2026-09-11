@@ -26,10 +26,32 @@ export class PhotoReadError extends Error {
 
 export type PreparedPhoto = { file: File; width: number; height: number };
 
+/**
+ * Which slow step is running, so a caller can say so instead of showing a
+ * button that looks broken. "converting" is the one that matters: a wasm HEIC
+ * conversion on a phone can run for most of a minute, and until this existed
+ * the family had nothing to look at while it did.
+ */
+export type PhotoStage = "decoding" | "converting" | "encoding" | "uploading";
+
 export const TEN_YEARS_SECONDS = 60 * 60 * 24 * 365 * 10;
-const DECODE_TIMEOUT_MS = 20000;
-const HEIC_TIMEOUT_MS = 30000;
+// Decode budget. Was 20s, which was generous for a 12MP phone photo and thin
+// for the 48MP files the size cap used to refuse outright. A 48MP JPEG decodes
+// in a few seconds on a mid-range phone; this covers the slow end of that
+// without ever becoming the unbounded wait this file exists to prevent.
+const DECODE_TIMEOUT_MS = 45000;
+// HEIC conversion budget. Was 30s, and on 2026-09-09 a family lost a drawing
+// photo to a conversion that hit exactly that: "HEIC conversion timed out after
+// 30000ms" on a 62.jpg that was really HEIC. heic2any decodes in wasm on the
+// main thread, so a large HEIC routinely needs longer than a native JPEG
+// decode, not less, and a 48MP one on a mid-range phone lands in the tens of
+// seconds. 90s covers that; past it the file is not going to convert, and a
+// family should be told so rather than watched a spinner. The caller shows
+// "Converting your photo" for the whole of it.
+const HEIC_TIMEOUT_MS = 90000;
 const NETWORK_TIMEOUT_MS = 45000;
+/** How long to wait before the one upload retry. */
+const UPLOAD_RETRY_DELAY_MS = 1200;
 // Upload caps, in pixels on the longest side. Both are print budgets, not
 // screen budgets: Lulu prints at 300 PPI, so a photo's printed width in inches
 // is its pixel width / 300. The old single 1200px cap printed about 4in, half
@@ -44,12 +66,34 @@ const NETWORK_TIMEOUT_MS = 45000;
 export const MEMORY_MAX_DIMENSION = 2400;  // 8in at 300 PPI
 export const COVER_MAX_DIMENSION  = 3000;  // 10in at 300 PPI, casewrap front panel incl. 0.75in wrap
 const JPEG_QUALITY = 0.85;
-const MAX_FILE_BYTES = 50 * 1024 * 1024;
+// A ceiling, not a cap on ordinary photos.
+//
+// This used to be 50MB and it was the FIRST thing a picked file met, before any
+// decode. On 2026-09-08 one family was refused three times in five minutes at
+// 56MB, 65MB and 99MB: modern phone photos, all of which the pipeline would
+// have written down to 2400px on the long side and stored at well under a
+// megabyte. The app told a parent her photo was too large for a photo it was
+// about to shrink.
+//
+// What actually risks the tab is not the file's bytes, it is the decoded
+// bitmap: width x height x 4. A 48MP photo is ~190MB decoded, which a phone
+// browser survives; the file that produced it is 10-100MB depending on format.
+// Since the pixel count is only knowable after the decode, the byte number here
+// is set to sit above every real still photo (the largest seen in production is
+// 99MB, an iPhone ProRAW-sized file) and stop only things that are not photos
+// at all: a video, a multi-hundred-megabyte scan, a RAW burst. 200MB is double
+// the largest real photo we have ever been handed.
+export const MAX_FILE_BYTES = 200 * 1024 * 1024;
 const MEMORY_PHOTOS_BUCKET = "memory-photos";
 
 const EMPTY_FILE_MESSAGE =
   "That photo didn't come through. If it's stored in Google Photos or iCloud, download it to your device first, then try again.";
-const TOO_LARGE_MESSAGE = "That photo is too large to upload. Try a smaller one.";
+// Says what actually happened. The old copy, "That photo is too large to
+// upload. Try a smaller one.", was wrong twice over: nothing had been uploaded
+// yet, and an ordinary phone photo is never too large for this app to store,
+// only too large for a browser to open in one piece.
+const TOO_LARGE_MESSAGE =
+  "That file is bigger than 200 MB, which is more than a browser can open at once. If it's a video or a RAW camera file, try a regular photo instead.";
 const HEIC_MESSAGE =
   "Your phone saved this photo in a format this browser can't read (HEIC). Try switching your camera to JPEG in your phone's camera settings, or share the photo to yourself first to convert it.";
 const UNREADABLE_MESSAGE =
@@ -57,7 +101,15 @@ const UNREADABLE_MESSAGE =
 const UPLOAD_FAILED_MESSAGE = "Upload failed. Check your connection and try again.";
 
 function describe(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  if (err instanceof Error) return err.message;
+  // Supabase storage errors are plain objects on some paths, and String() on
+  // one of those is "[object Object]", which is what the upload warning used to
+  // print. Read the fields that actually say something first.
+  const raw = (err ?? {}) as { message?: unknown; status?: unknown };
+  if (typeof raw.message === "string" && raw.message) {
+    return raw.status === undefined ? raw.message : `${raw.message} (status ${String(raw.status)})`;
+  }
+  return String(err);
 }
 
 /**
@@ -66,8 +118,13 @@ function describe(err: unknown): string {
  *
  * `onTimeout` replaces the rejection value on the timeout branch only. Errors
  * from `work` itself always propagate unchanged.
+ *
+ * Exported for its test. The clearTimeout in the `finally` is the whole point
+ * of the helper and the easiest line in this file to lose in a refactor: drop
+ * it and every successful decode leaves a live timer behind, which is how a
+ * page ends up holding a phone awake after the save is long finished.
  */
-function withTimeout<T>(
+export function withTimeout<T>(
   work: Promise<T>,
   ms: number,
   label: string,
@@ -197,7 +254,10 @@ function looksLikeHeic(file: File): boolean {
  * decoder, so it is imported lazily and only ever loads after a decode has
  * already failed, which means it costs nothing on the happy path.
  */
-async function decodeHeic(file: File): Promise<DecodedImage> {
+async function decodeHeic(file: File, onStage?: (stage: PhotoStage) => void): Promise<DecodedImage> {
+  // Announced BEFORE the import, because loading the converter is itself part
+  // of the wait the family is looking at.
+  onStage?.("converting");
   const converted = await withTimeout(
     (async () => {
       const heic2any = (await import("heic2any")).default;
@@ -229,20 +289,31 @@ function jpegName(name: string): string {
  * defaults to MEMORY_MAX_DIMENSION; the yearbook cover passes
  * COVER_MAX_DIMENSION. The returned width/height are the NATURAL size either
  * way, not the capped size.
+ *
+ * `onStage` is called as each slow step starts, so a caller can keep a family
+ * informed instead of showing a button that looks dead. Optional: a caller that
+ * passes nothing behaves exactly as before.
  */
 export async function preparePhoto(
   file: File,
   maxDimension: number = MEMORY_MAX_DIMENSION,
+  onStage?: (stage: PhotoStage) => void,
 ): Promise<PreparedPhoto> {
   if (file.size === 0) {
     throw new PhotoReadError(`Zero-byte file: ${file.name}`, EMPTY_FILE_MESSAGE);
   }
+  // The ONLY size refusal, and it sits far above any real photo. A large
+  // ordinary file goes to the decoder and gets written down to maxDimension
+  // like every other photo; see MAX_FILE_BYTES for why the number is where it
+  // is. Keeping the message shape ("File is N bytes, over the M cap") so the
+  // Sentry issue that caught the 2026-09-08 refusals stays comparable.
   if (file.size > MAX_FILE_BYTES) {
     throw new PhotoReadError(`File is ${file.size} bytes, over the ${MAX_FILE_BYTES} cap`, TOO_LARGE_MESSAGE);
   }
 
   let decoded: DecodedImage;
   try {
+    onStage?.("decoding");
     decoded = await decodeImage(file);
   } catch (err) {
     // The converter runs on ANY decode failure, not just files that announce
@@ -252,7 +323,7 @@ export async function preparePhoto(
     // looksLikeHeic only decides which message the family sees when the
     // conversion fails too.
     try {
-      decoded = await decodeHeic(file);
+      decoded = await decodeHeic(file, onStage);
     } catch (heicErr) {
       throw new PhotoReadError(
         `Decode and conversion both failed for ${file.name}: ${describe(heicErr)} (decode: ${describe(err)})`,
@@ -282,6 +353,7 @@ export async function preparePhoto(
     ctx.drawImage(decoded.source, 0, 0, targetWidth, targetHeight);
     decoded.release();
 
+    onStage?.("encoding");
     blob = await withTimeout(
       new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", JPEG_QUALITY)),
       DECODE_TIMEOUT_MS,
@@ -305,6 +377,64 @@ export async function preparePhoto(
 }
 
 /**
+ * Is this upload failure worth one more try, or did the server mean it?
+ *
+ * supabase-js draws the line for us. A request that reached Storage and was
+ * refused comes back as a StorageApiError carrying an HTTP `status`: 401 and
+ * 403 are auth and RLS policy, 409 is an object that already exists, 413 is
+ * over the bucket's size limit. Retrying any of those just fails again a second
+ * later, and a family waits twice as long for the same answer. A request that
+ * never got an answer comes back as a StorageUnknownError wrapping a TypeError
+ * with NO status, which is the dropped-connection shape the two "Upload failed"
+ * reports from 2026-08-22 and 2026-09-11 almost certainly are.
+ *
+ * So: a status we recognise as transient, or no status at all, is worth
+ * retrying. Any other status is the server's real answer. Exported for the
+ * tests, because getting this backwards is how a policy rejection turns into
+ * two policy rejections.
+ */
+export function isRetriableUploadFailure(err: unknown): boolean {
+  const status = (err as { status?: unknown; statusCode?: unknown } | null)?.status;
+  const numeric =
+    typeof status === "number"
+      ? status
+      : typeof status === "string" && /^\d+$/.test(status)
+        ? Number(status)
+        : null;
+  // 408 request timeout, 425 too early, 429 rate limited, 5xx server side.
+  if (numeric !== null) return numeric === 408 || numeric === 425 || numeric === 429 || numeric >= 500;
+  // No HTTP status: the request never completed. That includes our own network
+  // timeout, which rejects with UPLOAD_FAILED_MESSAGE and no status.
+  return true;
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * One upload attempt, returning the storage error rather than throwing, so the
+ * retry above it can read the shape before deciding.
+ */
+async function attemptUpload(
+  client: SupabaseClient,
+  path: string,
+  file: File,
+): Promise<unknown | null> {
+  try {
+    const { error } = await withNetworkTimeout(
+      client.storage
+        .from(MEMORY_PHOTOS_BUCKET)
+        .upload(path, file, { contentType: "image/jpeg", upsert: false }),
+      "Storage upload",
+    );
+    return error ?? null;
+  } catch (thrown) {
+    // withNetworkTimeout's own rejection, or a throw from inside supabase-js.
+    // Both are answers this function reports rather than raises.
+    return thrown;
+  }
+}
+
+/**
  * Prepare a picked file and put it in the memory-photos bucket, returning the
  * signed URL and the natural dimensions the memories row records.
  *
@@ -318,33 +448,48 @@ export async function uploadMemoryPhoto(
   client: SupabaseClient,
   userId: string,
   file: File,
+  onStage?: (stage: PhotoStage) => void,
 ): Promise<{ photoUrl: string; width: number; height: number }> {
-  const prepared = await preparePhoto(file);
+  const prepared = await preparePhoto(file, MEMORY_MAX_DIMENSION, onStage);
 
   const safeName = prepared.file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
-  const path = `${userId}/${Date.now()}-${safeName}`;
-  const { error: upErr } = await withNetworkTimeout(
-    client.storage
-      .from(MEMORY_PHOTOS_BUCKET)
-      .upload(path, prepared.file, { contentType: "image/jpeg", upsert: false }),
-    "Storage upload",
-  );
+  onStage?.("uploading");
+
+  // Two attempts at most, and the second only for a failure that never got an
+  // answer. Each attempt gets its OWN path: upsert is false on purpose, so
+  // reusing the first path would turn a dropped connection whose bytes did land
+  // into a 409 and lose the photo a second time.
+  let path = `${userId}/${Date.now()}-${safeName}`;
+  let upErr = await attemptUpload(client, path, prepared.file);
+  if (upErr && isRetriableUploadFailure(upErr)) {
+    console.warn(`[photo-pipeline] upload attempt 1 failed, retrying: ${describe(upErr)}`);
+    await sleep(UPLOAD_RETRY_DELAY_MS);
+    path = `${userId}/${Date.now()}-${safeName}`;
+    upErr = await attemptUpload(client, path, prepared.file);
+  }
   if (upErr) {
-    console.warn(`[photo-pipeline] upload failed for ${path}: ${upErr.message}`);
-    throw new Error(UPLOAD_FAILED_MESSAGE);
+    console.warn(`[photo-pipeline] upload failed for ${path}: ${describe(upErr)}`);
+    // The same message a family and Sentry have always seen for this. The cause
+    // is attached so the underlying storage error is finally visible in the
+    // issue instead of only in a console nobody reads.
+    throw new Error(UPLOAD_FAILED_MESSAGE, { cause: upErr });
   }
 
-  // Imported lazily so this module stays loadable outside a browser bundle:
-  // photo-url pulls in the service-role admin client at module scope.
-  const { signedPhotoUrl } = await import("./photo-url.ts");
   // Bounded like the upload, but a timeout here degrades instead of throwing:
   // the file IS already in storage by this point. Throwing would tell the
   // family the upload failed when it did not, orphan the object, and invite a
   // duplicate on retry. Falling back to the bare path is an already-supported
   // state (signedPhotoUrl returns null on failure and this line handled it),
   // and SignedImage re-signs from a stored path at render time.
+  //
+  // The lazy import is INSIDE the same try. photo-url pulls in the
+  // service-role admin client at module scope, so it is imported here rather
+  // than at the top to keep this module loadable outside a browser bundle, and
+  // a chunk that fails to load on a flaky connection is exactly as survivable
+  // as a signing call that times out: the photo is already stored either way.
   let signed: string | null = null;
   try {
+    const { signedPhotoUrl } = await import("./photo-url.ts");
     signed = await withNetworkTimeout(
       signedPhotoUrl(client, MEMORY_PHOTOS_BUCKET, path, TEN_YEARS_SECONDS),
       "Signed URL",

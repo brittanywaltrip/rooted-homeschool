@@ -140,9 +140,13 @@ test("every refreshTodayStory in the dashboard is preceded by an awaited loadDat
 
 test("the photo capture path still awaits both refreshes after saving", () => {
   const src = read(DASHBOARD_PAGE);
-  const start = src.indexOf("const memType = captureTypeRef.current;");
+  // Anchored on the declaration, not on a line inside the body. It used to key
+  // off "const memType = captureTypeRef.current;", which stopped existing the
+  // day a retry started passing the type in, and an anchor that misses makes
+  // this guard pass by finding nothing rather than fail.
+  const start = src.indexOf("async function saveCapturedPhotos(");
   assert.ok(start > -1, "photo capture handler not found");
-  const block = src.slice(start, start + 6000);
+  const block = src.slice(start, start + 9000);
   assert.match(block, /await loadData\(\);/, "photo capture must await loadData");
   assert.match(block, /await refreshTodayStory\(\);/, "photo capture must await refreshTodayStory");
 });
