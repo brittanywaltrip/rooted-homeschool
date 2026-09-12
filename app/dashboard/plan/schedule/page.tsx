@@ -16,6 +16,7 @@ import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
 import { writeSetupCelebration } from "@/app/lib/setup-celebration";
 import { CURRICULUM_PUBLISHERS, COMMON_SUBJECTS, mergeSuggestions } from "@/app/lib/curriculum-suggestions";
+import { normalizeStartTime } from "@/app/components/PlanV2/dayOrder";
 import {
   readScheduleDraft,
   writeScheduleDraft,
@@ -119,11 +120,14 @@ type Row = {
   // legacy DB fields preserved on UPDATE so the builder doesn't clobber them
   _legacyTargetDate: string | null;
   _legacyIconEmoji: string | null;
-  _legacyScheduledStartTime: string | null;
+  /** "HH:MM" the family teaches this at, or null for anytime. Read and written
+   *  for curriculum rows (curriculum_goals) and activity rows (activities)
+   *  alike. It carried through the builder untouched for months under the name
+   *  _legacyScheduledStartTime, with no way to set it; it is a real field now. */
+  scheduled_start_time: string | null;
   _legacyActivityFrequency: "weekly" | "biweekly" | "monthly";
   _legacyActivityDays: number[];        // raw days array including any weekend indices
   _legacyActivityChildIds: string[];    // raw child_ids array; preserved for multi-child activities
-  _legacyActivityStartTime: string | null;
 };
 
 type Child = {
@@ -231,11 +235,10 @@ function blankRow(child_id: string, type: RowType): Row {
     _originalSchedule: null,
     _legacyTargetDate: null,
     _legacyIconEmoji: null,
-    _legacyScheduledStartTime: null,
+    scheduled_start_time: null,
     _legacyActivityFrequency: "weekly",
     _legacyActivityDays: [],
     _legacyActivityChildIds: [],
-    _legacyActivityStartTime: null,
   };
 }
 
@@ -316,11 +319,10 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     },
     _legacyTargetDate: g.target_date ?? null,
     _legacyIconEmoji: g.icon_emoji ?? null,
-    _legacyScheduledStartTime: g.scheduled_start_time ?? null,
+    scheduled_start_time: normalizeStartTime(g.scheduled_start_time),
     _legacyActivityFrequency: "weekly",
     _legacyActivityDays: [],
     _legacyActivityChildIds: [],
-    _legacyActivityStartTime: null,
   };
 }
 
@@ -385,11 +387,10 @@ function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
     _originalSchedule: null,
     _legacyTargetDate: null,
     _legacyIconEmoji: null,
-    _legacyScheduledStartTime: null,
+    scheduled_start_time: normalizeStartTime(a.scheduled_start_time),
     _legacyActivityFrequency: a.frequency,
     _legacyActivityDays: a.days.slice(),
     _legacyActivityChildIds: a.child_ids.slice(),
-    _legacyActivityStartTime: a.scheduled_start_time ?? null,
   };
 }
 
@@ -1005,15 +1006,20 @@ function carryDbFieldsOntoDraftRow(draftRow: Row, freshRow: Row): Row {
     readOnly: freshRow.readOnly,
     readOnlyReason: freshRow.readOnlyReason,
     start_at_lesson_initial: freshRow.start_at_lesson_initial,
+    // The draft's own value wins, because the family may have typed a time
+    // into it and "Usually at" is an editable field now. The `??` covers a
+    // draft written before the field existed: without it the row would carry
+    // undefined, and the save would leave the column alone by accident rather
+    // than by intent. A time changed elsewhere while a draft sat unsaved is the
+    // case this loses, and it is the rarer one.
+    scheduled_start_time: draftRow.scheduled_start_time ?? freshRow.scheduled_start_time,
     _dbCurrentLesson: freshRow._dbCurrentLesson,
     _originalSchedule: freshRow._originalSchedule,
     _legacyTargetDate: freshRow._legacyTargetDate,
     _legacyIconEmoji: freshRow._legacyIconEmoji,
-    _legacyScheduledStartTime: freshRow._legacyScheduledStartTime,
     _legacyActivityFrequency: freshRow._legacyActivityFrequency,
     _legacyActivityDays: freshRow._legacyActivityDays,
     _legacyActivityChildIds: freshRow._legacyActivityChildIds,
-    _legacyActivityStartTime: freshRow._legacyActivityStartTime,
   };
 }
 
@@ -2257,6 +2263,10 @@ export default function ScheduleBuilderPage() {
             // cleared the field. Same fallback applies on UPDATE so an empty
             // input never null-trips the constraint.
             default_minutes: row.minutes_per_lesson ?? 30,
+            // Written explicitly now that the family can set it. The UPDATE
+            // path is safe because the row was seeded from the stored value on
+            // load, so an untouched field writes back what was already there.
+            scheduled_start_time: row.scheduled_start_time,
             archived: false,
           };
 
@@ -2326,7 +2336,9 @@ export default function ScheduleBuilderPage() {
             duration_minutes: row.minutes_per_lesson ?? null,
             child_ids: [row.child_id],
             is_active: true,
-            scheduled_start_time: null,
+            // This was a hardcoded null, so ANY builder save wiped the start
+            // time off every activity the family had set one on, silently.
+            scheduled_start_time: row.scheduled_start_time,
           };
 
           if (row.previouslySavedAs === "activities" && row.dbId) {
@@ -4753,7 +4765,7 @@ function RowCard(props: {
 
       {/* Total lessons / minutes. "Start at" and "Start date" are gone: both
           asked for a fact the family now gives once, below. */}
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-2">
         {isCurriculum ? (
           /* Required, and marked as such: a blank total lesson count is the
              single most common reason Preview stays disabled. */
@@ -4791,6 +4803,20 @@ function RowCard(props: {
           type="number"
           min={1}
           placeholder="30"
+          disabled={isReadOnly}
+        />
+        {/* The column has existed on curriculum_goals and activities all along,
+            94 goals across 55 families carry a value, and Today honours it. The
+            builder read it, wrote it back untouched and never let anyone set
+            it. Optional: most families teach in an order, not to a clock. */}
+        <FieldInput
+          label="Usually at"
+          value={row.scheduled_start_time ?? ""}
+          onChange={(v) =>
+            props.onPatchRow(row.localId, { scheduled_start_time: v || null })
+          }
+          type="time"
+          placeholder="optional"
           disabled={isReadOnly}
         />
       </div>
@@ -5088,7 +5114,7 @@ function FieldInput(props: {
   label: string;
   value: string | number;
   onChange: (v: string) => void;
-  type: "number" | "date" | "text";
+  type: "number" | "date" | "text" | "time";
   min?: number;
   /** Upper bound for number fields. Advisory: the browser enforces it on the
    *  spinner and on form validation, but a typed value still reaches onChange,

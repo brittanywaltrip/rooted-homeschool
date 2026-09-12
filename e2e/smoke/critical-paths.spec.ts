@@ -930,16 +930,25 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     // Let the final week's lesson fetch settle before asserting on its cards.
     await page.waitForLoadState('networkidle', { timeout: 10_000 }).catch(() => {});
 
-    // ── 10. Assert "Test Backfill E2E — Lesson 1" appears with ✓ Done.
-    //       The WeekListView lesson card wraps a row in a div.rounded-xl
-    //       that contains both the title and the badge.
-    const lesson1Card = page.locator('div.rounded-xl').filter({
-      hasText: `${curriculumName} — Lesson 1`,
-    });
-    await expect(lesson1Card.first(), 'Lesson 1 should render in the start_date week').toBeVisible({ timeout: 15_000 });
+    // ── 10. Assert the first backfilled lesson renders, completed.
+    //
+    //       The locator used to be `div.rounded-xl` containing the literal
+    //       "<curriculum> — Lesson 1" plus a "Done" badge. Both halves are gone:
+    //       the row leads with the SUBJECT now ("Math · Lesson 1") with the
+    //       curriculum on its own span, and on a desktop viewport (Playwright
+    //       runs 1280x720, so useIsMobile is false) it renders as a one-line
+    //       div.rounded-lg with a struck-through title rather than a badge.
+    //
+    //       Assert on what the family actually reads: the subject and lesson,
+    //       the curriculum name somewhere in the same row, and a completed row.
+    const lesson1Row = page
+      .locator('div.rounded-lg, div.rounded-xl')
+      .filter({ hasText: 'Math · Lesson 1' })
+      .filter({ hasText: curriculumName });
+    await expect(lesson1Row.first(), 'Lesson 1 should render in the start_date week').toBeVisible({ timeout: 15_000 });
     await expect(
-      lesson1Card.first().getByText(/Done/i).first(),
-      'Lesson 1 should carry the ✓ Done badge (it is is_backfill=true, completed=true)',
+      lesson1Row.first().locator('.line-through, :text("Done")').first(),
+      'Lesson 1 should read as complete (it is is_backfill=true, completed=true)',
     ).toBeVisible({ timeout: 5_000 });
 
     // ── 11. Jump back to today's week. The Jump-to-today pill only renders
@@ -1198,8 +1207,10 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
     //      visible with NO interaction. Before the fix the week showed day rows
     //      but zero lessons until a re-render. The ?saved=1 reload makes the
     //      just-built schedule paint on arrival.
+    // rounded-lg OR rounded-xl: the compact desktop row is the former, the
+    // phone card the latter, and Playwright runs at a desktop width.
     const lessonCard = page
-      .locator('div.rounded-xl')
+      .locator('div.rounded-lg, div.rounded-xl')
       .filter({ hasText: curriculumName })
       .filter({ hasText: /Lesson\s*\d+/i });
     await expect(

@@ -3,6 +3,7 @@
 import { useMemo, useRef } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import LessonPill from "./LessonPill";
+import { orderDayLessons } from "./dayOrder";
 import AppointmentPill from "./AppointmentPill";
 import { useLongPress } from "./useLongPress";
 import { DateCircle, InlineLeaf } from "./print-decorations";
@@ -45,6 +46,9 @@ interface Props {
    *  grid via activityOccurrences). Optional so legacy callers stay valid. */
   activities?: PlanV2Activity[];
   childrenById: Map<string, { child: PlanV2Child; index: number }>;
+  /** Feeds the pill ordering. Optional so legacy callers stay valid; without
+   *  it the cell still groups by child, just with no start times to read. */
+  curriculumGoals?: { id: string; subject_label: string | null; scheduled_start_time: string | null }[];
   todayStr: string;
   isDragActive?: boolean;
   recentlyLandedIds?: Set<string>;
@@ -93,7 +97,7 @@ function sortAppointments(appts: PlanV2Appointment[]): PlanV2Appointment[] {
 export default function DayCell(props: Props) {
   const {
     date, dateStr, isCurrentMonth, isToday, isWeekend, vacation,
-    lessons, appointments, activities = [], childrenById, todayStr,
+    lessons, appointments, activities = [], childrenById, curriculumGoals = [], todayStr,
     isDragActive, recentlyLandedIds, dndEnabled,
     selectMode, selectedIds, moveTargetMode,
     onCellClick, onLessonClick, onAppointmentClick, onOverflowClick,
@@ -127,7 +131,19 @@ export default function DayCell(props: Props) {
   const afterApptsCap = Math.max(0, visibleCap - visibleAppts.length);
   const visibleActivities = activities.slice(0, afterApptsCap);
   const remainingLessonCap = Math.max(0, afterApptsCap - visibleActivities.length);
-  const visibleLessons = lessons.slice(0, remainingLessonCap);
+  // Ordered before the cap is applied, so the pills a cramped cell DOES show
+  // are the first of the day in the order the week list and the panel use, not
+  // whatever order the fetch happened to return.
+  // Memoised: this component re-renders throughout a drag, and the ordering
+  // walks every lesson in the cell each time.
+  const orderedLessons = useMemo(() => {
+    // The family's order, recovered from the index the grid already assigns.
+    const kids = [...childrenById.values()]
+      .sort((a, b) => a.index - b.index)
+      .map((x) => ({ id: x.child.id }));
+    return orderDayLessons(lessons, kids, curriculumGoals);
+  }, [lessons, childrenById, curriculumGoals]);
+  const visibleLessons = orderedLessons.slice(0, remainingLessonCap);
   const overflowCount =
     totalItems - visibleAppts.length - visibleActivities.length - visibleLessons.length;
 

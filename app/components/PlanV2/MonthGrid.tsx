@@ -38,6 +38,8 @@ interface Props {
   appointments: PlanV2Appointment[];
   activities: PlanV2Activity[];
   vacationBlocks: PlanV2Vacation[];
+  /** Feeds each cell's pill ordering. Optional so legacy callers stay valid. */
+  curriculumGoals?: { id: string; subject_label: string | null; scheduled_start_time: string | null }[];
   loading: boolean;
   dndEnabled?: boolean;
   isDragActive?: boolean;
@@ -74,6 +76,7 @@ function SkeletonCell() {
 export default function MonthGrid(props: Props) {
   const {
     monthStart, todayStr, kids, lessons, appointments, activities, vacationBlocks,
+    curriculumGoals = [],
     loading, dndEnabled, isDragActive, recentlyLandedIds,
     selectMode, selectedIds, moveTargetMode,
     focusedDateStr, onFocusedDateChange,
@@ -229,6 +232,7 @@ export default function MonthGrid(props: Props) {
                   appointments={apptsByDate.get(dateStr) ?? []}
                   activities={activitiesByDate.get(dateStr) ?? []}
                   childrenById={childrenById}
+                  curriculumGoals={curriculumGoals}
                   todayStr={todayStr}
                   dndEnabled={dndEnabled}
                   isDragActive={isDragActive}

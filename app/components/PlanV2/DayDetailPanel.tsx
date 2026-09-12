@@ -8,6 +8,7 @@ import TodayLessonCard, {
   type TodayLessonCardChild,
 } from "@/app/components/TodayLessonCard";
 import { resolveChildColor } from "./colors";
+import { groupDayLessonsByChild } from "./dayOrder";
 import type { PlanV2Appointment } from "./types";
 import {
   formatEvent,
@@ -67,6 +68,8 @@ function sortAppointments(appts: PlanV2Appointment[]): PlanV2Appointment[] {
 export interface DayDetailPanelV2Props {
   date: Date;
   lessons: TodayLessonCardLesson[];
+  /** Feeds the day ordering and the "usually at" time on each row. */
+  curriculumGoals?: { id: string; subject_label: string | null; scheduled_start_time: string | null }[];
   appointments: PlanV2Appointment[];
   kids: TodayLessonCardChild[];
   isPartner: boolean;
@@ -132,6 +135,7 @@ type CatchUpState = "idle" | "logging" | "done" | "error";
 export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
   const {
     date, lessons, appointments, kids, isPartner,
+    curriculumGoals = [],
     onToggleLesson, onEditLesson, onDeleteLesson, onRescheduleLesson, onContinueLesson,
     onSkipLesson, onMinutesUpdate, onToggleAppointment, onEditAppointment, onMoveAppointment,
     onLessonChanged,
@@ -322,12 +326,19 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
 
   const sortedAppts = sortAppointments(appointments);
 
+  // Children in the family's order, and each child's rows in the day order
+  // shared with the week list and the month cell (dayOrder.ts). This grouped
+  // by insertion order and did not sort within a child at all, so the panel
+  // and the week list could show the same day two different ways.
+  // Built by appending rather than from entries: a Map from entries keeps only
+  // the LAST run for a repeated key, so a child appearing twice would lose
+  // rows off the panel entirely. dayOrder keeps each child contiguous, and this
+  // is the belt to that pair of braces.
   const lessonsByChild = new Map<string | null, TodayLessonCardLesson[]>();
-  for (const l of lessons) {
-    const key = l.child_id || null;
-    const list = lessonsByChild.get(key) ?? [];
-    list.push(l);
-    lessonsByChild.set(key, list);
+  for (const g of groupDayLessonsByChild(lessons, kids, curriculumGoals)) {
+    const existing = lessonsByChild.get(g.childId);
+    if (existing) existing.push(...g.rows);
+    else lessonsByChild.set(g.childId, [...g.rows]);
   }
 
   const totalItems = lessons.length + sortedAppts.length;

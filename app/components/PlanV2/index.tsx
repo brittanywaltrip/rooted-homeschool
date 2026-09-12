@@ -5545,6 +5545,7 @@ export default function PlanV2() {
                   appointments={filteredAppointments}
                   activities={filteredActivities}
                   vacationBlocks={vacationBlocks}
+                  curriculumGoals={curriculumGoals}
                   loading={loading}
                   dndEnabled={false}
                   recentlyLandedIds={recentlyLandedIds}
@@ -5647,6 +5648,7 @@ export default function PlanV2() {
                     appointments={filteredAppointments}
                     activities={filteredActivities}
                     vacationBlocks={vacationBlocks}
+                    curriculumGoals={curriculumGoals}
                     loading={loading}
                     dndEnabled
                     isDragActive={activeDragId !== null}
@@ -5868,6 +5870,7 @@ export default function PlanV2() {
               key={openDayStr}
               date={panelDate}
               lessons={panelLessons}
+              curriculumGoals={curriculumGoals}
               appointments={panelAppts}
               kids={panelKids}
               isPartner={isPartner}

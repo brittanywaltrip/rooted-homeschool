@@ -1,12 +1,14 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Calendar, GripVertical, MoreVertical, Move, Pencil, Plus, X } from "lucide-react";
+import { Calendar, GripVertical, MoreVertical, Move, Pencil, Plus, StickyNote, X } from "lucide-react";
 import { resolveChildColor } from "./colors";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import type { PlanV2Activity, PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
 import { buildActivitiesByDate } from "./activityOccurrences";
+import { orderDayLessons, groupDayLessonsByChild, lessonStartTime, formatStartTime, goalsById } from "./dayOrder";
+import { useIsMobile } from "./useIsMobile";
 
 /* WeekListView. Renders all 7 days of the current week (Mon..Sun) expanded
  * vertically. Card visual style matches V1 (light child-color tint, full
@@ -36,6 +38,8 @@ type Goal = {
   subject_label: string | null;
   child_id: string | null;
   icon_emoji: string | null;
+  /** Feeds the day's ordering and the time shown on the row. */
+  scheduled_start_time: string | null;
 };
 
 type Props = {
@@ -92,6 +96,9 @@ export default function WeekListView(props: Props) {
     onEditAppointment, onDeleteAppointment, onMoveAppointment,
   } = props;
 
+  // Phone keeps the card; desktop gets one line per lesson.
+  const isMobile = useIsMobile();
+
   const days = useMemo(() => {
     const start = mondayOf(weekStart);
     return Array.from({ length: 7 }, (_, i) => {
@@ -100,6 +107,8 @@ export default function WeekListView(props: Props) {
       return d;
     });
   }, [weekStart]);
+
+  const goalMap = useMemo(() => goalsById(curriculumGoals), [curriculumGoals]);
 
   const lessonsByDay = useMemo(() => {
     const m = new Map<string, PlanV2Lesson[]>();
@@ -110,29 +119,23 @@ export default function WeekListView(props: Props) {
       arr.push(l);
       m.set(key, arr);
     }
-    // Sort within each day so rows render in queue order regardless of the
-    // upstream fetch sequence. Primary: lesson_number ASC. Nulls (extra /
-    // one-off lessons logged via the unified "+") sort to the end of the
-    // day so they don't break the numerical run. Secondary tiebreakers:
-    // curriculum_goal_id, then title — deterministic ordering when two
-    // subjects share a day or when lesson_numbers tie.
-    for (const arr of m.values()) {
-      arr.sort((a, b) => {
-        const an = a.lesson_number;
-        const bn = b.lesson_number;
-        if (an == null && bn != null) return 1;
-        if (an != null && bn == null) return -1;
-        if (an != null && bn != null && an !== bn) return an - bn;
-        const ag = a.curriculum_goal_id ?? "";
-        const bg = b.curriculum_goal_id ?? "";
-        if (ag !== bg) return ag.localeCompare(bg);
-        const at = a.title ?? "";
-        const bt = b.title ?? "";
-        return at.localeCompare(bt);
-      });
+    // Ordering lives in dayOrder.ts, shared with the day panel and the month
+    // cell. The sort that used to be here keyed on lesson_number and then
+    // curriculum_goal_id, which interleaved the children: a two-child day read
+    // Language Arts Emma, Language Arts Zoe, Math Zoe, Math Emma.
+    const ordered = new Map<string, PlanV2Lesson[]>();
+    for (const [k, arr] of m) ordered.set(k, orderDayLessons(arr, kids, curriculumGoals));
+    return ordered;
+  }, [lessons, kids, curriculumGoals]);
+
+  /** One run per child, so the header can sit above each child's rows. */
+  const groupsByDay = useMemo(() => {
+    const m = new Map<string, { childId: string | null; rows: PlanV2Lesson[] }[]>();
+    for (const [k, arr] of lessonsByDay) {
+      m.set(k, groupDayLessonsByChild(arr, kids, curriculumGoals));
     }
     return m;
-  }, [lessons]);
+  }, [lessonsByDay, kids, curriculumGoals]);
 
   const apptsByDay = useMemo(() => {
     const m = new Map<string, PlanV2Appointment[]>();
@@ -318,18 +321,55 @@ export default function WeekListView(props: Props) {
                 ) : null
               ) : (
                 <div className="space-y-2">
-                  {dayLessons.map((l) => {
+                  {(groupsByDay.get(key) ?? []).map((group) => (
+                  <Fragment key={group.childId ?? "no-child"}>
+                  {kids.length > 1 ? (() => {
+                    // The name once, over that child's run. This is what makes
+                    // "one child at a time" visible rather than merely true.
+                    const ctx = group.childId ? childById.get(group.childId) : undefined;
+                    const name = ctx?.child.name;
+                    if (!name) return null;
+                    return (
+                      <p
+                        className="text-[11px] font-semibold uppercase tracking-wide pt-1"
+                        style={{ color: darkenHex(resolveChildColor(ctx?.child ?? null, ctx?.index ?? 0), 0.45) }}
+                      >
+                        {name}
+                      </p>
+                    );
+                  })() : null}
+                  {group.rows.map((l) => {
                     const childCtx = l.child_id ? childById.get(l.child_id) : undefined;
                     const kidColor = resolveChildColor(childCtx?.child ?? null, childCtx?.index ?? 0);
                     const goal = l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id) : undefined;
-                    const subject =
-                      resolveLessonSubject(l.subjects?.name, goal?.subject_label ?? null) ??
-                      goal?.curriculum_name ??
-                      "Lesson";
+                    // The row's real subject, which may be absent. Kept apart
+                    // from the display fallback below: folding them together is
+                    // what made a one-off lesson unable to show its own name.
+                    const subjectRaw = resolveLessonSubject(l.subjects?.name, goal?.subject_label ?? null);
+                    const subject = subjectRaw ?? goal?.curriculum_name ?? "Lesson";
                     const childName = childCtx?.child.name ?? null;
-                    const titleText = l.title && l.title.trim().length > 0
-                      ? l.title
-                      : goal?.curriculum_name ?? "Lesson";
+                    // Subject leads. The card used to title itself with the
+                    // curriculum ("The Good and the Beautiful — Lesson 8") and
+                    // put the subject in small grey underneath, so a family
+                    // with three books from one publisher read the same words
+                    // down the whole day. The subject is what they think in.
+                    const lessonLabel =
+                      l.lesson_number != null ? `Lesson ${l.lesson_number}` : null;
+                    const ownTitle = l.title && l.title.trim().length > 0 ? l.title.trim() : null;
+                    // A numbered curriculum lesson reads "Math · Lesson 8". A
+                    // one-off logged through the "+" carries no number and no
+                    // goal, so its own title IS the answer: "Field trip to the
+                    // zoo", not the literal word "Lesson", which is what the
+                    // subject fallback produced for every one of them.
+                    const titleText = lessonLabel
+                      ? `${subject} \u00b7 ${lessonLabel}`
+                      : (ownTitle ?? subjectRaw ?? goal?.curriculum_name ?? "Lesson");
+                    const startTime = formatStartTime(lessonStartTime(l, goalMap));
+                    // The publisher moves to the second line, with the child
+                    // when the day is not already grouped under their name.
+                    const secondLine = [goal?.curriculum_name, kids.length > 1 ? null : childName]
+                      .filter((x): x is string => !!x && x.trim().length > 0)
+                      .join(" \u00b7 ");
                     const kidBg = tintFromHex(kidColor, 0.25);
                     const kidTitle = darkenHex(kidColor, 0.45);
                     const kidSubtle = darkenHex(kidColor, 0.30);
@@ -344,9 +384,183 @@ export default function WeekListView(props: Props) {
                         ? "ring-2 ring-dashed ring-[#5c7f63] ring-offset-2 ring-offset-white opacity-50"
                         : "";
 
-                    const subtitleText = subject
-                      ? `${subject}${childName ? ` · ${childName}` : ""}`
-                      : null;
+                    const subtitleText = secondLine || null;
+
+                    // ── Desktop: one line per lesson ────────────────────
+                    // The card is four lines tall (title, subject and child,
+                    // then "+ Add a note" and "Mark not done" on their own
+                    // row), so four lessons filled a laptop screen and one
+                    // school day was a full scroll. On a phone the card is
+                    // right and is unchanged; on a desktop the same actions
+                    // live behind the note icon and the kebab.
+                    if (!isMobile && !editMode) {
+                      return (
+                        <div
+                          key={l.id}
+                          className={`flex items-center gap-2 rounded-lg px-2 ${l.completed ? "opacity-50" : ""}`}
+                          style={{ background: kidBg, minHeight: 42 }}
+                        >
+                          {(() => {
+                            const isCheckable = key <= todayStr;
+                            return (
+                              <button
+                                type="button"
+                                disabled={!isCheckable}
+                                onClick={() => { if (isCheckable) onToggleLessonDone(l); }}
+                                aria-label={
+                                  !isCheckable
+                                    ? `${titleText} is scheduled for a future day`
+                                    : l.completed
+                                      ? `Mark ${titleText} not done`
+                                      : `Mark ${titleText} complete`
+                                }
+                                className={`shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                                  !isCheckable ? "opacity-40 cursor-not-allowed" : ""
+                                }`}
+                                style={{
+                                  borderColor: l.completed ? kidTitle : "#c8bfb5",
+                                  backgroundColor: l.completed ? kidTitle : "transparent",
+                                }}
+                              >
+                                {l.completed ? (
+                                  <svg viewBox="0 0 8 7" width="8" height="7" fill="none" aria-hidden>
+                                    <path d="M1 3.5l1.8 2L7 1" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                ) : null}
+                              </button>
+                            );
+                          })()}
+                          {startTime ? (
+                            <span
+                              className="text-[12px] tabular-nums shrink-0 w-[38px]"
+                              style={{ color: l.completed ? "#b5aca4" : kidSubtle }}
+                            >
+                              {startTime}
+                            </span>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => onLessonClick(l)}
+                            aria-label={`Open ${titleText} details`}
+                            className="flex-1 min-w-0 text-left flex items-baseline gap-2 py-1"
+                          >
+                            <span
+                              className={`text-[13px] font-medium shrink-0 ${l.completed ? "line-through" : ""}`}
+                              style={{ color: l.completed ? "#b5aca4" : kidTitle }}
+                            >
+                              {titleText}
+                            </span>
+                            {secondLine ? (
+                              <span className="text-[12px] truncate" style={{ color: kidSubtle }}>
+                                {secondLine}
+                              </span>
+                            ) : null}
+                            {!l.completed && key < todayStr ? (
+                              <span
+                                className="text-[9px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0"
+                                style={{ background: "#fef3e3", color: "#8b6f47" }}
+                              >
+                                Overdue
+                              </span>
+                            ) : null}
+                          </button>
+                          {isPartner && l.notes ? (
+                            // A co-parent gets no note button, so without this
+                            // the note is unreachable for them on a laptop,
+                            // where the card used to print it under the title.
+                            <span className="text-[11px] italic truncate max-w-[45%]" style={{ color: "#6b6560" }}>
+                              {l.notes}
+                            </span>
+                          ) : null}
+                          {!isPartner ? (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); onLessonClick(l); }}
+                              aria-label={l.notes ? `Edit note on ${titleText}` : `Add a note to ${titleText}`}
+                              title={l.notes ? l.notes : "Add a note"}
+                              className="shrink-0 w-7 h-7 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors"
+                              style={{ color: l.notes ? kidTitle : "#a8a19a" }}
+                            >
+                              {/* Filled when the lesson carries a note, outlined
+                                  when it does not, so a day's notes are
+                                  countable at a glance. */}
+                              <StickyNote size={15} fill={l.notes ? "currentColor" : "none"} />
+                            </button>
+                          ) : null}
+                          {!isPartner ? (
+                            <div className="relative shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setMenuOpenId((id) => (id === l.id ? null : l.id))}
+                                aria-label={`More actions for ${titleText}`}
+                                aria-haspopup="menu"
+                                aria-expanded={menuOpenId === l.id}
+                                className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors"
+                                style={{ color: kidTitle }}
+                              >
+                                <MoreVertical size={16} />
+                              </button>
+                              {menuOpenId === l.id ? (
+                                <>
+                                  <div className="fixed inset-0 z-40" onClick={() => setMenuOpenId(null)} aria-hidden />
+                                  <div
+                                    role="menu"
+                                    className="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-lg border border-[#e8e2d9] overflow-hidden min-w-[170px]"
+                                  >
+                                    {/* Every action the card offers. Mark not
+                                        done was a visible button there and only
+                                        appears for a completed lesson, so it
+                                        keeps that condition here. */}
+                                    {l.completed ? (
+                                      <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => { setMenuOpenId(null); onToggleLessonDone(l); }}
+                                        className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                      >
+                                        <X size={14} className="text-[#8a8580]" /> Mark not done
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setMenuOpenId(null); setMoveTarget({ lessonId: l.id, fromDate: key }); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <Move size={14} className="text-[#5c7f63]" /> Move
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setMenuOpenId(null); onSkipLesson(l); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <X size={14} className="text-[#8a8580]" /> Skip
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setMenuOpenId(null); onRescheduleLesson(l); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <Calendar size={14} className="text-[#5c7f63]" /> Reschedule
+                                    </button>
+                                    <button
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => { setMenuOpenId(null); onEditLesson(l); }}
+                                      className="w-full px-3 py-2 text-left text-[13px] text-[#2d2926] hover:bg-[#faf8f4] flex items-center gap-2"
+                                    >
+                                      <Pencil size={14} className="text-[#5c7f63]" /> Edit
+                                    </button>
+                                  </div>
+                                </>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    }
 
                     return (
                       <div
@@ -408,6 +622,14 @@ export default function WeekListView(props: Props) {
                             <span className="text-xl shrink-0">{icon}</span>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
+                                {startTime ? (
+                                  <span
+                                    className="text-[12px] tabular-nums shrink-0"
+                                    style={{ color: l.completed ? "#b5aca4" : kidSubtle }}
+                                  >
+                                    {startTime}
+                                  </span>
+                                ) : null}
                                 <span
                                   className={`text-[14px] font-medium break-words ${l.completed ? "line-through" : ""}`}
                                   style={{ color: l.completed ? "#b5aca4" : kidTitle }}
@@ -553,6 +775,8 @@ export default function WeekListView(props: Props) {
                       </div>
                     );
                   })}
+                  </Fragment>
+                  ))}
 
                   {/* Appointments rendered after lessons, before the move
                       drop zone (which sits at the bottom of the day's stack). */}
