@@ -485,6 +485,32 @@ function scheduleFieldsChangedForRow(row: Row): boolean {
   return false;
 }
 
+/**
+ * Is this row one the family is actually asserting something about in THIS save?
+ *
+ * Invariant 21 judges a stated completion count. The inputs to that judgement
+ * are the starting position and the shape of the school week the history is
+ * laid down on: `start_at_lesson`, `school_days`, the per-day counts and
+ * overrides, `total_lessons`, `start_date`. A brand-new row is always claimed.
+ * An existing row is claimed only when one of those moved.
+ *
+ * Why it matters: phase 2 re-spreads EVERY curriculum in the builder on every
+ * save, so without this a family holding one old curriculum in the refused
+ * shape could not rename an activity or fix a different child's schedule. They
+ * were blocked on a number they had not touched and were not being asked about.
+ * About 70 curricula are in that shape.
+ *
+ * A rename, a subject change or a new minutes-per-lesson deliberately does NOT
+ * count. None of them changes what the family is claiming they finished, so
+ * none of them is a reason to re-open the question.
+ */
+function invariant21ClaimChanged(row: Row): boolean {
+  // Covers the schedule fields AND returns true for a never-saved row.
+  if (scheduleFieldsChangedForRow(row)) return true;
+  // The starting position is the claim itself, and it is not a schedule field.
+  return row.start_at_lesson_initial != null && row.start_at_lesson !== row.start_at_lesson_initial;
+}
+
 function activeDayIndices(row: Row): number[] {
   const out: number[] = [];
   for (let i = 0; i < 7; i++) {
@@ -1511,6 +1537,10 @@ export default function ScheduleBuilderPage() {
       end_date: string;
     }[];
 
+    // ONLY the rows this save is asserting something about. An untouched goal
+    // is never re-judged: the family is not claiming anything new about it, and
+    // blocking their whole builder on a number they did not type is the thing
+    // this filter exists to stop. See invariant21ClaimChanged.
     const refusalCandidates = rows.filter(
       (r) =>
         r.type === "curriculum" &&
@@ -1519,7 +1549,8 @@ export default function ScheduleBuilderPage() {
         !!r.start_date &&
         r.start_date < saveTodayStr &&
         !!r.total_lessons &&
-        r.total_lessons > 0,
+        r.total_lessons > 0 &&
+        invariant21ClaimChanged(r),
     );
 
     type RefusalCheck = {
@@ -2279,6 +2310,10 @@ export default function ScheduleBuilderPage() {
         // daily checklist. They exist only as historical entries the Plan
         // calendar surfaces on their past dates.
         const ymdToday = ymd(todayMid);
+        // Set when an UNCLAIMED row turns out to hold less history than it
+        // states. Phase 2 must then do NOTHING for that goal: see the bail-out
+        // below the call for why returning is the only safe answer.
+        let unclaimedShortfall: string | null = null;
         const planHistoricalBackfill = () => {
           if (!row.start_date || row.start_date >= ymdToday || currentLesson <= 0) return [];
           const startMid = new Date(`${row.start_date}T00:00:00`);
@@ -2330,13 +2365,20 @@ export default function ScheduleBuilderPage() {
           // disk. Nothing is missing there and nothing needs writing, so
           // nothing is refused. See historyBackfillRefusal.
           //
-          // BELT AND BRACES. This is decided before phase 1 now (see the
-          // Invariant 21 pre-flight in handleSave), off the same formula and
-          // the same projection, so reaching a refusal here means the two
-          // disagreed and the `curriculum_goals` row is already on disk. It
-          // throws rather than trimming, because trimming is the bug, but it
-          // is tagged separately so a late firing is visible as the defect it
-          // would be rather than as an ordinary refusal.
+          // BELT AND BRACES, for the rows the pre-flight actually judged.
+          //
+          // A CLAIMED row (new, or one whose starting position or school-week
+          // shape the family just changed) was decided before phase 1, off the
+          // same formula and the same projection. Reaching a refusal here means
+          // the two disagreed and the `curriculum_goals` row is already on
+          // disk, so it throws, tagged separately.
+          //
+          // An UNCLAIMED row is a sibling along for the ride: the family is not
+          // asserting anything about it in this save and the pre-flight did not
+          // ask. Throwing here would block their whole builder on a number they
+          // did not type, which is exactly what scoping the pre-flight removed.
+          // It writes what fits, as it always did, and the shortfall is
+          // reported rather than thrown so it is never invisible.
           const refusal = historyBackfillRefusal({
             curriculumName: row.name.trim() || "This curriculum",
             statedCompleted: currentLesson,
@@ -2345,7 +2387,11 @@ export default function ScheduleBuilderPage() {
             projected: histProjected,
             alreadyRecorded: existingHistNums,
           });
-          if (refusal) throw new LateInvariant21Error(refusal);
+          if (refusal) {
+            if (invariant21ClaimChanged(row)) throw new LateInvariant21Error(refusal);
+            unclaimedShortfall = refusal;
+            return [];
+          }
 
           // Everything from start_date through today INCLUSIVE is history the
           // family asserted. `histProjected` is built with
@@ -2409,6 +2455,69 @@ export default function ScheduleBuilderPage() {
             }));
         };
         const histToInsert = planHistoricalBackfill();
+
+        // ── An unclaimed goal that cannot fit its history is LEFT ALONE ──────
+        //
+        // Not "rebuilt without the part that does not fit". Phase 2 is a
+        // delete-then-reinsert: the floor delete takes every unpinned, note-free
+        // incomplete row above the highest COMPLETED lesson number, and what
+        // comes back is the history that fits plus the forward queue from
+        // current_lesson + 1. Lesson numbers in between are re-created by
+        // neither, so a goal holding pending rows across that gap would lose
+        // them permanently, on a save the family made about a different child,
+        // and the next save would recompute the same current_lesson so the hole
+        // could never heal.
+        //
+        // A claimed row throws above and never reaches here. An unclaimed one
+        // returns before the first destructive call, so its lessons are exactly
+        // as they were: not rebuilt, not trimmed, not deleted. The shortfall is
+        // real and is reported; it is not this save's business to act on it.
+        if (unclaimedShortfall) {
+          const stated = currentLesson;
+          const datable = projectHistoryBackfill({
+            goalId,
+            schoolDays: school_days,
+            lessonsPerDay: lessons_per_day,
+            lessonsPerDayOverrides: lessons_per_day_overrides,
+            statedCompleted: stated,
+            startDate: row.start_date!,
+            todayYmd: ymdToday,
+            vacations,
+          }).filter((p) => p.date <= ymdToday).length;
+          console.debug(
+            `[handleSave] goal ${goalId}: untouched and short of its stated history, phase 2 skipped`,
+          );
+          captureSupabaseError(
+            "Invariant 21: an untouched curriculum holds less history than it states",
+            new Error(unclaimedShortfall),
+            {
+              level: "warning",
+              tags: { phase: "invariant_21_untouched", goal_id: goalId },
+              extra: {
+                statedCompleted: stated,
+                datableSlots: datable,
+                shortfall: stated - datable,
+                startDate: row.start_date,
+                schoolDays: school_days,
+                lessonsPerDay: lessons_per_day,
+              },
+            },
+          );
+          void logPlanEvent({
+            userId: effectiveUserId,
+            type: "schedule.rebuilt",
+            payload: {
+              goal_id: goalId,
+              curriculum_name: row.name,
+              inserted: 0,
+              updated: 0,
+              skipped: beforeRows.length,
+              unchanged: true,
+              reason: "invariant_21_untouched",
+            },
+          });
+          return;
+        }
 
         // What the batch needs, against BOTH partial unique indexes on lessons:
         //   lessons_goal_lesson_number_unique  (curriculum_goal_id, lesson_number)

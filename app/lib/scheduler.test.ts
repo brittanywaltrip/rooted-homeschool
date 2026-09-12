@@ -7923,7 +7923,11 @@ test('the Schedule Builder wires all three fixes into phase 2 itself', () => {
   // Defect 3: the refusal is planned, not written around, and it runs before
   // the first destructive call.
   assert.match(phase2, /historyBackfillRefusal\(\{/, 'the overflow rule has one definition')
-  assert.match(phase2, /if \(refusal\) throw new LateInvariant21Error\(refusal\)/)
+  assert.match(
+    phase2,
+    /if \(invariant21ClaimChanged\(row\)\) throw new LateInvariant21Error\(refusal\)/,
+    'a claimed row throws the backstop; an untouched sibling is reported, not thrown',
+  )
   const refusalAt = phase2.indexOf('historyBackfillRefusal({')
   const firstWrite = phase2.indexOf('if (clearPins && pinnedRows.length > 0)')
   assert.ok(
@@ -8092,6 +8096,8 @@ test('historyBackfillRefusal: a lesson already on disk is accounted for whatever
 type PreflightRow = {
   localId: string
   name: string
+  /** Did this save change the starting position or the school-week shape? */
+  claimChanged?: boolean
   schoolDays: string[]
   lessonsPerDay: number
   totalLessons: number
@@ -8119,6 +8125,11 @@ function simulatePreflight(
   for (const r of rows) {
     if (!r.startDate || r.startDate >= todayYmd) continue
     if (!r.totalLessons || r.totalLessons <= 0) continue
+    // A never-saved row is always claimed; an existing one only when the
+    // family moved something the judgement reads (page.tsx:
+    // invariant21ClaimChanged).
+    const claimed = r.claimChanged ?? !r.isSaved
+    if (!claimed) continue
 
     // A raised total_lessons invalidates the carried pointer as a bound:
     // recomputeCurrentLesson clamped it with the OLD total.
@@ -8235,6 +8246,7 @@ test('pre-flight: a family ahead of their own pace is not refused, and asks the 
     [
       newCurriculum({
         localId: 'ahead',
+        claimChanged: true,
         name: 'Math',
         startDate: '2026-09-01',
         startAtLesson: 1,
@@ -8389,6 +8401,7 @@ test('pre-flight: rows already recorded above the window rescue the save', () =>
     [
       newCurriculum({
         localId: 'rescued',
+        claimChanged: true,
         startDate: '2026-09-09',
         startAtLesson: 101,
         dbCurrentLesson: 100,
@@ -8413,6 +8426,7 @@ test('pre-flight: an incomplete forward row is not a record that the lesson was 
     [
       newCurriculum({
         localId: 'forward-rows',
+        claimChanged: true,
         name: 'Math',
         totalLessons: 200,
         startDate: '2026-06-01',
@@ -8439,6 +8453,7 @@ test('pre-flight: raising total_lessons re-opens a goal the carried pointer unde
   // refused it after phase 1 had written.
   const row = newCurriculum({
     localId: 'raised',
+    claimChanged: true,
     name: 'Math',
     totalLessons: 180,
     originalTotalLessons: 30,
@@ -8473,6 +8488,7 @@ test('pre-flight: an unraised total still takes the cheap exit', () => {
       [
         newCurriculum({
           localId: 'unraised',
+          claimChanged: true,
           totalLessons: 120,
           originalTotalLessons: 120,
           startDate: '2026-08-31',
@@ -8522,4 +8538,204 @@ test('the pre-flight reads completed rows only, shares one clock with phase 2, a
   // The at-risk reads go together rather than one after another.
   assert.match(body, /const probes = await Promise\.all\(/)
   assert.ok(!/for \(const check of atRisk\)/.test(body), 'no serial per-row await loop')
+})
+
+// ── Only the rows this save asserts something about are judged (CC #1c) ────
+//
+// Phase 2 re-spreads EVERY curriculum in the builder on every save, so judging
+// every row meant a family holding one old curriculum in the refused shape
+// could not rename an activity or fix a different child's schedule. They were
+// blocked on a number they had not touched and were not being asked about.
+// About 70 curricula are in that shape.
+
+test('an untouched refused-shape goal does not block a save that adds a valid row', () => {
+  // Row A: the old curriculum. 181 claimed, one school day of room, nothing in
+  // this save changes its starting position or its school week.
+  const untouched = newCurriculum({
+    localId: 'old',
+    name: 'Old Math',
+    totalLessons: 200,
+    originalTotalLessons: 200,
+    startDate: '2026-08-19',
+    startAtLesson: 182,
+    dbCurrentLesson: 181,
+    isSaved: true,
+    claimChanged: false,
+    maxCompletedQueuePosition: 0,
+    existingLessonNumbers: [1],
+  })
+  // Row B: a brand-new curriculum whose history fits.
+  const fresh = newCurriculum({
+    localId: 'new',
+    name: 'Reading',
+    totalLessons: 120,
+    startDate: '2026-08-31',
+    startAtLesson: 11,
+    dbCurrentLesson: null,
+    isSaved: false,
+  })
+
+  assert.deepEqual(
+    simulatePreflight([untouched, fresh], '2026-09-11'),
+    [],
+    'the save goes through: the old goal is not re-judged and the new row fits',
+  )
+
+  // And the old goal, judged on its own terms, really is in the refused shape.
+  // It is skipped because it was untouched, not because it would have passed.
+  assert.equal(
+    simulatePreflight([{ ...untouched, claimChanged: true }], '2026-09-11').length,
+    1,
+    'the same goal IS refused once the family touches its claim',
+  )
+})
+
+test('editing that old goal brings it back into the judgement, and nothing is written', () => {
+  // The family raises its total_lessons. That is one of the fields the
+  // judgement reads, so the goal is claimed again and refused, and the refusal
+  // is all-or-nothing across the rows that were checked.
+  const edited = newCurriculum({
+    localId: 'old',
+    name: 'Old Math',
+    totalLessons: 240,
+    originalTotalLessons: 200,
+    startDate: '2026-08-19',
+    startAtLesson: 182,
+    dbCurrentLesson: 181,
+    isSaved: true,
+    claimChanged: true,
+    maxCompletedQueuePosition: 0,
+    existingLessonNumbers: [1],
+  })
+  const fresh = newCurriculum({
+    localId: 'new',
+    name: 'Reading',
+    totalLessons: 120,
+    startDate: '2026-08-31',
+    startAtLesson: 11,
+    dbCurrentLesson: null,
+    isSaved: false,
+  })
+
+  const refusals = simulatePreflight([edited, fresh], '2026-09-11')
+  assert.deepEqual(refusals.map((x) => x.localId), ['old'], 'the edited goal is judged again')
+  assert.match(refusals[0].message, /you said 181 lessons are already done/)
+  // The page turns any non-empty result into a return before phase 1, so the
+  // healthy new row is not written either.
+  assert.ok(refusals.length > 0, 'all-or-nothing still holds across the checked rows')
+})
+
+test('a rename or a minutes change is not a claim, so it does not re-open the question', () => {
+  // None of name, subject or minutes-per-lesson changes what the family says
+  // they finished, so none of them is a reason to re-judge an old goal.
+  const renamed = newCurriculum({
+    localId: 'old',
+    name: 'Old Math (2nd edition)',
+    totalLessons: 200,
+    originalTotalLessons: 200,
+    startDate: '2026-08-19',
+    startAtLesson: 182,
+    dbCurrentLesson: 181,
+    isSaved: true,
+    claimChanged: false,
+    maxCompletedQueuePosition: 0,
+    existingLessonNumbers: [1],
+  })
+  assert.deepEqual(simulatePreflight([renamed], '2026-09-11'), [])
+})
+
+test('invariant21ClaimChanged reads the starting position as well as the schedule fields', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const fn = extractFunctionBody(src, /function invariant21ClaimChanged\s*\(/)
+  // A never-saved row and any schedule-field move both come from the helper the
+  // pin rule already uses, so there is one definition of "the schedule changed".
+  assert.match(fn, /scheduleFieldsChangedForRow\(row\)/)
+  // The starting position IS the claim and is not a schedule field.
+  assert.match(fn, /start_at_lesson_initial != null && row\.start_at_lesson !== row\.start_at_lesson_initial/)
+
+  // The pre-flight actually gates on it.
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  const candidates = body.slice(body.indexOf('const refusalCandidates = rows.filter('))
+  assert.match(candidates.slice(0, 600), /invariant21ClaimChanged\(r\)/)
+
+  // And phase 2 only throws its backstop for a claimed row.
+  assert.match(body, /if \(invariant21ClaimChanged\(row\)\) throw new LateInvariant21Error/)
+  assert.match(body, /phase: "invariant_21_untouched"/, 'an untouched shortfall is reported, not thrown')
+})
+
+test('a brand-new goal stays claimed across the retry both notices ask for', () => {
+  // Phase 1 stamps a landed insert back onto its row as
+  // previouslySavedAs: "curriculum_goals" + dbId. If that writeback also
+  // carried _originalSchedule, the row would read as an untouched existing goal
+  // on the family's second tap of Save and the pre-flight would stop judging
+  // the very curriculum they are in the middle of creating.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  const writeback = body.slice(body.indexOf('const landed = landedNewGoals.find'))
+  assert.match(writeback.slice(0, 400), /dbId: landed\.id, previouslySavedAs: "curriculum_goals"/)
+  assert.ok(
+    !/_originalSchedule/.test(writeback.slice(0, 400)),
+    'the writeback leaves _originalSchedule null, so the row stays claimed',
+  )
+  // And a null _originalSchedule is what makes scheduleFieldsChangedForRow say
+  // "changed", which invariant21ClaimChanged reads.
+  const changed = stripComments(extractFunctionBody(src, /function scheduleFieldsChangedForRow\s*\(/))
+  assert.match(changed, /if \(!orig\) return true/)
+})
+
+test('an unclaimed short goal is left alone, not rebuilt without the part that does not fit', () => {
+  // The hole scoping opened. Phase 2 is a delete-then-reinsert: the floor
+  // delete takes every unpinned, note-free incomplete row above the highest
+  // COMPLETED lesson number, and what comes back is the history that fits plus
+  // the forward queue from current_lesson + 1. Lesson numbers in between are
+  // re-created by neither.
+  //
+  // Goal: lesson 1 completed, 2-200 pending, start_at_lesson 182 so
+  // current_lesson is 181, start_date 2026-08-19. The family renames an
+  // activity on a different child. Letting that goal through the rebuild
+  // deletes 2-200 and re-inserts only the fitting history plus 182-200, so
+  // lessons 19..181 are gone on a save that was about someone else.
+  const completedFloor = 1
+  const statedCompleted = 181
+  const totalLessons = 200
+  const fits = projectHistoryBackfill({
+    goalId: 'g',
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    statedCompleted,
+    startDate: '2026-08-19',
+    todayYmd: '2026-09-11',
+  }).filter((p) => p.date <= '2026-09-11')
+
+  const beforeNumbers = Array.from({ length: totalLessons }, (_, i) => i + 1)
+  const deleted = beforeNumbers.filter((n) => n > completedFloor)
+  const reinserted = new Set<number>([
+    ...fits.map((p) => p.lesson_number),
+    ...Array.from({ length: totalLessons - statedCompleted }, (_, i) => statedCompleted + 1 + i),
+  ])
+  const wouldVanish = deleted.filter((n) => !reinserted.has(n))
+  assert.ok(
+    wouldVanish.length > 100,
+    `a rebuild would destroy ${wouldVanish.length} lesson rows nothing re-creates`,
+  )
+  assert.ok(wouldVanish.includes(50), 'including ordinary mid-curriculum lessons')
+
+  // So phase 2 returns for that goal BEFORE its first destructive call.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
+  const bail = phase2.indexOf('if (unclaimedShortfall)')
+  const firstWrite = phase2.indexOf('if (clearPins && pinnedRows.length > 0)')
+  const floorDelete = phase2.indexOf('const { error: incompleteDeleteErr } = await floorDelete')
+  assert.ok(bail !== -1, 'the bail-out exists')
+  assert.ok(bail < firstWrite, 'it returns before the first phase-2 write')
+  assert.ok(bail < floorDelete, 'and well before the floor delete')
+  const block = phase2.slice(bail, firstWrite)
+  assert.match(block, /return;/, 'it returns rather than falling through')
+  assert.match(block, /invariant_21_untouched/, 'and the shortfall is still reported')
+  assert.match(block, /shortfall: stated - datable/, 'with the size attached, not just the message')
+  assert.ok(
+    !/\.insert\(|\.delete\(|\.update\(/.test(block),
+    'the bail-out itself writes nothing',
+  )
 })

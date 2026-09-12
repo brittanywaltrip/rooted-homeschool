@@ -659,10 +659,11 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 17 | queue_resync full-tail (whitley) | With lpd=1, school_days=[Mon,Wed,Fri], and 5 incomplete lessons whose stale cache overlaps today's projector output, a full-tail projection yields 5 distinct dates. Companion test pins the 7-day collision bug. |
 | 18 | Pins (Invariant 12) | Pin honored and unpinned slots filled around it in date order; pinned date consumes capacity; fully pinned tail emitted verbatim; reconciler skips pinned rows; cascade + reconcile round-trip writes nothing; empty pins projects identically to no pins. |
 | 19 | Starting position (Invariant 13) | Future start_date with starting position N projects nothing at or below N; the create batch contains no incomplete row at or below the floor; orphan-completed rows carry no future scheduled_date / date. |
-| 21 | Only a person completes (Invariant 15) | The orphan cleanup writes `scheduled_date = NULL` and never `completed` / `completed_at` / `date` / `queue_position`; the trigger-depth guard is attached with no escape hatch; the confirm prompt recomputes instead of writing `current_lesson + 1`; the presence check requests only the pairs it asks about and fails closed; `neverBelow` holds the pointer but never advances it; the completion pin tags `scheduled_source`. |
-| 23 | Invariant 21 pre-flight | The refusal is decided before phase 1: no `curriculum_goals` row, no activity row and no lesson row is written for ANY row in the save when one is refused; a family merely ahead of their configured pace is not refused; a goal whose history fits issues no lesson read; `currentLessonFor` matches `recomputeCurrentLesson`; phase 2 keeps the check as a separately tagged backstop. |
-| 22 | The seam + Invariant 21 | History covers `start_date` through today INCLUSIVE, so the slot on today is written, not dropped; the forward queue resumes at `current_lesson + 1` on the next school day strictly after today (Invariant 1, INSERT path); a stated count that overflows the window is refused with the stated count, the school days available and the recordable number all named; an existing goal's lesson due today is not re-dated. |
 | 20 | Orphan cleanup loop (Invariant 14) | The cleanup never lowers current_lesson: swept rows at or below the new pointer keep their queue_position, so the recompute it provokes writes the pointer back unchanged and no slot is emitted without a row. A drifted slot above the pointer is still cleared; extra_log never advances the queue. |
+| 21 | Only a person completes (Invariant 15) | The orphan cleanup writes `scheduled_date = NULL` and never `completed` / `completed_at` / `date` / `queue_position`; the trigger-depth guard is attached with no escape hatch; the confirm prompt recomputes instead of writing `current_lesson + 1`; the presence check requests only the pairs it asks about and fails closed; `neverBelow` holds the pointer but never advances it; the completion pin tags `scheduled_source`. |
+| 22 | The seam + Invariant 21 | History covers `start_date` through today INCLUSIVE, so the slot on today is written, not dropped; the forward queue resumes at `current_lesson + 1` on the next school day strictly after today (Invariant 1, INSERT path); a stated count that overflows the window is refused with the stated count, the school days available and the recordable number all named; an existing goal's lesson due today is not re-dated. |
+| 23 | Invariant 21 pre-flight | The refusal is decided before phase 1: no `curriculum_goals` row, no activity row and no lesson row is written for ANY row in the save when one is refused; a family merely ahead of their configured pace is not refused; a goal whose history fits issues no lesson read; `currentLessonFor` matches `recomputeCurrentLesson`; phase 2 keeps the check as a separately tagged backstop. |
+| 24 | Invariant 21 claim scoping | Only rows this save claims something about are judged: an untouched refused-shape goal does not block an unrelated save, editing its starting position or school-week shape brings it back, a rename does not; phase 2 throws its backstop only for a claimed row and leaves an untouched short goal entirely alone rather than rebuilding it, and reports the shortfall. |
 
 ---
 
@@ -898,21 +899,49 @@ Everything the check needs is knowable before phase 1, so it is decided there:
 `historyBackfillRefusal` in `app/lib/scheduler.ts` is the one definition of
 "can Rooted account for this progress".
 
-**One refused row refuses the whole save.** Nothing is written: no goal row, no
-activity row, no lesson row. Every refused row is named in the message, the
-builder switches back from the preview (Save is only reachable from the
-preview, where the row cards are not mounted) and scrolls to the first one, and
-those rows are ringed through the same highlight `nudgedLocalId` uses. The
-family's edits and their draft are untouched.
+**Only the rows this save CLAIMS something about are judged.** Phase 2
+re-spreads every curriculum in the builder on every save, so judging every row
+meant a family holding one old curriculum in the refused shape could not rename
+an activity or fix a different child's schedule. They were blocked on a number
+they had not touched and were not being asked about, and about 70 curricula are
+in that shape.
 
-**Know what this costs the existing cohort.** About 70 curricula are already in
-the refused shape. Before this rule their saves committed everything except the
-bad goal's lessons, behind a soft notice. Now a family holding one of them
-cannot save ANY builder change, including renaming an activity or fixing a
-different child's schedule, until they lower that curriculum's completed count
-or move its start date. That is deliberate: the alternative is a curriculum
-that reports success forever while holding 1 of 181 lessons. It is two taps to
-clear, and the message names both numbers and both remedies. Phase 2 re-spreads
+`invariant21ClaimChanged(row)` decides. A never-saved row is always claimed. An
+existing row is claimed only when this save moved one of the inputs the
+judgement actually reads: `start_at_lesson`, `school_days`, the per-day counts
+and overrides, `total_lessons`, `start_date`. It reuses
+`scheduleFieldsChangedForRow` for the schedule half, so there is one definition
+of "the schedule changed", and adds the starting position, which is the claim
+itself and is not a schedule field. A rename, a subject change or a new
+minutes-per-lesson is deliberately NOT a claim: none of them changes what the
+family says they finished, so none is a reason to re-open the question.
+
+**Phase 2 matches that scoping, and an unclaimed short goal is LEFT ALONE.**
+For a CLAIMED row a refusal there is the backstop and it throws. For an
+UNCLAIMED sibling it must not: the family is not asserting anything about that
+goal and the pre-flight did not ask, so throwing would block their whole builder
+again through the back door.
+
+But it must not rebuild it either. Phase 2 is a delete-then-reinsert: the floor
+delete takes every unpinned, note-free incomplete row above the highest
+COMPLETED lesson number, and what comes back is the history that fits plus the
+forward queue from `current_lesson + 1`. Lesson numbers in between are
+re-created by neither. A goal holding pending rows across that gap would lose
+them permanently, on a save the family made about a different child, and the
+next save recomputes the same `current_lesson` so the hole could never heal.
+
+So phase 2 returns for that goal before its first destructive call. Its lessons
+are exactly as they were: not rebuilt, not trimmed, not deleted. The shortfall
+is reported to Sentry as a warning tagged `phase: invariant_21_untouched`, with
+the stated count and the datable slots attached so it can be sized from the
+event, and a `schedule.rebuilt` event records the skip.
+
+**Among the rows that ARE checked, one refusal refuses the whole save.**
+Nothing is written: no goal row, no activity row, no lesson row. Every refused
+row is named in the message, the builder switches back from the preview (Save
+is only reachable from the preview, where the row cards are not mounted) and
+scrolls to the first one, and those rows are ringed through the same highlight
+`nudgedLocalId` uses. The family's edits and their draft are untouched. Phase 2 re-spreads
 every curriculum in the builder on every save, so a partial save would leave
 the page and the database disagreeing about what just happened.
 
@@ -969,7 +998,12 @@ curriculum that reports success forever while holding 1 of 181 lessons. Note
 this only reaches goals that are genuinely short rows, not goals that are
 merely ahead of pace, per the rule above.
 
-**Test case:** the seam block in `scheduler.test.ts` — history covers 1 through
+**Test case:** the claim-scoping block adds: an untouched refused-shape goal
+does not block a save that adds a valid new row (and the same goal IS refused
+once the family touches its claim), editing that goal's `total_lessons` brings
+it back into the judgement and nothing is written, and a rename is not a claim.
+
+The seam block in `scheduler.test.ts` — history covers 1 through
 10 with lesson 10 on today and the forward queue resuming at 11 the next school
 day; the same shape on a Fridays-only cadence; a count that exactly fills the
 window is not refused; an overflowing one is refused with both numbers named;
