@@ -669,8 +669,26 @@ test.describe('Data integrity', () => {
 // Fix (commit b63c3f1): handleSave generates is_backfill=true rows for
 // lesson_numbers 1..currentLesson dated from start_date forward using the
 // schedule, then projects forward lessons from currentLesson+1. Past slots
-// land on past dates as ✓ Done in the Plan calendar; today's slot still
-// belongs to the forward flow (Invariant 1).
+// land on past dates as ✓ Done in the Plan calendar.
+//
+// UPDATED 2026-09-12 (commits 5c52743 / f670777). Two things this test used to
+// assert are now the bug, not the contract:
+//
+//   - "today's slot belongs to the forward flow". It does not. The backfill
+//     covers start_date through today INCLUSIVE, because the projection holds
+//     exactly one slot per lesson the family said they finished and the forward
+//     planner starts at current_lesson + 1. The strictly-before filter dropped
+//     the slot on today and NO row was ever written for that lesson: 32
+//     curricula across 23 families lost one that way.
+//   - "the next forward lesson lands on today". Invariant 1 says no
+//     forward-scheduled lesson on a brand-new curriculum may be dated on or
+//     before today. It was documented in May 2026 and wired up to a real call
+//     site only in 5c52743, so this spec had been asserting its violation.
+//
+// With this fixture (start_date today-28, Mon-Fri 1/day, the builder's own
+// auto-filled count of 20) the 20 history rows fill the 20 school days strictly
+// before today and the first forward lesson is the next school day AFTER today,
+// so today holds no card for this curriculum at all.
 //
 // This test drives the bug fix end-to-end through the actual UI flow.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -706,9 +724,11 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       return;
     }
 
-    // Today's weekday matters: the "Today" badge only appears for incomplete
-    // lessons whose scheduled_date equals today. On Sat/Sun the M-F schedule
-    // skips today, so step 9 has nothing to assert. Skip cleanly there.
+    // The weekend skip predates the rewrite of steps 12-15: it existed because
+    // the old "Today" badge assertion could not fire on a Sat/Sun, and those
+    // assertions are gone. The remaining ones are database queries that hold on
+    // any weekday, so this skip is now conservative rather than necessary. Kept
+    // until someone has actually watched the flow run on a weekend.
     const todayDow = new Date().getDay(); // Sun=0..Sat=6
     if (todayDow === 0 || todayDow === 6) {
       test.skip(true, 'Today is a weekend; the M-F schedule has no lesson on today, so the TODAY-badge assertion cannot fire.');
@@ -879,27 +899,20 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       await page.waitForTimeout(300);
     }
 
-    // ── 12. Assert the curriculum appears in today's day section with the
-    //       "Today" badge, not "Done". With 30 total and ~20 backfilled
-    //       lessons (school days from start_date to today exclusive), the
-    //       next forward lesson lands on today. hasText is case-insensitive
-    //       for strings; the day-section header ("Tue 19 · TODAY") lives
-    //       outside this rounded-xl card, so it does not match the filter.
-    const todayBadgedCard = page.locator('div.rounded-xl').filter({
-      hasText: curriculumName,
-    }).filter({ hasText: 'Today' });
-    await expect(
-      todayBadgedCard.first(),
-      'The next forward lesson should sit on today with a Today badge (not Done).',
-    ).toBeVisible({ timeout: 15_000 });
-
-    // Belt-and-braces: that same card must NOT carry the ✓ Done badge,
-    // because today's slot belongs to the forward flow (Invariant 1).
-    const doneInTodayCard = todayBadgedCard.first().getByText(/Done/i);
-    expect(
-      await doneInTodayCard.count(),
-      "today's lesson should be incomplete (no Done badge)",
-    ).toBe(0);
+    // ── 12. Invariant 1, asserted where it is actually decided: the database.
+    //
+    //       The UI assertion this replaces looked for a card carrying the
+    //       "Today" badge and required it NOT to be Done. Both halves encoded
+    //       the pre-fix behaviour, and the locator was loose enough
+    //       (`div.rounded-xl` containing the name AND the substring "Today"
+    //       anywhere in its subtree) that it could match an ancestor spanning
+    //       two day sections, so it passed on retry and failed on the first
+    //       attempt. A nondeterministic assertion of the wrong contract is
+    //       worse than a red one.
+    //
+    //       What matters is the rule: on a brand-new curriculum no
+    //       forward-scheduled lesson may be dated on or before today,
+    //       regardless of backfill. That is one query and it cannot flake.
 
     // ── 13. DB-side sanity: at least one row exists with is_backfill=true
     //       for this curriculum, and at least one incomplete forward row
@@ -911,24 +924,74 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     expect((goals ?? []).length, 'curriculum row should exist after save').toBeGreaterThan(0);
     const goalId = (goals![0] as { id: string }).id;
 
-    const { data: backfillRows } = await sb
+    const todayYmd =
+      `${today.getFullYear()}-` +
+      `${String(today.getMonth() + 1).padStart(2, '0')}-` +
+      `${String(today.getDate()).padStart(2, '0')}`;
+    const currentLesson = (goals![0] as { current_lesson: number }).current_lesson;
+
+    const { data: allRows } = await sb
       .from('lessons')
       .select('lesson_number, is_backfill, completed, scheduled_date')
       .eq('curriculum_goal_id', goalId)
-      .eq('is_backfill', true);
+      .order('lesson_number', { ascending: true });
+    const rows = (allRows ?? []) as Array<{
+      lesson_number: number;
+      is_backfill: boolean | null;
+      completed: boolean;
+      scheduled_date: string | null;
+    }>;
+
+    const backfillRows = rows.filter((r) => r.is_backfill === true);
     expect(
-      (backfillRows ?? []).length,
+      backfillRows.length,
       'past start_date should have produced at least one is_backfill row',
     ).toBeGreaterThan(0);
-    for (const r of (backfillRows ?? []) as Array<{ completed: boolean; scheduled_date: string }>) {
+    for (const r of backfillRows) {
       expect(r.completed, 'every backfill row must be completed=true').toBe(true);
-      // YYYY-MM-DD string compare is sufficient for "before today".
-      const todayYmd =
-        `${today.getFullYear()}-` +
-        `${String(today.getMonth() + 1).padStart(2, '0')}-` +
-        `${String(today.getDate()).padStart(2, '0')}`;
-      expect(r.scheduled_date < todayYmd, `backfill rows must land before today (saw ${r.scheduled_date})`).toBe(true);
+      // Through today INCLUSIVE now: the slot that lands on today is history
+      // the family asserted, not a forward lesson. It was the strictly-before
+      // filter here that lost one lesson per curriculum at the seam.
+      expect(
+        (r.scheduled_date ?? '') <= todayYmd,
+        `backfill rows must land on or before today (saw ${r.scheduled_date})`,
+      ).toBe(true);
     }
+
+    // ── 14. The seam: history covers 1..current_lesson with NO gap. The lost
+    //       lesson was invisible in every other assertion here, because the
+    //       rows either side of it existed and nothing counted them.
+    const historyNumbers = rows
+      .filter((r) => r.completed)
+      .map((r) => r.lesson_number)
+      .sort((a, b) => a - b);
+    expect(
+      historyNumbers,
+      `history must cover 1..${currentLesson} with no hole at the seam`,
+    ).toEqual(Array.from({ length: currentLesson }, (_, i) => i + 1));
+
+    // ── 15. Invariant 1: nothing forward-scheduled on or before today.
+    const forwardOnOrBeforeToday = rows.filter(
+      (r) => !r.completed && (r.scheduled_date ?? '') <= todayYmd,
+    );
+    expect(
+      forwardOnOrBeforeToday.map((r) => `${r.lesson_number}@${r.scheduled_date}`),
+      'Invariant 1: a brand-new curriculum dates no forward lesson on or before today',
+    ).toEqual([]);
+
+    // And the queue resumes at exactly current_lesson + 1, strictly after today.
+    const firstForward = rows
+      .filter((r) => !r.completed && r.scheduled_date != null)
+      .sort((a, b) => a.lesson_number - b.lesson_number)[0];
+    expect(firstForward, 'the goal should still have a forward queue').toBeTruthy();
+    expect(
+      firstForward.lesson_number,
+      'the forward queue resumes at current_lesson + 1, with no lesson skipped',
+    ).toBe(currentLesson + 1);
+    expect(
+      (firstForward.scheduled_date ?? '') > todayYmd,
+      `the first forward lesson sits after today (saw ${firstForward.scheduled_date})`,
+    ).toBe(true);
   });
 });
 
