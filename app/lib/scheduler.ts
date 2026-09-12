@@ -2017,6 +2017,50 @@ export function projectHistoryBackfill(a: {
  * seam re-opens. They are round-tripped against each other in scheduler.test.ts.
  * ─────────────────────────────────────────────────────────────────────── */
 
+/**
+ * The month a curriculum finishes, counted FORWARD from where the family
+ * actually is.
+ *
+ * The builder's own pace maths counted `ceil(remaining / perWeek)` weeks from
+ * the goal's START DATE, which is behind them. A 120-lesson Mon-Fri goal whose
+ * next lesson is 100 has 21 lessons left, five weeks, and the start date is
+ * five months back: staging showed "5 weeks left, on pace for June 2026" in
+ * September. June had already happened.
+ *
+ * Counting from the next lesson's own date is the only anchor that can be
+ * right, and walking the goal's real school days (rather than multiplying
+ * weeks by seven) is what makes the answer agree with the calendar the family
+ * will actually see. `computeFinishDate` already does that walk and already
+ * honours vacations, so this is a thin anchor around it rather than a second
+ * copy of the arithmetic.
+ */
+export function finishDateFromNextLesson(a: {
+  schoolDays: string[];
+  lessonsPerDay: number;
+  lessonsPerDayOverrides?: Record<string, number> | null;
+  /** Lessons already done, i.e. nextLesson - 1. */
+  currentLesson: number;
+  totalLessons: number;
+  /** The date the next lesson lands on. Today or later, never the start date. */
+  fromYmd: string;
+  vacations?: VacationBlock[];
+}): Date | null {
+  if (a.totalLessons <= 0) return null;
+  if (a.currentLesson >= a.totalLessons) return null;
+  return computeFinishDate(
+    {
+      id: "pace",
+      school_days: a.schoolDays,
+      lessons_per_day: a.lessonsPerDay,
+      lessons_per_day_overrides: a.lessonsPerDayOverrides ?? null,
+      current_lesson: a.currentLesson,
+      total_lessons: a.totalLessons,
+    },
+    new Date(`${a.fromYmd}T00:00:00`),
+    a.vacations,
+  );
+}
+
 export interface DerivedHistoryArgs {
   /** The lesson the family says is up NEXT. 1 means nothing is done yet. */
   nextLesson: number;
@@ -2153,6 +2197,49 @@ export function formatWeekdayLong(ymdStr: string): string {
 /** "2026-09-14" -> "Mon, Sep 14". */
 export function formatWeekdayShort(ymdStr: string): string {
   return `${WEEKDAY_SHORT[weekdayIdx(ymdStr)]}, ${formatYmdShort(ymdStr)}`;
+}
+
+/**
+ * The line for a goal this save is NOT claiming anything about.
+ *
+ * An untouched existing curriculum must never be described by the backward
+ * walk. Zoe's real Math 3 carries a stored start_date of 2026-06-10 and
+ * current_lesson 42, and running the walk over it announced "Lessons 1 to 42
+ * done (Jul 16 to today)": a start date five weeks later than the real one and
+ * an end date on a day nothing happened. The family is not being asked about
+ * that goal, and the app does not get to re-date their year to fill a sentence.
+ *
+ * So this reads only what the row actually carries: the stored start date and
+ * the pointer. It deliberately does NOT state an end date, because the builder
+ * does not load lesson rows and the last completed day is not derivable from
+ * these two fields. "since Jun 10" is true; "to today" was not.
+ */
+export function storedProgressLine(a: {
+  /** curriculum_goals.current_lesson as stored. */
+  currentLesson: number;
+  /** curriculum_goals.start_date as stored, if any. */
+  startDate?: string | null;
+  nextLessonDate?: string;
+  finishLabel?: string | null;
+  todayYmd: string;
+}): string {
+  const parts: string[] = [];
+  if (a.currentLesson > 0) {
+    const range =
+      a.currentLesson === 1 ? "Lesson 1" : `Lessons 1 to ${a.currentLesson}`;
+    parts.push(
+      a.startDate
+        ? `${range} done since ${formatYmdShort(a.startDate)}.`
+        : `${range} done.`,
+    );
+  }
+  if (a.nextLessonDate) {
+    const when =
+      a.nextLessonDate === a.todayYmd ? "today" : formatWeekdayShort(a.nextLessonDate);
+    parts.push(`Lesson ${a.currentLesson + 1} on ${when}.`);
+  }
+  if (a.finishLabel) parts.push(`Finishes about ${a.finishLabel}.`);
+  return parts.join(" ");
 }
 
 export interface NextLessonSentenceArgs {

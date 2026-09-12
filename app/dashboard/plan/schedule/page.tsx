@@ -7,16 +7,14 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { isPhase2NoOp, computeNextLessonsForGoal, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, computeNextLessonsForGoal, finishDateFromNextLesson, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
-import RootedCelebration from "@/app/components/RootedCelebration";
-import { posthog } from "@/lib/posthog";
-import { GARDEN_PER_YEAR, gardenLine, joinNames, possessive } from "@/app/lib/garden-config";
+import { writeSetupCelebration } from "@/app/lib/setup-celebration";
 import { CURRICULUM_PUBLISHERS, COMMON_SUBJECTS, mergeSuggestions } from "@/app/lib/curriculum-suggestions";
 import {
   readScheduleDraft,
@@ -641,6 +639,13 @@ type RowSchedule = {
   finishLabel: string | null;
   /** What the backward walk says, regardless of any typed date. */
   derivedStart?: string;
+  /** One pace computation, read by the sentence and the row's pace line. */
+  pace: Pace | null;
+  /**
+   * False for an existing goal this save is not claiming anything about. Its
+   * dates are the ones already on disk and nothing here may re-derive them.
+   */
+  claimed: boolean;
 };
 
 function rowScheduleFor(
@@ -661,6 +666,11 @@ function rowScheduleFor(
   const branch = whereBranchFor(row, todayStr);
   const nextLesson = Math.max(1, row.start_at_lesson);
 
+  // Same predicate the Invariant 21 pre-flight and the derived-date sync use,
+  // so all three agree on what "this save is asking about" means. An untouched
+  // goal keeps the dates it already has.
+  const claimed = invariant21ClaimChanged(row);
+
   // The history the family will actually get.
   //
   // On the derived branch that is the backward walk. When they have TYPED a
@@ -671,7 +681,11 @@ function rowScheduleFor(
   const stated = branch === "fresh" ? 0 : nextLesson - 1;
   const typedStart = row.start_date_is_manual ? row.start_date : null;
   const history: DerivedHistory =
-    typedStart && stated > 0
+    !claimed
+      ? // Nothing derived, and nothing claimed. The caller reads
+        // `storedProgressLine` for this row instead.
+        { dates: [], schoolDayCount: 0, lastLesson: 0, truncated: false }
+      : typedStart && stated > 0
       ? (() => {
           const dates = projectHistoryBackfill({
             goalId: row.dbId ?? row.localId,
@@ -704,6 +718,10 @@ function rowScheduleFor(
         });
   // The walk's own answer, which is what "Use the date we worked out" restores
   // and what the "Started earlier than ..." link names.
+  // Computed even for an unclaimed row, because the "Change the start date"
+  // link and its "use the date we worked out" twin need something to offer.
+  // It is display only: `effectiveStartDate` below and the sync effect both
+  // keep an untouched goal on the date it already has.
   const derivedStart = deriveHistoryFromNextLesson({
     nextLesson: branch === "fresh" ? 1 : nextLesson,
     schoolDays: school_days,
@@ -714,8 +732,9 @@ function rowScheduleFor(
   }).startDate;
 
   // A typed date is the family's; a derived one follows the walk.
-  const effectiveStartDate =
-    row.start_date_is_manual && row.start_date
+  const effectiveStartDate = !claimed
+    ? (row.start_date ?? undefined)
+    : row.start_date_is_manual && row.start_date
       ? row.start_date
       : branch === "already"
         ? derivedStart
@@ -723,8 +742,12 @@ function rowScheduleFor(
 
   // Does a TYPED date still hold the count? Same rule as Invariant 21's
   // refusal, run inline so the family is told here rather than at save time.
+  // Only for a row this save is CLAIMING something about. An untouched goal in
+  // the refused shape would otherwise disable Preview for the whole builder on
+  // a number the family did not type, which is the thing scoping the pre-flight
+  // to touched rows was for.
   let overflow: string | null = null;
-  if (branch === "already" && row.start_date_is_manual && row.start_date && nextLesson > 1) {
+  if (claimed && branch === "already" && row.start_date_is_manual && row.start_date && nextLesson > 1) {
     const projected = projectHistoryBackfill({
       goalId: row.dbId ?? row.localId,
       schoolDays: school_days,
@@ -766,7 +789,9 @@ function rowScheduleFor(
     vacations,
   );
 
-  const pace = calcPace(row, today);
+  // The pace anchor is the next lesson's own date, so the finish month counts
+  // forward from where the family is rather than from a start date behind them.
+  const pace = calcPace(row, today, projected[0]?.date, vacations);
   return {
     branch,
     history,
@@ -776,10 +801,31 @@ function rowScheduleFor(
     overflow,
     finishLabel: pace?.finishLabel ?? null,
     derivedStart,
+    pace,
+    claimed,
   };
 }
 
-function calcPace(row: Row, today: Date): Pace | null {
+/**
+ * Pace, counted forward from where the family actually is.
+ *
+ * `fromYmd` is the date the NEXT lesson lands on, never the start date. This
+ * used to add `ceil(remaining / perWeek)` weeks to `row.start_date`, which is
+ * behind them: staging showed a 120-lesson goal on lesson 100 as "5 weeks left,
+ * on pace for June 2026" in September, because the five weeks were added to a
+ * start date five months back. The finish month came out in the past and was
+ * printed on the row, in the preview line and in the sentence.
+ *
+ * The walk itself is `finishDateFromNextLesson`, which steps the goal's real
+ * school days and honours vacations, so the month quoted here and the calendar
+ * the family opens cannot disagree.
+ */
+function calcPace(
+  row: Row,
+  today: Date,
+  fromYmd?: string,
+  vacations: SchedVacationBlock[] = [],
+): Pace | null {
   if (row.type !== "curriculum") return null;
   if (!row.total_lessons || row.total_lessons <= 0) return null;
   const lpw = lessonsPerWeek(row);
@@ -788,9 +834,20 @@ function calcPace(row: Row, today: Date): Pace | null {
   const lessonsRemaining = row.total_lessons - lessonsDone;
   if (lessonsRemaining <= 0) return null;
   const weeksRemaining = Math.ceil(lessonsRemaining / lpw);
-  const start = row.start_date ? new Date(row.start_date + "T12:00:00") : today;
-  const finish = new Date(start);
-  finish.setDate(finish.getDate() + weeksRemaining * 7);
+  const { lessons_per_day, lessons_per_day_overrides, school_days } =
+    compactCurriculumPerDay(row);
+  const finish = finishDateFromNextLesson({
+    schoolDays: school_days,
+    lessonsPerDay: lessons_per_day,
+    lessonsPerDayOverrides: lessons_per_day_overrides,
+    currentLesson: lessonsDone,
+    totalLessons: row.total_lessons,
+    fromYmd: fromYmd ?? ymd(today),
+    // A three-week Christmas break moves the last lesson, so it has to move
+    // the month quoted for it too.
+    vacations,
+  });
+  if (!finish) return null;
   return {
     lessonsPerWeek: lpw,
     lessonsDone,
@@ -1142,18 +1199,9 @@ export default function ScheduleBuilderPage() {
   // lists. Read once with the rest of the builder; no new table.
   const [ownCurriculumNames, setOwnCurriculumNames] = useState<string[]>([]);
   const [ownSubjects, setOwnSubjects] = useState<string[]>([]);
-  // Set only when a save CREATED curricula. An edit keeps the old
-  // `?saved=1` landing: this screen is the moment a family finishes setting
-  // up, not every tweak, and celebrating a tweak cheapens it.
   // Rows where the family has answered "Keep both" to the replace prompt.
   // Local and transient: the question is about this editing session.
   const [keepBothLocalIds, setKeepBothLocalIds] = useState<Set<string>>(new Set());
-  const [celebration, setCelebration] = useState<{
-    childNames: string[];
-    subjects: string[];
-    firstLessonDate: string | null;
-    curriculaCount: number;
-  } | null>(null);
   const curriculumSuggestions = useMemo(
     () => mergeSuggestions(ownCurriculumNames, CURRICULUM_PUBLISHERS),
     [ownCurriculumNames],
@@ -3504,13 +3552,24 @@ export default function ScheduleBuilderPage() {
           .map((r) => rowScheduleFor(r, today, todayStr, vacations)?.nextLessonDate)
           .filter((d): d is string => !!d)
           .sort();
-        setCelebration({
+        // The screen has to be full-bleed, and everything under app/dashboard
+        // is wrapped in the sidebar and the mobile bottom nav, so it lives on
+        // its own route the way onboarding's does. The payload goes through
+        // sessionStorage rather than the URL: these are the family's
+        // children's names.
+        const handedOff = writeSetupCelebration({
           childNames,
           subjects,
           firstLessonDate: firstDates[0] ?? null,
           curriculaCount: createdRows.length,
         });
-        return;
+        if (handedOff) {
+          router.push("/curriculum-ready");
+          return;
+        }
+        // Storage refused it (a private window). Fall through to the ordinary
+        // Plan landing rather than pushing to a screen that will find nothing
+        // and bounce them to Today, skipping the ?saved=1 reload below.
       }
       // `?saved=1` tells the Plan page to force one fresh data load on arrival.
       // The schedule + lessons are committed above (awaited), but the Plan
@@ -3761,21 +3820,6 @@ export default function ScheduleBuilderPage() {
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
-  if (celebration) {
-    return (
-      <SetupCelebration
-        childNames={celebration.childNames}
-        subjects={celebration.subjects}
-        firstLessonDate={celebration.firstLessonDate}
-        curriculaCount={celebration.curriculaCount}
-        onNavigate={(href, choice) => {
-          posthog.capture("curriculum_setup_next_step", { choice });
-          router.push(href);
-        }}
-      />
-    );
-  }
-
   if (loading) {
     return (
       <>
@@ -4031,91 +4075,6 @@ export default function ScheduleBuilderPage() {
 // look identical whether they're saved or not. The draft autosave means
 // the work is safe either way, so the wording promises "kept on this
 // device", not "saved", which would be a lie about the schedule itself.
-/**
- * The screen a family lands on when their year is planned.
- *
- * It replaces `router.push("/dashboard/plan?saved=1")`, which dropped them on
- * the Plan page with a banner: no confirmation of what they had just set up and
- * no next step, at the end of the hardest screen in the app.
- *
- * The three actions are deliberately ordered. Families who capture a memory in
- * their first session convert at 11%; schedule-only families convert at 0%. So
- * the photo is the primary button and stays the primary button.
- */
-function SetupCelebration(props: {
-  childNames: string[];
-  subjects: string[];
-  firstLessonDate: string | null;
-  curriculaCount: number;
-  onNavigate: (href: string, choice: string) => void;
-}) {
-  useEffect(() => {
-    posthog.capture("curriculum_setup_celebrated", {
-      children: props.childNames.length,
-      curricula: props.curriculaCount,
-      first_lesson_date: props.firstLessonDate,
-    });
-    // Fires once for the screen, not once per render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const names = joinNames(props.childNames);
-  const whose = possessive(names) || "Your family's";
-  const subjectList = joinNames(props.subjects);
-  const when = props.firstLessonDate ? formatWeekdayLong(props.firstLessonDate) : null;
-
-  return (
-    <RootedCelebration heading="You're Rooted.">
-      <p className="text-[17px] leading-relaxed mb-8" style={{ color: "rgba(255,255,255,0.8)" }}>
-        {whose} year is planned.
-        {subjectList ? ` ${subjectList}` : ""}
-        {when ? `, starting ${when}.` : "."}
-      </p>
-
-      <p className="text-[15px] leading-relaxed mb-10" style={{ color: "rgba(255,255,255,0.6)" }}>
-        {gardenLine(props.childNames.length, GARDEN_PER_YEAR)} Every lesson they finish, every photo
-        you snap, every book you read together is a leaf. By spring you&apos;ll look back and see the
-        whole tree.
-      </p>
-
-      <p
-        className="text-[13px] tracking-[2px] uppercase mb-4"
-        style={{ color: "rgba(255,255,255,0.45)" }}
-      >
-        Here&apos;s what to do with today
-      </p>
-
-      <button
-        onClick={() => props.onNavigate("/dashboard?capture=1", "photo")}
-        className="w-full bg-white text-[#2D5A3D] font-semibold rounded-2xl text-[17px] py-[18px] px-8 shadow-lg transition-all hover:opacity-90 active:scale-[0.98]"
-      >
-        Snap a first-day photo
-      </button>
-
-      <button
-        onClick={() => props.onNavigate("/dashboard/garden", "garden")}
-        className="mt-3 w-full rounded-2xl border border-white/25 text-white text-[15px] py-[14px] px-8 transition-colors hover:bg-white/10"
-      >
-        See their seeds in the Garden
-      </button>
-
-      <button
-        onClick={() => props.onNavigate("/dashboard/resources", "resources")}
-        className="mt-3 w-full rounded-2xl border border-white/25 text-white text-[15px] py-[14px] px-8 transition-colors hover:bg-white/10"
-      >
-        Browse this week&apos;s Resources
-      </button>
-
-      <button
-        onClick={() => props.onNavigate("/dashboard", "today")}
-        className="mt-6 text-[15px] text-white/55 hover:text-white/80 transition-colors"
-      >
-        or Go to Today
-      </button>
-    </RootedCelebration>
-  );
-}
-
 function UnsavedIndicator() {
   return (
     <span
@@ -4387,7 +4346,11 @@ function RowCard(props: {
   onMarkFinished: () => Promise<void>;
 }) {
   const { row } = props;
-  const pace = calcPace(row, props.today);
+  // The same answer the sentence above it shows. Computing it again here with
+  // no anchor walked from today, so a curriculum starting in January quoted a
+  // finish month before its own first lesson, and disagreed with the line
+  // directly above it.
+  const pace = props.sched?.pace ?? null;
   const isPending = row.type === "curriculum" && isFutureDate(row.start_date, props.today);
   const isCurriculum = row.type === "curriculum";
   const isReadOnly = row.readOnly;
@@ -4450,7 +4413,17 @@ function RowCard(props: {
   const sched = props.sched;
 
   const alreadySentence =
-    sched && sched.branch === "already"
+    sched && sched.branch === "already" && !sched.claimed
+      ? storedProgressLine({
+          // Same single source as the preview line: see storedProgressLine's
+          // call site there.
+          currentLesson: Math.max(0, row.start_at_lesson - 1),
+          startDate: row.start_date,
+          nextLessonDate: sched.nextLessonDate,
+          finishLabel: sched.finishLabel,
+          todayYmd: props.todayStr,
+        })
+      : sched && sched.branch === "already"
       ? nextLessonSentence({
           history: sched.history,
           nextLesson: sched.nextLesson,
@@ -5289,15 +5262,30 @@ function PreviewView(props: {
                       {daysLabel ? <span className="text-[#7a6f65]"> · {daysLabel}</span> : null}
                     </p>
                     <p className="text-[12px] text-[#7a6f65] leading-relaxed mt-0.5">
-                      {sched
-                        ? previewLessonLine({
-                            history: sched.history,
-                            nextLesson: sched.nextLesson,
-                            nextLessonDate: sched.nextLessonDate,
-                            finishLabel: sched.finishLabel,
-                            todayYmd: props.todayStr,
-                          })
-                        : "Set days and a lesson count to see this."}{" "}
+                      {!sched
+                        ? "Set days and a lesson count to see this."
+                        : sched.claimed
+                          ? previewLessonLine({
+                              history: sched.history,
+                              nextLesson: sched.nextLesson,
+                              nextLessonDate: sched.nextLessonDate,
+                              finishLabel: sched.finishLabel,
+                              todayYmd: props.todayStr,
+                            })
+                          : // Untouched: its dates are already on disk and this
+                            // screen does not get to re-derive them.
+                            storedProgressLine({
+                              // start_at_lesson, not _dbCurrentLesson: the
+                              // projector that produced nextLessonDate used
+                              // start_at_lesson - 1, and recomputeCurrentLesson
+                              // will too, so reading the other field made the
+                              // line name a lesson the date did not belong to.
+                              currentLesson: Math.max(0, r.start_at_lesson - 1),
+                              startDate: r.start_date,
+                              nextLessonDate: sched.nextLessonDate,
+                              finishLabel: sched.finishLabel,
+                              todayYmd: props.todayStr,
+                            })}{" "}
                       <button
                         onClick={() => props.onFixRow(r.localId)}
                         className="text-[var(--g-brand)] underline underline-offset-2 hover:opacity-80"

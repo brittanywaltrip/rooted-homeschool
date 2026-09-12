@@ -41,9 +41,11 @@ import {
   historyBackfillRefusal,
   projectHistoryBackfill,
   deriveHistoryFromNextLesson,
+  finishDateFromNextLesson,
   nextLessonSentence,
   startingFreshSentence,
   previewLessonLine,
+  storedProgressLine,
   formatWeekdayLong,
   formatWeekdayShort,
   currentLessonFor,
@@ -79,7 +81,7 @@ import {
   gapStartAfterAnswer,
 } from './recoverySelection.ts'
 
-import { GARDEN_PER_YEAR, gardenLine, joinNames, possessive } from "./garden-config.ts"
+import { GARDEN_PER_YEAR, gardenLine, gardenButtonLabel, joinNames, possessive } from "./garden-config.ts"
 
 import {
   planEmptyGoalLessons,
@@ -93,7 +95,7 @@ import {
   unhealedGapReports,
 } from './projection-gaps.ts'
 
-import { readFileSync, readdirSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { todayInTz, isoDowFromYmd, addDays, ymdInTz } from './timezone.ts'
@@ -9069,25 +9071,63 @@ test('the celebration is skipped for a save that only edited existing curricula'
   )
   // The old landing survives for an edit.
   assert.match(body, /router\.push\("\/dashboard\/plan\?saved=1"\)/)
-  // And the funnel is measurable from this screen onward.
-  assert.match(src, /curriculum_setup_celebrated/)
-  assert.match(src, /curriculum_setup_next_step/)
-  // The photo stays the primary action.
-  // Sliced from the component's declaration rather than extractFunctionBody:
-  // the signature's own `props: {` brace is the first one after the match, so
-  // the helper would return the props type instead of the body.
-  const celebration = src.slice(src.indexOf('function SetupCelebration'))
+  // A creating save hands off and navigates to the full-bleed route.
+  assert.match(body, /writeSetupCelebration\(\{/)
+  assert.match(body, /router\.push\("\/curriculum-ready"\)/)
+
+  // The photo stays the primary action, and the funnel is measurable.
+  const celebration = stripComments(loadRepoFile('app/curriculum-ready/page.tsx'))
+  assert.match(celebration, /curriculum_setup_celebrated/)
+  assert.match(celebration, /curriculum_setup_next_step/)
   const photo = celebration.indexOf('Snap a first-day photo')
-  const garden = celebration.indexOf('See their seeds in the Garden')
-  const resources = celebration.indexOf("Browse this week")
+  const garden = celebration.indexOf('gardenButtonLabel(')
+  const resources = celebration.indexOf('Browse this week')
   assert.ok(photo !== -1 && photo < garden && garden < resources, 'photo, garden, resources, in that order')
+})
+
+test('the celebration is full-bleed, which means it is not under app/dashboard', () => {
+  // app/dashboard/layout.tsx wraps every page beneath it in the sidebar, the
+  // header and the mobile bottom nav, so the first cut rendered the green
+  // ground inside a content column with the nav still on top of it. Onboarding
+  // is full-bleed because it sits outside that tree; this is the same trick,
+  // not a second one.
+  assert.ok(
+    existsSync(resolve(process.cwd(), 'app/curriculum-ready/page.tsx')),
+    'the screen has its own route outside app/dashboard',
+  )
+  const builder = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.ok(
+    !/RootedCelebration/.test(builder),
+    'the builder no longer renders the celebration inside the dashboard layout',
+  )
+  // And the handoff keeps the children's names out of the URL.
+  const handoff = stripComments(loadRepoFile('app/lib/setup-celebration.ts'))
+  assert.match(handoff, /sessionStorage/)
+  assert.match(handoff, /sessionStorage\.removeItem\(KEY\)/, 'read once, then cleared')
+})
+
+test('the celebration prints the tagline once and one wording for the Garden', () => {
+  const shell = stripComments(loadRepoFile('app/components/RootedCelebration.tsx'))
+  assert.ok(
+    !/capture\. plan\. remember\.\s*<\/p>/.test(shell),
+    'the logo artwork already carries the tagline; the text copy under it is gone',
+  )
+  // The button and the sentence above it answer to the same flag. They did not:
+  // the sentence read "Their tree is growing in the Garden" while the button
+  // said "See their seeds in the Garden".
+  assert.equal(gardenButtonLabel(1, false), 'See their tree in the Garden')
+  assert.equal(gardenButtonLabel(2, false), 'See their trees in the Garden')
+  assert.equal(gardenButtonLabel(1, true), 'See their seed in the Garden')
+  assert.equal(gardenButtonLabel(3, true), 'See their seeds in the Garden')
+  assert.match(gardenLine(2, false), /trees are growing/)
+  assert.match(gardenButtonLabel(2, false), /trees in the Garden/)
 })
 
 test('there is one celebration shell, shared by onboarding and the builder', () => {
   const shell = loadRepoFile('app/components/RootedCelebration.tsx')
   assert.match(shell, /bg-\[#3e6643\]/)
   assert.match(shell, /canvas-confetti/)
-  for (const f of ['app/onboarding/page.tsx', 'app/dashboard/plan/schedule/page.tsx']) {
+  for (const f of ['app/onboarding/page.tsx', 'app/curriculum-ready/page.tsx']) {
     assert.match(
       loadRepoFile(f),
       /import RootedCelebration from "@\/app\/components\/RootedCelebration"/,
@@ -9095,9 +9135,214 @@ test('there is one celebration shell, shared by onboarding and the builder', () 
     )
   }
   // No second copy of the ground colour or the burst outside the shell.
-  for (const f of ['app/onboarding/page.tsx', 'app/dashboard/plan/schedule/page.tsx']) {
+  for (const f of ['app/onboarding/page.tsx', 'app/curriculum-ready/page.tsx', 'app/dashboard/plan/schedule/page.tsx']) {
     const src = stripComments(loadRepoFile(f))
     assert.ok(!/bg-\[#3e6643\]/.test(src), `${f} does not re-declare the celebration ground`)
     assert.ok(!/canvas-confetti/.test(src), `${f} does not fire its own confetti`)
   }
+})
+
+// ── Pace counts forward from the next lesson, never from the start date ────
+
+test('the finish month is counted from the next lesson, not from a start date behind them', () => {
+  // The staging bug. 120 lessons Mon-Fri 1/day, next lesson 100, today
+  // 2026-09-11. 21 lessons remain, five weeks of them. The old maths added
+  // those five weeks to the goal's START DATE, which for 99 completed lessons
+  // is about five months back, and printed "on pace for June 2026" in
+  // September. June had already happened.
+  const finish = finishDateFromNextLesson({
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    currentLesson: 99,
+    totalLessons: 120,
+    // The next lesson lands on the Monday after today (Invariant 1).
+    fromYmd: '2026-09-14',
+  })
+  assert.ok(finish, 'a goal with lessons left has a finish date')
+  assert.equal(
+    finish!.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+    'October 2026',
+  )
+  assert.ok(toDateStr(finish!) > '2026-09-11', 'and it is never in the past')
+})
+
+test('the finish month walks real school days, so a Fridays-only goal is not five times too fast', () => {
+  const finish = finishDateFromNextLesson({
+    schoolDays: ['Fri'],
+    lessonsPerDay: 1,
+    currentLesson: 0,
+    totalLessons: 10,
+    fromYmd: '2026-09-18',
+  })
+  // Ten Fridays from 2026-09-18 inclusive.
+  assert.equal(toDateStr(finish!), '2026-11-20')
+})
+
+test('the finish month honours vacation blocks', () => {
+  const noBreak = finishDateFromNextLesson({
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    currentLesson: 0,
+    totalLessons: 10,
+    fromYmd: '2026-09-14',
+  })
+  const withBreak = finishDateFromNextLesson({
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    currentLesson: 0,
+    totalLessons: 10,
+    fromYmd: '2026-09-14',
+    vacations: [{ start_date: '2026-09-21', end_date: '2026-09-25' }],
+  })
+  assert.ok(toDateStr(withBreak!) > toDateStr(noBreak!), 'a week off pushes the finish out')
+})
+
+test('a finished curriculum has no finish date to quote', () => {
+  assert.equal(
+    finishDateFromNextLesson({
+      schoolDays: ['Mon'], lessonsPerDay: 1, currentLesson: 30, totalLessons: 30, fromYmd: '2026-09-14',
+    }),
+    null,
+  )
+})
+
+test('the builder anchors its pace at the next lesson date', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const calcPace = src.slice(src.indexOf('function calcPace('), src.indexOf('function revealRow('))
+  assert.match(calcPace, /finishDateFromNextLesson\(\{/, 'one definition of the walk')
+  assert.ok(
+    !/finish\.setDate\(finish\.getDate\(\) \+ weeksRemaining \* 7\)/.test(calcPace),
+    'the weeks-from-start-date arithmetic that produced a past month is gone',
+  )
+  assert.match(calcPace, /vacations,/, 'and it honours the family\'s breaks')
+  assert.match(
+    src,
+    /calcPace\(row, today, projected\[0\]\?\.date, vacations\)/,
+    'anchored at the next lesson, with breaks',
+  )
+  // One computation, read by both surfaces. Computing it again in the row card
+  // with no anchor walked from today, so a curriculum starting in January
+  // quoted a month before its own first lesson and disagreed with the sentence
+  // directly above it.
+  assert.match(src, /const pace = props\.sched\?\.pace \?\? null/)
+  assert.ok(
+    !/calcPace\(row, props\.today\)/.test(src),
+    'the row card no longer recomputes pace without an anchor',
+  )
+})
+
+// ── An untouched goal keeps the dates it already has ──────────────────────
+
+test('an untouched goal is described from its stored fields, never from the walk', () => {
+  // Zoe's real Math 3 on staging: stored start_date 2026-06-10, current_lesson
+  // 42. Running the backward walk over it announced "Lessons 1 to 42 done
+  // (Jul 16 to today)", a start five weeks later than the real one and an end
+  // on a day nothing happened. The family was not being asked about that goal.
+  const stored = storedProgressLine({
+    currentLesson: 42,
+    startDate: '2026-06-10',
+    nextLessonDate: '2026-09-14',
+    finishLabel: 'Feb 2027',
+    todayYmd: '2026-09-11',
+  })
+  assert.equal(stored, 'Lessons 1 to 42 done since Jun 10. Lesson 43 on Mon, Sep 14. Finishes about Feb 2027.')
+  assert.ok(!stored.includes('to today'), 'it never claims an end date it cannot know')
+  assert.ok(stored.includes('Jun 10'), 'the STORED start date, not a re-derived one')
+
+  // What the walk would have said, for contrast: a different, wrong start.
+  const walked = deriveHistoryFromNextLesson({
+    nextLesson: 43,
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  assert.notEqual(walked.startDate, '2026-06-10', 'the walk does not reproduce the stored date')
+})
+
+test('storedProgressLine on a goal with no stored start date says only what it knows', () => {
+  assert.equal(
+    storedProgressLine({ currentLesson: 5, startDate: null, nextLessonDate: '2026-09-14', todayYmd: '2026-09-11' }),
+    'Lessons 1 to 5 done. Lesson 6 on Mon, Sep 14.',
+  )
+  assert.equal(
+    storedProgressLine({ currentLesson: 1, startDate: '2026-06-10', todayYmd: '2026-09-11' }),
+    'Lesson 1 done since Jun 10.',
+  )
+  assert.equal(
+    storedProgressLine({ currentLesson: 0, nextLessonDate: '2026-09-14', todayYmd: '2026-09-11' }),
+    'Lesson 1 on Mon, Sep 14.',
+  )
+})
+
+test('the builder routes unclaimed rows to the stored line and skips the walk for them', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  // Same predicate as the pre-flight and the derived-date sync.
+  assert.match(src, /const claimed = invariant21ClaimChanged\(row\)/)
+  // The walk is skipped entirely for an unclaimed row.
+  assert.match(src, /!claimed\s*\?\s*\{ dates: \[\], schoolDayCount: 0, lastLesson: 0, truncated: false \}/)
+  // And both surfaces read the stored line for it.
+  assert.match(src, /sched\.claimed\s*\?\s*previewLessonLine\(\{/)
+  assert.match(src, /storedProgressLine\(\{/)
+})
+
+// ── CC #2b review fixes ───────────────────────────────────────────────────
+
+test('an untouched goal in the refused shape does not disable Preview for the whole builder', () => {
+  // The ~70-curriculum population CC #1c unblocked. Computing the overflow for
+  // every row regardless of whether the save claims it put them straight back:
+  // previewBlockedReason returns any row's refusal, so one old curriculum
+  // disabled Preview for a family editing a different child.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.match(
+    src,
+    /if \(claimed && branch === "already" && row\.start_date_is_manual/,
+    'the overflow is only computed for a row this save claims',
+  )
+})
+
+test('the start-date affordances always have a date to offer', () => {
+  // derivedStart is computed for every row, including untouched ones, because
+  // "Change the start date" and "Use the date we worked out" need something to
+  // put in the input. It is display only: the sentence and the save keep an
+  // untouched goal on the date it already has.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.ok(
+    !/const derivedStart = !claimed/.test(src),
+    'derivedStart is no longer blanked for unclaimed rows',
+  )
+  assert.match(
+    src,
+    /const effectiveStartDate = !claimed\s*\?\s*\(row\.start_date \?\? undefined\)/,
+    'but an untouched goal still saves against its stored date',
+  )
+})
+
+test('the stored line reads its count from the same field the date came from', () => {
+  // The loader seeds start_at_lesson to max(current_lesson + 1, stored
+  // start_at_lesson), and the projector that produced nextLessonDate used
+  // start_at_lesson - 1. Reading _dbCurrentLesson for the count meant the line
+  // could name lesson 11 while the field above it said 43.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.ok(
+    !/currentLesson: r\._dbCurrentLesson/.test(src) && !/currentLesson: row\._dbCurrentLesson/.test(src),
+    'neither surface reads the other field',
+  )
+  assert.match(src, /currentLesson: Math\.max\(0, r\.start_at_lesson - 1\)/)
+  assert.match(src, /currentLesson: Math\.max\(0, row\.start_at_lesson - 1\)/)
+})
+
+test('the celebration handoff survives a discarded render, and refuses quietly', () => {
+  const src = stripComments(loadRepoFile('app/lib/setup-celebration.ts'))
+  // Reading clears sessionStorage, and the screen reads while rendering. React
+  // can discard and retry a render, so an uncached read consumed the payload
+  // and the retry found nothing.
+  assert.match(src, /let cached: SetupCelebrationData \| null \| undefined/)
+  assert.match(src, /if \(cached !== undefined\) return cached/)
+  assert.match(src, /cached = undefined/, 'a second save is celebrated too')
+  // And a browser that refuses storage sends the family to Plan, not to a
+  // screen that will find nothing and bounce them to Today.
+  assert.match(src, /export function writeSetupCelebration\(data: SetupCelebrationData\): boolean/)
+  const builder = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.match(builder, /const handedOff = writeSetupCelebration\(\{/)
+  assert.match(builder, /if \(handedOff\) \{/)
 })

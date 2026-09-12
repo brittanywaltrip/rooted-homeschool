@@ -46,11 +46,10 @@ export default function RootedCelebration(props: {
     <div className="min-h-screen bg-[#3e6643] flex flex-col items-center justify-center px-6 py-12">
       <div className="w-full max-w-sm flex flex-col items-center text-center">
         <div className="mb-12">
+          {/* The logo artwork already carries "capture. plan. remember.", so the
+              text line that used to sit under it printed the tagline twice. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/rooted-logo-white.png" alt="rooted." className="h-28 mx-auto mb-2 opacity-90" />
-          <p className="text-[13px] tracking-[3px] uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>
-            capture. plan. remember.
-          </p>
+          <img src="/rooted-logo-white.png" alt="rooted. capture. plan. remember." className="h-28 mx-auto opacity-90" />
         </div>
 
         {props.overline ? (

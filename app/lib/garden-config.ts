@@ -12,6 +12,23 @@
 export const GARDEN_PER_YEAR = false;
 
 /**
+ * The label on the celebration's Garden button.
+ *
+ * It read "See their seeds in the Garden" while the sentence three lines above
+ * it read "Their tree is growing in the Garden", because the sentence was gated
+ * on GARDEN_PER_YEAR and the button was not. Both now answer to the same flag.
+ */
+export function gardenButtonLabel(
+  childCount: number,
+  perYear: boolean = GARDEN_PER_YEAR,
+): string {
+  if (perYear) {
+    return childCount === 1 ? "See their seed in the Garden" : "See their seeds in the Garden";
+  }
+  return childCount === 1 ? "See their tree in the Garden" : "See their trees in the Garden";
+}
+
+/**
  * The line the celebration prints, given how many children were set up.
  * Exported so the copy is testable without rendering the screen.
  */
