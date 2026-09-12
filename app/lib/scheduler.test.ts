@@ -40,6 +40,12 @@ import {
   isStartAtLessonInRange,
   historyBackfillRefusal,
   projectHistoryBackfill,
+  deriveHistoryFromNextLesson,
+  nextLessonSentence,
+  startingFreshSentence,
+  previewLessonLine,
+  formatWeekdayLong,
+  formatWeekdayShort,
   currentLessonFor,
   clampStartAtLesson,
   formatYmdShort,
@@ -72,6 +78,8 @@ import {
   confirmButtonLabel,
   gapStartAfterAnswer,
 } from './recoverySelection.ts'
+
+import { GARDEN_PER_YEAR, gardenLine, joinNames, possessive } from "./garden-config.ts"
 
 import {
   planEmptyGoalLessons,
@@ -1959,10 +1967,16 @@ test('the Schedule Builder actually consults the starting-position range', () =>
     'rowMissingLabel must explain an out-of-range starting position',
   )
 
-  const changeStartAtLesson = stripComments(extractFunctionBody(src, /function changeStartAtLesson\s*\(/))
+  // The clamp moved into applyStartAtLesson, which changeStartAtLesson and the
+  // branch switch both go through, so a declined confirm writes nothing at all.
+  const applyStartAtLesson = stripComments(extractFunctionBody(src, /function applyStartAtLesson\s*\(/))
   assert.ok(
-    changeStartAtLesson.includes('clampStartAtLesson('),
-    'changeStartAtLesson must clamp against total_lessons, not just against 1',
+    applyStartAtLesson.includes('clampStartAtLesson('),
+    'the starting position must clamp against total_lessons, not just against 1',
+  )
+  assert.ok(
+    applyStartAtLesson.includes('if (!ok) return false'),
+    'a declined progress-reset confirm writes nothing, including the caller\'s patch',
   )
 
   // The persisted value, and the current_lesson seeded from it, both go
@@ -8738,4 +8752,352 @@ test('an unclaimed short goal is left alone, not rebuilt without the part that d
     !/\.insert\(|\.delete\(|\.update\(/.test(block),
     'the bail-out itself writes nothing',
   )
+})
+
+// ===========================================================================
+// "Where are you with this?": the family types ONE number (CC #2).
+//
+// The builder used to ask for the same fact three ways: a "Start at" field, an
+// "Already completed" stepper (the same value minus one, also editable), and a
+// start date, plus a banner estimating "about 9 lessons ago" from a fourth
+// piece of arithmetic. That estimate walked `while (cursor < today)`, so it
+// excluded today: the same off-by-one CC #1 fixed in the backfill.
+//
+// deriveHistoryFromNextLesson is now the single walk. The date the family sees
+// and the date the save writes come from it, so they cannot drift.
+// ===========================================================================
+
+const MON_FRI = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
+
+test('derive: Mon-Fri 1/day, next lesson 11, today Fri 2026-09-11', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 11,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  assert.equal(h.startDate, '2026-08-31', 'the derived start date')
+  assert.deepEqual(h.dates, [
+    '2026-08-31', '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04',
+    '2026-09-07', '2026-09-08', '2026-09-09', '2026-09-10', '2026-09-11',
+  ])
+  assert.equal(h.endDate, '2026-09-11', 'the walk INCLUDES today')
+  assert.equal(h.schoolDayCount, 10)
+  assert.equal(h.lastLesson, 10)
+  assert.equal(h.truncated, false)
+})
+
+test('derive: Fridays only, next lesson 3, today Fri 2026-09-11', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 3,
+    schoolDays: ['Fri'],
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  assert.deepEqual(h.dates, ['2026-09-04', '2026-09-11'])
+  assert.equal(h.startDate, '2026-09-04')
+  assert.equal(h.schoolDayCount, 2)
+})
+
+test('derive: Mon-Fri 2/day, next lesson 11, five school days two per day', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 11,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 2,
+    throughYmd: '2026-09-11',
+  })
+  assert.equal(h.startDate, '2026-09-07')
+  assert.equal(h.schoolDayCount, 5, 'five school days, not ten')
+  assert.equal(h.lastLesson, 10)
+  assert.deepEqual(h.dates, [
+    '2026-09-07', '2026-09-07', '2026-09-08', '2026-09-08', '2026-09-09',
+    '2026-09-09', '2026-09-10', '2026-09-10', '2026-09-11', '2026-09-11',
+  ])
+})
+
+test('derive: next lesson 1 places nothing and derives no start date', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 1,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  assert.deepEqual(h.dates, [])
+  assert.equal(h.startDate, undefined, 'Starting fresh has no derived start date')
+  assert.equal(h.lastLesson, 0)
+  assert.equal(h.schoolDayCount, 0)
+})
+
+test('derive: a vacation block pushes the derived start date earlier', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 11,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+    vacations: [{ start_date: '2026-09-07', end_date: '2026-09-09' }],
+  })
+  assert.equal(h.startDate, '2026-08-26', 'three school days lost, so the walk reaches back three further')
+  assert.ok(!h.dates.includes('2026-09-07'))
+  assert.ok(!h.dates.includes('2026-09-08'))
+  assert.ok(!h.dates.includes('2026-09-09'))
+  assert.equal(h.lastLesson, 10)
+})
+
+test('derive: an odd count leaves the MOST RECENT day partly used', () => {
+  // Nine lessons at two a day is four full days plus one. The walk fills
+  // forward from the start date exactly as the save does, so the part-used day
+  // is today: a family part-way through today has done today's first lesson,
+  // not their first lesson's leftovers. Putting the remainder on the oldest day
+  // instead is what broke the round-trip on uneven per-day counts.
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 10,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 2,
+    throughYmd: '2026-09-11',
+  })
+  assert.equal(h.lastLesson, 9)
+  assert.equal(h.startDate, '2026-09-07')
+  assert.equal(h.dates.filter((d) => d === '2026-09-07').length, 2, 'the start date is filled')
+  assert.equal(h.dates.filter((d) => d === '2026-09-11').length, 1, 'today holds the remainder')
+})
+
+test('derive round-trips with projectHistoryBackfill, so the seam cannot re-open', () => {
+  // The derived start date is written to the row and the SAVE projects the
+  // backfill forward from it. If the backward walk and the forward projection
+  // disagreed, the history would land on different days than the family was
+  // shown, which is the whole class of bug CC #1 closed.
+  const cases = [
+    { schoolDays: MON_FRI, lessonsPerDay: 1, nextLesson: 11, vacations: [] as VacationBlock[] },
+    { schoolDays: ['Fri'], lessonsPerDay: 1, nextLesson: 3, vacations: [] as VacationBlock[] },
+    { schoolDays: MON_FRI, lessonsPerDay: 2, nextLesson: 11, vacations: [] as VacationBlock[] },
+    { schoolDays: ['Mon', 'Wed', 'Fri'], lessonsPerDay: 1, nextLesson: 8, vacations: [] as VacationBlock[] },
+    {
+      schoolDays: MON_FRI, lessonsPerDay: 1, nextLesson: 11,
+      vacations: [{ start_date: '2026-09-07', end_date: '2026-09-09' }],
+    },
+    // UNEVEN per-day counts, which is where this round-trip actually broke.
+    // compactCurriculumPerDay emits an overrides map for any row whose days
+    // carry different counts, so this is an ordinary family, not a corner.
+    {
+      schoolDays: MON_FRI, lessonsPerDay: 1, nextLesson: 7, vacations: [] as VacationBlock[],
+      overrides: { Mon: 5, Tue: 1, Wed: 1, Thu: 1, Fri: 1 },
+    },
+    {
+      schoolDays: MON_FRI, lessonsPerDay: 2, nextLesson: 12, vacations: [] as VacationBlock[],
+      overrides: { Mon: 3, Tue: 2, Wed: 2, Thu: 2, Fri: 1 },
+    },
+    {
+      schoolDays: ['Mon', 'Wed'], lessonsPerDay: 1, nextLesson: 6, vacations: [] as VacationBlock[],
+      overrides: { Mon: 2, Wed: 1 },
+    },
+  ]
+  for (const c of cases) {
+    const overrides = (c as { overrides?: Record<string, number> }).overrides ?? null
+    const back = deriveHistoryFromNextLesson({
+      nextLesson: c.nextLesson,
+      schoolDays: c.schoolDays,
+      lessonsPerDay: c.lessonsPerDay,
+      lessonsPerDayOverrides: overrides,
+      throughYmd: '2026-09-11',
+      vacations: c.vacations,
+    })
+    const forward = projectHistoryBackfill({
+      goalId: 'g',
+      schoolDays: c.schoolDays,
+      lessonsPerDay: c.lessonsPerDay,
+      lessonsPerDayOverrides: overrides,
+      statedCompleted: c.nextLesson - 1,
+      startDate: back.startDate!,
+      todayYmd: '2026-09-11',
+      vacations: c.vacations,
+    })
+    assert.deepEqual(
+      forward.map((p) => p.date),
+      back.dates,
+      `walking back from the next lesson and projecting forward from the derived start must agree (${c.schoolDays.join('')} ${c.lessonsPerDay}/day)`,
+    )
+    assert.equal(
+      forward[forward.length - 1].date <= '2026-09-11',
+      true,
+      'and the history never runs past today',
+    )
+  }
+})
+
+test('the "Already into it" sentence reads exactly as designed', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 11,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 11,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+    }),
+    'Lessons 1 to 10 will be marked done over your last 10 school days, Aug 31 through today. ' +
+      'Lesson 11 is up Monday, Sep 14.',
+  )
+
+  const weekly = deriveHistoryFromNextLesson({
+    nextLesson: 3,
+    schoolDays: ['Fri'],
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  assert.equal(
+    nextLessonSentence({
+      history: weekly,
+      nextLesson: 3,
+      nextLessonDate: '2026-09-18',
+      todayYmd: '2026-09-11',
+    }),
+    'Lessons 1 to 2 will be marked done over your last 2 school days, Sep 4 through today. ' +
+      'Lesson 3 is up Friday, Sep 18.',
+  )
+})
+
+test('the sentence says "today" when the next lesson somehow lands on today', () => {
+  // Invariant 1 means this should never happen on a brand-new curriculum, but
+  // the sentence is written defensively: an existing goal keeps its lesson due
+  // today, and a date printed as "Friday, Sep 11" on Friday Sep 11 reads as a
+  // mistake to the family looking at it.
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 3,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-10',
+  })
+  assert.match(
+    nextLessonSentence({ history: h, nextLesson: 3, nextLessonDate: '2026-09-11', todayYmd: '2026-09-11' }),
+    /Lesson 3 is up today\.$/,
+  )
+})
+
+test('the "Starting fresh" sentence reads exactly as designed', () => {
+  assert.equal(
+    startingFreshSentence({
+      firstLessonDate: '2026-09-14',
+      totalLessons: 120,
+      lessonsPerWeek: 5,
+      finishLabel: 'February 2027',
+      todayYmd: '2026-09-11',
+    }),
+    'Lesson 1 is up Monday, Sep 14. 120 lessons, 5 a week, finishing around February 2027.',
+  )
+})
+
+test('the Preview line names days for a short history and a range for a long one', () => {
+  const long = deriveHistoryFromNextLesson({
+    nextLesson: 11, schoolDays: MON_FRI, lessonsPerDay: 1, throughYmd: '2026-09-11',
+  })
+  assert.equal(
+    previewLessonLine({
+      history: long, nextLesson: 11, nextLessonDate: '2026-09-14',
+      finishLabel: 'Feb 2027', todayYmd: '2026-09-11',
+    }),
+    'Lessons 1 to 10 done (Aug 31 to today). Lesson 11 on Mon, Sep 14. Finishes about Feb 2027.',
+  )
+
+  const weekly = deriveHistoryFromNextLesson({
+    nextLesson: 3, schoolDays: ['Fri'], lessonsPerDay: 1, throughYmd: '2026-09-11',
+  })
+  assert.equal(
+    previewLessonLine({
+      history: weekly, nextLesson: 3, nextLessonDate: '2026-09-18',
+      finishLabel: 'Jan 2027', todayYmd: '2026-09-11',
+    }),
+    'Lessons 1 to 2 done (Sep 4, today). Lesson 3 on Fri, Sep 18. Finishes about Jan 2027.',
+  )
+
+  const fresh = deriveHistoryFromNextLesson({
+    nextLesson: 1, schoolDays: MON_FRI, lessonsPerDay: 1, throughYmd: '2026-09-11',
+  })
+  assert.equal(
+    previewLessonLine({
+      history: fresh, nextLesson: 1, nextLessonDate: '2026-09-14',
+      finishLabel: 'Feb 2027', todayYmd: '2026-09-11',
+    }),
+    'Lesson 1 on Mon, Sep 14. Finishes about Feb 2027.',
+  )
+})
+
+test('formatWeekdayLong and formatWeekdayShort read the string, so no timezone shifts them', () => {
+  assert.equal(formatWeekdayLong('2026-09-14'), 'Monday, Sep 14')
+  assert.equal(formatWeekdayShort('2026-09-18'), 'Fri, Sep 18')
+  assert.equal(formatWeekdayLong('2026-01-01'), 'Thursday, Jan 1')
+})
+
+// ── "You're Rooted" copy (CC #2) ──────────────────────────────────────────
+
+test('joinNames uses the Oxford comma, so three children do not read as two', () => {
+  assert.equal(joinNames(['Zoe']), 'Zoe')
+  assert.equal(joinNames(['Zoe', 'Emma']), 'Zoe and Emma')
+  assert.equal(joinNames(['Zoe', 'Emma', 'Liam']), 'Zoe, Emma, and Liam')
+  assert.equal(joinNames([]), '')
+  assert.equal(joinNames(['  Zoe  ', '']), 'Zoe', 'blank names are dropped, not printed')
+})
+
+test('possessive handles a name that already ends in s', () => {
+  assert.equal(possessive('Zoe'), "Zoe's")
+  assert.equal(possessive('Zoe and Emma'), "Zoe and Emma's")
+  assert.equal(possessive('Chris'), "Chris'")
+  assert.equal(possessive(''), '')
+})
+
+test('the garden line stays honest until the Garden reads school years', () => {
+  // The Garden grows one tree per child for the life of the account, so "two
+  // seeds went into the garden today" would be a small lie on every year after
+  // the first. GARDEN_PER_YEAR is the one line that changes when it is true.
+  assert.equal(gardenLine(1, false), 'Their tree is growing in the Garden.')
+  assert.equal(gardenLine(2, false), 'Their trees are growing in the Garden.')
+  assert.equal(gardenLine(1, true), 'One seed went into the garden today.')
+  assert.equal(gardenLine(2, true), 'Two seeds went into the garden today.')
+  assert.equal(GARDEN_PER_YEAR, false, 'still false until the Garden is per-year')
+})
+
+test('the celebration is skipped for a save that only edited existing curricula', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  assert.match(
+    body,
+    /if \(landedNewGoals\.length > 0\) \{/,
+    'the celebration is gated on rows that actually went in as inserts',
+  )
+  // The old landing survives for an edit.
+  assert.match(body, /router\.push\("\/dashboard\/plan\?saved=1"\)/)
+  // And the funnel is measurable from this screen onward.
+  assert.match(src, /curriculum_setup_celebrated/)
+  assert.match(src, /curriculum_setup_next_step/)
+  // The photo stays the primary action.
+  // Sliced from the component's declaration rather than extractFunctionBody:
+  // the signature's own `props: {` brace is the first one after the match, so
+  // the helper would return the props type instead of the body.
+  const celebration = src.slice(src.indexOf('function SetupCelebration'))
+  const photo = celebration.indexOf('Snap a first-day photo')
+  const garden = celebration.indexOf('See their seeds in the Garden')
+  const resources = celebration.indexOf("Browse this week")
+  assert.ok(photo !== -1 && photo < garden && garden < resources, 'photo, garden, resources, in that order')
+})
+
+test('there is one celebration shell, shared by onboarding and the builder', () => {
+  const shell = loadRepoFile('app/components/RootedCelebration.tsx')
+  assert.match(shell, /bg-\[#3e6643\]/)
+  assert.match(shell, /canvas-confetti/)
+  for (const f of ['app/onboarding/page.tsx', 'app/dashboard/plan/schedule/page.tsx']) {
+    assert.match(
+      loadRepoFile(f),
+      /import RootedCelebration from "@\/app\/components\/RootedCelebration"/,
+      `${f} uses the shared shell`,
+    )
+  }
+  // No second copy of the ground colour or the burst outside the shell.
+  for (const f of ['app/onboarding/page.tsx', 'app/dashboard/plan/schedule/page.tsx']) {
+    const src = stripComments(loadRepoFile(f))
+    assert.ok(!/bg-\[#3e6643\]/.test(src), `${f} does not re-declare the celebration ground`)
+    assert.ok(!/canvas-confetti/.test(src), `${f} does not fire its own confetti`)
+  }
 })

@@ -1993,6 +1993,285 @@ export function projectHistoryBackfill(a: {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * "Where are you with this?": the family types ONE number.
+ *
+ * The builder used to ask for the same fact three ways: a "Start at" field, an
+ * "Already completed" stepper (the same value minus one, also editable), and a
+ * start date, with a green banner estimating "about 9 lessons ago" from a
+ * fourth piece of arithmetic. The founder could not tell the two controls
+ * apart, and the estimate was wrong: its walk ran `while (cursor < today)`, so
+ * it excluded today, the same off-by-one the historical backfill had.
+ *
+ * Now the family says what lesson they are on NEXT, and every date derives from
+ * it. Walk backward from `throughYmd` over the goal's own school days, placing
+ * `nextLesson - 1` lessons at the day's own capacity, and the earliest day the
+ * walk reaches IS the start date.
+ *
+ * The walk INCLUDES `throughYmd`. Today is a school day the family has already
+ * had; excluding it is what put the estimate and the backfill out by one.
+ *
+ * This is the single definition, and it has to stay that way: the derived start
+ * date is written to the row, and the save then projects the backfill FORWARD
+ * from it with `projectHistoryBackfill`. If the two walks ever disagree the
+ * seam re-opens. They are round-tripped against each other in scheduler.test.ts.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface DerivedHistoryArgs {
+  /** The lesson the family says is up NEXT. 1 means nothing is done yet. */
+  nextLesson: number;
+  schoolDays: string[];
+  lessonsPerDay: number;
+  lessonsPerDayOverrides?: Record<string, number> | null;
+  /**
+   * The last day a lesson may be placed on, INCLUSIVE. Today in the builder;
+   * a school year's end date in "Add a past year".
+   */
+  throughYmd: string;
+  vacations?: VacationBlock[];
+}
+
+export interface DerivedHistory {
+  /** One date per lesson, ascending: `dates[0]` is lesson 1. */
+  dates: string[];
+  /** The earliest date placed, i.e. the derived `start_date`. */
+  startDate?: string;
+  /** The latest date placed. */
+  endDate?: string;
+  /** Distinct school days the history spans (not the lesson count). */
+  schoolDayCount: number;
+  /** The last lesson number placed. `nextLesson - 1`, or 0. */
+  lastLesson: number;
+  /**
+   * True when the walk ran out of calendar before it placed every lesson.
+   * Only reachable with an absurd count; the builder's own range guard and
+   * Invariant 21 both catch the realistic cases first.
+   */
+  truncated: boolean;
+}
+
+/** How many days the walk may step back before giving up. ~10 school years. */
+const DERIVE_HISTORY_MAX_DAYS = 3660;
+
+export function deriveHistoryFromNextLesson(a: DerivedHistoryArgs): DerivedHistory {
+  const needed = Math.max(0, Math.floor(a.nextLesson) - 1);
+  if (needed === 0) {
+    return { dates: [], schoolDayCount: 0, lastLesson: 0, truncated: false };
+  }
+  const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(a.schoolDays));
+  const capConfig = {
+    lessons_per_day: a.lessonsPerDay,
+    lessons_per_day_overrides: a.lessonsPerDayOverrides ?? null,
+  };
+
+  // Collect the school days backward from `throughYmd`, newest first, until
+  // enough capacity has been found for every lesson. The last day collected is
+  // the derived start date.
+  const cursor = new Date(`${a.throughYmd}T00:00:00`);
+  const dayCapacity: { date: string; capacity: number }[] = [];
+  let placed = 0;
+  let steps = 0;
+  while (placed < needed && steps < DERIVE_HISTORY_MAX_DAYS) {
+    steps++;
+    if (isSchoolDayIdx(cursor, schoolDaysBool) && !isBreakDay(cursor, a.vacations)) {
+      const capacity = lessonsPerDayForDate(cursor, capConfig);
+      if (capacity > 0) {
+        dayCapacity.push({ date: toDateStr(cursor), capacity });
+        placed += capacity;
+      }
+    }
+    if (placed >= needed) break;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  // Oldest first, which is the order lessons are numbered in. The oldest day
+  // reached is the derived start date: it is the LATEST day the walk can start
+  // from and still fit every lesson on or before `throughYmd`.
+  dayCapacity.reverse();
+
+  // Fill FORWARD from that start date, each day to its full capacity, which is
+  // exactly what `projectHistoryBackfill` does when the save lays the history
+  // down. Anything else breaks the round-trip.
+  //
+  // It used to trim the surplus off the OLDEST day instead, on the reasoning
+  // that a part-used day is where the family began. That is wrong twice over.
+  // The save fills the first day completely, so the two disagreed: on a goal
+  // doing five lessons on Mondays and one on other days, six lessons derived a
+  // start of Sep 7 and showed "Sep 7 through today", while the save wrote all
+  // five of Monday's and one on Tuesday, three days short of what the family
+  // had just read. And the partial day belongs at the END anyway: a family
+  // part-way through today has done today's first lesson, not their first
+  // lesson's leftovers.
+  const dates: string[] = [];
+  for (const d of dayCapacity) {
+    for (let i = 0; i < d.capacity && dates.length < needed; i++) dates.push(d.date);
+  }
+
+  return {
+    dates,
+    startDate: dates[0],
+    endDate: dates[dates.length - 1],
+    schoolDayCount: new Set(dates).size,
+    lastLesson: dates.length,
+    truncated: dates.length < needed,
+  };
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * The sentences under "Where are you with this?", and the Preview lines.
+ *
+ * They live next to the walk, not in the page, because they ARE the
+ * confirmation: the family reads them instead of the three numbers the builder
+ * used to show, so they have to be computed from the same output the save
+ * writes rather than from a parallel estimate. The old green banner was a
+ * separate estimate and it was wrong by a day.
+ *
+ * No em dashes: this is copy a family reads.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+const WEEKDAY_LONG = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+] as const;
+const WEEKDAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function ymdParts(ymdStr: string): { y: number; m: number; d: number } {
+  const [y, m, d] = ymdStr.split("-").map(Number);
+  return { y, m, d };
+}
+
+/** Weekday index 0=Sun..6=Sat, from the string alone (no timezone drift). */
+function weekdayIdx(ymdStr: string): number {
+  const { y, m, d } = ymdParts(ymdStr);
+  return new Date(y, m - 1, d).getDay();
+}
+
+/** "2026-09-14" -> "Monday, Sep 14". */
+export function formatWeekdayLong(ymdStr: string): string {
+  return `${WEEKDAY_LONG[weekdayIdx(ymdStr)]}, ${formatYmdShort(ymdStr)}`;
+}
+
+/** "2026-09-14" -> "Mon, Sep 14". */
+export function formatWeekdayShort(ymdStr: string): string {
+  return `${WEEKDAY_SHORT[weekdayIdx(ymdStr)]}, ${formatYmdShort(ymdStr)}`;
+}
+
+export interface NextLessonSentenceArgs {
+  history: DerivedHistory;
+  /** The lesson the family says is up next. */
+  nextLesson: number;
+  /** The date that lesson lands on, from the projector. */
+  nextLessonDate?: string;
+  /** Today, so the sentence can say "today" instead of repeating the date. */
+  todayYmd: string;
+}
+
+/**
+ * The confirmation under "Already into it".
+ *
+ * "Lessons 1 to 10 will be marked done over your last 10 school days, Aug 31
+ *  through today. Lesson 11 is up Monday, Sep 14."
+ *
+ * The "through today" wording is why the sentence takes todayYmd: the last
+ * history day IS today now (the `<=` fix), and reading "Aug 31 through Sep 11"
+ * when Sep 11 is today makes a family check their calendar.
+ */
+export function nextLessonSentence(a: NextLessonSentenceArgs): string {
+  const { history, nextLesson, todayYmd } = a;
+  const parts: string[] = [];
+
+  if (history.lastLesson > 0 && history.startDate && history.endDate) {
+    const range =
+      history.lastLesson === 1 ? "Lesson 1" : `Lessons 1 to ${history.lastLesson}`;
+    const days =
+      history.schoolDayCount === 1 ? "school day" : "school days";
+    const from = formatYmdShort(history.startDate);
+    const to = history.endDate === todayYmd ? "today" : formatYmdShort(history.endDate);
+    parts.push(
+      `${range} will be marked done over your last ${history.schoolDayCount} ${days}, ${from} through ${to}.`,
+    );
+  }
+
+  if (a.nextLessonDate) {
+    const when =
+      a.nextLessonDate === todayYmd ? "today" : formatWeekdayLong(a.nextLessonDate);
+    parts.push(`Lesson ${nextLesson} is up ${when}.`);
+  }
+
+  return parts.join(" ");
+}
+
+/**
+ * The confirmation under "Starting fresh".
+ *
+ * "Lesson 1 is up Monday, Sep 14. 120 lessons, 5 a week, finishing around
+ *  February 2027."
+ */
+export function startingFreshSentence(a: {
+  firstLessonDate?: string;
+  totalLessons: number | null;
+  lessonsPerWeek: number;
+  finishLabel?: string | null;
+  todayYmd: string;
+}): string {
+  const parts: string[] = [];
+  if (a.firstLessonDate) {
+    const when =
+      a.firstLessonDate === a.todayYmd ? "today" : formatWeekdayLong(a.firstLessonDate);
+    parts.push(`Lesson 1 is up ${when}.`);
+  }
+  if (a.totalLessons && a.totalLessons > 0 && a.lessonsPerWeek > 0) {
+    const pace = `${a.totalLessons} lessons, ${a.lessonsPerWeek} a week`;
+    parts.push(a.finishLabel ? `${pace}, finishing around ${a.finishLabel}.` : `${pace}.`);
+  }
+  return parts.join(" ");
+}
+
+/**
+ * One curriculum's line in the Preview's per-child list.
+ *
+ * "Lessons 1 to 10 done (Aug 31 to today). Lesson 11 on Mon, Sep 14. Finishes
+ *  about Feb 2027."
+ *
+ * A short history names its days instead of a range, because "Lessons 1 to 2
+ * done (Sep 4 to Sep 11)" reads like nine lessons to anyone scanning.
+ */
+export function previewLessonLine(a: {
+  history: DerivedHistory;
+  nextLesson: number;
+  nextLessonDate?: string;
+  finishLabel?: string | null;
+  todayYmd: string;
+}): string {
+  const parts: string[] = [];
+  const { history } = a;
+
+  if (history.lastLesson > 0 && history.startDate && history.endDate) {
+    const range =
+      history.lastLesson === 1 ? "Lesson 1" : `Lessons 1 to ${history.lastLesson}`;
+    const uniqueDays = [...new Set(history.dates)];
+    let when: string;
+    if (uniqueDays.length <= 2) {
+      when = uniqueDays
+        .map((d) => (d === a.todayYmd ? "today" : formatYmdShort(d)))
+        .join(", ");
+    } else {
+      const to =
+        history.endDate === a.todayYmd ? "today" : formatYmdShort(history.endDate);
+      when = `${formatYmdShort(history.startDate)} to ${to}`;
+    }
+    parts.push(`${range} done (${when}).`);
+  }
+
+  if (a.nextLessonDate) {
+    const when =
+      a.nextLessonDate === a.todayYmd ? "today" : formatWeekdayShort(a.nextLessonDate);
+    parts.push(`Lesson ${a.nextLesson} on ${when}.`);
+  }
+
+  if (a.finishLabel) parts.push(`Finishes about ${a.finishLabel}.`);
+  return parts.join(" ");
+}
+
 export interface HistoryBackfillRefusalArgs {
   /** The curriculum's name, as the family typed it. */
   curriculumName: string;

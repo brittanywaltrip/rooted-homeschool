@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -816,6 +816,61 @@ is the backstop, and `current_lesson` is deliberately left unconstrained — a
 CHECK on it would make the recompute trigger throw and block a family from
 completing a lesson.
 
+### "Where are you with this?" — one question, derived dates
+
+**The family types the next lesson number. Dates derive from it. The start date
+is only ever typed when the family chooses to.**
+
+The curriculum row used to ask for the same fact three ways: a **Start at**
+field (11), an **Already completed** stepper (10, the same number minus one and
+also editable) and a **start date**, with a green banner estimating "about 9
+lessons ago" from a fourth piece of arithmetic. The founder, who wrote the app,
+could not say what the two controls did differently. The estimate was wrong as
+well: `estimateLessonsDoneFromPastStart` walked `while (cursor < today)`, so it
+excluded today, the same off-by-one Invariant 21 fixed in the backfill.
+
+There is now one question with two branches:
+
+- **Starting fresh.** `start_at_lesson = 1`, and the date input is the first
+  lesson's day, defaulting past today per Invariant 1.
+- **Already into it.** The family types the lesson they are on NEXT, and that is
+  the only number on the row. `deriveHistoryFromNextLesson` in
+  `app/lib/scheduler.ts` walks BACKWARD from today over the goal's own school
+  days, per-day counts and vacation blocks until `start_at_lesson - 1` lessons
+  are placed. The earliest day it reaches IS the start date, and it is written
+  to `row.start_date` so the save path, the Invariant 21 pre-flight and
+  `planHistoricalBackfill` all see an ordinary start date and need to know
+  nothing about this screen.
+
+**The walk INCLUDES today**, for the same reason the backfill's filter is `<=`.
+
+**One walk, two directions, and they must agree.** The screen derives the start
+date by walking back; the save lays the history down by projecting forward from
+that date with `projectHistoryBackfill`. If the two ever disagreed the family
+would be shown one set of dates and given another, which is the class of bug
+Invariant 21 exists to stop. They are round-tripped against each other in
+`scheduler.test.ts` across school-day patterns, per-day counts and vacations.
+
+**A typed start date is the family's.** "Change the start date" reveals the
+input pre-filled with the derived date. From then on the row carries
+`start_date_is_manual` and the date is never silently re-derived (the Invariant
+12 spirit). If a typed date is too late to hold the stated count, the Invariant
+21 message appears inline on the row with the real numbers and Preview is
+blocked until it fits. Nothing is trimmed.
+
+**The sentence is the confirmation, and it is computed from the same walk the
+save uses**, never from a parallel estimate. `nextLessonSentence`,
+`startingFreshSentence` and `previewLessonLine` live next to the walk in
+`scheduler.ts` and are asserted as exact strings in the tests, because this copy
+drifted once already.
+
+**"Add a past year" deliberately does NOT use this walk.** A family on lesson 11
+did lessons 1 to 10 on the ten school days they just had, so walking back is
+right. A hundred lessons filed against a whole past year belong across that
+year, not bunched into its final hundred school days, so `spreadLessonDates`
+stays. What they share is every rule that should exist once: the name joining
+and the review sentence's shape. See "Adding a past year" below.
+
 ### Invariant 21 — A stated completion count is never silently reduced
 
 The historical backfill writes one row per lesson the family says is done,
@@ -873,6 +928,10 @@ For the same reason the test is on the COUNT accounted for, not on "a slot
 landed past today". The caller caps its projection at a finite window, so a
 long break can swallow every remaining school day and emit nothing past today
 at all, while progress is still being dropped.
+
+The count this invariant is about is the one the family gives through
+"Where are you with this?" (above): they type the next lesson number and every
+date, including the start date, derives from it.
 
 **The refusal happens before the FIRST write, not before the first lesson
 write.** This lived in phase 2 to begin with, which runs after the

@@ -12,6 +12,7 @@ import {
 import { capitalizeName } from "@/lib/utils";
 import { normalizeAffiliateCode } from "@/lib/referrals";
 import { posthog } from "@/lib/posthog";
+import RootedCelebration from "@/app/components/RootedCelebration";
 
 /**
  * Was this signed-in account previously deleted?
@@ -295,8 +296,6 @@ function CelebrationStep({
   goals: string[];
   onNavigate: (href: string) => void;
 }) {
-  const confettiFired = useRef(false);
-
   // Direct the family to their first meaningful action.
   //
   // This used to read "planning takes precedence (covers both/all)", which
@@ -321,38 +320,11 @@ function CelebrationStep({
     ? "/dashboard/plan"
     : "/dashboard?capture=1";
 
-  useEffect(() => {
-    if (confettiFired.current) return;
-    confettiFired.current = true;
-    const timer = setTimeout(async () => {
-      const confetti = (await import("canvas-confetti")).default;
-      confetti({
-        particleCount: 120,
-        spread: 80,
-        origin: { y: 0.4 },
-        colors: ["#ffffff", "#c9a96e", "#e8f0e9", "#5c8a4f", "#a7c4aa"],
-      });
-    }, 300);
-    return () => clearTimeout(timer);
-  }, []);
-
+  // The green ground, the lockup and the confetti live in RootedCelebration
+  // now, shared with the Schedule Builder's "You're Rooted" screen. The words
+  // and the badges below are unchanged.
   return (
-    <div className="min-h-screen bg-[#3e6643] flex flex-col items-center justify-center px-6 py-12">
-      <div className="w-full max-w-sm flex flex-col items-center text-center">
-        <div className="mb-12">
-          <img src="/rooted-logo-white.png" alt="rooted." className="h-28 mx-auto mb-2 opacity-90" />
-          <p className="text-[13px] tracking-[3px] uppercase" style={{ color: "rgba(255,255,255,0.5)" }}>
-            capture. plan. remember.
-          </p>
-        </div>
-
-        <p className="text-[20px] tracking-wide mb-1" style={{ fontFamily: "var(--font-display)", color: "rgba(255,255,255,0.75)" }}>Welcome to Rooted</p>
-        <h2
-          className="text-white font-bold mb-2"
-          style={{ fontFamily: "var(--font-display)", fontSize: "38px", lineHeight: "1.15" }}
-        >
-          {displayName ? `${displayName}!` : "Your family!"}
-        </h2>
+    <RootedCelebration overline="Welcome to Rooted" heading={displayName ? `${displayName}!` : "Your family!"}>
         <p className="text-[18px] mb-12" style={{ color: "rgba(255,255,255,0.65)" }}>Your garden is ready.</p>
 
         {childNames.length > 0 && (
@@ -415,8 +387,7 @@ function CelebrationStep({
             </a>
           </div>
         </div>
-      </div>
-    </div>
+    </RootedCelebration>
   );
 }
 

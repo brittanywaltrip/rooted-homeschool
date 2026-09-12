@@ -7,13 +7,17 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { isPhase2NoOp, computeNextLessonsForGoal, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, computeNextLessonsForGoal, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
+import RootedCelebration from "@/app/components/RootedCelebration";
+import { posthog } from "@/lib/posthog";
+import { GARDEN_PER_YEAR, gardenLine, joinNames, possessive } from "@/app/lib/garden-config";
+import { CURRICULUM_PUBLISHERS, COMMON_SUBJECTS, mergeSuggestions } from "@/app/lib/curriculum-suggestions";
 import {
   readScheduleDraft,
   writeScheduleDraft,
@@ -76,6 +80,18 @@ type Row = {
   // Flips true once the user has confirmed they want to override the
   // pre-fill. Prevents re-prompting on every subsequent +/- click.
   progress_confirmed: boolean;
+  // Did the family TYPE this start date, or did "Where are you with this?"
+  // derive it from the next-lesson number? Derived dates are recomputed as the
+  // schedule changes; a typed one is theirs and is never silently re-derived
+  // (the Invariant 12 spirit: what a person set, the system does not overrule).
+  // Transient row state, never a column.
+  start_date_is_manual: boolean;
+  // The branch the family picked, once they have picked one. Null means "work
+  // it out from the data", which is what a freshly loaded row wants (rule 6).
+  // Without it, choosing a past date under "Starting fresh" inferred its way
+  // straight back to "Already into it" and moved the family off the branch
+  // they had just chosen.
+  where_branch: WhereBranch | null;
   // curriculum_goals.current_lesson as loaded. Null for never-saved rows.
   // The Invariant 21 pre-flight needs to know where progress stands BEFORE
   // phase 1 writes, and start_at_lesson alone cannot say: the pre-fill seeds
@@ -208,6 +224,8 @@ function blankRow(child_id: string, type: RowType): Row {
     start_at_lesson: 1,
     start_at_lesson_initial: null,
     progress_confirmed: false,
+    start_date_is_manual: false,
+    where_branch: null,
     _dbCurrentLesson: null,
     emoji: type === "curriculum" ? "" : type === "coop" ? COOP_DEFAULT_EMOJI : ACTIVITY_DEFAULT_EMOJI,
     readOnly: false,
@@ -283,6 +301,10 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     start_at_lesson: startAtLesson,
     start_at_lesson_initial: startAtLesson,
     progress_confirmed: false,
+    // A stored start date was chosen by someone, so the builder treats it as
+    // theirs until they switch branches.
+    start_date_is_manual: g.start_date != null,
+    where_branch: null,
     _dbCurrentLesson: g.current_lesson ?? 0,
     emoji: "",
     readOnly: false,
@@ -356,6 +378,8 @@ function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
     start_at_lesson: 1,
     start_at_lesson_initial: null,
     progress_confirmed: false,
+    start_date_is_manual: false,
+    where_branch: null,
     _dbCurrentLesson: null,
     emoji: fallbackEmoji,
     readOnly,
@@ -535,33 +559,224 @@ type Pace = {
   warning: boolean;
 };
 
-/**
- * Estimate how many lessons should already be done given a past start date,
- * the row's per-day counts, and the active-days mask. Used to pre-fill
- * start_at_lesson when the user picks a past start date for a curriculum
- * they've already been working through. Returns 0 if the date is null,
- * today, or in the future, or if total_lessons is unset. Capped at
- * total_lessons so we never seed past the end of the curriculum.
+/* ─────────────────────────────────────────────────────────────────────────
+ * One question: "Where are you with this?"
  *
- * active_days / per_day_counts are indexed Mon=0..Sun=6 (per the activities
- * convention). Convert getDay() with `(d.getDay() + 6) % 7` before reading.
+ * `estimateLessonsDoneFromPastStart` lived here. It walked
+ * `while (cursor < today)` to guess how many lessons a past start date implied,
+ * excluding today, so its "about 9 lessons ago" banner was a day short of the
+ * truth. It was the fourth piece of arithmetic on a card that already showed
+ * the same fact three ways: a Start at field, an Already completed stepper
+ * (the same number minus one, also editable) and the start date itself.
+ *
+ * It is deleted. The family types the NEXT lesson number and every date derives
+ * from it through `deriveHistoryFromNextLesson` in scheduler.ts, which is also
+ * what the save projects the backfill from. One walk, no estimate.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Is this new row a replacement for a curriculum the child is already doing?
+ *
+ * A family swapping Math programmes mid-year adds the new one and leaves the
+ * old one running, so the child ends up with two active Maths and Today shows
+ * lessons from both. Asking once, on the row they just added, is cheaper than
+ * a support email in November.
+ *
+ * Matched on child plus subject, trimmed and case-insensitive, because the
+ * subject is the thing that collides. Two different curricula under the same
+ * subject for one child is exactly the shape worth asking about.
  */
-function estimateLessonsDoneFromPastStart(row: Row, today: Date, startDateStr: string | null): number {
-  if (!startDateStr) return 0;
-  const total = row.total_lessons ?? 0;
-  if (total <= 0) return 0;
-  const start = new Date(`${startDateStr}T00:00:00`);
-  if (Number.isNaN(start.getTime()) || start >= today) return 0;
-  let count = 0;
-  const cursor = new Date(start);
-  while (cursor < today) {
-    const idx = (cursor.getDay() + 6) % 7;
-    if (row.active_days[idx] && row.per_day_counts[idx] > 0) {
-      count += row.per_day_counts[idx];
-    }
-    cursor.setDate(cursor.getDate() + 1);
+function findReplacedRow(newRow: Row, rows: readonly Row[]): Row | null {
+  if (newRow.type !== "curriculum" || newRow.dbId) return null;
+  const subject = newRow.subject.trim().toLowerCase();
+  if (subject.length === 0) return null;
+  return (
+    rows.find(
+      (r) =>
+        r.localId !== newRow.localId &&
+        r.type === "curriculum" &&
+        !!r.dbId &&
+        !r.pendingDelete &&
+        r.child_id === newRow.child_id &&
+        r.subject.trim().toLowerCase() === subject,
+    ) ?? null
+  );
+}
+
+/** Which branch of "Where are you with this?" a row is on. */
+type WhereBranch = "fresh" | "already";
+
+/**
+ * Rule: a row is "Already into it" when it carries progress or a past start
+ * date, and "Starting fresh" otherwise. Derived, never stored, so reopening
+ * the builder puts a family back on the branch their data already implies.
+ */
+function whereBranchFor(row: Row, todayStr: string): WhereBranch {
+  // An explicit choice wins. Only when the family has not made one does the
+  // branch come from what the row already holds (rule 6: reopening an existing
+  // curriculum lands on the branch its data implies).
+  if (row.where_branch) return row.where_branch;
+  if (row.start_at_lesson > 1) return "already";
+  if (row.start_date && row.start_date < todayStr) return "already";
+  return "fresh";
+}
+
+/**
+ * Everything the row card and the Preview need to say about one curriculum,
+ * computed once from the shared walk.
+ *
+ * `historyStart` is what gets written to `row.start_date` on the derived
+ * branch, so the sentence a family reads and the dates the save writes come
+ * from the same call.
+ */
+type RowSchedule = {
+  branch: WhereBranch;
+  history: DerivedHistory;
+  nextLesson: number;
+  nextLessonDate?: string;
+  /** The derived start date, or the family's own when they typed one. */
+  effectiveStartDate?: string;
+  /** Non-null when a TYPED start date cannot hold the stated count. */
+  overflow: string | null;
+  finishLabel: string | null;
+  /** What the backward walk says, regardless of any typed date. */
+  derivedStart?: string;
+};
+
+function rowScheduleFor(
+  row: Row,
+  today: Date,
+  todayStr: string,
+  vacations: SchedVacationBlock[],
+): RowSchedule | null {
+  if (row.type !== "curriculum") return null;
+  // Ask the ROW, not compactCurriculumPerDay: that helper falls back to Mon-Fri
+  // when nothing is selected (Invariant 5), so checking its output could never
+  // be false and a row with every day toggled off was quietly given dates on a
+  // week the family had not chosen.
+  if (activeDayIndices(row).length === 0) return null;
+  const { lessons_per_day, lessons_per_day_overrides, school_days } =
+    compactCurriculumPerDay(row);
+
+  const branch = whereBranchFor(row, todayStr);
+  const nextLesson = Math.max(1, row.start_at_lesson);
+
+  // The history the family will actually get.
+  //
+  // On the derived branch that is the backward walk. When they have TYPED a
+  // start date it is the forward projection from that date instead, because
+  // that is what the save writes: reading the walk here said "Sep 7 through
+  // today" while the save dated the same lessons from the typed Aug 1, so the
+  // confirmation contradicted the thing it was confirming.
+  const stated = branch === "fresh" ? 0 : nextLesson - 1;
+  const typedStart = row.start_date_is_manual ? row.start_date : null;
+  const history: DerivedHistory =
+    typedStart && stated > 0
+      ? (() => {
+          const dates = projectHistoryBackfill({
+            goalId: row.dbId ?? row.localId,
+            schoolDays: school_days,
+            lessonsPerDay: lessons_per_day,
+            lessonsPerDayOverrides: lessons_per_day_overrides,
+            statedCompleted: stated,
+            startDate: typedStart,
+            todayYmd: todayStr,
+            vacations,
+          })
+            .map((p) => p.date)
+            .filter((d) => d <= todayStr);
+          return {
+            dates,
+            startDate: dates[0],
+            endDate: dates[dates.length - 1],
+            schoolDayCount: new Set(dates).size,
+            lastLesson: dates.length,
+            truncated: dates.length < stated,
+          };
+        })()
+      : deriveHistoryFromNextLesson({
+          nextLesson: branch === "fresh" ? 1 : nextLesson,
+          schoolDays: school_days,
+          lessonsPerDay: lessons_per_day,
+          lessonsPerDayOverrides: lessons_per_day_overrides,
+          throughYmd: todayStr,
+          vacations,
+        });
+  // The walk's own answer, which is what "Use the date we worked out" restores
+  // and what the "Started earlier than ..." link names.
+  const derivedStart = deriveHistoryFromNextLesson({
+    nextLesson: branch === "fresh" ? 1 : nextLesson,
+    schoolDays: school_days,
+    lessonsPerDay: lessons_per_day,
+    lessonsPerDayOverrides: lessons_per_day_overrides,
+    throughYmd: todayStr,
+    vacations,
+  }).startDate;
+
+  // A typed date is the family's; a derived one follows the walk.
+  const effectiveStartDate =
+    row.start_date_is_manual && row.start_date
+      ? row.start_date
+      : branch === "already"
+        ? derivedStart
+        : (row.start_date ?? undefined);
+
+  // Does a TYPED date still hold the count? Same rule as Invariant 21's
+  // refusal, run inline so the family is told here rather than at save time.
+  let overflow: string | null = null;
+  if (branch === "already" && row.start_date_is_manual && row.start_date && nextLesson > 1) {
+    const projected = projectHistoryBackfill({
+      goalId: row.dbId ?? row.localId,
+      schoolDays: school_days,
+      lessonsPerDay: lessons_per_day,
+      lessonsPerDayOverrides: lessons_per_day_overrides,
+      statedCompleted: nextLesson - 1,
+      startDate: row.start_date,
+      todayYmd: todayStr,
+      vacations,
+    });
+    overflow = historyBackfillRefusal({
+      curriculumName: row.subject.trim() || row.name.trim() || "This curriculum",
+      statedCompleted: nextLesson - 1,
+      startDate: row.start_date,
+      todayYmd: todayStr,
+      projected,
+    });
   }
-  return Math.min(count, total);
+
+  // Where the next lesson actually lands. Invariant 1 for a row being created;
+  // an existing goal keeps today, matching what phase 2 will do.
+  const isNew = !(row.previouslySavedAs === "curriculum_goals" && row.dbId);
+  const startPick = effectiveStartDate
+    ? new Date(`${effectiveStartDate}T00:00:00`)
+    : today;
+  const anchor = isNew ? forwardScheduleStart(startPick, today) : today;
+  const projected = computeNextLessonsForGoal(
+    {
+      id: row.dbId ?? row.localId,
+      school_days,
+      lessons_per_day,
+      lessons_per_day_overrides,
+      current_lesson: branch === "fresh" ? 0 : nextLesson - 1,
+      total_lessons: row.total_lessons ?? 0,
+      start_date: effectiveStartDate,
+    },
+    anchor,
+    3650,
+    vacations,
+  );
+
+  const pace = calcPace(row, today);
+  return {
+    branch,
+    history,
+    nextLesson: branch === "fresh" ? 1 : nextLesson,
+    nextLessonDate: projected[0]?.date,
+    effectiveStartDate,
+    overflow,
+    finishLabel: pace?.finishLabel ?? null,
+    derivedStart,
+  };
 }
 
 function calcPace(row: Row, today: Date): Pace | null {
@@ -918,6 +1133,35 @@ export default function ScheduleBuilderPage() {
   // carry several curricula and the family needs to see every one that has to
   // change, not just the first. Rings the same rows `nudgedLocalId` does.
   const [refusedLocalIds, setRefusedLocalIds] = useState<Set<string>>(new Set());
+  // Breaks the family has already entered. "Where are you with this?" derives
+  // dates by walking their real school days, so a week off has to move the
+  // derived start date the same way it moves the saved schedule. Loaded with
+  // the rest of the builder; the save reads its own copy at save time.
+  const [vacations, setVacations] = useState<SchedVacationBlock[]>([]);
+  // What this family has typed before, newest first, for the two suggestion
+  // lists. Read once with the rest of the builder; no new table.
+  const [ownCurriculumNames, setOwnCurriculumNames] = useState<string[]>([]);
+  const [ownSubjects, setOwnSubjects] = useState<string[]>([]);
+  // Set only when a save CREATED curricula. An edit keeps the old
+  // `?saved=1` landing: this screen is the moment a family finishes setting
+  // up, not every tweak, and celebrating a tweak cheapens it.
+  // Rows where the family has answered "Keep both" to the replace prompt.
+  // Local and transient: the question is about this editing session.
+  const [keepBothLocalIds, setKeepBothLocalIds] = useState<Set<string>>(new Set());
+  const [celebration, setCelebration] = useState<{
+    childNames: string[];
+    subjects: string[];
+    firstLessonDate: string | null;
+    curriculaCount: number;
+  } | null>(null);
+  const curriculumSuggestions = useMemo(
+    () => mergeSuggestions(ownCurriculumNames, CURRICULUM_PUBLISHERS),
+    [ownCurriculumNames],
+  );
+  const subjectSuggestions = useMemo(
+    () => mergeSuggestions(ownSubjects, COMMON_SUBJECTS),
+    [ownSubjects],
+  );
   useEffect(() => {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
@@ -945,7 +1189,7 @@ export default function ScheduleBuilderPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [kidsResp, goalsResp, activitiesResp] = await Promise.all([
+        const [kidsResp, goalsResp, activitiesResp, vacationsResp, pastNamesResp] = await Promise.all([
           supabase
             .from("children")
             .select("id, name, color, sort_order")
@@ -967,6 +1211,18 @@ export default function ScheduleBuilderPage() {
             )
             .eq("user_id", effectiveUserId)
             .eq("is_active", true),
+          supabase
+            .from("vacation_blocks")
+            .select("start_date, end_date")
+            .eq("user_id", effectiveUserId),
+          // Every name this family has used, archived years included, newest
+          // first. Their own words beat any list we could ship.
+          supabase
+            .from("curriculum_goals")
+            .select("curriculum_name, subject_label, created_at")
+            .eq("user_id", effectiveUserId)
+            .order("created_at", { ascending: false })
+            .limit(500),
         ]);
         if (cancelled) return;
 
@@ -977,6 +1233,26 @@ export default function ScheduleBuilderPage() {
         const kidRows = (kidsResp.data ?? []) as Child[];
         const goalRows = (goalsResp.data ?? []) as CurriculumGoalDbRow[];
         const actRows = (activitiesResp.data ?? []) as ActivityDbRow[];
+        // Non-fatal: a failed read means the derived dates ignore breaks, which
+        // is the behaviour the builder had before it derived anything at all.
+        // Not worth refusing to open the page over.
+        if (!vacationsResp.error) {
+          setVacations((vacationsResp.data ?? []) as SchedVacationBlock[]);
+        }
+        // Non-fatal for the same reason: without it the shared list still
+        // suggests, it just does not know this family yet.
+        if (!pastNamesResp.error) {
+          const past = (pastNamesResp.data ?? []) as {
+            curriculum_name: string | null;
+            subject_label: string | null;
+          }[];
+          setOwnCurriculumNames(
+            past.map((g) => g.curriculum_name ?? "").filter((v) => v.trim().length > 0),
+          );
+          setOwnSubjects(
+            past.map((g) => g.subject_label ?? "").filter((v) => v.trim().length > 0),
+          );
+        }
 
         const builtRows: Row[] = [];
         for (const g of goalRows) {
@@ -1303,6 +1579,60 @@ export default function ScheduleBuilderPage() {
     }
   }
 
+  // One schedule computation per curriculum row per change, shared by the
+  // derived-date sync, the preview-blocked check and every row card.
+  //
+  // rowScheduleFor runs computeNextLessonsForGoal over the whole remaining
+  // curriculum and only `projected[0]` is ever used, so doing it three times
+  // over on every keystroke in a name field is exactly the shape the
+  // "Schedule Builder speed for big families" work went after.
+  const schedByLocalId = useMemo(() => {
+    const out = new Map<string, RowSchedule>();
+    for (const r of rows) {
+      if (r.type !== "curriculum" || r.pendingDelete) continue;
+      const sched = rowScheduleFor(r, today, todayStr, vacations);
+      if (sched) out.set(r.localId, sched);
+    }
+    return out;
+  }, [rows, today, todayStr, vacations]);
+
+  // ── The derived start date is written back onto the row ──────────────────
+  //
+  // "Where are you with this?" shows a date the family never typed, and the
+  // save path has to see it as an ordinary `start_date`: the Invariant 21
+  // pre-flight, `planHistoricalBackfill` and the projector all read that field
+  // and none of them knows this screen exists. Syncing it here rather than
+  // threading a second notion of "start" through the save is what keeps the
+  // date the family read and the date the save writes the same one.
+  //
+  // Converges because it only writes when the value actually differs, and a
+  // manual date is never touched.
+  useEffect(() => {
+    const patches = new Map<string, string | null>();
+    for (const r of rows) {
+      if (r.type !== "curriculum" || r.pendingDelete || r.readOnly) continue;
+      if (r.start_date_is_manual) continue;
+      // ONLY rows this save is claiming something about. Stamping a derived
+      // date on an untouched existing goal would be a change the family never
+      // asked for, and a loud one: a goal loaded with current_lesson 30 and no
+      // start date would gain one, which reads as a schedule-field change, so
+      // scheduleFieldsChangedForRow RELEASES ITS PINS (the exact regression
+      // Invariant 12's phase-2 exception exists to stop) and
+      // invariant21ClaimChanged pulls it back into the pre-flight that CC #1c
+      // deliberately scoped it out of. Same predicate, so the three cannot
+      // disagree about what "touched" means.
+      if (!invariant21ClaimChanged(r)) continue;
+      const sched = schedByLocalId.get(r.localId);
+      if (!sched) continue;
+      const derived = sched.branch === "already" ? (sched.history.startDate ?? null) : r.start_date;
+      if (derived !== r.start_date) patches.set(r.localId, derived);
+    }
+    if (patches.size === 0) return;
+    setRows((prev) =>
+      prev.map((r) => (patches.has(r.localId) ? { ...r, start_date: patches.get(r.localId)! } : r)),
+    );
+  }, [rows, schedByLocalId]);
+
   // ── Validation ───────────────────────────────────────────────────────────
   const allValid = useMemo(() => rows.every(rowIsValid), [rows]);
   const anyEditableRow = useMemo(
@@ -1318,6 +1648,14 @@ export default function ScheduleBuilderPage() {
   // the !anyEditableRow case. Null when the button is enabled.
   const previewBlockedReason = useMemo<string | null>(() => {
     if (!anyEditableRow) return "Add a curriculum above to continue.";
+    // A start date the family typed that cannot hold the count they stated is
+    // the CC #1 overflow, caught here so they are told on the row rather than
+    // at save time. Never trimmed silently.
+    for (const r of rows) {
+      if (r.type !== "curriculum" || r.pendingDelete || r.readOnly) continue;
+      const sched = schedByLocalId.get(r.localId);
+      if (sched?.overflow) return sched.overflow;
+    }
     if (allValid) return null;
     const issues: string[] = [];
     for (const r of rows) {
@@ -1329,7 +1667,7 @@ export default function ScheduleBuilderPage() {
     // rows she needs to go fix.
     if (issues.length <= 3) return issues.join(" ");
     return `${issues.slice(0, 3).join(" ")} And ${issues.length - 3} more to finish.`;
-  }, [rows, allValid, anyEditableRow]);
+  }, [rows, allValid, anyEditableRow, schedByLocalId]);
 
   // ── A tap on "Preview schedule" that cannot proceed ──────────────────────
   //
@@ -3138,6 +3476,42 @@ export default function ScheduleBuilderPage() {
       // protect. Leaving it would restore now-saved rows on the next visit
       // and show the "we saved your draft" notice for work already done.
       clearScheduleDraft(effectiveUserId);
+
+      // ── "You're Rooted" ───────────────────────────────────────────────────
+      // A successful save used to push straight to Plan with a banner: no
+      // confirmation of what had just been set up and no next step, at the one
+      // moment a family has finished the hardest screen in the app. Families
+      // who capture a memory in their first session convert at 11% and
+      // schedule-only families at 0%, so this screen exists to offer that.
+      //
+      // Only for a save that CREATED something. `landedNewGoals` is already
+      // the list of rows that went in as inserts.
+      if (landedNewGoals.length > 0) {
+        const newLocalIds = new Set(landedNewGoals.map((l) => l.localId));
+        const createdRows = rows.filter((r) => newLocalIds.has(r.localId));
+        const childNames = children
+          .filter((c) => createdRows.some((r) => r.child_id === c.id))
+          .map((c) => c.name);
+        const subjects: string[] = [];
+        for (const r of createdRows) {
+          const label = r.subject.trim() || r.name.trim();
+          if (label && !subjects.some((x) => x.toLowerCase() === label.toLowerCase())) {
+            subjects.push(label);
+          }
+        }
+        // The earliest forward-scheduled lesson across everything just saved.
+        const firstDates = createdRows
+          .map((r) => rowScheduleFor(r, today, todayStr, vacations)?.nextLessonDate)
+          .filter((d): d is string => !!d)
+          .sort();
+        setCelebration({
+          childNames,
+          subjects,
+          firstLessonDate: firstDates[0] ?? null,
+          curriculaCount: createdRows.length,
+        });
+        return;
+      }
       // `?saved=1` tells the Plan page to force one fresh data load on arrival.
       // The schedule + lessons are committed above (awaited), but the Plan
       // page's first load on this soft navigation could render before the
@@ -3308,6 +3682,40 @@ export default function ScheduleBuilderPage() {
     }
   }
 
+  /**
+   * Fill a blank row from another child's curriculum.
+   *
+   * Everything about WHAT is being studied copies: subject, publisher, days,
+   * per-day counts, total lessons, minutes. Nothing about WHERE THIS CHILD IS
+   * copies, because two children are rarely on the same lesson and a silently
+   * inherited starting position is exactly the wrong thing to guess.
+   */
+  function copyRowSetup(targetLocalId: string, sourceLocalId: string) {
+    const source = rows.find((r) => r.localId === sourceLocalId);
+    if (!source) return;
+    setRows((prev) =>
+      prev.map((r) =>
+        r.localId === targetLocalId
+          ? {
+              ...r,
+              type: "curriculum" as const,
+              subject: source.subject,
+              name: source.name,
+              active_days: source.active_days.slice(),
+              per_day_counts: source.per_day_counts.slice(),
+              total_lessons: source.total_lessons,
+              minutes_per_lesson: source.minutes_per_lesson,
+              // "Where are you with this?" resets to the question.
+              start_at_lesson: 1,
+              start_date: null,
+              start_date_is_manual: false,
+            }
+          : r,
+      ),
+    );
+    setDirty(true);
+  }
+
   async function handleRowMarkFinished(localId: string) {
     if (!effectiveUserId) return;
     const row = rows.find((r) => r.localId === localId);
@@ -3353,6 +3761,21 @@ export default function ScheduleBuilderPage() {
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
+  if (celebration) {
+    return (
+      <SetupCelebration
+        childNames={celebration.childNames}
+        subjects={celebration.subjects}
+        firstLessonDate={celebration.firstLessonDate}
+        curriculaCount={celebration.curriculaCount}
+        onNavigate={(href, choice) => {
+          posthog.capture("curriculum_setup_next_step", { choice });
+          router.push(href);
+        }}
+      />
+    );
+  }
+
   if (loading) {
     return (
       <>
@@ -3447,6 +3870,22 @@ export default function ScheduleBuilderPage() {
 
         {view === "builder" && (
           <BuilderView
+            vacations={vacations}
+            schedByLocalId={schedByLocalId}
+            subjectSuggestions={subjectSuggestions}
+            curriculumSuggestions={curriculumSuggestions}
+            keepBothLocalIds={keepBothLocalIds}
+            childNameById={(id) => children.find((c) => c.id === id)?.name ?? "Another child"}
+            onCopyFrom={copyRowSetup}
+            onMarkRowFinished={handleRowMarkFinished}
+            onKeepBoth={(localId) =>
+              setKeepBothLocalIds((prev) => {
+                if (prev.has(localId)) return prev;
+                const next = new Set(prev);
+                next.add(localId);
+                return next;
+              })
+            }
             children={children}
             rows={rows}
             today={today}
@@ -3484,7 +3923,17 @@ export default function ScheduleBuilderPage() {
             rows={rows}
             today={today}
             todayStr={todayStr}
+            vacations={vacations}
+            schedByLocalId={schedByLocalId}
             onBackToEdit={() => setView("builder")}
+            onFixRow={(localId) => {
+              // "Not right?" goes back to the row itself, ringed and with the
+              // cursor in it. Both pieces of that already exist for the deep
+              // link from the Plan panel and the blocked-preview nudge.
+              setView("builder");
+              setNudgedLocalId(localId);
+              revealRow(localId, { focus: true });
+            }}
           />
         )}
 
@@ -3582,6 +4031,91 @@ export default function ScheduleBuilderPage() {
 // look identical whether they're saved or not. The draft autosave means
 // the work is safe either way, so the wording promises "kept on this
 // device", not "saved", which would be a lie about the schedule itself.
+/**
+ * The screen a family lands on when their year is planned.
+ *
+ * It replaces `router.push("/dashboard/plan?saved=1")`, which dropped them on
+ * the Plan page with a banner: no confirmation of what they had just set up and
+ * no next step, at the end of the hardest screen in the app.
+ *
+ * The three actions are deliberately ordered. Families who capture a memory in
+ * their first session convert at 11%; schedule-only families convert at 0%. So
+ * the photo is the primary button and stays the primary button.
+ */
+function SetupCelebration(props: {
+  childNames: string[];
+  subjects: string[];
+  firstLessonDate: string | null;
+  curriculaCount: number;
+  onNavigate: (href: string, choice: string) => void;
+}) {
+  useEffect(() => {
+    posthog.capture("curriculum_setup_celebrated", {
+      children: props.childNames.length,
+      curricula: props.curriculaCount,
+      first_lesson_date: props.firstLessonDate,
+    });
+    // Fires once for the screen, not once per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const names = joinNames(props.childNames);
+  const whose = possessive(names) || "Your family's";
+  const subjectList = joinNames(props.subjects);
+  const when = props.firstLessonDate ? formatWeekdayLong(props.firstLessonDate) : null;
+
+  return (
+    <RootedCelebration heading="You're Rooted.">
+      <p className="text-[17px] leading-relaxed mb-8" style={{ color: "rgba(255,255,255,0.8)" }}>
+        {whose} year is planned.
+        {subjectList ? ` ${subjectList}` : ""}
+        {when ? `, starting ${when}.` : "."}
+      </p>
+
+      <p className="text-[15px] leading-relaxed mb-10" style={{ color: "rgba(255,255,255,0.6)" }}>
+        {gardenLine(props.childNames.length, GARDEN_PER_YEAR)} Every lesson they finish, every photo
+        you snap, every book you read together is a leaf. By spring you&apos;ll look back and see the
+        whole tree.
+      </p>
+
+      <p
+        className="text-[13px] tracking-[2px] uppercase mb-4"
+        style={{ color: "rgba(255,255,255,0.45)" }}
+      >
+        Here&apos;s what to do with today
+      </p>
+
+      <button
+        onClick={() => props.onNavigate("/dashboard?capture=1", "photo")}
+        className="w-full bg-white text-[#2D5A3D] font-semibold rounded-2xl text-[17px] py-[18px] px-8 shadow-lg transition-all hover:opacity-90 active:scale-[0.98]"
+      >
+        Snap a first-day photo
+      </button>
+
+      <button
+        onClick={() => props.onNavigate("/dashboard/garden", "garden")}
+        className="mt-3 w-full rounded-2xl border border-white/25 text-white text-[15px] py-[14px] px-8 transition-colors hover:bg-white/10"
+      >
+        See their seeds in the Garden
+      </button>
+
+      <button
+        onClick={() => props.onNavigate("/dashboard/resources", "resources")}
+        className="mt-3 w-full rounded-2xl border border-white/25 text-white text-[15px] py-[14px] px-8 transition-colors hover:bg-white/10"
+      >
+        Browse this week&apos;s Resources
+      </button>
+
+      <button
+        onClick={() => props.onNavigate("/dashboard", "today")}
+        className="mt-6 text-[15px] text-white/55 hover:text-white/80 transition-colors"
+      >
+        or Go to Today
+      </button>
+    </RootedCelebration>
+  );
+}
+
 function UnsavedIndicator() {
   return (
     <span
@@ -3601,6 +4135,15 @@ function UnsavedIndicator() {
 // ─── Builder view ──────────────────────────────────────────────────────────
 
 function BuilderView(props: {
+  vacations: SchedVacationBlock[];
+  schedByLocalId: Map<string, RowSchedule>;
+  subjectSuggestions: string[];
+  curriculumSuggestions: string[];
+  keepBothLocalIds: Set<string>;
+  childNameById: (id: string) => string;
+  onMarkRowFinished: (localId: string) => Promise<void>;
+  onKeepBoth: (localId: string) => void;
+  onCopyFrom: (targetLocalId: string, sourceLocalId: string) => void;
   children: Child[];
   rows: Row[];
   today: Date;
@@ -3687,6 +4230,37 @@ function BuilderView(props: {
                   key={row.localId}
                   row={row}
                   today={props.today}
+                  todayStr={props.todayStr}
+                  vacations={props.vacations}
+                  sched={props.schedByLocalId.get(row.localId) ?? null}
+                  subjectSuggestions={props.subjectSuggestions}
+                  curriculumSuggestions={props.curriculumSuggestions}
+                  replacedRow={
+                    props.keepBothLocalIds.has(row.localId)
+                      ? null
+                      : findReplacedRow(row, props.rows)
+                  }
+                  replacedChildName={child.name}
+                  onMarkReplacedFinished={async () => {
+                    const target = findReplacedRow(row, props.rows);
+                    if (target) await props.onMarkRowFinished(target.localId);
+                  }}
+                  onKeepBoth={() => props.onKeepBoth(row.localId)}
+                  copyableRows={
+                    // Only a row the family has not started filling in: once
+                    // they have typed a subject the offer is noise.
+                    row.type === "curriculum" && !row.dbId && row.subject.trim() === "" && row.name.trim() === ""
+                      ? props.rows.filter(
+                          (r) =>
+                            r.type === "curriculum" &&
+                            !r.pendingDelete &&
+                            r.child_id !== row.child_id &&
+                            (r.subject.trim() !== "" || r.name.trim() !== ""),
+                        )
+                      : []
+                  }
+                  childNameById={props.childNameById}
+                  onCopyFrom={(sourceLocalId) => props.onCopyFrom(row.localId, sourceLocalId)}
                   onPatchRow={props.onPatchRow}
                   onDeleteRow={props.onDeleteRow}
                   onCycleType={props.onCycleType}
@@ -3782,6 +4356,21 @@ function BuilderView(props: {
 function RowCard(props: {
   row: Row;
   today: Date;
+  todayStr: string;
+  vacations: SchedVacationBlock[];
+  /** Computed once per change in the page, not per row render. */
+  sched: RowSchedule | null;
+  subjectSuggestions: string[];
+  curriculumSuggestions: string[];
+  /** The active curriculum this new row looks like a replacement for. */
+  replacedRow: Row | null;
+  replacedChildName: string;
+  onMarkReplacedFinished: () => Promise<void>;
+  onKeepBoth: () => void;
+  /** Other children's curricula this blank row could be filled from. */
+  copyableRows: Row[];
+  childNameById: (id: string) => string;
+  onCopyFrom: (sourceLocalId: string) => void;
   onPatchRow: (localId: string, patch: Partial<Row>) => void;
   onDeleteRow: (localId: string) => void;
   onCycleType: (localId: string) => void;
@@ -3810,27 +4399,92 @@ function RowCard(props: {
   // seed prompts a confirm — diverging means the queue's "I've already done
   // N lessons" count is about to be rewritten. Subsequent edits in the same
   // session skip the prompt (progress_confirmed flips true on yes).
-  function changeStartAtLesson(rawValue: number) {
+  // `extra` is optional rather than defaulted in the signature: a `= {}` there
+  // puts a brace before the body that the source-level tests' brace scanner
+  // reads as the function body.
+  function applyStartAtLesson(rawValue: number, extraPatch?: Partial<Row>): boolean {
+    const extra: Partial<Row> = extraPatch ?? {};
     // Clamped against total_lessons, not just against 1. The field carried
     // min={1} and no max, so "start at 80" on a 1-lesson curriculum was
     // accepted and generated no lessons at all.
-    const clamped = clampStartAtLesson(rawValue, row.total_lessons ?? 0);
-    if (clamped === row.start_at_lesson) return;
+    //
+    // But NOT clamped when total_lessons is still blank. clampStartAtLesson
+    // returns 1 for an unknown total, which silently forced every answer back
+    // to 1 and made "Already into it" unreachable until the family had filled
+    // in a field further up the card, with nothing on screen saying so.
+    const clamped =
+      row.total_lessons && row.total_lessons > 0
+        ? clampStartAtLesson(rawValue, row.total_lessons)
+        : Math.max(1, Math.floor(Number.isFinite(rawValue) ? rawValue : 1));
+    if (clamped === row.start_at_lesson && Object.keys(extra).length === 0) return false;
     const hasSeed = row.start_at_lesson_initial !== null;
     const needsConfirm =
-      hasSeed && !row.progress_confirmed && clamped !== row.start_at_lesson_initial;
+      hasSeed &&
+      !row.progress_confirmed &&
+      clamped !== row.start_at_lesson_initial &&
+      clamped !== row.start_at_lesson;
     if (needsConfirm) {
       const ok = window.confirm(
         "Changing this will reset your progress tracking, are you sure?",
       );
-      if (!ok) return;
+      // Nothing is written on a decline, including the caller's own patch.
+      if (!ok) return false;
       props.onPatchRow(row.localId, {
         start_at_lesson: clamped,
         progress_confirmed: true,
+        ...extra,
       });
+      return true;
+    }
+    props.onPatchRow(row.localId, { start_at_lesson: clamped, ...extra });
+    return true;
+  }
+
+  function changeStartAtLesson(rawValue: number) {
+    applyStartAtLesson(rawValue);
+  }
+
+  // ── "Where are you with this?" ───────────────────────────────────────────
+  // One computation feeds the radio state, both sentences, the derived start
+  // date and the inline overflow message, so none of them can disagree.
+  const sched = props.sched;
+
+  const alreadySentence =
+    sched && sched.branch === "already"
+      ? nextLessonSentence({
+          history: sched.history,
+          nextLesson: sched.nextLesson,
+          nextLessonDate: sched.nextLessonDate,
+          todayYmd: props.todayStr,
+        })
+      : "";
+
+  const freshSentence =
+    sched && sched.branch === "fresh"
+      ? startingFreshSentence({
+          firstLessonDate: sched.nextLessonDate,
+          totalLessons: row.total_lessons,
+          lessonsPerWeek: lessonsPerWeek(row),
+          finishLabel: sched.finishLabel,
+          todayYmd: props.todayStr,
+        })
+      : "";
+
+  /**
+   * Switching branches rewrites the fact the branch is about, so it clears the
+   * other branch's answer rather than leaving a stale one behind. "Starting
+   * fresh" means nothing is done: next lesson 1, and the date goes back to
+   * being the first lesson's day rather than a past start.
+   */
+  function setBranch(next: WhereBranch) {
+    if (!sched || sched.branch === next) return;
+    // One patch, so a declined "this will reset your progress tracking" confirm
+    // leaves the row exactly as it was. Splitting it meant declining still
+    // wiped the typed start date and left the radio where it started.
+    const seed = next === "fresh" ? 1 : Math.max(2, row.start_at_lesson);
+    if (!applyStartAtLesson(seed, { where_branch: next, start_date: null, start_date_is_manual: false })) {
       return;
     }
-    props.onPatchRow(row.localId, { start_at_lesson: clamped });
   }
 
   return (
@@ -3914,31 +4568,95 @@ function RowCard(props: {
         </div>
       ) : null}
 
-      {/* Name */}
-      <input
-        data-row-first-input=""
-        type="text"
-        value={row.name}
-        onChange={(e) => props.onPatchRow(row.localId, { name: e.target.value })}
-        disabled={isReadOnly}
-        placeholder={
-          row.type === "curriculum"
-            ? "e.g. The Good and the Beautiful Language Arts Level 3"
-            : row.type === "coop"
-            ? "e.g. Tuesday co-op"
-            : "e.g. Piano lessons"
-        }
-        className="w-full px-3 py-2 rounded-xl border border-[#e8e2d9] bg-white text-sm placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] disabled:bg-[#f8f7f4]"
-      />
+      {/* ── Copy from another child ─────────────────────────────────────────
+          A family setting up a second child re-types the same subject, the
+          same publisher, the same days and the same counts. The chip fills all
+          of that. It deliberately does NOT copy "Where are you with this?":
+          two children are rarely on the same lesson, so that question is asked
+          again for this child. */}
+      {props.copyableRows.length > 0 ? (
+        <div className="mb-3 flex items-center gap-1.5 flex-wrap">
+          <span className="text-[11px] text-[#7a6f65]">Copy from</span>
+          {props.copyableRows.map((r) => (
+            <button
+              key={r.localId}
+              type="button"
+              onClick={() => props.onCopyFrom(r.localId)}
+              className="text-[11px] px-2 py-1 rounded-full border border-[#c5dbc9] bg-white text-[#2D5A3D] hover:bg-[#f0f7f2]"
+            >
+              {props.childNameById(r.child_id)}&apos;s {r.subject.trim() || r.name.trim()}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
-      {/* Subject — curriculum only */}
-      {isCurriculum && (
+      {/* ── Subject first, curriculum second ───────────────────────────────
+          These were the other way round, with the curriculum field leading and
+          carrying the placeholder "e.g. The Good and the Beautiful Language
+          Arts Level 3". Families could not tell the boxes apart: 22 of them
+          typed "math" into the curriculum field and 33 typed the publisher
+          name with no subject at all, so the Plan calendar printed the same
+          words for every lesson of their day.
+
+          Subject is what a family calls the thing out loud ("time for Math"),
+          so it leads, in the larger field. The publisher is the smaller one
+          under it, and both suggest from what this family has typed before. */}
+      {isCurriculum ? (
+        <>
+          <label
+            htmlFor={`subject-${row.localId}`}
+            className="block text-[10px] font-medium uppercase tracking-wide text-[#7a6f65] mb-1"
+          >
+            Subject
+          </label>
+          <input
+            id={`subject-${row.localId}`}
+            data-row-first-input=""
+            type="text"
+            list={`subjects-${row.localId}`}
+            value={row.subject}
+            onChange={(e) => props.onPatchRow(row.localId, { subject: e.target.value })}
+            disabled={isReadOnly}
+            placeholder="e.g. Math"
+            className="w-full px-3 py-2 rounded-xl border border-[#e8e2d9] bg-white text-sm placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] disabled:bg-[#f8f7f4]"
+          />
+          <datalist id={`subjects-${row.localId}`}>
+            {props.subjectSuggestions.map((v) => (
+              <option key={v} value={v} />
+            ))}
+          </datalist>
+
+          <label
+            htmlFor={`curriculum-${row.localId}`}
+            className="block text-[10px] font-medium uppercase tracking-wide text-[#7a6f65] mt-2 mb-1"
+          >
+            Curriculum
+          </label>
+          <input
+            id={`curriculum-${row.localId}`}
+            type="text"
+            list={`curricula-${row.localId}`}
+            value={row.name}
+            onChange={(e) => props.onPatchRow(row.localId, { name: e.target.value })}
+            disabled={isReadOnly}
+            placeholder="Who makes it? e.g. The Good and the Beautiful"
+            className="w-full px-3 py-1.5 rounded-xl border border-[#e8e2d9] bg-white text-xs placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] disabled:bg-[#f8f7f4]"
+          />
+          <datalist id={`curricula-${row.localId}`}>
+            {props.curriculumSuggestions.map((v) => (
+              <option key={v} value={v} />
+            ))}
+          </datalist>
+        </>
+      ) : (
         <input
+          data-row-first-input=""
           type="text"
-          value={row.subject}
-          onChange={(e) => props.onPatchRow(row.localId, { subject: e.target.value })}
-          placeholder="Subject (e.g. Math)"
-          className="mt-2 w-full px-3 py-1.5 rounded-xl border border-[#e8e2d9] bg-white text-xs placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63]"
+          value={row.name}
+          onChange={(e) => props.onPatchRow(row.localId, { name: e.target.value })}
+          disabled={isReadOnly}
+          placeholder={row.type === "coop" ? "e.g. Tuesday co-op" : "e.g. Piano lessons"}
+          className="w-full px-3 py-2 rounded-xl border border-[#e8e2d9] bg-white text-sm placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] disabled:bg-[#f8f7f4]"
         />
       )}
 
@@ -4050,49 +4768,33 @@ function RowCard(props: {
         </div>
       )}
 
-      {/* Number / date inputs */}
-      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+      {/* Total lessons / minutes. "Start at" and "Start date" are gone: both
+          asked for a fact the family now gives once, below. */}
+      <div className="mt-3 grid grid-cols-2 gap-2">
         {isCurriculum ? (
-          <>
-            <FieldInput
-              label="Start at"
-              value={row.start_at_lesson}
-              onChange={(v) => changeStartAtLesson(Number(v) || 1)}
-              type="number"
-              min={1}
-              // total_lessons + 1 means "finished all of them", the same
-              // ceiling the +/- stepper below already uses.
-              max={row.total_lessons ? row.total_lessons + 1 : undefined}
-              disabled={isReadOnly}
-            />
-            {/* Required, and marked as such: a blank total lesson count is the
-                single most common reason Preview stays disabled, and until now
-                the field looked as optional as every other one on the card. */}
-            <FieldInput
-              label="Total lessons"
-              value={row.total_lessons ?? ""}
-              onChange={(v) => {
-                const n = Number(v);
-                props.onPatchRow(row.localId, {
-                  total_lessons: Number.isFinite(n) && n > 0 ? Math.floor(n) : null,
-                });
-              }}
-              type="number"
-              min={1}
-              placeholder="e.g. 120"
-              disabled={isReadOnly}
-              required
-              invalid={
-                row.name.trim().length > 0 &&
-                !(row.total_lessons != null && row.total_lessons > 0)
-              }
-            />
-          </>
+          /* Required, and marked as such: a blank total lesson count is the
+             single most common reason Preview stays disabled. */
+          <FieldInput
+            label="Total lessons"
+            value={row.total_lessons ?? ""}
+            onChange={(v) => {
+              const n = Number(v);
+              props.onPatchRow(row.localId, {
+                total_lessons: Number.isFinite(n) && n > 0 ? Math.floor(n) : null,
+              });
+            }}
+            type="number"
+            min={1}
+            placeholder="e.g. 120"
+            disabled={isReadOnly}
+            required
+            invalid={
+              row.name.trim().length > 0 &&
+              !(row.total_lessons != null && row.total_lessons > 0)
+            }
+          />
         ) : (
-          <>
-            <FieldDash label="Start at" />
-            <FieldDash label="Total lessons" />
-          </>
+          <FieldDash label="Total lessons" />
         )}
         <FieldInput
           label="Min/lesson"
@@ -4108,79 +4810,176 @@ function RowCard(props: {
           placeholder="30"
           disabled={isReadOnly}
         />
-        {isCurriculum ? (
-          <FieldInput
-            label="Start date"
-            value={row.start_date ?? ""}
-            onChange={(v) => {
-              const next = v || null;
-              const patch: Partial<Row> = { start_date: next };
-              // Auto-pre-fill start_at_lesson when the user picks a past start
-              // date and hasn't manually bumped the field yet (still default 1).
-              // Once they engage with the stepper, leave their value alone even
-              // on subsequent date changes.
-              if (next && row.start_at_lesson === 1) {
-                const candidate = { ...row, start_date: next };
-                const estimated = estimateLessonsDoneFromPastStart(candidate, props.today, next);
-                if (estimated > 0) patch.start_at_lesson = estimated + 1;
-              }
-              props.onPatchRow(row.localId, patch);
-            }}
-            type="date"
-            placeholder="Today (already started)"
-            disabled={isReadOnly}
-          />
-        ) : (
-          <FieldDash label="Start date" />
-        )}
       </div>
 
-      {/* Past-start backfill banner — visible when start_date is in the past.
-          Stepper writes start_at_lesson directly; recomputeCurrentLesson on
-          save derives current_lesson from it (max(start_at_lesson - 1, ...)),
-          so no separate field is needed. Banner hides for today/future dates. */}
-      {isCurriculum && row.start_date && row.start_date < ymd(props.today) && (row.total_lessons ?? 0) > 0 ? (() => {
-        const estimated = estimateLessonsDoneFromPastStart(row, props.today, row.start_date);
-        const done = Math.max(0, row.start_at_lesson - 1);
-        const max = row.total_lessons ?? 0;
-        const dateLabel = new Date(`${row.start_date}T12:00:00`).toLocaleDateString("en-US", {
-          month: "short", day: "numeric", year: "numeric",
-        });
-        return (
-          <div className="mt-3 rounded-xl border border-[#c5dbc9] bg-[#f0f7f2] p-3">
-            <p className="text-[12px] text-[#2d4a36] leading-relaxed">
-              You&apos;ve already started this. Your start date was{" "}
-              <span className="font-semibold">{dateLabel}</span>, that&apos;s about{" "}
-              <span className="font-semibold">{estimated}</span> lesson{estimated === 1 ? "" : "s"} ago
-              based on your schedule. Adjust how many you&apos;ve actually completed and we&apos;ll pick up from there.
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <span className="text-[11px] text-[#5c7f63] font-medium">Already completed</span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => changeStartAtLesson(row.start_at_lesson - 1)}
-                  disabled={isReadOnly || done <= 0}
-                  aria-label="One fewer completed lesson"
-                  className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#c5dbc9] bg-white text-[#2D5A3D] hover:bg-[#e8f0e9] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  −
-                </button>
-                <span className="min-w-[36px] text-center text-[14px] font-semibold text-[#2D5A3D]">{done}</span>
-                <button
-                  type="button"
-                  onClick={() => changeStartAtLesson(Math.min(max + 1, row.start_at_lesson + 1))}
-                  disabled={isReadOnly || done >= max}
-                  aria-label="One more completed lesson"
-                  className="w-7 h-7 flex items-center justify-center rounded-lg border border-[#c5dbc9] bg-white text-[#2D5A3D] hover:bg-[#e8f0e9] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  +
-                </button>
+      {/* ── Where are you with this? ────────────────────────────────────────
+          One question in place of Start at, Already completed, the start date
+          and the green estimate banner. The family types the NEXT lesson and
+          every date derives from it through the shared walk, so the sentence
+          they read is computed from the same output the save writes. */}
+      {isCurriculum && sched ? (
+        <div className="mt-4 rounded-xl border border-[#e8e2d9] bg-[#fdfcfa] p-3">
+          <p className="text-[10px] font-medium uppercase tracking-wide text-[#7a6f65] mb-2">
+            Where are you with this?
+          </p>
+
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name={`where-${row.localId}`}
+              checked={sched.branch === "fresh"}
+              disabled={isReadOnly}
+              onChange={() => setBranch("fresh")}
+              className="mt-[3px] accent-[#2D5A3D]"
+            />
+            <span className="text-[13px] text-[#2D2A26]">Starting fresh</span>
+          </label>
+
+          {sched.branch === "fresh" ? (
+            <div className="ml-6 mt-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[12px] text-[#7a6f65]">First lesson on</span>
+                <input
+                  type="date"
+                  value={row.start_date ?? (sched.nextLessonDate ?? "")}
+                  disabled={isReadOnly}
+                  onChange={(e) =>
+                    props.onPatchRow(row.localId, {
+                      start_date: e.target.value || null,
+                      start_date_is_manual: !!e.target.value,
+                    })
+                  }
+                  className="px-2 py-1 rounded-lg border border-[#e8e2d9] bg-white text-[13px] focus:outline-none focus:border-[#5c7f63]"
+                />
               </div>
+              {freshSentence ? (
+                <p className="mt-1.5 text-[12px] text-[#5c7f63] leading-relaxed">{freshSentence}</p>
+              ) : null}
             </div>
+          ) : null}
+
+          <label className="flex items-start gap-2 cursor-pointer mt-2">
+            <input
+              type="radio"
+              name={`where-${row.localId}`}
+              checked={sched.branch === "already"}
+              disabled={isReadOnly}
+              onChange={() => setBranch("already")}
+              className="mt-[3px] accent-[#2D5A3D]"
+            />
+            <span className="text-[13px] text-[#2D2A26]">Already into it</span>
+          </label>
+
+          {sched.branch === "already" ? (
+            <div className="ml-6 mt-1.5">
+              <div className="flex items-center gap-2 flex-wrap">
+                <label
+                  htmlFor={`next-lesson-${row.localId}`}
+                  className="text-[12px] text-[#7a6f65]"
+                >
+                  What lesson are you on next?
+                </label>
+                <input
+                  id={`next-lesson-${row.localId}`}
+                  type="number"
+                  min={1}
+                  max={row.total_lessons ? row.total_lessons + 1 : undefined}
+                  value={row.start_at_lesson}
+                  disabled={isReadOnly}
+                  onChange={(e) => changeStartAtLesson(Number(e.target.value) || 1)}
+                  className="w-20 px-2 py-1 rounded-lg border border-[#e8e2d9] bg-white text-[13px] font-semibold text-[#2D5A3D] focus:outline-none focus:border-[#5c7f63]"
+                />
+              </div>
+
+              {sched.overflow ? (
+                <p className="mt-2 text-[12px] text-[#9a3a3a] leading-relaxed">
+                  {sched.overflow}
+                </p>
+              ) : alreadySentence ? (
+                <p className="mt-1.5 text-[12px] text-[#5c7f63] leading-relaxed">
+                  {alreadySentence}
+                </p>
+              ) : null}
+
+              {/* The start date is derived, not typed, until the family asks
+                  for it. Once they type one it is theirs and is never silently
+                  re-derived. */}
+              {row.start_date_is_manual ? (
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <span className="text-[12px] text-[#7a6f65]">Start date</span>
+                  <input
+                    type="date"
+                    value={row.start_date ?? ""}
+                    disabled={isReadOnly}
+                    onChange={(e) =>
+                      props.onPatchRow(row.localId, {
+                        start_date: e.target.value || null,
+                        start_date_is_manual: !!e.target.value,
+                      })
+                    }
+                    className="px-2 py-1 rounded-lg border border-[#e8e2d9] bg-white text-[13px] focus:outline-none focus:border-[#5c7f63]"
+                  />
+                  <button
+                    type="button"
+                    disabled={isReadOnly}
+                    onClick={() =>
+                      props.onPatchRow(row.localId, {
+                        start_date: sched.derivedStart ?? null,
+                        start_date_is_manual: false,
+                      })
+                    }
+                    className="text-[12px] text-[var(--g-brand)] underline underline-offset-2 hover:opacity-80"
+                  >
+                    Use the date we worked out
+                  </button>
+                </div>
+              ) : sched.history.startDate ? (
+                <button
+                  type="button"
+                  disabled={isReadOnly}
+                  onClick={() =>
+                    props.onPatchRow(row.localId, {
+                      start_date: sched.derivedStart ?? null,
+                      start_date_is_manual: true,
+                    })
+                  }
+                  className="mt-1.5 text-[12px] text-[var(--g-brand)] underline underline-offset-2 hover:opacity-80"
+                >
+                  Started earlier than {formatYmdShort(sched.derivedStart ?? "")}? Change the start date.
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Replacing a curriculum mid-year. One line, two answers, and
+          "Mark it finished" is the same handler the row's three-dot menu
+          uses so there is nothing new to keep working. */}
+      {props.replacedRow ? (
+        <div className="mt-3 rounded-xl border border-[#e8dfc9] bg-[#fdfaf0] p-3">
+          <p className="text-[12px] text-[#6b5a2a] leading-relaxed">
+            Replacing {props.replacedChildName}&apos;s current{" "}
+            {props.replacedRow.subject.trim() || props.replacedRow.name.trim()}?
+          </p>
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => void props.onMarkReplacedFinished()}
+              className="text-[12px] font-medium px-2.5 py-1 rounded-lg border border-[#c5dbc9] bg-white text-[#2D5A3D] hover:bg-[#f0f7f2]"
+            >
+              Mark it finished at lesson {Math.max(0, props.replacedRow.start_at_lesson - 1)}
+            </button>
+            <button
+              type="button"
+              onClick={props.onKeepBoth}
+              className="text-[12px] px-2.5 py-1 rounded-lg border border-[#e8e2d9] bg-white text-[#7a6f65] hover:bg-[#f8f7f4]"
+            >
+              Keep both
+            </button>
           </div>
-        );
-      })() : null}
+        </div>
+      ) : null}
 
       {/* Pace line */}
       {isCurriculum && (
@@ -4356,12 +5155,32 @@ function FieldDash(props: { label: string }) {
 
 // ─── Preview view ──────────────────────────────────────────────────────────
 
+/**
+ * A row's days in words, when they are not the Mon-Fri default.
+ * "Fridays" / "Mon, Wed, Fri". Returns null for a plain Mon-Fri week, which
+ * needs no comment.
+ */
+function scheduleDaysLabel(row: Row): string | null {
+  const idxs = activeDayIndices(row);
+  if (idxs.length === 0) return null;
+  const isMonFri = idxs.length === 5 && idxs.every((i) => i <= 4);
+  if (isMonFri) return null;
+  if (idxs.length === 1) {
+    const one = ["Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays", "Sundays"];
+    return one[idxs[0]];
+  }
+  return idxs.map((i) => DAY_LABEL[i]).join(", ");
+}
+
 function PreviewView(props: {
   childrenList: Child[];
   rows: Row[];
   today: Date;
   todayStr: string;
+  vacations: SchedVacationBlock[];
+  schedByLocalId: Map<string, RowSchedule>;
   onBackToEdit: () => void;
+  onFixRow: (localId: string) => void;
 }) {
   const days: { idx: number; short: string; full: string }[] = [
     { idx: 0, short: "Mon", full: "Monday" },
@@ -4373,7 +5192,33 @@ function PreviewView(props: {
     { idx: 6, short: "Sun", full: "Sunday" },
   ];
 
-  // Build per-child / per-day cells
+  // One schedule computation per curriculum row, shared by the confirmation
+  // list and the "what the next school day will show" block. Same helper the
+  // builder card reads, so the preview cannot say something the row did not.
+  const schedByLocalId = props.schedByLocalId;
+
+  // ── What the next school day will show ──────────────────────────────────
+  // The earliest date any curriculum puts a lesson on. If something still
+  // lands today, today is the day worth naming.
+  const nextDates = [...schedByLocalId.values()]
+    .map((x) => x.nextLessonDate)
+    .filter((d): d is string => !!d)
+    .sort();
+  const headlineDate = nextDates[0];
+  const headlineRows = props.rows.filter((r) => {
+    const sched = schedByLocalId.get(r.localId);
+    return !!sched && sched.nextLessonDate === headlineDate;
+  });
+  const headlineByChild = props.childrenList
+    .map((child) => ({
+      child,
+      items: headlineRows
+        .filter((r) => r.child_id === child.id)
+        .map((r) => `${r.subject.trim() || r.name.trim() || "Curriculum"} ${schedByLocalId.get(r.localId)!.nextLesson}`),
+    }))
+    .filter((x) => x.items.length > 0);
+
+  // Build per-child / per-day cells for the at-a-glance grid.
   const childBlocks = props.childrenList.map((child) => {
     const childRows = props.rows.filter(
       (r) => r.child_id === child.id && !r.pendingDelete,
@@ -4382,8 +5227,6 @@ function PreviewView(props: {
       const cells = childRows
         .filter((r) => {
           if (!r.active_days[d.idx]) return false;
-          // For curriculum rows, a count of 0 means no lessons that day
-          // even if the toggle is somehow still on (defensive).
           if (r.type === "curriculum" && (r.per_day_counts[d.idx] ?? 0) <= 0) return false;
           return true;
         })
@@ -4393,7 +5236,12 @@ function PreviewView(props: {
           const count = r.type === "curriculum" ? r.per_day_counts[d.idx] : 1;
           return {
             localId: r.localId,
-            name: r.name || "(no name)",
+            // Subject leads. The grid used to print the curriculum NAME in
+            // every cell, so a family with three The Good and the Beautiful
+            // books read the same words 28 times and could not tell which
+            // subject any cell was.
+            lead: r.type === "curriculum" ? (r.subject.trim() || r.name.trim() || "(no name)") : (r.name || "(no name)"),
+            sub: r.type === "curriculum" ? r.name.trim() : "",
             count,
             type: r.type,
             emoji: r.emoji,
@@ -4409,14 +5257,82 @@ function PreviewView(props: {
     return { child, cellsByDay };
   });
 
-  // Per-curriculum pace summary
-  const paceLines = props.rows
-    .filter((r) => !r.pendingDelete && r.type === "curriculum")
-    .map((r) => ({ row: r, pace: calcPace(r, props.today) }))
-    .filter((x) => x.pace !== null) as { row: Row; pace: Pace }[];
-
   return (
     <div className="space-y-5">
+      {/* ── 1. Per-child confirmation. This IS the preview: it answers "did it
+              understand where we are, and what happens next". ───────────── */}
+      {props.childrenList.map((child) => {
+        const childRows = props.rows.filter(
+          (r) => r.child_id === child.id && !r.pendingDelete && r.type === "curriculum",
+        );
+        if (childRows.length === 0) return null;
+        return (
+          <div
+            key={child.id}
+            className="bg-white rounded-2xl border border-[#e8e2d9] p-4"
+            style={{ borderLeft: `3px solid ${child.color ?? "var(--g-accent)"}` }}
+          >
+            <p className="text-[15px] font-semibold text-[#2d2926] mb-2">{child.name}</p>
+            <ul className="space-y-3">
+              {childRows.map((r) => {
+                const sched = schedByLocalId.get(r.localId);
+                const daysLabel = scheduleDaysLabel(r);
+                return (
+                  <li key={r.localId}>
+                    <p className="text-[13px] leading-snug">
+                      <span className="font-semibold text-[#2d2926]">
+                        {r.subject.trim() || "No subject yet"}
+                      </span>
+                      {r.name.trim() ? (
+                        <span className="text-[#7a6f65]"> · {r.name.trim()}</span>
+                      ) : null}
+                      {daysLabel ? <span className="text-[#7a6f65]"> · {daysLabel}</span> : null}
+                    </p>
+                    <p className="text-[12px] text-[#7a6f65] leading-relaxed mt-0.5">
+                      {sched
+                        ? previewLessonLine({
+                            history: sched.history,
+                            nextLesson: sched.nextLesson,
+                            nextLessonDate: sched.nextLessonDate,
+                            finishLabel: sched.finishLabel,
+                            todayYmd: props.todayStr,
+                          })
+                        : "Set days and a lesson count to see this."}{" "}
+                      <button
+                        onClick={() => props.onFixRow(r.localId)}
+                        className="text-[var(--g-brand)] underline underline-offset-2 hover:opacity-80"
+                      >
+                        Not right?
+                      </button>
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
+
+      {/* ── 2. What the next school day will show ───────────────────────── */}
+      {headlineDate && headlineByChild.length > 0 ? (
+        <div className="bg-[#f0f7f2] rounded-2xl border border-[#c5dbc9] p-4">
+          <p className="text-[13px] text-[#2d4a36] leading-relaxed">
+            <span className="font-semibold">
+              {headlineDate === props.todayStr
+                ? `Today, ${formatWeekdayLong(headlineDate)} will show:`
+                : `${formatWeekdayLong(headlineDate)} will show:`}
+            </span>{" "}
+            {headlineByChild.map((x, i) => (
+              <span key={x.child.id}>
+                {i > 0 ? " " : ""}
+                {x.child.name}: {x.items.join(", ")}.
+              </span>
+            ))}
+          </p>
+        </div>
+      ) : null}
+
+      {/* ── 3. The weekly grid, at a glance ─────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-[#e8e2d9] overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
@@ -4449,25 +5365,30 @@ function PreviewView(props: {
                 {cellsByDay.map((d) => (
                   <td key={d.idx} className="px-2 py-3 align-top">
                     {d.cells.length === 0 && (
-                      <span className="text-[#c8bfb5]">—</span>
+                      <span className="text-[#c8bfb5]">&ndash;</span>
                     )}
                     {d.cells.map((c) => (
                       <div
                         key={c.localId}
-                        className={`mb-1 leading-snug ${c.pending ? "italic text-[#b5aca4]" : "text-[#2d2926]"}`}
+                        className={`mb-1.5 leading-snug ${c.pending ? "italic text-[#b5aca4]" : "text-[#2d2926]"}`}
                       >
                         {c.type === "curriculum" ? (
                           <>
-                            {c.count > 1 ? `${c.count}× ` : ""}
-                            {c.name}
+                            <span>
+                              {c.count > 1 ? `${c.count}\u00d7 ` : ""}
+                              {c.lead}
+                            </span>
                             {c.pending && (
                               <span className="ml-1 text-[10px] text-[#b5aca4]">(Pending)</span>
                             )}
+                            {c.sub ? (
+                              <span className="block text-[10px] text-[#7a6f65]">{c.sub}</span>
+                            ) : null}
                           </>
                         ) : (
                           <>
                             <span className="mr-1">{c.emoji}</span>
-                            {c.name}
+                            {c.lead}
                           </>
                         )}
                       </div>
@@ -4485,23 +5406,9 @@ function PreviewView(props: {
         </table>
       </div>
 
-      {paceLines.length > 0 && (
-        <div className="bg-white rounded-2xl border border-[#e8e2d9] p-4">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-[#7a6f65] mb-2">
-            Pace summary
-          </p>
-          <ul className="space-y-1">
-            {paceLines.map(({ row, pace }) => (
-              <li key={row.localId} className="text-xs text-[#2d2926]">
-                <span className="font-medium">{row.name || "(no name)"}:</span>{" "}
-                <span className={pace.warning ? "text-[#9a6a1a]" : "text-[#7a6f65]"}>
-                  on pace for {pace.finishLabel}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* The Pace summary block is gone: it was six lines all starting with the
+          same words, naming neither child nor subject. The finish month is on
+          each curriculum's own line above. */}
 
       {/* Back-to-edit link in the content flow. The sticky bottom bar has
           one too, but on mobile the floating camera FAB can sit on top of
@@ -4512,7 +5419,7 @@ function PreviewView(props: {
           onClick={props.onBackToEdit}
           className="text-sm text-[var(--g-brand)] underline underline-offset-2 hover:opacity-80"
         >
-          ← Back to edit
+          &larr; Back to edit
         </button>
       </div>
     </div>

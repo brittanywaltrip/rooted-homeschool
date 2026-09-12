@@ -179,18 +179,35 @@ async function previewAndSave(page: import('@playwright/test').Page) {
       }))
       .catch(never);
 
+  // A save that CREATED curricula no longer navigates: it renders the
+  // "You're Rooted." celebration in place, and that render is just as
+  // deterministic a signal as the redirect was, for the same reason. It is the
+  // statement after every phase-2 await has settled. A save that only EDITED
+  // existing rows still pushes to /dashboard/plan, so both are accepted.
+  const celebrated = page.getByRole('heading', { name: /You're Rooted/i }).first();
   const outcome = await Promise.race([
     page
       .waitForURL((url) => url.pathname === '/dashboard/plan', { timeout: 120_000 })
       .then(() => ({ kind: 'saved' as const, detail: '' })),
+    celebrated
+      .waitFor({ state: 'visible', timeout: 120_000 })
+      .then(() => ({ kind: 'saved' as const, detail: '' }))
+      .catch(never),
     watchFor('Save failed', saveFailed),
     watchFor('Lesson layout needs another touch, save again to sync', phase2Notice),
   ]);
   if (outcome.kind === 'error') {
     throw new Error(
-      `Schedule Builder save did not complete — the page reported: "${outcome.detail}". ` +
-        'The save flow never navigated to /dashboard/plan, so lessons are not guaranteed to exist.',
+      `Schedule Builder save did not complete. The page reported: "${outcome.detail}". ` +
+        'Neither the Plan redirect nor the celebration appeared, so lessons are not guaranteed to exist.',
     );
+  }
+  // Callers assert against the Plan calendar, so a celebrated save walks the
+  // family's own "Go to Today" route out of the screen and on to Plan.
+  if (page.url().includes('/dashboard/plan')) return;
+  if (await celebrated.isVisible().catch(() => false)) {
+    await page.goto('/dashboard/plan');
+    await page.waitForURL((url) => url.pathname === '/dashboard/plan', { timeout: 30_000 });
   }
 }
 
@@ -775,52 +792,52 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
     );
     await addCurriculumBtn.click();
 
-    // ── 3. Fill name + subject on the row we just appended (last row WITHIN
-    //      the first child's card).
-    const nameInput = firstChildCard.locator('input[placeholder^="e.g. The Good and the Beautiful"]').last();
-    await nameInput.fill(curriculumName);
-
-    const subjectInput = firstChildCard.locator('input[placeholder="Subject (e.g. Math)"]').last();
+    // ── 3. Fill subject + curriculum. The two swapped places and both got
+    //      labels: subject leads now, because families could not tell the
+    //      boxes apart and 22 of them typed "math" into the curriculum field.
+    const subjectInput = firstChildCard.locator('input[placeholder="e.g. Math"]').last();
     await subjectInput.fill('Math');
+
+    const nameInput = firstChildCard.locator('input[placeholder^="Who makes it?"]').last();
+    await nameInput.fill(curriculumName);
 
     // ── 4. Days M-F + 1 lesson/day are the row's default state; no extra
     //      clicks needed (blankRow seeds active_days=[T,T,T,T,T,F,F] and
     //      per_day_counts=[1,1,1,1,1,1,1]).
     // ────────────────────────────────────────────────────────────────────────
 
-    // ── 5. Set Total lessons = 30. The label is "Total lessons" (small-caps
-    //      via CSS); the underlying input carries placeholder "e.g. 120".
+    // ── 5. Set Total lessons = 30. Required before the next-lesson field will
+    //      accept an answer, because the starting position clamps against it.
     const totalInput = firstChildCard.locator('input[placeholder="e.g. 120"]').last();
     await totalInput.fill('30');
 
-    // ── 6. Set Start date = today - 28 days. The user prompt specified
-    //      MM/DD/YYYY but <input type="date"> stores YYYY-MM-DD regardless
-    //      of locale, so that's what Playwright's .fill() needs.
+    // ── 6. "Where are you with this?" replaced the Start at field, the Already
+    //      completed stepper and the typed start date. The family answers ONE
+    //      question: the lesson they are on next. The start date is derived by
+    //      walking back over their own school days, so this test no longer
+    //      types one, and asserts the derived dates instead.
+    //
+    //      21 on a Mon-Fri 1/day goal means 20 lessons done, which walks back
+    //      exactly four calendar weeks: the same shape this test always drove,
+    //      now expressed the way the family expresses it.
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const fourWeeksAgo = new Date(today);
-    fourWeeksAgo.setDate(fourWeeksAgo.getDate() - 28);
-    const startDateStr =
-      `${fourWeeksAgo.getFullYear()}-` +
-      `${String(fourWeeksAgo.getMonth() + 1).padStart(2, '0')}-` +
-      `${String(fourWeeksAgo.getDate()).padStart(2, '0')}`;
+    const NEXT_LESSON = 21;
 
-    const startDateInput = firstChildCard.locator('input[type="date"]').last();
-    await startDateInput.fill(startDateStr);
-    // Blur so the onChange-driven auto-fill of start_at_lesson settles before
-    // we read the counter.
-    await startDateInput.blur();
+    await firstChildCard.getByRole('radio', { name: /Already into it/i }).last().check();
+    // The input's id is per-row, so the label association is the stable hook.
+    const nextLessonField = firstChildCard
+      .getByLabel(/What lesson are you on next\?/i)
+      .last();
+    await nextLessonField.fill(String(NEXT_LESSON));
+    await nextLessonField.blur();
 
-    // ── 7. Confirm the "Already completed" counter appears with value > 0.
-    //      The +/- buttons carry aria-labels "One fewer completed lesson"
-    //      and "One more completed lesson"; the count sits between them in
-    //      a <span> with aria-label-less text. The banner only renders for
-    //      past start_dates with total_lessons > 0.
-    const moreCompletedBtn = firstChildCard.getByRole('button', { name: 'One more completed lesson' }).last();
-    await expect(moreCompletedBtn, 'past start_date should expose the "Already completed" stepper').toBeVisible({ timeout: 10_000 });
-    const countSpan = moreCompletedBtn.locator('xpath=preceding-sibling::span[1]');
-    const countText = (await countSpan.textContent())?.trim() ?? '';
-    expect(Number(countText), `"Already completed" should auto-fill to > 0 (saw "${countText}")`).toBeGreaterThan(0);
+    // ── 7. The sentence is the confirmation, so assert it says something true
+    //      before saving anything. It names the range, the span and the date.
+    await expect(
+      firstChildCard.getByText(/Lessons 1 to 20 will be marked done over your last 20 school days/i).first(),
+      'the row should confirm what it is about to record',
+    ).toBeVisible({ timeout: 10_000 });
 
     // ── 8. Preview + Save. previewAndSave handles both clicks AND the wait for
     //      the post-save navigation, so it now returns only once handleSave has
@@ -1114,10 +1131,13 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
     );
     await addCurriculumBtn.click();
 
-    // ── 3. Fill name + subject + total lessons + start date on the new row.
-    await firstChildCard.locator('input[placeholder^="e.g. The Good and the Beautiful"]').last().fill(curriculumName);
-    await firstChildCard.locator('input[placeholder="Subject (e.g. Math)"]').last().fill('Math');
+    // ── 3. Fill subject + curriculum + total lessons, then the start date.
+    //      Subject leads the card now and both fields carry labels.
+    await firstChildCard.locator('input[placeholder="e.g. Math"]').last().fill('Math');
+    await firstChildCard.locator('input[placeholder^="Who makes it?"]').last().fill(curriculumName);
     await firstChildCard.locator('input[placeholder="e.g. 120"]').last().fill('14');
+    // This row stays on "Starting fresh", whose date input IS the first
+    // lesson's day, so a Monday start puts lesson 1 in this week either way.
     const startDateInput = firstChildCard.locator('input[type="date"]').last();
     await startDateInput.fill(startDateStr);
     await startDateInput.blur();

@@ -1,3 +1,4 @@
+import { joinNames } from "./garden-config.ts";
 // "Add a past year": the arithmetic behind filing a school year a family
 // finished before they found Rooted.
 //
@@ -280,6 +281,22 @@ export function describeSchoolDays(days: readonly string[]): string {
 }
 
 /** The plain-words sentence on the review step. */
+/**
+ * Why this flow does NOT use `deriveHistoryFromNextLesson`.
+ *
+ * The Schedule Builder walks BACKWARD from today because a family who is on
+ * lesson 11 did lessons 1 to 10 on the ten school days they just had. A past
+ * year is the opposite shape: 100 lessons filed against a whole year belong
+ * across that year, not bunched into its final 100 school days. Walking back
+ * from the year's end date would show a family doing nothing from September to
+ * February and everything in the spring, which is false and would print that
+ * way on Reports and the transcript.
+ *
+ * So `spreadLessonDates` stays (see "Adding a past year" in
+ * docs/CURRICULUM-SCHEDULING.md: even across the year's school days, in order).
+ * What IS shared is every rule that should only exist once: the name joining
+ * below, and the review sentence's shape.
+ */
 export function pastYearReviewSentence(args: {
   yearName: string;
   start: string;
@@ -292,7 +309,9 @@ export function pastYearReviewSentence(args: {
   const s = summarizePastYear(args.rows);
   const usable = usableRows(args.rows);
   const kids = Array.from(new Set(usable.map((r) => args.childNames[r.childId] ?? "your child")));
-  const who = kids.length === 1 ? kids[0] : kids.length === 2 ? `${kids[0]} and ${kids[1]}` : `${kids.slice(0, -1).join(", ")} and ${kids[kids.length - 1]}`;
+  // One name-joining rule for the whole app. This had its own copy, without
+  // the Oxford comma, so three children read as two with a compound name.
+  const who = joinNames(kids);
   const subjectWord = s.subjects === 1 ? "subject" : "subjects";
   const lessonWord = s.lessons === 1 ? "lesson" : "lessons";
   const first = `This adds ${s.lessons.toLocaleString("en-US")} completed ${lessonWord} across ${s.subjects} ${subjectWord} for ${who}, dated between ${fmtLong(args.start)} and ${fmtLong(args.end)}, on ${describeSchoolDays(args.schoolDays)}.`;
