@@ -882,12 +882,46 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
       )
       .toBeGreaterThan(0);
 
-    // ── 9. Navigate back 4 weeks. In Week mode the "Previous month" arrow
-    //      slides by 7 days per click; 4 clicks lands us in the week
-    //      containing start_date.
+    // ── 9. Navigate back to the week the history actually starts in.
+    //
+    //      This used to click back a hardcoded 4 weeks, which worked while the
+    //      test TYPED a start date of today - 28. The start date is derived now:
+    //      20 lessons walks back 20 SCHOOL days, which is four school weeks and
+    //      therefore lands on a Monday somewhere inside the fourth week back,
+    //      not on the same weekday four calendar weeks back. Ask the database
+    //      where the history really begins and step to that week, so this holds
+    //      whatever weekday the suite runs on.
+    const { data: goalForWeeks } = await sb
+      .from('curriculum_goals')
+      .select('id')
+      .eq('curriculum_name', curriculumName);
+    const weekGoalId = (goalForWeeks ?? [])[0]?.id as string;
+    const { data: firstRows } = await sb
+      .from('lessons')
+      .select('scheduled_date')
+      .eq('curriculum_goal_id', weekGoalId)
+      .eq('is_backfill', true)
+      .order('scheduled_date', { ascending: true })
+      .limit(1);
+    const firstHistoryYmd = (firstRows ?? [])[0]?.scheduled_date as string;
+    expect(firstHistoryYmd, 'the backfill should have a first date').toBeTruthy();
+
+    // Monday-anchored week difference, which is how the week view steps.
+    const mondayOf = (d: Date) => {
+      const m = new Date(d);
+      m.setHours(0, 0, 0, 0);
+      m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+      return m;
+    };
+    const weeksBack = Math.round(
+      (mondayOf(today).getTime() - mondayOf(new Date(`${firstHistoryYmd}T00:00:00`)).getTime()) /
+        (7 * 24 * 60 * 60 * 1000),
+    );
+    expect(weeksBack, 'the history should start in a past week').toBeGreaterThan(0);
+
     const prevBtn = page.getByRole('button', { name: 'Previous month' });
     await expect(prevBtn).toBeVisible({ timeout: 10_000 });
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < weeksBack; i++) {
       await prevBtn.click();
       // Small settle so the lesson fetch keyed off monthStart can resolve
       // before the next click swaps the date window again.
@@ -1106,15 +1140,8 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
     // have failed the delete (the result was never error-checked).
     await cleanupCurriculumByName(curriculumName);
 
-    // start_date = Monday of the current week (local).
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const monday = new Date(today);
-    monday.setDate(monday.getDate() - ((today.getDay() + 6) % 7)); // Mon=0..Sun=6
-    const startDateStr =
-      `${monday.getFullYear()}-` +
-      `${String(monday.getMonth() + 1).padStart(2, '0')}-` +
-      `${String(monday.getDate()).padStart(2, '0')}`;
 
     // ── 1. Open the Schedule Builder.
     await page.goto('/dashboard/plan/schedule');
@@ -1131,16 +1158,22 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
     );
     await addCurriculumBtn.click();
 
-    // ── 3. Fill subject + curriculum + total lessons, then the start date.
+    // ── 3. Fill subject + curriculum + total lessons, then say where they are.
     //      Subject leads the card now and both fields carry labels.
     await firstChildCard.locator('input[placeholder="e.g. Math"]').last().fill('Math');
     await firstChildCard.locator('input[placeholder^="Who makes it?"]').last().fill(curriculumName);
     await firstChildCard.locator('input[placeholder="e.g. 120"]').last().fill('14');
-    // This row stays on "Starting fresh", whose date input IS the first
-    // lesson's day, so a Monday start puts lesson 1 in this week either way.
-    const startDateInput = firstChildCard.locator('input[type="date"]').last();
-    await startDateInput.fill(startDateStr);
-    await startDateInput.blur();
+
+    // This test asserts a lesson card is on Plan with NO clicks, so it needs a
+    // lesson inside the CURRENT week. A brand-new "Starting fresh" curriculum
+    // cannot have one: Invariant 1 dates its first lesson strictly after today,
+    // which on a Friday is next Monday. So the row says it is already under
+    // way, and the two completed lessons land on the last two school days,
+    // today included. That is the shape the new builder actually produces.
+    await firstChildCard.getByRole('radio', { name: /Already into it/i }).last().check();
+    const nextLessonField = firstChildCard.getByLabel(/What lesson are you on next\?/i).last();
+    await nextLessonField.fill('3');
+    await nextLessonField.blur();
 
     // ── 4. Preview + Save. Default Mon-Fri / 1-per-day are already seeded.
     await previewAndSave(page);

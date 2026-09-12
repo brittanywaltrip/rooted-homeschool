@@ -1096,6 +1096,11 @@ export default function ScheduleBuilderPage() {
   const { effectiveUserId } = usePartner();
   const today = useMemo(() => todayDate(), []);
   const todayStr = useMemo(() => ymd(today), [today]);
+  const tomorrowStr = useMemo(() => {
+    const d = new Date(today);
+    d.setDate(d.getDate() + 1);
+    return ymd(d);
+  }, [today]);
 
   const [view, setView] = useState<"builder" | "preview" | "saved">("builder");
   const [loading, setLoading] = useState(true);
@@ -3914,6 +3919,7 @@ export default function ScheduleBuilderPage() {
 
         {view === "builder" && (
           <BuilderView
+            tomorrowStr={tomorrowStr}
             vacations={vacations}
             schedByLocalId={schedByLocalId}
             subjectSuggestions={subjectSuggestions}
@@ -4094,6 +4100,7 @@ function UnsavedIndicator() {
 // ─── Builder view ──────────────────────────────────────────────────────────
 
 function BuilderView(props: {
+  tomorrowStr: string;
   vacations: SchedVacationBlock[];
   schedByLocalId: Map<string, RowSchedule>;
   subjectSuggestions: string[];
@@ -4190,6 +4197,7 @@ function BuilderView(props: {
                   row={row}
                   today={props.today}
                   todayStr={props.todayStr}
+                  tomorrowStr={props.tomorrowStr}
                   vacations={props.vacations}
                   sched={props.schedByLocalId.get(row.localId) ?? null}
                   subjectSuggestions={props.subjectSuggestions}
@@ -4316,6 +4324,8 @@ function RowCard(props: {
   row: Row;
   today: Date;
   todayStr: string;
+  /** Tomorrow, the earliest a brand-new curriculum's first lesson may be. */
+  tomorrowStr: string;
   vacations: SchedVacationBlock[];
   /** Computed once per change in the page, not per row render. */
   sched: RowSchedule | null;
@@ -4816,6 +4826,12 @@ function RowCard(props: {
                   type="date"
                   value={row.start_date ?? (sched.nextLessonDate ?? "")}
                   disabled={isReadOnly}
+                  // A brand-new curriculum's first lesson cannot be dated on or
+                  // before today (Invariant 1), so the picker does not offer
+                  // days it would then silently move. A family whose lessons
+                  // really did start earlier is on the other branch, which is
+                  // the question this section asks.
+                  min={props.tomorrowStr}
                   onChange={(e) =>
                     props.onPatchRow(row.localId, {
                       start_date: e.target.value || null,
