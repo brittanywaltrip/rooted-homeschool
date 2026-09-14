@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { augustYearOf, todayLocalYmd } from "@/app/lib/school-year";
 
 type CertificateType =
   | "graduation"
@@ -82,9 +83,9 @@ function todayStr(): string {
 }
 
 function currentYearRange(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  return now.getMonth() < 7 ? `${y - 1}-${y}` : `${y}-${y + 1}`;
+  // The August rule lives in app/lib/school-year.ts; this only formats it.
+  const y = augustYearOf(todayLocalYmd());
+  return `${y}-${y + 1}`;
 }
 
 function computeStreak(dates: string[]): number {

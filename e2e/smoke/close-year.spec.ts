@@ -5,7 +5,7 @@ import { adminClient, requireTestUserId } from '../admin';
 /* ============================================================================
  * Close-year flow, end to end.
  *
- * Covers /dashboard/close-year -> /api/school-year/close -> the year-end recap,
+ * Covers /dashboard/close-year -> /api/school-year/close -> /year-closed -> the year-end recap,
  * plus the next-year wizard's prefill (the regression guard for 666f3c1).
  *
  * WHY THIS SPEC IS UNUSUALLY CAREFUL
@@ -359,8 +359,17 @@ test.describe('Close year flow', () => {
     await page.locator('#close-confirm').fill('close');
     await expect(submit, 'lowercase "close" must satisfy the confirmation').toBeEnabled();
 
-    // ── 5. Submit and land on the year-end recap ───────────────────────────
+    // ── 5. Submit, see the moment, and land on the year-end recap ──────────
+    // Closing now shows "You finished a year." first (/year-closed), whose
+    // "Maybe later" opens the recap for the year that was just archived.
     await submit.click();
+    await page.waitForURL(/\/year-closed\?year=[0-9a-f-]+/i, { timeout: 90_000 });
+    await expect(page.getByRole('heading', { name: 'You finished a year.' })).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.getByRole('button', { name: `Set up ${NEW_YEAR_NAME}` }),
+      'the primary button names the year the close created',
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Maybe later' }).click();
     await page.waitForURL(/\/dashboard\/year-end\/[0-9a-f-]+/i, { timeout: 90_000 });
     expect(page.url(), 'the recap should be for the year that was just archived').toContain(
       `/dashboard/year-end/${oldYearId}`,

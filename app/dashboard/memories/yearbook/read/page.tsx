@@ -22,6 +22,7 @@ import { buildChapterPhotoUnits, keepInBook, planChapterPhotos, photoAspect, typ
 import { focalObjectPosition } from "@/lib/focal-point";
 import { coverBucketFor } from "@/lib/photo-url";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
+import { currentKeyLast, getCurrentSchoolYear, resolveYearbookKey, yearbookContentYearFilter } from "@/app/lib/school-year";
 import { orderPhotos } from "@/lib/photo-order";
 import { featureCaptionText, photoCaptionLine, photoMetaLine, photoDateLabel, SAFE_AREA_X, SAFE_AREA_Y } from "@/lib/photo-caption";
 import { resolveTheme, themeCssVars, THEMES, type YearbookTheme } from "@/lib/yearbook-theme";
@@ -916,6 +917,8 @@ export default function YearbookReadPage() {
   const [lessonRecord, setLessonRecord] = useState<{ lessons: number; schoolDays: number }>({ lessons: 0, schoolDays: 0 });
   const [profile, setProfile] = useState<{ display_name?: string; yearbook_opened_at?: string; yearbook_closed_at?: string; family_photo_url?: string | null; plan_type?: string | null; is_pro?: boolean | null; trial_started_at?: string | null }>({});
   const [yearbookKey, setYearbookKey] = useState("");
+  // The current school year's name, the cover's fallback year label.
+  const [schoolYearName, setSchoolYearName] = useState("");
   const [currentPage, setCurrentPage] = useState(0);
   const [direction, setDirection] = useState(1);
 
@@ -959,64 +962,57 @@ export default function YearbookReadPage() {
         .eq("id", effectiveUserId)
         .single();
 
-      let openedAt = prof?.yearbook_opened_at;
-      if (!openedAt) {
-        const now = new Date();
-        const schoolYearStartMonth = 7;
-        const sy = now.getMonth() >= schoolYearStartMonth ? now.getFullYear() : now.getFullYear() - 1;
-        openedAt = new Date(sy, schoolYearStartMonth, 1).toISOString();
-      }
-
+      // The book covers the family's current school year (app/lib/school-year.ts).
+      // yearbook_opened_at still helps name WHICH book this is, the yearbook_key
+      // the editor saves under, but no longer decides which dates are in it: it
+      // was never moved when a year closed, so last year's memories stayed in
+      // this year's book. Today's Your Book strip reads the same window.
+      const schoolYear = await getCurrentSchoolYear(supabase, effectiveUserId);
+      setSchoolYearName(schoolYear.name);
       setProfile(prof ?? {});
       if ((prof as Record<string, unknown>)?.yearbook_settings) {
         setYbSettings({ ...DEFAULT_YB_SETTINGS, ...(prof as Record<string, unknown>).yearbook_settings as Partial<YearbookSettings> });
       }
-      const m = new Date(openedAt).getUTCMonth();
-      const y = new Date(openedAt).getUTCFullYear();
-      const startYear = m >= 7 ? y : y - 1;
-      const key = `${startYear}-${String(startYear + 1).slice(2)}`;
+      // Shared with the editor and Today: after a close, this year's book gets
+      // its own key instead of reading (and the editor overwriting) last year's.
+      const { key, readKeys } = await resolveYearbookKey(supabase, effectiveUserId, prof?.yearbook_opened_at, schoolYear);
       setYearbookKey(key);
 
-      let memsQuery = supabase
-        .from("memories")
-        .select("id, child_id, date, type, title, caption, photo_url, include_in_book, photo_width, photo_height, focal_x, focal_y, page_order, created_at, featured")
-        .eq("user_id", effectiveUserId)
-        .eq("include_in_book", true)
-        .gte("date", openedAt.slice(0, 10))
-        .order("date", { ascending: true });
-
-      if (prof?.yearbook_closed_at) {
-        memsQuery = memsQuery.lte("date", prof.yearbook_closed_at.slice(0, 10));
-      }
+      const windowStart = schoolYear.start;
+      const windowEnd = schoolYear.end;
 
       const [{ data: mems }, { data: kids }, { data: ybRows }, { data: doneLessons }] = await Promise.all([
-        memsQuery,
+        supabase
+          .from("memories")
+          .select("id, child_id, date, type, title, caption, photo_url, include_in_book, photo_width, photo_height, focal_x, focal_y, page_order, created_at, featured")
+          .eq("user_id", effectiveUserId)
+          .eq("include_in_book", true)
+          .gte("date", windowStart)
+          .lte("date", windowEnd)
+          .order("date", { ascending: true }),
         supabase.from("children").select("id, name, color")
           .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-        supabase.from("yearbook_content").select("content_type, child_id, question_key, content")
-          .eq("user_id", effectiveUserId).eq("yearbook_key", key),
-        // The closing note counts the year's lessons and school days. Scoped to
-        // the same window as the memories, because "your year" has to mean the
-        // year the book covers and not everything the family has ever logged.
-        // That scoping is the JS filter below, not a filter here, because the
-        // window's start is only derived once this returns. So the read itself
-        // is all-time, and has to be paged: PostgREST stops at 1,000 rows
-        // without saying so, which would quietly shrink the count for a family
-        // who has schooled a while. See lib/supabase-all-rows.ts.
+        // Rows a close has stamped onto an earlier year are that year's book,
+        // not this one: unstamped rows plus this year's own.
+        supabase.from("yearbook_content").select("yearbook_key, content_type, child_id, question_key, content")
+          .eq("user_id", effectiveUserId).in("yearbook_key", readKeys)
+          .or(yearbookContentYearFilter(schoolYear)),
+        // The closing note counts the year's lessons and school days, scoped
+        // to the same window as the memories, because "your year" has to mean
+        // the year the book covers. lessons.date is NOT NULL, so the window
+        // goes in the query. Still paged: a big family can finish more than
+        // 1,000 lessons in a year. See lib/supabase-all-rows.ts.
         selectAllRowsResult<{ date: string | null; scheduled_date: string | null }>((from, to) =>
           supabase.from("lessons").select("date, scheduled_date")
             .eq("user_id", effectiveUserId).eq("completed", true)
+            .gte("date", windowStart).lte("date", windowEnd)
             .order("id").range(from, to)),
       ]);
 
-      const windowStart = openedAt.slice(0, 10);
-      const windowEnd = prof?.yearbook_closed_at ? prof.yearbook_closed_at.slice(0, 10) : null;
       const lessonDates: string[] = [];
       for (const l of (doneLessons ?? []) as { date?: string | null; scheduled_date?: string | null }[]) {
         const d = (l.date ?? l.scheduled_date ?? "").slice(0, 10);
-        if (!d || d < windowStart) continue;
-        if (windowEnd && d > windowEnd) continue;
-        lessonDates.push(d);
+        if (d) lessonDates.push(d);
       }
       setLessonRecord({ lessons: lessonDates.length, schoolDays: new Set(lessonDates).size });
 
@@ -1056,7 +1052,7 @@ export default function YearbookReadPage() {
       setChildren(capitalizeChildNames((kids ?? []) as Child[]));
 
       const cMap: Record<string, string> = {};
-      for (const r of (ybRows ?? []) as YearbookContentRow[]) {
+      for (const r of currentKeyLast((ybRows ?? []) as (YearbookContentRow & { yearbook_key: string })[], key)) {
         cMap[ck(r.content_type, r.child_id, r.question_key)] = r.content;
       }
       setContentMap(cMap);
@@ -1124,13 +1120,9 @@ export default function YearbookReadPage() {
   const familyName =
     (contentMap[ck("family_name")] ?? "").trim() || profile.display_name || "Our Family";
   const coverTitle = /^the\s/i.test(familyName) ? familyName : `The ${familyName}`;
-  // Same for the year. profiles.yearbook_opened_at tells us WHICH book this is,
-  // not what the family wants printed on it, so the editor's school_year wins
-  // and the derivation is the fallback.
-  const derivedYearLabel = yearbookKey
-    ? `${yearbookKey.split("-")[0]}\u201320${yearbookKey.split("-")[1]}`
-    : "";
-  const yearLabel = (contentMap[ck("school_year")] ?? "").trim() || derivedYearLabel;
+  // Same for the year. The editor's school_year wins; the fallback is the name
+  // of the school year the book covers, the one the family gave it.
+  const yearLabel = (contentMap[ck("school_year")] ?? "").trim() || schoolYearName;
 
   const coverPhotoUrl = contentMap[ck("cover_photo")] || profile.family_photo_url || "";
   // Cover focal point lives in the yearbook content (the cover photo isn't a
@@ -1994,7 +1986,7 @@ export default function YearbookReadPage() {
 
   return { spreads, pages, familyName, bookCounts, bookSections };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [memories, children, contentMap, monthly, profile, yearbookKey, ybSettings, lessonRecord]);
+  }, [memories, children, contentMap, monthly, profile, yearbookKey, schoolYearName, ybSettings, lessonRecord]);
 
   // ── Drift detector ────────────────────────────────────────────────────────
   // Today shows a page count it cannot derive by assembling the book, so it

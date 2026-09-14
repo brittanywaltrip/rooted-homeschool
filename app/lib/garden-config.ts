@@ -1,15 +1,15 @@
 /**
- * Does the Garden read school years yet?
+ * Does the Garden read school years?
  *
  * The "You're Rooted" screen wants to say "Two seeds went into the garden
- * today", which is only true if a new school year plants something new. Today
- * the Garden grows one tree per child for the life of the account, so that
- * sentence would be a small lie on every year after the first.
+ * today", which is only true if a new school year plants something new. It
+ * does now: the Garden counts each child's leaves inside the current school
+ * year (app/lib/garden-leaves.ts), so a new year starts every tree from a
+ * seed, and last year's finished tree lives on the Years page.
  *
- * Until the Garden is per-year, the screen says "Their trees are growing in the
- * Garden." Flipping this to true is the one edit that switches the copy.
+ * Set to false, the screen says "Their trees are growing in the Garden."
  */
-export const GARDEN_PER_YEAR = false;
+export const GARDEN_PER_YEAR = true;
 
 /**
  * The label on the celebration's Garden button.

@@ -86,7 +86,7 @@ const sections = [
       },
       {
         q: "How does my child's tree grow?",
-        a: "Your child's tree grows based on completed lessons. Every lesson logged adds to their total count, which determines their growth stage. The tree advances through ten growth stages as they reach new milestones. The Garden view shows all your children's trees side by side so you can see the whole family's progress at a glance.",
+        a: "Your child's tree grows based on completed lessons. Every lesson logged adds to their total count, which determines their growth stage. The tree advances through ten growth stages as they reach new milestones. The Garden view shows all your children's trees side by side so you can see the whole family's progress at a glance. Each school year starts a new tree. When you close a year, that year's finished tree and badges are saved on your Years page.",
       },
       {
         q: "How many growth stages are there?",
@@ -236,7 +236,7 @@ const sections = [
       },
       {
         q: "What if I start Rooted mid-year, does my yearbook still work?",
-        a: "Absolutely. Your yearbook starts from the beginning of your current school year (August 1st) so any memories you add for the year, even ones you backfill with an earlier date, will appear in the right place. Starting in January or March is completely fine.",
+        a: "Absolutely. Your yearbook covers your current school year from its start, so any memories you add for the year, even ones you backfill with an earlier date, will appear in the right place. Starting in January or March is completely fine.",
       },
       {
         q: "Do free users get a yearbook?",

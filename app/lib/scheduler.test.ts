@@ -9050,15 +9050,15 @@ test('possessive handles a name that already ends in s', () => {
   assert.equal(possessive(''), '')
 })
 
-test('the garden line stays honest until the Garden reads school years', () => {
-  // The Garden grows one tree per child for the life of the account, so "two
-  // seeds went into the garden today" would be a small lie on every year after
-  // the first. GARDEN_PER_YEAR is the one line that changes when it is true.
+test('the garden line stays honest about whether the Garden reads school years', () => {
+  // "Two seeds went into the garden today" is only true when a new school year
+  // plants a new tree. The Garden reads school years now (app/lib/garden-leaves.ts),
+  // so the flag is on and the seed line shows.
   assert.equal(gardenLine(1, false), 'Their tree is growing in the Garden.')
   assert.equal(gardenLine(2, false), 'Their trees are growing in the Garden.')
   assert.equal(gardenLine(1, true), 'One seed went into the garden today.')
   assert.equal(gardenLine(2, true), 'Two seeds went into the garden today.')
-  assert.equal(GARDEN_PER_YEAR, false, 'still false until the Garden is per-year')
+  assert.equal(GARDEN_PER_YEAR, true, 'the Garden is per-year, so the seed line is on')
 })
 
 test('the celebration is skipped for a save that only edited existing curricula', () => {

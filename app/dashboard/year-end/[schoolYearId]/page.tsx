@@ -627,8 +627,11 @@ export default function YearEndSummaryPage() {
               <p className="text-sm mb-4 text-[#8B7E74]">
                 We&apos;ll copy your subjects as a starting point. Just update the lesson count for each one and adjust anything that&apos;s changed.
               </p>
+              {/* The page that copies last year's subjects, as the line above
+                  promises. This used to go to /dashboard/plan, which copies
+                  nothing, and a family rebuilt both children from scratch. */}
               <Link
-                href="/dashboard/plan"
+                href={`/dashboard/plan/new-year?from=${encodeURIComponent(schoolYearId ?? data.schoolYear.id)}`}
                 className="block w-full bg-[#2D5A3D] text-white rounded-xl py-3 font-medium text-center"
               >
                 Set Up Next Year →

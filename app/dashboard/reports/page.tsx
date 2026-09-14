@@ -14,6 +14,7 @@ import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
 import { lessonReportSubject } from "@/lib/progress-report-rows";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
+import { fallbackSchoolYear, getCurrentSchoolYear, todayLocalYmd } from "@/app/lib/school-year";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,10 +48,13 @@ type ReportAppointment = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function toDateStr(d: Date) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }
-function schoolYearStart() {
-  const now = new Date();
-  const year = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
-  return `${year}-08-01`;
+/**
+ * The first paint's "This Year" start, before the family's school year has
+ * loaded: the August 1 fallback from app/lib/school-year.ts. The page swaps in
+ * the real start (the active school year) as soon as it arrives.
+ */
+function fallbackYearStart() {
+  return fallbackSchoolYear(todayLocalYmd()).start;
 }
 
 /** Every column this page reads off a lesson row. Shared by both reads. */
@@ -64,9 +68,9 @@ const LESSON_COLUMNS =
  * attendance have to be right for whatever range the family picks, including
  * a range from three years ago. Uncompleted lessons are different: they carry
  * no hours and no attendance, so they only matter inside a range that is on
- * screen. This window is the widest the range controls above reach on their
- * own: Aug 1 of the current school year (the "This Year" preset, and the
- * default dateFrom) through today (the default dateTo).
+ * screen. This window runs from the August 1 fallback start of the current
+ * school year (the first paint's default dateFrom) through today (the default
+ * dateTo).
  *
  * Bounding it, rather than reading uncompleted rows unfiltered, is what keeps
  * the fix from costing more than the bug. The family this was found on has
@@ -80,7 +84,10 @@ const LESSON_COLUMNS =
  * If that changes, widen this and page it, do not drop the bound.
  */
 function openLessonWindow(): { from: string; to: string } {
-  return { from: schoolYearStart(), to: toDateStr(new Date()) };
+  // The August 1 fallback, not the family's own start: nothing here reads an
+  // uncompleted lesson (see above), so this bound is only about read size, and
+  // keying it off a value that loads later would run every query twice.
+  return { from: fallbackYearStart(), to: toDateStr(new Date()) };
 }
 
 // ─── Reading log helpers ──────────────────────────────────────────────────────
@@ -604,6 +611,20 @@ export default function ReportsPage() {
       });
     return () => { cancelled = true; };
   }, [effectiveUserId]);
+  // "This Year" is the family's current school year, the same window the
+  // Garden, Today and the yearbook read. Until it loads, the August 1 fallback.
+  const [yearStart, setYearStart] = useState(fallbackYearStart);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    getCurrentSchoolYear(supabase, effectiveUserId).then((schoolYear) => {
+      if (cancelled) return;
+      setYearStart(schoolYear.start);
+      // Move the default range with it, unless the family has already picked one.
+      setDateFrom((prev) => (prev === fallbackYearStart() ? schoolYear.start : prev));
+    });
+    return () => { cancelled = true; };
+  }, [effectiveUserId]);
   const [children,   setChildren]   = useState<Child[]>([]);
   const [lessons,    setLessons]    = useState<Lesson[]>([]);
   const [books,      setBooks]      = useState<BookRecord[]>([]);
@@ -613,7 +634,7 @@ export default function ReportsPage() {
   const [isPro,      setIsPro]      = useState<boolean | null>(null);
 
   const [selectedChild, setSelectedChild] = useState<string>("all");
-  const [dateFrom,      setDateFrom]      = useState(schoolYearStart());
+  const [dateFrom,      setDateFrom]      = useState(fallbackYearStart);
   const [dateTo,        setDateTo]        = useState(toDateStr(new Date()));
   const [showPreview,   setShowPreview]   = useState(false);
   const [showExportGate, setShowExportGate] = useState(false);
@@ -1060,7 +1081,7 @@ export default function ReportsPage() {
         {/* Quick preset buttons */}
         <div className="flex gap-2 flex-wrap">
           {[
-            { key: "this-year", label: "This Year",  from: schoolYearStart(),                         to: toDateStr(new Date()) },
+            { key: "this-year", label: "This Year",  from: yearStart,                                 to: toDateStr(new Date()) },
             { key: "this-month", label: "This Month", from: toDateStr(new Date(new Date().getFullYear(), new Date().getMonth(), 1)), to: toDateStr(new Date()) },
             { key: "last-30", label: "Last 30 days", from: toDateStr(new Date(Date.now() - 30 * 86400000)), to: toDateStr(new Date()) },
             // Keyed by id: two filed years may share a name.

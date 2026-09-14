@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { rolloverYearName } from "@/lib/school-year-name";
+import { writeYearClosed } from "@/app/lib/year-closed";
 
 type SchoolYear = {
   id: string;
@@ -172,7 +173,21 @@ export default function CloseYearPage() {
         setClosing(false);
         return;
       }
-      router.push(`/dashboard/year-end/${json.archivedYearId}`);
+      // A moment before the report: /year-closed says the year is saved and
+      // offers the next-year page that actually pre-fills last year's
+      // subjects. Names come from the close response, not from the inputs.
+      // Storage refused (a private window) goes straight to the report.
+      const handedOff = writeYearClosed({
+        archivedYearId: json.archivedYearId,
+        closingYearName: json.yearName ?? closingYearName.trim(),
+        newYearName: json.newYearName ?? newYearName.trim(),
+        childNames: children.map((c) => c.name),
+      });
+      router.push(
+        handedOff
+          ? `/year-closed?year=${encodeURIComponent(json.archivedYearId)}`
+          : `/dashboard/year-end/${json.archivedYearId}`,
+      );
     } catch (e) {
       setCloseError(e instanceof Error ? e.message : "Network error. Please try again.");
       setClosing(false);
