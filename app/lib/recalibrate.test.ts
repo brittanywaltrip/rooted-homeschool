@@ -126,8 +126,9 @@ function makeRecalibrateSupabase(opts: {
           // Phase-5 forward select. queue_position + queue_pinned were added
           // when pins landed (July 2026): recalibration reads the pin state so
           // it projects around manually-placed rows instead of re-dating them.
+          // skipped joined them in September 2026 (Invariant 22).
           projection ===
-            'id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned'
+            'id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned, skipped'
         ) {
           data = opts.forwardIncompleteRows ?? []
         } else {

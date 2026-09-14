@@ -2,7 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   computeNextLessonsForGoal,
   syncProjectedScheduledDates,
-  pinsFromRows,
+  queueHoldsFromRows,
   type CurriculumGoalConfig,
   type VacationBlock,
 } from "./scheduler.ts";
@@ -217,7 +217,7 @@ export async function recalibrateCurriculumGoal(opts: {
   // must not silently undo mom's manual moves.
   const { data: rowsData } = await supabase
     .from("lessons")
-    .select("id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned")
+    .select("id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned, skipped")
     .eq("curriculum_goal_id", goalId)
     .eq("completed", false);
   const rows = (rowsData ?? []) as Array<{
@@ -229,6 +229,7 @@ export async function recalibrateCurriculumGoal(opts: {
     lesson_number: number | null;
     queue_position: number | null;
     queue_pinned: boolean | null;
+    skipped: boolean | null;
   }>;
   const projected = computeNextLessonsForGoal(
     cfg,
@@ -236,7 +237,7 @@ export async function recalibrateCurriculumGoal(opts: {
     1500,
     vacationBlocks,
     0,
-    pinsFromRows(rows),
+    queueHoldsFromRows(rows),
   );
   const projDateByKey = new Map(
     projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),

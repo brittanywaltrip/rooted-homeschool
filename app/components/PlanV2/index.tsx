@@ -85,6 +85,7 @@ import {
   schoolDayDelta,
   buildPastDateCompletionPayload,
   loadPinsByGoal,
+  isSkippedSlot,
   resolveCustomLessonGoalLink,
   planGoalReassign,
   planGoalDelete,
@@ -95,7 +96,7 @@ import {
   GOAL_CONFIG_COLUMNS,
   type CurriculumGoalConfig,
   type GoalConfigRow,
-  type PinnedSlot,
+  type QueueHold,
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
@@ -445,7 +446,7 @@ export default function PlanV2() {
   // (all months) because a pin outside the visible window still moves the
   // projected finish date, and the pace pill would otherwise contradict the
   // calendar. Reloaded whenever the calendar reloads.
-  const [pinsByGoal, setPinsByGoal] = useState<Map<string, PinnedSlot[]>>(new Map());
+  const [pinsByGoal, setPinsByGoal] = useState<Map<string, QueueHold[]>>(new Map());
   const [pinsNonce, setPinsNonce] = useState(0);
   const reloadPins = useCallback(() => setPinsNonce((n) => n + 1), []);
   useEffect(() => {
@@ -454,6 +455,28 @@ export default function PlanV2() {
     (async () => {
       const map = await loadPinsByGoal(supabase, effectiveUserId);
       if (!cancelled) setPinsByGoal(map);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, pinsNonce]);
+
+  // Skipped lessons, for the curriculum panel only. The calendar loads by
+  // scheduled_date and a skipped row has none, so without this a skip would
+  // vanish with no way back. Refreshed with the pins, which carry the same
+  // skips to the projector.
+  const [skippedLessons, setSkippedLessons] = useState<PlanV2Lesson[]>([]);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("lessons")
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, completed_at, skipped, subjects(name, color), curriculum_goals(subject_label)")
+        .eq("user_id", effectiveUserId)
+        .eq("skipped", true)
+        .eq("completed", false)
+        .not("curriculum_goal_id", "is", null);
+      if (cancelled || error) return;
+      setSkippedLessons((data ?? []) as unknown as PlanV2Lesson[]);
     })();
     return () => { cancelled = true; };
   }, [effectiveUserId, pinsNonce]);
@@ -921,6 +944,8 @@ export default function PlanV2() {
     onSkipUndo: () => {
       // Drop + reschedule share UndoBar; skip refresh is good enough here.
       reload();
+      // The skip changes the projection and the panel's skipped list.
+      reloadPins();
     },
     onNeedsDateChoice: (lesson, plannedDate) => {
       setCompletionChoice({ lesson, plannedDate });
@@ -1051,6 +1076,27 @@ export default function PlanV2() {
       }
     },
     [skipLesson, recordEvent],
+  );
+
+  // Unskip puts the lesson back in the queue. It gets no date here: the next
+  // Today load's reconciler dates it like any other unfinished lesson.
+  const unskipLesson = useCallback(
+    async (lesson: PlanV2Lesson) => {
+      setSkippedLessons((prev) => prev.filter((l) => l.id !== lesson.id));
+      const { error } = await supabase.from("lessons").update({ skipped: false }).eq("id", lesson.id);
+      if (error) {
+        flashNotice("Couldn't unskip, try again.");
+        reloadPins();
+        return;
+      }
+      flashNotice("Back in the queue. It gets a day the next time Today opens.");
+      reloadPins();
+      reload();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+      }
+    },
+    [reload, reloadPins],
   );
 
   // ── Submit handlers for Add / Edit lesson modals ─────────────────────────
@@ -2461,6 +2507,16 @@ export default function PlanV2() {
     return lessons.filter((l) => (l.child_id ? childFilter.has(l.child_id) : true));
   }, [lessons, childFilter, kids.length]);
 
+  // The panel's lesson list: the calendar's rows plus every skipped lesson,
+  // which the calendar never loads.
+  const panelLessons = useMemo<PlanV2Lesson[]>(() => {
+    const seen = new Set(filteredLessons.map((l) => l.id));
+    const skipped = skippedLessons.filter(
+      (l) => !seen.has(l.id) && (childFilter.size === 0 || childFilter.size === kids.length || !l.child_id || childFilter.has(l.child_id)),
+    );
+    return skipped.length > 0 ? [...filteredLessons, ...skipped] : filteredLessons;
+  }, [filteredLessons, skippedLessons, childFilter, kids.length]);
+
   const filteredAppointments = useMemo<PlanV2Appointment[]>(() => {
     if (childFilter.size === 0 || childFilter.size === kids.length) return appointments;
     return appointments.filter((a) => {
@@ -2566,6 +2622,7 @@ export default function PlanV2() {
           dayMid,
           nextMid,
           vacationBlocks as unknown as SchedVacationBlock[],
+          pinsByGoal.get(config.id) ?? [],
         );
         const alreadyLogged = completedOnDayByGoal.get(config.id) ?? 0;
         for (const slot of projected.slice(alreadyLogged)) {
@@ -2584,7 +2641,7 @@ export default function PlanV2() {
       setCatchUpForDay(out);
     })();
     return () => { cancelled = true; };
-  }, [openDayStr, todayStr, effectiveUserId, isPartner, kids, childFilter, vacationBlocks, lessons]);
+  }, [openDayStr, todayStr, effectiveUserId, isPartner, kids, childFilter, vacationBlocks, lessons, pinsByGoal]);
 
   const handleLogCatchUp = useCallback(async (selected: CatchUpEntry[]) => {
     if (!effectiveUserId || selected.length === 0) return;
@@ -2804,15 +2861,16 @@ export default function PlanV2() {
     const entries: ReprojectPlanEntry[] = [];
     for (const raw of goalRows as unknown as (GoalConfigRow & { curriculum_name: string | null })[]) {
       const config = toGoalConfig(raw);
-      // Empty pins on purpose: confirming clears this goal's pins, so the
+      // No pins on purpose: confirming clears this goal's pins, so the
       // preview must project the same pin-free tail the write will produce.
+      // Skips survive the confirm, so they stay in.
       const projected = computeNextLessonsForGoal(
         config,
         today,
         3650,
         vacationBlocks as unknown as SchedVacationBlock[],
         0,
-        [],
+        (pinsByGoal.get(config.id) ?? []).filter(isSkippedSlot),
       );
       if (projected.length === 0) continue;
       entries.push({
@@ -2828,7 +2886,7 @@ export default function PlanV2() {
 
     setShiftForwardPlan(entries);
     setShiftForwardLoading(false);
-  }, [effectiveUserId, loadCatchUpLessons, vacationBlocks]);
+  }, [effectiveUserId, loadCatchUpLessons, vacationBlocks, pinsByGoal]);
 
   const closeShiftForward = useCallback(() => {
     setShiftForwardOpen(false);
@@ -3775,7 +3833,10 @@ export default function PlanV2() {
     exitSelectMode();
   }, [lessons, setLessons, reload, exitSelectMode, recordEvent, fireConfettiIfNewlyCompleted, todayStr]);
 
-  // ── Bulk: skip (clear scheduled_date) ─────────────────────────────────────
+  // ── Bulk: skip (mark skipped, clear scheduled_date) ───────────────────────
+  // Same write as the single Skip in usePlanLessonActions. It used to send
+  // `date: null` too, which lessons.date's NOT NULL refused on every row, so
+  // a bulk skip always reported that nothing could be skipped.
 
   const performBulkSkip = useCallback(async (ids: string[]) => {
     const snap: { id: string; from: string }[] = [];
@@ -3793,9 +3854,19 @@ export default function PlanV2() {
     }
 
     setBulkBusy(true);
+    // Each row's pin, so undo puts a dragged lesson back as a pin.
+    const { data: pinRows } = await supabase
+      .from("lessons")
+      .select("id, queue_pinned")
+      .in("id", snap.map((s) => s.id));
+    const pinnedIds = new Set(
+      ((pinRows ?? []) as { id: string; queue_pinned: boolean | null }[])
+        .filter((r) => r.queue_pinned)
+        .map((r) => r.id),
+    );
     const snapIds = new Set(snap.map((s) => s.id));
     setLessons((prev) =>
-      prev.map((l) => (snapIds.has(l.id) ? { ...l, scheduled_date: null, date: null } : l)),
+      prev.map((l) => (snapIds.has(l.id) ? { ...l, scheduled_date: null } : l)),
     );
     hapticTap(20);
 
@@ -3803,7 +3874,7 @@ export default function PlanV2() {
       snap.map((s) =>
         supabase
           .from("lessons")
-          .update({ scheduled_date: null, date: null })
+          .update({ skipped: true, scheduled_date: null, queue_pinned: false })
           .eq("id", s.id)
           .then(({ error }) => (error ? Promise.reject(error) : true)),
       ),
@@ -3848,10 +3919,14 @@ export default function PlanV2() {
           succeeded.forEach((s) => flagLanded(s.id));
           await Promise.allSettled(
             succeeded.map((s) =>
-              supabase.from("lessons").update({ scheduled_date: s.from, date: s.from }).eq("id", s.id),
+              supabase
+                .from("lessons")
+                .update({ skipped: false, scheduled_date: s.from, date: s.from, queue_pinned: pinnedIds.has(s.id) })
+                .eq("id", s.id),
             ),
           );
           reload();
+          reloadPins();
         },
       });
     } else {
@@ -3870,7 +3945,7 @@ export default function PlanV2() {
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode, flagLanded, recordEvent]);
+  }, [lessons, setLessons, reload, reloadPins, exitSelectMode, flagLanded, recordEvent]);
 
   // ── Bulk: delete (deferred DB write to undo window) ──────────────────────
 
@@ -4238,7 +4313,7 @@ export default function PlanV2() {
         3650,
         vacationBlocks as unknown as SchedVacationBlock[],
         0,
-        [],
+        (pinsByGoal.get(entry.config.id) ?? []).filter(isSkippedSlot),
       );
       return {
         goalId: entry.config.id,
@@ -4247,7 +4322,7 @@ export default function PlanV2() {
         firstDate: projected[0]?.date ?? null,
       };
     });
-  }, [pushBackPlan, pushBackShiftDays, pushBackResumeDate, vacationBlocks]);
+  }, [pushBackPlan, pushBackShiftDays, pushBackResumeDate, vacationBlocks, pinsByGoal]);
 
   /**
    * "Push schedule back by N school days": the family is pausing, so every
@@ -5719,7 +5794,7 @@ export default function PlanV2() {
         <CurriculumGroupsPanel
           pinsByGoal={pinsByGoal}
           goals={filteredActiveGoals}
-          lessons={filteredLessons}
+          lessons={panelLessons}
           kids={kids}
           vacationBlocks={vacationBlocks}
           onCreate={handleWizardOpenCreate}
@@ -5739,6 +5814,7 @@ export default function PlanV2() {
           }}
           onContinueLesson={(l) => { void openContinueLesson(l); }}
           onSkipLesson={(l) => { void skipLessonWithLog(l); }}
+          onUnskipLesson={(l) => { void unskipLesson(l); }}
           onDeleteLesson={(l) => { void deleteLessonWithLog(l.id); }}
           onOpenBackfill={(g) => setOpenBackfillGoalId((id) => (id === g.id ? null : g.id))}
           openBackfillGoalId={openBackfillGoalId}

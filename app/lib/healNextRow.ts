@@ -62,14 +62,24 @@ export function planNextRow(args: {
   date: string;
   /** How many rows the goal holds. Zero is healEmptyGoal's job, not this one. */
   existingRowCount: number;
+  /**
+   * The goal's skipped queue slots. A skipped lesson's row is still there, so
+   * it is never a missing row, and the lesson "in the way" is the first slot
+   * past current_lesson the family has not skipped.
+   */
+  skippedSlots?: ReadonlySet<number>;
 }): PlannedNextRow | null {
   const { goal, slot, date } = args;
+  const skipped = args.skippedSlots ?? new Set<number>();
   if (args.existingRowCount <= 0) return null;
   if (!Number.isInteger(slot) || slot <= 0) return null;
   if (goal.total_lessons != null && goal.total_lessons > 0 && slot > goal.total_lessons) return null;
+  if (skipped.has(slot)) return null;
   // Only the lesson that is actually in the way. A deeper hole is a different
   // shape and keeps its warning.
-  if (slot !== goal.current_lesson + 1) return null;
+  let next = goal.current_lesson + 1;
+  while (skipped.has(next)) next++;
+  if (slot !== next) return null;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
 
   const name = (goal.curriculum_name ?? "Lesson").trim() || "Lesson";

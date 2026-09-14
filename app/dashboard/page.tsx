@@ -13,7 +13,7 @@ import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/
 import { useSessionUser } from "@/lib/session-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type PinnedSlot, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import {
   completeLessonOnDate,
   buildCompletionPayload,
@@ -585,7 +585,13 @@ export default function TodayPage() {
   // performs a literal restore, never a recomputation. The same snapshot is
   // mirrored to a ref so the click handler reads a stable value even if a
   // re-render races with the tap.
-  type RescheduleUndoToast = { message: string; snapshot: LessonDateSnapshot[] };
+  // `unskip` is set by Skip: undo also takes the rows out of skipped and puts
+  // back the pin each one had, so the lesson is exactly where it was.
+  type RescheduleUndoToast = {
+    message: string;
+    snapshot: LessonDateSnapshot[];
+    unskip?: { id: string; queue_pinned: boolean }[];
+  };
   const [rescheduleUndoToast,    setRescheduleUndoToast]    = useState<RescheduleUndoToast | null>(null);
   // Invariant 16. The chooser holds a lesson while the family answers "which
   // day?"; nothing is written until they do. The toast then shows the day that
@@ -789,7 +795,7 @@ export default function TodayPage() {
   // Manual placements per goal (see PinnedSlot in scheduler.ts). Held in state
   // so the secondary projections on this page use the same pin set as the
   // primary Today projection instead of re-deriving it.
-  const [pinsByGoal, setPinsByGoal] = useState<Map<string, PinnedSlot[]>>(new Map());
+  const [pinsByGoal, setPinsByGoal] = useState<Map<string, QueueHold[]>>(new Map());
   // User's IANA timezone (e.g., "America/Los_Angeles") from profiles.timezone.
   // Falls back to America/New_York via the helpers when null. Set during
   // loadData so openExtraLessons + any other event handler can reuse it
@@ -1639,6 +1645,9 @@ export default function TodayPage() {
             // list, so it projected something, and planNextRow's own guards
             // still apply.
             existingRowCount: rowCount ?? 1,
+            skippedSlots: new Set(
+              (pinsByGoal.get(gap.goalId) ?? []).filter(isSkippedSlot).map((h) => h.slot),
+            ),
           });
           if (!planned) continue;
           if (await healNextRow(supabase, planned)) healed.add(gap.goalId);
@@ -1839,7 +1848,8 @@ export default function TodayPage() {
         const gapStart = gapStartForGoal(goal.id, goal.start_date ?? null, goal.catchup_answered_on ?? null);
         if (!gapStart) continue;
         const cfg: CurriculumGoalConfig = toGoalConfig(goal);
-        const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks);
+        // A skipped lesson is never offered as one they might have done.
+        const entries = computeGapLessonsForGoal(cfg, gapStart, todayMid, vacationBlocks, pinsByGoal.get(goal.id) ?? []);
         overdueTotal += entries.length;
         if (entries.length > 0) entriesByGoal.set(goal.id, entries);
       }
@@ -3034,21 +3044,48 @@ export default function TodayPage() {
     }, 1500);
   }
 
-  // ── Skip lesson (parity with Plan page: clear scheduled date, undo restores)
+  // ── Skip lesson: "we are not doing this one, move on" ─────────────────────
+  // Marks the row skipped and takes it off the calendar. The projector steps
+  // over a skipped slot, so the next lesson in the book takes this one's day,
+  // and the reconciler never dates it again. Not a completion. Undo restores
+  // the dates and the pin from the snapshot.
+  //
+  // This used to write `date: null` as well. lessons.date is NOT NULL, so the
+  // update failed on every tap, nothing checked the error, and the lesson
+  // simply came back on the next load.
+  async function writeSkip(
+    id: string,
+    snapshot: LessonDateSnapshot[],
+    wasPinned: boolean,
+  ): Promise<boolean> {
+    const { error } = await supabase
+      .from("lessons")
+      .update({ skipped: true, scheduled_date: null, queue_pinned: false })
+      .eq("id", id);
+    if (error) {
+      showCaptureToast("Couldn't skip that lesson, try again.", null);
+      await loadData();
+      return false;
+    }
+    showRescheduleUndo("Lesson skipped", snapshot, [{ id, queue_pinned: wasPinned }]);
+    return true;
+  }
+
   async function skipLesson(lesson: Lesson) {
     return runReschedule(async () => {
       // Capture both date columns before clearing — undo can't recompute them.
       const { data: priorRow } = await supabase
         .from("lessons")
-        .select("id, date, scheduled_date")
+        .select("id, date, scheduled_date, queue_pinned")
         .eq("id", lesson.id)
         .maybeSingle();
       const snapshot = priorRow
         ? buildLessonDateSnapshot([priorRow as { id: string; date: string | null; scheduled_date: string | null }])
         : buildLessonDateSnapshot([{ id: lesson.id, date: today, scheduled_date: today }]);
       setLessons(prev => prev.filter(l => l.id !== lesson.id));
-      await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
-      showRescheduleUndo("Lesson skipped", snapshot);
+      const wasPinned = !!(priorRow as { queue_pinned?: boolean | null } | null)?.queue_pinned;
+      // Reload so the next lesson in the book fills the skipped one's place.
+      if (await writeSkip(lesson.id, snapshot, wasPinned) && lesson.curriculum_goal_id) await loadData();
     });
   }
 
@@ -3599,9 +3636,13 @@ export default function TodayPage() {
       const originalDate = lesson.scheduled_date ?? lesson.date;
       if (!originalDate) return;
       const snapshot = buildLessonDateSnapshot([{ id: lesson.id, date: lesson.date, scheduled_date: lesson.scheduled_date }]);
+      const { data: pinRow } = await supabase
+        .from("lessons")
+        .select("queue_pinned")
+        .eq("id", lesson.id)
+        .maybeSingle();
       setMissedLessons(prev => prev.filter(l => l.id !== lesson.id));
-      await supabase.from("lessons").update({ scheduled_date: null, date: null }).eq("id", lesson.id);
-      showRescheduleUndo("Lesson skipped", snapshot);
+      await writeSkip(lesson.id, snapshot, !!(pinRow as { queue_pinned?: boolean | null } | null)?.queue_pinned);
     });
   }
 
@@ -3903,9 +3944,13 @@ export default function TodayPage() {
     });
   }
 
-  function showRescheduleUndo(message: string, snapshot: LessonDateSnapshot[]) {
+  function showRescheduleUndo(
+    message: string,
+    snapshot: LessonDateSnapshot[],
+    unskip?: RescheduleUndoToast["unskip"],
+  ) {
     if (rescheduleUndoTimer.current) clearTimeout(rescheduleUndoTimer.current);
-    const next = { message, snapshot };
+    const next: RescheduleUndoToast = unskip ? { message, snapshot, unskip } : { message, snapshot };
     rescheduleUndoSnapshotRef.current = next;
     setRescheduleUndoToast(next);
     rescheduleUndoTimer.current = setTimeout(() => {
@@ -3945,13 +3990,22 @@ export default function TodayPage() {
     const live = rescheduleUndoSnapshotRef.current;
     if (!live || live.snapshot.length === 0) return;
     const { snapshot } = live;
+    const unskipById = new Map((live.unskip ?? []).map((u) => [u.id, u]));
     // Literal restore — write both columns back to their captured values.
     // Failures bubble out; we don't swallow.
     for (let i = 0; i < snapshot.length; i += 20) {
       await Promise.all(
-        snapshot.slice(i, i + 20).map((s) =>
-          supabase.from("lessons").update({ date: s.date, scheduled_date: s.scheduled_date }).eq("id", s.id)
-        )
+        snapshot.slice(i, i + 20).map((s) => {
+          const unskip = unskipById.get(s.id);
+          return supabase
+            .from("lessons")
+            .update(
+              unskip
+                ? { date: s.date, scheduled_date: s.scheduled_date, skipped: false, queue_pinned: unskip.queue_pinned }
+                : { date: s.date, scheduled_date: s.scheduled_date },
+            )
+            .eq("id", s.id);
+        })
       );
     }
     rescheduleUndoSnapshotRef.current = null;

@@ -211,6 +211,11 @@ export interface QueueResyncRow {
    * manual move. Absent/false keeps the pre-pin behavior.
    */
   queue_pinned?: boolean | null;
+  /**
+   * True when the family skipped this lesson (see SkippedSlot). A skipped row
+   * is never re-dated: it left the calendar on purpose.
+   */
+  skipped?: boolean | null;
 }
 
 export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
@@ -226,6 +231,10 @@ export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
     // Manual placement wins over the projector, always. Without this guard
     // every manual move was reverted on the next load (see PinnedSlot).
     if (r.queue_pinned) continue;
+    // A skip is the family saying "we are not doing this one". Before the
+    // skipped column, Skip only nulled scheduled_date, the row still matched
+    // this loop, and the next Today load put it straight back on the calendar.
+    if (r.skipped) continue;
     const key = rowKey(r);
     if (!key) continue;
     const projDate = projDateByKey.get(key);
@@ -290,7 +299,7 @@ export async function reconcileGoalScheduleCache(
     // skips them).
     const { data, error } = await supabase
       .from("lessons")
-      .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned")
+      .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned, skipped")
       .eq("curriculum_goal_id", goal.id)
       .eq("completed", false);
     if (error || !data) {
@@ -305,9 +314,12 @@ export async function reconcileGoalScheduleCache(
       QueueResyncRow & { queue_position: number | null; queue_pinned: boolean | null }
     >;
 
-    const pins: PinnedSlot[] = [];
+    // Skips are loaded alongside pins and travel in the same array, so the
+    // projection steps over a skipped slot here exactly as every read surface
+    // does (see SkippedSlot).
+    const pins: QueueHold[] = skippedSlotsFromRows(rows);
     for (const r of rows) {
-      if (!r.queue_pinned) continue;
+      if (!r.queue_pinned || r.skipped) continue;
       if (r.queue_position == null || !r.scheduled_date) continue;
       pins.push({ slot: r.queue_position, date: r.scheduled_date });
     }
@@ -350,7 +362,7 @@ export async function reconcileGoalScheduleCache(
     // which of these pins to place, so this set can never disagree with what
     // came back in `projected`.
     const pinnedSlots = new Set(
-      pins.filter((p) => isPinProjectable(p, goal)).map((p) => p.slot),
+      pins.filter((p) => !isSkippedSlot(p) && isPinProjectable(p, goal)).map((p) => p.slot),
     );
     const perDate = new Map<string, number>();
     for (const p of projected) {
@@ -1076,6 +1088,29 @@ export interface PinnedSlot {
 }
 
 /**
+ * One skipped lesson: the family tapped Skip, meaning "we are not doing this
+ * one, move on". Not "not today", which is Reschedule. The slot occupies no
+ * day and no capacity, and the queue steps over it, so the next lesson in the
+ * book takes its place. It is not a completion: current_lesson still measures
+ * completed rows only, and nothing counts a skipped lesson as done.
+ *
+ * Skips travel in the same array as pins (see QueueHold), loaded by the same
+ * query, so every surface that was already pin-aware steps over a skip without
+ * a new argument threaded through it.
+ */
+export interface SkippedSlot {
+  slot: number;
+  skipped: true;
+}
+
+/** What a projector call is told about hand-made decisions on a goal's queue. */
+export type QueueHold = PinnedSlot | SkippedSlot;
+
+export function isSkippedSlot(h: QueueHold): h is SkippedSlot {
+  return (h as SkippedSlot).skipped === true;
+}
+
+/**
  * Config `isPinProjectable` needs. Kept narrower than CurriculumGoalConfig so
  * the Schedule Builder can ask the question with the numbers it already has in
  * hand, rather than assembling a whole projector config to answer it.
@@ -1119,6 +1154,7 @@ export interface PinnableRow {
   date?: string | null;
   completed?: boolean | null;
   queue_pinned?: boolean | null;
+  skipped?: boolean | null;
   curriculum_goal_id?: string | null;
 }
 
@@ -1139,6 +1175,9 @@ export function pinsFromRows(rows: PinnableRow[], goalId?: string): PinnedSlot[]
   for (const r of rows) {
     if (!r.queue_pinned) continue;
     if (r.completed) continue;
+    // A skip wins over a stale pin: skipping clears queue_pinned, so both at
+    // once only happens on a row written before that rule.
+    if (r.skipped) continue;
     if (goalId !== undefined && r.curriculum_goal_id !== goalId) continue;
     const slot = r.queue_position;
     const date = r.scheduled_date ?? r.date ?? null;
@@ -1149,26 +1188,51 @@ export function pinsFromRows(rows: PinnableRow[], goalId?: string): PinnedSlot[]
 }
 
 /**
- * Load every pin for a user, grouped per goal. One query, one shape, used by
- * all four projecting read surfaces (Today, Upcoming, Plan calendar, Schedule
- * view) so they cannot disagree about where a manually-moved lesson sits.
+ * Derive the skipped slots from lesson rows, the companion to pinsFromRows.
+ * A row contributes iff it is skipped, incomplete and holds a queue slot.
+ * The slot is `queue_position`, the same key pins and the projector use, so a
+ * skipped lesson that was dragged earlier is stepped over where it actually
+ * sits in the queue.
+ */
+export function skippedSlotsFromRows(rows: PinnableRow[], goalId?: string): SkippedSlot[] {
+  const out: SkippedSlot[] = [];
+  for (const r of rows) {
+    if (!r.skipped) continue;
+    if (r.completed) continue;
+    if (goalId !== undefined && r.curriculum_goal_id !== goalId) continue;
+    if (r.queue_position == null) continue;
+    out.push({ slot: r.queue_position, skipped: true });
+  }
+  return out;
+}
+
+/** Pins and skips together, the shape every projecting surface passes. */
+export function queueHoldsFromRows(rows: PinnableRow[], goalId?: string): QueueHold[] {
+  return [...pinsFromRows(rows, goalId), ...skippedSlotsFromRows(rows, goalId)];
+}
+
+/**
+ * Load every pin and every skip for a user, grouped per goal. One query, one
+ * shape, used by all four projecting read surfaces (Today, Upcoming, Plan
+ * calendar, Schedule view) so they cannot disagree about where a
+ * manually-moved lesson sits or which lessons the family skipped.
  *
- * Cheap by construction: only rows the user actually moved are pinned
- * (31 rows across the whole production database on 2026-07-30), so this is a
- * narrow indexed read, not a tail scan. Never throws — on error it returns an
+ * Cheap by construction: only rows the user actually moved or skipped match
+ * (31 pinned rows across the whole production database on 2026-07-30), so this
+ * is a narrow read, not a tail scan. Never throws. On error it returns an
  * empty map, which degrades to exactly the pre-pin projection rather than
  * failing the page load.
  */
 export async function loadPinsByGoal(
   supabase: SupabaseClient,
   userId: string,
-): Promise<Map<string, PinnedSlot[]>> {
+): Promise<Map<string, QueueHold[]>> {
   try {
     const { data, error } = await supabase
       .from("lessons")
-      .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned")
+      .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned, skipped")
       .eq("user_id", userId)
-      .eq("queue_pinned", true)
+      .or("queue_pinned.eq.true,skipped.eq.true")
       .eq("completed", false);
     if (error || !data) {
       if (error) {
@@ -1187,13 +1251,13 @@ export async function loadPinsByGoal(
   }
 }
 
-/** Group `pinsFromRows` output per curriculum_goal_id. */
-export function pinsByGoalFromRows(rows: PinnableRow[]): Map<string, PinnedSlot[]> {
-  const out = new Map<string, PinnedSlot[]>();
+/** Group `queueHoldsFromRows` output per curriculum_goal_id. */
+export function pinsByGoalFromRows(rows: PinnableRow[]): Map<string, QueueHold[]> {
+  const out = new Map<string, QueueHold[]>();
   for (const r of rows) {
     const gid = r.curriculum_goal_id;
     if (!gid) continue;
-    const pins = pinsFromRows([r], gid);
+    const pins = queueHoldsFromRows([r], gid);
     if (pins.length === 0) continue;
     const list = out.get(gid) ?? [];
     list.push(...pins);
@@ -1589,7 +1653,7 @@ export function computeNextLessonsForGoal(
   daysAhead: number,
   vacationBlocks?: VacationBlock[],
   completedTodayCount: number = 0,
-  pins: PinnedSlot[] = [],
+  pins: readonly QueueHold[] = [],
 ): ProjectedLesson[] {
   if (daysAhead <= 0) return [];
   if (goal.current_lesson >= goal.total_lessons) return [];
@@ -1620,9 +1684,17 @@ export function computeNextLessonsForGoal(
   // already-completed slot is irrelevant (completed rows are never re-dated
   // anyway) and a pin past total_lessons has no row to place. Pinned dates
   // consume capacity up front so unpinned slots never stack on top of them.
+  //
+  // Skipped slots are collected first: a skip occupies no day and no
+  // capacity, and the queue steps over its number (see SkippedSlot).
+  const skippedSlots = new Set<number>();
+  for (const p of pins) {
+    if (isSkippedSlot(p)) skippedSlots.add(p.slot);
+  }
   const pinDateBySlot = new Map<number, string>();
   const used = new Map<string, number>();
   for (const p of pins) {
+    if (isSkippedSlot(p) || skippedSlots.has(p.slot)) continue;
     // isPinProjectable is the one definition of "the projector places this
     // pin" — the Schedule Builder's phase 2 guard reads the same helper.
     if (!isPinProjectable(p, goal)) continue;
@@ -1670,6 +1742,12 @@ export function computeNextLessonsForGoal(
       continue;
     }
 
+    // Skipped: the family is not doing this lesson. No date, no capacity.
+    if (skippedSlots.has(nextLesson)) {
+      nextLesson++;
+      continue;
+    }
+
     // ── Pinned slot: emit exactly where the user put it. ──────────────────
     const pinnedDate = pinDateBySlot.get(nextLesson);
     if (pinnedDate !== undefined) {
@@ -1704,7 +1782,17 @@ export function computeNextLessonsForGoal(
           // First-day adjustment, applied once, only if the first placement
           // actually lands on fromDate.
           if (!firstDayApplied && dateStr === fromDateStr) {
-            nextLesson = Math.max(1, goal.current_lesson - completedTodayCount + 1);
+            // Rewind over the lessons completed today, counting only slots
+            // that are not skipped: a skip between two of today's completions
+            // is not one of them. With no skips this is exactly
+            // max(1, current_lesson - completedTodayCount + 1).
+            let rewound = goal.current_lesson + 1;
+            for (let back = completedTodayCount; back > 0 && rewound > 1; ) {
+              rewound--;
+              if (!skippedSlots.has(rewound)) back--;
+            }
+            while (skippedSlots.has(rewound)) rewound++;
+            nextLesson = rewound;
             firstDayApplied = true;
             if (nextLesson > goal.total_lessons) break;
             // The adjustment can rewind onto a slot that is itself pinned.
@@ -2529,11 +2617,12 @@ export function computeFinishDate(
   fromDate: Date = new Date(),
   vacationBlocks?: VacationBlock[],
   completedTodayCount: number = 0,
-  pins: PinnedSlot[] = [],
+  pins: readonly QueueHold[] = [],
 ): Date | null {
   if (goal.current_lesson >= goal.total_lessons) return null;
 
-  // With pins in play the slot-counting shortcut below is wrong: a pinned
+  // With pins (or skips) in play the slot-counting shortcut below is wrong: a
+  // skipped slot takes no day, and a pinned
   // lesson can sit far past where its queue position would have landed, so
   // the finish date is the last date the real projection emits. Derived from
   // the same projector every surface reads, so a quoted finish date can never
@@ -2609,7 +2698,7 @@ export function computeTodayLessons(
   today: Date,
   vacationBlocks?: VacationBlock[],
   completedTodayPerGoal?: Map<string, number>,
-  pinsByGoal?: Map<string, PinnedSlot[]>,
+  pinsByGoal?: Map<string, readonly QueueHold[]>,
 ): ProjectedLesson[] {
   const out: ProjectedLesson[] = [];
   for (const goal of goals) {
@@ -2643,12 +2732,17 @@ export function computeTodayLessons(
  * asks "did you do lessons during your beach trip?" — only the school
  * days mom actually missed get checkboxes. If the entire gap is inside
  * a break, this returns [] and the modal does not appear at all.
+ *
+ * `holds` is the goal's loadPinsByGoal entry. Only its skips are used: a
+ * skipped lesson is never offered as one the family might have done, while
+ * pins keep the gap walk exactly as it was.
  */
 export function computeGapLessonsForGoal(
   goal: CurriculumGoalConfig,
   gapStartDate: Date,
   today: Date,
   vacationBlocks?: VacationBlock[],
+  holds: readonly QueueHold[] = [],
 ): ProjectedLesson[] {
   const start = new Date(gapStartDate);
   start.setHours(0, 0, 0, 0);
@@ -2656,7 +2750,7 @@ export function computeGapLessonsForGoal(
   end.setHours(0, 0, 0, 0);
   const days = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 86400000));
   if (days === 0) return [];
-  return computeNextLessonsForGoal(goal, start, days, vacationBlocks);
+  return computeNextLessonsForGoal(goal, start, days, vacationBlocks, 0, holds.filter(isSkippedSlot));
 }
 
 // ─── Single shared "pick next available date" (Invariant 8) ───────────────

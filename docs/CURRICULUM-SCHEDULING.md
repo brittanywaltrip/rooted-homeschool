@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 14, 2026. Adds Invariant 22 (a skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number). September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -664,6 +664,7 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 22 | The seam + Invariant 21 | History covers `start_date` through today INCLUSIVE, so the slot on today is written, not dropped; the forward queue resumes at `current_lesson + 1` on the next school day strictly after today (Invariant 1, INSERT path); a stated count that overflows the window is refused with the stated count, the school days available and the recordable number all named; an existing goal's lesson due today is not re-dated. |
 | 23 | Invariant 21 pre-flight | The refusal is decided before phase 1: no `curriculum_goals` row, no activity row and no lesson row is written for ANY row in the save when one is refused; a family merely ahead of their configured pace is not refused; a goal whose history fits issues no lesson read; `currentLessonFor` matches `recomputeCurrentLesson`; phase 2 keeps the check as a separately tagged backstop. |
 | 24 | Invariant 21 claim scoping | Only rows this save claims something about are judged: an untouched refused-shape goal does not block an unrelated save, editing its starting position or school-week shape brings it back, a rename does not; phase 2 throws its backstop only for a claimed row and leaves an untouched short goal entirely alone rather than rebuilding it, and reports the shortfall. |
+| 25 | Skipped lessons (Invariant 22) | The projector steps over a skipped slot (lesson 12 skipped, `current_lesson` 11 projects 13 then 14); a skip takes no capacity; the reconciler never re-dates a skipped row; `planNextRow` never chooses one; every skip call site writes `skipped`, clears `scheduled_date` and `queue_pinned`, and never sends `date: null`. |
 
 ---
 
@@ -1071,6 +1072,66 @@ adds: the refusal is decided with no goal row written, one refused row stops a
 healthy sibling from being written too, every refused row is named, a family
 ahead of their own pace is not refused, a goal whose history fits never reaches
 the database, and `currentLessonFor` predicts what phase 1 seeds.
+
+### Invariant 22: A skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number
+
+Skip means "we are not doing this lesson, move on". That is the only meaning
+that makes it different from Reschedule, which already covers "not today,
+later". A skipped lesson leaves the calendar and stays out, and the next lesson
+in the book takes its slot.
+
+**Why:** Skip wrote `scheduled_date = null` and nothing else. The row was still
+an ordinary incomplete, unpinned, non-backfill queue row, which is exactly what
+`syncProjectedScheduledDates` re-dates, so the next Today load gave it the
+projector's date for its `(goal, queue_position)` and the lesson was back on
+Plan, usually on the same day. Today's two skip handlers and Plan's bulk skip
+were worse: they also sent `date: null`, `lessons.date` is NOT NULL, the update
+failed every time, and nothing checked the error.
+
+**The rule:**
+
+- `lessons.skipped` (boolean, default false; migration `20260914100000`,
+  applied by hand). Every skip call site (Plan `skipLesson`, Plan bulk skip,
+  Today `skipLesson`, Today `skipMissedLesson`) writes
+  `skipped = true, scheduled_date = null, queue_pinned = false`. Undo writes
+  `skipped = false` and restores the dates and the prior pin from its snapshot.
+- The row is kept: title, number, notes and `queue_position` stay.
+- **The projector steps over it.** A skip is a `SkippedSlot` and travels in the
+  same array as pins (`QueueHold`). `loadPinsByGoal` loads both in one query and
+  `reconcileGoalScheduleCache` derives both from the tail it already reads, so
+  every pin-aware surface is skip-aware with no new argument. A skipped slot
+  occupies no day and no capacity. The first-day rewind counts back over
+  unskipped slots only.
+- **Never re-dated.** `syncProjectedScheduledDates` skips `skipped` rows
+  alongside completed, backfill and pinned ones.
+- **Never healed.** `planNextRow` refuses a skipped slot, and the lesson "in the
+  way" is the first slot past `current_lesson` that is not skipped.
+- **Never counted done.** `recomputeCurrentLesson` is unchanged:
+  `current_lesson` is still the highest completed slot. Reports and the progress
+  report ignore a skipped lesson because it is not completed.
+- **Unskip** (the curriculum panel's menu on a skipped row) writes
+  `skipped = false` and nothing else. The next Today load dates it like any other
+  unfinished lesson. A lesson unskipped after the pointer has moved past it has
+  no slot left in the queue and stays undated.
+
+**No backfill.** On 2026-09-14, 10,047 incomplete non-backfill rows across 402
+active goals had `scheduled_date IS NULL` above `current_lesson`. Some were old
+skips, some were rows the builder never dated, and the data cannot tell them
+apart, so none were marked skipped.
+
+**Known gap: the Schedule Builder's phase 2 does not read `skipped`.** Its floor
+delete removes every unpinned, note-free incomplete row and re-inserts the
+queue, so a builder save brings a note-free skipped lesson back as an ordinary
+unskipped row, and a notes-bearing skipped row is updated in place with a date.
+Left alone on purpose in the change that added the column; it needs its own
+change to phase 2 (Invariant 18's hold-back set is the natural place).
+
+**Test case:** the "skip:" block in `scheduler.test.ts`: lesson 12 skipped with
+`current_lesson` 11 projects 13 then 14; a stale pin on a skipped slot reserves
+nothing; the first-day rewind; finish date and catch-up gap walk; the reconciler
+leaves a skipped row untouched; holds derive from rows; `planNextRow` never
+chooses a skipped slot; all four call sites write the documented columns and
+never `date: null`.
 
 ### Invariant 2 carve-out for manual moves
 

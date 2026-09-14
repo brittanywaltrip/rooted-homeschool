@@ -211,6 +211,14 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     const originalDate = lesson.scheduled_date ?? lesson.date;
     if (!originalDate) return;
     const originalScheduled = lesson.scheduled_date;
+    // Skip means "we are not doing this lesson, move on". The row is kept and
+    // marked skipped: the projector steps over its slot, so the next lesson
+    // takes its day, and the Today reconciler never dates it again. Before the
+    // skipped column this cleared scheduled_date and nothing else, the row was
+    // still an ordinary unpinned queue row, and the next Today load re-dated
+    // it straight back onto the calendar. queue_pinned comes off so a skipped
+    // lesson that had been dragged is not also a pin.
+    //
     // Only `scheduled_date` is cleared. `date` has a NOT NULL constraint
     // on the lessons table — including it in the update payload returned
     // a 400 every time and was the root cause of "Skip does nothing".
@@ -229,7 +237,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     // (which shows a flashNotice).
     const { error } = await supabase
       .from("lessons")
-      .update({ scheduled_date: null })
+      .update({ skipped: true, scheduled_date: null, queue_pinned: false })
       .eq("id", lesson.id);
     if (error) {
       const restore = (l: T): T => l.id === lesson.id

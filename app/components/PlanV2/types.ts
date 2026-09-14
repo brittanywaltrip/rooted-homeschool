@@ -31,6 +31,11 @@ export type PlanV2Lesson = {
    *  queue_position are both NULL) so the curriculum pointer does not
    *  advance. See migration 20260819100000_lesson_continuations.sql. */
   continues_lesson_id: string | null;
+  /** The family skipped this lesson: it is off the calendar, the queue steps
+   *  over it, and it never counts as done. Only the curriculum panel loads
+   *  skipped rows (see skippedLessons in PlanV2/index.tsx); the calendar never
+   *  sees one, because a skipped row has no scheduled_date. */
+  skipped?: boolean | null;
 };
 
 export type PlanV2Appointment = {

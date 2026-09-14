@@ -5,7 +5,7 @@ import { ChevronDown, ChevronRight, Hand, MoreVertical, Pencil, Trash2 } from "l
 import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
-import { computeFinishDate, type PinnedSlot, type VacationBlock as SchedulerVacationBlock } from "@/app/lib/scheduler";
+import { computeFinishDate, type QueueHold, type VacationBlock as SchedulerVacationBlock } from "@/app/lib/scheduler";
 // Ordering + month grouping for the expanded lesson list. Extracted so the
 // sort and the run-length grouper are covered by lessonListSort.test.ts.
 // They are only correct as a pair, and that file explains why.
@@ -63,7 +63,7 @@ function computePaceStatus(
   // Manual placements for this goal. A pinned lesson can sit well past where
   // its queue slot would have landed, so the projected finish date has to
   // account for them or the pill contradicts the calendar.
-  pins: PinnedSlot[] = [],
+  pins: readonly QueueHold[] = [],
 ): PaceStatus {
   const targetDate = goal.target_date;
   const schoolDays = goal.school_days;
@@ -146,7 +146,7 @@ export interface CurriculumGroupsPanelProps {
   goals: CurriculumGoal[];
   lessons: PlanV2Lesson[];
   /** Manual placements per goal, loaded wide by the parent (all months). */
-  pinsByGoal?: Map<string, PinnedSlot[]>;
+  pinsByGoal?: Map<string, readonly QueueHold[]>;
   kids: PlanV2Child[];
   vacationBlocks: VacationRange[];
   onCreate: () => void;
@@ -168,6 +168,8 @@ export interface CurriculumGroupsPanelProps {
    *  without advancing the curriculum. Only offered on goal-linked rows. */
   onContinueLesson: (lesson: PlanV2Lesson) => void;
   onSkipLesson: (lesson: PlanV2Lesson) => void;
+  /** Puts a skipped lesson back in the queue. Offered only on skipped rows. */
+  onUnskipLesson: (lesson: PlanV2Lesson) => void;
   onDeleteLesson: (lesson: PlanV2Lesson) => void;
   /** Clicking "Log past hours" toggles a sub-panel below the goal header. */
   onOpenBackfill: (goal: CurriculumGoal) => void;
@@ -190,7 +192,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
   const {
     goals, lessons, kids, vacationBlocks,
     onCreate, onEdit, onDelete, onStop, onMarkFinished,
-    onToggleLesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onDeleteLesson,
+    onToggleLesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onUnskipLesson, onDeleteLesson,
     onOpenBackfill, openBackfillGoalId, renderBackfillPanel,
     onOpenRecalibrate, recalibratingGoalId, onRecalibrate, onCloseRecalibrate,
   } = props;
@@ -458,6 +460,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                     onRescheduleLesson={onRescheduleLesson}
                     onContinueLesson={onContinueLesson}
                     onSkipLesson={onSkipLesson}
+                    onUnskipLesson={onUnskipLesson}
                     onDeleteLesson={onDeleteLesson}
                   />
                 ) : null}
@@ -655,9 +658,10 @@ function LessonList(props: {
    *  without advancing the curriculum. Only offered on goal-linked rows. */
   onContinueLesson: (lesson: PlanV2Lesson) => void;
   onSkipLesson: (lesson: PlanV2Lesson) => void;
+  onUnskipLesson: (lesson: PlanV2Lesson) => void;
   onDeleteLesson: (lesson: PlanV2Lesson) => void;
 }) {
-  const { lessons, onToggleLesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onDeleteLesson } = props;
+  const { lessons, onToggleLesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onUnskipLesson, onDeleteLesson } = props;
   // Run-length grouper. Correct only because `lessons` arrives date-sorted
   // from sortLessonsForList; see lessonListSort.ts.
   //
@@ -706,11 +710,18 @@ function LessonList(props: {
               const dateLabel = l.completed
                 ? formatDate(l.completed_at?.slice(0, 10) ?? l.scheduled_date ?? l.date)
                 : "";
+              // A skipped lesson stays in the list, greyed, so the family can
+              // see what they skipped and take it back. It is not done, so it
+              // gets no check and no strike-through.
+              const isSkipped = !!l.skipped && !l.completed;
               return (
                 <li
                   key={l.id}
-                  className="flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-1.5"
+                  className={`flex items-center gap-2 bg-white border border-[#e8e2d9] rounded-lg px-2.5 py-1.5${isSkipped ? " opacity-60" : ""}`}
                 >
+                  {isSkipped ? (
+                    <span aria-hidden className="shrink-0 w-4 h-4" />
+                  ) : (
                   <button
                     type="button"
                     onClick={() => onToggleLesson(l.id, l.completed)}
@@ -727,6 +738,7 @@ function LessonList(props: {
                       </svg>
                     ) : null}
                   </button>
+                  )}
                   <div className="flex-1 min-w-0">
                     {(() => {
                       const day = dayByLessonId.get(l.id);
@@ -748,6 +760,9 @@ function LessonList(props: {
                     {dateLabel ? (
                       <p className="text-[10px] text-[#9a8e84] tabular-nums mt-0.5">{dateLabel}</p>
                     ) : null}
+                    {isSkipped ? (
+                      <p className="text-[10px] text-[#9a8e84] mt-0.5">Skipped</p>
+                    ) : null}
                   </div>
                   <LessonActionMenu
                     lesson={l}
@@ -755,6 +770,7 @@ function LessonList(props: {
                     onRescheduleLesson={onRescheduleLesson}
                     onContinueLesson={onContinueLesson}
                     onSkipLesson={onSkipLesson}
+                    onUnskipLesson={onUnskipLesson}
                     onDeleteLesson={onDeleteLesson}
                   />
                 </li>
@@ -775,9 +791,11 @@ function LessonActionMenu(props: {
    *  without advancing the curriculum. Only offered on goal-linked rows. */
   onContinueLesson: (lesson: PlanV2Lesson) => void;
   onSkipLesson: (lesson: PlanV2Lesson) => void;
+  onUnskipLesson: (lesson: PlanV2Lesson) => void;
   onDeleteLesson: (lesson: PlanV2Lesson) => void;
 }) {
-  const { lesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onDeleteLesson } = props;
+  const { lesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onUnskipLesson, onDeleteLesson } = props;
+  const isSkipped = !!lesson.skipped && !lesson.completed;
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement | null>(null);
 
@@ -822,14 +840,23 @@ function LessonActionMenu(props: {
           role="menu"
           className="absolute right-0 top-full mt-1 z-[51] bg-white border border-[#e8e2d9] rounded-xl shadow-lg overflow-hidden w-[140px]"
         >
-          <ActionMenuItem label="Edit" icon="✏️" onClick={() => { setOpen(false); onEditLesson(lesson); }} />
-          <ActionMenuItem label="Reschedule" icon="📅" onClick={() => { setOpen(false); onRescheduleLesson(lesson); }} />
-          {/* Curriculum rows only: a one-off lesson has no curriculum to hold
-              still while extra days are added. */}
-          {lesson.curriculum_goal_id ? (
-            <ActionMenuItem label="Continue on another day" icon="🔁" onClick={() => { setOpen(false); onContinueLesson(lesson); }} />
-          ) : null}
-          <ActionMenuItem label="Skip" icon="⏩" onClick={() => { setOpen(false); onSkipLesson(lesson); }} />
+          {/* A skipped lesson has no day, so the only thing to do with it is
+              take the skip back (or delete it). Moving it would need a date
+              the queue has already given to the next lesson. */}
+          {isSkipped ? (
+            <ActionMenuItem label="Unskip" icon="↩️" onClick={() => { setOpen(false); onUnskipLesson(lesson); }} />
+          ) : (
+            <>
+              <ActionMenuItem label="Edit" icon="✏️" onClick={() => { setOpen(false); onEditLesson(lesson); }} />
+              <ActionMenuItem label="Reschedule" icon="📅" onClick={() => { setOpen(false); onRescheduleLesson(lesson); }} />
+              {/* Curriculum rows only: a one-off lesson has no curriculum to hold
+                  still while extra days are added. */}
+              {lesson.curriculum_goal_id ? (
+                <ActionMenuItem label="Continue on another day" icon="🔁" onClick={() => { setOpen(false); onContinueLesson(lesson); }} />
+              ) : null}
+              <ActionMenuItem label="Skip" icon="⏩" onClick={() => { setOpen(false); onSkipLesson(lesson); }} />
+            </>
+          )}
           <ActionMenuItem label="Delete" icon="🗑" destructive onClick={() => { setOpen(false); onDeleteLesson(lesson); }} />
         </div>
       ) : null}

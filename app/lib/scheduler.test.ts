@@ -57,6 +57,9 @@ import {
   planGoalDelete,
   isTotalLessonsAboveProgress,
   type PinnedSlot,
+  type QueueHold,
+  skippedSlotsFromRows,
+  queueHoldsFromRows,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
   type VacationBlock,
@@ -81,6 +84,8 @@ import {
   confirmButtonLabel,
   gapStartAfterAnswer,
 } from './recoverySelection.ts'
+
+import { planNextRow, type NextRowGoal } from './healNextRow.ts'
 
 import { GARDEN_PER_YEAR, gardenLine, gardenButtonLabel, joinNames, possessive } from "./garden-config.ts"
 
@@ -9561,4 +9566,143 @@ test('a short insert recomputes the pointer before it fails the save', () => {
   const recompute = block.indexOf('await recomputeCurrentLesson(supabase, goalId)')
   const thrown = block.indexOf('throw new ScheduleAssertionError')
   assert.ok(recompute !== -1 && recompute < thrown, 'the pointer is recomputed before the throw')
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invariant 22: a skipped lesson is never re-dated, never healed, never
+// counted done, and the queue steps over its number.
+//
+// Skip used to write scheduled_date = null and nothing else. The row was still
+// an ordinary unpinned queue row, so the next Today load's reconciler gave it
+// the projector's date for its slot and the lesson was back on the calendar,
+// usually on the same day. Today's two skip handlers also sent date: null,
+// which lessons.date's NOT NULL refused, so those never wrote anything at all.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SKIP_GOAL: CurriculumGoalConfig = {
+  id: 'g-skip',
+  total_lessons: 20,
+  lessons_per_day: 1,
+  school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+  current_lesson: 11,
+}
+
+test('skip: current_lesson 11 with lesson 12 skipped projects 13 on the first slot and 14 on the second', () => {
+  const holds: QueueHold[] = [{ slot: 12, skipped: true }]
+  const got = computeNextLessonsForGoal(SKIP_GOAL, MON_AUG_3, 30, [], 0, holds)
+  assert.equal(got[0].lesson_number, 13)
+  assert.equal(got[0].date, '2026-08-03')
+  assert.equal(got[1].lesson_number, 14)
+  assert.equal(got[1].date, '2026-08-04')
+  assert.ok(!got.some((p) => p.lesson_number === 12), 'a skipped lesson occupies no slot and no day')
+  // Everything after it is one day earlier than it would have been.
+  const unskipped = computeNextLessonsForGoal(SKIP_GOAL, MON_AUG_3, 30, [])
+  assert.equal(unskipped[0].lesson_number, 12)
+  assert.equal(got.length, unskipped.length - 1)
+})
+
+test('skip: a skipped slot takes no capacity, even where a stale pin still names it', () => {
+  // Skipping clears queue_pinned, but a row written before that rule could hold
+  // both. The skip wins: no date is reserved for it.
+  const holds: QueueHold[] = [{ slot: 12, skipped: true }, { slot: 12, date: '2026-08-05' }]
+  const got = computeNextLessonsForGoal(SKIP_GOAL, MON_AUG_3, 30, [], 0, holds)
+  assert.deepEqual(got.slice(0, 3).map((p) => [p.lesson_number, p.date]), [
+    [13, '2026-08-03'], [14, '2026-08-04'], [15, '2026-08-05'],
+  ])
+})
+
+test('skip: the first-day rewind counts only unskipped lessons completed today', () => {
+  // 11 and 13 were completed today and 12 was skipped between them. Today still
+  // shows both completions plus nothing extra at 2/day, never the skip.
+  const goal: CurriculumGoalConfig = { ...SKIP_GOAL, lessons_per_day: 2, current_lesson: 13 }
+  const holds: QueueHold[] = [{ slot: 12, skipped: true }]
+  const today = computeNextLessonsForGoal(goal, MON_AUG_3, 1, [], 2, holds)
+  assert.deepEqual(today.map((p) => p.lesson_number), [11, 13])
+  // With no skips the rewind is exactly the old formula.
+  const plain = computeNextLessonsForGoal(goal, MON_AUG_3, 1, [], 2, [])
+  assert.deepEqual(plain.map((p) => p.lesson_number), [12, 13])
+})
+
+test('skip: computeFinishDate and the catch-up gap walk both step over a skip', () => {
+  const goal: CurriculumGoalConfig = { ...SKIP_GOAL, total_lessons: 14 }
+  const holds: QueueHold[] = [{ slot: 12, skipped: true }]
+  // 13 and 14 remain: Mon and Tue.
+  assert.equal(toDateStr(computeFinishDate(goal, MON_AUG_3, [], 0, holds) as Date), '2026-08-04')
+  assert.equal(toDateStr(computeFinishDate(goal, MON_AUG_3, []) as Date), '2026-08-05')
+  // The catch-up modal never offers a skipped lesson as one they might have done.
+  const gap = computeGapLessonsForGoal(goal, MON_AUG_3, new Date('2026-08-06T00:00:00'), [], holds)
+  assert.deepEqual(gap.map((p) => p.lesson_number), [13, 14])
+})
+
+test('skip: syncProjectedScheduledDates leaves a skipped row untouched', async () => {
+  const { supabase, writes } = makeResyncSupabase()
+  const skippedRow: ResyncSentRow = { ...resyncRow('SKIP', 12, null), skipped: true }
+  const liveRow = resyncRow('LIVE', 13, '2026-06-01')
+  // Even a projection that (wrongly) still carries slot 12 must not date it.
+  const proj = new Map([
+    ['g1|12', '2026-08-03'],
+    ['g1|13', '2026-08-03'],
+  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await syncProjectedScheduledDates(supabase as any, [skippedRow, liveRow], proj, (r) => `g1|${r.queue_position}`)
+  assert.equal(writes.length, 1)
+  assert.deepEqual(writes[0].ids, ['LIVE'])
+})
+
+test('skip: holds derive from rows the same way pins do, and only incomplete skipped rows count', () => {
+  const rows = [
+    { curriculum_goal_id: 'a', queue_position: 12, skipped: true, completed: false, scheduled_date: null },
+    { curriculum_goal_id: 'a', queue_position: 13, skipped: true, completed: true, scheduled_date: null },
+    { curriculum_goal_id: 'a', queue_position: null, skipped: true, completed: false, scheduled_date: null },
+    { curriculum_goal_id: 'a', queue_position: 14, queue_pinned: true, skipped: true, completed: false, scheduled_date: '2026-08-05' },
+    { curriculum_goal_id: 'a', queue_position: 15, queue_pinned: true, completed: false, scheduled_date: '2026-08-06' },
+  ]
+  assert.deepEqual(skippedSlotsFromRows(rows), [{ slot: 12, skipped: true }, { slot: 14, skipped: true }])
+  assert.deepEqual(pinsFromRows(rows), [{ slot: 15, date: '2026-08-06' }], 'a skipped row is never also a pin')
+  assert.deepEqual(queueHoldsFromRows(rows, 'a').length, 3)
+  assert.deepEqual(pinsByGoalFromRows(rows).get('a')?.length, 3, 'loadPinsByGoal hands skips to every surface')
+})
+
+test('skip: a skipped row is never chosen by planNextRow', () => {
+  const goal: NextRowGoal = { id: 'g-skip', child_id: 'zoe', curriculum_name: 'Math', current_lesson: 11, total_lessons: 20 }
+  const skipped = new Set([12])
+  // The skipped slot itself is not a missing row: its row exists, marked skipped.
+  assert.equal(planNextRow({ goal, userId: 'u1', slot: 12, date: '2026-08-03', existingRowCount: 19, skippedSlots: skipped }), null)
+  // The lesson "in the way" is the first unskipped one, so a missing 13 still heals.
+  const row = planNextRow({ goal, userId: 'u1', slot: 13, date: '2026-08-03', existingRowCount: 19, skippedSlots: skipped })
+  assert.equal(row?.lesson_number, 13)
+  // Without the skip set, 13 is a deeper hole and is left alone, as before.
+  assert.equal(planNextRow({ goal, userId: 'u1', slot: 13, date: '2026-08-03', existingRowCount: 19 }), null)
+})
+
+test('skip: every skip call site writes skipped, clears the date and the pin, and never sends date: null', () => {
+  const plan = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  const planBody = plan.slice(plan.indexOf('const skipLesson = useCallback'))
+  assert.match(planBody, /update\(\{ skipped: true, scheduled_date: null, queue_pinned: false \}\)/)
+
+  const planPage = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const bulk = planPage.slice(planPage.indexOf('const performBulkSkip = useCallback'), planPage.indexOf('const performBulkDelete = useCallback'))
+  assert.match(bulk, /update\(\{ skipped: true, scheduled_date: null, queue_pinned: false \}\)/)
+  assert.match(bulk, /skipped: false/, 'bulk undo takes the skip back')
+  assert.doesNotMatch(bulk, /\.update\(\{[^}]*\bdate: null/, 'lessons.date is NOT NULL')
+
+  const today = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const writeSkip = extractFunctionBody(today, /async function writeSkip\s*\(/)
+  assert.match(writeSkip, /update\(\{ skipped: true, scheduled_date: null, queue_pinned: false \}\)/)
+  for (const fn of [/async function skipLesson\s*\(/, /async function skipMissedLesson\s*\(/]) {
+    const body = extractFunctionBody(today, fn)
+    assert.match(body, /writeSkip\(/, `${fn} goes through writeSkip`)
+    assert.doesNotMatch(body, /date: null/)
+  }
+  const undo = extractFunctionBody(today, /async function undoReschedule\s*\(/)
+  assert.match(undo, /skipped: false/, 'Today undo takes the skip back')
+})
+
+test('skip: the reconciler loads skipped rows and passes them to the projector with the pins', () => {
+  const src = stripComments(loadRepoFile('app/lib/scheduler.ts'))
+  const body = extractFunctionBody(src, /export async function reconcileGoalScheduleCache\s*\(/)
+  assert.match(body, /queue_pinned, skipped/)
+  assert.match(body, /skippedSlotsFromRows\(rows\)/)
+  const loader = extractFunctionBody(src, /export async function loadPinsByGoal\s*\(/)
+  assert.match(loader, /queue_pinned\.eq\.true,skipped\.eq\.true/)
 })

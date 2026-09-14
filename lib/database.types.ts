@@ -939,6 +939,7 @@ export type Database = {
           scheduled_source: string | null
           school_year: string | null
           school_year_id: string | null
+          skipped: boolean
           started_at: string | null
           subject_id: string | null
           title: string
@@ -966,6 +967,7 @@ export type Database = {
           scheduled_source?: string | null
           school_year?: string | null
           school_year_id?: string | null
+          skipped?: boolean
           started_at?: string | null
           subject_id?: string | null
           title: string
@@ -993,6 +995,7 @@ export type Database = {
           scheduled_source?: string | null
           school_year?: string | null
           school_year_id?: string | null
+          skipped?: boolean
           started_at?: string | null
           subject_id?: string | null
           title?: string
