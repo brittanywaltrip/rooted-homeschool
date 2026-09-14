@@ -7,7 +7,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { isPhase2NoOp, computeNextLessonsForGoal, finishDateFromNextLesson, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
@@ -3075,6 +3075,55 @@ export default function ScheduleBuilderPage() {
           );
         }
 
+        // PRE-WRITE slot-coverage assertion. Every slot the projector emitted
+        // must be held by a surviving row or filled by this batch. A slot that
+        // is neither is a hole the family will meet on Today as a blank
+        // subject, and it is the shape behind the September reports: the first
+        // slot of the projection, current_lesson + 1, arriving with no row.
+        //
+        // Pure, so it belongs here with the rest of PLAN rather than after the
+        // delete has committed.
+        const uncovered = uncoveredProjectedSlots({
+          upcoming,
+          existingQueuePositions: existingSlots,
+          planned: plannedInserts,
+        });
+        if (uncovered.length > 0) {
+          // REPORTED, never thrown.
+          //
+          // A surviving row can legitimately hold a lesson_number inside the
+          // projected range while its queue_position sits outside it: a stale
+          // drifted pin, a notes-bearing row whose slot was stripped, one of
+          // the 860 orphan-cleanup-damaged rows. The planner then has fewer
+          // missing numbers than free slots and leaves the tail empty. Throwing
+          // on that would make every one of those goals permanently
+          // unsaveable, because a ScheduleAssertionError is deterministic and
+          // skips the retry, and the family would be told to email support on
+          // every attempt forever.
+          //
+          // planPhase2LessonInserts takes the same stance on the mirror case
+          // ("a goal already inconsistent enough to run the free slots out
+          // still gets its row"). An uncovered slot is a real hole and worth
+          // knowing about, and Today's next-row self-heal now writes the first
+          // one back on the next load, so the family is not left with it.
+          console.warn("[handleSave] planned batch leaves projected slots empty", {
+            goalId,
+            uncovered: uncovered.slice(0, 20),
+            currentLesson,
+          });
+          captureSupabaseError(
+            "Curriculum save: planned batch leaves projected slots with no row",
+            new Error(
+              `Goal ${goalId} leaves ${uncovered.length} projected slot(s) unfilled (first: ${uncovered[0]})`,
+            ),
+            {
+              level: "warning",
+              tags: { phase: "phase2_uncovered_slots", goal_id: goalId },
+              extra: { uncovered: uncovered.slice(0, 50), currentLesson },
+            },
+          );
+        }
+
         // PRE-WRITE starting-position assertion. A save with starting position
         // N must never insert an INCOMPLETE dated row at or below N. Those
         // lessons are "already done before you started tracking", and the
@@ -3185,13 +3234,57 @@ export default function ScheduleBuilderPage() {
         // One request per batch of 500 (app/lib/batches.ts), the same helper
         // "Add a past year" writes with. 100 per request cost a 180-lesson
         // goal two round trips where one does.
+        // ── Count what the DATABASE wrote, not what we planned to write ─────
+        //
+        // These two loops threw on error and counted nothing, and the
+        // schedule.rebuilt event below logged `toInsert.length`: the PLANNED
+        // number. So an insert that landed short reported success in the audit
+        // trail. Goal 69e9b6b8 is logged as "inserted: 52, skipped: 0" and
+        // holds 51 rows, numbered 2 to 52, every one created in that save. The
+        // log asserting 52 is why nobody looked for a week.
+        //
+        // `.select("id")` makes the insert return its rows, so the count is the
+        // server's answer. A short batch now fails the save loudly instead of
+        // being written down as a success.
+        let histInserted = 0;
         for (const batch of batches(histToInsert, LESSON_INSERT_BATCH)) {
-          const { error: histErr } = await supabase.from("lessons").insert(batch);
+          const { data: wrote, error: histErr } = await supabase
+            .from("lessons")
+            .insert(batch)
+            .select("id");
           if (histErr) throw histErr;
+          histInserted += (wrote ?? []).length;
         }
+        let forwardInserted = 0;
         for (const batch of batches(toInsert, LESSON_INSERT_BATCH)) {
-          const { error: lessonErr } = await supabase.from("lessons").insert(batch);
+          const { data: wrote, error: lessonErr } = await supabase
+            .from("lessons")
+            .insert(batch)
+            .select("id");
           if (lessonErr) throw lessonErr;
+          forwardInserted += (wrote ?? []).length;
+        }
+        const plannedInsertCount = histToInsert.length + toInsert.length;
+        const confirmedInsertCount = histInserted + forwardInserted;
+        if (confirmedInsertCount !== plannedInsertCount) {
+          // Deterministic by construction: the same batch rebuilds identically,
+          // so a retry reproduces it. ScheduleAssertionError skips the retry and
+          // routes to the notice, and the goal is named for support.
+          console.error("[handleSave] insert landed short", {
+            goalId,
+            planned: plannedInsertCount,
+            confirmed: confirmedInsertCount,
+          });
+          // The delete and the inserts have committed by the time we get here,
+          // and throwing skips everything below: the over-ceiling cleanup, the
+          // pin release and the pointer recompute. Recompute at least, so the
+          // goal is not left rebuilt with a pointer describing the old row set.
+          // The rest is re-applied by the next save.
+          await recomputeCurrentLesson(supabase, goalId);
+          throw new ScheduleAssertionError(
+            `Lesson scheduling wrote ${confirmedInsertCount} of ${plannedInsertCount} planned rows. ` +
+              "The curriculum saved, but its lessons are incomplete. We've been notified.",
+          );
         }
 
         // Cleanup: if the user reduced total_lessons on an edit, any rows
@@ -3276,7 +3369,8 @@ export default function ScheduleBuilderPage() {
           payload: {
             goal_id: goalId,
             curriculum_name: row.name,
-            inserted: toInsert.length + histToInsert.length,
+            // The count the database confirmed, not the count we planned.
+            inserted: confirmedInsertCount,
             updated: rebuiltUpdated,
             // Rows the rebuild deliberately did not touch: completed history,
             // pins, and the notes/minutes rows it is no longer allowed to

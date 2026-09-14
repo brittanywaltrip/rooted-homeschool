@@ -42,6 +42,7 @@ import {
   projectHistoryBackfill,
   deriveHistoryFromNextLesson,
   finishDateFromNextLesson,
+  uncoveredProjectedSlots,
   nextLessonSentence,
   startingFreshSentence,
   previewLessonLine,
@@ -6793,10 +6794,18 @@ test('gaps: a goal that projected nothing is in neither list', () => {
 
 test('gaps: Today reports the partial state at detection and the full state only after the heal', () => {
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
-  // The detection loop walks the partial half and nothing else.
+  // Partial gaps are still the only thing reported at this stage, but the
+  // reporting now happens AFTER the next-row self-heal has run, so only what
+  // the app could not fix is filed. Suppressing every candidate up front (the
+  // first cut of that heal) dropped the warning for goals the heal then
+  // declined, which is how a genuinely broken goal goes dark in Sentry.
   assert.ok(
-    /for \(const report of projectionGapReports\(partialGaps\)\)/.test(src),
-    'detection files reports for partial gaps only',
+    /partialGaps\.filter\(\(g\) => !healedGoalIds\.has\(g\.goalId\)\)/.test(src),
+    'detection files reports for the partial gaps the self-heal did not fix',
+  )
+  assert.ok(
+    /reportPartialGaps\(healed\)/.test(src),
+    'and it reports with the healed set, after the heal has actually run',
   )
   // No report is filed from the detection path for a full gap: the only
   // reporter is fileGapReport, and the full half reaches it through
@@ -9345,4 +9354,211 @@ test('the celebration handoff survives a discarded render, and refuses quietly',
   const builder = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   assert.match(builder, /const handedOff = writeSetupCelebration\(\{/)
   assert.match(builder, /if \(handedOff\) \{/)
+})
+
+// ── The batch must cover every slot the projector emitted ─────────────────
+
+test('uncoveredProjectedSlots is empty when the batch fills every free slot', () => {
+  const upcoming = [
+    { goal_id: 'g', lesson_number: 10, date: '2026-09-14' },
+    { goal_id: 'g', lesson_number: 11, date: '2026-09-15' },
+    { goal_id: 'g', lesson_number: 12, date: '2026-09-16' },
+  ]
+  assert.deepEqual(
+    uncoveredProjectedSlots({
+      upcoming,
+      existingQueuePositions: [],
+      planned: [{ queue_position: 10 }, { queue_position: 11 }, { queue_position: 12 }],
+    }),
+    [],
+  )
+  // A slot a surviving row already holds counts as covered.
+  assert.deepEqual(
+    uncoveredProjectedSlots({
+      upcoming,
+      existingQueuePositions: [10],
+      planned: [{ queue_position: 11 }, { queue_position: 12 }],
+    }),
+    [],
+  )
+})
+
+test('uncoveredProjectedSlots names the FIRST slot when the batch skips it', () => {
+  // The September shape: current_lesson + 1 arrives with no row, so Today asks
+  // for it and gets nothing. 23 live curricula across 2 families.
+  const upcoming = [
+    { goal_id: 'g', lesson_number: 10, date: '2026-09-14' },
+    { goal_id: 'g', lesson_number: 11, date: '2026-09-15' },
+  ]
+  assert.deepEqual(
+    uncoveredProjectedSlots({
+      upcoming,
+      existingQueuePositions: [],
+      planned: [{ queue_position: 11 }],
+    }),
+    [10],
+  )
+  // A planned row with no slot covers nothing: a goal-attached row with a null
+  // queue_position falls through both of Today's hydration queries.
+  assert.deepEqual(
+    uncoveredProjectedSlots({
+      upcoming,
+      existingQueuePositions: [],
+      planned: [{ queue_position: null }, { queue_position: 11 }],
+    }),
+    [10],
+  )
+})
+
+test('the builder confirms what the database wrote and refuses a short batch', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  // The insert returns its rows, so the count is the server's answer and not
+  // ours. schedule.rebuilt logged toInsert.length, the PLANNED number, which is
+  // why goal 69e9b6b8 is recorded as "inserted: 52" while holding 51 rows.
+  assert.match(body, /\.insert\(batch\)\s*\.select\("id"\)/)
+  assert.match(body, /const confirmedInsertCount = histInserted \+ forwardInserted/)
+  assert.match(body, /if \(confirmedInsertCount !== plannedInsertCount\)/)
+  assert.match(body, /inserted: confirmedInsertCount/, 'the event logs the confirmed count')
+  assert.ok(
+    !/inserted: toInsert\.length \+ histToInsert\.length/.test(body),
+    'the planned count is no longer written down as a success',
+  )
+  // The pure coverage check runs before the first destructive call.
+  const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
+  const coverage = phase2.indexOf('uncoveredProjectedSlots({')
+  const firstWrite = phase2.indexOf('if (clearPins && pinnedRows.length > 0)')
+  assert.ok(coverage !== -1 && coverage < firstWrite, 'coverage is checked in PLAN, before any write')
+  // And it REPORTS rather than refusing. A surviving row can hold a
+  // lesson_number inside the projected range with its slot outside it (a stale
+  // drifted pin, a stripped notes row, one of the 860 damaged rows), which
+  // leaves a slot uncovered through no fault of this save. Throwing made every
+  // such goal permanently unsaveable, because the error is deterministic and
+  // skips the retry.
+  const coverageBlock = phase2.slice(coverage, coverage + 1400)
+  assert.match(coverageBlock, /phase2_uncovered_slots/)
+  assert.ok(
+    !/throw new ScheduleAssertionError\(\s*`Lesson scheduling left/.test(phase2),
+    'an uncovered slot is reported, not refused',
+  )
+})
+
+// ── The row the projector dates TODAY must survive a re-save ──────────────
+//
+// The founder's clue, 2026-09-13: in every one of the 23 missing rows, the
+// vanished lesson was the one the projector had dated the SAVE DAY itself.
+// Goal 69e9b6b8 started Wed Sep 9 and was saved that evening; the Easy Peasy
+// family completed lesson 15 on Sep 9 and lesson 16 was due Sep 9.
+//
+// These pin the contract at the level the pure planners can answer. They pass,
+// which is itself a finding: the planning half is correct, so whatever removes
+// the row does it between the plan and the stored result. See the skipped test
+// below for what is still unaccounted for.
+
+test('a re-save plans the row the projector dates today, and covers its slot', () => {
+  // An EXISTING goal keeps todayMid as its anchor (Invariant 1 is the INSERT
+  // path only), so the first slot it emits is dated today whenever today is a
+  // school day. That row is the one that went missing in production.
+  const today = '2026-09-09' // a Wednesday
+  const goal: CurriculumGoalConfig = {
+    id: 'g',
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessons_per_day: 1,
+    current_lesson: 15,
+    total_lessons: 40,
+  }
+  const upcoming = computeNextLessonsForGoal(goal, new Date(`${today}T00:00:00`), 3650)
+  assert.equal(upcoming[0].lesson_number, 16, 'the first slot is current_lesson + 1')
+  assert.equal(upcoming[0].date, today, 'and the projector dates it TODAY')
+
+  // The floor delete took every incomplete row, so nothing survives to hold a
+  // slot and the batch must supply all of them, today's included.
+  const planned = planPhase2LessonInserts({
+    upcoming,
+    existingLessonNumbers: Array.from({ length: 15 }, (_, i) => i + 1),
+    existingQueuePositions: Array.from({ length: 15 }, (_, i) => i + 1),
+  })
+  const todayRow = planned.find((p) => p.date === today)
+  assert.ok(todayRow, 'the batch contains a row dated today')
+  assert.equal(todayRow!.lesson_number, 16)
+  assert.equal(todayRow!.queue_position, 16, 'and it holds the slot Today will ask for')
+
+  // The new pre-write assertion agrees: no projected slot is left empty.
+  assert.deepEqual(
+    uncoveredProjectedSlots({
+      upcoming,
+      existingQueuePositions: Array.from({ length: 15 }, (_, i) => i + 1),
+      planned,
+    }),
+    [],
+  )
+})
+
+test('the history backfill and the forward queue can both claim today, and neither drops a row', () => {
+  // Since the seam fix, history reaches today INCLUSIVE and an existing goal's
+  // forward queue starts at today. Both planners can name the same date. That
+  // is allowed (one row is completed history, one is the next lesson) and was
+  // the first thing suspected; this pins that neither loses a row to the other.
+  const today = '2026-09-09'
+  const history = deriveHistoryFromNextLesson({
+    nextLesson: 16,
+    schoolDays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+    lessonsPerDay: 1,
+    throughYmd: today,
+  })
+  assert.equal(history.endDate, today, 'history reaches today')
+  assert.equal(history.lastLesson, 15)
+
+  const upcoming = computeNextLessonsForGoal(
+    { id: 'g', school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], lessons_per_day: 1, current_lesson: 15, total_lessons: 40 },
+    new Date(`${today}T00:00:00`),
+    3650,
+  )
+  assert.equal(upcoming[0].date, today, 'and the next lesson is also today')
+
+  // Their lesson numbers never overlap: history is 1..15, forward is 16..40.
+  const historyNumbers = new Set(history.dates.map((_, i) => i + 1))
+  const forwardNumbers = upcoming.map((p) => p.lesson_number)
+  assert.ok(!forwardNumbers.some((n) => historyNumbers.has(n)), 'no number is claimed twice')
+  assert.equal(Math.min(...forwardNumbers), 16)
+})
+
+// UNRESOLVED, 2026-09-13. Skipped rather than left red so it does not wedge
+// every merge, but it is the open question and it has a name.
+//
+// What is proven: one Schedule Builder save on Sep 10 created every hole; the
+// missing row is always current_lesson + 1; the projector dated it the save
+// day; goal 69e9b6b8 logged "inserted: 52, skipped: 0" and holds 51 rows
+// numbered 2 to 52, all created in that save; the row was not detached
+// (no orphan rows) and is not a duplicate.
+//
+// What is NOT proven: which statement removes it. The insert is one atomic
+// statement, so a partial write is impossible, and the two tests above show the
+// planners produce a complete batch. So either the array handed to the insert
+// was already short, or something outside applyPhase2ForGoal removed the row
+// during or just after the save. The candidates that survive reading are a
+// concurrent Today load in another tab (its orphan cleanup and
+// syncProjectedScheduledDates both run on the rooted:lessons-updated event) and
+// the phase-2 retry racing its own first attempt.
+//
+// Reproducing it needs a scratch goal and two live sessions, which is a
+// database exercise, not a unit test. Un-skip this when there is a reproduction
+// to hang on it.
+test.skip('UNRESOLVED: a lesson dated the save day is lost somewhere between the planned batch and the stored rows', () => {
+  assert.fail('no reproduction yet; see the comment above for what is and is not proven')
+})
+
+test('a short insert recomputes the pointer before it fails the save', () => {
+  // The delete and both inserts have committed by then, and the throw skips
+  // the over-ceiling cleanup, the pin release and the recompute. Leaving the
+  // goal rebuilt with a pointer describing the old row set is the "throw
+  // between two PostgREST calls with no transaction" shape the PLAN/COMMIT
+  // split exists to avoid, so at minimum the pointer is put right.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  const check = body.indexOf('if (confirmedInsertCount !== plannedInsertCount)')
+  const block = body.slice(check, check + 900)
+  const recompute = block.indexOf('await recomputeCurrentLesson(supabase, goalId)')
+  const thrown = block.indexOf('throw new ScheduleAssertionError')
+  assert.ok(recompute !== -1 && recompute < thrown, 'the pointer is recomputed before the throw')
 })

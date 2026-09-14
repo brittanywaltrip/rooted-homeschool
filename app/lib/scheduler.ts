@@ -2359,6 +2359,42 @@ export function previewLessonLine(a: {
   return parts.join(" ");
 }
 
+/**
+ * Does the planned batch cover every projected slot nobody already holds?
+ *
+ * `planPhase2LessonInserts` zips the missing lesson numbers onto the free
+ * slots, and the two lists are the same length on every healthy goal. When they
+ * are not, a slot the projector emitted can come out of the planner with no row
+ * to fill it, and Today then asks for that slot and gets nothing: the
+ * "Today projection missing lesson rows" report.
+ *
+ * This is the cheap, pure statement of the thing that actually matters, and it
+ * runs before the first destructive call alongside the other PLAN-phase
+ * assertions. It answers a different question from the post-write count check:
+ * that one asks whether the database wrote what we handed it, this one asks
+ * whether what we handed it was complete.
+ *
+ * Returns the uncovered slots, ascending. Empty means the batch is whole.
+ */
+export function uncoveredProjectedSlots(args: {
+  /** `computeNextLessonsForGoal` output for this goal. */
+  upcoming: readonly ProjectedLesson[];
+  /** queue_position of every row surviving the floor delete. */
+  existingQueuePositions: Iterable<number>;
+  /** The batch about to be inserted. */
+  planned: readonly { queue_position: number | null }[];
+}): number[] {
+  const held = new Set<number>(args.existingQueuePositions);
+  for (const p of args.planned) {
+    if (p.queue_position != null) held.add(p.queue_position);
+  }
+  const out: number[] = [];
+  for (const slot of args.upcoming) {
+    if (!held.has(slot.lesson_number)) out.push(slot.lesson_number);
+  }
+  return out.sort((a, b) => a - b);
+}
+
 export interface HistoryBackfillRefusalArgs {
   /** The curriculum's name, as the family typed it. */
   curriculumName: string;

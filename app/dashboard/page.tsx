@@ -46,6 +46,7 @@ import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type Reco
 import { gapStartAfterAnswer, goalsWithUncheckedRows } from "@/app/lib/recoverySelection";
 import { healEmptyGoal, countLessonRowsByGoal, isOldEnoughToHeal, type HealableGoalRow } from "@/app/lib/healEmptyGoal";
 import { splitProjectionGaps, projectionGapReports, unhealedGapReports, type ProjectionGapReport } from "@/app/lib/projection-gaps";
+import { planNextRow, healNextRow, type NextRowGoal } from "@/app/lib/healNextRow";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -1579,7 +1580,89 @@ export default function TodayPage() {
         level: "warning",
       });
     };
-    for (const report of projectionGapReports(partialGaps)) fileGapReport(report);
+    // ── Put back the one row that is in the way ───────────────────────────
+    //
+    // A goal whose FIRST projected slot has no row is the September shape: the
+    // family's next lesson simply is not there. The projector knows the slot
+    // and the date, so Today writes the row instead of filing a warning about
+    // it.
+    //
+    // BOTH halves of the split, not just `partial`. splitProjectionGaps sends a
+    // goal to `full` whenever missing >= projected, and the goals this exists
+    // for are one lesson a day: one slot projected for today, that one slot
+    // missing, so projected === missing and they land in `full`. Reading only
+    // `partial` meant the heal could never fire for the 23 curricula it was
+    // written for. What separates the two heals is whether the goal holds any
+    // rows at all, which is a row count, not a ratio.
+    const firstSlotByGoal = new Map<string, { slot: number; date: string }>();
+    for (const p of projected) {
+      if (!firstSlotByGoal.has(p.goal_id)) {
+        firstSlotByGoal.set(p.goal_id, { slot: p.lesson_number, date: p.date });
+      }
+    }
+    const missingFirstSlot = (gap: { goalId: string }) => {
+      const first = firstSlotByGoal.get(gap.goalId);
+      if (!first) return false;
+      return !projectedRowMap.has(`${gap.goalId}|${first.slot}`);
+    };
+    const nextRowCandidates = [...partialGaps, ...fullGaps].filter(missingFirstSlot);
+
+    // Reporting happens INSIDE the heal, after it has run, so only what the app
+    // could not fix is filed. Filing synchronously and suppressing every
+    // candidate up front (the first cut) dropped the warning for goals the heal
+    // then declined, which is how a genuinely broken goal goes dark.
+    const reportPartialGaps = (healedGoalIds: ReadonlySet<string>) => {
+      for (const report of projectionGapReports(
+        partialGaps.filter((g) => !healedGoalIds.has(g.goalId)),
+      )) {
+        fileGapReport(report);
+      }
+    };
+
+    if (nextRowCandidates.length > 0 && effectiveUserId) {
+      void (async () => {
+        const healed = new Set<string>();
+        // One grouped count for the candidate set. A goal holding NO rows is
+        // healEmptyGoal's case and is left to it a few lines below.
+        const countByGoal = await countLessonRowsByGoal(
+          supabase,
+          nextRowCandidates.map((g) => g.goalId),
+        );
+        for (const gap of nextRowCandidates) {
+          const goal = goalById.get(gap.goalId);
+          const first = firstSlotByGoal.get(gap.goalId);
+          if (!goal || !first) continue;
+          // Same guard healEmptyGoal uses. A goal saved in the last two minutes
+          // may have its phase 2 in flight in another tab, and writing
+          // current_lesson + 1 underneath it makes that save's batch die on the
+          // unique index, which is not retryable. Leave a save that is still
+          // happening alone.
+          if (!isOldEnoughToHeal((goal as { created_at?: string | null }).created_at)) continue;
+          const rowCount = countByGoal?.get(gap.goalId) ?? null;
+          if (rowCount != null && rowCount <= 0) continue;
+          const planned = planNextRow({
+            goal: goal as unknown as NextRowGoal,
+            userId: effectiveUserId,
+            slot: first.slot,
+            date: first.date,
+            // Null means the grouped read gave no answer; the goal is in a gap
+            // list, so it projected something, and planNextRow's own guards
+            // still apply.
+            existingRowCount: rowCount ?? 1,
+          });
+          if (!planned) continue;
+          if (await healNextRow(supabase, planned)) healed.add(gap.goalId);
+        }
+        // Only the gaps still standing get a warning.
+        reportPartialGaps(healed);
+        if (healed.size > 0) {
+          loadDataBusy.current = false;
+          await loadData();
+        }
+      })();
+    } else {
+      reportPartialGaps(new Set());
+    }
 
     // The subject's start time lives on the GOAL, not on the lesson row, so
     // it has to be attached here the same way icon_emoji is. Everything
