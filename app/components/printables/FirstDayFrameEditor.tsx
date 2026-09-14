@@ -15,6 +15,7 @@ import {
   type FirstDayFieldKey,
 } from "@/lib/first-day-themes";
 import { renderFirstDayFrame, type PhotoTransform } from "@/lib/first-day-canvas";
+import { augustYearOf, todayLocalYmd } from "@/app/lib/school-year";
 
 // Mirrors the GRADES list + year-range helper on the printables hub. Kept local
 // so the only edit to printables/page.tsx stays "add one card".
@@ -25,9 +26,9 @@ const GRADES = [
 ];
 
 function currentYearRange(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  return now.getMonth() < 7 ? `${y - 1}–${y}` : `${y}–${y + 1}`;
+  // The August rule lives in app/lib/school-year.ts; this only formats it.
+  const y = augustYearOf(todayLocalYmd());
+  return `${y}–${y + 1}`;
 }
 
 type Values = Record<FirstDayFieldKey, string>;

@@ -7,11 +7,8 @@ import {
   BADGE_CATEGORIES,
   getEarnedBadgeKeys,
 } from "@/app/lib/badges-tiered";
-import {
-  mergeMemoryRecords,
-  countByChild,
-  LEGACY_MEMORY_EVENT_TYPES,
-} from "@/lib/memory-leaves";
+import { getCurrentSchoolYear } from "@/app/lib/school-year";
+import { loadLeafCounts } from "@/app/lib/garden-leaves";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,28 +93,14 @@ function ChildPageInner() {
     const uid = session.user.id;
     setUserId(uid);
 
-    const [{ data: kids }, { data: completed }, { data: activityEvents }, { data: memoryRows }] = await Promise.all([
+    // The same tree the parent Garden draws: this school year's leaves, one
+    // definition in app/lib/garden-leaves.ts. A child's tree starts over each
+    // school year.
+    const [{ data: kids }, counts] = await Promise.all([
       supabase.from("children").select("id, name, color, birthday")
         .eq("user_id", uid).eq("archived", false).order("sort_order"),
-      supabase.from("lessons").select("child_id")
-        .eq("user_id", uid).eq("completed", true),
-      supabase.from("app_events").select("type, payload")
-        .eq("user_id", uid).in("type", [...LEGACY_MEMORY_EVENT_TYPES]),
-      // title + date come along so a book written to BOTH tables during the
-      // March 2026 cutover grows one leaf, not two (lib/memory-leaves.ts).
-      supabase.from("memories").select("child_id, type, title, date")
-        .eq("user_id", uid),
+      getCurrentSchoolYear(supabase, uid).then((schoolYear) => loadLeafCounts(supabase, uid, schoolYear)),
     ]);
-
-    const counts: Record<string, number> = {};
-    completed?.forEach((l) => { counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
-    const memoryLeaves = countByChild(
-      mergeMemoryRecords(
-        memoryRows ?? [],
-        (activityEvents as unknown as { type: string; payload: { title?: string; child_id?: string; date?: string } | null }[]) ?? [],
-      ),
-    );
-    for (const [cid, n] of Object.entries(memoryLeaves)) counts[cid] = (counts[cid] ?? 0) + n;
 
     setChildren(kids ?? []);
     setLeafCounts(counts);

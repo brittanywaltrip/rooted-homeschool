@@ -54,7 +54,8 @@ import { biweeklyOccursOn } from "@/app/components/PlanV2/activityOccurrences";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { isSchoolDayDate } from "@/lib/school-days";
-import { mergeMemoryRecords, countByChild, LEGACY_MEMORY_EVENT_TYPES } from "@/lib/memory-leaves";
+import { currentKeyLast, getCurrentSchoolYear, resolveYearbookKey, yearbookContentYearFilter } from "@/app/lib/school-year";
+import { countLeaves, loadLeafCounts, loadLeafSources } from "@/app/lib/garden-leaves";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { MAX_PREFILL_TITLE } from "@/lib/mail-adventures";
@@ -639,6 +640,8 @@ export default function TodayPage() {
   // Your Book strip: the yearbook's current page count plus the record behind
   // it. Null until loadData has run, so the strip never flashes a zero.
   const [bookStats, setBookStats] = useState<{ pages: number; lessons: number; books: number; days: number } | null>(null);
+  // The current school year's name, for the strip's empty line.
+  const [schoolYearName, setSchoolYearName] = useState("");
   const [onThisDayMemory, setOnThisDayMemory] = useState<{ id: string; title: string; date: string; child_id: string | null; photo_url: string | null } | null>(null);
   const [onThisDayTier, setOnThisDayTier] = useState<1 | 2 | 3>(3);
   const [showWinSheet, setShowWinSheet] = useState(false);
@@ -919,32 +922,14 @@ export default function TodayPage() {
 
   // ── Leaf count refresh ────────────────────────────────────────────────────
 
-  // A leaf is a completed lesson or a captured memory. Memories live in the
-  // `memories` table since March 2026; the legacy app_events rows are merged in
-  // behind them so pre-March captures still count, and a book written to both
-  // tables during the cutover counts once. Same source set as the garden pages,
-  // so the toast number and the tree never disagree. See lib/memory-leaves.ts.
+  // A leaf is a completed lesson, a captured memory or a completed activity,
+  // inside this school year. One definition for the Garden, the kids' view and
+  // this toast, so the toast number and the tree never disagree. See
+  // app/lib/garden-leaves.ts.
   const refreshLeafCounts = useCallback(async () => {
     if (!effectiveUserId) return;
-    const [{ data: completed }, { data: memoryRows }, { data: legacyEvents }] = await Promise.all([
-      // Paged: a leaf is a completed lesson, so a family past 1,000 of them
-      // would watch her trees stop growing. See lib/supabase-all-rows.ts.
-      selectAllRowsResult<{ child_id: string | null }>((from, to) =>
-        supabase.from("lessons").select("child_id").eq("user_id", effectiveUserId).eq("completed", true)
-          .order("id").range(from, to)),
-      supabase.from("memories").select("child_id, type, title, date").eq("user_id", effectiveUserId),
-      supabase.from("app_events").select("type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_MEMORY_EVENT_TYPES]),
-    ]);
-    const counts: Record<string, number> = {};
-    completed?.forEach((l) => { if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
-    const memoryLeaves = countByChild(
-      mergeMemoryRecords(
-        memoryRows ?? [],
-        (legacyEvents as unknown as { type: string; payload: { title?: string; child_id?: string; date?: string } | null }[]) ?? [],
-      ),
-    );
-    for (const [cid, n] of Object.entries(memoryLeaves)) counts[cid] = (counts[cid] ?? 0) + n;
-    setLeafCounts(counts);
+    const schoolYear = await getCurrentSchoolYear(supabase, effectiveUserId);
+    setLeafCounts(await loadLeafCounts(supabase, effectiveUserId, schoolYear));
   }, [effectiveUserId]);
 
   const loadTodayActivities = useCallback(async () => {
@@ -1027,9 +1012,13 @@ export default function TodayPage() {
     const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
     const twoWeeks = new Date(); twoWeeks.setDate(twoWeeks.getDate() + 14);
     const nowForSY = new Date();
-    const schoolYearStartMonth = 7;
-    const syYear = nowForSY.getMonth() >= schoolYearStartMonth ? nowForSY.getFullYear() : nowForSY.getFullYear() - 1;
-    const syStart = `${syYear}-08-01`;
+    // "This year" is the family's active school year (app/lib/school-year.ts),
+    // not a hardcoded August 1. Started now and chained into the queries that
+    // need it, like the profile below.
+    const schoolYearPromise = getCurrentSchoolYear(supabase, effectiveUserId);
+    // Every leaf source inside the year, read once: the leaf counts and the
+    // Your Book strip's lessons and school days both come from these rows.
+    const leafSourcesPromise = schoolYearPromise.then((sy) => loadLeafSources(supabase, effectiveUserId, sy));
     const monthStartStr = `${nowForSY.getFullYear()}-${String(nowForSY.getMonth() + 1).padStart(2, "0")}-01`;
     const monthEndStr = localDateStr(nowForSY);
     const otdNow = new Date();
@@ -1079,20 +1068,19 @@ export default function TodayPage() {
 
     // ── The yearbook's own window ───────────────────────────────────────────
     // Today shows the book's page count, so it has to scope its counts exactly
-    // the way the reader does: from yearbook_opened_at (or this school year's
-    // August 1 when the book has never been opened) to yearbook_closed_at, and
+    // the way the reader does: memories dated inside the current school year,
     // in-book rows only. Any other window gives a number the book won't match.
     // Mirrors app/dashboard/memories/yearbook/read/page.tsx's loader.
-    // Chained off the profile so the two queries that need it join the first
+    // yearbook_opened_at still helps name WHICH book this is (the yearbook_key
+    // the editor writes under, see resolveYearbookKey); it no longer decides
+    // which dates are in it. It used to, and a family who closed a year kept
+    // last year's memories in this year's page count because nothing moved it.
+    // Chained off the profile so the queries that need it join the first
     // wave the moment it lands, while everything else is already in flight.
-    const yearbookWindow = profilePromise.then((p) => {
-      const ybOpenedAt = p?.yearbook_opened_at ?? new Date(syYear, schoolYearStartMonth, 1).toISOString();
-      const ybClosedAt = p?.yearbook_closed_at ?? null;
-      const ybOpenedMonth = new Date(ybOpenedAt).getUTCMonth();
-      const ybOpenedYear = new Date(ybOpenedAt).getUTCFullYear();
-      const ybStartYear = ybOpenedMonth >= 7 ? ybOpenedYear : ybOpenedYear - 1;
-      const yearbookKeyForCount = `${ybStartYear}-${String(ybStartYear + 1).slice(2)}`;
-      return { ybOpenedAt, ybClosedAt, yearbookKeyForCount };
+    const yearbookWindow = Promise.all([profilePromise, schoolYearPromise]).then(async ([p, schoolYear]) => {
+      // The key rule is shared with the reader and the editor, which must agree.
+      const { key: yearbookKeyForCount, readKeys: yearbookReadKeys } = await resolveYearbookKey(supabase, effectiveUserId, p?.yearbook_opened_at, schoolYear);
+      return { schoolYear, yearbookKeyForCount, yearbookReadKeys };
     });
 
     // Minimal column list, plus title/caption because the recap drops blank
@@ -1100,16 +1088,15 @@ export default function TodayPage() {
     // instead would put the recap on the wrong page. Current families hold at
     // most 61 memories, so this is cheap. If a family ever passes a few
     // thousand rows, move this to a grouped RPC rather than widening it.
-    const bookMemsQuery = yearbookWindow.then(({ ybOpenedAt, ybClosedAt }) => {
-      let q = supabase
+    const bookMemsQuery = schoolYearPromise.then((schoolYear) =>
+      supabase
         .from("memories")
         .select("id, child_id, type, include_in_book, photo_url, title, caption, featured")
         .eq("user_id", effectiveUserId)
         .eq("include_in_book", true)
-        .gte("date", ybOpenedAt.slice(0, 10));
-      if (ybClosedAt) q = q.lte("date", ybClosedAt.slice(0, 10));
-      return q;
-    });
+        .gte("date", schoolYear.start)
+        .lte("date", schoolYear.end),
+    );
     const [
       authResult,
       childrenResult,
@@ -1152,28 +1139,26 @@ export default function TodayPage() {
       // head count answers it without dragging 1,000 ids across the wire.
       supabase.from("lessons").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId),
       supabase.from("lessons").select("date, scheduled_date, completed").eq("user_id", effectiveUserId).gte("scheduled_date", localDateStr(thirtyDaysAgo)),
-      // child_id for the leaf counts; date/scheduled_date so the Your Book strip
-      // can count both completed lessons and the distinct days they fall on
-      // without a second and third round trip for the same rows.
-      // Paged for the same reason as refreshLeafCounts: this feeds the leaf
-      // counts AND the Your Book strip's school-day count, and both go wrong
-      // quietly once a family passes 1,000 completed lessons.
-      selectAllRowsResult<{ child_id: string | null; date: string | null; scheduled_date: string | null }>((from, to) =>
-        supabase.from("lessons").select("child_id, date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true)
-          .order("id").range(from, to)),
-      // Leaf sources: the memories table first, legacy app_events merged in
-      // behind it. Books moved to `memories` in March 2026, so reading the
-      // legacy table alone hid every book logged since. See lib/memory-leaves.ts.
-      supabase.from("memories").select("child_id, type, title, date").eq("user_id", effectiveUserId),
-      supabase.from("app_events").select("type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_MEMORY_EVENT_TYPES]),
+      // This school year's completed lessons: child_id for the leaf counts,
+      // date/scheduled_date so the Your Book strip can count both completed
+      // lessons and the distinct days they fall on without another round trip
+      // for the same rows. Paged inside loadLeafSources.
+      leafSourcesPromise.then((s) => ({ data: s.lessons, error: null })),
+      // The other leaf sources ride on the same read; the leaf counts below
+      // take the whole bundle through countLeaves (app/lib/garden-leaves.ts).
+      leafSourcesPromise.then((s) => ({ data: s.memories, error: null })),
+      leafSourcesPromise.then((s) => ({ data: s.legacyEvents, error: null })),
       supabase.from("app_events").select("id, payload").eq("user_id", effectiveUserId).eq("type", "book_read").filter("payload->>date", "eq", today),
       supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", ["memory_book", "memory_project", "memory_photo"]).filter("payload->>date", "eq", today),
       supabase.from("subjects").select("id, name, color").eq("user_id", effectiveUserId).order("name"),
       supabase.from("vacation_blocks").select("name, end_date, start_date").eq("user_id", effectiveUserId),
       supabase.from("lessons").select("title, scheduled_date, child_id, subjects(name), curriculum_goals(subject_label)").eq("user_id", effectiveUserId).eq("completed", false).gte("scheduled_date", localDateStr(tomorrow)).lte("scheduled_date", localDateStr(twoWeeks)).order("scheduled_date"),
-      supabase.from("memories").select("id").eq("user_id", effectiveUserId).gte("date", syStart),
+      // This school year's memories. The zero-memory "Capture your first
+      // memory" card and the Your Book strip both read this window, so they
+      // can never disagree about whether this year has anything in it.
+      schoolYearPromise.then((sy) => supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId).gte("date", sy.start).lte("date", sy.end)),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).not("photo_url", "is", null).neq("photo_url", ""),
-      supabase.from("memories").select("id").eq("user_id", effectiveUserId).eq("include_in_book", true).gte("date", syStart),
+      schoolYearPromise.then((sy) => supabase.from("memories").select("id").eq("user_id", effectiveUserId).eq("include_in_book", true).gte("date", sy.start).lte("date", sy.end)),
       supabase.from("lessons").select("date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true).gte("scheduled_date", monthStartStr).lte("scheduled_date", monthEndStr),
       supabase.from("memories").select("date").eq("user_id", effectiveUserId).gte("date", monthStartStr).lte("date", monthEndStr),
       supabase.from("memories").select("id, type, title, date, child_id, photo_url").eq("user_id", effectiveUserId).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -1200,14 +1185,20 @@ export default function TodayPage() {
       // Which written sections exist. content_type / child_id / question_key
       // are what decide whether a section costs pages, so a bare row count
       // would not be enough to tell them apart.
-      yearbookWindow.then(({ yearbookKeyForCount }) =>
-        supabase
+      // Closing a year stamps its yearbook_content rows with that year's id,
+      // so this year's book reads unstamped rows and its own, never last
+      // year's captions. Same filter as the reader.
+      // Empty rows come back too: after a key move an emptied field under the
+      // new key has to override the old key's text, as it does in the reader.
+      yearbookWindow.then(async ({ yearbookKeyForCount, yearbookReadKeys, schoolYear }) => {
+        const res = await supabase
           .from("yearbook_content")
-          .select("content_type, child_id, question_key, content")
+          .select("yearbook_key, content_type, child_id, question_key, content")
           .eq("user_id", effectiveUserId)
-          .eq("yearbook_key", yearbookKeyForCount)
-          .neq("content", ""),
-      ),
+          .in("yearbook_key", yearbookReadKeys)
+          .or(yearbookContentYearFilter(schoolYear));
+        return { ...res, data: res.data ? currentKeyLast(res.data, yearbookKeyForCount) : res.data };
+      }),
       supabase.from("monthly_reflections").select("month, answer").eq("user_id", effectiveUserId),
     ]);
 
@@ -1223,7 +1214,8 @@ export default function TodayPage() {
 
     // Profile (resolved long ago: the wave above waited on it)
     const profile = await profilePromise;
-    const { ybOpenedAt, ybClosedAt, yearbookKeyForCount } = await yearbookWindow;
+    const { schoolYear, yearbookKeyForCount } = await yearbookWindow;
+    setSchoolYearName(schoolYear.name);
     const authUser = authResult.data?.user;
 
     // Self-heal: if profiles.timezone disagrees with the browser-detected
@@ -2017,20 +2009,11 @@ export default function TodayPage() {
       setSelectedChild((firstIncomplete ?? kidsWithLessons[0]).id);
     }
 
-    // Leaf counts — completed lessons plus every captured memory, merged
-    // across the memories table and the legacy app_events rows (books that
-    // exist in both count once). Mirrors refreshLeafCounts above.
-    const completed = completedResult.data;
-    const counts: Record<string, number> = {};
-    completed?.forEach((l) => { if (l.child_id) counts[l.child_id] = (counts[l.child_id] ?? 0) + 1; });
-    const memoryLeaves = countByChild(
-      mergeMemoryRecords(
-        leafMemoriesResult.data ?? [],
-        (leafLegacyEventsResult.data as unknown as { type: string; payload: { title?: string; child_id?: string; date?: string } | null }[]) ?? [],
-      ),
-    );
-    for (const [cid, n] of Object.entries(memoryLeaves)) counts[cid] = (counts[cid] ?? 0) + n;
-    setLeafCounts(counts);
+    // Leaf counts: this school year's lessons, memories (legacy app_events
+    // merged in) and activities. Mirrors refreshLeafCounts above; the
+    // completedResult / leafMemoriesResult / leafLegacyEventsResult slots are
+    // views onto the same bundle.
+    setLeafCounts(countLeaves(await leafSourcesPromise));
 
     // Today books + memory events
     setTodayBooks((todayBooksResult.data as unknown as BookLog[]) ?? []);
@@ -2074,7 +2057,7 @@ export default function TodayPage() {
     }
 
     // Memory counts
-    setTotalMemories(memCountResult.data?.length ?? 0);
+    setTotalMemories(memCountResult.count ?? 0);
     setTotalPhotos(photoCountResult.data?.length ?? 0);
     setYearbookCount(ybCountResult.data?.length ?? 0);
 
@@ -2102,23 +2085,17 @@ export default function TodayPage() {
       showBooksSection: sectionOn("show_books_section"),
       showFamilyChapter: sectionOn("show_family_chapter"),
     };
-    // The closing note counts the lessons inside the yearbook's own window, the
-    // way the reader does. The strip's "lessons completed" figure below stays
-    // all-time on purpose; these two are different questions.
-    const windowedLessonDates: string[] = [];
-    for (const l of completedLessonRows) {
-      const d = (l.date ?? l.scheduled_date ?? "").slice(0, 10);
-      if (!d || d < ybOpenedAt.slice(0, 10)) continue;
-      if (ybClosedAt && d > ybClosedAt.slice(0, 10)) continue;
-      windowedLessonDates.push(d);
-    }
+    // Every figure on the strip is this school year's, the same rows the
+    // closing note counts and the same window the first-memory card reads.
+    // The lessons figure used to be all-time, so a family who had just closed
+    // a year saw last year's 103 lessons under "Capture your first memory".
     const bookCounts = buildBookCounts(
       (childrenData ?? []).map((c: { id: string }) => c.id),
       bookMems,
       (ybContentResult.data ?? []) as unknown as YearbookContentRow[],
       (monthlyReflectionsResult.data ?? []) as unknown as { month: string; answer: string | null }[],
       yearbookKeyForCount,
-      { lessons: windowedLessonDates.length, schoolDays: new Set(windowedLessonDates).size },
+      { lessons: completedLessonRows.length, schoolDays: schoolDayDates.size },
     );
     setBookStats({
       pages: estimateYearbookPages(bookCounts, bookSections),
@@ -5612,6 +5589,26 @@ export default function TodayPage() {
           second question only makes sense once the first is answered.
          ═══════════════════════════════════════════════════════════ */}
       {!loading && bookStats && (() => {
+        // A new school year with nothing in it yet. The strip used to keep
+        // showing last year's pages and lessons here, directly under a
+        // "Capture your first memory" card that was counting this year: two
+        // cards on one screen disagreeing about whether the family had ever
+        // captured anything. Now both count this year, and an empty year says
+        // so in words instead of zeros. A brand-new family (no lessons ever)
+        // gets only the activation card, as before.
+        if (totalMemories === 0) {
+          if (!hasAnyLessons) return null;
+          return (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Book</p>
+              <div className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3.5">
+                <p className="text-[13px] text-[#5C5346]" style={{ fontFamily: "var(--font-display)" }}>
+                  {schoolYearName ? `Your ${schoolYearName} book starts with your first memory.` : "Your book starts with your first memory."}
+                </p>
+              </div>
+            </div>
+          );
+        }
         // Nothing at all below three memories with no lessons behind them.
         // "0 pages" reads as a scolding, and Rooted does not scold. The
         // activation card above already speaks to a family with an empty book,

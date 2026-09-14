@@ -13,6 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { generateProgressReport, fmtMins, type ReportData } from "@/lib/pdf";
 import { lessonDailyLogRow } from "@/lib/progress-report-rows";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
+import { augustYearOf, getCurrentSchoolYear, todayLocalYmd, type SchoolYearWindow } from "@/app/lib/school-year";
 
 export type ReportRangePreset = "q1" | "q2" | "q3" | "q4" | "custom" | "full";
 
@@ -67,13 +68,16 @@ type ActivityRow = {
   child_ids: string[] | null;
 };
 
-function computeRange(opts: DownloadProgressReportOpts): {
+function computeRange(opts: DownloadProgressReportOpts, schoolYear: SchoolYearWindow): {
   start: string;
   end: string;
   label: string;
 } {
-  const now = new Date();
-  const yearStart = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  // The quarters are Sep to Aug quarters of the August-to-July year today is
+  // in, as before. Keyed off today, not the family's start date: a year that
+  // was backfilled to start in April would otherwise number last year's
+  // quarters.
+  const yearStart = augustYearOf(todayLocalYmd());
   const { range, customStart, customEnd } = opts;
   if (range === "q1") return { start: `${yearStart}-09-01`, end: `${yearStart}-11-30`, label: `Q1 Report: September – November ${yearStart}` };
   if (range === "q2") return { start: `${yearStart}-12-01`, end: `${yearStart + 1}-02-28`, label: `Q2 Report: December ${yearStart} – February ${yearStart + 1}` };
@@ -84,12 +88,12 @@ function computeRange(opts: DownloadProgressReportOpts): {
       new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
     return { start: customStart, end: customEnd, label: `${fmt(customStart)} – ${fmt(customEnd)}` };
   }
-  // Full year — use the entire school-year window as the label so the PDF
-  // header reads cleanly.
+  // Full year: the family's current school year (app/lib/school-year.ts),
+  // labelled with the name they gave it.
   return {
-    start: `${yearStart}-08-01`,
-    end: `${yearStart + 1}-07-31`,
-    label: `${yearStart}–${yearStart + 1}`,
+    start: schoolYear.start,
+    end: schoolYear.end,
+    label: schoolYear.name,
   };
 }
 
@@ -111,9 +115,10 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
   const { jsPDF } = await import("jspdf");
 
   const now = new Date();
-  const fallbackYr = now.getMonth() >= 6
-    ? `${now.getFullYear()}–${now.getFullYear() + 1}`
-    : `${now.getFullYear() - 1}–${now.getFullYear()}`;
+  const schoolYear = await getCurrentSchoolYear(supabase, userId);
+  const fallbackYr = schoolYear.name;
+  // The file name wants digits, and a family's year can be "Kindergarten Year".
+  const fileYear = augustYearOf(todayLocalYmd());
   const dateGenerated = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
@@ -138,7 +143,7 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
   const goalDefaults: Record<string, number> = {};
   for (const g of ((gr ?? []) as unknown as GoalRow[])) goalDefaults[g.id] = g.default_minutes ?? 30;
 
-  const { start: rangeStart, end: rangeEnd, label: dateRangeLabel } = computeRange(opts);
+  const { start: rangeStart, end: rangeEnd, label: dateRangeLabel } = computeRange(opts, schoolYear);
   if (rangeStart && rangeEnd) {
     allLessons = allLessons.filter((l) => {
       const d = lessonDate(l);
@@ -326,5 +331,5 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
   const fileSlug = selectedChild
     ? `${slugify(selectedChild.name)}-${slugify(familyName)}`
     : slugify(familyName);
-  doc.save(`${fileSlug}-progress-report-${fallbackYr.replace(/[^\d]/g, "-")}.pdf`);
+  doc.save(`${fileSlug}-progress-report-${fileYear}-${fileYear + 1}.pdf`);
 }

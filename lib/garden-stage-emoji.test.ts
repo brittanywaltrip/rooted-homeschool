@@ -17,8 +17,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+// The parent Garden's table moved out of app/dashboard/garden/page.tsx into
+// app/lib/garden-stages.ts so the Years page can draw the same trees.
 const TABLES = [
-  ['app/dashboard/garden/page.tsx', 'GROWTH_STAGES'],
+  ['app/lib/garden-stages.ts', 'GROWTH_STAGES'],
   ['app/child/page.tsx', 'GROWTH_STAGES'],
 ] as const
 
@@ -83,7 +85,7 @@ for (const [relPath, tableName] of TABLES) {
 }
 
 test('the garden stage thresholds and labels did not move', () => {
-  const src = readFileSync(resolve(import.meta.dirname, '..', 'app/dashboard/garden/page.tsx'), 'utf8')
+  const src = readFileSync(resolve(import.meta.dirname, '..', 'app/lib/garden-stages.ts'), 'utf8')
   const start = src.indexOf('const GROWTH_STAGES = [')
   const table = src.slice(start, src.indexOf('\n];', start))
   const mins = [...table.matchAll(/min:\s*(\d+)/g)].map((m) => Number(m[1]))

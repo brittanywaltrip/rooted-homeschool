@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, type PointerEvent as ReactPointerEvent } from "react";
 import { supabase } from "@/lib/supabase";
+import { currentKeyLast, getCurrentSchoolYear, resolveYearbookKey, yearbookContentYearFilter } from "@/app/lib/school-year";
 import { usePartner } from "@/lib/partner-context";
 import { useProfile } from "@/lib/profile-context";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -710,17 +711,20 @@ export default function YearbookEditPage() {
       const closedAt = profile?.yearbook_closed_at;
       setIsReadOnly(!!closedAt);
 
-      const m = new Date(openedAt).getMonth();
-      const y = new Date(openedAt).getFullYear();
-      const startYear = m >= 7 ? y : y - 1;
-      const key = `${startYear}-${String(startYear + 1).slice(2)}`;
+      // The same key the reader and Today's page count use. Deriving it here
+      // on its own meant that after a year was closed this editor kept
+      // loading last year's rows and, through the upsert below, overwrote them,
+      // while the reader no longer showed them. See resolveYearbookKey.
+      const schoolYear = await getCurrentSchoolYear(supabase, effectiveUserId);
+      const { key, readKeys } = await resolveYearbookKey(supabase, effectiveUserId, openedAt, schoolYear);
       setYearbookKey(key);
 
       const [{ data: kids }, { data: ybRows }, { data: quotes }, { data: bookmarked }] = await Promise.all([
         supabase.from("children").select("id, name, color")
           .eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
-        supabase.from("yearbook_content").select("content_type, child_id, question_key, content, updated_at")
-          .eq("user_id", effectiveUserId).eq("yearbook_key", key),
+        supabase.from("yearbook_content").select("yearbook_key, content_type, child_id, question_key, content, updated_at")
+          .eq("user_id", effectiveUserId).in("yearbook_key", readKeys)
+          .or(yearbookContentYearFilter(schoolYear)),
         supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url")
           .eq("user_id", effectiveUserId).eq("type", "quote").order("date", { ascending: false }),
         supabase.from("memories").select("id, child_id, date, type, title, caption, photo_url, focal_x, focal_y, page_order, created_at, featured")
@@ -760,7 +764,9 @@ export default function YearbookEditPage() {
       setDrawingCaptions(caps);
 
       // Build content map
-      const rows = (ybRows ?? []) as YearbookContentRow[];
+      // Rows carried from the old key first, this year's key last, so the
+      // map below keeps this year's value wherever both exist.
+      const rows = currentKeyLast((ybRows ?? []) as (YearbookContentRow & { yearbook_key: string })[], key);
       const cMap: Record<string, string> = {};
       const uMap: Record<string, string> = {};
       for (const r of rows) {

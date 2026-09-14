@@ -13,6 +13,7 @@ import { schoolNameFor } from "@/lib/school-name";
 import { canExport } from "@/lib/user-access";
 import { mergeBookRecords, countByChild, LEGACY_BOOK_EVENT_TYPES } from "@/lib/memory-leaves";
 import ExportGateModal from "@/app/components/ExportGateModal";
+import { augustYearOf, todayLocalYmd } from "@/app/lib/school-year";
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -44,9 +45,9 @@ interface BackFields {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function currentYearRange(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  return now.getMonth() < 7 ? `${y - 1}\u2013${y}` : `${y}\u2013${y + 1}`;
+  // The August rule lives in app/lib/school-year.ts; this only formats it.
+  const y = augustYearOf(todayLocalYmd());
+  return `${y}\u2013${y + 1}`;
 }
 
 function todayStr(): string {

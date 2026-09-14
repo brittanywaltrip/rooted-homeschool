@@ -17,54 +17,18 @@ import PageHero from "@/app/components/PageHero";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { validateStreak } from "@/app/lib/integrity-checks";
+import { GROWTH_STAGES, getGrowthStage, getGrowthStageIndex } from "@/app/lib/garden-stages";
+import { getCurrentSchoolYear } from "@/app/lib/school-year";
+import { loadLeafCounts, gardenStageSeenId, gardenStageSeenPrefix } from "@/app/lib/garden-leaves";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
 type Child = { id: string; name: string; color: string | null; birthday?: string | null };
 
-type LessonRow = {
-  child_id: string;
-  date: string | null;
-  scheduled_date: string | null;
-  hours: number | null;
-};
-
 type VacationBlock = { start_date: string; end_date: string; name: string };
 
-// ─── Growth stages (8-stage leaf system) ────────────────────────────────────────
-
-// Every emoji in this table is Emoji 1.0 (2015) on purpose. 🫘 (Seed) and
-// 🪴 (Seedling) were Emoji 14.0 and 13.0, which Windows 10 and older macOS
-// system fonts do not carry, so both stages rendered as a blank box on a
-// desktop while the same family's iPhone showed them. A mother's first look
-// at her garden is the Seed stage, and hers was empty.
-// Guard: lib/garden-stage-emoji.test.ts.
-const GROWTH_STAGES = [
-  { name: "Seed",          emoji: "🌰", label: "Just getting started",       min: 0,   scale: 1.0 },
-  { name: "Sprouting",     emoji: "🌱", label: "A tiny shoot appears",       min: 1,   scale: 1.0 },
-  { name: "Seedling",      emoji: "🍃", label: "Putting down roots",         min: 10,  scale: 1.0 },
-  { name: "Growing",       emoji: "🌿", label: "Putting down roots",         min: 25,  scale: 0.8 },
-  { name: "Young Tree",    emoji: "🌳", label: "Standing tall",              min: 50,  scale: 1.0 },
-  { name: "Flourishing",   emoji: "🌲", label: "Strong and steady",          min: 100, scale: 1.1 },
-  { name: "Blossoming",    emoji: "🌸", label: "In full bloom",              min: 200, scale: 1.2 },
-  { name: "Bearing Fruit", emoji: "🍎", label: "The harvest of your work",   min: 500, scale: 1.4 },
-];
-
-function getGrowthStage(lessons: number) {
-  let stage = GROWTH_STAGES[0];
-  for (const s of GROWTH_STAGES) {
-    if (lessons >= s.min) stage = s;
-  }
-  return stage;
-}
-
-function getGrowthStageIndex(lessons: number): number {
-  let idx = 0;
-  for (let i = 0; i < GROWTH_STAGES.length; i++) {
-    if (lessons >= GROWTH_STAGES[i].min) idx = i;
-  }
-  return idx;
-}
+// Growth stages (8-stage leaf system) live in app/lib/garden-stages.ts, shared
+// with the Years page's finished trees.
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -386,7 +350,6 @@ export default function GardenPage() {
   const [leafCounts, setLeafCounts]     = useState<Record<string, number>>({});
   const [selectedId, setSelectedId]     = useState<string | null>(null);
   const [loading, setLoading]           = useState(true);
-  const [allLessons, setAllLessons]     = useState<LessonRow[]>([]);
   const [vacationBlocks, setVacationBlocks] = useState<VacationBlock[]>([]);
   const [familyName, setFamilyName]     = useState("");
   const [profile, setProfile]           = useState<{
@@ -406,7 +369,6 @@ export default function GardenPage() {
   } | null>(null);
   const [earnedActivityBadgeIds, setEarnedActivityBadgeIds] = useState<Set<string>>(new Set());
   const [earnedTieredBadgeKeys, setEarnedTieredBadgeKeys] = useState<Set<string>>(new Set());
-  const [memoriesCount, setMemoriesCount] = useState(0);
   const [booksCount, setBooksCount] = useState(0);
 
   const todayStr = toDateStr(new Date());
@@ -447,16 +409,22 @@ export default function GardenPage() {
       const firstChildId = kids_.length > 0 ? kids_[0].id : null;
       if (firstChildId) setSelectedId(firstChildId);
 
-      const [{ data: completed }, { data: memoryRows }, { data: vacBlocks }, { data: profileRow }, { data: actLogs }, { data: actDefs }] = await Promise.all([
-        supabase.from("lessons").select("child_id, date, scheduled_date, hours").eq("user_id", effectiveUserId).eq("completed", true),
-        supabase.from("memories").select("child_id, type").eq("user_id", effectiveUserId),
+      // The tree is this school year's tree. It starts over when a year is
+      // closed; last year's finished tree lives on the Years page. The window
+      // is loaded once and every leaf source is filtered to it in the query.
+      const schoolYear = await getCurrentSchoolYear(supabase, effectiveUserId);
+      const seenPrefix = gardenStageSeenPrefix(schoolYear);
+
+      const [counts, { count: bookCount }, { data: vacBlocks }, { data: profileRow }, { data: seenRows }] = await Promise.all([
+        loadLeafCounts(supabase, effectiveUserId, schoolYear),
+        // All-time on purpose: it only decides whether the Books badge row is
+        // shown, and badges stay earned across years.
+        supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId).eq("type", "book"),
         supabase.from("vacation_blocks").select("start_date, end_date, name").eq("user_id", effectiveUserId),
         supabase.from("profiles").select("display_name, plan_type, subscription_status, current_streak_days, longest_streak_days, last_logged_date, school_days").eq("id", effectiveUserId).maybeSingle(),
-        supabase.from("activity_logs").select("activity_id, completed").eq("user_id", effectiveUserId).eq("completed", true),
-        supabase.from("activities").select("id, child_ids").eq("user_id", effectiveUserId),
+        supabase.from("user_badges").select("badge_id").eq("user_id", effectiveUserId).like("badge_id", `${seenPrefix}%`),
       ]);
 
-      setAllLessons((completed as LessonRow[]) ?? []);
       setVacationBlocks((vacBlocks as VacationBlock[]) ?? []);
       const pd = profileRow as typeof profile & { display_name?: string } | null;
       setFamilyName(pd?.display_name ?? "");
@@ -469,48 +437,67 @@ export default function GardenPage() {
         .maybeSingle();
       setIsAffiliate(!!affiliateData?.is_active);
 
-      // Count leaves per child (lessons + memories + activities)
-      const counts: Record<string, number> = {};
-      completed?.forEach((l) => {
-        counts[l.child_id] = (counts[l.child_id] ?? 0) + 1;
-      });
-      const memRows = (memoryRows ?? []) as { child_id: string | null; type?: string }[];
-      memRows.forEach((m) => {
-        if (m.child_id) counts[m.child_id] = (counts[m.child_id] ?? 0) + 1;
-      });
-      // Activity logs: map activity_id → child_ids, credit each child
-      const actMap: Record<string, string[]> = {};
-      for (const a of ((actDefs ?? []) as { id: string; child_ids: string[] | null }[])) {
-        actMap[a.id] = a.child_ids ?? [];
-      }
-      for (const log of ((actLogs ?? []) as { activity_id: string; completed: boolean }[])) {
-        const childIds = actMap[log.activity_id] ?? [];
-        for (const cid of childIds) {
-          counts[cid] = (counts[cid] ?? 0) + 1;
-        }
-      }
-      setMemoriesCount(memRows.length);
-      setBooksCount(memRows.filter((m) => m.type === "book").length);
+      setBooksCount(bookCount ?? 0);
       setLeafCounts(counts);
 
-      // Growth stage celebration check — per child
-      const seenBadgesKey = `garden_badges_seen_${effectiveUserId}`;
-      const seenBadges = new Set(JSON.parse(localStorage.getItem(seenBadgesKey) ?? "[]") as string[]);
+      // Growth stage celebration, per child, per school year. "Seen" lives in
+      // user_badges so a second device does not celebrate the same stage
+      // again, and is keyed by the school year so a new year celebrates each
+      // stage afresh. localStorage is only a same-session cache: it covers a
+      // write that has not landed yet, or a partner view that RLS will not
+      // let write to the family's rows.
+      const seenCacheKey = `garden_stage_seen_${effectiveUserId}`;
+      const seen = new Set<string>((seenRows ?? []).map((r: { badge_id: string }) => r.badge_id));
+      try {
+        for (const id of JSON.parse(localStorage.getItem(seenCacheKey) ?? "[]") as string[]) seen.add(id);
+      } catch { /* a corrupt cache is an empty one */ }
       const badgeThresholds = GROWTH_STAGES.filter(s => s.min > 0).map(s => s.min);
+
+      // One-time carry-over from the device-only record this replaced
+      // ("leaves_<child>_<threshold>" under garden_badges_seen_<user>). Without
+      // it every family mid-year would be shown a stage they already
+      // celebrated, once per device. Seen there counts as seen for the year
+      // in progress; the old key is then removed, so next year celebrates anew.
+      const legacySeenKey = `garden_badges_seen_${effectiveUserId}`;
+      try {
+        const legacyRaw = localStorage.getItem(legacySeenKey);
+        if (legacyRaw) {
+          const legacy = new Set(JSON.parse(legacyRaw) as string[]);
+          const carried: string[] = [];
+          for (const kid of kids_) {
+            for (const t of badgeThresholds) {
+              if (legacy.has(`leaves_${kid.id}_${t}`)) carried.push(gardenStageSeenId(schoolYear, kid.id, t));
+            }
+          }
+          for (const id of carried) seen.add(id);
+          if (carried.length > 0) {
+            void supabase
+              .from("user_badges")
+              .upsert(carried.map((badge_id) => ({ user_id: effectiveUserId, badge_id })), { onConflict: "user_id,badge_id", ignoreDuplicates: true })
+              .then(() => {}, () => {});
+          }
+          localStorage.removeItem(legacySeenKey);
+        }
+      } catch { /* an unreadable old record just means no carry-over */ }
 
       let celebrationChild: { name: string; leafCount: number; threshold: number } | null = null;
       for (const kid of kids_) {
         const kidLeaves = counts[kid.id] ?? 0;
         const newThreshold = badgeThresholds.find(
-          t => kidLeaves >= t && !seenBadges.has(`leaves_${kid.id}_${t}`)
+          t => kidLeaves >= t && !seen.has(gardenStageSeenId(schoolYear, kid.id, t))
         );
         if (newThreshold) {
           celebrationChild = { name: kid.name, leafCount: kidLeaves, threshold: newThreshold };
-          const allEarned = badgeThresholds
+          const reached = badgeThresholds
             .filter(t => kidLeaves >= t)
-            .map(t => `leaves_${kid.id}_${t}`);
-          const updatedSeen = new Set([...seenBadges, ...allEarned]);
-          localStorage.setItem(seenBadgesKey, JSON.stringify([...updatedSeen]));
+            .map(t => gardenStageSeenId(schoolYear, kid.id, t));
+          try {
+            localStorage.setItem(seenCacheKey, JSON.stringify([...new Set([...seen, ...reached])].filter((id) => id.startsWith(seenPrefix))));
+          } catch { /* storage refused; the server row still records it */ }
+          void supabase
+            .from("user_badges")
+            .upsert(reached.map((badge_id) => ({ user_id: effectiveUserId, badge_id })), { onConflict: "user_id,badge_id", ignoreDuplicates: true })
+            .then(() => {}, () => {});
           break;
         }
       }
@@ -891,7 +878,7 @@ export default function GardenPage() {
           </p>
           <div className="bg-white border border-[#e8e5e0] rounded-2xl p-5">
             <p className="text-[13px] text-[#5C5346] mb-4 leading-relaxed">
-              Each kid&apos;s tree grows as they earn leaves from lessons, books, and memories.
+              Each kid&apos;s tree grows as they earn leaves from lessons, books, and memories. Every school year starts a new tree.
             </p>
             <div className="space-y-0">
               {GROWTH_STAGES.map((stage, i) => {
