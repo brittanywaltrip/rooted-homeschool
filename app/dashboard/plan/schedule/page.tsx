@@ -3648,9 +3648,8 @@ export default function ScheduleBuilderPage() {
       if (landedNewGoals.length > 0) {
         const newLocalIds = new Set(landedNewGoals.map((l) => l.localId));
         const createdRows = rows.filter((r) => newLocalIds.has(r.localId));
-        const childNames = children
-          .filter((c) => createdRows.some((r) => r.child_id === c.id))
-          .map((c) => c.name);
+        const setUpChildren = children.filter((c) => createdRows.some((r) => r.child_id === c.id));
+        const childNames = setUpChildren.map((c) => c.name);
         const subjects: string[] = [];
         for (const r of createdRows) {
           const label = r.subject.trim() || r.name.trim();
@@ -3673,6 +3672,8 @@ export default function ScheduleBuilderPage() {
           subjects,
           firstLessonDate: firstDates[0] ?? null,
           curriculaCount: createdRows.length,
+          childIds: setUpChildren.map((c) => c.id),
+          familyUserId: effectiveUserId ?? null,
         });
         if (handedOff) {
           router.push("/curriculum-ready");

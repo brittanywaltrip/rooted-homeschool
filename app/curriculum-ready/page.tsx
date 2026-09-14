@@ -4,8 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import RootedCelebration from "@/app/components/RootedCelebration";
 import { posthog } from "@/lib/posthog";
+import { supabase } from "@/lib/supabase";
+import { getCurrentSchoolYear } from "@/app/lib/school-year";
+import { loadLeafCounts } from "@/app/lib/garden-leaves";
 import { formatWeekdayLong } from "@/app/lib/scheduler";
-import { GARDEN_PER_YEAR, gardenLine, gardenButtonLabel, joinNames, possessive } from "@/app/lib/garden-config";
+import { GARDEN_PER_YEAR, gardenLine, gardenButtonLabel, joinNames, possessive, type GardenGrowth } from "@/app/lib/garden-config";
 import {
   takeSetupCelebration,
   type SetupCelebrationData,
@@ -49,6 +52,8 @@ export default function CurriculumReadyPage() {
       subjects={data.subjects}
       firstLessonDate={data.firstLessonDate}
       curriculaCount={data.curriculaCount}
+      childIds={data.childIds}
+      familyUserId={data.familyUserId}
       onNavigate={(href, choice) => {
         posthog.capture("curriculum_setup_next_step", { choice });
         router.push(href);
@@ -73,8 +78,40 @@ function SetupCelebration(props: {
   subjects: string[];
   firstLessonDate: string | null;
   curriculaCount: number;
+  childIds: string[];
+  familyUserId: string | null;
   onNavigate: (href: string, choice: string) => void;
 }) {
+  // Seeds, or a tree that keeps growing? Asked of the Garden's own per-year
+  // leaf count, so this screen and the Garden cannot disagree. Until the
+  // answer is in, the sentence waits rather than flashing the wrong one. A
+  // payload with no ids (written before they were sent) or a failed read
+  // keeps the seed line, which is what this screen said before.
+  const canAsk = props.familyUserId !== null && props.childIds.length > 0;
+  const [growth, setGrowth] = useState<GardenGrowth | null>(() =>
+    canAsk ? null : { alreadyGrowing: false },
+  );
+  useEffect(() => {
+    if (!canAsk || !props.familyUserId) return;
+    const userId = props.familyUserId;
+    let cancelled = false;
+    getCurrentSchoolYear(supabase, userId)
+      .then((schoolYear) => loadLeafCounts(supabase, userId, schoolYear))
+      .then((counts) => {
+        if (cancelled) return;
+        setGrowth({
+          alreadyGrowing: props.childIds.some((id) => (counts[id] ?? 0) > 0),
+          soleChildName: props.childNames.length === 1 ? props.childNames[0] : null,
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setGrowth({ alreadyGrowing: false });
+      });
+    return () => { cancelled = true; };
+    // The payload is read once; these never change for the life of the screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     posthog.capture("curriculum_setup_celebrated", {
       children: props.childNames.length,
@@ -99,7 +136,7 @@ function SetupCelebration(props: {
       </p>
 
       <p className="text-[15px] leading-relaxed mb-10" style={{ color: "rgba(255,255,255,0.6)" }}>
-        {gardenLine(props.childNames.length, GARDEN_PER_YEAR)} Every lesson they finish, every photo
+        {growth ? `${gardenLine(props.childNames.length, GARDEN_PER_YEAR, growth)} ` : ""}Every lesson they finish, every photo
         you snap, every book you read together is a leaf. By spring you&apos;ll look back and see the
         whole tree.
       </p>
@@ -122,7 +159,7 @@ function SetupCelebration(props: {
         onClick={() => props.onNavigate("/dashboard/garden", "garden")}
         className="mt-3 w-full rounded-2xl border border-white/25 text-white text-[15px] py-[14px] px-8 transition-colors hover:bg-white/10"
       >
-        {gardenButtonLabel(props.childNames.length, GARDEN_PER_YEAR)}
+        {gardenButtonLabel(props.childNames.length, GARDEN_PER_YEAR, growth ?? undefined)}
       </button>
 
       <button

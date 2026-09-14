@@ -35,6 +35,15 @@ export type SetupCelebrationData = {
   subjects: string[];
   firstLessonDate: string | null;
   curriculaCount: number;
+  /**
+   * The same children by id, and the family whose Garden they grow in (the
+   * builder's effective user, which is the family even when a partner saves).
+   * The screen counts their leaves this school year to decide between "seeds
+   * went into the garden" and "keeps growing". Empty / null in a payload
+   * written before these existed, which keeps the seed line.
+   */
+  childIds: string[];
+  familyUserId: string | null;
 };
 
 /**
@@ -73,6 +82,8 @@ export function takeSetupCelebration(): SetupCelebrationData | null {
       subjects: parsed.subjects.filter((x): x is string => typeof x === "string"),
       firstLessonDate: typeof parsed.firstLessonDate === "string" ? parsed.firstLessonDate : null,
       curriculaCount: typeof parsed.curriculaCount === "number" ? parsed.curriculaCount : 0,
+      childIds: Array.isArray(parsed.childIds) ? parsed.childIds.filter((x): x is string => typeof x === "string") : [],
+      familyUserId: typeof parsed.familyUserId === "string" ? parsed.familyUserId : null,
     };
     return cached;
   } catch {

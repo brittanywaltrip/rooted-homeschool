@@ -21,18 +21,45 @@ export const GARDEN_PER_YEAR = true;
 export function gardenButtonLabel(
   childCount: number,
   perYear: boolean = GARDEN_PER_YEAR,
+  growing?: GardenGrowth,
 ): string {
-  if (perYear) {
+  // A tree that already has leaves this year is not a seed.
+  if (perYear && !growing?.alreadyGrowing) {
     return childCount === 1 ? "See their seed in the Garden" : "See their seeds in the Garden";
   }
   return childCount === 1 ? "See their tree in the Garden" : "See their trees in the Garden";
 }
 
 /**
+ * Whether the children just set up already have leaves this school year.
+ *
+ * "Two seeds went into the garden today" is only true at the start of a
+ * child's year. A family who adds a subject in March for a child whose tree
+ * is already Flourishing was being told a seed went in. The celebration asks
+ * the Garden's own per-year count (app/lib/garden-leaves.ts) and passes the
+ * answer here.
+ */
+export type GardenGrowth = {
+  /** True when any of the children has at least one leaf this school year. */
+  alreadyGrowing: boolean;
+  /** The one child's name, for "Zoe's tree keeps growing." */
+  soleChildName?: string | null;
+};
+
+/**
  * The line the celebration prints, given how many children were set up.
  * Exported so the copy is testable without rendering the screen.
  */
-export function gardenLine(childCount: number, perYear: boolean = GARDEN_PER_YEAR): string {
+export function gardenLine(
+  childCount: number,
+  perYear: boolean = GARDEN_PER_YEAR,
+  growing?: GardenGrowth,
+): string {
+  if (perYear && growing?.alreadyGrowing) {
+    const name = growing.soleChildName?.trim();
+    if (childCount === 1) return name ? `${possessive(name)} tree keeps growing.` : "Their tree keeps growing.";
+    return "Their trees keep growing.";
+  }
   if (!perYear) {
     return childCount === 1
       ? "Their tree is growing in the Garden."
