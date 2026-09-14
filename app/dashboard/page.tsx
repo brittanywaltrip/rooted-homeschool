@@ -90,7 +90,6 @@ type Lesson = {
   curriculum_goals?: { subject_label: string | null } | null;
   curriculum_goal_id?: string | null;
   lesson_number?: number | null;
-  goal_id?: string | null;
   icon_emoji?: string | null;
   notes?: string | null;
   scheduled_date?: string | null;
@@ -1426,7 +1425,6 @@ export default function TodayPage() {
       curriculum_goal_id: string | null;
       lesson_number: number | null;
       queue_position: number | null;
-      goal_id: string | null;
       notes: string | null;
       scheduled_date: string | null;
       is_backfill: boolean | null;
@@ -1452,20 +1450,20 @@ export default function TodayPage() {
       projectedGoalIds.length > 0
         ? supabase
             .from("lessons")
-            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes, scheduled_date, is_backfill")
+            .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, notes, scheduled_date, is_backfill")
             .eq("user_id", effectiveUserId)
             .in("curriculum_goal_id", projectedGoalIds)
             .in("queue_position", projectedSlots)
         : Promise.resolve({ data: [] as unknown[] }),
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes")
+        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, notes")
         .eq("user_id", effectiveUserId)
         .is("curriculum_goal_id", null)
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
       supabase
         .from("lessons")
-        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, goal_id, notes")
+        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, notes")
         .eq("user_id", effectiveUserId)
         .eq("scheduled_source", "continuation")
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
@@ -3079,17 +3077,6 @@ export default function TodayPage() {
         setTimePillEdit(false);
         setTimePillValue(String(mins));
         timePillTimer.current = setTimeout(() => setTimePill(null), 3000);
-      }
-
-      if (lesson.goal_id) {
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          await supabase.from("app_events").insert({
-            user_id: user.id,
-            type: "lesson_goal_complete",
-            payload: { title: lesson.title, goal_id: lesson.goal_id, date: today },
-          });
-        }
       }
 
       if (lesson.curriculum_goal_id) {

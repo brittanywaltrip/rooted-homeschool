@@ -25,7 +25,6 @@ export type TodayLessonCardLesson = {
   subjects: { name: string; color: string | null } | null;
   lesson_number?: number | null;
   curriculum_goal_id?: string | null;
-  goal_id?: string | null;
   icon_emoji?: string | null;
   notes?: string | null;
   /** When 'recalibrate_estimate', the row's completed_at + scheduled_date

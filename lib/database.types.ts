@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.1"
+    PostgrestVersion: "14.5"
   }
   public: {
     Tables: {
@@ -150,10 +150,13 @@ export type Database = {
           is_active: boolean | null
           name: string
           notes: string | null
+          payment_method: string | null
+          payment_notes: string | null
           paypal_email: string | null
           stripe_api_id: string | null
           stripe_coupon_id: string
           user_id: string | null
+          was_comped: boolean
         }
         Insert: {
           clicks?: number | null
@@ -165,10 +168,13 @@ export type Database = {
           is_active?: boolean | null
           name: string
           notes?: string | null
+          payment_method?: string | null
+          payment_notes?: string | null
           paypal_email?: string | null
           stripe_api_id?: string | null
           stripe_coupon_id: string
           user_id?: string | null
+          was_comped?: boolean
         }
         Update: {
           clicks?: number | null
@@ -180,10 +186,13 @@ export type Database = {
           is_active?: boolean | null
           name?: string
           notes?: string | null
+          payment_method?: string | null
+          payment_notes?: string | null
           paypal_email?: string | null
           stripe_api_id?: string | null
           stripe_coupon_id?: string
           user_id?: string | null
+          was_comped?: boolean
         }
         Relationships: [
           {
@@ -195,37 +204,20 @@ export type Database = {
           },
         ]
       }
-      ai_usage: {
+      announce_monthly_sends: {
         Row: {
-          count: number | null
-          id: string
-          month: string
-          updated_at: string | null
-          user_id: string | null
+          sent_at: string
+          user_id: string
         }
         Insert: {
-          count?: number | null
-          id?: string
-          month: string
-          updated_at?: string | null
-          user_id?: string | null
+          sent_at?: string
+          user_id: string
         }
         Update: {
-          count?: number | null
-          id?: string
-          month?: string
-          updated_at?: string | null
-          user_id?: string | null
+          sent_at?: string
+          user_id?: string
         }
-        Relationships: [
-          {
-            foreignKeyName: "ai_usage_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "profiles"
-            referencedColumns: ["id"]
-          },
-        ]
+        Relationships: []
       }
       app_events: {
         Row: {
@@ -251,6 +243,44 @@ export type Database = {
         }
         Relationships: []
       }
+      appointment_exceptions: {
+        Row: {
+          appointment_id: string
+          completed: boolean
+          created_at: string
+          exception_date: string
+          id: string
+          override_fields: Json | null
+          skipped: boolean
+        }
+        Insert: {
+          appointment_id: string
+          completed?: boolean
+          created_at?: string
+          exception_date: string
+          id?: string
+          override_fields?: Json | null
+          skipped?: boolean
+        }
+        Update: {
+          appointment_id?: string
+          completed?: boolean
+          created_at?: string
+          exception_date?: string
+          id?: string
+          override_fields?: Json | null
+          skipped?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "appointment_exceptions_appointment_id_fkey"
+            columns: ["appointment_id"]
+            isOneToOne: false
+            referencedRelation: "appointments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       appointments: {
         Row: {
           child_ids: string[] | null
@@ -261,6 +291,7 @@ export type Database = {
           emoji: string | null
           id: string
           is_recurring: boolean | null
+          is_school_activity: boolean
           location: string | null
           notes: string | null
           recurrence_rule: Json | null
@@ -277,6 +308,7 @@ export type Database = {
           emoji?: string | null
           id?: string
           is_recurring?: boolean | null
+          is_school_activity?: boolean
           location?: string | null
           notes?: string | null
           recurrence_rule?: Json | null
@@ -293,6 +325,7 @@ export type Database = {
           emoji?: string | null
           id?: string
           is_recurring?: boolean | null
+          is_school_activity?: boolean
           location?: string | null
           notes?: string | null
           recurrence_rule?: Json | null
@@ -420,6 +453,7 @@ export type Database = {
           birthday: string | null
           color: string
           created_at: string
+          grade_level: string | null
           graduated_at: string | null
           id: string
           name: string
@@ -435,6 +469,7 @@ export type Database = {
           birthday?: string | null
           color?: string
           created_at?: string
+          grade_level?: string | null
           graduated_at?: string | null
           id?: string
           name: string
@@ -450,6 +485,7 @@ export type Database = {
           birthday?: string | null
           color?: string
           created_at?: string
+          grade_level?: string | null
           graduated_at?: string | null
           id?: string
           name?: string
@@ -494,8 +530,13 @@ export type Database = {
       }
       curriculum_goals: {
         Row: {
+          archived: boolean
+          catchup_answered_on: string | null
           child_id: string | null
+          completed_at: string | null
+          course_level: string | null
           created_at: string | null
+          credits_value: number | null
           current_lesson: number
           curriculum_name: string
           default_minutes: number
@@ -503,6 +544,7 @@ export type Database = {
           id: string
           is_backfilled: boolean | null
           lessons_per_day: number
+          lessons_per_day_overrides: Json | null
           scheduled_start_time: string | null
           school_days: string[] | null
           school_year: string | null
@@ -516,8 +558,13 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          archived?: boolean
+          catchup_answered_on?: string | null
           child_id?: string | null
+          completed_at?: string | null
+          course_level?: string | null
           created_at?: string | null
+          credits_value?: number | null
           current_lesson?: number
           curriculum_name: string
           default_minutes?: number
@@ -525,6 +572,7 @@ export type Database = {
           id?: string
           is_backfilled?: boolean | null
           lessons_per_day?: number
+          lessons_per_day_overrides?: Json | null
           scheduled_start_time?: string | null
           school_days?: string[] | null
           school_year?: string | null
@@ -538,8 +586,13 @@ export type Database = {
           user_id: string
         }
         Update: {
+          archived?: boolean
+          catchup_answered_on?: string | null
           child_id?: string | null
+          completed_at?: string | null
+          course_level?: string | null
           created_at?: string | null
+          credits_value?: number | null
           current_lesson?: number
           curriculum_name?: string
           default_minutes?: number
@@ -547,6 +600,7 @@ export type Database = {
           id?: string
           is_backfilled?: boolean | null
           lessons_per_day?: number
+          lessons_per_day_overrides?: Json | null
           scheduled_start_time?: string | null
           school_days?: string[] | null
           school_year?: string | null
@@ -606,6 +660,54 @@ export type Database = {
         }
         Relationships: []
       }
+      deleted_accounts: {
+        Row: {
+          account_created_at: string | null
+          children_count: number | null
+          curriculum_goals_count: number | null
+          deleted_at: string
+          email: string | null
+          first_name: string | null
+          id: string
+          last_name: string | null
+          lessons_count: number | null
+          memories_count: number | null
+          plan_type: string | null
+          source: string
+          user_id: string
+        }
+        Insert: {
+          account_created_at?: string | null
+          children_count?: number | null
+          curriculum_goals_count?: number | null
+          deleted_at?: string
+          email?: string | null
+          first_name?: string | null
+          id?: string
+          last_name?: string | null
+          lessons_count?: number | null
+          memories_count?: number | null
+          plan_type?: string | null
+          source?: string
+          user_id: string
+        }
+        Update: {
+          account_created_at?: string | null
+          children_count?: number | null
+          curriculum_goals_count?: number | null
+          deleted_at?: string
+          email?: string | null
+          first_name?: string | null
+          id?: string
+          last_name?: string | null
+          lessons_count?: number | null
+          memories_count?: number | null
+          plan_type?: string | null
+          source?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       earned_awards: {
         Row: {
           award_type: string
@@ -654,6 +756,30 @@ export type Database = {
           id?: string
           sent_at?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      email_suppressions: {
+        Row: {
+          created_at: string
+          email: string
+          id: string
+          reason: string
+          source: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          id?: string
+          reason: string
+          source?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          id?: string
+          reason?: string
+          source?: string | null
         }
         Relationships: []
       }
@@ -796,17 +922,19 @@ export type Database = {
           child_id: string | null
           completed: boolean
           completed_at: string | null
+          continues_lesson_id: string | null
           counts_toward_goal: boolean
           created_at: string
           curriculum_goal_id: string | null
           date: string
-          goal_id: string | null
           hours: number
           id: string
           is_backfill: boolean | null
           lesson_number: number | null
           minutes_spent: number | null
           notes: string | null
+          queue_pinned: boolean
+          queue_position: number | null
           scheduled_date: string | null
           scheduled_source: string | null
           school_year: string | null
@@ -814,23 +942,26 @@ export type Database = {
           started_at: string | null
           subject_id: string | null
           title: string
+          updated_at: string
           user_id: string
         }
         Insert: {
           child_id?: string | null
           completed?: boolean
           completed_at?: string | null
+          continues_lesson_id?: string | null
           counts_toward_goal?: boolean
           created_at?: string
           curriculum_goal_id?: string | null
           date: string
-          goal_id?: string | null
           hours?: number
           id?: string
           is_backfill?: boolean | null
           lesson_number?: number | null
           minutes_spent?: number | null
           notes?: string | null
+          queue_pinned?: boolean
+          queue_position?: number | null
           scheduled_date?: string | null
           scheduled_source?: string | null
           school_year?: string | null
@@ -838,23 +969,26 @@ export type Database = {
           started_at?: string | null
           subject_id?: string | null
           title: string
+          updated_at?: string
           user_id: string
         }
         Update: {
           child_id?: string | null
           completed?: boolean
           completed_at?: string | null
+          continues_lesson_id?: string | null
           counts_toward_goal?: boolean
           created_at?: string
           curriculum_goal_id?: string | null
           date?: string
-          goal_id?: string | null
           hours?: number
           id?: string
           is_backfill?: boolean | null
           lesson_number?: number | null
           minutes_spent?: number | null
           notes?: string | null
+          queue_pinned?: boolean
+          queue_position?: number | null
           scheduled_date?: string | null
           scheduled_source?: string | null
           school_year?: string | null
@@ -862,6 +996,7 @@ export type Database = {
           started_at?: string | null
           subject_id?: string | null
           title?: string
+          updated_at?: string
           user_id?: string
         }
         Relationships: [
@@ -870,6 +1005,13 @@ export type Database = {
             columns: ["child_id"]
             isOneToOne: false
             referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lessons_continues_lesson_id_fkey"
+            columns: ["continues_lesson_id"]
+            isOneToOne: false
+            referencedRelation: "lessons"
             referencedColumns: ["id"]
           },
           {
@@ -976,8 +1118,158 @@ export type Database = {
         }
         Relationships: []
       }
+      mailbox_listings: {
+        Row: {
+          age_grade: string | null
+          category: string
+          consecutive_failures: number
+          created_at: string
+          delivery_time: string | null
+          delivery_type: string
+          how_to_get_it: string | null
+          id: string
+          is_active: boolean
+          is_earn_it: boolean
+          is_hidden_gem: boolean
+          is_rooted_pick: boolean
+          last_check_status: string | null
+          last_verified: string
+          notes: string | null
+          official_url: string
+          organization: string
+          reward_type: string | null
+          slug: string
+          sort_order: number | null
+          state_region: string | null
+          subjects: string[]
+          supply_caveat: string | null
+          title: string
+          updated_at: string
+          url_quality: string
+          verification_status: string
+          what_you_get: string
+        }
+        Insert: {
+          age_grade?: string | null
+          category: string
+          consecutive_failures?: number
+          created_at?: string
+          delivery_time?: string | null
+          delivery_type: string
+          how_to_get_it?: string | null
+          id?: string
+          is_active?: boolean
+          is_earn_it?: boolean
+          is_hidden_gem?: boolean
+          is_rooted_pick?: boolean
+          last_check_status?: string | null
+          last_verified: string
+          notes?: string | null
+          official_url: string
+          organization: string
+          reward_type?: string | null
+          slug: string
+          sort_order?: number | null
+          state_region?: string | null
+          subjects?: string[]
+          supply_caveat?: string | null
+          title: string
+          updated_at?: string
+          url_quality?: string
+          verification_status?: string
+          what_you_get: string
+        }
+        Update: {
+          age_grade?: string | null
+          category?: string
+          consecutive_failures?: number
+          created_at?: string
+          delivery_time?: string | null
+          delivery_type?: string
+          how_to_get_it?: string | null
+          id?: string
+          is_active?: boolean
+          is_earn_it?: boolean
+          is_hidden_gem?: boolean
+          is_rooted_pick?: boolean
+          last_check_status?: string | null
+          last_verified?: string
+          notes?: string | null
+          official_url?: string
+          organization?: string
+          reward_type?: string | null
+          slug?: string
+          sort_order?: number | null
+          state_region?: string | null
+          subjects?: string[]
+          supply_caveat?: string | null
+          title?: string
+          updated_at?: string
+          url_quality?: string
+          verification_status?: string
+          what_you_get?: string
+        }
+        Relationships: []
+      }
+      mailbox_progress: {
+        Row: {
+          child_id: string | null
+          created_at: string
+          id: string
+          listing_id: string
+          received_at: string | null
+          requested_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          child_id?: string | null
+          created_at?: string
+          id?: string
+          listing_id: string
+          received_at?: string | null
+          requested_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          child_id?: string | null
+          created_at?: string
+          id?: string
+          listing_id?: string
+          received_at?: string | null
+          requested_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "mailbox_progress_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "mailbox_progress_listing_id_fkey"
+            columns: ["listing_id"]
+            isOneToOne: false
+            referencedRelation: "mailbox_listings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       memories: {
         Row: {
+          book_author: string | null
+          book_child_ids: string[] | null
+          book_cover_url: string | null
+          book_how: string | null
+          book_notes: string | null
+          book_pages: number | null
+          book_rating: number | null
+          book_started_date: string | null
+          book_status: string | null
           caption: string | null
           child_id: string | null
           created_at: string | null
@@ -1002,6 +1294,15 @@ export type Database = {
           yearbook_bookmark: boolean | null
         }
         Insert: {
+          book_author?: string | null
+          book_child_ids?: string[] | null
+          book_cover_url?: string | null
+          book_how?: string | null
+          book_notes?: string | null
+          book_pages?: number | null
+          book_rating?: number | null
+          book_started_date?: string | null
+          book_status?: string | null
           caption?: string | null
           child_id?: string | null
           created_at?: string | null
@@ -1026,6 +1327,15 @@ export type Database = {
           yearbook_bookmark?: boolean | null
         }
         Update: {
+          book_author?: string | null
+          book_child_ids?: string[] | null
+          book_cover_url?: string | null
+          book_how?: string | null
+          book_notes?: string | null
+          book_pages?: number | null
+          book_rating?: number | null
+          book_started_date?: string | null
+          book_status?: string | null
           caption?: string | null
           child_id?: string | null
           created_at?: string | null
@@ -1079,7 +1389,7 @@ export type Database = {
           commenter_key: string
           commenter_name: string
           created_at: string | null
-          family_token: string
+          family_token: string | null
           id: string
           invite_token: string | null
           memory_id: string
@@ -1090,7 +1400,7 @@ export type Database = {
           commenter_key: string
           commenter_name: string
           created_at?: string | null
-          family_token: string
+          family_token?: string | null
           id?: string
           invite_token?: string | null
           memory_id: string
@@ -1101,7 +1411,7 @@ export type Database = {
           commenter_key?: string
           commenter_name?: string
           created_at?: string | null
-          family_token?: string
+          family_token?: string | null
           id?: string
           invite_token?: string | null
           memory_id?: string
@@ -1135,7 +1445,7 @@ export type Database = {
         Row: {
           created_at: string | null
           emoji: string
-          family_token: string
+          family_token: string | null
           id: string
           invite_token: string | null
           memory_id: string
@@ -1146,7 +1456,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           emoji: string
-          family_token: string
+          family_token?: string | null
           id?: string
           invite_token?: string | null
           memory_id: string
@@ -1157,7 +1467,7 @@ export type Database = {
         Update: {
           created_at?: string | null
           emoji?: string
-          family_token?: string
+          family_token?: string | null
           id?: string
           invite_token?: string | null
           memory_id?: string
@@ -1188,6 +1498,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      monthly_reflections: {
+        Row: {
+          answer: string
+          created_at: string
+          id: string
+          month: string
+          question: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          answer?: string
+          created_at?: string
+          id?: string
+          month: string
+          question: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          answer?: string
+          created_at?: string
+          id?: string
+          month?: string
+          question?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       partner_applications: {
         Row: {
@@ -1240,44 +1580,69 @@ export type Database = {
       partner_apps: {
         Row: {
           about_journey: string | null
+          audience_size: string | null
           created_at: string | null
           email: string
           first_name: string
+          has_rooted_account: boolean | null
           id: string
           last_name: string
+          payment_method: string | null
+          paypal_email: string | null
           platform_sizes: Json | null
           platforms: string[] | null
+          reviewed_at: string | null
+          rooted_account_email: string | null
+          social_handle: string | null
           status: string | null
           used_rooted: string | null
+          why_rooted: string | null
         }
         Insert: {
           about_journey?: string | null
+          audience_size?: string | null
           created_at?: string | null
           email: string
           first_name: string
+          has_rooted_account?: boolean | null
           id?: string
           last_name: string
+          payment_method?: string | null
+          paypal_email?: string | null
           platform_sizes?: Json | null
           platforms?: string[] | null
+          reviewed_at?: string | null
+          rooted_account_email?: string | null
+          social_handle?: string | null
           status?: string | null
           used_rooted?: string | null
+          why_rooted?: string | null
         }
         Update: {
           about_journey?: string | null
+          audience_size?: string | null
           created_at?: string | null
           email?: string
           first_name?: string
+          has_rooted_account?: boolean | null
           id?: string
           last_name?: string
+          payment_method?: string | null
+          paypal_email?: string | null
           platform_sizes?: Json | null
           platforms?: string[] | null
+          reviewed_at?: string | null
+          rooted_account_email?: string | null
+          social_handle?: string | null
           status?: string | null
           used_rooted?: string | null
+          why_rooted?: string | null
         }
         Relationships: []
       }
       profiles: {
         Row: {
+          country: string | null
           created_at: string
           current_period_end: string | null
           current_streak_days: number | null
@@ -1287,6 +1652,7 @@ export type Database = {
           email_weekly_summary: boolean | null
           family_photo_url: string | null
           first_name: string | null
+          homeschool_experience: string | null
           id: string
           is_pro: boolean | null
           last_catchup_dismissed_at: string | null
@@ -1297,11 +1663,14 @@ export type Database = {
           onboarded: boolean | null
           onboarded_at: string | null
           partner_email: string | null
+          photo_count: number | null
           plan_type: string | null
+          primary_goal: string[] | null
           printable_style: string | null
           re_engagement_sent: boolean | null
           referred_by: string | null
           school_days: string[] | null
+          school_start_time: string | null
           school_year_end: string | null
           school_year_start: string | null
           state: string | null
@@ -1309,6 +1678,8 @@ export type Database = {
           stripe_subscription_id: string | null
           subscription_end_date: string | null
           subscription_status: string | null
+          timezone: string
+          trial_started_at: string | null
           unsubscribe_token: string | null
           yearbook_closed_at: string | null
           yearbook_opened_at: string | null
@@ -1317,6 +1688,7 @@ export type Database = {
           yearly_review_reset_year: number | null
         }
         Insert: {
+          country?: string | null
           created_at?: string
           current_period_end?: string | null
           current_streak_days?: number | null
@@ -1326,6 +1698,7 @@ export type Database = {
           email_weekly_summary?: boolean | null
           family_photo_url?: string | null
           first_name?: string | null
+          homeschool_experience?: string | null
           id: string
           is_pro?: boolean | null
           last_catchup_dismissed_at?: string | null
@@ -1336,11 +1709,14 @@ export type Database = {
           onboarded?: boolean | null
           onboarded_at?: string | null
           partner_email?: string | null
+          photo_count?: number | null
           plan_type?: string | null
+          primary_goal?: string[] | null
           printable_style?: string | null
           re_engagement_sent?: boolean | null
           referred_by?: string | null
           school_days?: string[] | null
+          school_start_time?: string | null
           school_year_end?: string | null
           school_year_start?: string | null
           state?: string | null
@@ -1348,6 +1724,8 @@ export type Database = {
           stripe_subscription_id?: string | null
           subscription_end_date?: string | null
           subscription_status?: string | null
+          timezone?: string
+          trial_started_at?: string | null
           unsubscribe_token?: string | null
           yearbook_closed_at?: string | null
           yearbook_opened_at?: string | null
@@ -1356,6 +1734,7 @@ export type Database = {
           yearly_review_reset_year?: number | null
         }
         Update: {
+          country?: string | null
           created_at?: string
           current_period_end?: string | null
           current_streak_days?: number | null
@@ -1365,6 +1744,7 @@ export type Database = {
           email_weekly_summary?: boolean | null
           family_photo_url?: string | null
           first_name?: string | null
+          homeschool_experience?: string | null
           id?: string
           is_pro?: boolean | null
           last_catchup_dismissed_at?: string | null
@@ -1375,11 +1755,14 @@ export type Database = {
           onboarded?: boolean | null
           onboarded_at?: string | null
           partner_email?: string | null
+          photo_count?: number | null
           plan_type?: string | null
+          primary_goal?: string[] | null
           printable_style?: string | null
           re_engagement_sent?: boolean | null
           referred_by?: string | null
           school_days?: string[] | null
+          school_start_time?: string | null
           school_year_end?: string | null
           school_year_start?: string | null
           state?: string | null
@@ -1387,6 +1770,8 @@ export type Database = {
           stripe_subscription_id?: string | null
           subscription_end_date?: string | null
           subscription_status?: string | null
+          timezone?: string
+          trial_started_at?: string | null
           unsubscribe_token?: string | null
           yearbook_closed_at?: string | null
           yearbook_opened_at?: string | null
@@ -1399,6 +1784,8 @@ export type Database = {
       referrals: {
         Row: {
           affiliate_code: string
+          commission_amount: number | null
+          commission_note: string | null
           converted: boolean | null
           created_at: string | null
           id: string
@@ -1407,6 +1794,8 @@ export type Database = {
         }
         Insert: {
           affiliate_code: string
+          commission_amount?: number | null
+          commission_note?: string | null
           converted?: boolean | null
           created_at?: string | null
           id?: string
@@ -1415,6 +1804,8 @@ export type Database = {
         }
         Update: {
           affiliate_code?: string
+          commission_amount?: number | null
+          commission_note?: string | null
           converted?: boolean | null
           created_at?: string | null
           id?: string
@@ -1427,6 +1818,87 @@ export type Database = {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      repair_20260819_shift_pin_backup: {
+        Row: {
+          backed_up_at: string | null
+          curriculum_goal_id: string | null
+          date: string | null
+          id: string | null
+          queue_pinned: boolean | null
+          scheduled_date: string | null
+          scheduled_source: string | null
+        }
+        Insert: {
+          backed_up_at?: string | null
+          curriculum_goal_id?: string | null
+          date?: string | null
+          id?: string | null
+          queue_pinned?: boolean | null
+          scheduled_date?: string | null
+          scheduled_source?: string | null
+        }
+        Update: {
+          backed_up_at?: string | null
+          curriculum_goal_id?: string | null
+          date?: string | null
+          id?: string | null
+          queue_pinned?: boolean | null
+          scheduled_date?: string | null
+          scheduled_source?: string | null
+        }
+        Relationships: []
+      }
+      resource_reports: {
+        Row: {
+          created_at: string
+          id: string
+          mailbox_listing_id: string | null
+          note: string | null
+          reason: string
+          resolution_note: string | null
+          resolved_at: string | null
+          resource_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          mailbox_listing_id?: string | null
+          note?: string | null
+          reason: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resource_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          mailbox_listing_id?: string | null
+          note?: string | null
+          reason?: string
+          resolution_note?: string | null
+          resolved_at?: string | null
+          resource_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "resource_reports_mailbox_listing_id_fkey"
+            columns: ["mailbox_listing_id"]
+            isOneToOne: false
+            referencedRelation: "mailbox_listings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "resource_reports_resource_id_fkey"
+            columns: ["resource_id"]
+            isOneToOne: false
+            referencedRelation: "resources"
             referencedColumns: ["id"]
           },
         ]
@@ -1482,6 +1954,57 @@ export type Database = {
         }
         Relationships: []
       }
+      reviews: {
+        Row: {
+          approved: boolean | null
+          created_at: string | null
+          id: string
+          name: string
+          rating: number
+          review_text: string
+          user_id: string | null
+        }
+        Insert: {
+          approved?: boolean | null
+          created_at?: string | null
+          id?: string
+          name: string
+          rating: number
+          review_text: string
+          user_id?: string | null
+        }
+        Update: {
+          approved?: boolean | null
+          created_at?: string | null
+          id?: string
+          name?: string
+          rating?: number
+          review_text?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      rooted_backfill_include_in_book_20260828: {
+        Row: {
+          captured_at: string
+          memory_id: string
+          prev_value: boolean | null
+          user_id: string
+        }
+        Insert: {
+          captured_at?: string
+          memory_id: string
+          prev_value?: boolean | null
+          user_id: string
+        }
+        Update: {
+          captured_at?: string
+          memory_id?: string
+          prev_value?: boolean | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       schedule_items: {
         Row: {
           child_id: string
@@ -1532,6 +2055,56 @@ export type Database = {
             columns: ["lesson_id"]
             isOneToOne: false
             referencedRelation: "lessons"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      school_year_archives: {
+        Row: {
+          closed_at: string
+          created_at: string
+          end_date: string
+          garden_snapshot: Json
+          id: string
+          per_child_data: Json
+          school_year_id: string
+          start_date: string
+          stats: Json
+          user_id: string
+          year_name: string
+        }
+        Insert: {
+          closed_at?: string
+          created_at?: string
+          end_date: string
+          garden_snapshot?: Json
+          id?: string
+          per_child_data?: Json
+          school_year_id: string
+          start_date: string
+          stats?: Json
+          user_id: string
+          year_name: string
+        }
+        Update: {
+          closed_at?: string
+          created_at?: string
+          end_date?: string
+          garden_snapshot?: Json
+          id?: string
+          per_child_data?: Json
+          school_year_id?: string
+          start_date?: string
+          stats?: Json
+          user_id?: string
+          year_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "school_year_archives_school_year_id_fkey"
+            columns: ["school_year_id"]
+            isOneToOne: true
+            referencedRelation: "school_years"
             referencedColumns: ["id"]
           },
         ]
@@ -1662,6 +2235,7 @@ export type Database = {
         Row: {
           child_id: string
           course_description: string | null
+          course_level: string | null
           course_name: string
           created_at: string | null
           credit_type: string
@@ -1684,6 +2258,7 @@ export type Database = {
         Insert: {
           child_id: string
           course_description?: string | null
+          course_level?: string | null
           course_name: string
           created_at?: string | null
           credit_type?: string
@@ -1706,6 +2281,7 @@ export type Database = {
         Update: {
           child_id?: string
           course_description?: string | null
+          course_level?: string | null
           course_name?: string
           created_at?: string | null
           credit_type?: string
@@ -1749,9 +2325,11 @@ export type Database = {
           grading_scale: Json | null
           graduation_year: number | null
           id: string
+          include_notary: boolean | null
           notes: string | null
           principal_name: string | null
           school_name: string | null
+          show_institution_per_row: boolean
           state: string | null
           updated_at: string | null
           use_weighted_gpa: boolean | null
@@ -1763,9 +2341,11 @@ export type Database = {
           grading_scale?: Json | null
           graduation_year?: number | null
           id?: string
+          include_notary?: boolean | null
           notes?: string | null
           principal_name?: string | null
           school_name?: string | null
+          show_institution_per_row?: boolean
           state?: string | null
           updated_at?: string | null
           use_weighted_gpa?: boolean | null
@@ -1777,9 +2357,11 @@ export type Database = {
           grading_scale?: Json | null
           graduation_year?: number | null
           id?: string
+          include_notary?: boolean | null
           notes?: string | null
           principal_name?: string | null
           school_name?: string | null
+          show_institution_per_row?: boolean
           state?: string | null
           updated_at?: string | null
           use_weighted_gpa?: boolean | null
@@ -1824,12 +2406,37 @@ export type Database = {
           },
         ]
       }
+      user_feature_flags: {
+        Row: {
+          created_at: string
+          enabled: boolean
+          flag_name: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          enabled?: boolean
+          flag_name: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          enabled?: boolean
+          flag_name?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       vacation_blocks: {
         Row: {
           created_at: string | null
           end_date: string
           id: string
           name: string
+          shift_applied: boolean
           start_date: string
           user_id: string
         }
@@ -1838,6 +2445,7 @@ export type Database = {
           end_date: string
           id?: string
           name: string
+          shift_applied?: boolean
           start_date: string
           user_id: string
         }
@@ -1846,10 +2454,68 @@ export type Database = {
           end_date?: string
           id?: string
           name?: string
+          shift_applied?: boolean
           start_date?: string
           user_id?: string
         }
         Relationships: []
+      }
+      year_archive_certificates: {
+        Row: {
+          certificate_url: string | null
+          child_id: string
+          child_name: string
+          completion_date: string
+          created_at: string
+          grade_advancing_to: string | null
+          grade_completed: string
+          id: string
+          school_name: string | null
+          school_year_id: string
+          user_id: string
+        }
+        Insert: {
+          certificate_url?: string | null
+          child_id: string
+          child_name: string
+          completion_date?: string
+          created_at?: string
+          grade_advancing_to?: string | null
+          grade_completed: string
+          id?: string
+          school_name?: string | null
+          school_year_id: string
+          user_id: string
+        }
+        Update: {
+          certificate_url?: string | null
+          child_id?: string
+          child_name?: string
+          completion_date?: string
+          created_at?: string
+          grade_advancing_to?: string | null
+          grade_completed?: string
+          id?: string
+          school_name?: string | null
+          school_year_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "year_archive_certificates_child_id_fkey"
+            columns: ["child_id"]
+            isOneToOne: false
+            referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "year_archive_certificates_school_year_id_fkey"
+            columns: ["school_year_id"]
+            isOneToOne: false
+            referencedRelation: "school_years"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       yearbook_content: {
         Row: {
@@ -1858,6 +2524,7 @@ export type Database = {
           content_type: string
           id: string
           question_key: string | null
+          school_year_id: string | null
           updated_at: string | null
           user_id: string
           yearbook_key: string
@@ -1868,6 +2535,7 @@ export type Database = {
           content_type: string
           id?: string
           question_key?: string | null
+          school_year_id?: string | null
           updated_at?: string | null
           user_id: string
           yearbook_key: string
@@ -1878,6 +2546,7 @@ export type Database = {
           content_type?: string
           id?: string
           question_key?: string | null
+          school_year_id?: string | null
           updated_at?: string | null
           user_id?: string
           yearbook_key?: string
@@ -1888,6 +2557,13 @@ export type Database = {
             columns: ["child_id"]
             isOneToOne: false
             referencedRelation: "children"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "yearbook_content_school_year_id_fkey"
+            columns: ["school_year_id"]
+            isOneToOne: false
+            referencedRelation: "school_years"
             referencedColumns: ["id"]
           },
           {
@@ -1904,6 +2580,36 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      _cleanup_respread_preview: {
+        Args: { p_goal_id: string }
+        Returns: {
+          curriculum_name: string
+          goal_id: string
+          lesson_id: string
+          lesson_number: number
+          new_date: string
+          old_date: string
+        }[]
+      }
+      get_user_id_by_email: { Args: { lookup_email: string }; Returns: string }
+      increment_photo_count: { Args: { p_user_id: string }; Returns: undefined }
+      move_lesson_to_date: {
+        Args: { p_lesson_id: string; p_target_date: string }
+        Returns: undefined
+      }
+      recompute_curriculum_current_lesson: {
+        Args: { p_goal_id: string }
+        Returns: undefined
+      }
+      record_referral_attribution: {
+        Args: {
+          p_affiliate_code: string
+          p_converted?: boolean
+          p_stripe_session_id?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       seed_default_list: { Args: { p_user_id: string }; Returns: undefined }
     }
     Enums: {
@@ -1923,12 +2629,12 @@ export type Tables<
   DefaultSchemaTableNameOrOptions extends
     | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
         DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1952,11 +2658,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -1977,11 +2683,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends DefaultSchemaTableNameOrOptions extends {
+  TableName extends (DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2002,11 +2708,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never = never,
+    : never) = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2019,11 +2725,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
+    : never) = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -2037,4 +2743,3 @@ export const Constants = {
     Enums: {},
   },
 } as const
-

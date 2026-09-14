@@ -38,7 +38,6 @@ type LessonRow = {
   curriculum_goals?: { subject_label: string | null } | null;
   curriculum_goal_id: string | null;
   lesson_number?: number | null;
-  goal_id?: string | null;
   notes?: string | null;
   icon_emoji?: string | null;
   scheduled_start_time?: string | null;
