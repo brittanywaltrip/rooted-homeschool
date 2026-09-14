@@ -1896,6 +1896,8 @@ export type Phase2BeforeRow = {
   queue_position: number | null;
   completed: boolean;
   queue_pinned: boolean | null;
+  /** Invariant 22. A skipped row is held back and never re-dated, like a pin. */
+  skipped?: boolean | null;
   scheduled_date: string | null;
   date: string | null;
   title?: string | null;
@@ -1919,6 +1921,138 @@ export type Phase2NoOpArgs = {
   todayYmd: string;
   perDayAllowed: (ymd: string) => number;
 };
+/**
+ * The held-back rows phase 2 re-dates, and the day each one moves to.
+ *
+ * A row carrying the parent's work (notes or minutes) survives the floor
+ * delete and takes the projector's date for its slot. A pinned row never
+ * does (Invariant 12) and neither does a skipped one (Invariant 22): a skip
+ * has no day, and giving it one would put it back on the calendar while the
+ * projector hands that same day to the next lesson. Shared by the COMMIT loop
+ * and isPhase2NoOp so the two cannot disagree about what moves.
+ */
+export function phase2RedateTargets(a: {
+  beforeRows: readonly Phase2BeforeRow[];
+  workRowIds: ReadonlySet<string>;
+  projDateBySlot: ReadonlyMap<number, string>;
+}): { id: string; date: string; from: string | null }[] {
+  const out: { id: string; date: string; from: string | null }[] = [];
+  for (const r of a.beforeRows) {
+    if (!a.workRowIds.has(r.id)) continue;
+    if (r.queue_pinned || r.skipped) continue;
+    if (r.queue_position == null) continue;
+    const date = a.projDateBySlot.get(r.queue_position);
+    if (date === undefined) continue;
+    out.push({ id: r.id, date, from: r.scheduled_date });
+  }
+  return out;
+}
+
+/** A row as phase 2 reads it before it decides anything. */
+export type Phase2PlanRow = Phase2BeforeRow & {
+  notes: string | null;
+  minutes_spent: number | null;
+};
+
+/**
+ * What phase 2 does with each row a goal holds right now, decided before the
+ * first write. Pure, so the rebuild can be exercised without a database; the
+ * Schedule Builder's applyPhase2ForGoal calls exactly this.
+ *
+ *   - Completed rows are history and are never deleted (Invariant 3).
+ *   - Pinned rows are held back and fed to the projector as date-occupying
+ *     inputs, unless this save changed the goal's schedule fields, which
+ *     releases them (Invariant 12).
+ *   - Skipped rows are held back ALWAYS, schedule change or not, and fed to
+ *     the projector as slots it steps over (Invariant 22). A skip is not a
+ *     placement on a grid, so redefining the grid has nothing to release. Before
+ *     this, the floor delete took a note-free skipped row and the reinsert
+ *     brought its number back as an ordinary dated lesson.
+ *   - Rows carrying the parent's notes or minutes are held back (Invariant 18).
+ *   - Every other incomplete row above the completed floor is deleted and
+ *     re-created from the projection.
+ *
+ * `projectableSkippedSlots` is the skips inside the live queue
+ * (current_lesson < slot <= total_lessons), the ones planPhase2LessonInserts
+ * must count as lesson numbers even though the projector emits no slot for
+ * them.
+ */
+export function planPhase2Rows<T extends Phase2PlanRow>(args: {
+  beforeRows: readonly T[];
+  goalId: string;
+  clearPins: boolean;
+  currentLesson: number;
+  totalLessons: number;
+}) {
+  const { beforeRows, goalId, clearPins } = args;
+  // (Spread, not a literal: this is an in-memory view of rows already read,
+  // not a payload, and Invariant 10's source sweep reads any literal carrying
+  // scheduled_date as a write.)
+  const pinnedRows = beforeRows
+    .filter((r) => !r.completed && r.queue_pinned && !r.skipped)
+    .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
+  const survivingPins = clearPins ? [] : pinnedRows;
+  // Keyed by queue_position, which is what the projector's slots mean.
+  const pins: PinnedSlot[] = pinsFromRows(survivingPins, goalId);
+
+  const skippedRows = beforeRows.filter((r) => !r.completed && r.skipped);
+  const skippedSlots = skippedSlotsFromRows(
+    skippedRows.map((r) => ({ ...r, curriculum_goal_id: goalId })),
+    goalId,
+  );
+  const holds: QueueHold[] = [...pins, ...skippedSlots];
+  const projectableSkippedSlots = skippedSlots
+    .filter((h) => isPinProjectable(h, { current_lesson: args.currentLesson, total_lessons: args.totalLessons }))
+    .map((h) => h.slot);
+
+  // The floor is the highest lesson_number among completed rows (0 if none).
+  const completedFloor = beforeRows.reduce(
+    (m, r) => (r.completed && r.lesson_number != null ? Math.max(m, r.lesson_number) : m),
+    0,
+  );
+
+  const holdsParentWork = (r: { notes: string | null; minutes_spent: number | null }) =>
+    (r.notes != null && r.notes.trim().length > 0) || r.minutes_spent != null;
+  const workRowIds = new Set(
+    beforeRows.filter((r) => !r.completed && holdsParentWork(r)).map((r) => r.id),
+  );
+  // One set for both the simulation and the real delete, so they cannot drift
+  // apart the way the pin exclusion once did.
+  const heldBackIds = new Set([
+    ...survivingPins.map((r) => r.id),
+    ...skippedRows.map((r) => r.id),
+    ...workRowIds,
+  ]);
+  // Mirrors the COMMIT delete exactly: incomplete, lesson_number strictly above
+  // the floor, minus the held-back rows. PostgREST's `gt` never matches a NULL,
+  // so rows with no lesson_number survive the real delete and this one too.
+  const deletedIds = new Set(
+    beforeRows
+      .filter(
+        (r) =>
+          !r.completed &&
+          r.lesson_number != null &&
+          r.lesson_number > completedFloor &&
+          !heldBackIds.has(r.id),
+      )
+      .map((r) => r.id),
+  );
+  const survivors = beforeRows.filter((r) => !deletedIds.has(r.id));
+
+  return {
+    pinnedRows,
+    pins,
+    holds,
+    projectableSkippedSlots,
+    completedFloor,
+    holdsParentWork,
+    workRowIds,
+    heldBackIds,
+    deletedIds,
+    survivors,
+  };
+}
+
 export function isPhase2NoOp(a: Phase2NoOpArgs): { noop: boolean; reason: string } {
   if (a.releasesPins) return { noop: false, reason: "pins released" };
   if (a.histToInsertCount > 0) return { noop: false, reason: "backfill rows planned" };
@@ -1926,11 +2060,7 @@ export function isPhase2NoOp(a: Phase2NoOpArgs): { noop: boolean; reason: string
     (r) => !r.completed && r.lesson_number != null && a.totalLessons != null && r.lesson_number > a.totalLessons,
   );
   if (overCeiling) return { noop: false, reason: "rows past total_lessons" };
-  const redate = a.beforeRows.some((r) => {
-    if (!a.workRowIds.has(r.id) || r.queue_pinned || r.queue_position == null) return false;
-    const projDate = a.projDateBySlot.get(r.queue_position);
-    return projDate !== undefined && projDate !== r.scheduled_date;
-  });
+  const redate = phase2RedateTargets(a).some((t) => t.date !== t.from);
   if (redate) return { noop: false, reason: "a held-back row moves" };
   const deletedByNumber = new Map<number, Phase2BeforeRow>();
   for (const r of a.beforeRows) {
@@ -1948,7 +2078,7 @@ export function isPhase2NoOp(a: Phase2NoOpArgs): { noop: boolean; reason: string
   }
   const perDate = new Map<string, number>();
   for (const r of a.beforeRows) {
-    if (r.completed || r.queue_pinned || !r.scheduled_date || r.scheduled_date < a.todayYmd) continue;
+    if (r.completed || r.queue_pinned || r.skipped || !r.scheduled_date || r.scheduled_date < a.todayYmd) continue;
     perDate.set(r.scheduled_date, (perDate.get(r.scheduled_date) ?? 0) + 1);
   }
   for (const [ymd, n] of perDate) {
@@ -2549,6 +2679,16 @@ export function planPhase2LessonInserts(args: {
   existingLessonNumbers: Iterable<number>;
   /** queue_position of every row that survived the floor delete. */
   existingQueuePositions: Iterable<number>;
+  /**
+   * Skipped slots inside the live queue (Invariant 22). The projector emits no
+   * slot for them, but each still stands for a lesson NUMBER in the queue's
+   * range. Without them a skipped row sitting in a drifted slot would take its
+   * slot's number out of the range too, and that lesson would never be
+   * written. The skipped row itself survives the delete, so its own number is
+   * already taken and is never recreated; its slot is not free, so no insert
+   * is given it.
+   */
+  skippedSlots?: Iterable<number>;
 }): PlannedLessonInsert[] {
   const takenNumbers = new Set(args.existingLessonNumbers);
   const takenSlots = new Set(args.existingQueuePositions);
@@ -2556,9 +2696,9 @@ export function planPhase2LessonInserts(args: {
   // Slots nobody holds, in projector order, each carrying its own date.
   const freeSlots = args.upcoming.filter((p) => !takenSlots.has(p.lesson_number));
   // Lesson numbers inside the projected range that have no row yet.
-  const missingNumbers = args.upcoming
-    .map((p) => p.lesson_number)
-    .filter((n) => !takenNumbers.has(n));
+  const numberRange = [...new Set([...args.upcoming.map((p) => p.lesson_number), ...(args.skippedSlots ?? [])])]
+    .sort((a, b) => a - b);
+  const missingNumbers = numberRange.filter((n) => !takenNumbers.has(n));
 
   // Defensive tail. The two lists are the same length whenever every surviving
   // row holds one number and one slot inside the projected range, which is

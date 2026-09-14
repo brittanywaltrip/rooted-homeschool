@@ -7,7 +7,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { isPhase2NoOp, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, pinsFromRows, planPhase2LessonInserts, type PinnedSlot, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, planPhase2Rows, phase2RedateTargets, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
@@ -2527,7 +2527,7 @@ export default function ScheduleBuilderPage() {
           count: beforeRowsCount,
         } = await supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned, scheduled_date, date, title", { count: "exact" })
+          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned, skipped, scheduled_date, date, title", { count: "exact" })
           .eq("curriculum_goal_id", goalId);
         if (beforeRowsErr) throw beforeRowsErr;
         const beforeRows = (beforeRowsData ?? []) as {
@@ -2538,6 +2538,7 @@ export default function ScheduleBuilderPage() {
           notes: string | null;
           minutes_spent: number | null;
           queue_pinned: boolean | null;
+          skipped: boolean | null;
           scheduled_date: string | null;
           date: string | null;
           title: string | null;
@@ -2555,19 +2556,35 @@ export default function ScheduleBuilderPage() {
           );
         }
         const clearPins = scheduleFieldsChangedForRow(row);
-        // Derived from the one read of the goal's rows above; this used to be
-        // its own request, and the completed floor below a third.
-        // (Spread, not a literal: this is an in-memory view of rows already
-        // read, not a payload, and Invariant 10's source sweep reads any
-        // literal carrying scheduled_date as a write.)
-        const pinnedRows = beforeRows
-          .filter((r) => !r.completed && r.queue_pinned)
-          .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
-
-        const survivingPins = clearPins ? [] : pinnedRows;
-        // Keyed by queue_position, which is what the projector's slots mean.
-        const pins: PinnedSlot[] = pinsFromRows(survivingPins, goalId);
-        const pinnedIdsToKeep = clearPins ? [] : survivingPins.map((r) => r.id);
+        // Every decision about the rows this goal already holds, derived from
+        // the one read above and made before anything is written: which pins
+        // survive, which skipped lessons the queue steps over, the completed
+        // floor, the rows carrying the parent's work, and so which rows the
+        // floor delete takes. Pure and unit-tested; see planPhase2Rows in
+        // scheduler.ts.
+        //
+        // Skipped rows are held back exactly like pins (Invariant 22): never
+        // deleted, never re-dated, never recreated, and their slot is never
+        // given to an insert. Before this a builder save deleted a note-free
+        // skipped lesson and re-created it as an ordinary dated one.
+        const {
+          pinnedRows,
+          pins,
+          holds,
+          projectableSkippedSlots,
+          completedFloor,
+          holdsParentWork,
+          workRowIds,
+          heldBackIds,
+          deletedIds,
+          survivors,
+        } = planPhase2Rows({
+          beforeRows,
+          goalId,
+          clearPins,
+          currentLesson,
+          totalLessons: row.total_lessons,
+        });
 
         const goalConfig = {
           id: goalId,
@@ -2618,7 +2635,7 @@ export default function ScheduleBuilderPage() {
           !(row.previouslySavedAs === "curriculum_goals" && row.dbId) || beforeRows.length === 0;
         const startPick = row.start_date ? new Date(`${row.start_date}T00:00:00`) : todayMid;
         const forwardAnchor = isNewGoal ? forwardScheduleStart(startPick, todayMid) : todayMid;
-        const upcoming = computeNextLessonsForGoal(goalConfig, forwardAnchor, 3650, vacations, 0, pins);
+        const upcoming = computeNextLessonsForGoal(goalConfig, forwardAnchor, 3650, vacations, 0, holds);
         if (upcoming.length === 0) return;
 
         /* ── PLAN ─────────────────────────────────────────────────────────────
@@ -2651,55 +2668,20 @@ export default function ScheduleBuilderPage() {
         // 0, which collapses to "delete every pending row," matching the
         // pre-floor behavior of the create path and closing the same
         // multi-tab / retry race it always guarded against.
-        const completedFloor = beforeRows.reduce(
-          (m, r) => (r.completed && r.lesson_number != null ? Math.max(m, r.lesson_number) : m),
-          0,
-        );
-
-
-
-        // Simulate the floor delete. Mirrors the query issued in COMMIT exactly:
-        // incomplete, lesson_number strictly above the floor, minus the pinned
-        // rows held back. PostgREST's `gt` never matches a NULL, so rows with no
-        // lesson_number survive the real delete and must survive this one too.
-        const keepPinnedIds = new Set(pinnedIdsToKeep);
-
+        //
+        // What the delete leaves is simulated in planPhase2Rows above:
+        // `deletedIds` and `survivors` mirror the COMMIT query exactly, minus
+        // `heldBackIds` (surviving pins, skipped lessons, and the rows carrying
+        // the parent's notes or minutes).
+        //
         // ITEM 4 of the 2026-09-08 queue-slot brief: a rebuild never deletes a
-        // row carrying the parent's own work.
-        //
-        // djdillon88, 2026-09-07: at 00:05 he wrote 46 characters of notes on
-        // "Happy Cheetah — Lesson 1", unpinned and incomplete. At 00:38 a save
-        // re-spread all five of his goals, the floor delete took every unpinned
-        // incomplete row with it, and the reinsert brought them back with new
-        // ids and no notes. He retyped them at 01:54. No lesson.deleted event
-        // was logged, because this delete is a bulk statement and logs nothing.
-        //
-        // Completed and pinned rows were already held back. Notes and
-        // minutes_spent are the other two things only a person can put on a
-        // row, so they join them. The row keeps its id, its notes and its
-        // lesson_number; what the rebuild is still allowed to do is re-date it,
-        // which happens in COMMIT below.
-        const holdsParentWork = (r: { notes: string | null; minutes_spent: number | null }) =>
-          (r.notes != null && r.notes.trim().length > 0) || r.minutes_spent != null;
-        const workRowIds = new Set(
-          beforeRows.filter((r) => !r.completed && holdsParentWork(r)).map((r) => r.id),
-        );
-        // One set for both the simulation and the real delete, so they cannot
-        // drift apart the way the pin exclusion once did.
-        const heldBackIds = new Set([...keepPinnedIds, ...workRowIds]);
-
-        const deletedIds = new Set(
-          beforeRows
-            .filter(
-              (r) =>
-                !r.completed &&
-                r.lesson_number != null &&
-                r.lesson_number > completedFloor &&
-                !heldBackIds.has(r.id),
-            )
-            .map((r) => r.id),
-        );
-        const survivors = beforeRows.filter((r) => !deletedIds.has(r.id));
+        // row carrying the parent's own work. djdillon88, 2026-09-07: at 00:05
+        // he wrote 46 characters of notes on "Happy Cheetah — Lesson 1",
+        // unpinned and incomplete. At 00:38 a save re-spread all five of his
+        // goals, the floor delete took every unpinned incomplete row with it,
+        // and the reinsert brought them back with new ids and no notes. The row
+        // now keeps its id, its notes and its lesson_number; what the rebuild
+        // is still allowed to do is re-date it, which happens in COMMIT below.
 
         // Historical backfill: when the user enters a past start_date AND
         // has already completed lessons (currentLesson > 0), generate
@@ -2966,6 +2948,7 @@ export default function ScheduleBuilderPage() {
           upcoming,
           existingLessonNumbers: existingNums,
           existingQueuePositions: existingSlots,
+          skippedSlots: projectableSkippedSlots,
         });
 
         const toInsert = plannedInserts.map((p) => ({
@@ -3222,7 +3205,7 @@ export default function ScheduleBuilderPage() {
           .eq("completed", false)
           .gt("lesson_number", completedFloor);
         // Manual placements survive the re-spread (unless this goal's own
-        // schedule changed, in which case pinnedIdsToKeep is empty and they were
+        // schedule changed, in which case no pin is held back and they were
         // already released above). Without this exclusion the delete wiped them
         // and the reinsert brought them back unpinned at projector dates.
         if (heldBackIds.size > 0) {
@@ -3348,17 +3331,15 @@ export default function ScheduleBuilderPage() {
         // number — see its doc comment. That is the column a kept row is
         // matched on, the same way the fresh inserts take their date from the
         // slot they land in.
+        // Skipped rows are excluded for the same reason (Invariant 22): a skip
+        // has no day. phase2RedateTargets is the one rule, shared with the
+        // no-op check.
         let rebuiltUpdated = 0;
-        for (const r of beforeRows) {
-          if (!workRowIds.has(r.id)) continue;
-          if (r.queue_pinned) continue;
-          if (r.queue_position == null) continue;
-          const projDate = projDateBySlot.get(r.queue_position);
-          if (!projDate) continue;
+        for (const t of phase2RedateTargets({ beforeRows, workRowIds, projDateBySlot })) {
           const { error: redateErr } = await supabase
             .from("lessons")
-            .update({ scheduled_date: projDate, date: projDate, scheduled_source: "wizard_create" })
-            .eq("id", r.id);
+            .update({ scheduled_date: t.date, date: t.date, scheduled_source: "wizard_create" })
+            .eq("id", t.id);
           if (redateErr) throw redateErr;
           rebuiltUpdated += 1;
         }
@@ -3484,7 +3465,7 @@ export default function ScheduleBuilderPage() {
         const todayYmd = ymd(todayMid);
         const { data: overCheck, error: overCheckErr } = await supabase
           .from("lessons")
-          .select("scheduled_date, queue_pinned")
+          .select("scheduled_date, queue_pinned, skipped")
           .eq("curriculum_goal_id", goalId)
           .eq("completed", false)
           .gte("scheduled_date", todayYmd);
@@ -3501,9 +3482,13 @@ export default function ScheduleBuilderPage() {
         for (const r of (overCheck ?? []) as {
           scheduled_date: string | null;
           queue_pinned: boolean | null;
+          skipped: boolean | null;
         }[]) {
           if (!r.scheduled_date) continue;
           if (r.queue_pinned) continue;
+          // A skipped row holds no day; one an older save re-dated is not a
+          // lesson the scheduler placed.
+          if (r.skipped) continue;
           dateMap[r.scheduled_date] = (dateMap[r.scheduled_date] ?? 0) + 1;
         }
         // The per-day ceiling MUST honor lessons_per_day_overrides, which is

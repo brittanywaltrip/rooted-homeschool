@@ -1128,19 +1128,28 @@ active goals had `scheduled_date IS NULL` above `current_lesson`. Some were old
 skips, some were rows the builder never dated, and the data cannot tell them
 apart, so none were marked skipped.
 
-**Known gap: the Schedule Builder's phase 2 does not read `skipped`.** Its floor
-delete removes every unpinned, note-free incomplete row and re-inserts the
-queue, so a builder save brings a note-free skipped lesson back as an ordinary
-unskipped row, and a notes-bearing skipped row is updated in place with a date.
-Left alone on purpose in the change that added the column; it needs its own
-change to phase 2 (Invariant 18's hold-back set is the natural place).
+**The Schedule Builder keeps a skip (September 14, 2026).** Phase 2 re-spreads
+every curriculum on every save, and its floor delete used to take a note-free
+skipped row and re-create its number as an ordinary dated lesson, while a
+notes-bearing skipped row survived and was re-dated. `planPhase2Rows` in
+`scheduler.ts` (the pure half of `applyPhase2ForGoal`) now holds a skipped row
+back exactly like a pin: never deleted, never re-dated (`phase2RedateTargets`),
+never recreated (its number survives), and its slot is never given to an
+insert. Unlike a pin, a schedule-field change does not release it: a skip is
+not a placement on the grid. `planPhase2LessonInserts` takes the live skipped
+slots so a skip sitting in a drifted slot cannot take that slot's lesson number
+out of the rebuild. Like a pin, a skipped row past a shortened `total_lessons`
+is still removed by the over-ceiling cleanup.
 
 **Test case:** the "skip:" block in `scheduler.test.ts`: lesson 12 skipped with
 `current_lesson` 11 projects 13 then 14; a stale pin on a skipped slot reserves
 nothing; the first-day rewind; finish date and catch-up gap walk; the reconciler
 leaves a skipped row untouched; holds derive from rows; `planNextRow` never
 chooses a skipped slot; all four call sites write the documented columns and
-never `date: null`.
+never `date: null`. The "builder rebuild:" block runs phase 2's pure half over a
+goal with lesson 12 skipped: 12 keeps `skipped` and no date, 13 holds the first
+slot, a notes-bearing skip is not re-dated, a schedule change does not release
+it, and a drifted skipped slot still leaves every lesson number written once.
 
 ### Invariant 2 carve-out for manual moves
 

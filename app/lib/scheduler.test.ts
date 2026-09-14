@@ -105,7 +105,7 @@ import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import { todayInTz, isoDowFromYmd, addDays, ymdInTz } from './timezone.ts'
-import { schoolDaysBetween, isPhase2NoOp, type Phase2BeforeRow, type Phase2InsertRow } from './scheduler.ts'
+import { schoolDaysBetween, isPhase2NoOp, planPhase2Rows, phase2RedateTargets, type Phase2BeforeRow, type Phase2InsertRow, type Phase2PlanRow } from './scheduler.ts'
 import { mapLessonDateAcrossVacation } from '../components/PlanV2/handleVacationSave.shift.ts'
 import {
   countSchoolDaysInRange,
@@ -6969,17 +6969,22 @@ test('detach: the edit handler routes through planGoalReassign, it does not writ
 
 test('rebuild: the floor delete holds back rows carrying notes or minutes', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  // The row decisions live in planPhase2Rows (scheduler.ts), which phase 2
+  // calls; the real delete stays in the page and reads the same set.
+  const sched = stripComments(loadRepoFile('app/lib/scheduler.ts'))
+  const planner = sched.slice(sched.indexOf('export function planPhase2Rows'), sched.indexOf('export function isPhase2NoOp'))
+  assert.match(src, /\} = planPhase2Rows\(\{/, 'phase 2 decides its rows through the pure planner')
   assert.ok(
-    /const holdsParentWork = /.test(src),
+    /const holdsParentWork = /.test(planner),
     'phase 2 must define what "the parent put this here" means, once',
   )
   assert.ok(
-    /notes != null && r\.notes\.trim\(\)\.length > 0\) \|\| r\.minutes_spent != null/.test(src),
+    /notes != null && r\.notes\.trim\(\)\.length > 0\) \|\| r\.minutes_spent != null/.test(planner),
     'notes and minutes_spent are both parent-authored and both protected',
   )
   // The simulated delete and the real one must read from the same set. They
   // drifted apart once already, over the pin exclusion.
-  assert.ok(/!heldBackIds\.has\(r\.id\)/.test(src), 'the simulation excludes held-back rows')
+  assert.ok(/!heldBackIds\.has\(r\.id\)/.test(planner), 'the simulation excludes held-back rows')
   assert.ok(
     /floorDelete\.not\("id", "in", `\(\$\{\[\.\.\.heldBackIds\]\.join\(","\)\}\)`\)/.test(src),
     'the real delete excludes the same set',
@@ -7946,7 +7951,7 @@ test('the Schedule Builder wires all three fixes into phase 2 itself', () => {
   )
   assert.match(
     phase2,
-    /computeNextLessonsForGoal\(goalConfig, forwardAnchor, 3650, vacations, 0, pins\)/,
+    /computeNextLessonsForGoal\(goalConfig, forwardAnchor, 3650, vacations, 0, holds\)/,
     'the forward projection reads the anchor; no new flag threaded through the projector',
   )
 
@@ -9743,4 +9748,176 @@ test('skip: unskip dates and pins a lesson the queue has already passed, and don
   const bulk = src.slice(src.indexOf('const performBulkSkip = useCallback'), src.indexOf('const performBulkDelete = useCallback'))
   assert.match(bulk, /if \(l\.completed\) continue;/)
   assert.match(bulk, /if \(succeeded\.length > 0\) reloadPins\(\);/)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invariant 22 in the Schedule Builder: phase 2 keeps a skipped lesson skipped.
+//
+// Phase 2 re-spreads every curriculum in the builder on every save. Its floor
+// delete took every unpinned, note-free incomplete row, so a skipped lesson was
+// deleted and its number re-created as an ordinary dated lesson; a notes-bearing
+// skipped row survived but was re-dated. A skipped row is now held back exactly
+// like a pin: never deleted, never re-dated, never recreated, and its slot is
+// never given to an insert.
+//
+// rebuildThroughPhase2 runs the pure half of applyPhase2ForGoal in the order the
+// page does (planPhase2Rows, the projector on its holds, planPhase2LessonInserts,
+// phase2RedateTargets) and applies the result to the row set the way the
+// COMMIT block does: delete, insert, re-date. The last test pins the page to
+// those same calls.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const REBUILD_GOAL: CurriculumGoalConfig = {
+  id: 'g-rebuild',
+  total_lessons: 20,
+  lessons_per_day: 1,
+  school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+  current_lesson: 11,
+}
+const MON_SEP_14 = new Date('2026-09-14T00:00:00')
+
+type RebuildRow = Phase2PlanRow & { skipped: boolean }
+
+function rebuildRow(n: number, over: Partial<RebuildRow> = {}): RebuildRow {
+  return {
+    id: `L${n}`,
+    lesson_number: n,
+    queue_position: n,
+    completed: n <= 11,
+    queue_pinned: false,
+    skipped: false,
+    scheduled_date: `2026-08-${String(n + 10).padStart(2, '0')}`,
+    date: `2026-08-${String(n + 10).padStart(2, '0')}`,
+    title: `Math — Lesson ${n}`,
+    notes: null,
+    minutes_spent: null,
+    ...over,
+  }
+}
+
+function lessonTwelveSkipped(over: Partial<RebuildRow> = {}): RebuildRow[] {
+  return Array.from({ length: 20 }, (_, i) => i + 1).map((n) =>
+    n === 12 ? rebuildRow(12, { skipped: true, scheduled_date: null, ...over }) : rebuildRow(n),
+  )
+}
+
+function rebuildThroughPhase2(beforeRows: RebuildRow[], clearPins = false) {
+  const goal = REBUILD_GOAL
+  const plan = planPhase2Rows({
+    beforeRows,
+    goalId: goal.id,
+    clearPins,
+    currentLesson: goal.current_lesson,
+    totalLessons: goal.total_lessons,
+  })
+  const upcoming = computeNextLessonsForGoal(goal, MON_SEP_14, 3650, [], 0, plan.holds)
+  const inserts = planPhase2LessonInserts({
+    upcoming,
+    existingLessonNumbers: plan.survivors.map((r) => r.lesson_number).filter((n): n is number => n != null),
+    existingQueuePositions: plan.survivors.map((r) => r.queue_position).filter((n): n is number => n != null),
+    skippedSlots: plan.projectableSkippedSlots,
+  })
+  const projDateBySlot = new Map<number, string>()
+  for (const u of upcoming) if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date)
+  const redates = new Map(
+    phase2RedateTargets({ beforeRows, workRowIds: plan.workRowIds, projDateBySlot }).map((t) => [t.id, t.date]),
+  )
+  const after: RebuildRow[] = [
+    ...(plan.survivors as RebuildRow[]).map((r) => {
+      const d = redates.get(r.id)
+      return d ? { ...r, scheduled_date: d, date: d } : r
+    }),
+    ...inserts.map((p) => rebuildRow(p.lesson_number, {
+      id: `new-${p.lesson_number}`,
+      queue_position: p.queue_position,
+      completed: false,
+      scheduled_date: p.date,
+      date: p.date,
+    })),
+  ]
+  return { plan, upcoming, inserts, after }
+}
+
+test('builder rebuild: lesson 12 stays skipped with no date, and 13 holds the first slot', () => {
+  const before = lessonTwelveSkipped()
+  const { plan, upcoming, inserts, after } = rebuildThroughPhase2(before)
+
+  // Never deleted: the same row, not a re-created one.
+  assert.ok(!plan.deletedIds.has('L12'), 'the floor delete holds a skipped row back')
+  const twelve = after.filter((r) => r.lesson_number === 12)
+  assert.equal(twelve.length, 1, 'lesson 12 exists exactly once')
+  assert.equal(twelve[0].id, 'L12', 'and it is the original row')
+  assert.equal(twelve[0].skipped, true, 'still skipped')
+  assert.equal(twelve[0].scheduled_date, null, 'still no date')
+  assert.ok(!inserts.some((p) => p.lesson_number === 12), 'its number is never recreated')
+  assert.ok(!inserts.some((p) => p.queue_position === 12), 'its slot is never given to an insert')
+
+  // 13 holds the first slot: the first projected day, Monday.
+  assert.equal(upcoming[0].lesson_number, 13)
+  assert.equal(upcoming[0].date, '2026-09-14')
+  const thirteen = after.find((r) => r.lesson_number === 13)!
+  assert.equal(thirteen.queue_position, 13)
+  assert.equal(thirteen.scheduled_date, '2026-09-14')
+
+  // Every lesson 12..20 exists once, every live slot is held once, and nothing
+  // shares a day on a 1/day goal.
+  const live = after.filter((r) => !r.completed)
+  assert.deepEqual(live.map((r) => r.lesson_number).sort((a, b) => a! - b!), [12, 13, 14, 15, 16, 17, 18, 19, 20])
+  const slots = live.map((r) => r.queue_position)
+  assert.equal(new Set(slots).size, slots.length, 'no duplicate queue_position')
+  const days = live.map((r) => r.scheduled_date).filter((d): d is string => d != null)
+  assert.equal(new Set(days).size, days.length, 'no day holds two lessons')
+})
+
+test('builder rebuild: a skipped row with notes is not re-dated, and a schedule change does not release a skip', () => {
+  // Notes put the row in the work set, which phase 2 re-dates; a skip is exempt.
+  const withNotes = rebuildThroughPhase2(lessonTwelveSkipped({ notes: 'we did this orally' }))
+  const twelve = withNotes.after.find((r) => r.id === 'L12')!
+  assert.equal(twelve.skipped, true)
+  assert.equal(twelve.scheduled_date, null, 'a notes-bearing skipped row keeps no date')
+
+  // Changing school days releases pins. It does not release a skip.
+  const regrid = rebuildThroughPhase2(lessonTwelveSkipped(), true)
+  assert.ok(!regrid.plan.deletedIds.has('L12'))
+  assert.equal(regrid.upcoming[0].lesson_number, 13)
+  assert.equal(regrid.after.find((r) => r.id === 'L12')?.scheduled_date, null)
+})
+
+test('builder rebuild: a skipped row in a drifted slot still leaves every lesson number written once', () => {
+  // Lesson 12 was dragged into slot 14 and then skipped; lesson 14 sits in slot 12.
+  const before = Array.from({ length: 20 }, (_, i) => i + 1).map((n) => {
+    if (n === 12) return rebuildRow(12, { queue_position: 14, skipped: true, scheduled_date: null })
+    if (n === 14) return rebuildRow(14, { queue_position: 12 })
+    return rebuildRow(n)
+  })
+  const { after, inserts } = rebuildThroughPhase2(before)
+  const live = after.filter((r) => !r.completed)
+  assert.deepEqual(live.map((r) => r.lesson_number).sort((a, b) => a! - b!), [12, 13, 14, 15, 16, 17, 18, 19, 20],
+    'lesson 14 is recreated even though its old slot number is the skipped one')
+  assert.ok(!inserts.some((p) => p.queue_position === 14), 'the skipped slot is not handed out')
+  assert.equal(after.find((r) => r.id === 'L12')?.skipped, true)
+})
+
+test('builder rebuild: the no-op check never counts a skipped row as a row that moves', () => {
+  const before = lessonTwelveSkipped({ notes: 'kept' })
+  const plan = planPhase2Rows({ beforeRows: before, goalId: 'g', clearPins: false, currentLesson: 11, totalLessons: 20 })
+  assert.ok(plan.workRowIds.has('L12'), 'the notes put it in the work set')
+  assert.deepEqual(
+    phase2RedateTargets({ beforeRows: before, workRowIds: plan.workRowIds, projDateBySlot: new Map([[12, '2026-09-14']]) }),
+    [],
+    'yet no re-date is planned for it',
+  )
+})
+
+test('builder rebuild: the Schedule Builder runs those same pieces', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
+  assert.match(phase2, /queue_pinned, skipped, scheduled_date, date, title", \{ count: "exact" \}/, 'phase 2 reads skipped')
+  assert.match(phase2, /\} = planPhase2Rows\(\{/)
+  assert.match(phase2, /computeNextLessonsForGoal\(goalConfig, forwardAnchor, 3650, vacations, 0, holds\)/)
+  assert.match(phase2, /skippedSlots: projectableSkippedSlots,/)
+  assert.match(phase2, /for \(const t of phase2RedateTargets\(\{ beforeRows, workRowIds, projDateBySlot \}\)\)/)
+  assert.match(phase2, /floorDelete\.not\("id", "in", `\(\$\{\[\.\.\.heldBackIds\]\.join\(","\)\}\)`\)/)
+  assert.doesNotMatch(phase2, /const deletedIds = new Set\(/, 'the delete simulation has one definition, in planPhase2Rows')
 })
