@@ -1102,6 +1102,12 @@ export default function PlanV2() {
         // No date to clear — nothing meaningful to skip.
         return;
       }
+      // A finished lesson is not one to skip: that would take it off the
+      // calendar while it still counts as done.
+      if (lesson.completed) {
+        flashNotice("That lesson is already done.");
+        return;
+      }
       try {
         await skipLesson(lesson);
       } catch {
@@ -1131,23 +1137,48 @@ export default function PlanV2() {
 
   // Unskip puts the lesson back in the queue. It gets no date here: the next
   // Today load's reconciler dates it like any other unfinished lesson.
+  //
+  // Unless the queue has already moved past it. Skip 12, finish 13, and
+  // current_lesson is 13: the projector starts at 14, so a plain unskip would
+  // leave 12 with no day, off the calendar and out of the skipped list, gone.
+  // That row is placed the way CLAUDE.md surfaces rows the projector cannot
+  // place: on today, pinned, so it shows and later reads as missed instead of
+  // vanishing. A pin at or below current_lesson holds no slot
+  // (isPinProjectable), so it moves nothing else.
   const unskipLesson = useCallback(
     async (lesson: PlanV2Lesson) => {
-      setSkippedLessons((prev) => prev.filter((l) => l.id !== lesson.id));
-      const { error } = await supabase.from("lessons").update({ skipped: false }).eq("id", lesson.id);
-      if (error) {
+      const { data: row, error: readErr } = await supabase
+        .from("lessons")
+        .select("queue_position, curriculum_goals(current_lesson)")
+        .eq("id", lesson.id)
+        .maybeSingle();
+      if (readErr || !row) {
         flashNotice("Couldn't unskip, try again.");
-        reloadPins();
         return;
       }
-      flashNotice("Back in the queue. It gets a day the next time Today opens.");
+      const r = row as unknown as { queue_position: number | null; curriculum_goals: { current_lesson: number | null } | null };
+      const passed = r.queue_position == null || r.queue_position <= (r.curriculum_goals?.current_lesson ?? 0);
+      const update = passed
+        ? { skipped: false, scheduled_date: todayStr, date: todayStr, queue_pinned: true, scheduled_source: "plan_move" }
+        : { skipped: false };
+      const { error } = await supabase.from("lessons").update(update).eq("id", lesson.id);
+      if (error) {
+        flashNotice("Couldn't unskip, try again.");
+        return;
+      }
+      setSkippedLessons((prev) => prev.filter((l) => l.id !== lesson.id));
+      flashNotice(
+        passed
+          ? "You've already moved past this one, so it's on today's plan."
+          : "Back in the queue. It gets a day the next time Today opens.",
+      );
       reloadPins();
       reload();
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [reload, reloadPins],
+    [reload, reloadPins, todayStr],
   );
 
   // ── Submit handlers for Add / Edit lesson modals ─────────────────────────
@@ -3926,6 +3957,8 @@ export default function PlanV2() {
     for (const id of ids) {
       const l = lessons.find((x) => x.id === id);
       if (!l) continue;
+      // "Skip all" on a day sends done lessons too. Those stay as they are.
+      if (l.completed) continue;
       const from = l.scheduled_date ?? l.date;
       if (!from) continue;
       snap.push({ id, from });
@@ -4026,6 +4059,8 @@ export default function PlanV2() {
     });
 
     reload();
+    // The skips change the projection and the curriculum panel's skipped list.
+    if (succeeded.length > 0) reloadPins();
     setBulkBusy(false);
     exitSelectMode();
   }, [lessons, setLessons, reload, reloadPins, exitSelectMode, flagLanded, recordEvent]);

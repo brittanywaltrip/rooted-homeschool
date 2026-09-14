@@ -1115,8 +1115,13 @@ failed every time, and nothing checked the error.
   report ignore a skipped lesson because it is not completed.
 - **Unskip** (the curriculum panel's menu on a skipped row) writes
   `skipped = false` and nothing else. The next Today load dates it like any other
-  unfinished lesson. A lesson unskipped after the pointer has moved past it has
-  no slot left in the queue and stays undated.
+  unfinished lesson. Once the pointer has moved past it (skip 12, finish 13)
+  the projector starts beyond its slot and would never date it, so that unskip
+  also dates it today and pins it (`plan_move`), the same way repairs surface a
+  row the projector cannot place. A pin at or below `current_lesson` holds no
+  slot (`isPinProjectable`), so it moves nothing else.
+- A completed lesson is never skipped: the single Skip refuses one, and bulk
+  skip ("Skip all" on a day) leaves done lessons out.
 
 **No backfill.** On 2026-09-14, 10,047 incomplete non-backfill rows across 402
 active goals had `scheduled_date IS NULL` above `current_lesson`. Some were old
@@ -1164,7 +1169,9 @@ Auto-scheduling never bunches; only the user can.
   statement. **If you are about to write `queue_pinned: true` anywhere else,
   you are reintroducing this bug.** The carve-outs are the Edit lesson date
   change (one row, which keeps the slot it already holds, so it is neither an
-  invisible pin nor a frozen tail) and "Add a past year"
+  invisible pin nor a frozen tail), Unskip of a lesson the pointer has already
+  passed (its slot is at or below `current_lesson`, so the projector ignores
+  the pin) and "Add a past year"
   (below): its rows are on archived goals in an archived year, which no
   projector or reconciler ever reads, and they carry the slot and the flag
   together as `move_lesson_to_date` does.

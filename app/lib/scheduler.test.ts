@@ -9729,3 +9729,18 @@ test('edit lesson: a changed date pins the row with plan_move; any other edit le
   // Undo puts the prior pin back.
   assert.match(body, /undoUpdate\.queue_pinned = !!priorPin\.queue_pinned/)
 })
+
+test('skip: unskip dates and pins a lesson the queue has already passed, and done lessons are never skipped', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const unskip = src.slice(src.indexOf('const unskipLesson = useCallback('), src.indexOf('const handleSubmitEditLesson'))
+  assert.match(unskip, /r\.queue_position <= \(r\.curriculum_goals\?\.current_lesson \?\? 0\)/)
+  assert.match(unskip, /skipped: false, scheduled_date: todayStr, date: todayStr, queue_pinned: true, scheduled_source: "plan_move"/)
+  // A pin at or below current_lesson holds no slot, so it cannot move anything.
+  assert.equal(isPinProjectable({ slot: 12 }, { current_lesson: 13, total_lessons: 20 }), false)
+
+  const single = src.slice(src.indexOf('const skipLessonWithLog = useCallback('))
+  assert.match(single.slice(0, 900), /if \(lesson\.completed\)/)
+  const bulk = src.slice(src.indexOf('const performBulkSkip = useCallback'), src.indexOf('const performBulkDelete = useCallback'))
+  assert.match(bulk, /if \(l\.completed\) continue;/)
+  assert.match(bulk, /if \(succeeded\.length > 0\) reloadPins\(\);/)
+})
