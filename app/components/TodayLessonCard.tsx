@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import LessonPhotoButton from "@/app/components/LessonPhotoButton";
+import { resolveLessonSubject } from "@/lib/lesson-subject";
+import { lessonRowSubtitle, lessonRowTitle } from "@/app/components/PlanV2/lessonTitle";
 
 /* TodayLessonCard — lesson row with inline check-off, particle burst on
  * completion, minutes editor, notes editor, and a 3-dot menu.
@@ -33,6 +35,9 @@ export type TodayLessonCardLesson = {
    *  history. The flag clears automatically the next time the lesson is
    *  moved (move_lesson_to_date stamps scheduled_source = 'plan_move'). */
   scheduled_source?: string | null;
+  /** The goal's subject label and curriculum name, for the title helper. */
+  subject_label?: string | null;
+  curriculum_name?: string | null;
 };
 
 export type TodayLessonCardChild = {
@@ -136,7 +141,23 @@ export default function TodayLessonCard({
   }
 
   const isEditingNote = editingNoteId === lesson.id;
-  const lessonLabel = lesson.title?.trim() || (lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "Untitled");
+  // Same words as Plan's week rows: "Math · Lesson 44", curriculum on the
+  // muted line. The card used to print the stored "<curriculum> — Lesson 44"
+  // title. A one-off lesson keeps its own title.
+  const subjectForTitle = resolveLessonSubject(lesson.subjects?.name, lesson.subject_label ?? null);
+  const titleArgs = {
+    lessonNumber: lesson.lesson_number,
+    title: lesson.title,
+    subject: subjectForTitle,
+    curriculumName: lesson.curriculum_name ?? null,
+  };
+  const lessonLabel = (lesson.title?.trim() || lesson.lesson_number != null)
+    ? lessonRowTitle(titleArgs)
+    : "Untitled";
+  const lessonSubtitle = lessonRowSubtitle(titleArgs);
+  // The subject chip only adds something when the title does not already lead
+  // with that subject.
+  const showSubjectChip = !!lesson.subjects && !lessonLabel.startsWith(`${lesson.subjects.name} · `);
   const toggleAriaLabel = lesson.completed
     ? `Mark ${lessonLabel} incomplete`
     : `Mark ${lessonLabel} complete`;
@@ -179,7 +200,7 @@ export default function TodayLessonCard({
 
       {/* Content */}
       <div className="flex-1 min-w-0 py-3.5">
-        {lesson.subjects && (
+        {showSubjectChip && lesson.subjects && (
           <span
             className="inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full mb-1"
             style={{ backgroundColor: subStyle.bg, color: subStyle.text }}
@@ -243,6 +264,9 @@ export default function TodayLessonCard({
             />
           )}
         </div>
+        {lessonSubtitle ? (
+          <p className="text-[11px] text-[#9a8e84] mt-0.5 break-words">{lessonSubtitle}</p>
+        ) : null}
         {/* Estimated-date hint. Set on rows whose completed_at was
             synthesized by the recalibration gap-fill so the user knows
             this isn't a real completion date. Cleared automatically by

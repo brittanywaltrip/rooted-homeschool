@@ -15,6 +15,7 @@ import { supabase } from "@/lib/supabase";
 import { Pencil } from "lucide-react";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
+import { lessonRowSubtitle, lessonRowTitle } from "@/app/components/PlanV2/lessonTitle";
 import {
   computeNextLessonsForGoal,
   loadPinsByGoal,
@@ -97,7 +98,7 @@ type TabLesson = {
   scheduled_date: string;
   notes?: string | null;
   subjects: { name: string; color: string | null } | null;
-  curriculum_goals?: { subject_label: string | null } | null;
+  curriculum_goals?: { subject_label: string | null; curriculum_name?: string | null } | null;
   // Used by the Past tab's per-subject lesson_number desc sort. Optional
   // because not every legacy row has a lesson_number set.
   lesson_number?: number | null;
@@ -110,6 +111,17 @@ type TabLesson = {
 };
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** A lesson card's heading, through the same helper as Plan's rows. */
+function lessonTabHeading(l: TabLesson): { title: string; subtitle: string | null } {
+  const args = {
+    lessonNumber: l.lesson_number,
+    title: l.title,
+    subject: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label),
+    curriculumName: l.curriculum_goals?.curriculum_name ?? null,
+  };
+  return { title: lessonRowTitle(args), subtitle: lessonRowSubtitle(args) };
+}
 
 function fmtApptTime(t: string | null): string {
   if (!t) return "All day";
@@ -336,13 +348,13 @@ export default function InlineScheduleTabs({
       const { data: rowData } = projGoalIds.length > 0
         ? await supabase
             .from("lessons")
-            .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, queue_position")
+            .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label, curriculum_name), curriculum_goal_id, lesson_number, queue_position")
             .eq("user_id", user.id)
             .eq("completed", false)
             .in("curriculum_goal_id", projGoalIds)
             .in("queue_position", projSlots)
         : { data: [] as unknown[] };
-      type RowLite = { id: string; title: string; child_id: string; scheduled_date: string | null; notes: string | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null } | null; curriculum_goal_id: string | null; queue_position: number | null };
+      type RowLite = { id: string; title: string; child_id: string; scheduled_date: string | null; notes: string | null; subjects: { name: string; color: string | null } | null; curriculum_goals?: { subject_label: string | null; curriculum_name?: string | null } | null; curriculum_goal_id: string | null; lesson_number: number | null; queue_position: number | null };
       const rowMap = new Map<string, RowLite>();
       for (const r of (rowData ?? []) as RowLite[]) {
         // The IN/IN pair widens past the cartesian product, so key on the
@@ -365,6 +377,7 @@ export default function InlineScheduleTabs({
           notes: r.notes,
           subjects: r.subjects,
           curriculum_goals: r.curriculum_goals,
+          lesson_number: r.lesson_number,
         });
       }
       // Sort by date asc, then by title for stability inside a date.
@@ -385,7 +398,7 @@ export default function InlineScheduleTabs({
       const sevenAgoIso = `${fmtD(sevenAgo)}T00:00:00Z`;
       const { data: pastLessonData } = await supabase
         .from("lessons")
-        .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, completed_at, updated_at")
+        .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label, curriculum_name), curriculum_goal_id, lesson_number, completed_at, updated_at")
         .eq("user_id", user.id)
         .eq("completed", true)
         .gte("completed_at", sevenAgoIso)
@@ -526,6 +539,14 @@ export default function InlineScheduleTabs({
                     </div>
                     {lessonsForDay.map((l) => {
                       const skin = skinForChildIds(l.child_id ? [l.child_id] : null, kids);
+                      // Same words as Plan: "Math · Lesson 44", with the
+                      // curriculum and the child on the muted line. The card
+                      // used to print the stored "<curriculum> — Lesson 44"
+                      // title, dash and all, right under a Plan page that did
+                      // not. A one-off keeps its own title.
+                      const heading = lessonTabHeading(l);
+                      const childName = kids.find((ch) => ch.id === l.child_id)?.name ?? "";
+                      const muted = [heading.subtitle, childName].filter((x) => !!x).join(" · ");
                       return (
                         <div
                           key={l.id}
@@ -536,15 +557,11 @@ export default function InlineScheduleTabs({
                             <span className="text-lg shrink-0">📚</span>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5">
-                                <span className="text-[13px] font-medium break-words" style={{ color: skin.titleColor }}>{l.title}</span>
+                                <span className="text-[13px] font-medium break-words" style={{ color: skin.titleColor }}>{heading.title}</span>
                               </div>
-                              <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>
-                                {(() => {
-                                  const subjName = resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label);
-                                  const childName = (() => { const c = kids.find((ch) => ch.id === l.child_id); return c ? c.name : ""; })();
-                                  return `${subjName ?? ""}${subjName && childName ? " · " : ""}${childName}`;
-                                })()}
-                              </p>
+                              {muted ? (
+                                <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>{muted}</p>
+                              ) : null}
                               {editingNoteId !== l.id && l.notes && (
                                 <p className="text-[10px] italic mt-1 line-clamp-2" style={{ color: skin.subtleColor }}>{l.notes}</p>
                               )}
@@ -738,6 +755,7 @@ export default function InlineScheduleTabs({
                               const dateLabel = completionTs
                                 ? formatRelativeFromTimestamp(completionTs)
                                 : fmtRelDate(l.scheduled_date);
+                              const heading = lessonTabHeading(l);
                               return (
                                 <div
                                   key={`l-${l.id}`}
@@ -746,8 +764,10 @@ export default function InlineScheduleTabs({
                                 >
                                   <span className="text-lg shrink-0">✓</span>
                                   <div className="flex-1 min-w-0">
-                                    <span className="text-[13px] font-medium line-through break-words" style={{ color: skin.titleColor }}>{l.title}</span>
-                                    <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>{dateLabel}</p>
+                                    <span className="text-[13px] font-medium line-through break-words" style={{ color: skin.titleColor }}>{heading.title}</span>
+                                    <p className="text-[11px] mt-0.5" style={{ color: skin.subtleColor }}>
+                                      {heading.subtitle ? `${heading.subtitle} · ${dateLabel}` : dateLabel}
+                                    </p>
                                   </div>
                                 </div>
                               );

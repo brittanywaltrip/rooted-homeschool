@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import type { PlanV2Lesson } from "./types";
-import { lessonRowTitle } from "./lessonTitle";
+import { lessonRowSubtitle, lessonRowTitle } from "./lessonTitle";
 
 /* ============================================================================
  * MissedLessonsBanner — amber warning surfaced above the calendar card.
@@ -154,8 +154,12 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
           // The muted line adds what the title does not already say: the
           // curriculum under a numbered lesson, the subject under a one-off
           // (unless the title already fell back to that subject).
-          const secondLineRaw = lesson.lesson_number != null ? curriculumName : subjectRaw;
-          const secondLine = secondLineRaw && secondLineRaw.trim() !== title ? secondLineRaw : null;
+          const secondLine = lessonRowSubtitle({
+            lessonNumber: lesson.lesson_number,
+            title: lesson.title,
+            subject: subjectRaw,
+            curriculumName,
+          });
           return (
             <div
               key={lesson.id}

@@ -25,3 +25,24 @@ export function lessonRowTitle(args: {
   const own = args.title?.trim() || null;
   return own ?? subject ?? curriculum ?? "Lesson";
 }
+
+/**
+ * The muted line under a lessonRowTitle: what the title does not already say.
+ * The curriculum under a numbered lesson ("Math · Lesson 44" over "The Good and
+ * the Beautiful Math 3"), the subject under a one-off, and nothing when that
+ * would only repeat the title (a one-off with no name of its own already fell
+ * back to its subject; a lesson with no subject already leads with its
+ * curriculum). Shared by the missed-lessons banner, Today's Upcoming
+ * and Past cards, and the lesson card in Plan's day panel.
+ */
+export function lessonRowSubtitle(args: {
+  lessonNumber: number | null | undefined;
+  title: string | null | undefined;
+  subject: string | null | undefined;
+  curriculumName: string | null | undefined;
+}): string | null {
+  const heading = lessonRowTitle(args);
+  const raw = (args.lessonNumber != null ? args.curriculumName : args.subject)?.trim() || null;
+  if (!raw || raw === heading || heading.startsWith(`${raw} · `)) return null;
+  return raw;
+}

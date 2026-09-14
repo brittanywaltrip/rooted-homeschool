@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { lessonRowTitle } from "./lessonTitle.ts";
+import { lessonRowSubtitle, lessonRowTitle } from "./lessonTitle.ts";
 
 test("a curriculum lesson leads with its subject, never the stored curriculum title", () => {
   assert.equal(
@@ -25,5 +25,25 @@ test("the missed-lessons banner and the week rows use the same title", () => {
   for (const f of ["app/components/PlanV2/MissedLessonsBanner.tsx", "app/components/PlanV2/WeekListView.tsx"]) {
     const src = readFileSync(resolve(import.meta.dirname, "..", "..", "..", f), "utf8");
     assert.match(src, /lessonRowTitle\(/, `${f} titles its rows through lessonRowTitle`);
+  }
+});
+
+test("the muted line says what the title does not: the curriculum under a numbered lesson", () => {
+  const numbered = { lessonNumber: 44, title: "The Good and the Beautiful Math 3 — Lesson 44", subject: "Math", curriculumName: "The Good and the Beautiful Math 3" };
+  assert.equal(lessonRowTitle(numbered), "Math · Lesson 44");
+  assert.equal(lessonRowSubtitle(numbered), "The Good and the Beautiful Math 3");
+  // A one-off keeps its title and shows its subject beneath.
+  assert.equal(lessonRowSubtitle({ lessonNumber: null, title: "Nature walk", subject: "Science", curriculumName: null }), "Science");
+  // Never a line that only repeats the title.
+  assert.equal(lessonRowSubtitle({ lessonNumber: null, title: " ", subject: "Science", curriculumName: null }), null);
+  assert.equal(lessonRowSubtitle({ lessonNumber: 3, title: null, subject: null, curriculumName: "Happy Cheetah" }), null);
+});
+
+test("Today's Upcoming and Past cards and the day panel's lesson card use the same title", () => {
+  for (const f of ["app/components/today/InlineScheduleTabs.tsx", "app/components/TodayLessonCard.tsx"]) {
+    const src = readFileSync(resolve(import.meta.dirname, "..", "..", "..", f), "utf8");
+    assert.match(src, /lessonRowTitle\(/, `${f} titles its lessons through lessonRowTitle`);
+    assert.match(src, /lessonRowSubtitle\(/, `${f} takes its muted line from lessonRowSubtitle`);
+    assert.doesNotMatch(src, /\{l\.title\}/, `${f} never renders the stored title raw`);
   }
 });

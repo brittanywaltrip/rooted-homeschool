@@ -168,7 +168,11 @@ function formatShortDate(iso: string | null): string {
  * (unassigned lessons render as "Unassigned" in the panel via a synthetic
  * child_id). TodayLessonCard requires a non-null child_id; we coerce so the
  * panel can still show the lesson under an Unassigned block. */
-function toTodayLessons(ls: PlanV2Lesson[]): TodayLessonCardLesson[] {
+function toTodayLessons(
+  ls: PlanV2Lesson[],
+  goals: readonly { id: string; curriculum_name: string | null; subject_label: string | null }[] = [],
+): TodayLessonCardLesson[] {
+  const goalById = new Map(goals.map((g) => [g.id, g]));
   return ls.map((l) => ({
     id: l.id,
     title: l.title ?? "",
@@ -181,6 +185,10 @@ function toTodayLessons(ls: PlanV2Lesson[]): TodayLessonCardLesson[] {
     curriculum_goal_id: l.curriculum_goal_id,
     notes: l.notes,
     scheduled_source: l.scheduled_source,
+    // The card titles itself "Math · Lesson 44" with the curriculum beneath
+    // (lessonTitle.ts), so it needs the goal's two names.
+    subject_label: l.curriculum_goals?.subject_label ?? (l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.subject_label ?? null : null),
+    curriculum_name: l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.curriculum_name ?? null : null,
   }));
 }
 
@@ -6029,6 +6037,7 @@ export default function PlanV2() {
           // still showed every child's lessons.
           const panelLessons = toTodayLessons(
             filteredLessons.filter((l) => (l.scheduled_date ?? l.date) === openDayStr),
+            curriculumGoals,
           );
           // Appointments DO carry child scoping (child_ids), and
           // filteredAppointments already applies the rule the rest of the page
