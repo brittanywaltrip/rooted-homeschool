@@ -2835,7 +2835,7 @@ export default function SettingsPage() {
             onClick={async () => {
               const shareData = {
                 title: "Rooted",
-                text: "I\u2019ve been using Rooted to capture our homeschool memories \u2014 thought you might love it!",
+                text: "I\u2019ve been using Rooted to capture our homeschool memories. Thought you might love it!",
                 url: "https://rootedhomeschoolapp.com",
               };
               if (navigator.share) {

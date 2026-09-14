@@ -274,7 +274,7 @@ const sections = [
       },
       {
         q: "How do I set up Share With Family?",
-        a: "Share With Family is included with Rooted+. Go to Settings \u2192 Share With Family to get a private link you can copy and share however you like \u2014 text, email, whatever works for your family.",
+        a: "Share With Family is included with Rooted+. Go to Settings \u2192 Share With Family to get a private link you can copy and share however you like: text, email, whatever works for your family.",
       },
     ],
   },

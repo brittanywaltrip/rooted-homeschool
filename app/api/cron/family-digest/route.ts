@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
       .slice(0, 4)
       .map((m: { type: string; title: string | null; child_id: string | null }) => {
         const childName = m.child_id ? childMap[m.child_id] : null;
-        return childName ? `${childName} — ${m.title ?? m.type}` : (m.title ?? m.type);
+        return childName ? `${childName}: ${m.title ?? m.type}` : (m.title ?? m.type);
       });
 
     // Get up to 4 photo thumbnails. Sign each URL with a 7-day expiry so

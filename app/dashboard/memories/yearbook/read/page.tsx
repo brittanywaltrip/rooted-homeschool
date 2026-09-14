@@ -1349,7 +1349,7 @@ export default function YearbookReadPage() {
             <p className="italic text-[12px] text-[var(--yb-body)] line-clamp-4 leading-relaxed" style={{ fontFamily: "Georgia, serif" }}>{favQuoteText}</p>
             {favQuoteMemory?.child_id && (
               <p className="text-[10px] text-[var(--yb-muted)] mt-1.5">
-                — {children.find((c) => c.id === favQuoteMemory.child_id)?.name ?? ""}
+                {children.find((c) => c.id === favQuoteMemory.child_id)?.name ?? ""}
               </p>
             )}
           </div>

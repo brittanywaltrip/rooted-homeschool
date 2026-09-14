@@ -21,14 +21,14 @@ export async function POST(req: NextRequest) {
 
 ${displayName} has invited you to view their family's Rooted dashboard.
 
-Rooted is a homeschool planning app — it tracks lessons, a family garden that grows with every lesson completed, memories, books, and more.
+Rooted is a homeschool planning app. It tracks lessons, a family garden that grows with every lesson completed, memories, books, and more.
 
 To get started, just sign up or log in with this email address at:
 https://rootedhomeschoolapp.com
 
 Once you're in, you'll see ${displayName}'s dashboard automatically.
 
-— The Rooted Team 🌱${emailFooterText()}`,
+The Rooted Team 🌱${emailFooterText()}`,
     });
 
     if (result.error) {

@@ -651,7 +651,7 @@ export async function POST(req: NextRequest) {
       const firstName = profile?.display_name?.split(' ')[0] ?? 'friend'
       await sendEmail(
         customerEmail,
-        'Heads up — your Rooted payment didn\'t go through',
+        'Heads up: your Rooted payment didn\'t go through',
         `Hi ${firstName},\n\nWe weren't able to process your Rooted+ payment. Stripe will retry automatically, but to make sure you don't lose access, please update your payment method at:\n\nhttps://rootedhomeschoolapp.com/dashboard/settings\n\nIf you have any trouble, just reply to this email and I'll help you sort it out.\n\nCheering you on,\nBrittany`,
       ).catch((err) => console.error('[webhook] payment_failed user email error:', err))
     }

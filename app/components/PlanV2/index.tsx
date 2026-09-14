@@ -5299,6 +5299,7 @@ export default function PlanV2() {
           <MissedLessonsBanner
             missedLessons={missedLessonsInView}
             busy={bulkBusy}
+            curriculumNameByGoal={Object.fromEntries(curriculumGoals.map((g) => [g.id, g.curriculum_name]))}
             onMarkAllDone={() => {
               const ids = missedLessonsInView.map((l) => l.id);
               if (ids.length === 0) return;

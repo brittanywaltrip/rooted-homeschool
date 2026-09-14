@@ -126,7 +126,7 @@ function GiftPageInner() {
         <div className="mt-6 space-y-2 text-center">
           <p className="text-xs text-[#9a8f85]">🔒 Secure checkout via Stripe</p>
           <p className="text-xs text-[#9a8f85]">🎁 They&apos;ll be notified instantly</p>
-          <p className="text-xs text-[#9a8f85]">🌿 Full year of Rooted+ — unlimited memories, yearbook & more</p>
+          <p className="text-xs text-[#9a8f85]">🌿 Full year of Rooted+: unlimited memories, yearbook & more</p>
         </div>
 
         <p className="text-xs text-[#b5aca4] text-center mt-6">

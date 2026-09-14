@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7;">
     In the meantime, if you haven't already, sign up for a free Rooted account at
     <a href="https://rootedhomeschoolapp.com/signup" style="color: #5c7f63; font-weight: 600;">rootedhomeschoolapp.com</a>
-    — it'll make your onboarding even faster once you're approved.
+    so your onboarding is even faster once you're approved.
   </p>
   <p style="font-size: 14px; color: #5c5248; line-height: 1.7; margin-top: 24px;">
     Sincerely,<br />Brittany

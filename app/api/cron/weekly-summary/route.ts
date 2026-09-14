@@ -32,12 +32,12 @@ function emailHtml(name: string, summaryLine: string, memCount: number, unsubscr
 <p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">${greeting}</p>
 <p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">${summaryLine}</p>
 <p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">You captured <strong>${memCount} ${memLabel}</strong> this week. Every one is a page in your family's story. 🌿</p>
-<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">Keep going — you're building something your kids will treasure.</p>
+<p style="font-size:15px;line-height:1.6;color:#2d2926;margin:0 0 14px;">Keep going. You're building something your kids will treasure.</p>
 <table cellpadding="0" cellspacing="0" style="margin:24px 0;"><tr><td style="background:#5c7f63;border-radius:10px;padding:13px 28px;">
 <a href="https://www.rootedhomeschoolapp.com/dashboard/memories" style="color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;display:inline-block;">See your memories &rarr;</a>
 </td></tr></table>
-<p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:0 0 4px;">If you run into anything or just want to share how homeschooling is going &mdash; reply to this email. I read every single one.</p>
-<p style="font-size:14px;line-height:1.5;color:#2d2926;margin:24px 0 0;font-weight:600;">&mdash; Brittany</p>
+<p style="font-size:14px;line-height:1.5;color:#7a6f65;margin:0 0 4px;">If you run into anything or just want to share how homeschooling is going, reply to this email. I read every single one.</p>
+<p style="font-size:14px;line-height:1.5;color:#2d2926;margin:24px 0 0;font-weight:600;">Brittany</p>
 <p style="font-size:12px;line-height:1.4;color:#b5aca4;margin:2px 0 0;">Founder, Rooted</p>
 ${emailFooterHtml(unsubscribeToken)}
 </td></tr></table>
@@ -189,7 +189,7 @@ async function sendWeeklySummaries(testOnly: boolean): Promise<{ sent: number; t
         from: FROM,
         to: TEST_EMAIL,
         subject: `${sampleName}, your week with Rooted 🌿`,
-        text: `Hi ${sampleName}, Last week was a great week of homeschooling. You captured 0 memories this week.\n\n— Brittany\nFounder, Rooted${emailFooterText(sampleToken)}`,
+        text: `Hi ${sampleName}, Last week was a great week of homeschooling. You captured 0 memories this week.\n\nBrittany\nFounder, Rooted${emailFooterText(sampleToken)}`,
         html: emailHtml(sampleName, 'Last week was a great week of homeschooling.', 0, sampleToken),
       })
       return { sent: 1, totalUsers: 1, skipped: 0 }

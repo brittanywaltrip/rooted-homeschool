@@ -324,7 +324,7 @@ export default function PartnersPage() {
               {
                 emoji: "💰",
                 title: "20% Commission",
-                body: "Earn 20% on every new paying subscriber who uses your code — paid monthly. See your real-time stats right inside the Rooted app on your own ambassador dashboard.",
+                body: "Earn 20% on every new paying subscriber who uses your code, paid monthly. See your real-time stats right inside the Rooted app on your own ambassador dashboard.",
               },
             ].map((card) => (
               <div
@@ -355,7 +355,7 @@ export default function PartnersPage() {
             Rooted+ is $59/yr
           </h2>
           <p className="text-sm text-[var(--g-deep)] leading-relaxed mb-3 max-w-lg mx-auto">
-            Every new user starts with a 30-day free trial — full access to everything. Your code gives them 15% off when they upgrade to Rooted+.
+            Every new user starts with a 30-day free trial with full access to everything. Your code gives them 15% off when they upgrade to Rooted+.
           </p>
           <p className="text-sm text-[var(--g-deep)] leading-relaxed mb-4 max-w-lg mx-auto">
             Unlimited photos, full yearbook, PDF exports, and family sharing. Everything a homeschool family needs to remember the year.
@@ -394,7 +394,7 @@ export default function PartnersPage() {
               {
                 step: "3",
                 title: "Share honestly",
-                body: "Post when it feels right. No quotas, no deadlines. Your followers trust you — we just want you to share your real experience.",
+                body: "Post when it feels right. No quotas, no deadlines. Your followers trust you. We just want you to share your real experience.",
               },
             ].map((s) => (
               <div key={s.step} className="flex gap-5 items-start">
@@ -450,7 +450,7 @@ export default function PartnersPage() {
 
           <div className="text-left max-w-xl mx-auto space-y-4">
             <p className="text-sm text-[#5c5248] leading-relaxed">
-              We&apos;re not looking for the biggest following — we&apos;re
+              We&apos;re not looking for the biggest following. We&apos;re
               looking for the most trusted voice. If your audience listens to you
               about homeschooling, we want to talk.
             </p>
@@ -507,7 +507,7 @@ export default function PartnersPage() {
                 business days.
               </p>
               <p className="text-sm text-[#5c7f63] font-medium">
-                — Brittany, Founder of Rooted
+                Brittany, Founder of Rooted
               </p>
             </div>
           ) : (
@@ -913,7 +913,7 @@ export default function PartnersPage() {
             </h2>
             <p className="text-[var(--g-deep)] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
               Join our curated group of homeschool creators. No pressure, no
-              quotas — just an honest partnership.
+              quotas, just an honest partnership.
             </p>
             <a
               href="#apply"
@@ -930,9 +930,9 @@ export default function PartnersPage() {
         <div className="max-w-xl mx-auto text-center">
           <div className="w-12 h-12 rounded-full bg-[#5c7f63] flex items-center justify-center text-white font-bold text-lg mx-auto mb-4">B</div>
           <p className="text-sm text-[#5c5248] leading-relaxed italic mb-4">
-            &ldquo;I review every partner application personally. This isn&apos;t about big numbers — it&apos;s about real homeschool families helping other families find something that works. If that sounds like you, I&apos;d love to hear from you.&rdquo;
+            &ldquo;I review every partner application personally. This isn&apos;t about big numbers. It&apos;s about real homeschool families helping other families find something that works. If that sounds like you, I&apos;d love to hear from you.&rdquo;
           </p>
-          <p className="text-sm font-semibold text-[var(--g-deep)]">— Brittany, Founder</p>
+          <p className="text-sm font-semibold text-[var(--g-deep)]">Brittany, Founder</p>
           <p className="text-xs text-[#7a6f65] mt-2">
             Questions? Email{' '}
             <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>

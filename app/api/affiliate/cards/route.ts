@@ -21,7 +21,7 @@ function printCardHtml(name: string, code: string, url: string, qrDataUrl: strin
   const logoB64 = getLogoBase64()
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Rooted Partner Card — ${esc(name)}</title>
+<title>Rooted Partner Card · ${esc(name)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
@@ -92,7 +92,7 @@ function shareCardHtml(name: string, code: string, url: string, qrDataUrl: strin
   const logoB64 = getLogoBase64()
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Rooted — ${esc(code)}</title>
+<title>Rooted · ${esc(code)}</title>
 <link href="https://fonts.googleapis.com/css2?family=Lora:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   *{margin:0;padding:0;box-sizing:border-box}

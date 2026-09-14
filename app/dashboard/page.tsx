@@ -5373,7 +5373,7 @@ export default function TodayPage() {
           nudge = {
             key: "curriculum", emoji: "📚",
             title: "Track your lessons in Plan",
-            body: "Auto-schedule your curriculum and see your pace. Or skip \u2014 memories work great on their own.",
+            body: "Auto-schedule your curriculum and see your pace. Or skip it. Memories work great on their own.",
             href: "/dashboard/plan", snoozeKey: "plan_card_snoozed_at",
             dismiss: { label: "Not for us \u2192", snoozeKey: "plan_card_snoozed_at" },
           };
@@ -6270,7 +6270,7 @@ export default function TodayPage() {
                       ...(ftMinutes ? { duration_minutes: parseInt(ftMinutes) } : {}),
                       created_at: nowFt, updated_at: nowFt,
                     }).select("id").single();
-                    if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed — try again", null); return; }
+                    if (ftErr) { console.error("[Rooted] Field trip save failed:", ftErr.message); setFtSaving(false); showCaptureToast("Save failed. Try again.", null); return; }
                     console.log("[Rooted] Saved:", ftType, ins);
                     const toastMap: Record<string, string> = { field_trip: "🗺️ Field trip logged 🌿", project: "🔬 Project logged 🌿" };
                     posthog.capture('field_trip_logged', { type: ftType, user_plan: isPro ? 'paid' : 'free' });

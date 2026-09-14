@@ -571,7 +571,7 @@ export const SpreadRightPage = memo(function SpreadRightPage({ spread }: { sprea
             <p className="text-[11px] text-[var(--yb-body)] leading-relaxed line-clamp-4" style={{ fontFamily: "Georgia, serif" }}>
               {m.title}
             </p>
-            {m.child_name && <p className="text-[8px] text-[#9a8f85] mt-2">— {m.child_name}</p>}
+            {m.child_name && <p className="text-[8px] text-[#9a8f85] mt-2">{m.child_name}</p>}
             <p className="text-[8px] text-[#b5aca4] mt-0.5">{shortDate(m.created_at)}</p>
           </div>
         </Shell>

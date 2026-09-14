@@ -9,6 +9,7 @@ import type { PlanV2Activity, PlanV2Appointment, PlanV2Child, PlanV2Lesson, Plan
 import { buildActivitiesByDate } from "./activityOccurrences";
 import { orderDayLessons, groupDayLessonsByChild, lessonStartTime, formatStartTime, goalsById } from "./dayOrder";
 import { useIsMobile } from "./useIsMobile";
+import { lessonRowTitle } from "./lessonTitle";
 
 /* WeekListView. Renders all 7 days of the current week (Mon..Sun) expanded
  * vertically. Card visual style matches V1 (light child-color tint, full
@@ -346,24 +347,24 @@ export default function WeekListView(props: Props) {
                     // from the display fallback below: folding them together is
                     // what made a one-off lesson unable to show its own name.
                     const subjectRaw = resolveLessonSubject(l.subjects?.name, goal?.subject_label ?? null);
-                    const subject = subjectRaw ?? goal?.curriculum_name ?? "Lesson";
                     const childName = childCtx?.child.name ?? null;
                     // Subject leads. The card used to title itself with the
                     // curriculum ("The Good and the Beautiful — Lesson 8") and
                     // put the subject in small grey underneath, so a family
                     // with three books from one publisher read the same words
                     // down the whole day. The subject is what they think in.
-                    const lessonLabel =
-                      l.lesson_number != null ? `Lesson ${l.lesson_number}` : null;
-                    const ownTitle = l.title && l.title.trim().length > 0 ? l.title.trim() : null;
                     // A numbered curriculum lesson reads "Math · Lesson 8". A
                     // one-off logged through the "+" carries no number and no
                     // goal, so its own title IS the answer: "Field trip to the
                     // zoo", not the literal word "Lesson", which is what the
-                    // subject fallback produced for every one of them.
-                    const titleText = lessonLabel
-                      ? `${subject} \u00b7 ${lessonLabel}`
-                      : (ownTitle ?? subjectRaw ?? goal?.curriculum_name ?? "Lesson");
+                    // subject fallback produced for every one of them. Shared
+                    // with the missed-lessons banner (./lessonTitle.ts).
+                    const titleText = lessonRowTitle({
+                      lessonNumber: l.lesson_number,
+                      title: l.title,
+                      subject: subjectRaw,
+                      curriculumName: goal?.curriculum_name,
+                    });
                     const startTime = formatStartTime(lessonStartTime(l, goalMap));
                     // The publisher moves to the second line, with the child
                     // when the day is not already grouped under their name.

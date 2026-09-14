@@ -17,7 +17,7 @@ function buildHtml(firstName: string, unsubscribeToken: string | null): string {
   return `<div style="font-family: Georgia, serif; max-width: 560px; margin: 0 auto; padding: 40px 24px; color: #2d2926; background: #fefcf9;">
   <div style="text-align:center;margin-bottom:24px;"><img src="https://rootedhomeschoolapp.com/rooted-logo-nav.png" alt="Rooted" width="130" style="display:inline-block;" /></div>
   <p>Hi ${firstName},</p>
-  <p>You started setting up Rooted yesterday but didn't quite finish — your garden is ready and waiting for you.</p>
+  <p>You started setting up Rooted yesterday but didn't quite finish. Your garden is ready and waiting for you.</p>
   <p>It only takes about 2 minutes to complete your setup and see your family's space come to life.</p>
   <p style="margin: 32px 0;">
     <a href="https://www.rootedhomeschoolapp.com/onboarding" style="background: #2D5A3D; color: white; padding: 14px 28px; border-radius: 8px; text-decoration: none; font-size: 16px;">Finish setting up →</a>

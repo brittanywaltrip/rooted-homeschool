@@ -140,7 +140,7 @@ export default function ReviewsPage() {
           <div className="text-center py-16 text-[#7a6f65]">Loading reviews...</div>
         ) : reviews.length === 0 ? (
           <div className="text-center py-16">
-            <p className="text-[#7a6f65] text-base mb-1">No reviews yet — be the first!</p>
+            <p className="text-[#7a6f65] text-base mb-1">No reviews yet. Be the first!</p>
           </div>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 mb-12">

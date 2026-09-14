@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import type { PlanV2Lesson } from "./types";
+import { lessonRowTitle } from "./lessonTitle";
 
 /* ============================================================================
  * MissedLessonsBanner — amber warning surfaced above the calendar card.
@@ -24,10 +25,12 @@ export interface MissedLessonsBannerProps {
   onSelectAll: () => void;
   onReschedule: (lesson: PlanV2Lesson) => void;
   busy?: boolean;
+  /** Curriculum name per goal id, for the muted line under each row. */
+  curriculumNameByGoal?: Record<string, string>;
 }
 
 export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
-  const { missedLessons, onMarkAllDone, onSelectAll, onReschedule, busy } = props;
+  const { missedLessons, onMarkAllDone, onSelectAll, onReschedule, busy, curriculumNameByGoal } = props;
   const [confirming, setConfirming] = useState(false);
 
   const n = missedLessons.length;
@@ -135,14 +138,20 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
                 day: "numeric",
               })
             : "";
-          const subjectLabel =
-            resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label) ?? "General";
-          const title =
-            lesson.title && lesson.title.trim().length > 0
-              ? lesson.title
-              : lesson.lesson_number
-                ? `Lesson ${lesson.lesson_number}`
-                : "Lesson";
+          // Same words as the Plan rows: "Math · Lesson 8", with the
+          // curriculum on the muted line. The banner used to print the stored
+          // "<curriculum> — Lesson 8" title, dash and all.
+          const curriculumName = lesson.curriculum_goal_id
+            ? curriculumNameByGoal?.[lesson.curriculum_goal_id] ?? null
+            : null;
+          const subjectRaw = resolveLessonSubject(lesson.subjects?.name, lesson.curriculum_goals?.subject_label);
+          const title = lessonRowTitle({
+            lessonNumber: lesson.lesson_number,
+            title: lesson.title,
+            subject: subjectRaw,
+            curriculumName,
+          });
+          const secondLine = lesson.lesson_number != null ? curriculumName : subjectRaw;
           return (
             <div
               key={lesson.id}
@@ -162,9 +171,11 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
                   {dateLabel ? `${dateLabel} · ` : ""}
                   {title}
                 </p>
-                <p style={{ fontSize: 10, color: "#9a8e84", margin: "1px 0 0" }}>
-                  {subjectLabel}
-                </p>
+                {secondLine ? (
+                  <p className="truncate" style={{ fontSize: 10, color: "#9a8e84", margin: "1px 0 0" }}>
+                    {secondLine}
+                  </p>
+                ) : null}
               </div>
               <button
                 type="button"

@@ -162,7 +162,7 @@ export default function FamilyFeed({
             {readOnly ? (
               <>
                 <p className="text-sm text-[#7a6f65]">No family-visible memories yet.</p>
-                <p className="text-xs text-[#b5aca4] mt-1">Memories are visible by default — check your privacy settings.</p>
+                <p className="text-xs text-[#b5aca4] mt-1">Memories are visible by default. Check your privacy settings.</p>
               </>
             ) : (
               <p className="text-sm text-[#7a6f65]">No memories shared yet. Check back soon!</p>

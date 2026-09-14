@@ -558,7 +558,7 @@ export const STATE_REQUIREMENTS: Record<string, StateRequirements> = {
     assessmentOptions: ['standardized_test', 'portfolio_review'],
     requiresAnnualEvaluator: false,
     requiresLocalApproval: true,
-    notes: 'Locally administered — requirements vary by district. Submit letter of intent, course of instruction must be approved by local school committee. Some districts request portfolios and quarterly reports.'
+    notes: 'Locally administered. Requirements vary by district. Submit letter of intent, course of instruction must be approved by local school committee. Some districts request portfolios and quarterly reports.'
   },
   SC: {
     name: 'South Carolina',

@@ -239,7 +239,7 @@ function RepositionModal({
                 memoryActions.featured ? "border-[#5c7f63] bg-[#eef3e6] text-[var(--g-deep)]" : "border-[#e8e3dc] text-[#2d2926]"
               }`}
             >
-              <span>⭐ Feature &mdash; its own full page</span>
+              <span>⭐ Feature: its own full page</span>
               <span className="text-[11px]">{memoryActions.featured ? "On" : "Off"}</span>
             </button>
             <button
@@ -1407,7 +1407,7 @@ export default function YearbookEditPage() {
               </p>
               {favQuoteMemory.child_id && (
                 <p className="text-[10px] text-[#9a8f85] mt-1">
-                  — {children.find((c) => c.id === favQuoteMemory.child_id)?.name ?? ""}
+                  {children.find((c) => c.id === favQuoteMemory.child_id)?.name ?? ""}
                 </p>
               )}
               {!isReadOnly && (
@@ -1489,7 +1489,7 @@ export default function YearbookEditPage() {
                     </p>
                     {m.child_id && (
                       <p className="text-[10px] text-[#9a8f85] mt-1">
-                        — {children.find((c) => c.id === m.child_id)?.name ?? ""}
+                        {children.find((c) => c.id === m.child_id)?.name ?? ""}
                       </p>
                     )}
                   </button>

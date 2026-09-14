@@ -265,10 +265,10 @@ export async function DELETE(req: NextRequest) {
             <div style="font-family: Georgia, serif; max-width: 520px; margin: 0 auto; color: #2d2926;">
               <p style="font-size: 16px; line-height: 1.6;">Hi there,</p>
               <p style="font-size: 16px; line-height: 1.6;">
-                Your Rooted account and all associated data — memories, photos, lessons, and children's info — have been permanently deleted.
+                Your Rooted account and all associated data (memories, photos, lessons, and children's info) have been permanently deleted.
               </p>
               <p style="font-size: 16px; line-height: 1.6;">
-                Thank you for being part of the Rooted family. If you ever want to come back, we'd love to have you — just visit
+                Thank you for being part of the Rooted family. If you ever want to come back, we'd love to have you. Just visit
                 <a href="https://rootedhomeschoolapp.com" style="color: #5c7f63;">rootedhomeschoolapp.com</a>.
               </p>
               <p style="font-size: 16px; line-height: 1.6;">

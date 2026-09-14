@@ -454,7 +454,7 @@ export default function YearEndSummaryPage() {
                   >
                     “{familyStats.top_comment.body}”
                     <footer className="not-italic text-sm text-[#8B7E74] mt-2" style={{ fontFamily: "inherit" }}>
-                      — {familyStats.top_comment.commenter_name}
+                      {familyStats.top_comment.commenter_name}
                     </footer>
                   </blockquote>
                 )}

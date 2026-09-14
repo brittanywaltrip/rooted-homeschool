@@ -198,7 +198,7 @@ export async function POST(req: NextRequest) {
   const dateStr = new Date().toISOString().split("T")[0];
 
   const readme = [
-    `Rooted Homeschool — data export`,
+    `Rooted Homeschool data export`,
     `Generated: ${new Date().toISOString()}`,
     `User ID: ${userId}`,
     ``,
@@ -208,16 +208,16 @@ export async function POST(req: NextRequest) {
     `/family-photo.* (if you uploaded one).`,
     ``,
     `Contents`,
-    `  • family.json        — your profile row(s)`,
-    `  • children.json      — children list (active + archived)`,
-    `  • memories.json      — every memory row with metadata`,
-    `  • lessons.json       — every lesson row with completion + notes`,
-    `  • subjects.json      — subjects you've defined`,
-    `  • curriculum.json    — curriculum goals`,
-    `  • reflections.json   — daily reflections`,
-    `  • photos/            — memory photos, named {memory_id}.{ext}`,
-    `  • family-photo.*     — family portrait (if set)`,
-    `  • MISSING.txt        — present only if one or more files failed`,
+    `  • family.json          your profile row(s)`,
+    `  • children.json        children list (active + archived)`,
+    `  • memories.json        every memory row with metadata`,
+    `  • lessons.json         every lesson row with completion + notes`,
+    `  • subjects.json        subjects you've defined`,
+    `  • curriculum.json      curriculum goals`,
+    `  • reflections.json     daily reflections`,
+    `  • photos/              memory photos, named {memory_id}.{ext}`,
+    `  • family-photo.*       family portrait (if set)`,
+    `  • MISSING.txt          present only if one or more files failed`,
     `                          to download from storage; see that file`,
     `                          for details and email`,
     `                          hello@rootedhomeschoolapp.com so we can`,
@@ -228,14 +228,14 @@ export async function POST(req: NextRequest) {
     `  ${photoCount} photos successfully exported`,
     `  ${photoMissing} photo${photoMissing === 1 ? "" : "s"} missing (see MISSING.txt)`,
     `  ${reflectionsCount} daily reflections`,
-    `  family photo: ${familyPhotoIncluded ? "yes" : familyPhotoUrl ? "no (failed — see MISSING.txt)" : "not set"}`,
+    `  family photo: ${familyPhotoIncluded ? "yes" : familyPhotoUrl ? "no (failed, see MISSING.txt)" : "not set"}`,
     ``,
   ].join("\n");
   archive.append(readme, { name: "rooted-export/README.txt" });
 
   if (missingLines.length > 0) {
     const missingContent = [
-      `Rooted export — items that could not be downloaded`,
+      `Rooted export: items that could not be downloaded`,
       `Generated: ${new Date().toISOString()}`,
       `User ID: ${userId}`,
       ``,

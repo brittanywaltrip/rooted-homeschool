@@ -905,7 +905,7 @@ export default function GardenPage() {
                           {stage.name}
                         </span>
                         <span className="text-[11px] text-[#8B7E74]">
-                          — {stage.min === 0 ? "0 leaves" : stage.min === 1 ? "1 leaf" : `${stage.min} leaves`}
+                          · {stage.min === 0 ? "0 leaves" : stage.min === 1 ? "1 leaf" : `${stage.min} leaves`}
                         </span>
                         {isNext && <span className="text-[10px] font-semibold text-[#2D5A3D] bg-[#e8f0e9] px-1.5 py-0.5 rounded">NEXT</span>}
                       </div>
