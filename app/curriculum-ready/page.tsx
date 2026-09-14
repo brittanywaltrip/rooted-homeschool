@@ -159,7 +159,10 @@ function SetupCelebration(props: {
         onClick={() => props.onNavigate("/dashboard/garden", "garden")}
         className="mt-3 w-full rounded-2xl border border-white/25 text-white text-[15px] py-[14px] px-8 transition-colors hover:bg-white/10"
       >
-        {gardenButtonLabel(props.childNames.length, GARDEN_PER_YEAR, growth ?? undefined)}
+        {/* Same wait as the sentence: no label until the leaf count is in, so
+            it never reads "seed" and then flips to "tree". The button keeps its
+            height while it waits. */}
+        {growth ? gardenButtonLabel(props.childNames.length, GARDEN_PER_YEAR, growth) : "\u00a0"}
       </button>
 
       <button

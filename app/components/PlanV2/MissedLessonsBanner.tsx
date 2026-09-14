@@ -151,7 +151,11 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
             subject: subjectRaw,
             curriculumName,
           });
-          const secondLine = lesson.lesson_number != null ? curriculumName : subjectRaw;
+          // The muted line adds what the title does not already say: the
+          // curriculum under a numbered lesson, the subject under a one-off
+          // (unless the title already fell back to that subject).
+          const secondLineRaw = lesson.lesson_number != null ? curriculumName : subjectRaw;
+          const secondLine = secondLineRaw && secondLineRaw.trim() !== title ? secondLineRaw : null;
           return (
             <div
               key={lesson.id}
