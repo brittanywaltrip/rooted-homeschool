@@ -51,6 +51,7 @@ type CurriculumWizardEditData = Record<string, unknown>;
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import { useSchoolYears } from "@/lib/useSchoolYears";
+import { isYearAwaitingClose, overdueYearHeadline, todayLocalYmd } from "@/app/lib/school-year";
 import { deriveEndYear } from "@/lib/school-year-name";
 import { getUSHolidaysForYear } from "@/lib/us-holidays";
 import PlanPrintDialog, { type PlanPrintMode } from "./PlanPrintDialog";
@@ -837,6 +838,48 @@ export default function PlanV2() {
     return Date.now() - new Date(onboardedAt).getTime() > THIRTY_DAYS_MS;
   }, [lessons, onboardedAt, schoolYears]);
 
+  // A year whose end date has passed with nothing set up after it. The hook no
+  // longer archives it (a year closes only when the family closes it), so Plan
+  // asks instead. "Keep going" quiets the card for 14 days per year; it is a
+  // nudge, not state, so the browser is a fine place to keep that.
+  const overdueYear = useMemo(() => {
+    if (schoolYears.loading) return null;
+    return isYearAwaitingClose({ active: schoolYears.active, upcoming: schoolYears.upcoming, today: todayLocalYmd() })
+      ? schoolYears.active
+      : null;
+  }, [schoolYears.loading, schoolYears.active, schoolYears.upcoming]);
+  const overdueDismissKey = overdueYear ? `rooted_year_overdue_nudge_${overdueYear.id}` : null;
+  const [overdueDismissedAt, setOverdueDismissedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (!overdueDismissKey) return;
+    try {
+      const raw = window.localStorage.getItem(overdueDismissKey);
+      setOverdueDismissedAt(raw ? Number(raw) : null);
+    } catch {
+      setOverdueDismissedAt(null);
+    }
+  }, [overdueDismissKey]);
+  const OVERDUE_QUIET_MS = 14 * 24 * 60 * 60 * 1000;
+  const showOverdueNudge =
+    !!overdueYear &&
+    showYearAdmin &&
+    !(overdueDismissedAt != null && Number.isFinite(overdueDismissedAt) && Date.now() - overdueDismissedAt < OVERDUE_QUIET_MS);
+  const overdueShownFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!showOverdueNudge || !overdueYear || overdueShownFor.current === overdueYear.id) return;
+    overdueShownFor.current = overdueYear.id;
+    posthog.capture("year_overdue_nudge_shown", { end_date: overdueYear.end_date });
+  }, [showOverdueNudge, overdueYear]);
+  const keepGoingOverdue = useCallback(() => {
+    posthog.capture("year_overdue_nudge_tap", { choice: "keep_going" });
+    const now = Date.now();
+    setOverdueDismissedAt(now);
+    if (!overdueDismissKey) return;
+    try {
+      window.localStorage.setItem(overdueDismissKey, String(now));
+    } catch { /* the card simply comes back next visit */ }
+  }, [overdueDismissKey]);
+
   // US holidays — covered for both the visible month/year and the
   // surrounding ±1 year so the week-view strip near year boundaries shows
   // the right labels without re-fetching.
@@ -1606,6 +1649,32 @@ export default function PlanV2() {
       update.date = changes.scheduled_date;
     }
 
+    // A date the family typed is a placement they made by hand, so it pins
+    // (Invariant 12), with the same scheduled_source move_lesson_to_date
+    // writes. Without the pin the row was an ordinary queue row and the next
+    // Today load put it back wherever the schedule wanted it. A title, minutes
+    // or any other edit leaves the pin alone. The prior pin state is read
+    // first so undo can put it back.
+    const priorDate = (originals.scheduled_date as string | null | undefined) ?? editing?.scheduled_date ?? editing?.date ?? null;
+    const pinsNewDate =
+      typeof changes.scheduled_date === "string" &&
+      changes.scheduled_date.length > 0 &&
+      changes.scheduled_date !== priorDate;
+    let priorPin: { queue_pinned: boolean | null; scheduled_source: string | null } | null = null;
+    if (pinsNewDate) {
+      const { data: pinRow } = await supabase
+        .from("lessons")
+        .select("queue_pinned, scheduled_source")
+        .eq("id", lessonId)
+        .maybeSingle();
+      priorPin = (pinRow as { queue_pinned: boolean | null; scheduled_source: string | null } | null) ?? {
+        queue_pinned: false,
+        scheduled_source: null,
+      };
+      update.queue_pinned = true;
+      update.scheduled_source = "plan_move";
+    }
+
     // Optimistic patch so the pill moves/updates immediately.
     setLessons((prev) => prev.map((l) => {
       if (l.id !== lessonId) return l;
@@ -1705,6 +1774,10 @@ export default function PlanV2() {
         }
         if (originals.curriculum_goal_id !== undefined) undoUpdate.curriculum_goal_id = originals.curriculum_goal_id;
         if (originals.child_id !== undefined) undoUpdate.child_id = originals.child_id;
+        if (priorPin) {
+          undoUpdate.queue_pinned = !!priorPin.queue_pinned;
+          undoUpdate.scheduled_source = priorPin.scheduled_source;
+        }
 
         try {
           await supabase.from("lessons").update(undoUpdate).eq("id", lessonId);
@@ -1712,9 +1785,11 @@ export default function PlanV2() {
           /* best-effort; reload reconciles */
         }
         reload();
+        if (priorPin) reloadPins();
       },
     });
-  }, [lessons, setLessons, recordEvent, reload, effectiveUserId]);
+    if (pinsNewDate) reloadPins();
+  }, [lessons, setLessons, recordEvent, reload, reloadPins, effectiveUserId]);
 
   // Fired when a lesson's notes have been auto-saved by the day panel. The
   // panel doesn't know about PLAN_EVENT_TYPES, so it just passes the id +
@@ -5202,6 +5277,38 @@ export default function PlanV2() {
           Print
         </button>
         </div>
+        )}
+
+        {/* The year's end date has passed and no next year is set up. Asks,
+            never closes: the close page does the real work. */}
+        {showOverdueNudge && overdueYear && (
+          <div className="w-full bg-white border border-[#e8e2d9] rounded-2xl p-4 flex items-start gap-3 text-left">
+            <span className="text-xl shrink-0">🌳</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] font-medium text-[#2D2A26]">
+                {overdueYearHeadline(overdueYear.name, overdueYear.end_date)}
+              </p>
+              <p className="text-[11px] text-[#8B7E74] mt-0.5">
+                Your tree, badges and book get saved and next year starts fresh.
+              </p>
+              <div className="mt-3 flex items-center gap-2 flex-wrap">
+                <Link
+                  href="/dashboard/close-year"
+                  onClick={() => posthog.capture("year_overdue_nudge_tap", { choice: "close" })}
+                  className="inline-flex items-center rounded-full bg-[#5c7f63] hover:bg-[#3d5c42] text-white text-[12px] font-medium px-4 py-1.5 transition-colors"
+                >
+                  Close this year
+                </Link>
+                <button
+                  type="button"
+                  onClick={keepGoingOverdue}
+                  className="inline-flex items-center rounded-full border border-[#e8e2d9] bg-white hover:bg-[#faf9f7] text-[#5C5346] text-[12px] font-medium px-4 py-1.5 transition-colors"
+                >
+                  Keep going
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Close This School Year entry — links to the review/confirm page.

@@ -127,6 +127,90 @@ export async function getCurrentSchoolYear(
   return resolveSchoolYear({ active: row, createdYmd, today });
 }
 
+/** A school_years row as the Plan page's hook reads it. */
+export type SchoolYearStatusRow = {
+  id: string;
+  status: "active" | "upcoming" | "archived";
+  start_date: string;
+  end_date: string;
+  created_at?: string | null;
+};
+
+/**
+ * Sort a family's school_years rows into active / upcoming / archived, and say
+ * whether an upcoming year is due to take over.
+ *
+ * Active is the same row getCurrentSchoolYear reads: the newest-created active
+ * row. Upcoming is the first upcoming row in the order given (the hook reads
+ * start_date descending, as it always has).
+ *
+ * The one transition this allows is upcoming to active on its start date. An
+ * upcoming year exists only because the family set it up in the close flow,
+ * so promoting it on the day they chose is what they asked for.
+ *
+ * What it deliberately does NOT do is end a year because its end_date passed.
+ * The year is not over until the family closes it (see resolveSchoolYear), and
+ * /api/school-year/close is the only path that does the real work: the
+ * celebration, grades, archiving the year's subjects, the keepsake. The hook
+ * used to archive an active year on sight once its end_date was behind today,
+ * which skipped all of that and then hid the Close card, because there was no
+ * active year left to close.
+ */
+export function planSchoolYearRows<T extends SchoolYearStatusRow>(
+  rows: readonly T[],
+  today: string,
+): {
+  active: T | null;
+  upcoming: T | null;
+  archived: T[];
+  promote: { activateId: string; archiveId: string | null } | null;
+} {
+  const actives = rows.filter((r) => r.status === "active");
+  const active = actives.length === 0
+    ? null
+    : actives.reduce((newest, r) => ((r.created_at ?? "") > (newest.created_at ?? "") ? r : newest));
+  const upcoming = rows.find((r) => r.status === "upcoming") ?? null;
+  const archived = rows.filter((r) => r.status === "archived");
+  const promote = upcoming && YMD.test(upcoming.start_date ?? "") && upcoming.start_date <= today
+    ? { activateId: upcoming.id, archiveId: active?.id ?? null }
+    : null;
+  return { active, upcoming, archived, promote };
+}
+
+/**
+ * The active year's end date has passed and nothing is set up to follow it.
+ * The family is still in that year (resolveSchoolYear keeps its window open to
+ * today); this is only the question of whether to ask them to close it.
+ */
+export function isYearAwaitingClose(args: {
+  active: Pick<SchoolYearStatusRow, "end_date"> | null;
+  upcoming: unknown | null;
+  today: string;
+}): boolean {
+  const { active, upcoming, today } = args;
+  if (!active || upcoming) return false;
+  if (!YMD.test(active.end_date ?? "")) return false;
+  return active.end_date < today;
+}
+
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/**
+ * "Your 2025-2026 year ended May 31. Ready to close it?"
+ *
+ * Year names are free text ("Kindergarten Year" is as valid as "2025-2026"),
+ * so a name that already ends in "year" does not get a second one. The date is
+ * read straight off the YYYY-MM-DD string, so no timezone can move the day.
+ */
+export function overdueYearHeadline(name: string | null | undefined, endDate: string): string {
+  const trimmed = (name ?? "").trim();
+  const subject = !trimmed ? "school year" : /\byear$/i.test(trimmed) ? trimmed : `${trimmed} year`;
+  const ended = YMD.test(endDate ?? "")
+    ? ` ended ${MONTHS[Number(endDate.slice(5, 7)) - 1]} ${Number(endDate.slice(8, 10))}`
+    : " has ended";
+  return `Your ${subject}${ended}. Ready to close it?`;
+}
+
 /**
  * PostgREST `or` filter for yearbook_content that belongs to this year's book:
  * rows not yet stamped with a year, plus rows stamped with this one. Closing a

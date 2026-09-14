@@ -9706,3 +9706,26 @@ test('skip: the reconciler loads skipped rows and passes them to the projector w
   const loader = extractFunctionBody(src, /export async function loadPinsByGoal\s*\(/)
   assert.match(loader, /queue_pinned\.eq\.true,skipped\.eq\.true/)
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Editing a lesson's date pins it (Invariant 12).
+//
+// Edit lesson wrote the new scheduled_date and nothing else, so the row stayed
+// an ordinary queue row and the next Today load moved it back to wherever the
+// schedule wanted it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('edit lesson: a changed date pins the row with plan_move; any other edit leaves the pin alone', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const start = src.indexOf('const handleSubmitEditLesson = useCallback(')
+  const body = src.slice(start, src.indexOf('const handleLessonNotesUpdated', start))
+  // Gated on the date actually changing.
+  assert.match(body, /const pinsNewDate =[\s\S]*changes\.scheduled_date !== priorDate/)
+  const gate = body.slice(body.indexOf('if (pinsNewDate) {'))
+  assert.match(gate.slice(0, 600), /update\.queue_pinned = true;/)
+  assert.match(gate.slice(0, 600), /update\.scheduled_source = "plan_move";/)
+  // The only unconditional pin write in the save would be a bug: exactly one.
+  assert.equal((body.match(/queue_pinned = true/g) ?? []).length, 1)
+  // Undo puts the prior pin back.
+  assert.match(body, /undoUpdate\.queue_pinned = !!priorPin\.queue_pinned/)
+})

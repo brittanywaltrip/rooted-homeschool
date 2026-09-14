@@ -204,7 +204,11 @@ applies to the unpinned remainder.
 
 **Enforced by:** `queue_pinned` (migration `20260730000000`), set by
 `move_lesson_to_date` and by the PlanV2 manual flows (cascade shift-all-forward,
-push-back, shift-forward, bulk move). System writes — vacation re-spread,
+push-back, shift-forward, bulk move). Also set by the Plan page's Edit lesson
+save when, and only when, the family changes the date (September 2026): it
+writes `queue_pinned = true` and `scheduled_source = 'plan_move'` on that one
+row, and undo restores the prior pin. Before that, an edited date was an
+ordinary queue row and the next Today load moved it back. System writes — vacation re-spread,
 `queue_resync` — must NOT pin. `computeNextLessonsForGoal` takes a `pins`
 argument; `pinsFromRows` / `loadPinsByGoal` are the single derivation used by
 every projecting surface so no two can disagree. Empty pins reproduces the
@@ -1158,7 +1162,9 @@ Auto-scheduling never bunches; only the user can.
   re-project the tail. Undo restores the snapshot. The only path that may pin
   is `move_lesson_to_date`, which writes the slot and the flag in the same
   statement. **If you are about to write `queue_pinned: true` anywhere else,
-  you are reintroducing this bug.** The one carve-out is "Add a past year"
+  you are reintroducing this bug.** The carve-outs are the Edit lesson date
+  change (one row, which keeps the slot it already holds, so it is neither an
+  invisible pin nor a frozen tail) and "Add a past year"
   (below): its rows are on archived goals in an archived year, which no
   projector or reconciler ever reads, and they carry the slot and the flag
   together as `move_lesson_to_date` does.
