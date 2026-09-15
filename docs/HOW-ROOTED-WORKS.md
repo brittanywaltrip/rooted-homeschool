@@ -33,7 +33,7 @@ A few places do NOT use this and are called out in their sections: the Memories 
 | "My photo isn't in the yearbook." | Yearbook |
 | "I rebuilt my subjects from scratch after closing the year." | Closing a year |
 | "My past year isn't on the transcript." | Adding a past year, Transcripts |
-| "Grandma's comment is posted and I can't remove it." | Family portal |
+| "Grandma's comment is posted. How do I take it down?" | Family portal |
 | "Settings says I'm on Rooted (Free) but I was gifted a year." | Billing |
 | "The hours on Reports don't match the PDF." | Reports |
 
@@ -504,9 +504,9 @@ The parent can edit a viewer, set their access to end after 30 days, 90 days, a 
 
 **Most likely to confuse**
 
-"Grandma's comment went up straight away and I can't remove it."
+"Grandma's comment went up straight away. How do I take it down?"
 
-Comments post instantly with no approval, and there is currently no way in the app to delete one. Anyone holding a link can comment, so a forwarded link means someone else can too. What to tell them: turn that link off in Settings and send a fresh invite if it has been shared further than intended. There is no delete button for comments yet, so a comment that must go has to be removed for them behind the scenes.
+Comments post instantly with no approval. The parent can remove any of them: open the memory in Memories, tap Remove under the comment and confirm ("Remove Grandma's comment? They will not be told."). It disappears from the family portal and the viewer gets no notice. Anyone holding a link can comment, so a forwarded link means someone else can too. What to tell them: remove the comment, and turn that link off in Settings and send a fresh invite if it has been shared further than intended.
 
 **Known quirk:** the weekly "what's new" email to family viewers exists but is not currently scheduled to send.
 

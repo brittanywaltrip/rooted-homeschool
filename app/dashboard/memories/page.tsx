@@ -19,6 +19,7 @@ import SignedImage from "@/components/SignedImage";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { memoryDisplayLabel } from "@/lib/photo-caption";
+import { possessive } from "@/app/lib/garden-config";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -164,6 +165,9 @@ export default function MemoriesPage() {
   // Lightbox reactions + comments
   const [lbReactions, setLbReactions] = useState<{ emoji: string; viewer_name: string }[]>([]);
   const [lbComments, setLbComments] = useState<{ id: string; viewer_name: string; body: string; created_at: string }[]>([]);
+  // Removing a family comment: the one being confirmed, and a failure line.
+  const [commentToRemove, setCommentToRemove] = useState<string | null>(null);
+  const [commentRemoveError, setCommentRemoveError] = useState<string | null>(null);
 
   // Menu
   const [menuId, setMenuId] = useState<string | null>(null);
@@ -233,8 +237,15 @@ export default function MemoriesPage() {
     }
   }, [searchParams]);
 
+  // Which memory the sheet shows now, read by a comment removal that finishes
+  // after the family has moved on to another memory.
+  const openMemoryIdRef = useRef<string | null>(null);
+
   // Fetch reactions + comments when lightbox opens
   useEffect(() => {
+    openMemoryIdRef.current = selectedMemory?.id ?? null;
+    setCommentToRemove(null);
+    setCommentRemoveError(null);
     if (!selectedMemory) {
       setLbReactions([]);
       setLbComments([]);
@@ -728,6 +739,33 @@ export default function MemoriesPage() {
   }
 
   // Delete from lightbox
+  // Optimistic: the comment goes at once and comes back if the server says no.
+  async function removeFamilyComment(commentId: string) {
+    if (!selectedMemory) return;
+    const memoryId = selectedMemory.id;
+    const removed = lbComments.find((c) => c.id === commentId);
+    if (!removed) return;
+    setCommentToRemove(null);
+    setCommentRemoveError(null);
+    setLbComments((prev) => prev.filter((c) => c.id !== commentId));
+    try {
+      const res = await fetch(`/api/memories/${memoryId}/comments/${commentId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`remove comment ${res.status}`);
+      posthog.capture("family_comment_removed", { memory_id: memoryId });
+    } catch (err) {
+      // Put it back only while this memory is still the one on screen.
+      if (openMemoryIdRef.current === memoryId) {
+        setLbComments((prev) =>
+          prev.some((c) => c.id === removed.id)
+            ? prev
+            : [...prev, removed].sort((a, b) => a.created_at.localeCompare(b.created_at)),
+        );
+        setCommentRemoveError("Couldn't remove that comment. Try again?");
+      }
+      captureSupabaseError("Remove family comment failed", err, { level: "warning", extra: { memoryId, commentId } });
+    }
+  }
+
   async function confirmLightboxDelete() {
     if (!selectedMemory) return;
     setDeleting(true);
@@ -1343,7 +1381,8 @@ export default function MemoriesPage() {
                 </div>
               )}
 
-              {/* Family comments */}
+              {/* Family comments. A parent can remove one: it disappears from
+                  the family portal and the viewer is not told. */}
               {lbComments.length > 0 && (
                 <div className="space-y-2 pt-1">
                   {lbComments.map((c) => (
@@ -1353,11 +1392,45 @@ export default function MemoriesPage() {
                         <span className="text-[10px] text-[#b5aca4]">
                           {new Date(c.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                         </span>
+                        {!isPartner && commentToRemove !== c.id && (
+                          <button
+                            type="button"
+                            onClick={() => { setCommentToRemove(c.id); setCommentRemoveError(null); }}
+                            className="ml-auto text-[11px] text-[#b5aca4] hover:text-[#b91c1c] transition-colors"
+                            aria-label={`Remove ${possessive(c.viewer_name || "this viewer")} comment`}
+                          >
+                            Remove
+                          </button>
+                        )}
                       </div>
                       <p className="text-sm text-[#5a5048] mt-0.5">{c.body}</p>
+                      {commentToRemove === c.id && (
+                        <div className="flex items-center gap-2 flex-wrap mt-1.5">
+                          <span className="text-xs text-[#7a6f65]">
+                            Remove {possessive(c.viewer_name || "this viewer")} comment? They will not be told.
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => { void removeFamilyComment(c.id); }}
+                            className="text-xs font-medium text-[#b91c1c] hover:underline"
+                          >
+                            Remove
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCommentToRemove(null)}
+                            className="text-xs text-[#7a6f65] hover:underline"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
+              )}
+              {commentRemoveError && (
+                <p className="text-xs text-[#b91c1c]" role="alert">{commentRemoveError}</p>
               )}
 
               {/* Heart */}
