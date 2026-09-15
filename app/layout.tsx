@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Lora, Caveat } from "next/font/google";
 import "./globals.css";
 import ServiceWorkerRegistrar from "./components/ServiceWorkerRegistrar";
@@ -66,6 +66,19 @@ export const metadata: Metadata = {
     'google-site-verification': 'cDzAlZ7R9GExF4LyE2aFbSb1eGl8FlSHvnWyaNiuLCg',
     'apple-itunes-app': 'app-id=6769627145',
   },
+};
+
+// iPhone focus zoom. iOS Safari and the Capacitor WKWebView zoom in when a
+// text box under 16px takes focus and never zoom back out, and most inputs in
+// the app render at 12 to 14px. A family on Sept 15, 2026: "My app zooms in a
+// lot while using it and I can never get it zoomed back out unless I quit and
+// restart." maximumScale 1 is what stops the focus zoom. userScalable is
+// deliberately left out: iOS ignores it, and it gets in the way of
+// accessibility zoom tools.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({
