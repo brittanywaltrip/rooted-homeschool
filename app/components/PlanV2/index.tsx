@@ -3814,13 +3814,24 @@ export default function PlanV2() {
     const dateById = new Map(plan.map((p) => [p.lessonId, p.dateStr]));
 
     // What each row held before, so undo puts back every column a completion
-    // writes, not just `completed`.
-    const { data: snapRows } = await supabase
-      .from("lessons")
-      .select("id, completed_at, date, scheduled_date, scheduled_source, is_backfill, queue_pinned")
-      .in("id", toComplete);
+    // writes, not just `completed`. Read in batches of 100 ids (one IN list of
+    // a few hundred ids from "Select all" can overrun the URL), and nothing is
+    // written without it: an undo with no snapshot would leave lessons moved to
+    // today, or pinned as history while no longer done.
     type Snap = { id: string; completed_at: string | null; date: string; scheduled_date: string | null; scheduled_source: string | null; is_backfill: boolean | null; queue_pinned: boolean | null };
-    const snapById = new Map(((snapRows ?? []) as Snap[]).map((r) => [r.id, r]));
+    const snapById = new Map<string, Snap>();
+    for (let i = 0; i < toComplete.length; i += 100) {
+      const { data: snapRows, error: snapErr } = await supabase
+        .from("lessons")
+        .select("id, completed_at, date, scheduled_date, scheduled_source, is_backfill, queue_pinned")
+        .in("id", toComplete.slice(i, i + 100));
+      if (snapErr) {
+        flashNotice("Couldn't mark those done, nothing changed. Try again?");
+        setBulkBusy(false);
+        return;
+      }
+      for (const r of (snapRows ?? []) as Snap[]) snapById.set(r.id, r);
+    }
 
     // Optimistic: each row moves to the day it is being filed under.
     const completeSet = new Set(toComplete);
@@ -3919,7 +3930,7 @@ export default function PlanV2() {
                         is_backfill: !!snap.is_backfill,
                         queue_pinned: !!snap.queue_pinned,
                       }
-                    : { completed: false, completed_at: null },
+                    : { completed: false, completed_at: null, is_backfill: false, queue_pinned: false },
                 )
                 .eq("id", id);
             }),

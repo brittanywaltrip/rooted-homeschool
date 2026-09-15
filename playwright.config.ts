@@ -30,6 +30,11 @@ export default defineConfig({
       name: 'chromium',
       // Everything except the curriculum-writing specs below.
       grepInvert: /@curriculum-writes/,
+      // Run the curriculum-writing specs AFTER this project, as its teardown.
+      // A teardown project still runs when tests here fail, where a project
+      // that lists this one in `dependencies` would be skipped as "did not
+      // run", hiding a curriculum regression behind an unrelated failure.
+      teardown: 'curriculum-writes',
       use: {
         browserName: 'chromium',
         // Default storageState for tests that need it. Auth tests opt out
@@ -41,11 +46,10 @@ export default defineConfig({
       // Specs that create or rebuild a curriculum on the shared test account
       // and assert its lesson dates. Any Today load in another spec reconciles
       // every goal on the account, so these must never overlap one: they run
-      // after the whole 'chromium' project has finished. See CURRICULUM_WRITES
-      // in e2e/smoke/critical-paths.spec.ts.
+      // after the whole 'chromium' project has finished (it is that project's
+      // teardown). See CURRICULUM_WRITES in e2e/smoke/critical-paths.spec.ts.
       name: 'curriculum-writes',
       grep: /@curriculum-writes/,
-      dependencies: ['chromium'],
       use: {
         browserName: 'chromium',
         storageState: STORAGE_STATE,

@@ -49,7 +49,7 @@ const ACTIVE = {
 test("the active row wins", async () => {
   const { client, calls } = fakeClient(ACTIVE);
   const y = await getCurrentSchoolYear(client, "user-1", "2026-09-13");
-  assert.deepEqual(y, { id: "sy-2026", name: "2026-2027", start: "2026-09-11", end: "2027-05-31" });
+  assert.deepEqual(y, { id: "sy-2026", name: "2026-2027", start: "2026-09-11", end: "2027-05-31", savedStart: "2026-09-11", savedEnd: "2027-05-31" });
   assert.equal(calls.table, "school_years");
   assert.deepEqual(calls.filters, [["user_id", "user-1"], ["status", "active"]]);
   assert.deepEqual(calls.order, ["created_at", { ascending: false }], "newest active row first");
@@ -58,11 +58,11 @@ test("the active row wins", async () => {
 test("no active row falls back to August 1", async () => {
   const { client } = fakeClient(null);
   assert.deepEqual(await getCurrentSchoolYear(client, "user-1", "2026-09-13"), {
-    id: null, name: "2026-2027", start: "2026-08-01", end: "2027-07-31",
+    id: null, name: "2026-2027", start: "2026-08-01", end: "2027-07-31", savedStart: "2026-08-01", savedEnd: "2027-07-31",
   });
   // Before August the school year is still last year's.
   assert.deepEqual(await getCurrentSchoolYear(client, "user-1", "2026-07-31"), {
-    id: null, name: "2025-2026", start: "2025-08-01", end: "2026-07-31",
+    id: null, name: "2025-2026", start: "2025-08-01", end: "2026-07-31", savedStart: "2025-08-01", savedEnd: "2026-07-31",
   });
 });
 
@@ -218,6 +218,15 @@ test("a Sep 1 to May 29 year gives four quarters covering every day exactly once
 test("a year containing Feb 29 includes it, in exactly one quarter", () => {
   const q = coveredOnce("2027-08-16", "2028-06-02");
   assert.equal(q.filter((x) => "2028-02-29" >= x.start && "2028-02-29" <= x.end).length, 1);
+});
+
+test("quarters come from the saved dates, so they do not move once the year runs past its end", () => {
+  const row = { id: "y", name: "2025-2026", start_date: "2025-09-01", end_date: "2026-05-29", created_at: "2025-08-20T15:00:00Z" };
+  const inJanuary = schoolYearQuarters(schoolYearWindowForRow(row, "2026-01-15"));
+  const inAugust = schoolYearWindowForRow(row, "2026-08-20");
+  assert.equal(inAugust.end, "2026-08-20", "the window itself still runs to today");
+  assert.deepEqual(schoolYearQuarters(inAugust), inJanuary, "but the quarters are the same in August as in January");
+  assert.equal(inJanuary[0].start, "2025-09-01", "and Q1 starts on the first day, not the day the year was created");
 });
 
 test("the report dialog and the report cut quarters from the same window", () => {

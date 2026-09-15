@@ -20,7 +20,7 @@ export interface ProgressReportDialogProps {
   isOpen: boolean;
   kids: PlanV2Child[];
   /** The school year the report's Full year and quarters are cut from. */
-  schoolYear: Pick<SchoolYearWindow, "start" | "end">;
+  schoolYear: Pick<SchoolYearWindow, "start" | "end" | "savedStart" | "savedEnd">;
   onClose: () => void;
   onGenerate: (opts: {
     childId: string | null;
@@ -34,7 +34,7 @@ export interface ProgressReportDialogProps {
 const QUARTER_VALUES: ReportRangePreset[] = ["q1", "q2", "q3", "q4"];
 
 /** Each quarter labelled with its real dates ("Q2 · Nov 18 to Feb 3"). */
-function rangeOptions(schoolYear: Pick<SchoolYearWindow, "start" | "end">): { value: ReportRangePreset; label: string }[] {
+function rangeOptions(schoolYear: Pick<SchoolYearWindow, "start" | "end" | "savedStart" | "savedEnd">): { value: ReportRangePreset; label: string }[] {
   const quarters = schoolYearQuarters(schoolYear);
   return [
     ...quarters.map((q, i) => ({ value: QUARTER_VALUES[i], label: quarterLabel(i, q) })),

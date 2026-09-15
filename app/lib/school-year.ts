@@ -21,7 +21,20 @@ import { rolloverYearName } from "../../lib/school-year-name.ts";
  * on the family's device.
  */
 
-export type SchoolYearWindow = { id: string | null; name: string; start: string; end: string };
+export type SchoolYearWindow = {
+  id: string | null;
+  name: string;
+  start: string;
+  end: string;
+  /**
+   * The year's own dates as saved, before the two widenings below. Anything
+   * that must not move from one day to the next (the report's quarters) cuts
+   * these, not start/end. Absent on a window built by hand; the fallback year
+   * sets them equal to start/end.
+   */
+  savedStart?: string;
+  savedEnd?: string;
+};
 
 /** The active row as school_years stores it. */
 export type ActiveSchoolYearRow = {
@@ -66,6 +79,8 @@ export function fallbackSchoolYear(today: string): SchoolYearWindow {
     name: rolloverYearName(null, y),
     start: `${y}-08-01`,
     end: `${y + 1}-07-31`,
+    savedStart: `${y}-08-01`,
+    savedEnd: `${y + 1}-07-31`,
   };
 }
 
@@ -99,7 +114,7 @@ export function resolveSchoolYear(args: {
   const created = args.createdYmd && YMD.test(args.createdYmd) ? args.createdYmd : null;
   const start = created && created < active.start_date ? created : active.start_date;
   const end = today > active.end_date ? today : active.end_date;
-  return { id: active.id, name: active.name, start, end };
+  return { id: active.id, name: active.name, start, end, savedStart: active.start_date, savedEnd: active.end_date };
 }
 
 /**
@@ -150,19 +165,27 @@ export type SchoolYearQuarter = { start: string; end: string };
 
 /**
  * The progress report's Q1 to Q4: four equal slices of the family's own school
- * year, start through end, split by calendar days, inclusive on both ends, the
- * last quarter taking the remainder. Every day of the year is in exactly one
- * quarter.
+ * year, split by calendar days, inclusive on both ends, the last quarter taking
+ * the remainder. Every day of the year is in exactly one quarter.
+ *
+ * Cut from the year's SAVED dates (savedStart/savedEnd), not the widened
+ * window: that one stretches its end to today once the end date has passed and
+ * its start back to the day the year was created, so quarters cut from it
+ * moved every day and a "Q2" made in January and one made in August covered
+ * different dates.
  *
  * They used to be fixed Sep-Nov, Dec-Feb, Mar-May, Jun-Aug of an August-to-July
  * year, whatever the family's dates, and Q2 ended on Feb 28, so Feb 29 was in
  * no quarter in a leap year.
  */
-export function schoolYearQuarters(y: Pick<SchoolYearWindow, "start" | "end">): SchoolYearQuarter[] {
-  const first = dayNumber(y.start);
-  const last = dayNumber(y.end);
+export function schoolYearQuarters(y: Pick<SchoolYearWindow, "start" | "end" | "savedStart" | "savedEnd">): SchoolYearQuarter[] {
+  const startYmd = y.savedStart ?? y.start;
+  const endYmd = y.savedEnd ?? y.end;
+  if (!YMD.test(startYmd) || !YMD.test(endYmd)) return [];
+  const first = dayNumber(startYmd);
+  const last = dayNumber(endYmd);
   const total = last - first + 1;
-  if (!YMD.test(y.start) || !YMD.test(y.end) || total < 1) return [];
+  if (total < 1) return [];
   const size = Math.max(1, Math.floor(total / 4));
   const out: SchoolYearQuarter[] = [];
   for (let q = 0; q < 4; q++) {
