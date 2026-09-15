@@ -108,6 +108,8 @@ export const TEMPLATES = {
   reengagement4: '5d26f9fd-92fb-47fd-af36-ad33d0632dda',
   // Winback (with unsubscribe link)
   winback: '1bcd1b2e-3c08-40fd-bed1-05c01c2bf8f9',
+  // Trial ending, six days before the 30-day Rooted+ trial runs out
+  trialEnding: 'ed7ab074-fd32-45a4-bcb8-7b1472d3e502',
   // Weekly summary
   weeklySummary: 'c3fff265-4d07-4062-b78a-d16626af9c7f',
   // Family
