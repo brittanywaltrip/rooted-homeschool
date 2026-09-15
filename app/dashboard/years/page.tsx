@@ -41,7 +41,12 @@ async function loadFiledYears(
 ): Promise<Record<string, FiledYearSummary>> {
   const out: Record<string, FiledYearSummary> = {};
   await Promise.all(
-    closed.map(async (y) => {
+    // Per year: a failed read hides only that year's day count, never the rest.
+    closed.map((y) => loadOne(y).catch(() => undefined)),
+  );
+  return out;
+
+  async function loadOne(y: SchoolYear): Promise<void> {
       const head = { count: "exact" as const, head: true };
       const [filedRes, otherRes] = await Promise.all([
         supabase.from("lessons").select("id", head).eq("user_id", userId).eq("school_year_id", y.id).eq("scheduled_source", PAST_YEAR_SOURCE),
@@ -66,9 +71,7 @@ async function loadFiledYears(
         schoolDaysInRange: schoolDaysBetween(y.start_date, y.end_date, schoolDays).length,
         schoolDays,
       };
-    }),
-  );
-  return out;
+  }
 }
 
 /** One child's finished tree for one closed year. */
