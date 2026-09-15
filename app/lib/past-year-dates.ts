@@ -18,6 +18,12 @@ import { joinNames } from "./garden-config.ts";
 import { capitalizeName } from "../../lib/utils.ts";
 
 export const PAST_YEAR_SOURCE = "past_year";
+/**
+ * PostgREST `or` filter for lessons NOT filed through Add a past year. A plain
+ * neq would also drop the rows whose scheduled_source is NULL, so both halves
+ * are spelled out. Badge counts read it: a filed year earns no badges.
+ */
+export const NOT_FILED_PAST_YEAR = `scheduled_source.is.null,scheduled_source.neq.${PAST_YEAR_SOURCE}`;
 export const DEFAULT_SCHOOL_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri"];
 
 /**

@@ -7451,7 +7451,8 @@ test('big families: the completion tap handler reads lessons only by id or by go
   }
   // The badge checker runs after every tap through onLogAction and used to
   // list every completed lesson id for the child to count them.
-  const badges = stripComments(loadRepoFile('app/lib/badge-checker.ts'))
+  // The gathering moved to badge-data.ts (client injected, so it is tested).
+  const badges = stripComments(loadRepoFile('app/lib/badge-data.ts'))
   for (const m of badges.matchAll(/\.from\("(lessons|memories)"\)\.select\("id"\)/g)) {
     assert.fail(`badge-checker lists ids to count them: ${m[0]}`)
   }

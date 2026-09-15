@@ -12,6 +12,13 @@
 // so lib/badge-checks.test.ts can run the whole thing against in-memory rows
 // and assert the badge set is the one the old logic produced. lib/badges.ts
 // is the thin wrapper the app imports.
+//
+// A year filed through Add a past year earns no badges: both lesson reads
+// exclude rows tagged scheduled_source = 'past_year' (NOT_FILED_PAST_YEAR).
+// Filing a 180-lesson kindergarten year used to hand out First Leaf on the next
+// Today load (reported 2026-09-14). Badges already held are never touched.
+
+import { NOT_FILED_PAST_YEAR } from "../app/lib/past-year-dates.ts";
 
 export type BadgeDef = {
   id: string;
@@ -112,13 +119,13 @@ export async function collectBadgeSignals(client: BadgeClient, userId: string, n
     countRows(legacy().in("type", ["memory_activity", "memory_project"])),
     // The badge only asks "at least one", and an unranged read would stop at
     // PostgREST's 1,000 rows anyway. See lib/supabase-all-rows.ts.
-    countRows(client.from("lessons").select("*", head).eq("user_id", userId).eq("completed", true)),
+    countRows(client.from("lessons").select("*", head).eq("user_id", userId).eq("completed", true).or(NOT_FILED_PAST_YEAR)),
     countRows(memories().gte("date", yStart).lte("date", yEnd)),
     // "showing_up" needs the days themselves, not a number, so these three
     // read one date column each. Still one wave, no longer three in a row.
     client.from("app_events").select("created_at").eq("user_id", userId).gte("created_at", monthStartIso) as PromiseLike<RowsResult<{ created_at: string }>>,
     client.from("memories").select("created_at").eq("user_id", userId).gte("created_at", monthStartIso) as PromiseLike<RowsResult<{ created_at: string }>>,
-    client.from("lessons").select("date, scheduled_date").eq("user_id", userId).eq("completed", true).gte("scheduled_date", monthStartIso.slice(0, 10)) as PromiseLike<RowsResult<{ date: string | null; scheduled_date: string | null }>>,
+    client.from("lessons").select("date, scheduled_date").eq("user_id", userId).eq("completed", true).gte("scheduled_date", monthStartIso.slice(0, 10)).or(NOT_FILED_PAST_YEAR) as PromiseLike<RowsResult<{ date: string | null; scheduled_date: string | null }>>,
     client.from("profiles").select("created_at").eq("id", userId).single() as PromiseLike<RowResult<{ created_at?: string | null }>>,
   ]);
 

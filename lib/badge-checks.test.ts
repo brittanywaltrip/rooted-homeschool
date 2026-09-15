@@ -9,6 +9,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { awardActivityBadges, awardFoundingBadge, collectBadgeSignals } from "./badge-checks.ts";
+import { gatherBadgeData } from "../app/lib/badge-data.ts";
+import { metTieredBadges } from "../app/lib/badge-tiers.ts";
+import { buildPastYearGoal, buildPastYearLessons, pickAttendedDays } from "../app/lib/past-year-dates.ts";
+import { schoolDaysBetween } from "../app/lib/scheduler.ts";
 
 // ── A Supabase client over in-memory rows ───────────────────────────────────
 type Row = Record<string, unknown>;
@@ -37,6 +41,20 @@ class FakeQuery {
   gte(c: string, v: unknown) { this.filters.push((r) => { const k = cmp(r[c], v); return k != null && k >= 0; }); return this; }
   lte(c: string, v: unknown) { this.filters.push((r) => { const k = cmp(r[c], v); return k != null && k <= 0; }); return this; }
   not(c: string, _op: string, v: unknown) { this.filters.push((r) => r[c] !== v); return this; }
+  // PostgREST's or=(a.is.null,a.neq.x): enough of it for the filters in use.
+  // neq follows SQL, where a NULL is never "not equal" to anything.
+  or(expr: string) {
+    const terms = expr.split(",").map((t) => {
+      const [col, op, ...rest] = t.split(".");
+      const v = rest.join(".");
+      if (op === "is" && v === "null") return (r: Row) => r[col] == null;
+      if (op === "eq") return (r: Row) => r[col] != null && String(r[col]) === v;
+      if (op === "neq") return (r: Row) => r[col] != null && String(r[col]) !== v;
+      throw new Error(`fake or(): unsupported term ${t}`);
+    });
+    this.filters.push((r) => terms.some((f) => f(r)));
+    return this;
+  }
   order() { return this; }
   limit() { return this; }
   single() { this.single_ = true; return this; }
@@ -162,4 +180,84 @@ test("signals come from counts, and another family's rows never leak in", async 
   assert.equal(s.onThisDayCount, 1);
   assert.ok(s.activeDays >= 5);
   assert.ok(s.daysSinceSignup >= 365);
+});
+
+// ── A filed past year earns no badges (reported 2026-09-14) ──────────────────
+//
+// Filing a kindergarten year auto-completed a run of badges. The lessons a year
+// is filed with are history the family is recording, not work done this year,
+// so no badge may count them. The same lessons completed in Rooted do.
+
+const KID = "kid-1";
+const F = "user-filing";
+
+function filedYearTables(): Tables {
+  const days = pickAttendedDays(schoolDaysBetween("2024-08-19", "2025-05-22", ["Mon", "Tue", "Wed", "Thu", "Fri"]), 162);
+  const goalRow = buildPastYearGoal({
+    userId: F, schoolYearId: "filed", yearName: "Kindergarten", yearStart: "2024-08-19", yearEnd: "2025-05-22",
+    schoolDays: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    row: { childId: KID, curriculumName: "Math", subjectLabel: "Math", totalLessons: 180, completedLessons: 180, minutesPerLesson: 30 },
+  });
+  const lessons = buildPastYearLessons({
+    userId: F, schoolYearId: "filed", yearName: "Kindergarten", goalId: "filed-goal", childId: KID,
+    curriculumName: "Math", completedLessons: 180, minutesPerLesson: 30, schoolDaysInYear: days,
+  }).map((l, i) => ({ id: `fl${i}`, subject_id: "math", ...l }));
+  return {
+    lessons,
+    curriculum_goals: [{ id: "filed-goal", ...goalRow }],
+    memories: [],
+    app_events: [],
+    activity_logs: [],
+    activities: [],
+    badges: [],
+    user_badges: [],
+    profiles: [{ id: F, created_at: iso(d(20)), plan_type: null, current_streak_days: 0, longest_streak_days: 0 }],
+  };
+}
+
+/** The same 180 lessons, done in Rooted this school year on a live curriculum. */
+function livedYearTables(): Tables {
+  const t = filedYearTables();
+  t.lessons = t.lessons.map((l, i) => {
+    const day = ymd(monthDay(1 + (i % 5)));
+    return { ...l, scheduled_source: "completion_today", is_backfill: false, queue_pinned: false, date: day, scheduled_date: day, school_year_id: "live" };
+  });
+  t.curriculum_goals = t.curriculum_goals.map((g) => ({ ...g, archived: false, school_year_id: "live" }));
+  return t;
+}
+
+test("filing a past year with 180 lessons awards no activity badge", async () => {
+  const { client, upserts } = makeFakeClient(filedYearTables());
+  const first = await awardActivityBadges(client, F);
+  assert.equal(first, null);
+  assert.deepEqual(upserts, [], "not First Leaf, not Showing Up, nothing");
+  const s = await collectBadgeSignals(client, F);
+  assert.equal(s.totalLessons, 0, "the filed lessons are not counted");
+});
+
+test("the same 180 lessons completed in the current year do earn First Leaf", async () => {
+  const { client, upserts } = makeFakeClient(livedYearTables());
+  await awardActivityBadges(client, F);
+  assert.ok(upserts.some((u) => u.badge_id === "first_leaf"));
+});
+
+test("filing a past year with 180 lessons awards no tiered badge, for the child or the family", async () => {
+  for (const childId of [KID, undefined]) {
+    const { client } = makeFakeClient(filedYearTables());
+    const data = await gatherBadgeData(client, F, childId);
+    assert.equal(data.totalLeaves, 0, "no leaves from a filed year");
+    assert.deepEqual(data.curricula, [], "a filed curriculum is put away, so Deep Roots does not judge it");
+    assert.deepEqual(metTieredBadges(data, new Set()).map((b) => b.badgeKey), [], `nothing awarded (child ${childId ?? "all"})`);
+  }
+});
+
+test("the same 180 lessons completed in the current year earn Growth and Deep Roots", async () => {
+  const { client } = makeFakeClient(livedYearTables());
+  const data = await gatherBadgeData(client, F, KID);
+  assert.equal(data.totalLeaves, 180);
+  const keys = metTieredBadges(data, new Set()).map((b) => b.badgeKey);
+  assert.ok(keys.includes("growth_bronze") && keys.includes("growth_silver"), `growth: ${keys}`);
+  assert.ok(keys.includes("deep-roots_gold_filed-goal"), "a finished live curriculum earns its Crown");
+  // Held badges are never re-awarded, and nothing here revokes them.
+  assert.deepEqual(metTieredBadges(data, new Set(keys)), []);
 });

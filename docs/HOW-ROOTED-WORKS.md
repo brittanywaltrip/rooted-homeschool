@@ -245,7 +245,7 @@ A closed school year, its curricula (already put away), one finished lesson for 
 
 **What "this year" means here**
 
-Nothing changes about this year. Today, Plan, the Garden and the yearbook never see a past year.
+Nothing changes about this year. Today, Plan, the Garden and the yearbook never see a past year, and a filed year earns no badges: its lessons are history the family is recording, so no badge counts them. Badges already earned stay earned.
 
 **Most likely to confuse**
 
