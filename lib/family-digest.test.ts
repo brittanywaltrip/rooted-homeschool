@@ -5,7 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { emailDomain, familyDigestMode, runFamilyDigest, type DigestClient, type DigestDeps } from "./family-digest.ts";
+import { emailDomain, escapeHtml, familyDigestMode, runFamilyDigest, type DigestClient, type DigestDeps } from "./family-digest.ts";
 
 type Row = Record<string, unknown>;
 
@@ -113,4 +113,14 @@ test("the digest is scheduled Sundays at 15:00 UTC and the route reads the flag"
   assert.match(route, /familyDigestMode\(process\.env\.FAMILY_DIGEST_MODE\)/);
   assert.match(route, /return NextResponse\.json\(result\)/);
   assert.ok(!/console\.(log|error)\([^)]*inv\.email/.test(route), "the route never logs an address");
+});
+
+test("a win title a family typed is escaped before it goes into the email HTML", async () => {
+  assert.equal(escapeHtml(`Finished chapter <3 & "loved" it`), "Finished chapter &lt;3 &amp; &quot;loved&quot; it");
+  const t = tables();
+  t.memories[1].title = "Finished chapter <3";
+  const sendCalls: { variables: Record<string, string> }[] = [];
+  await runFamilyDigest(deps({ client: fakeClient(t), mode: "live" }, sendCalls, []));
+  assert.match(sendCalls[0].variables.highlights, /Zoe: Finished chapter &lt;3/);
+  assert.ok(!sendCalls[0].variables.highlights.includes("<3"));
 });

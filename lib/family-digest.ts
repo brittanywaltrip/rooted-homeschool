@@ -18,6 +18,20 @@ export function familyDigestMode(flag: string | undefined | null): FamilyDigestM
   return (flag ?? "").trim().toLowerCase() === "live" ? "live" : "dry";
 }
 
+/**
+ * Escape text a family typed before it goes into the email's HTML. The
+ * highlights block is sent as markup the template renders unescaped, so a win
+ * titled "Finished chapter <3" would otherwise break the rest of the block.
+ */
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 /** The part of an address after the @, for logs. Never the whole address. */
 export function emailDomain(email: string | null | undefined): string {
   const at = (email ?? "").lastIndexOf("@");
@@ -158,7 +172,7 @@ export async function runFamilyDigest(deps: DigestDeps): Promise<DigestResult> {
         : "";
       const highlightsHtml = wins.length > 0
         ? `<p style="font-weight:600;margin:16px 0 8px;">Highlights:</p>` +
-          wins.map((w) => `<p style="color:#7a6f65;margin:0 0 4px;">• ${w}</p>`).join("")
+          wins.map((w) => `<p style="color:#7a6f65;margin:0 0 4px;">• ${escapeHtml(w)}</p>`).join("")
         : "";
 
       try {

@@ -528,9 +528,12 @@ drifted before, so re-read the file rather than trusting the count here.
   .deleted branch in app/api/stripe/webhook/route.ts); refunded cancellations
   are revoked immediately by the webhook instead. Only ever touches rows that
   are cancelled AND is_pro AND past subscription_end_date, or (since September
-  2026) a gifted year that has ended: plan_type 'gift' AND is_pro AND no
-  stripe_subscription_id AND past current_period_end, which goes to
-  subscription_status 'free'. Both rules: lib/expire-subscriptions.ts.
+  2026) a gifted year that has ended: plan_type 'gift' AND is_pro AND past
+  current_period_end AND no live Stripe subscription, which goes to
+  subscription_status 'free'. stripe_subscription_id is never cleared when a
+  subscription ends, so a gift row that still carries one is checked with
+  Stripe first and left alone if Stripe cannot confirm it is over. Both rules:
+  lib/expire-subscriptions.ts.
 - /api/cron/family-digest: weekly Sunday 3PM UTC — the family viewers' "what's new"
   email. DRY RUN unless the FAMILY_DIGEST_MODE env var is exactly "live": it
   computes every email, sends none, and logs the viewer's email domain only.

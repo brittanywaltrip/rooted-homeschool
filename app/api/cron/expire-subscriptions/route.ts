@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import Stripe from 'stripe'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 import { sweepExpiredAccess, type SweepClient } from '@/lib/expire-subscriptions'
 
@@ -29,6 +30,27 @@ import { sweepExpiredAccess, type SweepClient } from '@/lib/expire-subscriptions
  */
 export const dynamic = 'force-dynamic'
 
+/**
+ * Only the gift rule asks this, and only for a gift row that still carries a
+ * subscription id. A subscription that is canceled, expired before it started,
+ * or gone from Stripe is over; any other status counts as live, and an error
+ * is "cannot confirm", so nobody is downgraded on a guess.
+ */
+async function isStripeSubscriptionLive(subscriptionId: string): Promise<boolean | null> {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key) return null
+  try {
+    const stripe = new Stripe(key, { apiVersion: '2026-02-25.clover' })
+    const sub = await stripe.subscriptions.retrieve(subscriptionId)
+    return !(sub.status === 'canceled' || sub.status === 'incomplete_expired')
+  } catch (err) {
+    const code = (err as { code?: string; statusCode?: number })
+    if (code.code === 'resource_missing' || code.statusCode === 404) return false
+    console.error('[cron/expire-subscriptions] Stripe check failed for', subscriptionId, err)
+    return null
+  }
+}
+
 export async function GET(request: Request) {
   // Vercel cron authentication, same shape as the other cron routes.
   if (
@@ -38,7 +60,12 @@ export async function GET(request: Request) {
   }
 
   // Both rules, and why each is this narrow, are in lib/expire-subscriptions.ts.
-  const result = await sweepExpiredAccess(supabaseAdmin as unknown as SweepClient)
+  const result = await sweepExpiredAccess(
+    supabaseAdmin as unknown as SweepClient,
+    new Date(),
+    console.log,
+    isStripeSubscriptionLive,
+  )
   if (!result.ok) {
     console.error('[cron/expire-subscriptions] failed:', result.error)
     return NextResponse.json({ error: result.error }, { status: 500 })

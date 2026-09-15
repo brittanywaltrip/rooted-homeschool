@@ -18,13 +18,22 @@
 // 2. A gifted year that has ended (September 2026).
 //      plan_type = 'gift'                  (the family_gift checkout branch)
 //      is_pro = true
-//      stripe_subscription_id IS NULL      (no live Stripe subscription)
 //      current_period_end < now            (the gifted year is over)
+//      and NO live Stripe subscription
 //    The gift branch sets is_pro, subscription_status 'active', plan_type
 //    'gift' and current_period_end one year out, and nothing ever turned it
-//    off, so a gifted family kept Rooted+ for good. A family who bought their
-//    own subscription later has a stripe_subscription_id (linkStripeSubscription
-//    writes it, and plan_type with it), so they can never match.
+//    off, so a gifted family kept Rooted+ for good.
+//
+//    "No live subscription" cannot be read off stripe_subscription_id alone:
+//    linkStripeSubscription writes it and nothing ever clears it, so a family
+//    who paid, cancelled, and was later gifted a year still carries their old,
+//    finished subscription's id. So a row with no id qualifies at once, and a
+//    row WITH an id qualifies only when Stripe says that subscription is over
+//    (canceled or incomplete_expired, or it no longer exists). If Stripe cannot
+//    be asked, the row is left alone: a family is never downgraded on a guess.
+//    A family who subscribes has plan_type rewritten by linkStripeSubscription,
+//    and the write below re-checks plan_type = 'gift', so a purchase made
+//    between the read and the write is never undone.
 //    Downgrade: is_pro false, plan_type null, subscription_status 'free', the
 //    value a family with no paid plan carries (the column's default). Not
 //    'cancelled': nobody cancelled anything, and admin reads that as churn.
@@ -53,7 +62,14 @@ type DueRow = {
   plan_type: string | null;
   subscription_end_date?: string | null;
   current_period_end?: string | null;
+  stripe_subscription_id?: string | null;
 };
+
+/**
+ * Is this Stripe subscription still live? true, false, or null when Stripe
+ * could not be asked. The route answers it with stripe.subscriptions.retrieve.
+ */
+export type SubscriptionLiveCheck = (subscriptionId: string) => Promise<boolean | null>;
 
 export type SweepResult =
   | { ok: true; expired: number; ids: string[]; giftsExpired: number; giftIds: string[] }
@@ -63,6 +79,7 @@ export async function sweepExpiredAccess(
   client: SweepClient,
   now: Date = new Date(),
   log: (...parts: unknown[]) => void = console.log,
+  isSubscriptionLive: SubscriptionLiveCheck = async () => null,
 ): Promise<SweepResult> {
   const nowIso = now.toISOString();
 
@@ -76,10 +93,9 @@ export async function sweepExpiredAccess(
       .lt("subscription_end_date", nowIso),
     client
       .from("profiles")
-      .select("id, display_name, plan_type, current_period_end")
+      .select("id, display_name, plan_type, current_period_end, stripe_subscription_id")
       .eq("plan_type", "gift")
       .eq("is_pro", true)
-      .is("stripe_subscription_id", null)
       .not("current_period_end", "is", null)
       .lt("current_period_end", nowIso),
   ]);
@@ -87,7 +103,20 @@ export async function sweepExpiredAccess(
   if (giftRead.error) return { ok: false, error: `read gifts: ${giftRead.error.message}` };
 
   const cancelled = (cancelledRead.data ?? []) as DueRow[];
-  const gifts = ((giftRead.data ?? []) as DueRow[]).filter((g) => !cancelled.some((c) => c.id === g.id));
+  const giftCandidates = ((giftRead.data ?? []) as DueRow[]).filter((g) => !cancelled.some((c) => c.id === g.id));
+  const gifts: DueRow[] = [];
+  for (const g of giftCandidates) {
+    if (!g.stripe_subscription_id) {
+      gifts.push(g);
+      continue;
+    }
+    const live = await isSubscriptionLive(g.stripe_subscription_id);
+    if (live === false) {
+      gifts.push(g);
+    } else if (live === null) {
+      log("[cron/expire-subscriptions] gift left alone, Stripe could not confirm", g.id, g.stripe_subscription_id);
+    }
+  }
 
   if (cancelled.length > 0) {
     const { error } = await client
@@ -105,10 +134,11 @@ export async function sweepExpiredAccess(
       .from("profiles")
       .update({ is_pro: false, plan_type: null, subscription_status: "free" })
       .in("id", gifts.map((p) => p.id))
-      // Re-assert the rule in the write, so a family who subscribed between
-      // the read and this update is never downgraded.
+      // Re-assert the rule in the write: subscribing rewrites plan_type, so a
+      // family who subscribed between the read and this update is never
+      // downgraded.
       .eq("plan_type", "gift")
-      .is("stripe_subscription_id", null);
+      .eq("is_pro", true);
     if (error) return { ok: false, error: `write gifts: ${error.message}` };
     for (const p of gifts) {
       log("[cron/expire-subscriptions] expired gift", p.id, p.display_name ?? "(no name)", "gift ended", p.current_period_end);

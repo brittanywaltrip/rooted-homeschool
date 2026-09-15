@@ -38,6 +38,9 @@ function fakeClient(profiles: Row[]) {
 }
 
 const NOW = new Date("2026-09-15T12:00:00Z");
+// What Stripe says about each subscription id in the fixtures.
+const stripeSays = async (id: string): Promise<boolean | null> =>
+  id === "sub_123" ? true : id === "sub_finished" ? false : null;
 const PAST = "2026-09-01T00:00:00Z";
 const FUTURE = "2027-03-01T00:00:00Z";
 
@@ -54,6 +57,11 @@ function rows(): Row[] {
     { id: "cancelled-ended", display_name: "Cancelled", plan_type: "standard", is_pro: true, subscription_status: "cancelled", stripe_subscription_id: "sub_old", current_period_end: PAST, subscription_end_date: PAST },
     // A cancelled plan with term left.
     { id: "cancelled-running", display_name: "Term Left", plan_type: "standard", is_pro: true, subscription_status: "cancelled", stripe_subscription_id: "sub_old2", current_period_end: FUTURE, subscription_end_date: FUTURE },
+    // Paid, cancelled, and gifted a year later: the finished subscription's id
+    // is still on the row, because nothing ever clears it.
+    { id: "gift-after-cancel", display_name: "Former Subscriber", plan_type: "gift", is_pro: true, subscription_status: "active", stripe_subscription_id: "sub_finished", current_period_end: PAST, subscription_end_date: PAST },
+    // Same shape, but Stripe cannot be reached for it.
+    { id: "gift-unknown", display_name: "Unconfirmed", plan_type: "gift", is_pro: true, subscription_status: "active", stripe_subscription_id: "sub_unknown", current_period_end: PAST, subscription_end_date: null },
     // An active paying subscriber.
     { id: "active", display_name: "Active", plan_type: "monthly", is_pro: true, subscription_status: "active", stripe_subscription_id: "sub_live", current_period_end: PAST, subscription_end_date: null },
   ];
@@ -62,10 +70,10 @@ function rows(): Row[] {
 test("a gift past its end date is expired, to free, and logged", async () => {
   const profiles = rows();
   const logs: string[] = [];
-  const out = await sweepExpiredAccess(fakeClient(profiles), NOW, (...p) => logs.push(p.join(" ")));
+  const out = await sweepExpiredAccess(fakeClient(profiles), NOW, (...p) => logs.push(p.join(" ")), stripeSays);
   assert.equal(out.ok, true);
   if (!out.ok) return;
-  assert.deepEqual(out.giftIds, ["gift-ended"]);
+  assert.deepEqual(out.giftIds, ["gift-ended", "gift-after-cancel"]);
   const ended = profiles.find((p) => p.id === "gift-ended")!;
   assert.equal(ended.is_pro, false);
   assert.equal(ended.plan_type, null);
@@ -74,9 +82,9 @@ test("a gift past its end date is expired, to free, and logged", async () => {
   assert.equal(profiles.find((p) => p.id === "gift-running")!.is_pro, true, "a gift still running is untouched");
 });
 
-test("a gift with a Stripe subscription id is never expired", async () => {
+test("a gift with a live Stripe subscription is never expired", async () => {
   const profiles = rows();
-  const out = await sweepExpiredAccess(fakeClient(profiles), NOW, () => {});
+  const out = await sweepExpiredAccess(fakeClient(profiles), NOW, () => {}, stripeSays);
   assert.ok(out.ok && !out.giftIds.includes("gift-then-paid"));
   const paid = profiles.find((p) => p.id === "gift-then-paid")!;
   assert.equal(paid.is_pro, true);
@@ -86,7 +94,7 @@ test("a gift with a Stripe subscription id is never expired", async () => {
 
 test("a cancelled paid plan still expires as before, and keeps its cancelled status", async () => {
   const profiles = rows();
-  const out = await sweepExpiredAccess(fakeClient(profiles), NOW, () => {});
+  const out = await sweepExpiredAccess(fakeClient(profiles), NOW, () => {}, stripeSays);
   assert.ok(out.ok);
   if (!out.ok) return;
   assert.deepEqual(out.ids, ["cancelled-ended"]);
@@ -95,4 +103,17 @@ test("a cancelled paid plan still expires as before, and keeps its cancelled sta
   assert.equal(c.plan_type, null);
   assert.equal(c.subscription_status, "cancelled");
   assert.equal(profiles.find((p) => p.id === "cancelled-running")!.is_pro, true);
+});
+
+test("a gift to a former subscriber ends when Stripe says the old subscription is over, and stays when Stripe cannot confirm", async () => {
+  const profiles = rows();
+  const logs: string[] = [];
+  const out = await sweepExpiredAccess(fakeClient(profiles), NOW, (...p) => logs.push(p.join(" ")), stripeSays);
+  assert.ok(out.ok);
+  const former = profiles.find((p) => p.id === "gift-after-cancel")!;
+  assert.equal(former.is_pro, false, "a stale, finished subscription id does not keep a gift alive");
+  assert.equal(former.subscription_status, "free");
+  const unknown = profiles.find((p) => p.id === "gift-unknown")!;
+  assert.equal(unknown.is_pro, true, "never downgraded on a guess");
+  assert.ok(logs.some((l) => l.includes("gift left alone, Stripe could not confirm gift-unknown")));
 });
