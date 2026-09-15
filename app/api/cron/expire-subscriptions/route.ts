@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { sweepExpiredAccess, type SweepClient } from '@/lib/expire-subscriptions'
 
 /**
  * Nightly sweep that ends access for subscriptions whose paid term is over.
@@ -21,6 +22,10 @@ import { supabaseAdmin } from '@/lib/supabase-admin'
  * status 'active'. A refunded cancellation can never match either, because
  * the webhook already set is_pro = false and stamped the end date at the
  * moment of the refund.
+ *
+ * A second rule (September 2026) ends a gifted year that has run out; a gift
+ * with a live Stripe subscription can never match. Both rules live in
+ * lib/expire-subscriptions.ts, where they are tested.
  */
 export const dynamic = 'force-dynamic'
 
@@ -32,47 +37,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const nowIso = new Date().toISOString()
-
-  const { data: due, error: readErr } = await supabaseAdmin
-    .from('profiles')
-    .select('id, display_name, plan_type, subscription_end_date')
-    .eq('subscription_status', 'cancelled')
-    .eq('is_pro', true)
-    .not('subscription_end_date', 'is', null)
-    .lt('subscription_end_date', nowIso)
-
-  if (readErr) {
-    console.error('[cron/expire-subscriptions] read failed:', readErr.message)
-    return NextResponse.json({ error: readErr.message }, { status: 500 })
+  // Both rules, and why each is this narrow, are in lib/expire-subscriptions.ts.
+  const result = await sweepExpiredAccess(supabaseAdmin as unknown as SweepClient)
+  if (!result.ok) {
+    console.error('[cron/expire-subscriptions] failed:', result.error)
+    return NextResponse.json({ error: result.error }, { status: 500 })
   }
-
-  if (!due || due.length === 0) {
-    console.log('[cron/expire-subscriptions] nothing due')
-    return NextResponse.json({ expired: 0 })
-  }
-
-  const ids = due.map((p) => p.id)
-
-  const { error: writeErr } = await supabaseAdmin
-    .from('profiles')
-    .update({ is_pro: false, plan_type: null })
-    .in('id', ids)
-
-  if (writeErr) {
-    console.error('[cron/expire-subscriptions] write failed:', writeErr.message)
-    return NextResponse.json({ error: writeErr.message }, { status: 500 })
-  }
-
-  for (const p of due) {
-    console.log(
-      '[cron/expire-subscriptions] expired',
-      p.id,
-      p.display_name ?? '(no name)',
-      'term ended',
-      p.subscription_end_date,
-    )
-  }
-
-  return NextResponse.json({ expired: due.length, ids })
+  return NextResponse.json({
+    expired: result.expired,
+    ids: result.ids,
+    giftsExpired: result.giftsExpired,
+    giftIds: result.giftIds,
+  })
 }

@@ -546,7 +546,7 @@ Everything else is free: Today, Plan, the Schedule Builder, the Garden, Resource
 - **Cancel:** the family keeps Rooted+ until the end of the time they paid for, then it switches off overnight.
 - **Refund:** if any payment on the account was refunded and the subscription is cancelled, Rooted+ ends immediately. A refund alone, without cancelling, changes nothing in the app.
 - **Payment failed:** the family gets an email ("Heads up: your Rooted payment didn't go through") and keeps access while Stripe retries.
-- **Gift:** bought at /gift (the family must already have an account) or from the family portal. It turns on straight away for a year; there is no code to redeem.
+- **Gift:** bought at /gift (the family must already have an account) or from the family portal. It turns on straight away for a year; there is no code to redeem. It switches off by itself the night after the year ends, unless the family has since started their own subscription. The family portal links the gift extended keep their own end date.
 
 **What "this year" means here:** nothing. The free plan's 30-day memory window is a rolling 30 days, not the school year.
 
@@ -560,5 +560,4 @@ Also: on day 31 of the trial, older memories disappear from the Memories page. T
 
 **Known quirks**
 
-- A gifted year never switches off on its own after the year.
 - The upgrade page shows "15% off applied" with a fixed price when a partner code is present; the actual discount is whatever that code gives at checkout.

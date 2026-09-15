@@ -527,7 +527,10 @@ drifted before, so re-read the file rather than trusting the count here.
   three keeps access to the end of that year (see the customer.subscription
   .deleted branch in app/api/stripe/webhook/route.ts); refunded cancellations
   are revoked immediately by the webhook instead. Only ever touches rows that
-  are cancelled AND is_pro AND past subscription_end_date.
+  are cancelled AND is_pro AND past subscription_end_date, or (since September
+  2026) a gifted year that has ended: plan_type 'gift' AND is_pro AND no
+  stripe_subscription_id AND past current_period_end, which goes to
+  subscription_status 'free'. Both rules: lib/expire-subscriptions.ts.
 
 ## Auth Rules — password reset only
 
