@@ -9927,3 +9927,17 @@ test('builder rebuild: the Schedule Builder runs those same pieces', () => {
   assert.match(phase2, /floorDelete\.not\("id", "in", `\(\$\{\[\.\.\.heldBackIds\]\.join\(","\)\}\)`\)/)
   assert.doesNotMatch(phase2, /const deletedIds = new Set\(/, 'the delete simulation has one definition, in planPhase2Rows')
 })
+
+test("Today's lessons-from-earlier line reopens Today's own catch-up sheet, not Plan", () => {
+  // Plan's missed banner is usually empty by the time the family gets there:
+  // Today already moved those lessons forward on the same load.
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const at = src.indexOf('lesson{overdueLessonCount !== 1 ? "s" : ""} from earlier')
+  assert.ok(at !== -1)
+  const block = src.slice(src.lastIndexOf('{!loading && overdueLessonCount > 0', at), at + 200)
+  assert.match(block, /overdueLessonCount > 0 && missedEntriesByGoal\.size > 0/, 'no line when there is nothing to catch up on')
+  assert.match(block, /setShowMissedRecovery\(true\)/, 'the tap opens the sheet')
+  assert.doesNotMatch(block, /href="\/dashboard\/plan"/, 'and no longer sends the family to Plan')
+  // The once-per-tab auto-open is untouched.
+  assert.match(src, /window\.sessionStorage\.getItem\("rooted_missed_lesson_prompt_shown"\) === "1"/)
+})

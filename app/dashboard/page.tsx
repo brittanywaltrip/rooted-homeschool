@@ -5154,16 +5154,25 @@ export default function TodayPage() {
           back to the catch-up flow, and hiding it too left the family with
           no path to log the day they actually worked.
          ═══════════════════════════════════════════════════════════ */}
-      {!loading && overdueLessonCount > 0 && (
-        <Link
-          href="/dashboard/plan"
-          className="block px-3.5 py-2.5 rounded-xl bg-[#faf8f4] border border-[#e8e2d9] hover:bg-[#f4f0e8] transition-colors"
+      {!loading && overdueLessonCount > 0 && missedEntriesByGoal.size > 0 && (
+        // Opens Today's own catch-up sheet, with the same lessons it counts.
+        // It used to link to Plan, whose missed-lessons banner is usually
+        // empty by then: on this same load Today already moved those lessons
+        // forward. The sheet still opens by itself once per tab; this lets the
+        // family reopen it any time after that.
+        <button
+          type="button"
+          onClick={() => {
+            posthog.capture("catchup_prompt_reopened", { lessons: overdueLessonCount });
+            setShowMissedRecovery(true);
+          }}
+          className="block w-full text-left px-3.5 py-2.5 rounded-xl bg-[#faf8f4] border border-[#e8e2d9] hover:bg-[#f4f0e8] transition-colors"
         >
           <p className="text-[12px] text-[#7a6f65]">
             {overdueLessonCount} lesson{overdueLessonCount !== 1 ? "s" : ""} from earlier
-            <span className="text-[#5c7f63] font-medium ml-1">View in Plan →</span>
+            <span className="text-[#5c7f63] font-medium ml-1">Catch up →</span>
           </p>
-        </Link>
+        </button>
       )}
 
       {/* ═══════════════════════════════════════════════════════════
