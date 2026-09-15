@@ -13,7 +13,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { recalibrateCurriculumGoal } from './recalibrate.ts'
+import { recalibrateCurriculumGoal, estimateKeepsSlot } from './recalibrate.ts'
+import { recomputeCurrentLesson } from './scheduler.ts'
+import { makeMemorySupabase } from './test-helpers/memory-supabase.ts'
 
 // ── Date helpers ─────────────────────────────────────────────────────────
 // The utility reads `new Date()` directly, so tests anchor against the
@@ -66,7 +68,7 @@ type GoalRow = {
   created_at: string | null
 }
 
-type GapLessonRow = { id: string; lesson_number: number }
+type GapLessonRow = { id: string; lesson_number: number; queue_position?: number | null }
 
 type ForwardIncompleteRow = {
   id: string
@@ -120,8 +122,9 @@ function makeRecalibrateSupabase(opts: {
         onRejected?: (e: unknown) => unknown,
       ) => {
         let data: unknown
-        if (projection === 'id, lesson_number') {
-          data = opts.gapLessons
+        if (projection === 'id, lesson_number, queue_position') {
+          // A gap row with no slot given holds the healthy one, lesson_number.
+          data = opts.gapLessons.map((g) => ({ queue_position: g.lesson_number, ...g }))
         } else if (
           // Phase-5 forward select. queue_position + queue_pinned were added
           // when pins landed (July 2026): recalibration reads the pin state so
@@ -460,11 +463,11 @@ test('recalibrateCurriculumGoal: no gap lessons → no distribution writes', asy
   assert.deepEqual(goalWrites[0].payload, { current_lesson: 0, start_at_lesson: 1 })
 })
 
-test('recalibrateCurriculumGoal: every distribution write stamps scheduled_source = recalibrate_estimate + queue_position = null', async () => {
+test('recalibrateCurriculumGoal: every distribution write stamps scheduled_source = recalibrate_estimate and leaves queue_position alone', async () => {
   // Invariant 10 + the "estimate" flag: the lesson card surfaces the
-  // hint by reading scheduled_source, and the queue projector ignores
-  // these rows by nulling queue_position. Both must be set on every
-  // write, regardless of how the lessons cluster onto dates.
+  // hint by reading scheduled_source. queue_position is NOT in the payload:
+  // the row keeps its slot so both pointer recomputes count it like a real
+  // completion (see the d1e76670 tests at the bottom of this file).
   const anchor = daysAgo(7)
   const gap: GapLessonRow[] = [
     { id: 'L1', lesson_number: 1 },
@@ -491,7 +494,7 @@ test('recalibrateCurriculumGoal: every distribution write stamps scheduled_sourc
   for (const w of dist) {
     const p = w.payload as Record<string, unknown>
     assert.equal(p.scheduled_source, 'recalibrate_estimate')
-    assert.equal(p.queue_position, null)
+    assert.ok(!('queue_position' in p), 'the slot is never nulled')
     assert.equal(p.completed, true)
     // completed_at + scheduled_date + date should all line up to the
     // same calendar day — the Plan calendar reads scheduled_date and
@@ -543,4 +546,158 @@ test('recalibrateCurriculumGoal: forward lessons (lesson_number >= clamped) are 
   // And the gap rows ARE in the distribution.
   assert.ok(distIds.has('L1'))
   assert.ok(distIds.has('L2'))
+})
+
+// ── "I'm actually on lesson X" survives the next recompute ─────────────────
+//
+// Goal d1e76670 (Phonics), Sept 14 to 15, 2026: recalibrated to lesson 19, so
+// recalibrate wrote current_lesson 18 and stamped lessons 11 to 18 as
+// estimates with queue_position NULL. The next day a Schedule Builder save
+// wrote start_at_lesson back to 10 and called recomputeCurrentLesson, which
+// reads MAX(queue_position) over completed rows. The estimates had no slot, so
+// it answered 10, and the builder renumbered lesson 19 into slot 11
+// (ROOTED-HOMESCHOOL-1J, "leaves 8 projected slot(s) unfilled").
+//
+// Contract: after recalibrating to X, recomputeCurrentLesson answers X - 1 on
+// every later call, whatever the builder does in between. Run against an
+// in-memory client that applies the filters, so the answer comes from the rows.
+
+function phonicsGoal() {
+  const goalId = 'd1e76670'
+  const lessons: Record<string, unknown>[] = []
+  for (let n = 1; n <= 30; n++) {
+    const done = n <= 10
+    const d = done ? daysAgo(40 - n) : daysAgo(-(n - 10))
+    lessons.push({
+      id: `L${n}`,
+      curriculum_goal_id: goalId,
+      lesson_number: n,
+      queue_position: n,
+      completed: done,
+      completed_at: done ? `${ymd(d)}T15:00:00Z` : null,
+      scheduled_date: ymd(d),
+      date: ymd(d),
+      scheduled_source: done ? 'completion_today' : 'wizard_create',
+      is_backfill: false,
+      queue_pinned: false,
+      skipped: false,
+    })
+  }
+  const goal = {
+    id: goalId,
+    total_lessons: 30,
+    lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed'],
+    start_date: ymd(daysAgo(45)),
+    lessons_per_day_overrides: null,
+    created_at: '2026-08-31T19:16:58Z',
+    current_lesson: 10,
+    start_at_lesson: 1,
+  }
+  return { goalId, ...makeMemorySupabase({ curriculum_goals: [goal], lessons }) }
+}
+
+test('recalibrate to 19, then recompute: 18, and still 18 after a builder save renumbers the queue', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+  assert.equal(res.newCountDone, 18)
+
+  const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate')
+  assert.deepEqual(estimates.map((r) => r.lesson_number), [11, 12, 13, 14, 15, 16, 17, 18])
+  for (const r of estimates) {
+    assert.equal(r.completed, true)
+    assert.equal(r.queue_position, r.lesson_number, `lesson ${r.lesson_number} keeps its slot`)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 18)
+
+  // The builder save that broke it: phase 1 writes start_at_lesson back to 10,
+  // so the floor no longer holds the pointer. Only the rows can.
+  const goal = tables.curriculum_goals[0]
+  goal.start_at_lesson = 10
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const builderPointer = await recomputeCurrentLesson(client as any, goalId)
+  assert.equal(builderPointer, 18, 'the builder reads 18, not the last real completion (10)')
+
+  // Phase 2: drop the incomplete rows above the completed floor and renumber the
+  // queue from the pointer the builder just read.
+  const floor = Math.max(...tables.lessons.filter((r) => r.completed).map((r) => r.lesson_number as number))
+  tables.lessons = tables.lessons.filter((r) => r.completed || (r.lesson_number as number) <= floor)
+  for (let n = builderPointer! + 1; n <= 30; n++) {
+    tables.lessons.push({
+      id: `B${n}`, curriculum_goal_id: goalId, lesson_number: n, queue_position: n,
+      completed: false, completed_at: null, scheduled_source: 'wizard_create',
+      is_backfill: false, queue_pinned: false, skipped: false,
+    })
+  }
+  const lesson19 = tables.lessons.find((r) => r.lesson_number === 19)
+  assert.equal(lesson19?.queue_position, 19, 'lesson 19 sits in slot 19, not slot 11')
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 18, 'and every later recompute agrees')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 18)
+})
+
+test('the old null slot is what broke it: the same builder save with slotless estimates reads 10', async () => {
+  // Pins the cause, so a future "hide the estimates from the queue" change fails
+  // here instead of in a family's progress count.
+  const { goalId, client, tables } = phonicsGoal()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+  for (const r of tables.lessons) if (r.scheduled_source === 'recalibrate_estimate') r.queue_position = null
+  tables.curriculum_goals[0].start_at_lesson = 10
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 10)
+})
+
+test('a moved lesson in a slot above the new pointer gives the slot up, so the pointer never overshoots', async () => {
+  // Found by the local code review. Lesson 5 moved three weeks out on Plan:
+  // move_lesson_to_date put it in slot 20 and shifted lessons 6 to 20 down to
+  // slots 5 to 19. "I'm actually on lesson 12" selects lesson 5 by number, and
+  // a completed row holding slot 20 would drive both recomputes to 20.
+  const goalId = 'drifted'
+  const lessons: Record<string, unknown>[] = []
+  const slotFor = (n: number) => (n === 5 ? 20 : n >= 6 && n <= 20 ? n - 1 : n)
+  for (let n = 1; n <= 30; n++) {
+    lessons.push({
+      id: `L${n}`, curriculum_goal_id: goalId, lesson_number: n, queue_position: slotFor(n),
+      completed: n <= 4, completed_at: n <= 4 ? `${ymd(daysAgo(30 - n))}T15:00:00Z` : null,
+      scheduled_date: null, date: null, scheduled_source: 'wizard_create',
+      is_backfill: false, queue_pinned: n === 5, skipped: false,
+    })
+  }
+  const { client, tables } = makeMemorySupabase({
+    curriculum_goals: [{
+      id: goalId, total_lessons: 30, lessons_per_day: 1, school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
+      start_date: ymd(daysAgo(40)), lessons_per_day_overrides: null, created_at: '2026-08-01T00:00:00Z',
+      current_lesson: 4, start_at_lesson: 1,
+    }],
+    lessons,
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [] })
+
+  const byNum = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!
+  assert.equal(byNum(5).completed, true)
+  assert.equal(byNum(5).queue_position, null, 'slot 20 is above the pointer and is given up')
+  for (let n = 6; n <= 11; n++) assert.equal(byNum(n).queue_position, n - 1, `lesson ${n} keeps slot ${n - 1}`)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pointer = await recomputeCurrentLesson(client as any, goalId)
+  assert.equal(pointer, 11, 'never past the lesson the family typed')
+  tables.curriculum_goals[0].start_at_lesson = 10
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const afterBuilder = await recomputeCurrentLesson(client as any, goalId)
+  assert.ok(afterBuilder! <= 11, `a later floor reset cannot push it past 11 either (got ${afterBuilder})`)
+})
+
+test('estimateKeepsSlot: a slot at or below the new pointer is kept, anything else is not', () => {
+  assert.equal(estimateKeepsSlot(18, 18), true)
+  assert.equal(estimateKeepsSlot(11, 18), true)
+  assert.equal(estimateKeepsSlot(19, 18), false)
+  assert.equal(estimateKeepsSlot(null, 18), false)
 })

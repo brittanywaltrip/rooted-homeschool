@@ -27,7 +27,9 @@ import {
  *   3. Evenly distribute gap lessons across [anchor + 1 day, yesterday] in
  *      lesson_number order, stamping each with scheduled_source =
  *      'recalibrate_estimate' so the Plan lesson card surfaces them as
- *      estimates and a later move_lesson_to_date clears the flag.
+ *      estimates and a later move_lesson_to_date clears the flag. Each row
+ *      KEEPS its queue_position, so it counts toward current_lesson exactly
+ *      like a real completion (see the Phase 4 comment).
  *   4. Re-project upcoming lessons from today via syncProjectedScheduledDates
  *      so lesson `clamped` lands on the next valid school day instead of its
  *      wizard-assigned future date.
@@ -39,6 +41,15 @@ import {
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/**
+ * Does an estimate row keep its queue slot? Only when the slot exists and sits
+ * at or below the new pointer, so the row can hold current_lesson up but never
+ * push it past the lesson the family typed. Pure, exported for the tests.
+ */
+export function estimateKeepsSlot(queuePosition: number | null, newCountDone: number): boolean {
+  return queuePosition != null && queuePosition <= newCountDone;
 }
 
 export interface RecalibrateResult {
@@ -90,7 +101,7 @@ export async function recalibrateCurriculumGoal(opts: {
   const [gapRowsRes, anchorRowRes] = await Promise.all([
     supabase
       .from("lessons")
-      .select("id, lesson_number")
+      .select("id, lesson_number, queue_position")
       .eq("curriculum_goal_id", goalId)
       .eq("completed", false)
       .not("lesson_number", "is", null)
@@ -110,6 +121,7 @@ export async function recalibrateCurriculumGoal(opts: {
   const gapLessons = (gapRowsRes.data ?? []) as Array<{
     id: string;
     lesson_number: number;
+    queue_position: number | null;
   }>;
   const anchorCompletedAt =
     (anchorRowRes.data as { completed_at: string | null } | null)?.completed_at ?? null;
@@ -169,29 +181,59 @@ export async function recalibrateCurriculumGoal(opts: {
     // this clusters in lesson-number order; for D > N it spreads with gaps.
     const N = gapLessons.length;
     const D = dates.length;
-    const updatesByDate = new Map<string, string[]>();
+    // Per date, two id lists: rows that keep their slot and rows that give it
+    // up (see the comment above the writes).
+    const updatesByDate = new Map<string, { keepSlot: string[]; dropSlot: string[] }>();
     gapLessons.forEach((l, i) => {
       const idx = N === 1 ? 0 : Math.floor((i * (D - 1)) / (N - 1));
       const d = dates[idx];
-      const list = updatesByDate.get(d) ?? [];
-      list.push(l.id);
-      updatesByDate.set(d, list);
+      const entry = updatesByDate.get(d) ?? { keepSlot: [], dropSlot: [] };
+      if (estimateKeepsSlot(l.queue_position, newCountDone)) entry.keepSlot.push(l.id);
+      else entry.dropSlot.push(l.id);
+      updatesByDate.set(d, entry);
     });
 
+    // An estimate counts toward current_lesson exactly like a real completion,
+    // so it keeps its queue_position whenever that slot is at or below the new
+    // pointer. These rows used to be stamped queue_position = null "so the
+    // projector ignores them", and nothing needed that: the projector starts at
+    // current_lesson + 1, pins and skips are read from incomplete rows only, the
+    // cache sync and healGoalIntegrity skip or keep completed rows, and the
+    // orphan cleanup only unschedules incomplete ones. What the null DID do was
+    // hide the estimates from both pointer recomputes (recomputeCurrentLesson
+    // and the lessons trigger), which read MAX(queue_position) over completed
+    // rows. The recalibration then held only through the start_at_lesson floor,
+    // and a later Schedule Builder save that wrote start_at_lesson back dropped
+    // the pointer to the last real completion: goal d1e76670 recalibrated to 19,
+    // fell to 10, and the builder renumbered lesson 19 into slot 11
+    // (ROOTED-HOMESCHOOL-1J, 8 slots unfilled).
+    //
+    // A slot ABOVE the new pointer is still given up. After a Plan move
+    // (move_lesson_to_date) a lesson number and its slot diverge: lesson 5
+    // moved three weeks out sits in slot 20. Recalibrating to 12 selects it by
+    // lesson_number, and a completed row holding slot 20 would drive the
+    // pointer to 20, past the lesson the family just typed. That row keeps the
+    // old null, which is exactly what it had before.
+    //
+    // queue_position is never SET to lesson_number: on a drifted row that
+    // number can belong to another row's slot, and the collision would fail the
+    // whole date's batch.
+    const estimate = (date: string) => ({
+      completed: true,
+      completed_at: `${date}T12:00:00Z`,
+      scheduled_date: date,
+      date: date,
+      scheduled_source: "recalibrate_estimate",
+    });
     await Promise.all(
-      Array.from(updatesByDate.entries()).map(([date, ids]) =>
-        supabase
-          .from("lessons")
-          .update({
-            completed: true,
-            completed_at: `${date}T12:00:00Z`,
-            scheduled_date: date,
-            date: date,
-            scheduled_source: "recalibrate_estimate",
-            queue_position: null,
-          })
-          .in("id", ids),
-      ),
+      Array.from(updatesByDate.entries()).flatMap(([date, { keepSlot, dropSlot }]) => [
+        ...(keepSlot.length > 0
+          ? [supabase.from("lessons").update(estimate(date)).in("id", keepSlot)]
+          : []),
+        ...(dropSlot.length > 0
+          ? [supabase.from("lessons").update({ ...estimate(date), queue_position: null }).in("id", dropSlot)]
+          : []),
+      ]),
     );
   }
 

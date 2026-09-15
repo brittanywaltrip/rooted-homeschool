@@ -106,6 +106,7 @@ import {
   isReportableGapKind,
   claimGapReport,
 } from './projection-gaps.ts'
+import { makeMemorySupabase } from './test-helpers/memory-supabase.ts'
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -3571,6 +3572,33 @@ test('recomputeCurrentLesson: skipping ahead counts, the rule is MAX not contigu
     /\.eq\("completed", true\)[\s\S]*\.order\("queue_position", \{ ascending: false \}\)[\s\S]*\.limit\(1\)/.test(fn),
     'one highest completed slot, with no walk that stops at the first hole',
   )
+})
+
+test('recomputeCurrentLesson: a checked-off continuation row never moves the pointer; a real completion does', async () => {
+  // "Continue on another day" (PlanV2 handleContinueLesson) writes a goal-linked
+  // row with lesson_number AND queue_position null, and does not call the
+  // recompute. Checking it off later must not advance the curriculum. Asserted
+  // against a client that runs the filters, not by reading the comment.
+  const rows: Record<string, unknown>[] = []
+  for (let n = 1; n <= 8; n++) {
+    rows.push({ id: `L${n}`, curriculum_goal_id: 'g', lesson_number: n, queue_position: n, completed: n <= 5 })
+  }
+  // Two continuation days on lesson 6, both checked off.
+  rows.push({ id: 'C1', curriculum_goal_id: 'g', lesson_number: null, queue_position: null, completed: true, scheduled_source: 'continuation' })
+  rows.push({ id: 'C2', curriculum_goal_id: 'g', lesson_number: null, queue_position: null, completed: true, scheduled_source: 'continuation' })
+  const { client, tables } = makeMemorySupabase({
+    curriculum_goals: [{ id: 'g', total_lessons: 8, start_at_lesson: 1, current_lesson: 5 }],
+    lessons: rows,
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, 'g'), 5, 'continuations do not count')
+  assert.equal(tables.curriculum_goals[0].current_lesson, 5)
+
+  // The real lesson 6 is checked off.
+  tables.lessons.find((r) => r.id === 'L6')!.completed = true
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, 'g'), 6, 'a real completion does')
+  assert.equal(tables.curriculum_goals[0].current_lesson, 6)
 })
 
 // ── syncProjectedScheduledDates — write-through cache helper ──────────────
