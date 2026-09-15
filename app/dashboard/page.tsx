@@ -369,6 +369,13 @@ function getSubjectStyle(subjectName: string | undefined): { bg: string; text: s
   return { bg: "#f0ede8", text: "#5c5248" };
 }
 
+/**
+ * How far "+ Log extra lessons" looks ahead: today plus the next 21 days.
+ * Today's own slots are dropped, so the sheet offers the 21 days after today,
+ * and its empty message names the same number. They said 22 and 14.
+ */
+const EXTRA_LESSONS_WINDOW_DAYS = 22;
+
 /** Format duration in minutes to human string like "30 min" or "1 hr" or "1.5 hr" */
 function formatDuration(mins: number): string {
   if (mins < 60) return `${mins} min`;
@@ -503,7 +510,6 @@ export default function TodayPage() {
 
   const [isPro,            setIsPro]            = useState(false);
   const [trialStartedAt,   setTrialStartedAt]   = useState<string | null>(null);
-  const [planType,         setPlanType]         = useState<string | null>(null);
   const [yearbookCount,    setYearbookCount]    = useState(0);
   const [upgradeDismissed, setUpgradeDismissed] = useState(false);
 
@@ -1219,7 +1225,6 @@ export default function TodayPage() {
     setIsPro(profile?.is_pro ?? false);
     setTrialStartedAt(profile?.trial_started_at ?? null);
     const pt = profile?.plan_type ?? null;
-    setPlanType(pt);
     const isFreeUser = !pt || pt === "free";
     const showTeaser = isFreeUser || previewFree;
     console.log('[YearbookTeaser] plan_type:', pt, 'showing teaser:', showTeaser, 'previewFree:', previewFree);
@@ -3097,10 +3102,10 @@ export default function TodayPage() {
       const cur = g.current_lesson ?? 0;
       if (total <= 0 || cur >= total) continue;
       const cfg: CurriculumGoalConfig = toGoalConfig(g);
-      // 22 days ahead = today + 21 forward. Drop today's slots (those
+      // EXTRA_LESSONS_WINDOW_DAYS ahead = today plus 21 forward. Drop today's slots (those
       // are the current allocation already on the Today schedule).
       const completed = completedTodayPerGoal.get(g.id) ?? 0;
-      const projected = computeNextLessonsForGoal(cfg, todayMid, 22, vacationBlocks, completed, pinsByGoal.get(g.id) ?? [])
+      const projected = computeNextLessonsForGoal(cfg, todayMid, EXTRA_LESSONS_WINDOW_DAYS, vacationBlocks, completed, pinsByGoal.get(g.id) ?? [])
         .filter((p) => p.date !== todayKey);
       allProjected.push(...projected);
     }
@@ -5412,8 +5417,11 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Photo limit nudge — free users with 45+ photos, once per session ── */}
-      {(!planType || planType === "free") && totalPhotos >= 45 && totalPhotos < 50 && (() => {
+      {/* ── Photo limit nudge — free users with 45+ photos, once per session ──
+          Gated on the same access check the cap itself uses (getUserAccess,
+          as the photo pickers do), so a family in their trial, who is not
+          capped, is never warned. plan_type alone read them as free. */}
+      {getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt }) === "free" && totalPhotos >= 45 && totalPhotos < 50 && (() => {
         if (typeof window !== "undefined" && sessionStorage.getItem("rooted_photo_limit_shown")) return null;
         if (typeof window !== "undefined") sessionStorage.setItem("rooted_photo_limit_shown", "1");
         if (isNativeApp) {
@@ -5963,7 +5971,7 @@ export default function TodayPage() {
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {upcomingLessons.length === 0 ? (
-                <p className="text-sm text-[#7a6f65] text-center py-8">No upcoming lessons in the next 14 days.</p>
+                <p className="text-sm text-[#7a6f65] text-center py-8">No upcoming lessons in the next {EXTRA_LESSONS_WINDOW_DAYS - 1} days.</p>
               ) : (() => {
                 // Group by child → subject. Lessons within each subject
                 // already arrive in lesson_number ascending order from

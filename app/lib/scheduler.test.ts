@@ -9943,3 +9943,23 @@ test('controls that did nothing are gone, and what families use stays', () => {
   assert.match(plan, /label: "Add appointment"/)
   assert.match(today, /setShowMemoryPicker\(false\)/)
 })
+
+test('small copy and UX fixes: extra-lessons window, photo warning, derived title, filed-year hours', () => {
+  const today = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  // (a) One number for the window and its empty message.
+  assert.match(today, /const EXTRA_LESSONS_WINDOW_DAYS = 22;/)
+  assert.match(today, /computeNextLessonsForGoal\(cfg, todayMid, EXTRA_LESSONS_WINDOW_DAYS,/)
+  assert.match(today, /No upcoming lessons in the next \{EXTRA_LESSONS_WINDOW_DAYS - 1\} days\./)
+  assert.ok(!today.includes('next 14 days'))
+  // (b) The 45-photo warning uses the cap's own access check, so a trial family is not warned.
+  assert.match(today, /getUserAccess\(\{ is_pro: isPro, trial_started_at: trialStartedAt \}\) === "free" && totalPhotos >= 45/)
+  // (c) A curriculum lesson's title is derived, so Edit lesson offers Subject and Title only for a one-off.
+  const edit = stripComments(loadRepoFile('app/components/PlanV2/EditLessonModal.tsx'))
+  assert.match(edit, /const titleIsDerived = !!goalId;/)
+  assert.match(edit, /\{titleIsDerived \? null : \(/)
+  assert.match(edit, /const nextTitle = titleIsDerived \? \(lesson\.title \?\? ""\) : mergeTitle\(subject, title\);/)
+  // (d) The Years page counts an unlogged lesson as 30 minutes, like Reports.
+  const years = stripComments(loadRepoFile('app/dashboard/years/page.tsx'))
+  assert.match(years, /m \+ \(r\.minutes_spent \?\? 30\)/)
+  assert.match(stripComments(loadRepoFile('app/dashboard/reports/page.tsx')), /l\.minutes_spent \?\? 30\) \/ 60/)
+})

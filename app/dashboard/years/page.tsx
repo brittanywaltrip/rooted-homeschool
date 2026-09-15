@@ -61,7 +61,9 @@ async function loadFiledYears(
         supabase.from("curriculum_goals").select("school_days").eq("user_id", userId).eq("school_year_id", y.id).limit(1).maybeSingle(),
       ]);
       const schoolDays = ((goal as { school_days: string[] | null } | null)?.school_days ?? null) || DEFAULT_SCHOOL_DAYS;
-      const minutes = rows.reduce((m, r) => m + (r.minutes_spent ?? 0), 0);
+      // A lesson with no minutes logged counts 30, the default Reports uses
+      // for hours, so this card and Reports agree about the same year.
+      const minutes = rows.reduce((m, r) => m + (r.minutes_spent ?? 30), 0);
       out[y.id] = {
         lessons: rows.length,
         hours: Math.round((minutes / 60) * 10) / 10,

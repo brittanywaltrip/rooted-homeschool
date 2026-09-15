@@ -79,8 +79,6 @@ The memory count in the header, the first-memory card, the Your Book strip and t
 
 Today's number is worked out from each subject's schedule since its last finished lesson. On that same visit, Today moves unfinished lessons forward onto upcoming days, so by the time the family opens Plan those lessons are no longer in the past and Plan has nothing to show. What to tell them: answer the "You have lessons from earlier" pop-up on Today (Yes if they did them, "reschedule" if not). It opens by itself once per browser session, and tapping "N lessons from earlier · Catch up" on Today reopens it any time.
 
-**Known quirk:** the photo warning that says "You have N photos left" can show to a family who is still in their free trial, even though the limit does not apply to them yet.
-
 ---
 
 ## Plan

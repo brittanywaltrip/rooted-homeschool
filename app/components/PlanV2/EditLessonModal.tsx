@@ -98,12 +98,17 @@ export default function EditLessonModal(props: EditLessonModalProps) {
   const parsedMinutes = minutes.trim().length > 0 ? parseInt(minutes, 10) : null;
 
   const canSubmit = !!childId && !!date;
+  // A curriculum lesson's title is derived ("<curriculum> — Lesson N", shown
+  // everywhere as "Math · Lesson N"), so Subject and Title, which compose it,
+  // are only offered for a one-off. Showing the stored title invited a family
+  // to edit words the app would never display.
+  const titleIsDerived = !!goalId;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!canSubmit || submitting || !lesson) return;
 
-    const nextTitle = mergeTitle(subject, title);
+    const nextTitle = titleIsDerived ? (lesson.title ?? "") : mergeTitle(subject, title);
     const origTitle = lesson.title ?? "";
     const origDate = lesson.scheduled_date ?? lesson.date ?? "";
     const origLessonNum = lesson.lesson_number ?? null;
@@ -210,6 +215,7 @@ export default function EditLessonModal(props: EditLessonModalProps) {
               </select>
             </label>
 
+            {titleIsDerived ? null : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">Subject</span>
@@ -233,6 +239,7 @@ export default function EditLessonModal(props: EditLessonModalProps) {
                 />
               </label>
             </div>
+            )}
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
               <label className="block col-span-2 sm:col-span-1">
