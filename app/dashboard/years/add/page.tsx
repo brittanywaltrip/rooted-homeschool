@@ -14,9 +14,14 @@
 // saying what their family did last year.
 //
 // Writes run in order: the year, then each goal with its lessons in batches
-// of 500, then the optional note. If any batch fails, everything this run
-// inserted is deleted again and the family sees one sentence, never a partial
-// year. Nothing about the active year is read for writing.
+// of 500, then the optional note, then the year's archive row. If any write
+// fails, everything this run inserted is deleted again and the family sees one
+// sentence, never a partial year. Nothing about the active year is read for
+// writing.
+//
+// The family says how many days they schooled. Lessons are spread over that
+// many school days, chosen evenly across the range, so the attendance Reports
+// counts is the number they gave, not every weekday in the year.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -29,10 +34,16 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { todayLocalDateStr } from "@/app/components/WhenPicker";
 import { schoolDaysBetween } from "@/app/lib/scheduler";
 import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
+import { countYearMemories } from "@/app/lib/past-year-respread";
 import {
   DEFAULT_SCHOOL_DAYS,
+  buildPastYearArchive,
   buildPastYearGoal,
   buildPastYearLessons,
+  daysAttendedProblem,
+  pastYearFilledDays,
+  pickAttendedDays,
+  schoolDaysInRangeHint,
   defaultYearName,
   pastYearProblem,
   pastYearReviewSentence,
@@ -138,6 +149,8 @@ export default function AddPastYearPage() {
   const [yearName, setYearName] = useState("");
   const [nameTouched, setNameTouched] = useState(false);
   const [schoolDays, setSchoolDays] = useState<string[]>(DEFAULT_SCHOOL_DAYS);
+  const [daysAttended, setDaysAttended] = useState("");
+  const [daysTouched, setDaysTouched] = useState(false);
 
   // Step 2
   const [rows, setRows] = useState<DraftRow[]>([]);
@@ -196,6 +209,29 @@ export default function AddPastYearPage() {
     }
   }, [startDate, endDate, nameTouched]);
 
+  // Every school day in the range, or null while the dates cannot be walked.
+  const schoolDaysInRange = useMemo(() => {
+    if (schoolDays.length === 0) return null;
+    if (pastYearProblem(startDate, endDate, [], "9999-12-31")) return null;
+    try {
+      return schoolDaysBetween(startDate, endDate, schoolDays);
+    } catch {
+      return null;
+    }
+  }, [startDate, endDate, schoolDays]);
+  const schoolDayCount = schoolDaysInRange?.length ?? 0;
+
+  // Days attended follows the range until the family types their own number.
+  useEffect(() => {
+    if (daysTouched) return;
+    setDaysAttended(schoolDayCount > 0 ? String(schoolDayCount) : "");
+  }, [schoolDayCount, daysTouched]);
+  const daysProblem = schoolDayCount > 0 ? daysAttendedProblem(daysAttended, schoolDayCount) : null;
+  const attendedDays = useMemo(
+    () => (schoolDaysInRange && !daysProblem ? pickAttendedDays(schoolDaysInRange, Number(daysAttended.trim())) : []),
+    [schoolDaysInRange, daysProblem, daysAttended],
+  );
+
   const toggleDay = (d: string) =>
     setSchoolDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : DAY_LABELS.filter((x) => prev.includes(x) || x === d)));
 
@@ -219,6 +255,7 @@ export default function AddPastYearPage() {
     if (schoolDaysBetween(startDate, endDate, schoolDays).length === 0) {
       return "None of the days you picked fall between those dates. Pick more school days or a wider range.";
     }
+    if (daysProblem) return daysProblem;
     return null;
   };
 
@@ -293,6 +330,8 @@ export default function AddPastYearPage() {
     // a delete that did not happen is an error, not a success.
     const l = await supabase.from("lessons").delete().eq("user_id", userId).eq("school_year_id", yearId);
     if (l.error) throw l.error;
+    const a = await supabase.from("school_year_archives").delete().eq("user_id", userId).eq("school_year_id", yearId);
+    if (a.error) throw a.error;
     const g = await supabase.from("curriculum_goals").delete().eq("user_id", userId).eq("school_year_id", yearId);
     if (g.error) throw g.error;
     const y = await supabase.from("school_years").delete().eq("user_id", userId).eq("id", yearId);
@@ -310,30 +349,36 @@ export default function AddPastYearPage() {
 
     const name = yearName.trim();
     const usable = usableRows(rows.map(toPastYearRow));
+    // The days the lessons are spread over, chosen evenly across the range, and
+    // the days they end up filling: what Reports counts, so what is stored.
+    const picked = pickAttendedDays(schoolDaysBetween(startDate, endDate, schoolDays), Number(daysAttended.trim()));
+    const filled = pastYearFilledDays(usable.map((r) => r.completedLessons), picked).length;
     let yearId: string | null = null;
     try {
       // 1. The year, archived from the first write. Never 'active' or 'upcoming'.
       const { data: year, error: yearErr } = await supabase
         .from("school_years")
-        .insert({ user_id: userId, name, start_date: startDate, end_date: endDate, status: "archived" })
+        .insert({ user_id: userId, name, start_date: startDate, end_date: endDate, status: "archived", days_attended: filled })
         .select("id")
         .single();
       if (yearErr || !year) throw yearErr ?? new Error("school_years insert returned no row");
       yearId = (year as { id: string }).id;
 
-      const daysInYear = schoolDaysBetween(startDate, endDate, schoolDays);
-
       // 2 and 3. Each goal, then its lessons in batches of 500.
+      const filedGoals: Parameters<typeof buildPastYearArchive>[0]["goals"][number][] = [];
+      const filedLessons: { child_id: string; minutes_spent: number | null }[] = [];
       for (const row of usable) {
         const goal = buildPastYearGoal({ userId, schoolYearId: yearId, yearName: name, yearStart: startDate, yearEnd: endDate, schoolDays, row });
         const { data: inserted, error: goalErr } = await supabase.from("curriculum_goals").insert(goal).select("id").single();
         if (goalErr || !inserted) throw goalErr ?? new Error("curriculum_goals insert returned no row");
         const goalId = (inserted as { id: string }).id;
+        filedGoals.push({ id: goalId, child_id: goal.child_id, curriculum_name: goal.curriculum_name, subject_label: goal.subject_label, current_lesson: goal.current_lesson, total_lessons: goal.total_lessons });
         const lessons = buildPastYearLessons({
           userId, schoolYearId: yearId, yearName: name, goalId, childId: row.childId,
           curriculumName: row.curriculumName, completedLessons: row.completedLessons,
-          minutesPerLesson: row.minutesPerLesson, schoolDaysInYear: daysInYear,
+          minutesPerLesson: row.minutesPerLesson, schoolDaysInYear: picked,
         });
+        filedLessons.push(...lessons);
         for (const batch of batches(lessons, LESSON_INSERT_BATCH)) {
           const { error: lessonErr } = await supabase.from("lessons").insert(batch);
           if (lessonErr) throw lessonErr;
@@ -353,6 +398,18 @@ export default function AddPastYearPage() {
         });
         if (memErr) throw memErr;
       }
+
+      // 5. The year's archive row, in the close route's shape plus
+      // days_attended, so the Years page reads a filed year the way it reads a
+      // closed one.
+      const memories = await countYearMemories(supabase, userId, startDate, endDate);
+      const { error: archiveErr } = await supabase.from("school_year_archives").insert(
+        buildPastYearArchive({
+          userId, schoolYearId: yearId, yearName: name, start: startDate, end: endDate,
+          daysAttended: filled, goals: filedGoals, lessons: filedLessons, childNames, memories,
+        }),
+      );
+      if (archiveErr) throw archiveErr;
 
       router.push(`/dashboard/year-end/${yearId}?added=${encodeURIComponent(name)}`);
     } catch (e) {
@@ -377,6 +434,10 @@ export default function AddPastYearPage() {
   const childNames = useMemo(() => Object.fromEntries(children.map((c) => [c.id, c.name])), [children]);
   const parsedRows = rows.map(toPastYearRow);
   const summary = summarizePastYear(parsedRows);
+  // What Reports will count as days present once these lessons are filed.
+  const filledDayCount = attendedDays.length > 0
+    ? pastYearFilledDays(usableRows(parsedRows).map((r) => r.completedLessons), attendedDays).length
+    : 0;
 
   if (isPartner) {
     return (
@@ -456,6 +517,30 @@ export default function AddPastYearPage() {
                   })}
                 </div>
               </div>
+              {schoolDayCount > 0 && (
+                <div>
+                  <label className={labelClass} htmlFor="days-attended">About how many days did you school?</label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="days-attended"
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={schoolDayCount}
+                      value={daysAttended}
+                      placeholder={String(schoolDayCount)}
+                      onChange={(e) => { setDaysTouched(true); setDaysAttended(e.target.value); }}
+                      className={`${inputClass} max-w-[110px]`}
+                      aria-invalid={!!daysProblem}
+                      aria-describedby="days-attended-hint"
+                    />
+                    <span className="text-sm text-[#7a6f65]">days</span>
+                  </div>
+                  <p id="days-attended-hint" className={`text-xs mt-1 ${daysProblem ? "text-[#a94442]" : "text-[#7a6f65]"}`}>
+                    {daysProblem ?? schoolDaysInRangeHint(schoolDayCount, schoolDays)}
+                  </p>
+                </div>
+              )}
               {activeYear && (
                 <p className="text-xs text-[#7a6f65]">
                   Your current year, {activeYear.name}, starts {new Date(activeYear.start_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}. The past year has to end before that.
@@ -599,8 +684,14 @@ export default function AddPastYearPage() {
                 {pastYearReviewSentence({
                   yearName: yearName.trim(), start: startDate, end: endDate, schoolDays,
                   rows: parsedRows, childNames, activeYearName: activeYear?.name ?? null,
+                  daysAttended: filledDayCount || null,
                 })}
               </p>
+              {filledDayCount > 0 && filledDayCount < attendedDays.length && (
+                <p className="text-sm text-[#7a6f65]">
+                  Your lessons fill {filledDayCount} of the {attendedDays.length} days you gave, so Reports will count {filledDayCount} days present. Add lessons or lower the days if that is not right.
+                </p>
+              )}
               {note.trim() && (
                 <p className="text-sm text-[#7a6f65]">
                   Your note is saved as a win dated {new Date(endDate + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}.
@@ -625,7 +716,7 @@ export default function AddPastYearPage() {
                 type="button"
                 onClick={addThisYear}
                 aria-busy={busy}
-                disabled={busy}
+                disabled={busy || !!daysProblem}
                 className={primaryButton}
                 style={{ background: "var(--g-brand)", opacity: busy ? 0.85 : 1 }}
               >

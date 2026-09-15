@@ -6441,10 +6441,15 @@ test('reports: Days Present is the lesson’s day, never the UTC completion inst
     'and with its only reader gone, the column is no longer selected at all',
   )
   // The same date rule the page already uses to filter lessons into the range.
+  // The rule lives in attendancePresentDates (lib/progress-report-rows.ts),
+  // which the page calls; a filed past year's test reads the same helper.
+  assert.match(src, /attendancePresentDates\(completedLessons, filteredAppointments\.map\(\(a\) => a\.date\)\)/)
+  const helper = stripComments(loadRepoFile('lib/progress-report-rows.ts'))
   assert.ok(
-    /const day = l\.date \?\? l\.scheduled_date;\s*\n\s*if \(day\) presentDates\.add\(day\)/.test(src),
+    /const day = l\.date \?\? l\.scheduled_date;\s*\n\s*if \(day\) present\.add\(day\)/.test(helper),
     'Days Present reads the lesson day, with the page’s own date fallback',
   )
+  assert.ok(!/completed_at\.slice\(0, 10\)/.test(helper), 'and never the UTC timestamp')
 })
 
 test('reports: the PDF no longer marks a family’s own lessons as imported', () => {

@@ -231,7 +231,7 @@ Years, then Add a past year. For a year a family homeschooled before they found 
 
 **What it does**
 
-They enter the year's name, start and end dates, school days, and for each child each curriculum: name, subject, total lessons, lessons completed, and minutes per lesson. A review sentence says exactly what will be added: "This adds 180 completed lessons across 4 subjects for Zoe and Emma, dated between Aug 19, 2024 and May 22, 2025, on Mondays to Fridays. It will show under Years, on Reports for those dates, and on the year-end summary. Your 2025-2026 year is not changed."
+They enter the year's name, start and end dates, school days, and **about how many days they schooled** ("162 days", with a note of how many school days the range holds, which is the default). Then for each child each curriculum: name, subject, total lessons, lessons completed, and minutes per lesson. A review sentence says exactly what will be added: "This adds 180 completed lessons across 4 subjects for Zoe and Emma, dated on 162 school days between Aug 19, 2024 and May 22, 2025, on Mondays to Fridays. It will show under Years, on Reports for those dates, and on the year-end summary. Your 2025-2026 year is not changed."
 
 **What it looks at**
 
@@ -239,13 +239,17 @@ The family's other years, to make sure this one does not overlap any of them. A 
 
 **What it saves**
 
-A closed school year, its curricula (already put away), and one finished lesson for every lesson completed, spread evenly across the year's school days in order. If anything fails partway, everything it added is removed again, so there is never half a year.
+A closed school year, its curricula (already put away), one finished lesson for every lesson completed, and the year's keepsake numbers (lessons, hours, days). The lessons are spread in order over exactly the number of days the family gave, chosen evenly between the first and last day, so Days Present on Reports for that year is that number. If anything fails partway, everything it added is removed again, so there is never half a year.
+
+**Changing the days afterward:** on the Years page a filed year shows "180 lessons · 90 hours · 162 days" with **Edit days**. Saving moves that year's lessons onto the new number of days, with the same all-or-nothing rule. Only a year filed this way has it; a year the family lived in Rooted keeps the days they actually logged.
 
 **What "this year" means here**
 
 Nothing changes about this year. Today, Plan, the Garden and the yearbook never see a past year.
 
 **Most likely to confuse**
+
+"My attendance for that year is lower than the days I typed." The days present are the days a lesson sits on. If every curriculum had fewer lessons than the days given (say 100 lessons and 162 days), only the days holding a lesson count, and Rooted says so on the review and stores that number. What to tell them: raise a lesson count or lower the days.
 
 "My past year isn't on the transcript."
 
@@ -383,7 +387,7 @@ Every completed lesson (any date), memories with time logged, school appointment
 
 Only book changes. Marking a book finished dates it today.
 
-**How the numbers work:** hours are each lesson's logged minutes (30 if none were logged) plus time logged on memories. Days present are the days with a finished lesson or a school appointment.
+**How the numbers work:** hours are each lesson's logged minutes (30 if none were logged) plus time logged on memories. Days present are the days with a finished lesson or a school appointment. For a year filed through Add a past year, that is the number of days the family said they schooled.
 
 **What "this year" means here:** This Year runs from the current school year's start to today.
 

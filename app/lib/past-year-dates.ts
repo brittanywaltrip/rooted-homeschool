@@ -38,6 +38,185 @@ export function spreadLessonDates(count: number, days: readonly string[]): strin
   return out;
 }
 
+/**
+ * The days a family actually schooled, chosen evenly from every school day in
+ * the range: every Nth day, the first and the last included, so the year still
+ * spans the dates the family gave. Asked on the add flow and on the Years page
+ * because spreading a year's lessons over EVERY school day marks every one of
+ * them present, and attendance is the number a family keeps for the state. A
+ * mother who filed her kindergarten year saw 180 days present in a year that
+ * had sick days in it (reported 2026-09-14).
+ *
+ * `count` at or above `days.length` returns every day. Never a duplicate, never
+ * fewer than `count` days while `count <= days.length`: consecutive picks are at
+ * least one day apart before rounding, so rounding cannot land two on one day.
+ */
+export function pickAttendedDays(days: readonly string[], count: number): string[] {
+  if (!Number.isInteger(count) || count < 0) throw new Error(`pickAttendedDays: bad count ${count}`);
+  if (count === 0 || days.length === 0) return [];
+  if (count >= days.length) return [...days];
+  if (count === 1) return [days[0]];
+  const last = days.length - 1;
+  const out: string[] = new Array(count);
+  for (let i = 0; i < count; i++) {
+    out[i] = days[Math.round((i * last) / (count - 1))];
+  }
+  return out;
+}
+
+/**
+ * The distinct days a filed year's lessons land on once each curriculum is
+ * spread over `attendedDays`. This is exactly what Reports counts as days
+ * present (a day with a completed lesson), so it is the number stored as
+ * days_attended. It equals attendedDays.length whenever one curriculum holds at
+ * least that many lessons, which is the ordinary year; a year whose every
+ * curriculum is shorter than the days typed fills fewer, and the flow says so.
+ */
+export function pastYearFilledDays(completedPerCurriculum: readonly number[], attendedDays: readonly string[]): string[] {
+  const filled = new Set<string>();
+  for (const n of completedPerCurriculum) {
+    if (n <= 0) continue;
+    for (const d of spreadLessonDates(n, attendedDays)) filled.add(d);
+  }
+  return [...filled].sort();
+}
+
+/** The in-place message for the days-attended field, or null when it is fine. */
+export function daysAttendedProblem(value: string, schoolDaysInRange: number): string | null {
+  const trimmed = value.trim();
+  const n = Number(trimmed);
+  if (trimmed === "" || !Number.isInteger(n) || n < 1 || n > schoolDaysInRange) {
+    return `Between 1 and ${schoolDaysInRange} for these dates and days.`;
+  }
+  return null;
+}
+
+/** "(there are 180 Mondays to Fridays between your dates)" */
+export function schoolDaysInRangeHint(count: number, schoolDays: readonly string[]): string {
+  if (count === 1) return "(there is 1 school day between your dates)";
+  const described = describeSchoolDays(schoolDays);
+  const noun = described === "every day" ? "days" : described;
+  return `(there are ${count.toLocaleString("en-US")} ${noun} between your dates)`;
+}
+
+/**
+ * How a filed year's lessons move when its day count changes on the Years
+ * page. Each curriculum's lessons, in lesson order, are re-spread over the new
+ * attended days with the same spreadLessonDates the add flow used, and the
+ * writes are grouped by date so a year costs one update per day, not per
+ * lesson. `restore` puts every row back exactly as it was.
+ */
+export type RespreadLesson = {
+  id: string;
+  curriculum_goal_id: string | null;
+  lesson_number: number | null;
+  date: string | null;
+  scheduled_date: string | null;
+  completed_at: string | null;
+};
+export type DateWrite = { date: string | null; scheduled_date: string | null; completed_at: string | null; ids: string[] };
+
+export function planPastYearRespread(lessons: readonly RespreadLesson[], attendedDays: readonly string[]): {
+  writes: DateWrite[];
+  restore: DateWrite[];
+  filledDays: number;
+} {
+  const byGoal = new Map<string, RespreadLesson[]>();
+  for (const l of lessons) {
+    const key = l.curriculum_goal_id ?? "";
+    const list = byGoal.get(key) ?? [];
+    list.push(l);
+    byGoal.set(key, list);
+  }
+  const newDateById = new Map<string, string>();
+  for (const list of byGoal.values()) {
+    const ordered = [...list].sort((a, b) => (a.lesson_number ?? 0) - (b.lesson_number ?? 0) || a.id.localeCompare(b.id));
+    const dates = spreadLessonDates(ordered.length, attendedDays);
+    ordered.forEach((l, i) => newDateById.set(l.id, dates[i]));
+  }
+  const group = (key: (l: RespreadLesson) => { date: string | null; scheduled_date: string | null; completed_at: string | null }) => {
+    const map = new Map<string, DateWrite>();
+    for (const l of lessons) {
+      const v = key(l);
+      const k = `${v.date}|${v.scheduled_date}|${v.completed_at}`;
+      const w = map.get(k) ?? { ...v, ids: [] };
+      w.ids.push(l.id);
+      map.set(k, w);
+    }
+    return [...map.values()];
+  };
+  const writes = group((l) => {
+    const d = newDateById.get(l.id)!;
+    return { date: d, scheduled_date: d, completed_at: `${d}T12:00:00Z` };
+  });
+  const restore = group((l) => ({ date: l.date, scheduled_date: l.scheduled_date, completed_at: l.completed_at }));
+  return { writes, restore, filledDays: new Set(newDateById.values()).size };
+}
+
+/** The memory counts a year archive carries, as the close route counts them. */
+export type YearMemoryCounts = { memories: number; photos: number; books: number; fieldTrips: number; wins: number };
+
+/**
+ * The school_year_archives row for a filed year, in the close route's shape
+ * (app/api/school-year/close/route.ts, steps 2 to 4 and 12) plus days_attended,
+ * so the Years page reads one shape for filed and closed years alike. A filed
+ * year earned no badges and advanced no grades, so those are zero and null.
+ */
+export function buildPastYearArchive(args: {
+  userId: string;
+  schoolYearId: string;
+  yearName: string;
+  start: string;
+  end: string;
+  daysAttended: number;
+  goals: readonly { id: string; child_id: string; curriculum_name: string; subject_label: string | null; current_lesson: number; total_lessons: number }[];
+  lessons: readonly { child_id: string; minutes_spent: number | null }[];
+  childNames: Record<string, string>;
+  memories: YearMemoryCounts;
+}) {
+  const minutes = args.lessons.reduce((m, l) => m + (typeof l.minutes_spent === "number" ? l.minutes_spent : 0), 0);
+  const childIds = [...new Set(args.goals.map((g) => g.child_id))];
+  return {
+    user_id: args.userId,
+    school_year_id: args.schoolYearId,
+    year_name: args.yearName,
+    start_date: args.start,
+    end_date: args.end,
+    stats: {
+      lessons_completed: args.lessons.length,
+      total_lessons: args.lessons.length,
+      memories_count: args.memories.memories,
+      photos_count: args.memories.photos,
+      books_count: args.memories.books,
+      field_trips_count: args.memories.fieldTrips,
+      wins_count: args.memories.wins,
+      badges_count: 0,
+      hours_logged: Math.round((minutes / 60) * 10) / 10,
+      days_attended: args.daysAttended,
+    },
+    per_child_data: childIds.map((childId) => ({
+      child_id: childId,
+      child_name: args.childNames[childId] ?? "",
+      grade_level: null,
+      lessons_completed: args.lessons.filter((l) => l.child_id === childId).length,
+      badges_count: 0,
+      goals_count: args.goals.filter((g) => g.child_id === childId).length,
+      grade_from: null,
+      grade_to: null,
+    })),
+    garden_snapshot: args.goals.map((g) => ({
+      goal_id: g.id,
+      curriculum_name: g.curriculum_name,
+      subject_label: g.subject_label,
+      icon_emoji: null,
+      child_id: g.child_id,
+      current_lesson: g.current_lesson,
+      total_lessons: g.total_lessons,
+      completion_pct: g.total_lessons > 0 ? Math.round((g.current_lesson / g.total_lessons) * 1000) / 1000 : 0,
+    })),
+  };
+}
+
 export type ExistingYear = { id: string; name: string; start_date: string; end_date: string; status: string };
 
 function fmtLong(ymd: string): string {
@@ -305,6 +484,8 @@ export function pastYearReviewSentence(args: {
   rows: readonly PastYearRow[];
   childNames: Record<string, string>;
   activeYearName: string | null;
+  /** The days the lessons are dated on. Omitted, the sentence names the weekdays only. */
+  daysAttended?: number | null;
 }): string {
   const s = summarizePastYear(args.rows);
   const usable = usableRows(args.rows);
@@ -314,7 +495,10 @@ export function pastYearReviewSentence(args: {
   const who = joinNames(kids);
   const subjectWord = s.subjects === 1 ? "subject" : "subjects";
   const lessonWord = s.lessons === 1 ? "lesson" : "lessons";
-  const first = `This adds ${s.lessons.toLocaleString("en-US")} completed ${lessonWord} across ${s.subjects} ${subjectWord} for ${who}, dated between ${fmtLong(args.start)} and ${fmtLong(args.end)}, on ${describeSchoolDays(args.schoolDays)}.`;
+  const onDays = args.daysAttended != null
+    ? `dated on ${args.daysAttended.toLocaleString("en-US")} school ${args.daysAttended === 1 ? "day" : "days"} between ${fmtLong(args.start)} and ${fmtLong(args.end)}`
+    : `dated between ${fmtLong(args.start)} and ${fmtLong(args.end)}`;
+  const first = `This adds ${s.lessons.toLocaleString("en-US")} completed ${lessonWord} across ${s.subjects} ${subjectWord} for ${who}, ${onDays}, on ${describeSchoolDays(args.schoolDays)}.`;
   const second = `It will show under Years, on Reports for those dates, and on the year-end summary.`;
   const third = args.activeYearName ? ` Your ${args.activeYearName} year is not changed.` : "";
   return `${first} ${second}${third}`;

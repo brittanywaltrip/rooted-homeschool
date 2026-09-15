@@ -6,7 +6,10 @@ import { resolve } from "node:path";
 import {
   spreadLessonDates, pastYearProblem, defaultYearName, buildPastYearLessons, buildPastYearGoal,
   summarizePastYear, pastYearReviewSentence, describeSchoolDays, rowProblem, usableRows, MAX_PAST_YEAR_DAYS,
+  pickAttendedDays, pastYearFilledDays, daysAttendedProblem, schoolDaysInRangeHint, planPastYearRespread,
+  buildPastYearArchive,
 } from "./past-year-dates.ts";
+import { attendancePresentDates } from "../../lib/progress-report-rows.ts";
 import { schoolDaysBetween } from "./scheduler.ts";
 
 const MON_FRI = ["Mon", "Tue", "Wed", "Thu", "Fri"];
@@ -225,4 +228,146 @@ test("More lists Years, between Reports and What's New, so the FAQ's path is rea
   const faq = readFileSync(resolve(process.cwd(), "app/faq/page.tsx"), "utf8");
   assert.match(faq, /Go to More, then Years, and tap Add a past year/);
   assert.ok(!faq.includes("Years > Add a past year"), "the old path is gone");
+});
+
+// ── days attended (reported 2026-09-14) ──────────────────────────────────────
+//
+// A mother filed her kindergarten year and Reports showed every weekday in it
+// as a day present: 180 lessons spread over 180 school days. She had sick days.
+// The flow now asks how many days they schooled and dates the lessons on that
+// many days, chosen evenly across the range.
+
+const DAYS_10 = Array.from({ length: 10 }, (_, i) => `2025-09-${String(i + 1).padStart(2, "0")}`);
+
+test("pickAttendedDays: all, one, two, evenly spaced, never duplicates, never short", () => {
+  assert.deepEqual(pickAttendedDays(DAYS_10, 10), DAYS_10, "count === days.length returns every day");
+  assert.deepEqual(pickAttendedDays(DAYS_10, 1), [DAYS_10[0]], "one day is the first");
+  assert.deepEqual(pickAttendedDays(DAYS_10, 2), [DAYS_10[0], DAYS_10[9]], "two days are the first and the last");
+  assert.deepEqual(pickAttendedDays(DAYS_10, 4), [DAYS_10[0], DAYS_10[3], DAYS_10[6], DAYS_10[9]], "evenly spaced");
+  assert.deepEqual(pickAttendedDays(DAYS_10, 0), []);
+  assert.deepEqual(pickAttendedDays(DAYS_10, 25), DAYS_10, "more than there are is every day");
+  assert.throws(() => pickAttendedDays(DAYS_10, 2.5), /bad count/);
+
+  const year = schoolDaysBetween("2024-08-19", "2025-05-22", MON_FRI);
+  for (let n = 1; n <= year.length; n++) {
+    const picked = pickAttendedDays(year, n);
+    assert.equal(picked.length, n, `never fewer than ${n}`);
+    assert.equal(new Set(picked).size, n, `never a duplicate at ${n}`);
+    for (let i = 1; i < picked.length; i++) assert.ok(picked[i] > picked[i - 1], "ascending");
+    assert.equal(picked[0], year[0], "the year still starts on its first day");
+    if (n > 1) assert.equal(picked[n - 1], year[year.length - 1], "and ends on its last");
+  }
+});
+
+test("162 of 180 school days: the lessons stay in order and Reports counts 162 days present", () => {
+  const year = schoolDaysBetween("2024-08-19", "2025-05-22", MON_FRI).slice(0, 180);
+  const picked = pickAttendedDays(year, 162);
+  const math = buildPastYearLessons({ userId: "u", schoolYearId: "y", yearName: "K", goalId: "g1", childId: "k1", curriculumName: "Math", completedLessons: 180, minutesPerLesson: 30, schoolDaysInYear: picked });
+  const reading = buildPastYearLessons({ userId: "u", schoolYearId: "y", yearName: "K", goalId: "g2", childId: "k1", curriculumName: "Reading", completedLessons: 120, minutesPerLesson: 20, schoolDaysInYear: picked });
+  for (const rows of [math, reading]) {
+    for (let i = 1; i < rows.length; i++) {
+      assert.ok(rows[i].date >= rows[i - 1].date, "dates never go backwards");
+      assert.equal(rows[i].lesson_number, rows[i - 1].lesson_number + 1, "lesson order kept");
+    }
+    for (const r of rows) assert.ok(picked.includes(r.date), "every lesson is on a day they schooled");
+  }
+  const filled = pastYearFilledDays([180, 120], picked);
+  assert.equal(filled.length, 162, "the day count is the one they gave");
+  // THE REPORT: the Hours & Attendance Log's own rule over these rows.
+  assert.equal(attendancePresentDates([...math, ...reading], []).size, 162, "Days Present equals days_attended");
+});
+
+test("a year whose every curriculum is shorter than the days given fills fewer, and that is the number stored", () => {
+  const year = schoolDaysBetween("2024-08-19", "2025-05-22", MON_FRI).slice(0, 180);
+  const picked = pickAttendedDays(year, 162);
+  const filled = pastYearFilledDays([100, 40], picked);
+  assert.ok(filled.length < 162 && filled.length >= 100);
+  const rows = [
+    ...buildPastYearLessons({ userId: "u", schoolYearId: "y", yearName: "K", goalId: "a", childId: "k", curriculumName: "A", completedLessons: 100, minutesPerLesson: null, schoolDaysInYear: picked }),
+    ...buildPastYearLessons({ userId: "u", schoolYearId: "y", yearName: "K", goalId: "b", childId: "k", curriculumName: "B", completedLessons: 40, minutesPerLesson: null, schoolDaysInYear: picked }),
+  ];
+  assert.equal(attendancePresentDates(rows, []).size, filled.length, "what is stored is what Reports counts");
+});
+
+test("the days field: 1 to the school days in range, a plain message otherwise, and the hint names the count", () => {
+  assert.equal(daysAttendedProblem("162", 180), null);
+  assert.equal(daysAttendedProblem("180", 180), null);
+  assert.equal(daysAttendedProblem("1", 180), null);
+  for (const bad of ["0", "181", "", "12.5", "abc", "-3"]) {
+    assert.equal(daysAttendedProblem(bad, 180), "Between 1 and 180 for these dates and days.", `"${bad}"`);
+  }
+  assert.equal(schoolDaysInRangeHint(180, MON_FRI), "(there are 180 Mondays to Fridays between your dates)");
+  assert.equal(schoolDaysInRangeHint(1, MON_FRI), "(there is 1 school day between your dates)");
+  assert.equal(schoolDaysInRangeHint(300, ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]), "(there are 300 days between your dates)");
+});
+
+test("the review sentence names the day count", () => {
+  const s = pastYearReviewSentence({
+    yearName: "2024-2025", start: "2024-08-19", end: "2025-05-22", schoolDays: MON_FRI,
+    rows: [kelly[0]], childNames: { k1: "Kelly" }, activeYearName: null, daysAttended: 162,
+  });
+  assert.match(s, /dated on 162 school days between Aug 19, 2024 and May 22, 2025, on Mondays to Fridays\./);
+  assert.ok(!/[\u2013\u2014]/.test(s), "no dashes in copy");
+});
+
+test("changing a filed year's days re-dates each curriculum in lesson order, and restore puts every row back", () => {
+  const year = schoolDaysBetween("2024-08-19", "2025-05-22", MON_FRI).slice(0, 180);
+  const before = buildPastYearLessons({ userId: "u", schoolYearId: "y", yearName: "K", goalId: "g1", childId: "k1", curriculumName: "Math", completedLessons: 180, minutesPerLesson: 30, schoolDaysInYear: year })
+    .map((r, i) => ({ id: `m${i + 1}`, curriculum_goal_id: r.curriculum_goal_id, lesson_number: r.lesson_number, date: r.date, scheduled_date: r.scheduled_date, completed_at: r.completed_at }));
+  // Shuffled input: the plan orders by lesson_number, not by the order rows came back.
+  const shuffled = [...before].reverse();
+  const plan = planPastYearRespread(shuffled, pickAttendedDays(year, 150));
+  assert.equal(plan.filledDays, 150);
+
+  const apply = (rows: typeof before, writes: typeof plan.writes) => {
+    const byId = new Map(rows.map((r) => [r.id, { ...r }]));
+    for (const w of writes) for (const id of w.ids) Object.assign(byId.get(id)!, { date: w.date, scheduled_date: w.scheduled_date, completed_at: w.completed_at });
+    return [...byId.values()];
+  };
+  const after = apply(before, plan.writes).sort((a, b) => a.lesson_number! - b.lesson_number!);
+  for (let i = 1; i < after.length; i++) assert.ok(after[i].date! >= after[i - 1].date!, "lesson order kept");
+  for (const r of after) {
+    assert.equal(r.scheduled_date, r.date);
+    assert.equal(r.completed_at, `${r.date}T12:00:00Z`);
+  }
+  assert.equal(attendancePresentDates(after, []).size, 150, "Reports counts the new number");
+  assert.ok(plan.writes.length <= 150, "one write per day, not per lesson");
+  assert.deepEqual(apply(after, plan.restore).sort((a, b) => a.lesson_number! - b.lesson_number!), before, "restore is exact");
+});
+
+test("a filed year's archive is the close route's stats shape plus days_attended", () => {
+  const a = buildPastYearArchive({
+    userId: "u", schoolYearId: "y", yearName: "Kindergarten", start: "2024-08-19", end: "2025-05-22", daysAttended: 162,
+    goals: [
+      { id: "g1", child_id: "k1", curriculum_name: "Math", subject_label: "Math", current_lesson: 180, total_lessons: 180 },
+      { id: "g2", child_id: "k1", curriculum_name: "Reading", subject_label: null, current_lesson: 120, total_lessons: 160 },
+    ],
+    lessons: [...Array(180).fill({ child_id: "k1", minutes_spent: 30 }), ...Array(120).fill({ child_id: "k1", minutes_spent: null })],
+    childNames: { k1: "Kelly" },
+    memories: { memories: 1, photos: 0, books: 0, fieldTrips: 0, wins: 1 },
+  });
+  // Every key the close route writes (app/api/school-year/close/route.ts, step 2).
+  const closeRoute = readFileSync(resolve(process.cwd(), "app/api/school-year/close/route.ts"), "utf8");
+  const statsBlock = closeRoute.slice(closeRoute.indexOf("const stats = {"), closeRoute.indexOf("};", closeRoute.indexOf("const stats = {")));
+  const closeKeys = [...statsBlock.matchAll(/^\s+(\w+):/gm)].map((m) => m[1]);
+  assert.ok(closeKeys.length >= 9);
+  assert.deepEqual(Object.keys(a.stats).sort(), [...closeKeys, "days_attended"].sort());
+  assert.equal(a.stats.days_attended, 162);
+  assert.equal(a.stats.lessons_completed, 300);
+  assert.equal(a.stats.hours_logged, 90);
+  assert.equal(a.stats.badges_count, 0, "a filed year earns no badges");
+  assert.deepEqual(a.per_child_data, [{ child_id: "k1", child_name: "Kelly", grade_level: null, lessons_completed: 300, badges_count: 0, goals_count: 2, grade_from: null, grade_to: null }]);
+  assert.equal(a.garden_snapshot[1].completion_pct, 0.75);
+});
+
+test("the add flow dates lessons on the picked days, stores the filled count, and writes the archive before it leaves", () => {
+  const src = readFileSync(resolve(process.cwd(), "app/dashboard/years/add/page.tsx"), "utf8");
+  assert.match(src, /About how many days did you school\?/);
+  assert.match(src, /schoolDaysInYear: picked/, "lessons are spread over the picked days, not every school day");
+  assert.match(src, /status: "archived", days_attended: filled/);
+  const archiveAt = src.indexOf('from("school_year_archives").insert(');
+  const leaveAt = src.indexOf("router.push(`/dashboard/year-end/");
+  assert.ok(archiveAt !== -1 && archiveAt < leaveAt, "the archive is written inside the all-or-nothing block");
+  assert.match(src, /from\("school_year_archives"\)\.delete\(\)\.eq\("user_id", userId\)\.eq\("school_year_id", yearId\)/, "and the rollback removes it");
+  assert.match(src, /disabled=\{busy \|\| !!daysProblem\}/, "Save stays disabled while the day count is out of range");
 });

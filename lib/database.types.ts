@@ -2115,6 +2115,7 @@ export type Database = {
       school_years: {
         Row: {
           created_at: string | null
+          days_attended: number | null
           end_date: string
           id: string
           name: string
@@ -2125,6 +2126,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          days_attended?: number | null
           end_date: string
           id?: string
           name: string
@@ -2135,6 +2137,7 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          days_attended?: number | null
           end_date?: string
           id?: string
           name?: string

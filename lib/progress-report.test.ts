@@ -218,7 +218,7 @@ test('the fallback is a parameter, so the two reports word it differently', () =
 test('the attendance page uses the shared resolver and groups by it', () => {
   const src = loadRepoFile('app/dashboard/reports/page.tsx')
   assert.ok(
-    /import \{ lessonReportSubject \} from "@\/lib\/progress-report-rows"/.test(src),
+    /import \{[^}]*\blessonReportSubject\b[^}]*\} from "@\/lib\/progress-report-rows"/.test(src),
     'the page imports the shared resolver',
   )
   assert.ok(

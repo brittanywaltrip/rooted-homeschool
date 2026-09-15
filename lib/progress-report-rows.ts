@@ -182,3 +182,34 @@ export function lessonDailyLogRow(args: {
     estimated: args.estimated,
   };
 }
+
+/**
+ * The days the Hours & Attendance Log counts as present: every day with a
+ * completed lesson, plus every day with a completed school appointment, each
+ * once.
+ *
+ * A lesson's own DAY, not the UTC instant it was checked off at. completed_at
+ * is a timestamp: a family in Central time who checks off Friday's lesson at
+ * 8pm Friday has a completed_at of Saturday 02:00 UTC, so Saturday was counted
+ * present and Friday was absent unless something else happened to be logged
+ * that day. 38 of 139 completed lessons on the account this was found on have
+ * a UTC date that differs from the lesson's date, and this number goes on an
+ * attendance record. Invariant 16 made lessons.date the day the family saw and
+ * agreed to, so it is the honest answer; `date ?? scheduled_date` is the same
+ * rule the page uses to filter lessons into the range.
+ *
+ * A year filed through Add a past year is dated on exactly the days the family
+ * said they schooled, so for that year this count is its days_attended.
+ */
+export function attendancePresentDates(
+  completedLessons: readonly { date?: string | null; scheduled_date?: string | null }[],
+  appointmentDates: readonly string[],
+): Set<string> {
+  const present = new Set<string>();
+  for (const l of completedLessons) {
+    const day = l.date ?? l.scheduled_date;
+    if (day) present.add(day);
+  }
+  for (const d of appointmentDates) present.add(d);
+  return present;
+}

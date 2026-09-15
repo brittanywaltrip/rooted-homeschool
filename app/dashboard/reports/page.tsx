@@ -12,7 +12,7 @@ import { schoolNameFor } from "@/lib/school-name";
 import { mergeBookRecords, bookBelongsToChild, bookCover, bookHowLabel, ratingLeaves, isFinishedBook, isReadingBook, BOOK_HOW_LABELS, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
-import { lessonReportSubject } from "@/lib/progress-report-rows";
+import { attendancePresentDates, lessonReportSubject } from "@/lib/progress-report-rows";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { fallbackSchoolYear, getCurrentSchoolYear, todayLocalYmd } from "@/app/lib/school-year";
 
@@ -252,27 +252,9 @@ function PrintReport({
 
   // Days Present unions completed-lesson dates with completed-appointment
   // dates so co-op or activity days without a curriculum lesson still count.
-  // Dates appearing in both contribute once (Set dedupes).
-  const presentDates = new Set<string>();
-  for (const l of completedLessons) {
-    // The lesson's own DAY, not the UTC instant it was checked off at.
-    //
-    // completed_at is a timestamp: a family in Central time who checks off
-    // Friday's lesson at 8pm Friday has a completed_at of Saturday 02:00 UTC,
-    // so Saturday was counted present and Friday was absent unless something
-    // else happened to be logged that day. 38 of 139 completed lessons on the
-    // account this was found on have a UTC date that differs from the lesson's
-    // date, and this number goes on an attendance record.
-    //
-    // Invariant 16 made lessons.date the day the family saw and agreed to, so
-    // it is the honest answer. Same `date ?? scheduled_date` rule this page
-    // already uses to filter lessons into the range.
-    const day = l.date ?? l.scheduled_date;
-    if (day) presentDates.add(day);
-  }
-  for (const a of filteredAppointments) {
-    presentDates.add(a.date);
-  }
+  // Dates appearing in both contribute once. The rule, and why it reads the
+  // lesson's own day, lives in attendancePresentDates.
+  const presentDates = attendancePresentDates(completedLessons, filteredAppointments.map((a) => a.date));
 
   const fromLabel = new Date(dateFrom + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const toLabel   = new Date(dateTo   + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
