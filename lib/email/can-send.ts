@@ -8,7 +8,8 @@ export type MarketingEmailType =
   | "onboarding_reminder"
   | "family_digest"
   | "announcement"
-  | "winback";
+  | "winback"
+  | "trial_ending";
 
 export type CanSendResult =
   | { allowed: true }
@@ -23,6 +24,9 @@ export type CanSendResult =
  * Master gate: profiles.email_unsubscribed = true → blocks everything.
  * Type gates:
  *   - weekly_summary → blocked when profiles.email_weekly_summary = false
+ *   - trial_ending → nothing but the master gate. It is an account notice, not
+ *     marketing: her plan is about to change and what she can see in the app
+ *     changes with it, so a family who turned off nurture emails still gets it.
  *   - reengagement_*, onboarding_reminder, family_digest, announcement, winback →
  *     blocked when profiles.email_marketing = false
  *
@@ -50,6 +54,9 @@ export async function canSendMarketingEmail(
   if (p.email_unsubscribed === true) {
     return { allowed: false, reason: "unsubscribed" };
   }
+
+  // An account notice. Only the master unsubscribe stops it.
+  if (type === "trial_ending") return { allowed: true };
 
   if (type === "weekly_summary") {
     if (p.email_weekly_summary === false) {

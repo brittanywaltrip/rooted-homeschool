@@ -45,6 +45,8 @@ test("master flag blocks every type", async () => {
     "onboarding_reminder",
     "family_digest",
     "announcement",
+    "winback",
+    "trial_ending",
   ];
   for (const type of types) {
     const r = await canSendMarketingEmail("u1", type, makeSupabase(profile));
@@ -116,4 +118,19 @@ test("NULL granular flags are treated as opt-in", async () => {
 test("happy path: all flags opted in returns allowed", async () => {
   const r = await canSendMarketingEmail("u1", "weekly_summary", makeSupabase(ALLOW_ALL));
   assert.deepEqual(r, { allowed: true });
+});
+
+test("trial_ending ignores email_marketing: it is an account notice, not marketing", () => {
+  // Her plan changes in six days and what she can see in the app changes with
+  // it. Turning off nurture emails must not hide that.
+  const profile = { ...ALLOW_ALL, email_marketing: false };
+  return canSendMarketingEmail("u1", "trial_ending", makeSupabase(profile)).then((r) => {
+    assert.deepEqual(r, { allowed: true });
+  });
+});
+
+test("trial_ending still obeys the master unsubscribe", async () => {
+  const profile = { ...ALLOW_ALL, email_unsubscribed: true, email_marketing: true };
+  const r = await canSendMarketingEmail("u1", "trial_ending", makeSupabase(profile));
+  assert.deepEqual(r, { allowed: false, reason: "unsubscribed" });
 });

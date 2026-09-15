@@ -35,6 +35,7 @@ A few places do NOT use this and are called out in their sections: the Memories 
 | "My past year isn't on the transcript." | Adding a past year, Transcripts |
 | "Grandma's comment is posted. How do I take it down?" | Family portal |
 | "I got an email saying 'Still here whenever you are'." | Emails from Rooted |
+| "I got an email saying my trial is ending." | Emails from Rooted, Billing tiers |
 | "Settings says I'm on Rooted (Free) but I was gifted a year." | Billing |
 | "The hours on Reports don't match the PDF." | Reports |
 
@@ -515,11 +516,14 @@ Comments post instantly with no approval. The parent can remove any of them: ope
 
 ## Emails from Rooted
 
-The three emails that go to a family because of how they are using Rooted (not receipts or family portal notices). Each is sent at most as described here, and none goes to a family who unsubscribed.
+The emails that go to a family because of how they are using Rooted, or because their plan is about to change (not receipts or family portal notices). Each is sent at most as described here, and none goes to a family who unsubscribed.
 
 - **Never started (three emails).** For a family with no memories and no lessons at all: the first two days or more after signup, the second three days after the first, the third five days after the second. Checked daily at 14:00 UTC.
 - **Weekly summary.** Mondays at 15:00 UTC, to a family with a memory or a completed lesson dated in the last 14 days.
+- **Trial ending ("Your Rooted+ trial ends Sunday, September 27").** Checked daily at 16:00 UTC. It goes on day 24 of the 30-day Rooted+ trial, six days before it ends, to a family who finished onboarding and is still on the trial (a family who already upgraded hears nothing). It names the end date in the family's own timezone, says what stays (plan, lessons, garden, every memory) and what changes on the free plan, and links to the upgrade page. **One per family, ever.** This one is an account notice, so it still goes to a family who turned off nurture emails; only a full unsubscribe stops it.
 - **Win-back ("Still here whenever you are").** For a family who used Rooted and went quiet. Checked daily at 15:00 UTC. It goes to a family who finished onboarding and whose newest memory or completed lesson is dated 14 to 21 days ago, so it is the week right after the weekly summary stops. It names their first child ("since Zoe last checked something off"), or says "your family" when there are no children, and links to Today. **One per family, ever**: a family who drifts twice gets it once. At most 50 go out a day.
+
+The welcome email a family gets at the end of onboarding now says they have 30 days of Rooted+ (it used to say "You now have free access to Rooted", which read as if they were already on the free plan), and its footer says what the free plan keeps afterwards.
 
 "Active" means the same thing to the weekly summary and the win-back: a memory's date, or the day a lesson was checked off for. A lesson logged for a past day counts on that past day.
 

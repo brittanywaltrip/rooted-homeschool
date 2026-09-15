@@ -515,7 +515,7 @@ Tell them apart before touching anything: if any misaligned row in the goal has
 `queue_pinned = true`, treat the whole goal as (b) and leave it alone.
 
 ## Cron jobs
-8 jobs in vercel.json. vercel.json is the source of truth; this list has
+9 jobs in vercel.json. vercel.json is the source of truth; this list has
 drifted before, so re-read the file rather than trusting the count here.
 - /api/cron/reengagement: daily 2PM UTC — 3-email drip sequence for inactive users
 - /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
@@ -543,6 +543,14 @@ drifted before, so re-read the file rather than trusting the count here.
   newest memory date or completed-lesson scheduled_date is 14 to 21 days old,
   the same activity definition weekly-summary uses. 50 sends per run.
   `?dry=1` behind the cron secret counts and sends nothing. Logic: lib/winback.ts.
+- /api/cron/trial-ending: daily 4PM UTC, "Your Rooted+ trial ends <date>". One
+  per family, ever (email_log 'trial_ending'), on day 24 of the 30-day trial
+  (trial_started_at 23 to 25 days ago by the family's own calendar) to
+  onboarded families getUserAccess still calls 'trial'. 100 per run, `?dry=1`
+  behind the cron secret. It is an ACCOUNT NOTICE: canSendMarketingEmail blocks
+  it on email_unsubscribed only, never on email_marketing. Logic:
+  lib/trial-ending.ts; copy: scripts/publish-trial-ending-template.ts, whose
+  test pins every number in it to the constant that enforces it.
 
 ## Auth Rules — password reset only
 
