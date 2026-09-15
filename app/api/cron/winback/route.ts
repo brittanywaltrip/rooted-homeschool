@@ -151,6 +151,13 @@ export async function GET(req: NextRequest) {
     // already land in the hello@ inbox.
     send: ({ to, variables, headers }) =>
       sendResendTemplate(to, TEMPLATES.winback, variables, FROM, WINBACK_SUBJECT, headers),
+    // `email` only ever lands inside the footer's unsubscribe query string, and
+    // /unsubscribe reads it with useSearchParams, which turns a raw "+" into a
+    // space. A plus-address arrived as "mom rooted@gmail.com", matched no user,
+    // and app/api/unsubscribe still answered ok, so the page told her she was
+    // unsubscribed while nothing had been written. Encoded here, because a
+    // hosted template cannot encode its own variable.
+    encodeEmailVariable: true,
     logSent: async (userId) => {
       const { error } = await supabase.from('email_log').insert({ user_id: userId, email_type: WINBACK_EMAIL_TYPE })
       return !error

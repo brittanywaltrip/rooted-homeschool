@@ -235,3 +235,26 @@ test("the retired backfill route no longer sends the win-back template", () => {
   assert.ok(!/sendResendTemplate|TEMPLATES\.winback/.test(backfill));
   assert.match(backfill, /status: 410/);
 });
+
+test("the unsubscribe link survives a plus address", async () => {
+  // /unsubscribe reads ?email= with useSearchParams, which decodes a raw "+" as
+  // a space: "mom+rooted@gmail.com" arrived as "mom rooted@gmail.com", matched
+  // no auth user, and the page still said "You've been unsubscribed".
+  const { d, sends } = deps([{ id: "u1", activity: [daysAgo(15)] }], {
+    encodeEmailVariable: true,
+    getUser: async () => ({ email: "mom+rooted@gmail.com", firstName: "Sam" }),
+  });
+  await runWinback(d);
+  assert.equal(sends[0].variables.email, "mom%2Brooted%40gmail.com");
+  assert.equal(sends[0].to, "mom+rooted@gmail.com", "the envelope address is never encoded");
+  assert.equal(
+    decodeURIComponent(sends[0].variables.email),
+    "mom+rooted@gmail.com",
+    "and it decodes back to the address the unsubscribe route looks up",
+  );
+});
+
+test("route: the win-back cron asks for the encoded variable", () => {
+  const route = readFileSync(resolve(import.meta.dirname, "..", "app/api/cron/winback/route.ts"), "utf8");
+  assert.match(route, /encodeEmailVariable: true/);
+});

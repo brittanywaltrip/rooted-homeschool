@@ -128,6 +128,12 @@ export interface WinbackDeps {
     variables: Record<string, string>;
     headers: Record<string, string>;
   }) => Promise<{ ok: boolean; status?: number; error?: string }>;
+  /**
+   * URL-encode the `email` variable before it goes to the template. It only
+   * ever appears inside the footer's unsubscribe query string, and the
+   * unsubscribe page decodes a raw "+" as a space.
+   */
+  encodeEmailVariable?: boolean;
   /** Write the email_log row. False when the write failed. */
   logSent: (userId: string) => Promise<boolean>;
   log: (line: string) => void;
@@ -195,7 +201,7 @@ export async function runWinback(deps: WinbackDeps): Promise<WinbackResult> {
       firstName: user.firstName,
       who: winbackWho(await deps.firstChildName(userId)),
       dashboardUrl: WINBACK_DASHBOARD_URL,
-      email,
+      email: deps.encodeEmailVariable ? encodeURIComponent(email) : email,
     };
 
     if (result.sent >= max) break;
