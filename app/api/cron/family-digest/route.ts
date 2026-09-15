@@ -1,150 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { signedPhotoUrlsAdmin } from "@/lib/photo-url";
 import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
 import { canSendMarketingEmail } from "@/lib/email/can-send";
 import { buildFamilyListUnsubscribeHeaders } from "@/lib/email/list-unsubscribe";
+import { familyDigestMode, runFamilyDigest, type DigestClient } from "@/lib/family-digest";
 
 export const dynamic = "force-dynamic";
 
+// Scheduled Sundays at 15:00 UTC (vercel.json). DRY unless FAMILY_DIGEST_MODE
+// is "live": see lib/family-digest.ts. The founder decides when to flip it; the
+// env var is deliberately not set anywhere by default.
 export async function GET(req: NextRequest) {
   if (req.headers.get("authorization") !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  let sent = 0;
-  let skipped = 0;
+  const result = await runFamilyDigest({
+    client: supabaseAdmin as unknown as DigestClient,
+    mode: familyDigestMode(process.env.FAMILY_DIGEST_MODE),
+    canSend: (userId) => canSendMarketingEmail(userId, "family_digest", supabaseAdmin as SupabaseClient),
+    signPhotos: (paths) => signedPhotoUrlsAdmin("memory-photos", paths, 7 * 24 * 3600),
+    send: ({ to, variables, headers }) =>
+      sendResendTemplate(to, TEMPLATES.familyDigest, variables, "Rooted <hello@rootedhomeschoolapp.com>", undefined, headers),
+    unsubscribeHeaders: buildFamilyListUnsubscribeHeaders,
+    log: (line) => console.log(line),
+  });
 
-  // Get all active, opted-in invites
-  const { data: invites } = await supabaseAdmin
-    .from("family_invites")
-    .select("id, token, email, viewer_name, user_id, trial_ends_at, email_opt_out")
-    .eq("is_active", true)
-    .eq("email_opt_out", false);
-
-  if (!invites || invites.length === 0) {
-    return NextResponse.json({ sent: 0, skipped: 0 });
-  }
-
-  // Group invites by user_id to batch memory queries
-  const byOwner = new Map<string, typeof invites>();
-  for (const inv of invites) {
-    if (!byOwner.has(inv.user_id)) byOwner.set(inv.user_id, []);
-    byOwner.get(inv.user_id)!.push(inv);
-  }
-
-  for (const [userId, ownerInvites] of byOwner) {
-    // Owner-side gate: don't send the digest about a family whose owner has
-    // unsubscribed from marketing email. The invitees opted in via
-    // family_invites.email_opt_out separately, but it's a courtesy not to
-    // flood viewers with content from someone who's quitting our emails.
-    const ownerGate = await canSendMarketingEmail(userId, "family_digest", supabaseAdmin);
-    if (!ownerGate.allowed) {
-      skipped += ownerInvites.length;
-      console.debug(`[family-digest] skipped owner ${userId}: ${ownerGate.reason}`);
-      continue;
-    }
-
-    // Check if mom is paid
-    const { data: profile } = await supabaseAdmin
-      .from("profiles")
-      .select("display_name, first_name, is_pro, subscription_status")
-      .eq("id", userId)
-      .maybeSingle();
-
-    const momPaid = profile?.is_pro === true && profile?.subscription_status === "active";
-    const familyName = profile?.display_name ?? profile?.first_name ?? "A Rooted family";
-
-    // Fetch new memories from last 7 days
-    const { data: newMems } = await supabaseAdmin
-      .from("memories")
-      .select("id, type, title, photo_url, child_id, date")
-      .eq("user_id", userId)
-      .eq("family_visible", true)
-      .gte("created_at", sevenDaysAgo)
-      .order("created_at", { ascending: false })
-      .limit(8);
-
-    if (!newMems || newMems.length === 0) continue;
-
-    // Get children for win descriptions
-    const { data: children } = await supabaseAdmin
-      .from("children")
-      .select("id, name")
-      .eq("user_id", userId)
-      .eq("archived", false);
-
-    const childMap: Record<string, string> = {};
-    (children ?? []).forEach((c: { id: string; name: string }) => {
-      childMap[c.id] = c.name;
-    });
-
-    // Build win list
-    const wins = newMems
-      .filter((m: { type: string }) => m.type === "win" || m.type === "book")
-      .slice(0, 4)
-      .map((m: { type: string; title: string | null; child_id: string | null }) => {
-        const childName = m.child_id ? childMap[m.child_id] : null;
-        return childName ? `${childName}: ${m.title ?? m.type}` : (m.title ?? m.type);
-      });
-
-    // Get up to 4 photo thumbnails. Sign each URL with a 7-day expiry so
-    // recipients can still see images when they open the email days later;
-    // any photo we fail to sign is dropped from the grid rather than
-    // rendered as a broken image.
-    const photoMems = newMems
-      .filter((m: { photo_url: string | null }): m is typeof m & { photo_url: string } => !!m.photo_url)
-      .slice(0, 4);
-    const sevenDaysSeconds = 7 * 24 * 3600;
-    const signedPhotos = await signedPhotoUrlsAdmin(
-      "memory-photos",
-      photoMems.map((m) => m.photo_url),
-      sevenDaysSeconds,
-    );
-    const renderablePhotos = signedPhotos.filter((u): u is string => !!u);
-
-    for (const inv of ownerInvites) {
-      // Check trial: must be active OR mom paid
-      const trialEnded = inv.trial_ends_at && new Date(inv.trial_ends_at) < new Date();
-      if (trialEnded && !momPaid) continue;
-      if (!inv.email) continue;
-
-      const viewUrl = `https://www.rootedhomeschoolapp.com/family/${inv.token}`;
-      const unsubscribeUrl = `https://www.rootedhomeschoolapp.com/family/${inv.token}/unsubscribe`;
-
-      // Build photo grid HTML for template variable
-      const photoGridHtml = renderablePhotos.length > 0
-        ? renderablePhotos.map((url) =>
-          `<img src="${url}" alt="" style="width:48%;height:140px;object-fit:cover;border-radius:8px;display:inline-block;margin:2px;" />`
-        ).join("")
-        : "";
-
-      const highlightsHtml = wins.length > 0
-        ? `<p style="font-weight:600;margin:16px 0 8px;">Highlights:</p>` +
-          wins.map((w: string) => `<p style="color:#7a6f65;margin:0 0 4px;">• ${w}</p>`).join("")
-        : "";
-
-      const listUnsubHeaders = buildFamilyListUnsubscribeHeaders(inv.token);
-
-      try {
-        const result = await sendResendTemplate(inv.email, TEMPLATES.familyDigest, {
-          recipientName: inv.viewer_name ?? "Friend",
-          familyName,
-          memoryCount: String(newMems.length),
-          photoGrid: photoGridHtml,
-          highlights: highlightsHtml,
-          familyUrl: viewUrl,
-          unsubscribeUrl,
-        }, "Rooted <hello@rootedhomeschoolapp.com>", undefined, listUnsubHeaders);
-        if (result.ok) sent++;
-        else console.error(`Digest email error for ${inv.email}:`, result.error);
-      } catch (err) {
-        console.error(`Digest email error for ${inv.email}:`, err);
-      }
-    }
-  }
-
-  return NextResponse.json({ sent, skipped });
+  return NextResponse.json(result);
 }
-

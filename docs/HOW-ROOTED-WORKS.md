@@ -508,7 +508,7 @@ The parent can edit a viewer, set their access to end after 30 days, 90 days, a 
 
 Comments post instantly with no approval. The parent can remove any of them: open the memory in Memories, tap Remove under the comment and confirm ("Remove Grandma's comment? They will not be told."). It disappears from the family portal and the viewer gets no notice. Anyone holding a link can comment, so a forwarded link means someone else can too. What to tell them: remove the comment, and turn that link off in Settings and send a fresh invite if it has been shared further than intended.
 
-**Known quirk:** the weekly "what's new" email to family viewers exists but is not currently scheduled to send.
+**Known quirk:** the weekly "what's new" email to family viewers runs Sundays; it is currently in dry run, not sending, until the founder turns it on.
 
 ---
 

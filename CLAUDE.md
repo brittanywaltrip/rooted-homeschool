@@ -515,7 +515,7 @@ Tell them apart before touching anything: if any misaligned row in the goal has
 `queue_pinned = true`, treat the whole goal as (b) and leave it alone.
 
 ## Cron jobs
-6 jobs in vercel.json. vercel.json is the source of truth; this list has
+7 jobs in vercel.json. vercel.json is the source of truth; this list has
 drifted before, so re-read the file rather than trusting the count here.
 - /api/cron/reengagement: daily 2PM UTC — 3-email drip sequence for inactive users
 - /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
@@ -531,6 +531,10 @@ drifted before, so re-read the file rather than trusting the count here.
   2026) a gifted year that has ended: plan_type 'gift' AND is_pro AND no
   stripe_subscription_id AND past current_period_end, which goes to
   subscription_status 'free'. Both rules: lib/expire-subscriptions.ts.
+- /api/cron/family-digest: weekly Sunday 3PM UTC — the family viewers' "what's new"
+  email. DRY RUN unless the FAMILY_DIGEST_MODE env var is exactly "live": it
+  computes every email, sends none, and logs the viewer's email domain only.
+  The founder flips it; do not set the env var. Logic: lib/family-digest.ts.
 
 ## Auth Rules — password reset only
 
