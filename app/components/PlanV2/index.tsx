@@ -20,6 +20,8 @@ import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import PageHero from "@/app/components/PageHero";
 import CompletionDateChooser, { labelDate as completionLabelDate } from "@/app/components/CompletionDateChooser";
+import BulkCompletionChooser from "@/app/components/BulkCompletionChooser";
+import { completeLessonOnDate, planBulkCompletion, type BulkCompletionChoice } from "@/app/lib/completeLessonOnDate";
 import { healEmptyGoal, countLessonRowsByGoal, type HealableGoalRow } from "@/app/lib/healEmptyGoal";
 import MonthGrid from "./MonthGrid";
 // WeekStrip is preserved on disk (./WeekStrip) but no longer rendered;
@@ -3777,8 +3779,18 @@ export default function PlanV2() {
   }, [lessons, vacationBlocks, setLessons, flagLanded, reload, recordEvent]);
 
   // ── Bulk: mark done ───────────────────────────────────────────────────────
+  //
+  // Invariant 16, for a batch. "Mark all done" used to write completed_at = now
+  // on every selected lesson without asking, so a past lesson got today's
+  // timestamp, no backfill flag and no pin, which is not what a single
+  // check-off of the same lesson writes. It now asks once, "Mark these N done
+  // on: the day each was planned / today", then files every lesson through
+  // completeLessonOnDate with that answer (planBulkCompletion), the same writer
+  // and the same columns as a single check-off.
 
-  const performBulkMarkDone = useCallback(async (ids: string[]) => {
+  const [bulkDoneIds, setBulkDoneIds] = useState<string[] | null>(null);
+
+  const performBulkMarkDone = useCallback((ids: string[]) => {
     const toComplete = ids.filter((id) => {
       const l = lessons.find((x) => x.id === id);
       return l && !l.completed;
@@ -3788,63 +3800,71 @@ export default function PlanV2() {
       exitSelectMode();
       return;
     }
+    setBulkDoneIds(toComplete);
+  }, [lessons, exitSelectMode]);
 
+  const completeBulk = useCallback(async (toComplete: string[], choice: BulkCompletionChoice) => {
     setBulkBusy(true);
     hapticTap(20);
 
-    // Optimistic. Mark-complete pins scheduled_date / date to today only
-    // for rows whose current date is today or future — that keeps a
-    // future-dated row from ghosting back onto its original slot after
-    // the write lands. Past-dated rows keep their original date so the
-    // calendar still shows them as completed history on the day they
-    // were scheduled. Per-lesson decision since a bulk batch can mix
-    // past and future.
+    const rows = toComplete
+      .map((id) => lessons.find((x) => x.id === id))
+      .filter((l): l is PlanV2Lesson => !!l);
+    const plan = planBulkCompletion(rows, choice, todayStr);
+    const dateById = new Map(plan.map((p) => [p.lessonId, p.dateStr]));
+
+    // What each row held before, so undo puts back every column a completion
+    // writes, not just `completed`.
+    const { data: snapRows } = await supabase
+      .from("lessons")
+      .select("id, completed_at, date, scheduled_date, scheduled_source, is_backfill, queue_pinned")
+      .in("id", toComplete);
+    type Snap = { id: string; completed_at: string | null; date: string; scheduled_date: string | null; scheduled_source: string | null; is_backfill: boolean | null; queue_pinned: boolean | null };
+    const snapById = new Map(((snapRows ?? []) as Snap[]).map((r) => [r.id, r]));
+
+    // Optimistic: each row moves to the day it is being filed under.
     const completeSet = new Set(toComplete);
-    const shouldPinId = (l: PlanV2Lesson): boolean => {
-      const d = l.scheduled_date ?? l.date;
-      return !!d && d >= todayStr;
-    };
-    const pinIds = new Set(
-      lessons.filter((l) => completeSet.has(l.id) && shouldPinId(l)).map((l) => l.id),
-    );
     setLessons((prev) =>
       prev.map((l) => {
         if (!completeSet.has(l.id)) return l;
-        return pinIds.has(l.id)
-          ? { ...l, completed: true, scheduled_date: todayStr, date: todayStr }
-          : { ...l, completed: true };
+        const d = dateById.get(l.id) ?? todayStr;
+        return { ...l, completed: true, scheduled_date: d, date: d };
       }),
     );
 
     const results = await Promise.allSettled(
-      toComplete.map((id) => {
-        const update: Record<string, unknown> = {
-          completed: true,
-          completed_at: new Date().toISOString(),
-        };
-        if (pinIds.has(id)) {
-          update.scheduled_date = todayStr;
-          update.date = todayStr;
-        }
-        return supabase
-          .from("lessons")
-          .update(update)
-          .eq("id", id)
-          .then(({ error }) => (error ? Promise.reject(error) : true));
+      plan.map((p) => {
+        const lesson = rows.find((l) => l.id === p.lessonId);
+        return completeLessonOnDate(supabase, {
+          lessonId: p.lessonId,
+          dateStr: p.dateStr,
+          choice: p.choice,
+          todayStr,
+          surface: "plan",
+          lessonNumber: lesson?.lesson_number ?? null,
+          subjectLabel: lesson?.curriculum_goals?.subject_label ?? null,
+          track: (event) => posthog.capture("lesson_completed", event),
+        }).then(({ error }) => (error ? Promise.reject(error) : true));
       }),
     );
 
     const succeededIds: string[] = [];
     const failedIds: string[] = [];
-    toComplete.forEach((id, i) => {
-      if (results[i].status === "fulfilled") succeededIds.push(id);
-      else failedIds.push(id);
+    plan.forEach((p, i) => {
+      if (results[i].status === "fulfilled") succeededIds.push(p.lessonId);
+      else failedIds.push(p.lessonId);
     });
 
     // Rollback failed.
     if (failedIds.length > 0) {
       const failedSet = new Set(failedIds);
-      setLessons((prev) => prev.map((l) => (failedSet.has(l.id) ? { ...l, completed: false } : l)));
+      setLessons((prev) =>
+        prev.map((l) => {
+          if (!failedSet.has(l.id)) return l;
+          const snap = snapById.get(l.id);
+          return { ...l, completed: false, scheduled_date: snap?.scheduled_date ?? l.scheduled_date, date: snap?.date ?? l.date };
+        }),
+      );
     }
 
     // Recompute current_lesson per affected goal so the canonical helper can
@@ -3876,16 +3896,33 @@ export default function PlanV2() {
         onUndo: async () => {
           const sSet = new Set(succeededIds);
           setLessons((prev) =>
-            prev.map((l) => (sSet.has(l.id) ? { ...l, completed: false } : l)),
+            prev.map((l) => {
+              if (!sSet.has(l.id)) return l;
+              const snap = snapById.get(l.id);
+              return { ...l, completed: false, scheduled_date: snap?.scheduled_date ?? l.scheduled_date, date: snap?.date ?? l.date };
+            }),
           );
           hapticTap(20);
           await Promise.allSettled(
-            succeededIds.map((id) =>
-              supabase
+            succeededIds.map((id) => {
+              const snap = snapById.get(id);
+              return supabase
                 .from("lessons")
-                .update({ completed: false, completed_at: null })
-                .eq("id", id),
-            ),
+                .update(
+                  snap
+                    ? {
+                        completed: false,
+                        completed_at: null,
+                        date: snap.date,
+                        scheduled_date: snap.scheduled_date,
+                        scheduled_source: snap.scheduled_source,
+                        is_backfill: !!snap.is_backfill,
+                        queue_pinned: !!snap.queue_pinned,
+                      }
+                    : { completed: false, completed_at: null },
+                )
+                .eq("id", id);
+            }),
           );
           // Recompute after undo so current_lesson reflects the rolled-back
           // state. completed_at on the goal is intentionally never cleared
@@ -3913,6 +3950,7 @@ export default function PlanV2() {
       count: toComplete.length,
       lesson_ids: toComplete,
       from_dates: fromDatesForLog,
+      date_choice: choice,
       succeeded: succeededIds.length,
       failed: failedIds.length,
     });
@@ -5457,7 +5495,7 @@ export default function PlanV2() {
             onMarkAllDone={() => {
               const ids = missedLessonsInView.map((l) => l.id);
               if (ids.length === 0) return;
-              void performBulkMarkDone(ids);
+              performBulkMarkDone(ids);
             }}
             onSelectAll={() => {
               const ids = missedLessonsInView.map((l) => l.id);
@@ -5616,7 +5654,7 @@ export default function PlanV2() {
                     flashNotice("Select at least one lesson first.");
                     return;
                   }
-                  void performBulkMarkDone(Array.from(selectedIds));
+                  performBulkMarkDone(Array.from(selectedIds));
                 }}
                 onSkipAll={() => {
                   if (selectedIds.size === 0) {
@@ -6967,6 +7005,20 @@ export default function PlanV2() {
             </>
           );
         })() : null}
+
+        {/* Invariant 16 for a batch: asked once, before any lesson is written. */}
+        {bulkDoneIds ? (
+          <BulkCompletionChooser
+            count={bulkDoneIds.length}
+            today={todayStr}
+            onCancel={() => setBulkDoneIds(null)}
+            onChoose={(choice) => {
+              const ids = bulkDoneIds;
+              setBulkDoneIds(null);
+              void completeBulk(ids, choice);
+            }}
+          />
+        ) : null}
 
         {/* Invariant 16 — "which day did you do this?", asked before the write
             whenever the day is not today. Nothing is stored until answered. */}

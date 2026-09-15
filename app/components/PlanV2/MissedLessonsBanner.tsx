@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import type { PlanV2Lesson } from "./types";
 import { lessonRowSubtitle, lessonRowTitle } from "./lessonTitle";
@@ -15,8 +14,11 @@ import { lessonRowSubtitle, lessonRowTitle } from "./lessonTitle";
  * user can Move / Skip / Delete) — plus per-row "Reschedule" buttons that
  * match the legacy banner behavior.
  *
- * "Mark all done" uses an inline two-step confirm (no blocking modal) so the
- * grader can stay in flow. The orchestrator owns the atomic update + undo.
+ * "Mark all done" hands the lessons to the orchestrator, which asks once which
+ * day to file them under (BulkCompletionChooser, Invariant 16) and owns the
+ * writes and the undo. That question is the confirmation, so the banner's own
+ * inline "Mark N missed lessons as done?" step is gone: asking twice read as a
+ * double confirm.
  * ========================================================================== */
 
 export interface MissedLessonsBannerProps {
@@ -31,13 +33,9 @@ export interface MissedLessonsBannerProps {
 
 export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
   const { missedLessons, onMarkAllDone, onSelectAll, onReschedule, busy, curriculumNameByGoal } = props;
-  const [confirming, setConfirming] = useState(false);
 
   const n = missedLessons.length;
 
-  // When the banner hides (child filter empties the set, or all missed
-  // lessons become done), React unmounts us — the next mount starts fresh,
-  // so no explicit reset of `confirming` is needed.
   if (n === 0) return null;
 
   return (
@@ -65,46 +63,11 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
 
         <div className="flex-1" />
 
-        {confirming ? (
-          <div className="flex items-center gap-1.5">
-            <span
-              className="truncate"
-              style={{ fontSize: 12, fontWeight: 600, color: "#7a4a1a" }}
-            >
-              Mark {n} missed lesson{n !== 1 ? "s" : ""} as done?
-            </span>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setConfirming(false);
-                onMarkAllDone();
-              }}
-              aria-label={`Confirm, mark ${n} missed lesson${n !== 1 ? "s" : ""} as done`}
-              className="text-[11px] font-bold text-white rounded-lg px-3 py-1.5 min-h-[32px] transition-colors disabled:opacity-50"
-              style={{ backgroundColor: "#5c7f63" }}
-              onMouseEnter={(e) => { if (!busy) e.currentTarget.style.backgroundColor = "#3d5c42"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "#5c7f63"; }}
-            >
-              Yes, mark done
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirming(false)}
-              className="text-[11px] font-semibold rounded-lg px-2.5 py-1.5 min-h-[32px] transition-colors"
-              style={{ color: "#7a4a1a", backgroundColor: "transparent" }}
-              onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = "#fef9e8"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = "transparent"; }}
-            >
-              Cancel
-            </button>
-          </div>
-        ) : (
           <div className="flex items-center gap-1.5">
             <button
               type="button"
               disabled={busy || n === 0}
-              onClick={() => setConfirming(true)}
+              onClick={onMarkAllDone}
               aria-label={`Mark ${n} missed lesson${n !== 1 ? "s" : ""} as done`}
               className="text-[11px] font-bold text-white rounded-lg px-3 py-1.5 min-h-[32px] transition-colors disabled:opacity-50"
               style={{ backgroundColor: "#5c7f63" }}
@@ -124,7 +87,6 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
               Select all
             </button>
           </div>
-        )}
       </div>
 
       {/* Per-row list (capped at 10, same as legacy) */}

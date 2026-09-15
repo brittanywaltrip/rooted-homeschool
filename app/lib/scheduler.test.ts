@@ -71,6 +71,7 @@ import {
   buildCompletionPayload,
   buildLessonCompletedEvent,
   needsDateChoice,
+  planBulkCompletion,
 } from './completeLessonOnDate.ts'
 
 import {
@@ -9962,4 +9963,51 @@ test('small copy and UX fixes: extra-lessons window, photo warning, derived titl
   const years = stripComments(loadRepoFile('app/dashboard/years/page.tsx'))
   assert.match(years, /m \+ \(r\.minutes_spent \?\? 30\)/)
   assert.match(stripComments(loadRepoFile('app/dashboard/reports/page.tsx')), /l\.minutes_spent \?\? 30\) \/ 60/)
+})
+
+// ── Invariant 16 for a batch: bulk Mark all done asks once ───────────────────
+
+test('Invariant 16 — bulk "the day each was planned" writes exactly what single check-offs write', () => {
+  const today = '2026-09-15'
+  const now = new Date('2026-09-15T18:30:00Z')
+  const lessons = [
+    { id: 'a', scheduled_date: '2026-09-08', date: '2026-09-08' },
+    { id: 'b', scheduled_date: '2026-09-10', date: '2026-09-10' },
+  ]
+  const plan = planBulkCompletion(lessons, 'planned', today)
+  assert.deepEqual(plan.map((p) => [p.lessonId, p.dateStr, p.choice]), [['a', '2026-09-08', 'planned'], ['b', '2026-09-10', 'planned']])
+  for (const [i, p] of plan.entries()) {
+    const bulk = buildCompletionPayload({ dateStr: p.dateStr, choice: p.choice, todayStr: today, now })
+    // A single check-off of the same row, answering "The day it was planned".
+    const single = buildCompletionPayload({ dateStr: lessons[i].scheduled_date, choice: 'planned', todayStr: today, now })
+    assert.deepEqual(bulk, single)
+    assert.equal(bulk.date, lessons[i].scheduled_date, 'each row keeps its own planned day')
+    assert.equal(bulk.is_backfill, true)
+    assert.equal(bulk.completed_at, `${lessons[i].scheduled_date}T12:00:00Z`, 'noon UTC of that day')
+  }
+  // "Today" files everything today, silently, like a one-tap check-off.
+  for (const p of planBulkCompletion(lessons, 'today', today)) {
+    assert.equal(p.dateStr, today)
+    assert.equal(p.choice, 'today')
+  }
+  // A lesson planned for today, or with no day, is an ordinary today completion.
+  assert.deepEqual(
+    planBulkCompletion([{ id: 'c', scheduled_date: today }, { id: 'd', scheduled_date: null, date: null }], 'planned', today).map((p) => p.choice),
+    ['today', 'today'],
+  )
+})
+
+test('Invariant 16 — Plan bulk Mark all done and the missed banner go through the chooser and completeLessonOnDate', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const bulk = src.slice(src.indexOf('const completeBulk = useCallback('), src.indexOf('// ── Bulk: skip'))
+  assert.match(bulk, /planBulkCompletion\(rows, choice, todayStr\)/)
+  assert.match(bulk, /completeLessonOnDate\(supabase, \{/)
+  assert.doesNotMatch(bulk, /completed: true,\s*completed_at: new Date\(\)\.toISOString\(\)/, 'no hand-written completion')
+  const open = src.slice(src.indexOf('const performBulkMarkDone = useCallback('), src.indexOf('const completeBulk = useCallback('))
+  assert.match(open, /setBulkDoneIds\(toComplete\)/, 'the tap opens the chooser; nothing is written until it is answered')
+  assert.doesNotMatch(open, /\.update\(/)
+  assert.match(src, /<BulkCompletionChooser/)
+  const banner = stripComments(loadRepoFile('app/components/PlanV2/MissedLessonsBanner.tsx'))
+  assert.match(banner, /onClick=\{onMarkAllDone\}/)
+  assert.ok(!banner.includes('confirming'), 'the banner no longer asks twice')
 })

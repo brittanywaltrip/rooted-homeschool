@@ -555,6 +555,12 @@ them, so the answer depended on a comparison the family never saw.
   another day". Cancel writes nothing.
 - **The month-view checklist** is already date-aware and needs no chooser; the
   date goes in the button instead ("Log these for Wed, Sep 2").
+- **Bulk Mark all done** (Plan's select mode and the missed-lessons banner)
+  asks once for the batch, "Mark these N done on: the day each was planned /
+  today", then files each lesson through `completeLessonOnDate` with that
+  answer (`planBulkCompletion`). A lesson planned for today, or with no day, is
+  filed as an ordinary today completion. Added September 2026: it used to stamp
+  `completed_at = now` on every row without asking.
 - **Uncomplete is unchanged** (Invariant 7 territory): dates are left alone.
   `is_backfill` and `queue_pinned` are cleared, because both were set by a
   chosen-day completion and would otherwise outlive it.

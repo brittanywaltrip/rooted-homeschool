@@ -225,3 +225,32 @@ export function needsDateChoice(
   if (!plannedDate) return false;
   return plannedDate !== todayStr;
 }
+
+/** The two answers the bulk chooser offers for a whole selection. */
+export type BulkCompletionChoice = "planned" | "today";
+
+/**
+ * How "Mark these N done" files each lesson, once the family has answered for
+ * the batch. Each lesson becomes exactly the completion a single check-off of
+ * that lesson with the same answer would write, so bulk and single can never
+ * disagree about a row.
+ *
+ *   "today"   every lesson is filed today.
+ *   "planned" each lesson on its own planned day. A lesson planned for today is
+ *             filed as an ordinary "today" completion (the single chooser does
+ *             not even offer "planned" for it), and one with no day at all is
+ *             filed today, because there is no planned day to keep.
+ */
+export function planBulkCompletion(
+  lessons: readonly { id: string; scheduled_date?: string | null; date?: string | null }[],
+  choice: BulkCompletionChoice,
+  todayStr: string,
+): { lessonId: string; dateStr: string; choice: CompletionChoice }[] {
+  return lessons.map((l) => {
+    const planned = l.scheduled_date ?? l.date ?? null;
+    if (choice === "today" || !planned || planned === todayStr) {
+      return { lessonId: l.id, dateStr: todayStr, choice: "today" };
+    }
+    return { lessonId: l.id, dateStr: planned, choice: "planned" };
+  });
+}

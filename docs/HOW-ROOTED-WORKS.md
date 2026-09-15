@@ -106,7 +106,7 @@ The lessons dated in the weeks on screen, curricula, activities, appointments, b
 - Re-spread and Push back re-plan every unfinished lesson in the affected subjects, with Undo.
 - Adding a break can shift every later lesson back by the number of school days in the break (on by default).
 - Delete a curriculum: unfinished lessons are removed from the calendar, finished lessons stay on reports, lessons with notes are kept. Stop: the curriculum ends where it is. Mark as finished: it is put away.
-- Mark all done (from the banner or select mode) marks everything done without asking which day.
+- Mark all done (from the banner or select mode) asks once, "Mark these N done on: the day each was planned / today", and files every lesson the way a single check-off with that answer would.
 
 **What "this year" means here**
 
@@ -121,7 +121,6 @@ That is what Skip means: "we are not doing this one, move on". The lesson leaves
 **Known quirks**
 
 - When the school year's end date has passed and no next year is set up, Plan shows "Your (year) ended (date). Ready to close it?" with Close this year and Keep going. A year never closes on its own.
-- Mark all done on past lessons records them as finished today, not on the day they were planned.
 
 ---
 
