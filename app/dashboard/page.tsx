@@ -45,8 +45,8 @@ import TodaySchedule from "@/app/components/today/TodaySchedule";
 import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type RecoveryRow } from "@/app/components/MissedLessonRecoveryModal";
 import { gapStartAfterAnswer, goalsWithUncheckedRows } from "@/app/lib/recoverySelection";
 import { healEmptyGoal, countLessonRowsByGoal, isOldEnoughToHeal, type HealableGoalRow } from "@/app/lib/healEmptyGoal";
-import { splitProjectionGaps, projectionGapReports, unhealedGapReports, type ProjectionGapReport } from "@/app/lib/projection-gaps";
-import { planNextRow, healNextRow, type NextRowGoal } from "@/app/lib/healNextRow";
+import { splitProjectionGaps, unhealedGapReports, projectionGapReport, missingProjectedSlots, classifyMissingSlot, isReportableGapKind, claimGapReport, type ProjectionGapReport, type GapKind, type GapReportStore } from "@/app/lib/projection-gaps";
+import { planNextRowDecision, healNextRow, readNextRowFacts, type NextRowGoal } from "@/app/lib/healNextRow";
 import TodayKidSection from "@/app/components/today/TodayKidSection";
 import InlineScheduleTabs from "@/app/components/today/InlineScheduleTabs";
 import { groupItems } from "@/app/components/today/groupItems";
@@ -424,7 +424,11 @@ type FamilyNotification = {
 };
 
 export default function TodayPage() {
-  const today = localDateStr(new Date());
+  // State, not a render-time constant, so a tab left open past midnight moves
+  // to the new day on its own (see the rollover effect below) and loadData is
+  // rebuilt for it. A render-time constant only changed when something else
+  // happened to re-render the page.
+  const [today, setToday] = useState(() => localDateStr(new Date()));
   const router = useRouter();
   const isNativeApp = useIsNativeApp();
   const previewFree = typeof window !== 'undefined' && window.location.search.includes('previewFree=true');
@@ -983,6 +987,14 @@ export default function TodayPage() {
     if (!effectiveUserId) return;
     if (loadDataBusy.current) return;
     loadDataBusy.current = true;
+    // The day this load is FOR, read from the clock now and deliberately
+    // shadowing the component's `today`. The projector below dates today's slot
+    // with `new Date()`, so every date this load compares against must come
+    // from the same clock. A closure made yesterday still said yesterday: the
+    // display filter then dropped every row dated today and the gap check
+    // reported all of a family's goals as missing (58 false warnings on
+    // 2026-09-15, each at local midnight or on an overnight tab's first load).
+    const today = localDateStr(new Date());
     try {
 
     // Belt and suspenders: reset profiles.current_streak_days to 0 when
@@ -1519,128 +1531,59 @@ export default function TodayPage() {
     const rowKey = (r: LoadedLessonRow) => `${r.curriculum_goal_id}|${r.queue_position}`;
     const projectedRowMap = new Map(projectedRows.map((r) => [rowKey(r), r]));
     const orderedProjectedRows: LoadedLessonRow[] = [];
+    for (const p of projected) {
+      const r = projectedRowMap.get(`${p.goal_id}|${p.lesson_number}`);
+      if (r) orderedProjectedRows.push(r);
+    }
+
+    // ── Which projected slots have no row at all ──────────────────────────
+    //
     // A projection with no matching row means the lesson was never generated.
     // This used to be skipped in silence, and that silence is why 26 goals sat
     // broken from March to August 2026: phase 2 of the curriculum save failed,
     // the goal kept its settings and lost its lessons, and the only surface
     // that could have noticed rendered an empty day without a word.
+    //
+    // Judged on projectedRowsRaw, every row the read returned in any state,
+    // NOT on projectedRows, which the display has already filtered by date. See
+    // missingProjectedSlots in app/lib/projection-gaps.ts for the 58 warnings
+    // the filtered list produced. And a read that failed says nothing about
+    // which rows exist, so it files nothing and heals nothing.
+    const projectedRowsReadFailed = Boolean((projectedRowsResult as { error?: unknown }).error);
+    const missingSlotsByGoal: Map<string, number[]> = projectedRowsReadFailed
+      ? new Map()
+      : missingProjectedSlots(projected, projectedRowsRaw);
     const projectedByGoal = new Map<string, number>();
-    const missingByGoal = new Map<string, number>();
-    for (const p of projected) {
-      projectedByGoal.set(p.goal_id, (projectedByGoal.get(p.goal_id) ?? 0) + 1);
-      const r = projectedRowMap.get(`${p.goal_id}|${p.lesson_number}`);
-      if (r) {
-        orderedProjectedRows.push(r);
-      } else {
-        missingByGoal.set(p.goal_id, (missingByGoal.get(p.goal_id) ?? 0) + 1);
-      }
-    }
-    // Two states, two treatments. A goal missing SOME of its rows is the real
-    // signal: healEmptyGoal will not touch a goal that holds any row, so
-    // nothing fixes that on its own and it is reported here. A goal missing
-    // EVERY row is the zero-row state the heal exists for, so it is not
-    // reported at detection — the heal runs a few lines below and only what it
-    // fails to fix is worth a warning. Reporting both here filed 22 warnings in
-    // one second on 2026-09-10 for a family whose load healed all 22.
-    const { partial: partialGaps, full: fullGaps } = splitProjectionGaps(projectedByGoal, missingByGoal);
-    // ONE report per goal per session, not one per lesson: a goal with 180
-    // missing rows would otherwise file 180 events on every single page load.
-    // Warning, not error, because the page still renders and the family is not
-    // blocked; it is the data that needs a human.
-    const fileGapReport = (report: ProjectionGapReport) => {
-      if (reportedProjectionGapsRef.current.has(report.goalId)) return;
-      reportedProjectionGapsRef.current.add(report.goalId);
-      captureSupabaseError("Today projection missing lesson rows", new Error(report.message), {
-        tags: { goal_id: report.goalId, gap: report.kind },
-        level: "warning",
-      });
-    };
-    // ── Put back the one row that is in the way ───────────────────────────
-    //
-    // A goal whose FIRST projected slot has no row is the September shape: the
-    // family's next lesson simply is not there. The projector knows the slot
-    // and the date, so Today writes the row instead of filing a warning about
-    // it.
-    //
-    // BOTH halves of the split, not just `partial`. splitProjectionGaps sends a
-    // goal to `full` whenever missing >= projected, and the goals this exists
-    // for are one lesson a day: one slot projected for today, that one slot
-    // missing, so projected === missing and they land in `full`. Reading only
-    // `partial` meant the heal could never fire for the 23 curricula it was
-    // written for. What separates the two heals is whether the goal holds any
-    // rows at all, which is a row count, not a ratio.
     const firstSlotByGoal = new Map<string, { slot: number; date: string }>();
     for (const p of projected) {
+      projectedByGoal.set(p.goal_id, (projectedByGoal.get(p.goal_id) ?? 0) + 1);
       if (!firstSlotByGoal.has(p.goal_id)) {
         firstSlotByGoal.set(p.goal_id, { slot: p.lesson_number, date: p.date });
       }
     }
-    const missingFirstSlot = (gap: { goalId: string }) => {
-      const first = firstSlotByGoal.get(gap.goalId);
-      if (!first) return false;
-      return !projectedRowMap.has(`${gap.goalId}|${first.slot}`);
-    };
-    const nextRowCandidates = [...partialGaps, ...fullGaps].filter(missingFirstSlot);
-
-    // Reporting happens INSIDE the heal, after it has run, so only what the app
-    // could not fix is filed. Filing synchronously and suppressing every
-    // candidate up front (the first cut) dropped the warning for goals the heal
-    // then declined, which is how a genuinely broken goal goes dark.
-    const reportPartialGaps = (healedGoalIds: ReadonlySet<string>) => {
-      for (const report of projectionGapReports(
-        partialGaps.filter((g) => !healedGoalIds.has(g.goalId)),
-      )) {
-        fileGapReport(report);
+    const missingByGoal = new Map([...missingSlotsByGoal].map(([id, slots]) => [id, slots.length]));
+    const { partial: partialGaps, full: fullGaps } = splitProjectionGaps(projectedByGoal, missingByGoal);
+    const gapById = new Map([...partialGaps, ...fullGaps].map((g) => [g.goalId, g]));
+    // ONE report per goal per browser per day, not one per lesson and not one
+    // per page load. Warning, not error: the page still renders and the family
+    // is not blocked. Every report says why (gap_kind) and why the app did not
+    // fix it itself (heal_skipped_because).
+    const fileGapReport = (
+      report: ProjectionGapReport,
+      why: { gap_kind: GapKind; heal_skipped_because: string },
+    ) => {
+      let store: GapReportStore | null = null;
+      try {
+        store = window.sessionStorage;
+      } catch {
+        store = null;
       }
+      if (!claimGapReport(store, reportedProjectionGapsRef.current, report.goalId, today)) return;
+      captureSupabaseError("Today projection missing lesson rows", new Error(report.message), {
+        tags: { goal_id: report.goalId, gap: report.kind, ...why },
+        level: "warning",
+      });
     };
-
-    if (nextRowCandidates.length > 0 && effectiveUserId) {
-      void (async () => {
-        const healed = new Set<string>();
-        // One grouped count for the candidate set. A goal holding NO rows is
-        // healEmptyGoal's case and is left to it a few lines below.
-        const countByGoal = await countLessonRowsByGoal(
-          supabase,
-          nextRowCandidates.map((g) => g.goalId),
-        );
-        for (const gap of nextRowCandidates) {
-          const goal = goalById.get(gap.goalId);
-          const first = firstSlotByGoal.get(gap.goalId);
-          if (!goal || !first) continue;
-          // Same guard healEmptyGoal uses. A goal saved in the last two minutes
-          // may have its phase 2 in flight in another tab, and writing
-          // current_lesson + 1 underneath it makes that save's batch die on the
-          // unique index, which is not retryable. Leave a save that is still
-          // happening alone.
-          if (!isOldEnoughToHeal((goal as { created_at?: string | null }).created_at)) continue;
-          const rowCount = countByGoal?.get(gap.goalId) ?? null;
-          if (rowCount != null && rowCount <= 0) continue;
-          const planned = planNextRow({
-            goal: goal as unknown as NextRowGoal,
-            userId: effectiveUserId,
-            slot: first.slot,
-            date: first.date,
-            // Null means the grouped read gave no answer; the goal is in a gap
-            // list, so it projected something, and planNextRow's own guards
-            // still apply.
-            existingRowCount: rowCount ?? 1,
-            skippedSlots: new Set(
-              (pinsByGoal.get(gap.goalId) ?? []).filter(isSkippedSlot).map((h) => h.slot),
-            ),
-          });
-          if (!planned) continue;
-          if (await healNextRow(supabase, planned)) healed.add(gap.goalId);
-        }
-        // Only the gaps still standing get a warning.
-        reportPartialGaps(healed);
-        if (healed.size > 0) {
-          loadDataBusy.current = false;
-          await loadData();
-        }
-      })();
-    } else {
-      reportPartialGaps(new Set());
-    }
 
     // The subject's start time lives on the GOAL, not on the lesson row, so
     // it has to be attached here the same way icon_emoji is. Everything
@@ -1659,36 +1602,40 @@ export default function TodayPage() {
     }));
     setLessons(loadedLessons);
 
-    // ── A curriculum with settings and no lessons fills itself in ─────────
-    // The Schedule Builder saves in two phases and a dropped connection
-    // between them leaves a goal with zero lesson rows and a family looking
-    // at an empty subject. Rather than wait for someone to run the repair
-    // script, heal it on the next load.
+    // ── Close the gaps the app can close, report only the rest ─────────────
     //
-    // Candidates only: a goal whose every projected slot came back without a
-    // row — exactly the `full` half of the split above. healEmptyGoal asks the
-    // authoritative question before it writes anything, so a goal that merely
-    // projects nothing today is never touched. Fire-and-forget — the page has
-    // already rendered, and the new rows appear on the next load.
-    const fullGapById = new Map(fullGaps.map((g) => [g.goalId, g]));
-    const healCandidates = goalRows.filter((g) => fullGapById.has(g.id));
-    if (healCandidates.length > 0) {
+    // Two heals, chosen by whether the goal holds ANY row, which is a row count
+    // and not a ratio of missing to projected:
+    //
+    //   * No rows at all: the Schedule Builder saves in two phases and a dropped
+    //     connection between them leaves a goal with settings and no lessons.
+    //     healEmptyGoal fills it in.
+    //   * Some rows: the September shape, where the family's next lesson simply
+    //     is not there. The projector knows the slot and the date, so Today
+    //     writes that one row (healNextRow).
+    //
+    // Before the second heal writes or anything is filed, the goal is re-read:
+    // is the row there now, has the family completed past this slot, did the
+    // pointer move since the load. Only `next_row_missing` is ever reported.
+    // Fire-and-forget: the page has already rendered, and a heal that wrote
+    // anything reloads it.
+    if (gapById.size > 0 && effectiveUserId) {
       void (async () => {
-        // One count for the whole candidate set instead of one per goal. Null
-        // means the grouped read gave no answer, and every goal then counts
-        // itself inside healEmptyGoal exactly as before.
-        const countByGoal = await countLessonRowsByGoal(
-          supabase,
-          healCandidates.map((g) => g.id),
-        );
-        let healed = 0;
+        const gapGoalIds = [...gapById.keys()];
+        // One count for the whole set. No answer means this load cannot tell a
+        // missing row from a failed read, so it does nothing and the next load
+        // asks again.
+        const countByGoal = await countLessonRowsByGoal(supabase, gapGoalIds);
+        if (!countByGoal) return;
+        let wrote = 0;
+
+        const emptyGoals = goalRows.filter((g) => gapById.has(g.id) && countByGoal.get(g.id) === 0);
         const written = new Map<string, number>();
         const skipped = new Set<string>();
-        for (const g of healCandidates) {
+        for (const g of emptyGoals) {
           // A goal saved in the last two minutes may have its phase 2 still in
           // flight in another tab. healEmptyGoal declines it, and so does the
-          // report: a save that is still happening is not a state anyone needs
-          // to be told about.
+          // report: a save that is still happening is not news.
           if (!isOldEnoughToHeal(g.created_at)) skipped.add(g.id);
           const rows = await healEmptyGoal(supabase, {
             goal: g as unknown as HealableGoalRow,
@@ -1698,20 +1645,88 @@ export default function TodayPage() {
             existingLessonCount: countByGoal?.get(g.id) ?? null,
           });
           written.set(g.id, rows);
-          healed += rows;
+          wrote += rows;
         }
-        // Now, and only now, is a full gap worth a warning: the app tried to
-        // fix it on this load and wrote nothing. A heal that threw or whose
-        // insert failed has already reported itself from inside healEmptyGoal.
-        const candidateGaps = healCandidates
-          .map((g) => fullGapById.get(g.id))
+        const emptyGaps = emptyGoals
+          .map((g) => gapById.get(g.id))
           .filter((gap): gap is NonNullable<typeof gap> => gap !== undefined);
-        for (const report of unhealedGapReports(candidateGaps, written, skipped)) {
-          fileGapReport(report);
+        // A heal that threw or whose insert failed has already reported itself
+        // from inside healEmptyGoal.
+        for (const report of unhealedGapReports(emptyGaps, written, skipped)) {
+          fileGapReport(report, { gap_kind: "next_row_missing", heal_skipped_because: "empty_goal_heal_wrote_nothing" });
         }
+
+        const heldGoalIds = gapGoalIds.filter((id) => (countByGoal.get(id) ?? 0) > 0);
+        const askedSlots = [...new Set(heldGoalIds.flatMap((id) => missingSlotsByGoal.get(id) ?? []))];
+        const facts = await readNextRowFacts(supabase, heldGoalIds, askedSlots);
+        for (const goalId of heldGoalIds) {
+          const goal = goalById.get(goalId);
+          const gap = gapById.get(goalId);
+          const fact = facts.get(goalId);
+          const slot = missingSlotsByGoal.get(goalId)?.[0];
+          const first = firstSlotByGoal.get(goalId);
+          // No fresh read, no verdict. Silence beats a guess.
+          if (!goal || !gap || !fact || slot === undefined || !first) continue;
+          const kind = classifyMissingSlot({
+            slot,
+            rowExistsNow: fact.slotsHeld.has(slot),
+            maxCompletedQueuePosition: fact.maxCompletedQueuePosition,
+            loadedCurrentLesson: goal.current_lesson,
+            freshCurrentLesson: fact.currentLesson,
+          });
+          if (!isReportableGapKind(kind)) continue;
+          // Same guard healEmptyGoal uses: writing current_lesson + 1 underneath
+          // a save still in flight makes that save's batch die on the unique
+          // index, which is not retryable. Not reported either.
+          if (!isOldEnoughToHeal(goal.created_at)) continue;
+
+          let skippedBecause: string;
+          if (slot !== first.slot) {
+            // A deeper hole behind a present next lesson: not the heal's shape.
+            skippedBecause = "not_first_slot";
+          } else {
+            const decision = planNextRowDecision({
+              goal: { ...(goal as unknown as NextRowGoal), current_lesson: fact.currentLesson },
+              userId: effectiveUserId,
+              slot,
+              date: first.date,
+              existingRowCount: countByGoal.get(goalId) ?? 0,
+              skippedSlots: new Set(
+                (pinsByGoal.get(goalId) ?? []).filter(isSkippedSlot).map((h) => h.slot),
+              ),
+              maxCompletedQueuePosition: fact.maxCompletedQueuePosition,
+            });
+            if ("skip" in decision) {
+              skippedBecause = decision.skip;
+            } else {
+              const outcome = await healNextRow(supabase, decision.row);
+              if (outcome === "written") {
+                wrote += 1;
+                continue;
+              }
+              if (outcome === "conflict") {
+                // The unique index is on lesson_number, so a conflict does not
+                // prove the SLOT is held. An orphan-damaged row keeps lesson
+                // N+1 with a null or drifted queue_position, stays invisible to
+                // Today, and conflicts on every heal. Silent only when a row
+                // really holds the slot now.
+                const recheck = await readNextRowFacts(supabase, [goalId], [slot]);
+                if (recheck.get(goalId)?.slotsHeld.has(slot)) continue;
+                skippedBecause = "lesson_number_held_off_slot";
+              } else {
+                skippedBecause = "insert_failed";
+              }
+            }
+          }
+          fileGapReport(
+            projectionGapReport(gap, gap.missing >= gap.projected ? "unhealed" : "partial"),
+            { gap_kind: kind, heal_skipped_because: skippedBecause },
+          );
+        }
+
         // Only reload when something was actually written, so a goal that
         // legitimately has nothing to plan cannot loop.
-        if (healed > 0) {
+        if (wrote > 0) {
           loadDataBusy.current = false;
           await loadData();
         }
@@ -2265,12 +2280,40 @@ export default function TodayPage() {
   // (children), Plan (lessons), and the FAB all dispatch the
   // rooted:* window events above for immediate refresh; this poll is
   // the fallback for changes that arrive without an event.
+  //
+  // Through a ref to the LATEST loadData. The interval is created once, and
+  // calling `loadData` directly kept the first render's closure forever, with
+  // that render's day and user baked in.
+  const loadDataRef = useRef(loadData);
+  useEffect(() => {
+    loadDataRef.current = loadData;
+  }, [loadData]);
   useEffect(() => {
     const interval = setInterval(() => {
-      loadData();
+      void loadDataRef.current();
     }, 300000);
     return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Move to the new day when the clock crosses midnight, or when a tab that
+  // slept through it wakes up. Changing `today` rebuilds loadData, and the
+  // load effect above runs it.
+  useEffect(() => {
+    const checkDay = () => {
+      const now = localDateStr(new Date());
+      setToday(now);
+    };
+    const interval = setInterval(checkDay, 60000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") checkDay();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", checkDay);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", checkDay);
+    };
   }, []);
 
   // Re-fetch when children are edited in Settings

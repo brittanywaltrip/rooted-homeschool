@@ -20,6 +20,137 @@
  * without stubbing a reporter.
  * ==========================================================================*/
 
+/* ============================================================================
+ * WHAT COUNTS AS MISSING.
+ *
+ * On 2026-09-15 this report fired 58 times for 7 families in 19 hours and not
+ * one of those goals was missing a row. Every event filed every goal a family
+ * has in the same second, at local midnight or on the first load of a laptop
+ * tab left open overnight. The 5-minute poll called the loadData closure from
+ * the tab's first render, so `today` was still yesterday; the projector dated
+ * today's slot with a fresh clock; and the display filter that drops rows dated
+ * after `today` dropped every row Today had just fetched. The gap check walked
+ * that filtered list and called the rows missing.
+ *
+ * The display may filter. The gap check may not. A slot is missing only when
+ * the goal has no row at that queue_position in ANY state (done, skipped,
+ * dated tomorrow, dated last year). missingProjectedSlots is that rule.
+ * ==========================================================================*/
+
+/** The two columns that say whether a goal holds a row at a slot. */
+export interface SlotRow {
+  curriculum_goal_id: string | null;
+  queue_position: number | null;
+}
+
+/**
+ * The projected slots with no row at all, per goal, in projection order.
+ *
+ * `rows` is every row the read returned for the projected goals, BEFORE any
+ * display filtering. A goal with every slot covered is absent from the result.
+ */
+export function missingProjectedSlots(
+  projected: readonly { goal_id: string; lesson_number: number }[],
+  rows: readonly SlotRow[],
+): Map<string, number[]> {
+  const held = new Set<string>();
+  for (const r of rows) {
+    if (r.curriculum_goal_id && r.queue_position != null) {
+      held.add(`${r.curriculum_goal_id}|${r.queue_position}`);
+    }
+  }
+  const out = new Map<string, number[]>();
+  for (const p of projected) {
+    if (held.has(`${p.goal_id}|${p.lesson_number}`)) continue;
+    const list = out.get(p.goal_id) ?? [];
+    if (!list.includes(p.lesson_number)) list.push(p.lesson_number);
+    out.set(p.goal_id, list);
+  }
+  return out;
+}
+
+/**
+ * Why a slot came back without a row. Sentry tag `gap_kind`.
+ *
+ * - `below_completed`: the family has completed a lesson past this slot. The
+ *   hole is history (a lesson deleted on purpose, or skipped over by hand), not
+ *   a missing next lesson. Nothing to heal and nothing to report.
+ * - `transient_after_completion`: the pointer moved between the load and the
+ *   check, or already counts this slot as done. The load projected from a
+ *   pointer that a check-off was still settling. The next load is right.
+ * - `next_row_missing`: the lesson the family is due has no row. The heal's
+ *   case, and the only one worth a warning when the heal cannot close it.
+ */
+export type GapKind = "below_completed" | "next_row_missing" | "transient_after_completion";
+
+export interface MissingSlotFacts {
+  /** The slot the projection emitted that had no row. */
+  slot: number;
+  /** Re-read after the load: does the goal hold a row at `slot` now, in any state? */
+  rowExistsNow: boolean;
+  /** Highest queue_position among the goal's completed rows, re-read. Null for none. */
+  maxCompletedQueuePosition: number | null;
+  /** current_lesson as the projection saw it. */
+  loadedCurrentLesson: number;
+  /** current_lesson re-read after the load. */
+  freshCurrentLesson: number;
+}
+
+/** The gap's kind, or null when there is no gap after all. Pure. */
+export function classifyMissingSlot(f: MissingSlotFacts): GapKind | null {
+  if (f.rowExistsNow) return null;
+  if (f.maxCompletedQueuePosition != null && f.maxCompletedQueuePosition > f.slot) {
+    return "below_completed";
+  }
+  if (f.freshCurrentLesson !== f.loadedCurrentLesson || f.slot <= f.freshCurrentLesson) {
+    return "transient_after_completion";
+  }
+  return "next_row_missing";
+}
+
+/** Only this kind is ever filed. The other two are silent by design. */
+export function isReportableGapKind(kind: GapKind | null): kind is "next_row_missing" {
+  return kind === "next_row_missing";
+}
+
+/** The sessionStorage key for "this goal was already reported today in this browser". */
+export function gapReportStorageKey(goalId: string, day: string): string {
+  return `rooted:projection-gap-reported:${goalId}:${day}`;
+}
+
+/** The slice of Storage the claim needs, so a test can hand in a Map. */
+export interface GapReportStore {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+}
+
+/**
+ * True the first time a goal's gap is claimed for a day in this browser, false
+ * after. One report per goal per browser per day: a page mount used to be the
+ * only memory, and a family reloading Today filed the same goal again each time.
+ *
+ * `memo` is the in-page fallback for a browser whose storage is missing or
+ * throws (private windows, blocked site data). It is always consulted too.
+ */
+export function claimGapReport(
+  store: GapReportStore | null,
+  memo: Set<string>,
+  goalId: string,
+  day: string,
+): boolean {
+  const key = gapReportStorageKey(goalId, day);
+  if (memo.has(key)) return false;
+  memo.add(key);
+  if (!store) return true;
+  try {
+    if (store.getItem(key) === "1") return false;
+    store.setItem(key, "1");
+  } catch {
+    // Storage refused. The memo above still holds the line for this page.
+  }
+  return true;
+}
+
 /** One goal's projection, and how much of it came back with no lesson row. */
 export interface ProjectionGap {
   goalId: string;
@@ -72,6 +203,11 @@ export function splitProjectionGaps(
     else partial.push({ goalId, projected, missing });
   }
   return { partial, full };
+}
+
+/** One report of either kind, for a caller that has already decided to file it. */
+export function projectionGapReport(gap: ProjectionGap, kind: ProjectionGapKind): ProjectionGapReport {
+  return { ...gap, kind, message: projectionGapMessage(gap) };
 }
 
 /** The detection-time reports: partial gaps, and nothing else. */

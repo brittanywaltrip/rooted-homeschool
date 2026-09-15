@@ -101,6 +101,10 @@ import {
   splitProjectionGaps,
   projectionGapReports,
   unhealedGapReports,
+  missingProjectedSlots,
+  classifyMissingSlot,
+  isReportableGapKind,
+  claimGapReport,
 } from './projection-gaps.ts'
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs'
@@ -3546,6 +3550,29 @@ test('recomputeCurrentLesson: writes max(queue_position) when both reads succeed
   assert.deepEqual(writes[0].payload, { current_lesson: 42 })
 })
 
+test('recomputeCurrentLesson: skipping ahead counts, the rule is MAX not contiguity (87790907)', async () => {
+  // Rows 2, 3 and 5 completed, no row 4. The rule reads the single highest
+  // completed queue_position, so a family who works past a deleted or skipped
+  // lesson is at 5, not stuck at 3. The stub answers the query the way the
+  // database would: highest completed slot first, one row.
+  const completedSlots = [2, 3, 5]
+  const top = [...completedSlots].sort((x, y) => y - x).slice(0, 1).map((q) => ({ queue_position: q }))
+  const { supabase, writes } = makeFakeSupabase({
+    goalResult: { data: { total_lessons: 150, start_at_lesson: 1, current_lesson: 3 }, error: null },
+    lessonsResult: { data: top, error: null },
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = await recomputeCurrentLesson(supabase as any, '87790907')
+  assert.equal(result, 5)
+  assert.deepEqual(writes[0].payload, { current_lesson: 5 })
+  const src = stripComments(loadRepoFile('app/lib/scheduler.ts'))
+  const fn = src.slice(src.indexOf('export async function recomputeCurrentLesson'), src.indexOf('export interface QueueResyncRow'))
+  assert.ok(
+    /\.eq\("completed", true\)[\s\S]*\.order\("queue_position", \{ ascending: false \}\)[\s\S]*\.limit\(1\)/.test(fn),
+    'one highest completed slot, with no walk that stops at the first hole',
+  )
+})
+
 // ── syncProjectedScheduledDates — write-through cache helper ──────────────
 //
 // The queue projector decides which date a queue slot occupies; the
@@ -6785,27 +6812,13 @@ test('gaps: a goal that projected nothing is in neither list', () => {
   assert.deepEqual(full, [])
 })
 
-test('gaps: Today reports the partial state at detection and the full state only after the heal', () => {
+test('gaps: Today files only what it could not fix, with the reason, after both heals ran', () => {
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
-  // Partial gaps are still the only thing reported at this stage, but the
-  // reporting now happens AFTER the next-row self-heal has run, so only what
-  // the app could not fix is filed. Suppressing every candidate up front (the
-  // first cut of that heal) dropped the warning for goals the heal then
-  // declined, which is how a genuinely broken goal goes dark in Sentry.
-  assert.ok(
-    /partialGaps\.filter\(\(g\) => !healedGoalIds\.has\(g\.goalId\)\)/.test(src),
-    'detection files reports for the partial gaps the self-heal did not fix',
-  )
-  assert.ok(
-    /reportPartialGaps\(healed\)/.test(src),
-    'and it reports with the healed set, after the heal has actually run',
-  )
-  // No report is filed from the detection path for a full gap: the only
-  // reporter is fileGapReport, and the full half reaches it through
-  // unhealedGapReports, after the heal has had its turn.
+  // Detection only sorts. Nothing is captured until the heals have had their
+  // turn and the goal has been re-read.
   const detection = src.slice(
-    src.indexOf('const { partial: partialGaps, full: fullGaps }'),
-    src.indexOf('const fullGapById'),
+    src.indexOf('const projectedRowsReadFailed'),
+    src.indexOf('if (gapById.size > 0 && effectiveUserId)'),
   )
   assert.ok(detection.length > 0, 'the detection block was found')
   assert.ok(
@@ -6813,17 +6826,111 @@ test('gaps: Today reports the partial state at detection and the full state only
     'detection captures nothing outside the one shared reporter',
   )
   assert.ok(
-    !/unhealedGapReports\(/.test(detection),
-    'and it does not pre-judge the full gaps it has not healed yet',
+    /for \(const report of unhealedGapReports\(emptyGaps, written, skipped\)\)/.test(src),
+    'an empty goal is filed only when healEmptyGoal wrote nothing',
   )
   assert.ok(
-    /for \(const report of unhealedGapReports\(candidateGaps, written, skipped\)\)/.test(src),
-    'the unhealed report is filed from inside the heal block',
+    /if \(!isReportableGapKind\(kind\)\) continue;/.test(src),
+    'a goal that holds rows is filed only for next_row_missing',
+  )
+  assert.ok(/gap: report\.kind, \.\.\.why/.test(src), 'every report carries gap_kind and heal_skipped_because')
+  assert.ok(
+    /claimGapReport\(store, reportedProjectionGapsRef\.current, report\.goalId, today\)/.test(src),
+    'one report per goal per browser per day',
+  )
+})
+
+/* ── The 58 false reports of 2026-09-15 ────────────────────────────────────
+ * ca12ab61 (TGTB Language Arts 2): lessons 1-3 completed, lesson 4 at
+ * queue_position 4 dated today, current_lesson 3. Reported missing at 9:21 AM
+ * Central alongside all 25 of that family's goals, from a tab whose loadData
+ * closure still said yesterday.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+test('gaps: ca12ab61, a goal with every row present, has no missing slot', () => {
+  const projected = [{ goal_id: 'ca12ab61', lesson_number: 4, date: '2026-09-15' }]
+  const rows = [
+    { curriculum_goal_id: 'ca12ab61', queue_position: 3, completed: true, scheduled_date: '2026-09-14' },
+    { curriculum_goal_id: 'ca12ab61', queue_position: 4, completed: false, scheduled_date: '2026-09-15' },
+  ]
+  assert.equal(missingProjectedSlots(projected, rows).size, 0)
+
+  // What the page used to do: filter for display against a stale day first.
+  const staleToday = '2026-09-14'
+  const displayed = rows.filter((r) => !(r.scheduled_date && r.scheduled_date > staleToday))
+  assert.equal(
+    missingProjectedSlots(projected, displayed).get('ca12ab61')?.length,
+    1,
+    'the display-filtered list is exactly what called the row missing',
+  )
+})
+
+test('gaps: a row in any state covers its slot; only an absent row is missing', () => {
+  const projected = [
+    { goal_id: 'g', lesson_number: 4 },
+    { goal_id: 'g', lesson_number: 5 },
+    { goal_id: 'g', lesson_number: 6 },
+  ]
+  const rows = [
+    { curriculum_goal_id: 'g', queue_position: 4 }, // completed today
+    { curriculum_goal_id: 'g', queue_position: 6 }, // skipped, or dated next year
+    { curriculum_goal_id: 'other', queue_position: 5 },
+    { curriculum_goal_id: 'g', queue_position: null },
+  ]
+  assert.deepEqual([...missingProjectedSlots(projected, rows)], [['g', [5]]])
+})
+
+test('gaps: the three kinds, and only next_row_missing is reportable', () => {
+  const base = { slot: 4, rowExistsNow: false, maxCompletedQueuePosition: 3, loadedCurrentLesson: 3, freshCurrentLesson: 3 }
+  assert.equal(classifyMissingSlot({ ...base, rowExistsNow: true }), null, 'a row that exists is no gap')
+  assert.equal(classifyMissingSlot(base), 'next_row_missing')
+  // 87790907: lesson 4 absent, lesson 5 completed.
+  assert.equal(classifyMissingSlot({ ...base, maxCompletedQueuePosition: 5 }), 'below_completed')
+  // The pointer moved between the load and the re-read.
+  assert.equal(classifyMissingSlot({ ...base, freshCurrentLesson: 4 }), 'transient_after_completion')
+  // The settled pointer already counts this slot as done.
+  assert.equal(
+    classifyMissingSlot({ ...base, loadedCurrentLesson: 4, freshCurrentLesson: 4, maxCompletedQueuePosition: null }),
+    'transient_after_completion',
+  )
+  assert.equal(isReportableGapKind('next_row_missing'), true)
+  assert.equal(isReportableGapKind('below_completed'), false)
+  assert.equal(isReportableGapKind('transient_after_completion'), false)
+  assert.equal(isReportableGapKind(null), false)
+})
+
+test('gaps: one report per goal per browser per day, and storage that throws still dedupes', () => {
+  const data = new Map<string, string>()
+  const store = { getItem: (k: string) => data.get(k) ?? null, setItem: (k: string, v: string) => { data.set(k, v) } }
+  assert.equal(claimGapReport(store, new Set(), 'g1', '2026-09-15'), true, 'first load files')
+  assert.equal(claimGapReport(store, new Set(), 'g1', '2026-09-15'), false, 'a reload (new page memo) does not')
+  assert.equal(claimGapReport(store, new Set(), 'g2', '2026-09-15'), true, 'another goal does')
+  assert.equal(claimGapReport(store, new Set(), 'g1', '2026-09-16'), true, 'the next day does')
+
+  const throwing = { getItem: () => { throw new Error('blocked') }, setItem: () => { throw new Error('blocked') } }
+  const memo = new Set<string>()
+  assert.equal(claimGapReport(throwing, memo, 'g1', '2026-09-15'), true)
+  assert.equal(claimGapReport(throwing, memo, 'g1', '2026-09-15'), false, 'the page memo holds the line')
+  assert.equal(claimGapReport(null, new Set(), 'g1', '2026-09-15'), true)
+})
+
+test('gaps: loadData dates everything from a fresh clock, and the poll calls the latest loadData', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  const body = src.slice(src.indexOf('const loadData = useCallback(async () => {'))
+  assert.ok(
+    /loadDataBusy\.current = true;\s*const today = localDateStr\(new Date\(\)\);/.test(body),
+    'the day a load is for is read when the load runs, not when the closure was made',
   )
   assert.ok(
-    /gap: report\.kind/.test(src),
-    'every report says which of the two states it is',
+    /const missingSlotsByGoal: Map<string, number\[\]> = projectedRowsReadFailed\s*\? new Map\(\)\s*: missingProjectedSlots\(projected, projectedRowsRaw\);/.test(src),
+    'gaps are judged on every row the read returned, and never on a failed read',
   )
+  assert.ok(/void loadDataRef\.current\(\);/.test(src), 'the 5-minute poll reads the ref')
+  assert.ok(
+    !/setInterval\(\(\) => \{\s*loadData\(\);/.test(src),
+    'no interval holds a loadData closure from the first render',
+  )
+  assert.ok(/const \[today, setToday\] = useState\(/.test(src), 'the page moves to a new day on its own')
 })
 
 test('gaps: both load paths count the candidate set in one request', () => {

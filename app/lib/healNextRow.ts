@@ -47,14 +47,19 @@ export type PlannedNextRow = {
   hours: number;
 };
 
-/**
- * The row to write, or null when this goal is not a case for the heal.
- *
- * Pure, so the shape is testable without a database. `slot` and `date` come
- * from the projector's own first emission, which is what keeps the healed row
- * on the day the rest of the schedule expects it.
- */
-export function planNextRow(args: {
+/** Why the heal declined a goal. Sentry tag `heal_skipped_because`. */
+export type NextRowSkipReason =
+  | "empty_goal"
+  | "bad_slot"
+  | "past_end"
+  | "skipped_slot"
+  | "not_next_lesson"
+  | "below_completed"
+  | "bad_date";
+
+export type NextRowDecision = { row: PlannedNextRow } | { skip: NextRowSkipReason };
+
+export type PlanNextRowArgs = {
   goal: NextRowGoal;
   userId: string;
   /** The slot the projection asked for, and the date it gave that slot. */
@@ -68,44 +73,143 @@ export function planNextRow(args: {
    * past current_lesson the family has not skipped.
    */
   skippedSlots?: ReadonlySet<number>;
-}): PlannedNextRow | null {
+  /**
+   * Highest queue_position among the goal's completed rows. A slot below it is
+   * history: the family deleted that lesson or worked past it, and writing it
+   * back would put a lesson they never wanted in front of one they finished.
+   * Omit when unknown; the pointer guard still applies.
+   */
+  maxCompletedQueuePosition?: number | null;
+};
+
+/**
+ * The row to write, or the reason there is none.
+ *
+ * Pure, so the shape is testable without a database. `slot` and `date` come
+ * from the projector's own first emission, which is what keeps the healed row
+ * on the day the rest of the schedule expects it.
+ */
+export function planNextRowDecision(args: PlanNextRowArgs): NextRowDecision {
   const { goal, slot, date } = args;
   const skipped = args.skippedSlots ?? new Set<number>();
-  if (args.existingRowCount <= 0) return null;
-  if (!Number.isInteger(slot) || slot <= 0) return null;
-  if (goal.total_lessons != null && goal.total_lessons > 0 && slot > goal.total_lessons) return null;
-  if (skipped.has(slot)) return null;
+  if (args.existingRowCount <= 0) return { skip: "empty_goal" };
+  if (!Number.isInteger(slot) || slot <= 0) return { skip: "bad_slot" };
+  if (goal.total_lessons != null && goal.total_lessons > 0 && slot > goal.total_lessons) return { skip: "past_end" };
+  if (skipped.has(slot)) return { skip: "skipped_slot" };
+  if (args.maxCompletedQueuePosition != null && args.maxCompletedQueuePosition > slot) {
+    return { skip: "below_completed" };
+  }
   // Only the lesson that is actually in the way. A deeper hole is a different
   // shape and keeps its warning.
   let next = goal.current_lesson + 1;
   while (skipped.has(next)) next++;
-  if (slot !== next) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (slot !== next) return { skip: "not_next_lesson" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return { skip: "bad_date" };
 
   const name = (goal.curriculum_name ?? "Lesson").trim() || "Lesson";
   return {
-    user_id: args.userId,
-    child_id: goal.child_id,
-    curriculum_goal_id: goal.id,
-    lesson_number: slot,
-    // Never null: a goal-attached row with no slot falls through both of
-    // Today's hydration queries and becomes invisible instead of missing.
-    queue_position: slot,
-    title: `${name} — Lesson ${slot}`,
-    scheduled_date: date,
-    date,
-    scheduled_source: "today_self_heal",
-    // Not history and not done. The family has not done this lesson; the row
-    // simply stopped existing.
-    completed: false,
-    completed_at: null,
-    is_backfill: false,
-    hours: 0,
+    row: {
+      user_id: args.userId,
+      child_id: goal.child_id,
+      curriculum_goal_id: goal.id,
+      lesson_number: slot,
+      // Never null: a goal-attached row with no slot falls through both of
+      // Today's hydration queries and becomes invisible instead of missing.
+      queue_position: slot,
+      title: `${name} — Lesson ${slot}`,
+      scheduled_date: date,
+      date,
+      scheduled_source: "today_self_heal",
+      // Not history and not done. The family has not done this lesson; the row
+      // simply stopped existing.
+      completed: false,
+      completed_at: null,
+      is_backfill: false,
+      hours: 0,
+    },
   };
 }
 
+/** The row to write, or null when this goal is not a case for the heal. */
+export function planNextRow(args: PlanNextRowArgs): PlannedNextRow | null {
+  const decision = planNextRowDecision(args);
+  return "row" in decision ? decision.row : null;
+}
+
+/** What one goal looks like right now, re-read after the load that saw the gap. */
+export type NextRowFacts = {
+  currentLesson: number;
+  maxCompletedQueuePosition: number | null;
+  /** Slots, among those asked about, where the goal holds a row in any state. */
+  slotsHeld: Set<number>;
+};
+
 /**
- * Write the planned row. Returns true when a row landed.
+ * Re-read the three facts the gap classification needs, for the few goals a
+ * load flagged. A goal whose reads fail is left out, and a goal left out is
+ * neither healed nor reported: a failed read is not evidence of a missing row,
+ * which is the mistake this whole path used to make.
+ */
+export async function readNextRowFacts(
+  supabase: SupabaseClient,
+  goalIds: readonly string[],
+  slots: readonly number[],
+): Promise<Map<string, NextRowFacts>> {
+  const out = new Map<string, NextRowFacts>();
+  if (goalIds.length === 0 || slots.length === 0) return out;
+  try {
+    const [goalsRes, heldRes, ...maxRes] = await Promise.all([
+      supabase.from("curriculum_goals").select("id, current_lesson").in("id", goalIds as string[]),
+      supabase
+        .from("lessons")
+        .select("curriculum_goal_id, queue_position")
+        .in("curriculum_goal_id", goalIds as string[])
+        .in("queue_position", slots as number[]),
+      ...goalIds.map((id) =>
+        supabase
+          .from("lessons")
+          .select("queue_position")
+          .eq("curriculum_goal_id", id)
+          .eq("completed", true)
+          .not("queue_position", "is", null)
+          .order("queue_position", { ascending: false })
+          .limit(1),
+      ),
+    ]);
+    if (goalsRes.error || heldRes.error) return out;
+    const pointer = new Map<string, number>();
+    for (const g of (goalsRes.data ?? []) as { id: string; current_lesson: number | null }[]) {
+      if (typeof g.current_lesson === "number") pointer.set(g.id, g.current_lesson);
+    }
+    const held = new Map<string, Set<number>>();
+    for (const r of (heldRes.data ?? []) as { curriculum_goal_id: string | null; queue_position: number | null }[]) {
+      if (!r.curriculum_goal_id || r.queue_position == null) continue;
+      const set = held.get(r.curriculum_goal_id) ?? new Set<number>();
+      set.add(r.queue_position);
+      held.set(r.curriculum_goal_id, set);
+    }
+    goalIds.forEach((id, i) => {
+      const res = maxRes[i];
+      const currentLesson = pointer.get(id);
+      if (!res || res.error || currentLesson === undefined) return;
+      const top = ((res.data ?? []) as { queue_position: number | null }[])[0]?.queue_position ?? null;
+      out.set(id, {
+        currentLesson,
+        maxCompletedQueuePosition: top,
+        slotsHeld: held.get(id) ?? new Set<number>(),
+      });
+    });
+  } catch {
+    // A thrown read (a dropped connection) answers nothing, so nothing acts.
+  }
+  return out;
+}
+
+/** What the insert did. `conflict` means the row exists again, a good outcome. */
+export type NextRowWriteOutcome = "written" | "conflict" | "failed";
+
+/**
+ * Write the planned row.
  *
  * A conflict means something else put the row back between the projection and
  * this insert, which is a good outcome and not worth reporting. Anything else
@@ -114,18 +218,18 @@ export function planNextRow(args: {
 export async function healNextRow(
   supabase: SupabaseClient,
   planned: PlannedNextRow,
-): Promise<boolean> {
+): Promise<NextRowWriteOutcome> {
   const { data, error } = await supabase.from("lessons").insert(planned).select("id");
   if (error) {
     // 23505 is the unique index on (curriculum_goal_id, lesson_number) or its
     // queue_position twin: the row exists again, which is what we wanted.
-    if ((error as { code?: string }).code === "23505") return false;
+    if ((error as { code?: string }).code === "23505") return "conflict";
     captureSupabaseError("Today self-heal could not write the next lesson row", error, {
       level: "warning",
       tags: { phase: "next_row_self_heal", goal_id: planned.curriculum_goal_id },
       extra: { lesson_number: planned.lesson_number, scheduled_date: planned.scheduled_date },
     });
-    return false;
+    return "failed";
   }
-  return (data ?? []).length > 0;
+  return (data ?? []).length > 0 ? "written" : "failed";
 }
