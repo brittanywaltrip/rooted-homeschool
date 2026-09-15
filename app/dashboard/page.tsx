@@ -13,7 +13,7 @@ import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/
 import { useSessionUser } from "@/lib/session-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, planRescheduleLessons, isQueueEnabled, reconcileGoalScheduleCache, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import {
   completeLessonOnDate,
   buildCompletionPayload,
@@ -60,7 +60,6 @@ import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { MAX_PREFILL_TITLE } from "@/lib/mail-adventures";
 import { useIsNativeApp } from "@/lib/platform";
-import LogSomethingModal from "@/app/components/LogSomethingModal";
 import WhenPicker from "@/app/components/WhenPicker";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
 import MonthlyQuestionCard from "@/app/components/MonthlyQuestionCard";
@@ -370,24 +369,6 @@ function getSubjectStyle(subjectName: string | undefined): { bg: string; text: s
   return { bg: "#f0ede8", text: "#5c5248" };
 }
 
-/** Parse "HH:MM:SS" or "HH:MM" time string into total minutes from midnight */
-function parseTimeToMinutes(t: string | null): number | null {
-  if (!t) return null;
-  const parts = t.split(":");
-  if (parts.length < 2) return null;
-  return parseInt(parts[0]) * 60 + parseInt(parts[1]);
-}
-
-/** Format minutes-from-midnight into display time like "9:00" or "1:30" */
-function formatTime(totalMinutes: number): string {
-  let mins = ((totalMinutes % 1440) + 1440) % 1440; // wrap to 0-1439
-  let h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) h = 12;
-  else if (h > 12) h -= 12;
-  return `${h}:${String(m).padStart(2, "0")}`;
-}
-
 /** Format duration in minutes to human string like "30 min" or "1 hr" or "1.5 hr" */
 function formatDuration(mins: number): string {
   if (mins < 60) return `${mins} min`;
@@ -486,7 +467,6 @@ export default function TodayPage() {
   const [todayMemoryEvents, setTodayMemoryEvents] = useState<TodayEvent[]>([]);
   const [todayBooks,        setTodayBooks]        = useState<BookLog[]>([]);
   const [showBookModal,     setShowBookModal]     = useState(false);
-  const [showLogModal,      setShowLogModal]      = useState(false);
   const [bookTitle,         setBookTitle]         = useState("");
   // Multi-select. Empty = whole family, which saves book_child_ids as null.
   // The legacy child_id column is still written on save: the single id when
@@ -660,7 +640,6 @@ export default function TodayPage() {
   const [drawingFile, setDrawingFile] = useState<File | null>(null);
   const [drawingPreview, setDrawingPreview] = useState<string | null>(null);
   const drawingFileRef = useRef<HTMLInputElement>(null);
-  const [showCaptureMenu, setShowCaptureMenu] = useState(false);
   const [showMemoryPicker, setShowMemoryPicker] = useState(false);
   // The date for THIS capture, chosen in the memory picker before a tile is
   // tapped. It seeds whichever sheet the tile then opens, and it is the date
@@ -760,11 +739,6 @@ export default function TodayPage() {
 
   // Activities state
   const [todayActivities, setTodayActivities] = useState<TodayActivity[]>([]);
-  const [showRunningLate, setShowRunningLate] = useState(false);
-  const [shiftMinutes, setShiftMinutes] = useState(30);
-  const [isCustomShift, setIsCustomShift] = useState(false);
-  const [customShiftValue, setCustomShiftValue] = useState("");
-  const [timeShiftOffset, setTimeShiftOffset] = useState(0); // local-only visual shift in minutes
 
   // Lesson check-off modal state
   const [checkOffLesson, setCheckOffLesson] = useState<{ lesson: Lesson; defaultMinutes: number } | null>(null);
@@ -2714,104 +2688,6 @@ export default function TodayPage() {
         await supabase.from("activity_logs").update({ completed: false, completed_at: null }).eq("id", activity.log_id);
       }
     }
-  }
-
-  async function skipRestOfToday() {
-    return runReschedule(async () => {
-      // Push today's uncompleted lessons to the next available school day.
-      // Routes through the shared `planRescheduleLessons` helper (Invariant 8)
-      // and writes `scheduled_source='skip_today'` (Invariant 10). Honors
-      // user vacation blocks and per-goal lessons_per_day capacity, fixing
-      // the pre-May-3 per-row cursor reset that bunched every uncompleted
-      // lesson onto the same next-school-day.
-      const uncompleted = lessons.filter(l => !l.completed);
-      if (uncompleted.length === 0) return;
-      if (!effectiveUserId) return;
-
-      // Kill switch: skip the re-spread without touching the lessons table.
-      if (!isQueueEnabled()) return;
-
-      // Snapshot the rows BEFORE writing so undo restores precise prior state.
-      const { data: priorRows } = await supabase
-        .from("lessons")
-        .select("id, date, scheduled_date")
-        .in("id", uncompleted.map(l => l.id));
-      const snapshot = buildLessonDateSnapshot(
-        (priorRows ?? []) as { id: string; date: string | null; scheduled_date: string | null }[],
-      );
-
-      // Per-goal config (school_days + lessons_per_day) for the planner.
-      const goalIds = [...new Set(uncompleted.map(l => l.curriculum_goal_id).filter(Boolean))] as string[];
-      const { data: goalsData } = goalIds.length > 0
-        ? await supabase.from("curriculum_goals").select("id, school_days, lessons_per_day, lessons_per_day_overrides").in("id", goalIds)
-        : { data: [] };
-      const goalConfigs = new Map<string, { school_days: string[] | null; lessons_per_day: number; lessons_per_day_overrides?: Record<string, number> | null }>();
-      for (const g of (goalsData ?? []) as { id: string; school_days: string[] | null; lessons_per_day: number | null; lessons_per_day_overrides: Record<string, number> | null }[]) {
-        // Overrides ride along so the re-spread honors a per-weekday cap
-        // instead of the flat column (planRescheduleLessons -> capForDate).
-        goalConfigs.set(g.id, {
-          school_days: g.school_days,
-          lessons_per_day: g.lessons_per_day ?? 1,
-          lessons_per_day_overrides: g.lessons_per_day_overrides,
-        });
-      }
-      // Synthetic bucket for one-off lessons (no curriculum_goal_id) so they
-      // route through the same planner. school_days=null falls back to
-      // Mon-Fri inside the planner — matches the original `defaultDays`.
-      const NO_GOAL_KEY = "__no_goal__";
-      goalConfigs.set(NO_GOAL_KEY, { school_days: null, lessons_per_day: 1 });
-
-      // User's vacation blocks — never push a moved lesson onto a break.
-      const { data: vacRaw } = await supabase
-        .from("vacation_blocks")
-        .select("start_date, end_date")
-        .eq("user_id", effectiveUserId);
-      const vacRanges = ((vacRaw ?? []) as { start_date: string; end_date: string }[])
-        .map(v => ({ start: v.start_date, end: v.end_date }));
-
-      // Forward-dated incompletes that AREN'T being skipped — seeds occupancy
-      // so we don't bunch a moved lesson onto a date already at capacity.
-      const skippedIds = new Set(uncompleted.map(l => l.id));
-      const { data: stayingRows } = await supabase
-        .from("lessons")
-        .select("id, scheduled_date, curriculum_goal_id, lesson_number, is_backfill")
-        .eq("user_id", effectiveUserId)
-        .eq("completed", false)
-        .gt("scheduled_date", today);
-      const staying = ((stayingRows ?? []) as { id: string; scheduled_date: string | null; curriculum_goal_id: string | null; lesson_number: number | null; is_backfill: boolean | null }[])
-        .filter(r => r.scheduled_date && r.is_backfill !== true && !skippedIds.has(r.id))
-        .map(r => ({
-          curriculum_goal_id: r.curriculum_goal_id ?? NO_GOAL_KEY,
-          date: r.scheduled_date!,
-          lesson_number: r.lesson_number,
-        }));
-
-      const { updates } = planRescheduleLessons({
-        toReshuffle: uncompleted.map(l => ({
-          id: l.id,
-          curriculum_goal_id: l.curriculum_goal_id ?? NO_GOAL_KEY,
-          lesson_number: l.lesson_number ?? null,
-        })),
-        staying,
-        goalConfigs,
-        startAfterDate: today,
-        vacations: vacRanges,
-      });
-
-      for (let i = 0; i < updates.length; i += 20) {
-        await Promise.all(
-          updates.slice(i, i + 20).map(({ id, newDate }) =>
-            supabase.from("lessons").update({
-              scheduled_date: newDate,
-              date: newDate,
-              scheduled_source: "skip_today",
-            }).eq("id", id)
-          )
-        );
-      }
-      setLessons(prev => prev.filter(l => l.completed));
-      showRescheduleUndo(`${uncompleted.length} lesson${uncompleted.length !== 1 ? "s" : ""} moved to next school day! Undo?`, snapshot);
-    });
   }
 
   // ── Lesson actions ────────────────────────────────────────────────────────
@@ -5306,7 +5182,6 @@ export default function TodayPage() {
               onLogExtra: openExtraLessons,
               onManage: () => setShowManageSchedule(true),
               onAddAppt: () => setShowApptWizard(true),
-              onRunningLate: () => setShowRunningLate(true),
             }}
             noteEditor={{
               editingNoteId,
@@ -5781,7 +5656,6 @@ export default function TodayPage() {
               // fired no change event at all and the app looked dead.
               if (e.target) e.target.value = "";
               if (picked.length === 0) return;
-              setShowCaptureMenu(false);
               setShowMemoryPicker(false);
               void saveCapturedPhotos(picked);
             }}
@@ -5974,20 +5848,6 @@ export default function TodayPage() {
           </>
         );
       })()}
-
-      {/* ── Log Something modal — replaces old capture menu ── */}
-      {showCaptureMenu && (
-        <LogSomethingModal
-          onClose={() => setShowCaptureMenu(false)}
-          onLogLesson={() => { setShowExtraLessons(true); posthog.capture('log_extra_lessons_opened', { source: 'log_modal', user_plan: isPro ? 'paid' : 'free' }); }}
-          onLogActivity={() => { router.push("/dashboard/plan"); }}
-          onAddAppointment={() => { setShowApptWizard(true); }}
-          lists={lists}
-          children={children}
-          getToken={getToken}
-          onListItemAdded={loadData}
-        />
-      )}
 
       {/* ── Memory Picker — direct capture bottom sheet ──── */}
       {showMemoryPicker && (
@@ -7577,88 +7437,6 @@ export default function TodayPage() {
               <div className="bg-gradient-to-r from-[#f0f7f2] to-[#e8f5e9] rounded-xl py-2.5 px-3.5 text-center mt-3">
                 <span className="text-[12px] text-[#2D5A3D] font-medium">🌿 Earns a leaf for your garden!</span>
               </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* ── Running Late modal ──────────────────────────────────── */}
-      {showRunningLate && (
-        <>
-          <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-50" onClick={() => setShowRunningLate(false)} />
-          <div className="fixed bottom-0 left-0 right-0 z-50 bg-[#fefcf9] rounded-t-3xl shadow-xl max-w-lg mx-auto" style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}>
-            <div className="flex justify-center pt-3 pb-2"><div className="w-10 h-1 rounded-full bg-[#e8e2d9]" /></div>
-            <div className="px-5 pb-5 space-y-4">
-              <div>
-                <h2 className="text-lg font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>Running late?</h2>
-                <p className="text-sm text-[#7a6f65] mt-1">Push remaining items forward. We&apos;ll adjust today&apos;s schedule.</p>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-[#7a6f65] block mb-2">Shift everything by</label>
-                <div className="flex flex-wrap gap-2">
-                  {[{ label: "15m", mins: 15 }, { label: "30m", mins: 30 }, { label: "1hr", mins: 60 }, { label: "2hr", mins: 120 }].map(({ label, mins }) => (
-                    <button key={mins} type="button"
-                      onClick={() => { setShiftMinutes(mins); setIsCustomShift(false); }}
-                      className={`rounded-[10px] px-4 py-2.5 text-sm font-medium border transition-colors ${
-                        !isCustomShift && shiftMinutes === mins
-                          ? "bg-[#2D5A3D] text-white border-[#2D5A3D]"
-                          : "bg-white border-[#e0ddd8] text-[#5c6b62]"
-                      }`}
-                    >{label}</button>
-                  ))}
-                  <button type="button"
-                    onClick={() => { setIsCustomShift(true); setCustomShiftValue(""); }}
-                    className={`rounded-[10px] px-4 py-2.5 text-sm font-medium transition-colors ${
-                      isCustomShift
-                        ? "border border-solid bg-[#2D5A3D] text-white"
-                        : "border border-dashed border-[#e0ddd8] text-[#7a6f65]"
-                    }`}
-                  >Custom</button>
-                </div>
-                {isCustomShift && (
-                  <input value={customShiftValue} onChange={(e) => { setCustomShiftValue(e.target.value); const v = parseInt(e.target.value); if (v > 0) setShiftMinutes(v); }}
-                    type="number" min="1" max="480" placeholder="Minutes"
-                    className="mt-2 w-full px-3 py-2.5 rounded-xl border border-[#e8e2d9] bg-white text-sm text-[#2d2926] placeholder-[#c8bfb5] focus:outline-none focus:border-[#5c7f63] focus:ring-1 focus:ring-[#5c7f63]/20" />
-                )}
-              </div>
-
-              {/* Preview */}
-              <div className="bg-[#faf9f7] rounded-xl p-3 space-y-1.5">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-[#b5aca4] mb-1">Preview</p>
-                {todayActivities.filter(a => !a.completed && a.scheduled_start_time).slice(0, 3).map(a => {
-                  const orig = parseTimeToMinutes(a.scheduled_start_time);
-                  const shifted = orig != null ? orig + shiftMinutes : null;
-                  return (
-                    <div key={a.id} className="flex items-center gap-2 text-xs text-[#7a6f65]">
-                      <span className="text-[#b5aca4]">{orig != null ? formatTime(orig) : "—"}</span>
-                      <span>→</span>
-                      <span className="text-[#2d2926] font-medium">{shifted != null && shifted < 1440 ? formatTime(shifted) : "Flexible"}</span>
-                      <span className="truncate">{a.emoji} {a.name}</span>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setTimeShiftOffset(prev => prev + shiftMinutes);
-                  setShowRunningLate(false);
-                }}
-                className="w-full py-3 rounded-xl bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold transition-colors"
-              >
-                Shift schedule →
-              </button>
-
-              <button
-                type="button"
-                onClick={() => { setShowRunningLate(false); skipRestOfToday(); }}
-                className="w-full text-center"
-              >
-                <span className="text-xs text-[#b8860b] font-medium">Skip the rest of today</span>
-                <span className="block text-[10px] text-[#b5aca4] mt-0.5">Undone items push to the next school day</span>
-              </button>
             </div>
           </div>
         </>

@@ -2971,8 +2971,10 @@ export function pickNextAvailableDate(args: PickArgs): string {
  *
  * Used by:
  *   - vacation_blocks insert "shift" mode (saveVacationBlock)
- *   - "Skip rest of today" (skipRestOfToday)
  *   - Wizard saveEdit reshuffle when schedule fields changed
+ *
+ * (Today's "Skip rest of today" used it too. That sheet was never reachable
+ * and was removed in September 2026.)
  *
  * Pure: no DB access. Caller writes `updates` and attaches the appropriate
  * `scheduled_source` (Invariant 10). Input order within each goal is preserved.
@@ -3168,7 +3170,7 @@ export function buildPastDateCompletionPayload(completedAt: string): PastDateCom
 
 /**
  * Vercel-toggleable kill switch for the queue rescheduler. When this returns
- * false, the trigger sites (saveVacationBlock, skipRestOfToday, wizard
+ * false, the trigger sites (saveVacationBlock, wizard
  * saveEdit reshuffle) short-circuit the lesson re-spread but still perform
  * their primary action (insert the vacation row, save the wizard form).
  *

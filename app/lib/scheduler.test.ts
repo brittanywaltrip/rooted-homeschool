@@ -2308,7 +2308,6 @@ test('Invariant 10 — no code path leaves scheduled_source NULL after writing l
   const sites: { file: string; fn: RegExp }[] = [
     { file: 'app/dashboard/plan/schedule/page.tsx', fn: /async function handleSave\s*\(/ },
     { file: 'app/dashboard/page.tsx',               fn: /async function handleMissedRecoveryYes\s*\(/ },
-    { file: 'app/dashboard/page.tsx',               fn: /async function skipRestOfToday\s*\(/ },
   ]
   for (const site of sites) {
     const src = loadRepoFile(site.file)
@@ -2333,32 +2332,14 @@ test('Invariant 10 — no code path leaves scheduled_source NULL after writing l
   }
 })
 
-// ── skipRestOfToday — explicit coverage (May 3 second buggy path) ─────────
-
-test("Invariant 10 — skipRestOfToday writes scheduled_source='skip_today' on every UPDATE", () => {
-  const src = loadRepoFile('app/dashboard/page.tsx')
-  const body = extractFunctionBody(src, /async function skipRestOfToday\s*\(/)
-  assert.ok(
-    body.includes('scheduled_source: "skip_today"'),
-    'skipRestOfToday must tag scheduled_source=skip_today on the re-spread update',
-  )
-  // And it must NOT contain a per-lesson cursor reset (the May 3 bug shape).
-  assert.ok(
-    !body.includes('const cur = new Date(today + "T12:00:00")'),
-    'skipRestOfToday must not contain the per-lesson cursor reset that caused bunching',
-  )
-})
-
-test('Invariant 8 — vacation shift and skipRestOfToday route through shared schedulers (no inline day-walk loops)', () => {
-  // Both pre-May-3 buggy sites go through shared helpers, not hand-rolled date
-  // loops. PlanV2 handleVacationSave uses mapLessonDateAcrossVacation; the
-  // Today "running late" path (skipRestOfToday) uses planRescheduleLessons and
-  // honors the queue kill switch.
+test('Invariant 8 — vacation shift routes through the shared scheduler (no inline day-walk loops)', () => {
+  // The pre-May-3 buggy sites go through shared helpers, not hand-rolled date
+  // loops. PlanV2 handleVacationSave uses mapLessonDateAcrossVacation. The
+  // other one, Today's "running late" skipRestOfToday, was removed in
+  // September 2026: its sheet was never drawn, so no family could reach it.
   const vacBody = extractFunctionBody(loadRepoFile('app/components/PlanV2/index.tsx'), /const handleVacationSave = useCallback\(async/)
-  const skipBody = extractFunctionBody(loadRepoFile('app/dashboard/page.tsx'), /async function skipRestOfToday\s*\(/)
   assert.ok(vacBody.includes('mapLessonDateAcrossVacation('), 'handleVacationSave must use the shared vacation date mapper')
-  assert.ok(skipBody.includes('planRescheduleLessons('), 'skipRestOfToday must call planRescheduleLessons')
-  assert.ok(skipBody.includes('isQueueEnabled()'), 'skipRestOfToday must honor isQueueEnabled()')
+  assert.ok(!/function skipRestOfToday\s*\(/.test(loadRepoFile('app/dashboard/page.tsx')), 'the unreachable skip-rest-of-today handler stays gone')
 })
 
 // ── pickNextAvailableDate / planRescheduleLessons unit tests ──────────────
@@ -9940,4 +9921,25 @@ test("Today's lessons-from-earlier line reopens Today's own catch-up sheet, not 
   assert.doesNotMatch(block, /href="\/dashboard\/plan"/, 'and no longer sends the family to Plan')
   // The once-per-tab auto-open is untouched.
   assert.match(src, /window\.sessionStorage\.getItem\("rooted_missed_lesson_prompt_shown"\) === "1"/)
+})
+
+test('controls that did nothing are gone, and what families use stays', () => {
+  // Read-only pass, 2026-09-13: each of these rendered (or was wired) and did
+  // nothing when tapped, or could never be reached.
+  const plan = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  for (const dead of ['yearFilterAll', 'weekEditMode', 'schoolYearModalOpen', 'showCreateSchoolYearCTA', 'Move a lesson here', 'CreateSchoolYearModal']) {
+    assert.ok(!plan.includes(dead), `Plan no longer carries ${dead}`)
+  }
+  assert.ok(!loadRepoFile('app/components/PlanV2/index.tsx').includes('useFeatureFlag("new_plan_view")'), 'the stale feature-flag comment is gone')
+  assert.ok(!stripComments(loadRepoFile('app/components/PlanV2/WeekListView.tsx')).includes('editMode'), 'the week view has no unreachable edit mode')
+  const today = stripComments(loadRepoFile('app/dashboard/page.tsx'))
+  for (const dead of ['showRunningLate', 'LogSomethingModal', 'showCaptureMenu', 'timeShiftOffset', 'showLogModal']) {
+    assert.ok(!today.includes(dead), `Today no longer carries ${dead}`)
+  }
+  // Still there: the week view's own "Move to another day", Close This School
+  // Year, the rest of the + sheet, and Today's capture picker.
+  assert.ok(stripComments(loadRepoFile('app/components/PlanV2/WeekListView.tsx')).includes('setMoveTarget({ lessonId: l.id, fromDate: key })'))
+  assert.match(plan, /href="\/dashboard\/close-year"/)
+  assert.match(plan, /label: "Add appointment"/)
+  assert.match(today, /setShowMemoryPicker\(false\)/)
 })

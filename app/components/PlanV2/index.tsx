@@ -49,7 +49,6 @@ import { downloadProgressReport, type ReportRangePreset } from "@/lib/progress-r
 import CurriculumWizard from "@/app/components/CurriculumWizard";
 type CurriculumWizardEditData = Record<string, unknown>;
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
-import CreateSchoolYearModal from "@/app/components/CreateSchoolYearModal";
 import { useSchoolYears } from "@/lib/useSchoolYears";
 import { isYearAwaitingClose, overdueYearHeadline, todayLocalYmd } from "@/app/lib/school-year";
 import { deriveEndYear } from "@/lib/school-year-name";
@@ -119,12 +118,6 @@ import type {
   TodayLessonCardChild,
   TodayLessonCardLesson,
 } from "@/app/components/TodayLessonCard";
-
-/* PlanV2 orchestrator. Owns month nav, view toggle, child filter chips, and
- * wires the toolbar to the MonthGrid. Day-detail panel, drag-drop, select
- * mode, and context menu land in later phases. The legacy plan/page.tsx
- * continues to render when the flag is off — this entire component tree is
- * unreachable unless useFeatureFlag("new_plan_view") resolves true. */
 
 function toDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -287,12 +280,6 @@ export default function PlanV2() {
     d.setDate(d.getDate() - offset);
     return d;
   });
-  // Edit-week mode — when true, lesson cards in WeekListView show a drag
-  // handle that opens a day-picker bottom sheet for moving the lesson to
-  // another day in the same week. Independent from select/move-target mode.
-  const [weekEditMode, setWeekEditMode] = useState(false);
-  const [schoolYearModalOpen, setSchoolYearModalOpen] = useState(false);
-  const [yearFilterAll, setYearFilterAll] = useState(false);
   // Print dialog state — null = closed; "selected" mode is what the print
   // sheets key off via body class.
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -825,7 +812,7 @@ export default function PlanV2() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // School years — drives milestone markers + the "Create next year" CTA.
+  // School years — drives milestone markers and the school-year cards.
   const schoolYears = useSchoolYears(effectiveUserId ?? null);
 
   // Gate the school-year admin cards (Close Year / Edit Year Details / Download
@@ -963,18 +950,6 @@ export default function PlanV2() {
     setRecoveryStarting(false);
   }, [effectiveUserId, schoolYears]);
 
-  // CTA visibility: show when there's no upcoming year AND either there's
-  // no active year at all or the active year ends within 60 days.
-  const showCreateSchoolYearCTA = useMemo(() => {
-    if (schoolYears.loading) return false;
-    if (schoolYears.upcoming) return false;
-    if (!schoolYears.active) return true;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const end = new Date(`${schoolYears.active.end_date}T00:00:00`);
-    const diffDays = Math.round((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    return diffDays <= 60;
-  }, [schoolYears.loading, schoolYears.upcoming, schoolYears.active]);
 
   // Lesson mutation handlers. Pass setLessons for both arrays (PlanV2 has one
   // state; the hook's dual setter model collapses cleanly). setAllLessons is
@@ -5072,7 +5047,6 @@ export default function PlanV2() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (printDialogOpen) { setPrintDialogOpen(false); return; }
-      if (schoolYearModalOpen) { setSchoolYearModalOpen(false); return; }
       if (deleteGoalConfirm) { setDeleteGoalConfirm(null); return; }
       if (stopGoalConfirm) { setStopGoalConfirm(null); return; }
       if (markFinishedConfirm) { setMarkFinishedConfirm(null); return; }
@@ -5100,7 +5074,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, schoolYearModalOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, continueTarget, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode, closePushBack, closeShiftForward]);
+  }, [printDialogOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, continueTarget, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode, closePushBack, closeShiftForward]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -5456,51 +5430,6 @@ export default function PlanV2() {
           </Link>
         )}
 
-        {/* Year filter chip — toggles between active-year view and all-time.
-            yearFilterAll is wired into queries in a future pass; for now this
-            just renders the chips. When wiring the active-year view, scope
-            goals through goalBelongsToActiveYear() from lib/school-year-filter
-            so goals with a NULL school_year_id are treated as the active year
-            and never silently vanish (the 2026-06 unlinked-goals bug). */}
-        {schoolYears.active && (
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              onClick={() => setYearFilterAll(false)}
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                padding: "5px 14px",
-                borderRadius: 20,
-                border: "0.5px solid",
-                cursor: "pointer",
-                background: !yearFilterAll ? "#2D4A35" : "white",
-                color: !yearFilterAll ? "white" : "#5C5346",
-                borderColor: !yearFilterAll ? "#2D4A35" : "#e8e5e0",
-                transition: "all 0.15s",
-              }}
-            >
-              {schoolYears.active.name}
-            </button>
-            <button
-              onClick={() => setYearFilterAll(true)}
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                padding: "5px 14px",
-                borderRadius: 20,
-                border: "0.5px solid",
-                cursor: "pointer",
-                background: yearFilterAll ? "#2D4A35" : "white",
-                color: yearFilterAll ? "white" : "#5C5346",
-                borderColor: yearFilterAll ? "#2D4A35" : "#e8e5e0",
-                transition: "all 0.15s",
-              }}
-            >
-              All time
-            </button>
-          </div>
-        )}
-
         {/* Catch-up banner — above MissedLessonsBanner when the user has a
             meaningful backlog (5+ across 2+ days) and hasn't dismissed it
             within the last 7 days. Handles bulk "shift everything" flows;
@@ -5739,7 +5668,6 @@ export default function PlanV2() {
                     vacationBlocks={vacationBlocks}
                     curriculumGoals={curriculumGoals}
                     loading={loading}
-                    editMode={weekEditMode}
                     onMoveLesson={moveLessonToDate}
                     isPartner={isPartner}
                     onLessonClick={(lesson) => {
@@ -5842,8 +5770,7 @@ export default function PlanV2() {
                       vacationBlocks={vacationBlocks}
                       curriculumGoals={curriculumGoals}
                       loading={loading}
-                      editMode={weekEditMode}
-                      onMoveLesson={moveLessonToDate}
+                        onMoveLesson={moveLessonToDate}
                       isPartner={isPartner}
                       onLessonClick={(lesson) => {
                         const d = lesson.scheduled_date ?? lesson.date;
@@ -6770,39 +6697,6 @@ export default function PlanV2() {
           </div>
         ) : null}
 
-        {/* Create School Year modal — opened from the toolbar CTA when the
-            user has no upcoming year (or the current year ends within 60d). */}
-        {schoolYearModalOpen && effectiveUserId ? (
-          <CreateSchoolYearModal
-            userId={effectiveUserId}
-            activeYearName={schoolYears.active?.name}
-            onClose={() => setSchoolYearModalOpen(false)}
-            onCreated={async () => {
-              await schoolYears.reload();
-              // The hook just refreshed; the upcoming row is what we just
-              // inserted. Audit-log it (best-effort lookup by latest start
-              // date so we capture the right row).
-              const { data } = await supabase
-                .from("school_years")
-                .select("id, name, start_date, end_date")
-                .eq("user_id", effectiveUserId)
-                .eq("status", "upcoming")
-                .order("start_date", { ascending: false })
-                .limit(1)
-                .maybeSingle();
-              if (data) {
-                const row = data as { id: string; name: string; start_date: string; end_date: string };
-                recordEvent("school_year.created", {
-                  school_year_id: row.id,
-                  name: row.name,
-                  start_date: row.start_date,
-                  end_date: row.end_date,
-                });
-              }
-            }}
-          />
-        ) : null}
-
         {/* Curriculum delete confirm */}
         {deleteGoalConfirm ? (
           <ConfirmDialog
@@ -6919,20 +6813,6 @@ export default function PlanV2() {
             onClick: () => void;
           };
           const rowAddDay: AddRow[] = [
-            {
-              key: "move",
-              label: "Move a lesson here",
-              emoji: "🔄",
-              bg: "#e8f0e9",
-              color: "#2D5A3D",
-              onClick: () => {
-                closeUnifiedAdd();
-                // The existing Reschedule modal is lesson-first (needs a
-                // specific lessonId). A lesson-picker step is a follow-up;
-                // for now, surface guidance so the user knows where to go.
-                flashNotice("Tap a lesson on the calendar to move it.");
-              },
-            },
             {
               key: "appt",
               label: "Add appointment",

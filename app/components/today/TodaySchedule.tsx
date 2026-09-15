@@ -76,12 +76,6 @@ type Props = {
     onLogExtra: () => void;
     onAddAppt: () => void;
     onManage: () => void;
-    // Optional. When provided AND there's at least one incomplete lesson
-    // today, render a "Running late?" pill that opens the page-owned
-    // Running Late modal. The modal exposes the "Skip the rest of today"
-    // button that pushes incomplete lessons to the next school day —
-    // dead code on staging until this trigger landed (Bug C, 2026-05-03).
-    onRunningLate?: () => void;
   };
   isPartner: boolean;
   isSchoolDay?: boolean;

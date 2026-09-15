@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { Calendar, GripVertical, MoreVertical, Move, Pencil, Plus, StickyNote, X } from "lucide-react";
+import { Calendar, MoreVertical, Move, Pencil, Plus, StickyNote, X } from "lucide-react";
 import { resolveChildColor } from "./colors";
 import { resolveLessonSubject } from "@/lib/lesson-subject";
 import { tintFromHex, darkenHex } from "@/lib/color-tint";
@@ -54,9 +54,6 @@ type Props = {
   curriculumGoals: Goal[];
   loading: boolean;
   isPartner: boolean;
-  /** Edit-week toggle is owned by the V2 toolbar; this component just
-   *  reads it to switch card behavior between tap-to-open and tap-to-move. */
-  editMode: boolean;
   onMoveLesson: (lessonId: string, targetDate: string) => void | Promise<void>;
   /** Tap a lesson card in non-edit mode. Caller opens DayDetailPanel. */
   onLessonClick: (lesson: PlanV2Lesson) => void;
@@ -90,7 +87,7 @@ type Props = {
 export default function WeekListView(props: Props) {
   const {
     weekStart, todayStr, kids, lessons, appointments, activities, vacationBlocks,
-    curriculumGoals, loading, isPartner, editMode,
+    curriculumGoals, loading, isPartner,
     onMoveLesson, onLessonClick, onAppointmentClick, onActivityClick,
     onSkipLesson, onRescheduleLesson, onEditLesson, onToggleLessonDone,
     onAddLessonForDay, onMarkBreakForDay, onDayAdd,
@@ -379,11 +376,9 @@ export default function WeekListView(props: Props) {
                     const icon = goal?.icon_emoji ?? "📚";
 
                     const isBeingMoved = moveTarget?.lessonId === l.id;
-                    const editStyleExtras = editMode
-                      ? "ring-2 ring-dashed ring-[#5c7f63]/60 ring-offset-2 ring-offset-white shadow-md"
-                      : isBeingMoved
-                        ? "ring-2 ring-dashed ring-[#5c7f63] ring-offset-2 ring-offset-white opacity-50"
-                        : "";
+                    const editStyleExtras = isBeingMoved
+                      ? "ring-2 ring-dashed ring-[#5c7f63] ring-offset-2 ring-offset-white opacity-50"
+                      : "";
 
                     const subtitleText = secondLine || null;
 
@@ -394,7 +389,7 @@ export default function WeekListView(props: Props) {
                     // school day was a full scroll. On a phone the card is
                     // right and is unchanged; on a desktop the same actions
                     // live behind the note icon and the kebab.
-                    if (!isMobile && !editMode) {
+                    if (!isMobile) {
                       return (
                         <div
                           key={l.id}
@@ -606,18 +601,8 @@ export default function WeekListView(props: Props) {
                           })()}
                           <button
                             type="button"
-                            onClick={() => {
-                              if (editMode) {
-                                setMoveTarget({ lessonId: l.id, fromDate: key });
-                              } else {
-                                onLessonClick(l);
-                              }
-                            }}
-                            aria-label={
-                              editMode
-                                ? `Move ${titleText} to a different day`
-                                : `Open ${titleText} details`
-                            }
+                            onClick={() => onLessonClick(l)}
+                            aria-label={`Open ${titleText} details`}
                             className="flex-1 min-w-0 text-left flex items-center gap-2.5"
                           >
                             <span className="text-xl shrink-0">{icon}</span>
@@ -667,14 +652,7 @@ export default function WeekListView(props: Props) {
                               ) : null}
                             </div>
                           </button>
-                          {editMode ? (
-                            <span
-                              aria-hidden="true"
-                              className="flex items-center justify-center w-8 h-8 rounded-lg text-[#5c7f63] shrink-0"
-                            >
-                              <GripVertical size={18} />
-                            </span>
-                          ) : !isPartner ? (
+                          {!isPartner ? (
                             <div className="relative shrink-0">
                               <button
                                 type="button"
@@ -747,7 +725,7 @@ export default function WeekListView(props: Props) {
 
                         {/* Visible action row — Add a note + Mark not done. Skip
                             / Reschedule / Edit moved to the overflow menu above. */}
-                        {!isPartner && !editMode ? (
+                        {!isPartner ? (
                           <div className="px-4 pb-2.5">
                             <div className="flex items-center gap-x-1 gap-y-1 flex-wrap">
                               <button

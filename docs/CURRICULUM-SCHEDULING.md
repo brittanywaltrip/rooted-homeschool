@@ -151,7 +151,7 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'wizard_edit'` — user edits goal in wizard (regenerate, reshuffle, or backfill)
 - `'vacation_resched'` — vacation block insert/edit
 - `'catchup_resched'` — catch-up modal accepted
-- `'skip_today'` — "skip rest of today" pushed today's incompletes forward
+- `'skip_today'` — "skip rest of today" pushed today's incompletes forward. Retired September 2026: the Running late sheet that held it was never drawn, so it and its handler were removed. Older rows still carry the label.
 - `'plan_move'` — user dragged or rescheduled a single lesson on the Plan page (queue reorder)
 - `'queue_resync'` — Plan / Today data loader aligned the cached scheduled_date with the queue projector's output (no user-visible change, just keeps the cache honest after current_lesson advances or a `plan_move` shifts siblings without re-dating them)
 - `'recalibrate_estimate'` — synthesized completion date written by the "I'm actually on lesson X" recalibration gap-fill. Lessons stamped with this source have completed_at + scheduled_date evenly distributed across the window between the goal's last real completion (or start_date / created_at) and yesterday. The Plan calendar lesson card surfaces an "Estimated date · tap to move." hint for these rows; moving the lesson via `move_lesson_to_date` overwrites the source with `'plan_move'`.

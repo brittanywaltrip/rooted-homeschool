@@ -116,14 +116,13 @@ Plan shows the active school year's first and last day on the calendar. The Down
 
 **Most likely to confuse**
 
-"I skipped a lesson (or changed its date) and it came back."
+"I skipped a lesson and the next one took its day."
 
-Skip, and changing the date inside Edit lesson, do not hold. The next time Today opens it puts the lesson back where the schedule says it belongs, and Today shows it the same day. Moves that DO hold: dragging it, or Reschedule. What to tell them: use Reschedule (or drag) to put it on a different day. To take a lesson out of the plan for good, delete it.
+That is what Skip means: "we are not doing this one, move on". The lesson leaves the calendar, the next lesson in the book takes its place, and it does not count as done. It is listed under its subject in the curriculum list, greyed, marked Skipped, with Unskip in its menu. For "not today, later", use Reschedule or drag it. A date changed in Edit lesson stays where the family put it.
 
 **Known quirks**
 
-- The year chips near the top (the year name and "All time") look like a filter and do nothing.
-- Opening Plan after the school year's end date has passed, with no next year set up, marks the year as closed on its own. This skips the real close (subjects stay active, grades do not advance, no keepsake is saved) and the Close This School Year card disappears. If a family says their year "closed itself", that is why.
+- When the school year's end date has passed and no next year is set up, Plan shows "Your (year) ended (date). Ready to close it?" with Close this year and Keep going. A year never closes on its own.
 - Mark all done on past lessons records them as finished today, not on the day they were planned.
 
 ---

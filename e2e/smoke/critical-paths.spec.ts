@@ -1068,8 +1068,7 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
 // This test drives the real UI save flow and asserts both fixes:
 //   - the new goal carries school_year_id = the user's active school year, and
 //   - a lesson card for the new curriculum is visible on /dashboard/plan with
-//     NO clicks after save, while the default (active-year) filter is selected
-//     — not after switching to "All time".
+//     NO clicks after save.
 //
 // Determinism: default schedule is Mon-Fri, 1/day. start_date is set to the
 // MONDAY of the current week, so on Mon the first forward lesson (Tue) lands in
@@ -1195,13 +1194,9 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
       timeout: 30_000,
     });
 
-    // ── 6. The active-year filter chip is the DEFAULT selection (yearFilterAll
-    //      starts false). Assert it's present so the visibility assertion below
-    //      is made under the active-year view, NOT "All time". We never click it.
-    await expect(
-      page.getByRole('button', { name: 'All time' }),
-      'the year filter chips should render (active-year is selected by default)',
-    ).toBeVisible({ timeout: 15_000 });
+    // ── 6. (Removed September 2026.) This step asserted the year filter chips
+    //      rendered. They filtered nothing and are gone; Plan has one view, so
+    //      the visibility assertion below needs no precondition.
 
     // ── 7. THE REGRESSION ASSERTION: a lesson card for the new curriculum is
     //      visible with NO interaction. Before the fix the week showed day rows
