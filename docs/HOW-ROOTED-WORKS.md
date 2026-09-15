@@ -34,6 +34,7 @@ A few places do NOT use this and are called out in their sections: the Memories 
 | "I rebuilt my subjects from scratch after closing the year." | Closing a year |
 | "My past year isn't on the transcript." | Adding a past year, Transcripts |
 | "Grandma's comment is posted. How do I take it down?" | Family portal |
+| "I got an email saying 'Still here whenever you are'." | Emails from Rooted |
 | "Settings says I'm on Rooted (Free) but I was gifted a year." | Billing |
 | "The hours on Reports don't match the PDF." | Reports |
 
@@ -509,6 +510,20 @@ The parent can edit a viewer, set their access to end after 30 days, 90 days, a 
 Comments post instantly with no approval. The parent can remove any of them: open the memory in Memories, tap Remove under the comment and confirm ("Remove Grandma's comment? They will not be told."). It disappears from the family portal and the viewer gets no notice. Anyone holding a link can comment, so a forwarded link means someone else can too. What to tell them: remove the comment, and turn that link off in Settings and send a fresh invite if it has been shared further than intended.
 
 **Known quirk:** the weekly "what's new" email to family viewers runs Sundays; it is currently in dry run, not sending, until the founder turns it on.
+
+---
+
+## Emails from Rooted
+
+The three emails that go to a family because of how they are using Rooted (not receipts or family portal notices). Each is sent at most as described here, and none goes to a family who unsubscribed.
+
+- **Never started (three emails).** For a family with no memories and no lessons at all: the first two days or more after signup, the second three days after the first, the third five days after the second. Checked daily at 14:00 UTC.
+- **Weekly summary.** Mondays at 15:00 UTC, to a family with a memory or a completed lesson dated in the last 14 days.
+- **Win-back ("Still here whenever you are").** For a family who used Rooted and went quiet. Checked daily at 15:00 UTC. It goes to a family who finished onboarding and whose newest memory or completed lesson is dated 14 to 21 days ago, so it is the week right after the weekly summary stops. It names their first child ("since Zoe last checked something off"), or says "your family" when there are no children, and links to Today. **One per family, ever**: a family who drifts twice gets it once. At most 50 go out a day.
+
+"Active" means the same thing to the weekly summary and the win-back: a memory's date, or the day a lesson was checked off for. A lesson logged for a past day counts on that past day.
+
+**Most likely to confuse:** "I got 'Still here whenever you are' but I've been using Rooted." Ask what they did recently. Reading a lesson or opening Plan is not activity; only a captured memory or a checked-off lesson is. They will not get it again.
 
 ---
 
