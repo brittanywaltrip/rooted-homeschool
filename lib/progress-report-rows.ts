@@ -213,3 +213,31 @@ export function attendancePresentDates(
   for (const d of appointmentDates) present.add(d);
   return present;
 }
+
+/**
+ * The per-child subject table on the Progress Report PDF: one line per subject,
+ * with its lesson count, minutes, and whether any minutes were estimated.
+ *
+ * Grouped by lessonReportSubject, the same rule the day-by-day log in the same
+ * PDF prints with. The table read only `subjects.name`, and curriculum lessons
+ * carry subject_id NULL (the subject lives on the goal), so nearly every
+ * curriculum lesson a family did printed under "General" while the log beneath
+ * it named Math and Reading. "General" is now only the answer for a one-off
+ * with no subject anywhere.
+ */
+export function subjectTableTotals<L extends ReportLessonRow>(
+  lessons: readonly L[],
+  minutesFor: (l: L) => { m: number; e: boolean },
+): { name: string; count: number; minutes: number; estimated: boolean }[] {
+  const agg = new Map<string, { count: number; minutes: number; estimated: boolean }>();
+  for (const l of lessons) {
+    const name = lessonReportSubject(l, "General");
+    const row = agg.get(name) ?? { count: 0, minutes: 0, estimated: false };
+    const r = minutesFor(l);
+    row.count++;
+    row.minutes += r.m;
+    if (r.e) row.estimated = true;
+    agg.set(name, row);
+  }
+  return [...agg.entries()].map(([name, v]) => ({ name, ...v }));
+}

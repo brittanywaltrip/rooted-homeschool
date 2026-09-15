@@ -11,7 +11,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { generateProgressReport, fmtMins, type ReportData } from "@/lib/pdf";
-import { lessonDailyLogRow } from "@/lib/progress-report-rows";
+import { lessonDailyLogRow, subjectTableTotals } from "@/lib/progress-report-rows";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { augustYearOf, getCurrentSchoolYear, todayLocalYmd, type SchoolYearWindow } from "@/app/lib/school-year";
 
@@ -202,15 +202,9 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
     const childActDays = new Set(childActs.map((a) => a.date));
     const childSchoolDays = new Set([...childLessonDays, ...childActDays]).size;
 
-    const subjectAgg: Record<string, { n: number; m: number; e: boolean }> = {};
-    for (const l of childLessons) {
-      const nm = l.subjects?.name || "General";
-      if (!subjectAgg[nm]) subjectAgg[nm] = { n: 0, m: 0, e: false };
-      subjectAgg[nm].n++;
-      const r = lessonMinutes(l, goalDefaults);
-      subjectAgg[nm].m += r.m;
-      if (r.e) subjectAgg[nm].e = true;
-    }
+    // Same subject rule as the day-by-day log below (lessonReportSubject), so
+    // a curriculum lesson prints under its subject in both, not "General".
+    const subjectTotals = subjectTableTotals(childLessons, (l) => lessonMinutes(l, goalDefaults));
     const activityAgg: Record<string, { name: string; emoji: string; sessions: number; mins: number }> = {};
     for (const a of childActs) {
       const act = activityMap[a.activity_id];
@@ -227,8 +221,8 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
       totalHours: fmtMins(childLessonMins + childActMins),
       totalLessons: childLessons.length,
       schoolDays: childSchoolDays,
-      subjects: Object.entries(subjectAgg)
-        .map(([n, d]) => ({ name: n, count: d.n, hours: fmtMins(d.m), estimated: d.e }))
+      subjects: subjectTotals
+        .map((d) => ({ name: d.name, count: d.count, hours: fmtMins(d.minutes), estimated: d.estimated }))
         .sort((a, b) => b.count - a.count),
       activities: Object.values(activityAgg)
         .map((g) => ({ name: g.name, emoji: g.emoji, sessions: g.sessions, hours: fmtMins(g.mins) }))

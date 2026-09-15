@@ -415,8 +415,6 @@ Lessons, memories, activities and each curriculum's usual minutes. It saves noth
 
 They count slightly differently: Reports assumes 30 minutes for a lesson with no time logged, the PDF uses the curriculum's usual minutes; Reports counts school appointments as days, the PDF counts activities instead; and a lesson finished on a different day than planned can land on different days in each. What to tell them: for an official hours record, use one of the two consistently. Logging minutes when checking off a lesson makes both agree.
 
-**Known quirk:** in the PDF's per-child subject table, most curriculum lessons are listed under "General" instead of their subject. The day-by-day log in the same PDF shows the right subject names.
-
 ---
 
 ## Transcripts

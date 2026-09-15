@@ -16,6 +16,7 @@ import {
   lessonDailyLogRow,
   lessonReportDescription,
   lessonReportSubject,
+  subjectTableTotals,
   type ReportLessonRow,
 } from './progress-report-rows.ts'
 
@@ -299,4 +300,30 @@ test('the middle-dot rule still wins over the orphan rule when both could match'
     lessonReportSubject(row({ title: `Music · Apologia${MDASH}1`, curriculum_goal_id: null })),
     'Music',
   )
+})
+
+// ── the PDF's per-child subject table ──────────────────────────────────────
+
+test('the subject table puts a curriculum lesson under its goal subject, not General', () => {
+  const lessons: ReportLessonRow[] = [
+    // A curriculum lesson: subject_id NULL, the subject lives on the goal.
+    { title: 'Math Mammoth 3 — Lesson 1', subjects: null, curriculum_goal_id: 'g1', curriculum_goals: { subject_label: 'Math', curriculum_name: 'Math Mammoth 3' } },
+    { title: 'Math Mammoth 3 — Lesson 2', subjects: null, curriculum_goal_id: 'g1', curriculum_goals: { subject_label: 'Math', curriculum_name: 'Math Mammoth 3' } },
+    // No subject_label: the curriculum the family named.
+    { title: 'All About Reading — Lesson 4', subjects: null, curriculum_goal_id: 'g2', curriculum_goals: { subject_label: null, curriculum_name: 'All About Reading' } },
+    // A true one-off with no subject anywhere is the only General.
+    { title: 'Nature walk', subjects: null, curriculum_goal_id: null, curriculum_goals: null },
+  ]
+  const rows = subjectTableTotals(lessons, () => ({ m: 30, e: false }))
+  const byName = Object.fromEntries(rows.map((r) => [r.name, r]))
+  assert.equal(byName['Math']?.count, 2, 'curriculum lessons land under Math')
+  assert.equal(byName['Math']?.minutes, 60)
+  assert.equal(byName['All About Reading']?.count, 1)
+  assert.equal(byName['General']?.count, 1, 'only the one-off is General')
+})
+
+test('the PDF subject table and the day-by-day log use the same subject rule', () => {
+  const src = loadRepoFile('lib/progress-report.ts')
+  assert.match(src, /subjectTableTotals\(childLessons, /)
+  assert.ok(!/l\.subjects\?\.name \|\| "General"/.test(src), 'the subjects.name-only lookup is gone')
 })
