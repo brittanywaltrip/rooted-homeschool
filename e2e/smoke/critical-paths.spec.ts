@@ -112,6 +112,25 @@ async function resolveTestUserAndFirstChild(): Promise<{ userId: string; childId
   return { userId, childId };
 }
 
+/**
+ * Specs that create, reseed or rebuild a curriculum on the shared test account
+ * and then assert that curriculum's lesson dates straight from the database.
+ *
+ * Every Today load reconciles EVERY goal on the account (reconcileGoalScheduleCache),
+ * and a new goal whose stated history ended before today gets its next lesson
+ * placed on today, which is intended (docs/CURRICULUM-SCHEDULING.md, Invariant 1).
+ * When a spec in another file opened Today between a save and the read, "Past
+ * start_date backfill" read lesson 21 on today and failed on Invariant 1. A
+ * child of its own would not help: the reconciler is per account, not per child.
+ *
+ * So these run in their own Playwright project ("curriculum-writes" in
+ * playwright.config.ts), which depends on the main project and starts only
+ * after every other spec, including every Today load, has finished. Within
+ * this file they already run one after another in a single worker.
+ */
+const CURRICULUM_WRITES = '@curriculum-writes'
+
+
 // Schedule Builder is a two-step flow: click "Preview schedule →" first,
 // then "Save & build schedule" on the preview screen. Wraps both clicks +
 // waits for the post-save state so callers can assume the save has landed.
@@ -215,7 +234,7 @@ async function previewAndSave(page: import('@playwright/test').Page) {
 // CRUD via Schedule Builder (route-based, version-neutral)
 // ─────────────────────────────────────────────────────────────────────────────
 
-test.describe('Curriculum CRUD via Schedule Builder', () => {
+test.describe('Curriculum CRUD via Schedule Builder', { tag: CURRICULUM_WRITES }, () => {
   // Track names created during the suite so afterEach can clean up even
   // if a test bailed before its own try/finally fired.
   const createdLabels: string[] = [];
@@ -404,7 +423,7 @@ test.describe('Lesson completion (V2)', () => {
 // because the Schedule Builder UI selectors are flaky in test context.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test.describe('Orphan cleanup on starting-position advance', () => {
+test.describe('Orphan cleanup on starting-position advance', { tag: CURRICULUM_WRITES }, () => {
   // Track IDs for cleanup so afterEach can tear down even on failure mid-run.
   const createdLabelsOrphan: string[] = [];
   const createdGoalIdsOrphan: string[] = [];
@@ -655,9 +674,21 @@ test.describe('Data integrity', () => {
     // A left join with `curriculum_goals` null-filtered is the same question
     // asked once, and `head: true` means the rows never cross the wire — only
     // the count does. It stays O(1) round trips however large the table gets.
+    //
+    // Scoped to the test account (September 2026). Counted exactly across the
+    // whole lessons table, the join ran past Postgres's statement timeout
+    // whenever the suite was loading the database: PostgREST answered the HEAD
+    // with a bare 500, which read as "orphan audit query failed: " with no
+    // message (edge logs 2026-09-14 05:30 to 2026-09-15 04:13; postgres log
+    // "canceling statement due to statement timeout"). The account this suite
+    // creates and deletes curricula on is the one a bad delete would orphan,
+    // and lessons_curriculum_goal_id_fkey is ON DELETE SET NULL, so no other
+    // account can hold a row pointing at a missing goal either.
+    const testUserId = await requireTestUserId('orphan audit');
     const { count, error } = await sb
       .from('lessons')
       .select('id, curriculum_goals!left(id)', { count: 'exact', head: true })
+      .eq('user_id', testUserId)
       .not('curriculum_goal_id', 'is', null)
       .is('curriculum_goals', null);
 
@@ -710,7 +741,7 @@ test.describe('Data integrity', () => {
 // This test drives the bug fix end-to-end through the actual UI flow.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test.describe('Past start_date backfill via Schedule Builder', () => {
+test.describe('Past start_date backfill via Schedule Builder', { tag: CURRICULUM_WRITES }, () => {
   const createdCurriculumNames: string[] = [];
 
   test.afterEach(async () => {
@@ -1078,7 +1109,7 @@ test.describe('Past start_date backfill via Schedule Builder', () => {
 // week navigation needed.
 // ─────────────────────────────────────────────────────────────────────────────
 
-test.describe('Schedule Builder links goals to active year + shows them post-save', () => {
+test.describe('Schedule Builder links goals to active year + shows them post-save', { tag: CURRICULUM_WRITES }, () => {
   const createdCurriculumNames: string[] = [];
   // Only the school year THIS test created (if any) is torn down; a
   // pre-existing active year belongs to the account and is left alone.

@@ -28,10 +28,26 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
+      // Everything except the curriculum-writing specs below.
+      grepInvert: /@curriculum-writes/,
       use: {
         browserName: 'chromium',
         // Default storageState for tests that need it. Auth tests opt out
         // explicitly with test.use({ storageState: { cookies: [], origins: [] } }).
+        storageState: STORAGE_STATE,
+      },
+    },
+    {
+      // Specs that create or rebuild a curriculum on the shared test account
+      // and assert its lesson dates. Any Today load in another spec reconciles
+      // every goal on the account, so these must never overlap one: they run
+      // after the whole 'chromium' project has finished. See CURRICULUM_WRITES
+      // in e2e/smoke/critical-paths.spec.ts.
+      name: 'curriculum-writes',
+      grep: /@curriculum-writes/,
+      dependencies: ['chromium'],
+      use: {
+        browserName: 'chromium',
         storageState: STORAGE_STATE,
       },
     },

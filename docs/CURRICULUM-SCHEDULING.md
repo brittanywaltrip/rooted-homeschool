@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: September 14, 2026. Adds Invariant 22 (a skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number). September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 15, 2026. Invariant 1 notes the save-time scope of the guarantee. September 14, 2026: adds Invariant 22 (a skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number). September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -61,6 +61,16 @@ curriculum as an existing one. Both post-save notices that leave the builder
 open ask for exactly that second tap. A goal holding no lesson rows is still
 being created however its flag reads, and it has no lesson due today for the
 `todayMid` branch to protect, so it is anchored as a creation either way.
+
+**Save time, not forever.** The builder guarantees that no new lesson is dated
+on or before today at the moment it saves. The next Today load may then place
+the goal's next lesson ON today, when today's slot is empty because the stated
+history ended before today (`reconcileGoalScheduleCache` fills the first open
+slot from today forward). That is intended: the family is on that lesson and
+today is a school day. A check of this invariant must read the rows before any
+Today load can reconcile the goal, which is why the e2e specs that save a
+curriculum run in their own Playwright project after every other spec
+(`curriculum-writes` in `playwright.config.ts`).
 
 **Test case:** "Kendra-shaped repro" in `scheduler.test.ts` — given 62 lessons, 3/day Mon-Fri, 15 backfilled through Feb 17, today=Tue Apr 28 → first forward lesson lands on Wed Apr 29, no date holds more than 3 lessons.
 

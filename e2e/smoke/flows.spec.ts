@@ -34,11 +34,20 @@ async function reloadSentinelSurvived(page: Page): Promise<boolean> {
 // Hook up a console error collector. We only fail on real crashes. match
 // "Unhandled" / "TypeError" / pageerror events, ignore the breadcrumb logs
 // the dashboard emits during normal load (matching dashboard.spec.ts policy).
+//
+// "TypeError: Failed to fetch" is not a crash. It is what the browser reports
+// for a request that never got an answer, including one the page aborted by
+// navigating away mid-load (FLOW 4 goes Plan, Today, Plan), and the app logs it
+// through its own error handlers. It failed FLOW 4 once on 2026-09-15 as
+// "[selectAllRows] ... TypeError: Failed to fetch (auth.rootedhomeschoolapp.com)"
+// with the move itself verified. A real crash still surfaces as a pageerror or
+// an Unhandled rejection.
 function collectConsoleErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on('console', (msg: ConsoleMessage) => {
     if (msg.type() !== 'error') return;
     const text = msg.text();
+    if (/TypeError: Failed to fetch/.test(text) && !/Unhandled/.test(text)) return;
     if (/Unhandled|TypeError/.test(text)) errors.push(text);
   });
   page.on('pageerror', (err) => errors.push(err.message));
