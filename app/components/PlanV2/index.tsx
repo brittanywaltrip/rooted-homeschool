@@ -50,7 +50,7 @@ import CurriculumWizard from "@/app/components/CurriculumWizard";
 type CurriculumWizardEditData = Record<string, unknown>;
 import ActivitySetupModal, { type EditableActivity } from "@/app/components/ActivitySetupModal";
 import { useSchoolYears } from "@/lib/useSchoolYears";
-import { isYearAwaitingClose, overdueYearHeadline, todayLocalYmd } from "@/app/lib/school-year";
+import { isYearAwaitingClose, overdueYearHeadline, schoolYearWindowForRow, todayLocalYmd } from "@/app/lib/school-year";
 import { deriveEndYear } from "@/lib/school-year-name";
 import { getUSHolidaysForYear } from "@/lib/us-holidays";
 import PlanPrintDialog, { type PlanPrintMode } from "./PlanPrintDialog";
@@ -6455,6 +6455,7 @@ export default function PlanV2() {
         <ProgressReportDialog
           isOpen={reportDialogOpen}
           kids={kids}
+          schoolYear={schoolYearWindowForRow(schoolYears.active)}
           onClose={() => setReportDialogOpen(false)}
           onGenerate={handleGenerateReport}
         />

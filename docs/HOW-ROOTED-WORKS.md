@@ -110,7 +110,7 @@ The lessons dated in the weeks on screen, curricula, activities, appointments, b
 
 **What "this year" means here**
 
-Plan shows the active school year's first and last day on the calendar. The Download Progress Report "Full year" option is the current school year. Its Q1 to Q4 buttons are fixed September to August quarters, not the family's own dates.
+Plan shows the active school year's first and last day on the calendar. The Download Progress Report "Full year" option is the current school year. Its Q1 to Q4 buttons are four equal slices of that same school year, each labelled with its dates ("Q2 · Nov 7 to Jan 12").
 
 **Most likely to confuse**
 
@@ -402,7 +402,7 @@ Lessons, memories, activities and each curriculum's usual minutes. It saves noth
 
 **How the numbers work:** a lesson with no minutes logged uses the curriculum's usual minutes and is marked estimated.
 
-**What "this year" means here:** Full year is the current school year. Q1 to Q4 are September to November, December to February, March to May, and June to August of the school year today falls in, whatever dates the family gave their year.
+**What "this year" means here:** Full year is the current school year. Q1 to Q4 are four equal slices of that school year, from its first day to its last, each labelled with its own dates in the dialog. Every day of the year, a leap day included, is in exactly one quarter.
 
 **Rooted+:** the whole report.
 

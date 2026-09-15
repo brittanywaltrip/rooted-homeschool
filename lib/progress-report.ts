@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { generateProgressReport, fmtMins, type ReportData } from "@/lib/pdf";
 import { lessonDailyLogRow, subjectTableTotals } from "@/lib/progress-report-rows";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
-import { augustYearOf, getCurrentSchoolYear, todayLocalYmd, type SchoolYearWindow } from "@/app/lib/school-year";
+import { augustYearOf, getCurrentSchoolYear, schoolYearQuarters, todayLocalYmd, type SchoolYearWindow } from "@/app/lib/school-year";
 
 export type ReportRangePreset = "q1" | "q2" | "q3" | "q4" | "custom" | "full";
 
@@ -73,16 +73,20 @@ function computeRange(opts: DownloadProgressReportOpts, schoolYear: SchoolYearWi
   end: string;
   label: string;
 } {
-  // The quarters are Sep to Aug quarters of the August-to-July year today is
-  // in, as before. Keyed off today, not the family's start date: a year that
-  // was backfilled to start in April would otherwise number last year's
-  // quarters.
-  const yearStart = augustYearOf(todayLocalYmd());
+  // The quarters are four equal slices of the family's own school year, the
+  // same window Full year uses (schoolYearQuarters in app/lib/school-year.ts).
+  // They were fixed Sep-Nov, Dec-Feb, Mar-May, Jun-Aug of an August-to-July
+  // year, and Q2 stopped on Feb 28, so a leap day was in no quarter.
   const { range, customStart, customEnd } = opts;
-  if (range === "q1") return { start: `${yearStart}-09-01`, end: `${yearStart}-11-30`, label: `Q1 Report: September – November ${yearStart}` };
-  if (range === "q2") return { start: `${yearStart}-12-01`, end: `${yearStart + 1}-02-28`, label: `Q2 Report: December ${yearStart} – February ${yearStart + 1}` };
-  if (range === "q3") return { start: `${yearStart + 1}-03-01`, end: `${yearStart + 1}-05-31`, label: `Q3 Report: March – May ${yearStart + 1}` };
-  if (range === "q4") return { start: `${yearStart + 1}-06-01`, end: `${yearStart + 1}-08-31`, label: `Q4 Report: June – August ${yearStart + 1}` };
+  const quarterIndex = range === "q1" ? 0 : range === "q2" ? 1 : range === "q3" ? 2 : range === "q4" ? 3 : -1;
+  if (quarterIndex >= 0) {
+    const q = schoolYearQuarters(schoolYear)[quarterIndex];
+    if (q) {
+      const long = (d: string) =>
+        new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      return { start: q.start, end: q.end, label: `Q${quarterIndex + 1} Report: ${long(q.start)} to ${long(q.end)}` };
+    }
+  }
   if (range === "custom" && customStart && customEnd) {
     const fmt = (d: string) =>
       new Date(`${d}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });

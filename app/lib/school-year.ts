@@ -122,9 +122,67 @@ export async function getCurrentSchoolYear(
     .limit(1)
     .maybeSingle();
   if (error || !data) return fallbackSchoolYear(today);
-  const row = data as ActiveSchoolYearRow;
+  return schoolYearWindowForRow(data as ActiveSchoolYearRow, today);
+}
+
+/**
+ * The window for an active row already in hand, exactly as getCurrentSchoolYear
+ * computes it, for a caller that has the row (Plan's useSchoolYears) and must
+ * agree with one that reads it (the progress report).
+ */
+export function schoolYearWindowForRow(row: ActiveSchoolYearRow | null, today: string = todayLocalYmd()): SchoolYearWindow {
+  if (!row) return fallbackSchoolYear(today);
   const createdYmd = row.created_at ? localYmd(new Date(row.created_at)) : null;
   return resolveSchoolYear({ active: row, createdYmd, today });
+}
+
+/** Day number of a "YYYY-MM-DD" on the UTC calendar: no timezone can move it. */
+function dayNumber(ymd: string): number {
+  return Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(5, 7)) - 1, Number(ymd.slice(8, 10))) / 86400000;
+}
+
+function ymdFromDayNumber(n: number): string {
+  const d = new Date(n * 86400000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+export type SchoolYearQuarter = { start: string; end: string };
+
+/**
+ * The progress report's Q1 to Q4: four equal slices of the family's own school
+ * year, start through end, split by calendar days, inclusive on both ends, the
+ * last quarter taking the remainder. Every day of the year is in exactly one
+ * quarter.
+ *
+ * They used to be fixed Sep-Nov, Dec-Feb, Mar-May, Jun-Aug of an August-to-July
+ * year, whatever the family's dates, and Q2 ended on Feb 28, so Feb 29 was in
+ * no quarter in a leap year.
+ */
+export function schoolYearQuarters(y: Pick<SchoolYearWindow, "start" | "end">): SchoolYearQuarter[] {
+  const first = dayNumber(y.start);
+  const last = dayNumber(y.end);
+  const total = last - first + 1;
+  if (!YMD.test(y.start) || !YMD.test(y.end) || total < 1) return [];
+  const size = Math.max(1, Math.floor(total / 4));
+  const out: SchoolYearQuarter[] = [];
+  for (let q = 0; q < 4; q++) {
+    const startN = Math.min(first + q * size, last);
+    const endN = q === 3 ? last : Math.min(first + (q + 1) * size - 1, last);
+    out.push({ start: ymdFromDayNumber(startN), end: ymdFromDayNumber(endN) });
+  }
+  return out;
+}
+
+const SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Nov 18" straight off the string. */
+export function shortMonthDay(ymd: string): string {
+  return `${SHORT_MONTHS[Number(ymd.slice(5, 7)) - 1]} ${Number(ymd.slice(8, 10))}`;
+}
+
+/** "Q2 · Nov 18 to Feb 3", the dialog's label for a quarter. */
+export function quarterLabel(index: number, q: SchoolYearQuarter): string {
+  return `Q${index + 1} · ${shortMonthDay(q.start)} to ${shortMonthDay(q.end)}`;
 }
 
 /** A school_years row as the Plan page's hook reads it. */

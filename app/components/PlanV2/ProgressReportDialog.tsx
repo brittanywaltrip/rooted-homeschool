@@ -4,6 +4,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 import type { PlanV2Child } from "./types";
 import type { ReportRangePreset } from "@/lib/progress-report";
+import { quarterLabel, schoolYearQuarters, type SchoolYearWindow } from "@/app/lib/school-year";
 
 /* ============================================================================
  * ProgressReportDialog — collects the scope selections for a PDF export
@@ -18,6 +19,8 @@ import type { ReportRangePreset } from "@/lib/progress-report";
 export interface ProgressReportDialogProps {
   isOpen: boolean;
   kids: PlanV2Child[];
+  /** The school year the report's Full year and quarters are cut from. */
+  schoolYear: Pick<SchoolYearWindow, "start" | "end">;
   onClose: () => void;
   onGenerate: (opts: {
     childId: string | null;
@@ -28,17 +31,20 @@ export interface ProgressReportDialogProps {
   }) => Promise<void>;
 }
 
-const RANGE_OPTIONS: { value: ReportRangePreset; label: string }[] = [
-  { value: "q1", label: "Q1 (Sep – Nov)" },
-  { value: "q2", label: "Q2 (Dec – Feb)" },
-  { value: "q3", label: "Q3 (Mar – May)" },
-  { value: "q4", label: "Q4 (Jun – Aug)" },
-  { value: "full", label: "Full year" },
-  { value: "custom", label: "Custom…" },
-];
+const QUARTER_VALUES: ReportRangePreset[] = ["q1", "q2", "q3", "q4"];
+
+/** Each quarter labelled with its real dates ("Q2 · Nov 18 to Feb 3"). */
+function rangeOptions(schoolYear: Pick<SchoolYearWindow, "start" | "end">): { value: ReportRangePreset; label: string }[] {
+  const quarters = schoolYearQuarters(schoolYear);
+  return [
+    ...quarters.map((q, i) => ({ value: QUARTER_VALUES[i], label: quarterLabel(i, q) })),
+    { value: "full", label: "Full year" },
+    { value: "custom", label: "Custom…" },
+  ];
+}
 
 export default function ProgressReportDialog(props: ProgressReportDialogProps) {
-  const { isOpen, kids, onClose, onGenerate } = props;
+  const { isOpen, kids, schoolYear, onClose, onGenerate } = props;
   const [childId, setChildId] = useState<string>("");
   const [range, setRange] = useState<ReportRangePreset>("full");
   const [customStart, setCustomStart] = useState("");
@@ -116,7 +122,7 @@ export default function ProgressReportDialog(props: ProgressReportDialogProps) {
                 Date range
               </legend>
               <div className="grid grid-cols-2 gap-2">
-                {RANGE_OPTIONS.map((r) => {
+                {rangeOptions(schoolYear).map((r) => {
                   const active = range === r.value;
                   return (
                     <label

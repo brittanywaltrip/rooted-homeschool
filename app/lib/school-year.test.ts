@@ -12,6 +12,9 @@ import {
   getCurrentSchoolYear,
   isInSchoolYear,
   resolveSchoolYear,
+  schoolYearQuarters,
+  quarterLabel,
+  schoolYearWindowForRow,
   yearbookContentYearFilter,
   type SchoolYearWindow,
 } from "./school-year.ts";
@@ -166,4 +169,67 @@ test("the reader, the editor and Today share one yearbook key rule", () => {
     assert.match(src, /resolveYearbookKey\(/, `${f} resolves the key through the shared rule`);
     assert.ok(!/startYear = m >= 7/.test(src) && !/ybOpenedMonth >= 7/.test(src), `${f} still derives its own key`);
   }
+});
+
+// ── Progress report quarters: four equal slices of the family's own year ──────
+
+function everyDay(start: string, end: string): string[] {
+  const out: string[] = [];
+  const d = new Date(`${start}T12:00:00Z`);
+  for (;;) {
+    const ymd = d.toISOString().slice(0, 10);
+    if (ymd > end) break;
+    out.push(ymd);
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return out;
+}
+
+function coveredOnce(start: string, end: string) {
+  const quarters = schoolYearQuarters({ start, end });
+  assert.equal(quarters.length, 4);
+  assert.equal(quarters[0].start, start, "Q1 starts on the year's first day");
+  assert.equal(quarters[3].end, end, "Q4 ends on the year's last day");
+  for (let i = 1; i < 4; i++) {
+    const prevEnd = new Date(`${quarters[i - 1].end}T12:00:00Z`);
+    prevEnd.setUTCDate(prevEnd.getUTCDate() + 1);
+    assert.equal(quarters[i].start, prevEnd.toISOString().slice(0, 10), `Q${i + 1} starts the day after Q${i} ends`);
+  }
+  for (const day of everyDay(start, end)) {
+    const hits = quarters.filter((q) => day >= q.start && day <= q.end).length;
+    assert.equal(hits, 1, `${day} is in exactly one quarter`);
+  }
+  return quarters;
+}
+
+test("a Sep 1 to May 29 year gives four quarters covering every day exactly once", () => {
+  const q = coveredOnce("2025-09-01", "2026-05-29");
+  // 271 days: 67, 67, 67 and the remainder, 70.
+  assert.deepEqual(q, [
+    { start: "2025-09-01", end: "2025-11-06" },
+    { start: "2025-11-07", end: "2026-01-12" },
+    { start: "2026-01-13", end: "2026-03-20" },
+    { start: "2026-03-21", end: "2026-05-29" },
+  ]);
+  assert.equal(quarterLabel(1, q[1]), "Q2 · Nov 7 to Jan 12");
+  assert.ok(!/[–—]/.test(quarterLabel(1, q[1])), "no dashes in the label");
+});
+
+test("a year containing Feb 29 includes it, in exactly one quarter", () => {
+  const q = coveredOnce("2027-08-16", "2028-06-02");
+  assert.equal(q.filter((x) => "2028-02-29" >= x.start && "2028-02-29" <= x.end).length, 1);
+});
+
+test("the report dialog and the report cut quarters from the same window", () => {
+  const row = { id: "y", name: "2025-2026", start_date: "2025-09-01", end_date: "2026-05-29", created_at: "2025-08-20T15:00:00Z" };
+  const w = schoolYearWindowForRow(row, "2025-10-01");
+  assert.equal(w.id, "y");
+  assert.equal(w.end, "2026-05-29");
+  const report = readFileSync(resolve(import.meta.dirname, "..", "..", "lib/progress-report.ts"), "utf8");
+  assert.match(report, /schoolYearQuarters\(schoolYear\)\[quarterIndex\]/);
+  assert.ok(!report.includes("-02-28"), "no hardcoded February end");
+  const dialog = readFileSync(resolve(import.meta.dirname, "..", "components/PlanV2/ProgressReportDialog.tsx"), "utf8");
+  assert.match(dialog, /quarterLabel\(i, q\)/);
+  const plan = readFileSync(resolve(import.meta.dirname, "..", "components/PlanV2/index.tsx"), "utf8");
+  assert.match(plan, /schoolYear=\{schoolYearWindowForRow\(schoolYears\.active\)\}/);
 });
