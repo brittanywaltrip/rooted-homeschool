@@ -2262,6 +2262,8 @@ export function finishDateFromNextLesson(a: {
   /** The date the next lesson lands on. Today or later, never the start date. */
   fromYmd: string;
   vacations?: VacationBlock[];
+  /** Skipped queue slots (Invariant 22): they take no day, so the finish moves in. */
+  skippedSlots?: readonly number[];
 }): Date | null {
   if (a.totalLessons <= 0) return null;
   if (a.currentLesson >= a.totalLessons) return null;
@@ -2276,7 +2278,22 @@ export function finishDateFromNextLesson(a: {
     },
     new Date(`${a.fromYmd}T00:00:00`),
     a.vacations,
+    0,
+    (a.skippedSlots ?? []).map((slot) => ({ slot, skipped: true as const })),
   );
+}
+
+/**
+ * The lesson the Schedule Builder names as next: the first lesson at or after
+ * the one the family is on that they have not skipped (Invariant 22). The
+ * projector steps over a skipped slot, so naming the skipped number put a
+ * lesson in the preview ("Lesson 44 on Tue") that would never be dated.
+ */
+export function builderNextLesson(nextLesson: number, skippedSlots: readonly number[] = [], totalLessons?: number | null): number {
+  const skipped = new Set(skippedSlots);
+  let n = Math.max(1, nextLesson);
+  while (skipped.has(n) && (totalLessons == null || totalLessons <= 0 || n <= totalLessons)) n++;
+  return n;
 }
 
 export interface DerivedHistoryArgs {
@@ -2435,6 +2452,8 @@ export function formatWeekdayShort(ymdStr: string): string {
 export function storedProgressLine(a: {
   /** curriculum_goals.current_lesson as stored. */
   currentLesson: number;
+  /** The lesson that will actually be dated next, when a skip sits in between. Defaults to currentLesson + 1. */
+  nextLesson?: number;
   /** curriculum_goals.start_date as stored, if any. */
   startDate?: string | null;
   nextLessonDate?: string;
@@ -2454,7 +2473,7 @@ export function storedProgressLine(a: {
   if (a.nextLessonDate) {
     const when =
       a.nextLessonDate === a.todayYmd ? "today" : formatWeekdayShort(a.nextLessonDate);
-    parts.push(`Lesson ${a.currentLesson + 1} on ${when}.`);
+    parts.push(`Lesson ${a.nextLesson ?? a.currentLesson + 1} on ${when}.`);
   }
   if (a.finishLabel) parts.push(`Finishes about ${a.finishLabel}.`);
   return parts.join(" ");

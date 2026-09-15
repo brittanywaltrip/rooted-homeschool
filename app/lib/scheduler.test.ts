@@ -59,6 +59,7 @@ import {
   type PinnedSlot,
   type QueueHold,
   skippedSlotsFromRows,
+  builderNextLesson,
   queueHoldsFromRows,
   type ReschedulableLesson,
   type CurriculumGoalConfig,
@@ -9224,8 +9225,8 @@ test('the builder anchors its pace at the next lesson date', () => {
   assert.match(calcPace, /vacations,/, 'and it honours the family\'s breaks')
   assert.match(
     src,
-    /calcPace\(row, today, projected\[0\]\?\.date, vacations\)/,
-    'anchored at the next lesson, with breaks',
+    /calcPace\(row, today, projected\[0\]\?\.date, vacations(, skippedSlots)?\)/,
+    'anchored at the next lesson, with breaks (and the goal\'s skips, Invariant 22)',
   )
   // One computation, read by both surfaces. Computing it again in the row card
   // with no anchor walked from today, so a curriculum starting in January
@@ -10010,4 +10011,46 @@ test('Invariant 16 — Plan bulk Mark all done and the missed banner go through 
   const banner = stripComments(loadRepoFile('app/components/PlanV2/MissedLessonsBanner.tsx'))
   assert.match(banner, /onClick=\{onMarkAllDone\}/)
   assert.ok(!banner.includes('confirming'), 'the banner no longer asks twice')
+})
+
+// ── The builder preview never names a skipped lesson as next (Invariant 22) ──
+
+test('builder preview: with lesson 44 skipped, the preview names Lesson 45', () => {
+  const skipped = [44]
+  const next = builderNextLesson(44, skipped, 180)
+  assert.equal(next, 45)
+  assert.equal(builderNextLesson(44, [], 180), 44, 'no skips, no change')
+  assert.equal(builderNextLesson(44, [44, 45], 180), 46, 'consecutive skips are all stepped over')
+
+  // The projector the preview reads puts 45 on the first slot, so the name and
+  // the date belong to the same lesson.
+  const goal: CurriculumGoalConfig = { id: 'g', total_lessons: 180, lessons_per_day: 1, school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], current_lesson: 43 }
+  const projected = computeNextLessonsForGoal(goal, new Date('2026-09-14T00:00:00'), 3650, [], 0, skipped.map((slot) => ({ slot, skipped: true as const })))
+  assert.equal(projected[0].lesson_number, 45)
+
+  const line = previewLessonLine({
+    history: { dates: [], schoolDayCount: 0, lastLesson: 0, truncated: false },
+    nextLesson: next,
+    nextLessonDate: '2026-09-15',
+    todayYmd: '2026-09-14',
+  })
+  assert.equal(line, 'Lesson 45 on Tue, Sep 15.')
+  assert.equal(
+    storedProgressLine({ currentLesson: 43, nextLesson: next, nextLessonDate: '2026-09-15', todayYmd: '2026-09-14' }),
+    'Lessons 1 to 43 done. Lesson 45 on Tue, Sep 15.',
+  )
+  // And the pace: a skipped lesson takes no day, so the finish comes one school day sooner.
+  const pace = (s: number[]) => finishDateFromNextLesson({ schoolDays: goal.school_days!, lessonsPerDay: 1, currentLesson: 178, totalLessons: 180, fromYmd: '2026-09-14', skippedSlots: s })
+  assert.equal(toDateStr(pace([]) as Date), '2026-09-15')
+  assert.equal(toDateStr(pace([179]) as Date), '2026-09-14')
+})
+
+test('builder preview: skips are loaded once and handed to every schedule line', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.match(src, /\.from\("lessons"\)\s*\.select\("curriculum_goal_id, queue_position, completed, skipped"\)\s*\.eq\("user_id", effectiveUserId\)\s*\.eq\("skipped", true\)/)
+  assert.match(src, /skippedSlotsFromRows\(\[r\], goalId\)/, 'the derivation planPhase2Rows uses')
+  assert.match(src, /rowScheduleFor\(r, today, todayStr, vacations, skippedByGoal\)/)
+  assert.match(src, /nextLesson: builderNextLesson\(branch === "fresh" \? 1 : nextLesson, skippedSlots, row\.total_lessons\)/)
+  assert.match(src, /calcPace\(row, today, projected\[0\]\?\.date, vacations, skippedSlots\)/)
+  assert.equal((src.match(/nextLesson: sched\.nextLesson,/g) ?? []).length, 4, 'both stored-progress lines and both next-lesson lines read the stepped lesson')
 })

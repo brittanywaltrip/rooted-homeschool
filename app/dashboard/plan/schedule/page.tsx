@@ -7,7 +7,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
-import { isPhase2NoOp, planPhase2Rows, phase2RedateTargets, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, planPhase2Rows, phase2RedateTargets, builderNextLesson, skippedSlotsFromRows, type PinnableRow, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
@@ -654,6 +654,12 @@ function rowScheduleFor(
   today: Date,
   todayStr: string,
   vacations: SchedVacationBlock[],
+  /**
+   * Skipped queue slots per saved goal (Invariant 22), loaded when the builder
+   * opens with skippedSlotsFromRows, the derivation planPhase2Rows uses. The
+   * preview steps over them exactly as the save and every projector do.
+   */
+  skippedByGoal: ReadonlyMap<string, readonly number[]> = new Map(),
 ): RowSchedule | null {
   if (row.type !== "curriculum") return null;
   // Ask the ROW, not compactCurriculumPerDay: that helper falls back to Mon-Fri
@@ -666,6 +672,7 @@ function rowScheduleFor(
 
   const branch = whereBranchFor(row, todayStr);
   const nextLesson = Math.max(1, row.start_at_lesson);
+  const skippedSlots = row.dbId ? (skippedByGoal.get(row.dbId) ?? []) : [];
 
   // Same predicate the Invariant 21 pre-flight and the derived-date sync use,
   // so all three agree on what "this save is asking about" means. An untouched
@@ -788,15 +795,18 @@ function rowScheduleFor(
     anchor,
     3650,
     vacations,
+    0,
+    skippedSlots.map((slot) => ({ slot, skipped: true as const })),
   );
 
   // The pace anchor is the next lesson's own date, so the finish month counts
   // forward from where the family is rather than from a start date behind them.
-  const pace = calcPace(row, today, projected[0]?.date, vacations);
+  const pace = calcPace(row, today, projected[0]?.date, vacations, skippedSlots);
   return {
     branch,
     history,
-    nextLesson: branch === "fresh" ? 1 : nextLesson,
+    // The lesson that will actually be dated: a skipped one is stepped over.
+    nextLesson: builderNextLesson(branch === "fresh" ? 1 : nextLesson, skippedSlots, row.total_lessons),
     nextLessonDate: projected[0]?.date,
     effectiveStartDate,
     overflow,
@@ -826,13 +836,16 @@ function calcPace(
   today: Date,
   fromYmd?: string,
   vacations: SchedVacationBlock[] = [],
+  skippedSlots: readonly number[] = [],
 ): Pace | null {
   if (row.type !== "curriculum") return null;
   if (!row.total_lessons || row.total_lessons <= 0) return null;
   const lpw = lessonsPerWeek(row);
   if (lpw === 0) return null;
   const lessonsDone = Math.max(0, (row.start_at_lesson ?? 1) - 1);
-  const lessonsRemaining = row.total_lessons - lessonsDone;
+  // A skipped lesson ahead of the family takes no week (Invariant 22).
+  const skippedAhead = skippedSlots.filter((n) => n > lessonsDone && n <= row.total_lessons!).length;
+  const lessonsRemaining = row.total_lessons - lessonsDone - skippedAhead;
   if (lessonsRemaining <= 0) return null;
   const weeksRemaining = Math.ceil(lessonsRemaining / lpw);
   const { lessons_per_day, lessons_per_day_overrides, school_days } =
@@ -847,6 +860,7 @@ function calcPace(
     // A three-week Christmas break moves the last lesson, so it has to move
     // the month quoted for it too.
     vacations,
+    skippedSlots,
   });
   if (!finish) return null;
   return {
@@ -1206,6 +1220,8 @@ export default function ScheduleBuilderPage() {
   // derived start date the same way it moves the saved schedule. Loaded with
   // the rest of the builder; the save reads its own copy at save time.
   const [vacations, setVacations] = useState<SchedVacationBlock[]>([]);
+  // Skipped queue slots per saved goal, for the preview (Invariant 22).
+  const [skippedByGoal, setSkippedByGoal] = useState<ReadonlyMap<string, readonly number[]>>(new Map());
   // What this family has typed before, newest first, for the two suggestion
   // lists. Read once with the rest of the builder; no new table.
   const [ownCurriculumNames, setOwnCurriculumNames] = useState<string[]>([]);
@@ -1248,7 +1264,7 @@ export default function ScheduleBuilderPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [kidsResp, goalsResp, activitiesResp, vacationsResp, pastNamesResp] = await Promise.all([
+        const [kidsResp, goalsResp, activitiesResp, vacationsResp, pastNamesResp, skippedResp] = await Promise.all([
           supabase
             .from("children")
             .select("id, name, color, sort_order")
@@ -1282,6 +1298,14 @@ export default function ScheduleBuilderPage() {
             .eq("user_id", effectiveUserId)
             .order("created_at", { ascending: false })
             .limit(500),
+          // Skipped lessons (Invariant 22), so the preview never names one as
+          // next. Only unfinished skipped rows count, as in planPhase2Rows.
+          supabase
+            .from("lessons")
+            .select("curriculum_goal_id, queue_position, completed, skipped")
+            .eq("user_id", effectiveUserId)
+            .eq("skipped", true)
+            .eq("completed", false),
         ]);
         if (cancelled) return;
 
@@ -1297,6 +1321,19 @@ export default function ScheduleBuilderPage() {
         // Not worth refusing to open the page over.
         if (!vacationsResp.error) {
           setVacations((vacationsResp.data ?? []) as SchedVacationBlock[]);
+        }
+        // Non-fatal too: without it the preview reads as it did before skips,
+        // and the save itself reads skips from the goal's own rows.
+        if (!skippedResp.error) {
+          const byGoal = new Map<string, number[]>();
+          for (const r of (skippedResp.data ?? []) as PinnableRow[]) {
+            const goalId = r.curriculum_goal_id;
+            if (!goalId) continue;
+            const list = byGoal.get(goalId) ?? [];
+            list.push(...skippedSlotsFromRows([r], goalId).map((h) => h.slot));
+            byGoal.set(goalId, list);
+          }
+          setSkippedByGoal(byGoal);
         }
         // Non-fatal for the same reason: without it the shared list still
         // suggests, it just does not know this family yet.
@@ -1649,11 +1686,11 @@ export default function ScheduleBuilderPage() {
     const out = new Map<string, RowSchedule>();
     for (const r of rows) {
       if (r.type !== "curriculum" || r.pendingDelete) continue;
-      const sched = rowScheduleFor(r, today, todayStr, vacations);
+      const sched = rowScheduleFor(r, today, todayStr, vacations, skippedByGoal);
       if (sched) out.set(r.localId, sched);
     }
     return out;
-  }, [rows, today, todayStr, vacations]);
+  }, [rows, today, todayStr, vacations, skippedByGoal]);
 
   // ── The derived start date is written back onto the row ──────────────────
   //
@@ -3644,7 +3681,7 @@ export default function ScheduleBuilderPage() {
         }
         // The earliest forward-scheduled lesson across everything just saved.
         const firstDates = createdRows
-          .map((r) => rowScheduleFor(r, today, todayStr, vacations)?.nextLessonDate)
+          .map((r) => rowScheduleFor(r, today, todayStr, vacations, skippedByGoal)?.nextLessonDate)
           .filter((d): d is string => !!d)
           .sort();
         // The screen has to be full-bleed, and everything under app/dashboard
@@ -4520,6 +4557,7 @@ function RowCard(props: {
           // Same single source as the preview line: see storedProgressLine's
           // call site there.
           currentLesson: Math.max(0, row.start_at_lesson - 1),
+          nextLesson: sched.nextLesson,
           startDate: row.start_date,
           nextLessonDate: sched.nextLessonDate,
           finishLabel: sched.finishLabel,
@@ -5403,6 +5441,7 @@ function PreviewView(props: {
                               // will too, so reading the other field made the
                               // line name a lesson the date did not belong to.
                               currentLesson: Math.max(0, r.start_at_lesson - 1),
+                              nextLesson: sched.nextLesson,
                               startDate: r.start_date,
                               nextLessonDate: sched.nextLessonDate,
                               finishLabel: sched.finishLabel,

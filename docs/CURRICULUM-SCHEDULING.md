@@ -1157,6 +1157,14 @@ slots so a skip sitting in a drifted slot cannot take that slot's lesson number
 out of the rebuild. Like a pin, a skipped row past a shortened `total_lessons`
 is still removed by the over-ceiling cleanup.
 
+**The builder preview names the lesson that will be dated (September 15, 2026).**
+The Schedule Builder loads each saved goal's skipped slots when it opens
+(`skippedSlotsFromRows`, the derivation `planPhase2Rows` uses), projects the
+preview with them, and names `builderNextLesson`: the first lesson at or after
+the family's position that is not skipped. The pace line's finish walk
+(`finishDateFromNextLesson`) steps over them too. It used to say "Lesson 44 on
+Tue" for a skipped 44 that would never be dated.
+
 **Test case:** the "skip:" block in `scheduler.test.ts`: lesson 12 skipped with
 `current_lesson` 11 projects 13 then 14; a stale pin on a skipped slot reserves
 nothing; the first-day rewind; finish date and catch-up gap walk; the reconciler
