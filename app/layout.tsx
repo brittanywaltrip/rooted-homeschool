@@ -68,17 +68,16 @@ export const metadata: Metadata = {
   },
 };
 
-// iPhone focus zoom. iOS Safari and the Capacitor WKWebView zoom in when a
-// text box under 16px takes focus and never zoom back out, and most inputs in
-// the app render at 12 to 14px. A family on Sept 15, 2026: "My app zooms in a
-// lot while using it and I can never get it zoomed back out unless I quit and
-// restart." maximumScale 1 is what stops the focus zoom. userScalable is
-// deliberately left out: iOS ignores it, and it gets in the way of
-// accessibility zoom tools.
+// No maximumScale. It was added on Sept 15 to stop iOS zooming in on a focused
+// text box, but iOS ignores it for pinch while Android Chrome and the Android
+// WebView obey it, so the only people it affected were Android users with low
+// vision, who lost pinch-zoom entirely. The focus zoom is fixed at its cause
+// instead: every text box is 16px on a touch screen (app/globals.css), and no
+// browser zooms a 16px box. A guard test keeps maximumScale from coming back
+// (app/layout.test.ts).
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
 };
 
 export default function RootLayout({
