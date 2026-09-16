@@ -138,6 +138,45 @@ test.describe('phone screenshots of every surface with a text box', () => {
     await expectNoZoomOnFocus(page, 'builder')
   })
 
+  /**
+   * The curriculum row's pace control, in its three states (CC #16).
+   *
+   * Nothing is saved: the spec drives the form and screenshots it, and never
+   * touches Preview or Save, so the e2e account's stored schedule is untouched.
+   *
+   * Written to work against BOTH the old row and the new one, so the before and
+   * after runs are the same script: the expander link only exists after the
+   * change, and the per-day steppers are found by an aria-label that matches
+   * either the old short day name or the new spelled-out one.
+   */
+  test('the curriculum pace control', async ({ page }) => {
+    await gotoAppPage(page, '/dashboard/plan/schedule')
+    await expect(page.getByRole('heading', { name: /Your Schedule/i }).first()).toBeVisible({
+      timeout: 30_000,
+    })
+    const expander = page.locator('[aria-expanded="false"]').first()
+    if ((await expander.count()) > 0) await expander.click({ timeout: 5_000 }).catch(() => {})
+    await page.waitForTimeout(800)
+
+    // (a) every day the same, list collapsed.
+    await shot(page, 'pace-same')
+
+    // (b) Wednesday heavier than the rest.
+    const openPerDay = page.locator('button', { hasText: /Different on some days\?/i }).first()
+    if ((await openPerDay.count()) > 0) await openPerDay.click({ timeout: 5_000 })
+    await page.waitForTimeout(400)
+    const wedUp = page.locator('[aria-label="One more lesson on Wednesday"], [aria-label="One more lesson on Wed"]').first()
+    if ((await wedUp.count()) > 0) await wedUp.click({ timeout: 5_000 })
+    await page.waitForTimeout(400)
+    await shot(page, 'pace-varies')
+
+    // (c) a day set to 0, which the scheduler honours as "skip this day".
+    const tueDown = page.locator('[aria-label="One fewer lesson on Tuesday"], [aria-label="One fewer lesson on Tue"]').first()
+    if ((await tueDown.count()) > 0) await tueDown.click({ timeout: 5_000 })
+    await page.waitForTimeout(400)
+    await shot(page, 'pace-zero')
+  })
+
   test('login', async ({ page }) => {
     await page.context().clearCookies()
     await page.goto('/login', { waitUntil: 'domcontentloaded' })
