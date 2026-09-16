@@ -3,11 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowRight, Bookmark, BookmarkCheck, ChevronDown, ExternalLink, MapPin, Search, X } from "lucide-react";
 import Link from "next/link";
+import Image from "next/image";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import PageHero from "@/app/components/PageHero";
 import { posthog } from "@/lib/posthog";
 import { PRINTABLES } from "@/lib/printables";
+import {
+  resourceCardBodyClass,
+  resourceCardShellClass,
+  resourceImagePath,
+  resourceSubject,
+} from "@/lib/resource-metadata";
 import ResourceReportSheet, { type ReportTarget } from "@/components/ResourceReportSheet";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -239,7 +246,10 @@ function getCategoryEmoji(cat: string): string {
   const map: Record<string, string> = {
     curriculum: "📚", online_classes: "🖥️", science: "🔬",
     field_trips: "🌍", printables: "🖨️", discounts: "💰",
-    back_to_school: "🎒",
+    // The KEY is historical: the block started life as "Back to School" in
+    // August and is now the standing seasonal slot. Renaming the key would move
+    // every existing row for nothing.
+    back_to_school: "🍂",
   };
   return map[cat] || "🌿";
 }
@@ -248,7 +258,7 @@ function getCategoryLabel(cat: string): string {
   const map: Record<string, string> = {
     curriculum: "Curriculum", online_classes: "Online Classes", science: "Science",
     field_trips: "Field Trip", printables: "Printables", discounts: "Discount",
-    back_to_school: "Back to School",
+    back_to_school: "This Season",
   };
   return map[cat] || cat;
 }
@@ -311,8 +321,36 @@ function GradePill({ grade }: { grade: string }) {
 
 function ResourceCard({ r, savedMap, onToggle, onReport }: { r: DbResource; savedMap: Record<string, string>; onToggle: (id: string) => void; onReport: (t: ReportTarget) => void }) {
   const isNew = isNewThisWeek(r.created_at);
+  // Optional, and read defensively: see lib/resource-metadata.ts. A resource
+  // with neither renders exactly the markup it always did.
+  const image = resourceImagePath(r.metadata);
+  const subject = resourceSubject(r.metadata);
+  const openResource = () => trackResourceClick({ resource_id: r.id, title: r.title, category: r.category });
   return (
-    <div className="bg-white rounded-2xl border border-[#e8e5e0] hover:bg-[#faf9f7] transition-all p-5">
+    <div className={resourceCardShellClass(Boolean(image))}>
+      {image && (
+        /* The whole picture is the same click as the title: same href, same
+           target, same tracking. A square, because the fall pack is 1000x1000
+           art and cropping it would be throwing away what was drawn. */
+        <a
+          href={r.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={openResource}
+          className="block relative aspect-square w-full bg-[#f5f3f0]"
+        >
+          <Image
+            src={image}
+            alt={r.title}
+            width={1000}
+            height={1000}
+            sizes="(max-width: 640px) 100vw, 480px"
+            loading="lazy"
+            className="w-full h-full object-cover rounded-t-2xl"
+          />
+        </a>
+      )}
+      <div className={resourceCardBodyClass(Boolean(image))}>
       <div className="flex items-start gap-3">
         <div className="bg-[#f5f3f0] rounded-xl w-10 h-10 flex items-center justify-center shrink-0 text-xl">
           {getCategoryEmoji(r.category)}
@@ -320,7 +358,7 @@ function ResourceCard({ r, savedMap, onToggle, onReport }: { r: DbResource; save
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
             <a href={r.url} target="_blank" rel="noopener noreferrer"
-              onClick={() => trackResourceClick({ resource_id: r.id, title: r.title, category: r.category })}
+              onClick={openResource}
               className="font-bold text-[#2d2926] text-sm hover:text-[#4a7c59] hover:underline transition-colors leading-snug flex items-center gap-1.5">
               {r.title}
               <ExternalLink size={12} className="text-[#b5aca4] shrink-0" />
@@ -334,6 +372,11 @@ function ResourceCard({ r, savedMap, onToggle, onReport }: { r: DbResource; save
             {r.badge_text && (
               <span className="text-[10px] font-medium bg-[#e4f0e6] text-[var(--g-deep)] px-2 py-0.5 rounded-full">{r.badge_text}</span>
             )}
+            {subject && (
+              /* Display only: it filters nothing and links nowhere. Same style
+                 as the grade pill, no colour and no dot. */
+              <span className="text-[10px] bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full">{subject}</span>
+            )}
             {isNew && (
               <span className="text-[10px] font-bold bg-[#fef5e4] text-[#8b6820] px-2 py-0.5 rounded-full">New 🌱</span>
             )}
@@ -345,6 +388,7 @@ function ResourceCard({ r, savedMap, onToggle, onReport }: { r: DbResource; save
             This didn&apos;t work for us
           </button>
         </div>
+      </div>
       </div>
     </div>
   );
@@ -469,7 +513,9 @@ export default function ResourcesPage() {
   // Featured seasonal section. Purely data-driven: deactivate the resources in
   // the admin page when the season ends and the section disappears on its own.
   // No date logic anywhere.
-  const backToSchoolResources = dbResources.filter((r) => r.category === "back_to_school");
+  // The category key is historical ("back_to_school", August 2026); the block
+  // is the standing seasonal slot now. Keeping the key means no row moves.
+  const seasonalResources = dbResources.filter((r) => r.category === "back_to_school");
   const browsableResources = dbResources.filter((r) => browsableCategories.includes(r.category));
 
   const filteredBrowse = browsableResources.filter((r) => {
@@ -742,19 +788,20 @@ export default function ResourcesPage() {
         </Link>
       ) : null}
 
-      {/* ── Featured: Back to School ─────────────────────────────
-          Seasonal, and seasonal here means data-driven, not date-driven:
-          the section exists only while at least one back_to_school resource
-          is active, so deactivating them in the admin page retires it with
-          no code change and no hardcoded end date. Reuses ResourceCard so a
-          featured card and a browse card are the same object to the eye.
+      {/* ── Featured: This Season ────────────────────────────────
+          A standing seasonal slot, and seasonal here means data-driven, not
+          date-driven: the section exists only while at least one row in the
+          category is active, so deactivating them in the admin page retires it
+          with no code change and no hardcoded end date, and the next pack drops
+          in the same way. Reuses ResourceCard so a featured card and a browse
+          card are the same object to the eye.
          ──────────────────────────────────────────────────────────── */}
-      {backToSchoolResources.length > 0 && (
+      {seasonalResources.length > 0 && (
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Back to School</p>
-          <p className="text-[12px] text-[#8B7E74] mb-3 pl-1">Fresh picks for a fresh school year.</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">This Season</p>
+          <p className="text-[12px] text-[#8B7E74] mb-3 pl-1">Free picks for right now.</p>
           <div className="space-y-3">
-            {backToSchoolResources.map((r) => (
+            {seasonalResources.map((r) => (
               <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} />
             ))}
           </div>
