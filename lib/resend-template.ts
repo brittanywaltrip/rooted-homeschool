@@ -110,8 +110,9 @@ export const TEMPLATES = {
   winback: '1bcd1b2e-3c08-40fd-bed1-05c01c2bf8f9',
   // Trial ending, six days before the 30-day Rooted+ trial runs out
   trialEnding: 'ed7ab074-fd32-45a4-bcb8-7b1472d3e502',
-  // Weekly summary
+  // Weekly summary: the full one, and the quiet one for a week with nothing in it
   weeklySummary: 'c3fff265-4d07-4062-b78a-d16626af9c7f',
+  weeklySummaryQuiet: '4dd0f5db-3641-4d29-b3b2-9c4282da0aa7',
   // Family
   familyDigest: '1d5d5a36-453f-4f39-b62c-3cdaf59ed7f8',
   trialWarning: '5bf4459b-40bc-4767-92e8-07cb452f2deb',
