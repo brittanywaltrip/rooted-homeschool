@@ -161,9 +161,15 @@ export function frameTextRuns(
   return out;
 }
 
-/** "emma-fall.png", or "fall.png" when no name was typed. */
+/**
+ * "emma-first-day.png", or just the slug when there is no name. A frame with
+ * no name field ignores the name: it is hidden there (and may have been
+ * autofilled from a child), so it must not turn up in a file name the family
+ * cannot see or clear.
+ */
 export function frameExportFilename(name: string, theme: FirstDayTheme): string {
-  const who = (name || "").replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase();
+  const hasName = theme.fields.some((f) => f.key === "name");
+  const who = (hasName ? name || "" : "").replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").toLowerCase();
   return who ? `${who}-${theme.fileSlug}.png` : `${theme.fileSlug}.png`;
 }
 

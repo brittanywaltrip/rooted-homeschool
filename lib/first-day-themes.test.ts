@@ -79,6 +79,11 @@ test("the fall photo boxes cover the measured openings", () => {
   }
 });
 
+test("a frame with no name field leaves a hidden (autofilled) name out of the file name", () => {
+  assert.equal(frameExportFilename("Emma", FIRST_DAY_THEMES.fall), "fall.png");
+  assert.equal(frameExportFilename("Emma", FIRST_DAY_THEMES.fallCamp), "fallCamp.png");
+});
+
 test("?theme= preselects a known theme and falls back for an unknown one", () => {
   assert.equal(initialFirstDayThemeId("fall", null), "fall");
   assert.equal(initialFirstDayThemeId("fallCamp", "eucalyptus"), "fallCamp");
@@ -95,10 +100,9 @@ test("with no query value the stored pick is used, if it is still a theme", () =
 });
 
 test("export file name uses the theme", () => {
-  assert.equal(frameExportFilename("Emma", FIRST_DAY_THEMES.fall), "emma-fall.png");
   assert.equal(frameExportFilename("", FIRST_DAY_THEMES.fall), "fall.png");
   assert.equal(frameExportFilename("   ", FIRST_DAY_THEMES.fallCamp), "fallCamp.png");
-  assert.equal(frameExportFilename("Mary Kate!", FIRST_DAY_THEMES.fallCamp), "mary-kate-fallCamp.png");
+  assert.equal(frameExportFilename("Mary Kate!", FIRST_DAY_THEMES.eucalyptus), "mary-kate-first-day.png");
   assert.equal(frameExportFilename("Emma", FIRST_DAY_THEMES.eucalyptus), "emma-first-day.png");
   assert.equal(frameExportFilename("", FIRST_DAY_THEMES.eucalyptus), "first-day.png");
 });
