@@ -37,10 +37,17 @@ export default function SignupPage() {
   // onboarding, so the checked values wait in localStorage until then
   // (app/onboarding/page.tsx). Nothing is written to profiles, and referral
   // attribution is a separate thing this does not touch.
+  //
+  // A plain /signup clears any value left by an earlier visit that never
+  // finished, so a later signup on the same device is not credited to that
+  // share or sent to its tool. OAuth and email confirmation return to
+  // /onboarding, not here, so a real share signup keeps its value.
   useEffect(() => {
     const source = parseShareSource(new URLSearchParams(window.location.search));
-    if (!source) return;
-    try { localStorage.setItem(SHARE_SOURCE_STORAGE_KEY, JSON.stringify(source)); } catch { /* private mode: not counted */ }
+    try {
+      if (source) localStorage.setItem(SHARE_SOURCE_STORAGE_KEY, JSON.stringify(source));
+      else localStorage.removeItem(SHARE_SOURCE_STORAGE_KEY);
+    } catch { /* private mode: not counted */ }
   }, []);
 
   // Countdown tick: re-schedules itself once per second while a cooldown is
