@@ -137,6 +137,35 @@ body {
   overflow-x: clip;
 }
 
+/* ── Text boxes are 16px on a touch screen ────────────────────────────────
+ *
+ * Safari on iOS and the Android WebView zoom in on a focused text box whose
+ * font is under 16px, and iOS never zooms back out. Most of Rooted's boxes are
+ * 12 to 14px, so a mother filling in the Schedule Builder ended up stuck at
+ * 1.4x with no way back ("My app zooms in a lot while using it and I can never
+ * get it zoomed back out unless I quit and restart", Sept 15). CC #11 stopped
+ * that by banning zoom outright (maximumScale: 1), which iOS ignores for pinch
+ * but Android obeys, so Android users lost pinch-zoom altogether. This fixes
+ * the cause instead, and the ban is gone.
+ *
+ * Scoped to coarse pointers, so desktop layouts keep their 13px boxes.
+ * Checkboxes, radios, ranges and file inputs are excluded: their size comes
+ * from the control, not the text, and 16px would grow them.
+ *
+ * Unlayered on purpose. Tailwind v4 puts its utilities in @layer utilities, and
+ * an unlayered declaration beats a layered one whatever its specificity, so
+ * this wins over text-xs / text-sm / text-[13px] without !important. The
+ * screenshot spec asserts the computed size is >= 16px on a real phone
+ * viewport (e2e/screenshots/mobile-inputs.spec.ts).
+ */
+@media (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus {

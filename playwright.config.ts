@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 import path from 'node:path';
 
 // Tests run against a deployed environment (staging by default).
@@ -30,6 +30,9 @@ export default defineConfig({
       name: 'chromium',
       // Everything except the curriculum-writing specs below.
       grepInvert: /@curriculum-writes/,
+      // The phone screenshots are a look-at-it tool, not a gate. See the
+      // mobile-screenshots project at the bottom.
+      testIgnore: /screenshots\//,
       // Run the curriculum-writing specs AFTER this project, as its teardown.
       // A teardown project still runs when tests here fail, where a project
       // that lists this one in `dependencies` would be skipped as "did not
@@ -50,8 +53,24 @@ export default defineConfig({
       // teardown). See CURRICULUM_WRITES in e2e/smoke/critical-paths.spec.ts.
       name: 'curriculum-writes',
       grep: /@curriculum-writes/,
+      testIgnore: /screenshots\//,
       use: {
         browserName: 'chromium',
+        storageState: STORAGE_STATE,
+      },
+    },
+    {
+      // Phone screenshots for eyeballing input sizing (CC #15). Never part of
+      // the gate: no other project picks this directory up, and this one runs
+      // only when asked for by name:
+      //   SHOT_PREFIX=before npx playwright test --project=mobile-screenshots
+      name: 'mobile-screenshots',
+      testMatch: /screenshots\/.*\.spec\.ts/,
+      // Several full-page navigations per test, on a phone viewport: the gate's
+      // 30s is not enough and this project never blocks a deploy.
+      timeout: 240_000,
+      use: {
+        ...devices['iPhone 14'],
         storageState: STORAGE_STATE,
       },
     },

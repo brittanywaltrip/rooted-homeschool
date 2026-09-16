@@ -102,3 +102,4 @@ email-audit/
 # repository. Stating them here is what protects a fresh clone.
 /Claude outputs/
 /.claude/
+e2e/screenshots/out/
