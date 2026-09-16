@@ -3,8 +3,90 @@ import { NextRequest } from 'next/server'
 
 export const runtime = 'edge'
 
+/**
+ * kind=resource: the share card for a resource page (/r/<slug>) that has no
+ * picture of its own. Same green ground as the family card.
+ */
+function resourceCard(title: string, subject: string) {
+  return new ImageResponse(
+    (
+      <div
+        style={{
+          display: 'flex',
+          width: '1200px',
+          height: '630px',
+          background: 'linear-gradient(135deg, #2d5c38 0%, #3d7a4a 30%, #5c7f63 60%, #4a9e6a 100%)',
+          position: 'relative',
+          overflow: 'hidden',
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        }}
+      >
+        <div style={{
+          position: 'absolute', top: -60, right: -60,
+          width: 380, height: 260,
+          background: 'white', opacity: 0.06, borderRadius: '50%',
+          transform: 'rotate(-30deg)', display: 'flex',
+        }} />
+        <div style={{
+          position: 'absolute', bottom: -80, left: -60,
+          width: 340, height: 230,
+          background: 'white', opacity: 0.06, borderRadius: '50%',
+          transform: 'rotate(20deg)', display: 'flex',
+        }} />
+        <div style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '100%',
+          padding: '60px 100px',
+        }}>
+          {subject ? (
+            <div style={{
+              background: 'rgba(255,255,255,0.18)',
+              borderRadius: 40,
+              padding: '8px 26px',
+              fontSize: 24,
+              fontWeight: 500,
+              color: 'rgba(255,255,255,0.9)',
+              marginBottom: 32,
+              display: 'flex',
+            }}>
+              {subject}
+            </div>
+          ) : null}
+          <div style={{
+            fontSize: title.length > 40 ? 60 : 80,
+            fontWeight: 800,
+            color: 'white',
+            textAlign: 'center',
+            lineHeight: 1.05,
+            marginBottom: 28,
+            display: 'flex',
+          }}>
+            {title}
+          </div>
+          <div style={{
+            fontSize: 26,
+            color: 'rgba(255,255,255,0.7)',
+            display: 'flex',
+          }}>
+            Free from Rooted Homeschool App
+          </div>
+        </div>
+      </div>
+    ),
+    { width: 1200, height: 630 }
+  )
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
+  if (searchParams.get('kind') === 'resource') {
+    const title = (searchParams.get('title') || 'A free printable').slice(0, 90)
+    const subject = (searchParams.get('subject') || '').slice(0, 24)
+    return resourceCard(title, subject)
+  }
   const family  = searchParams.get('family')  || 'A Rooted Family'
   const from    = searchParams.get('from')    || ''
   const to      = searchParams.get('to')      || ''
