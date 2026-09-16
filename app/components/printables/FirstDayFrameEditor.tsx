@@ -12,6 +12,9 @@ import {
   FIRST_DAY_THEMES,
   DEFAULT_FIRST_DAY_THEME,
   FIRST_DAY_BRANDING,
+  brandingYPct,
+  frameExportFilename,
+  frameTextRuns,
   type FirstDayFieldKey,
 } from "@/lib/first-day-themes";
 import { renderFirstDayFrame, type PhotoTransform } from "@/lib/first-day-canvas";
@@ -48,13 +51,11 @@ const FIELD_LABELS: Record<FirstDayFieldKey, string> = {
   goal: "Goal this year",
 };
 
-function sanitizeFilename(s: string): string {
-  return (s || "first-day").replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").toLowerCase();
-}
-
 export default function FirstDayFrameEditor() {
   const partnerCtx = usePartner();
-  const theme = FIRST_DAY_THEMES[DEFAULT_FIRST_DAY_THEME];
+  const [themeId, setThemeId] = useState<string>(DEFAULT_FIRST_DAY_THEME);
+  const theme = FIRST_DAY_THEMES[themeId] ?? FIRST_DAY_THEMES[DEFAULT_FIRST_DAY_THEME];
+  const hasFields = theme.fields.length > 0;
 
   const [children, setChildren] = useState<ChildRow[]>([]);
   const [selectedChildId, setSelectedChildId] = useState<string>("");
@@ -225,13 +226,13 @@ export default function FirstDayFrameEditor() {
     setBusy("share");
     try {
       const blob = await buildBlob();
-      const file = new File([blob], `${sanitizeFilename(values.name)}-first-day.png`, { type: "image/png" });
+      const file = new File([blob], frameExportFilename(values.name, theme), { type: "image/png" });
       const nav = navigator as Navigator & { canShare?: (d?: ShareData) => boolean };
       if (nav.canShare && nav.canShare({ files: [file] }) && navigator.share) {
         await navigator.share({
           files: [file],
-          title: "First Day Photo",
-          text: "Our first day, made with Rooted Homeschool App.",
+          title: theme.shareTitle,
+          text: theme.shareText,
         } as ShareData);
         posthog.capture("first_day_photo_shared");
       } else {
@@ -257,7 +258,7 @@ export default function FirstDayFrameEditor() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${sanitizeFilename(values.name)}-first-day.png`;
+    a.download = frameExportFilename(values.name, theme);
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -341,8 +342,8 @@ export default function FirstDayFrameEditor() {
               </div>
             )}
 
-            {/* Child picker */}
-            {children.length > 0 && (
+            {/* Child picker (it only fills in the fields, so it goes with them) */}
+            {hasFields && children.length > 0 && (
               <div>
                 <label className="block text-[11px] font-semibold text-[#7a6f65] uppercase tracking-wide mb-1">Child</label>
                 <select
@@ -355,7 +356,8 @@ export default function FirstDayFrameEditor() {
               </div>
             )}
 
-            {/* Fields */}
+            {/* Fields. A frame with none shows none, rather than inputs that print nowhere. */}
+            {hasFields && (
             <div className="grid grid-cols-2 gap-3">
               <TextField label={FIELD_LABELS.name} value={values.name} onChange={(v) => setValue("name", v)} placeholder="e.g. Emma" />
               <div>
@@ -371,6 +373,7 @@ export default function FirstDayFrameEditor() {
               <TextField label={FIELD_LABELS.subject} value={values.subject} onChange={(v) => setValue("subject", v)} placeholder="e.g. Reading" />
               <TextField label={FIELD_LABELS.goal} value={values.goal} onChange={(v) => setValue("goal", v)} placeholder="e.g. Read a chapter book" />
             </div>
+            )}
 
             {/* Actions */}
             <div className="flex flex-col gap-2 pt-1">
@@ -410,12 +413,10 @@ export default function FirstDayFrameEditor() {
 
               {/* Frame art on top */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={theme.src} alt="First Day Photo frame" className="absolute inset-0 w-full h-full pointer-events-none" />
+              <img src={theme.src} alt={`${theme.label} frame`} className="absolute inset-0 w-full h-full pointer-events-none" />
 
               {/* Values on their lines */}
-              {previewW > 0 && theme.fields.map((f) => {
-                const text = values[f.key]?.trim();
-                if (!text) return null;
+              {previewW > 0 && frameTextRuns(theme, values).map(({ field: f, text }) => {
                 return (
                   <span
                     key={f.key}
@@ -440,7 +441,7 @@ export default function FirstDayFrameEditor() {
                 <span
                   className="absolute pointer-events-none whitespace-nowrap"
                   style={{
-                    left: "50%", top: 0.972 * containerH, transform: "translate(-50%, -100%)",
+                    left: "50%", top: brandingYPct(theme) * containerH, transform: "translate(-50%, -100%)",
                     fontFamily: `"${theme.fontFamily}", Georgia, serif`,
                     fontSize: 0.02 * previewW, color: "#9aa896", lineHeight: 1,
                   }}

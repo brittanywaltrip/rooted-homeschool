@@ -1,5 +1,7 @@
 import {
   FIRST_DAY_BRANDING,
+  brandingYPct,
+  frameTextRuns,
   type FirstDayFieldKey,
   type FirstDayTheme,
 } from "@/lib/first-day-themes";
@@ -48,10 +50,10 @@ export interface FirstDayRenderInput {
 }
 
 /**
- * Composite the First Day Photo at the frame's full resolution:
+ * Composite a framed photo at the frame's full resolution:
  *   1. child's photo drawn into the arch bounding box (cover-fit + pan/zoom),
  *   2. the frame PNG on top (its opaque area masks the photo to the arch),
- *   3. the six field values on their lines,
+ *   3. the theme's field values on their lines (none for a theme with no fields),
  *   4. the "Created with Rooted Homeschool App" branding footer.
  * Returns a high-resolution PNG Blob.
  */
@@ -87,12 +89,10 @@ export async function renderFirstDayFrame({ theme, photoSrc, transform, values }
   // 2) Frame art on top — masks the photo to the arch and supplies all baked text.
   ctx.drawImage(frame, 0, 0, W, H);
 
-  // 3) The six values on their lines.
+  // 3) The values on their lines.
   ctx.fillStyle = theme.textColor;
   ctx.textBaseline = "alphabetic";
-  for (const f of theme.fields) {
-    const text = (values[f.key] || "").trim();
-    if (!text) continue;
+  for (const { field: f, text } of frameTextRuns(theme, values)) {
     const maxWidth = f.maxWidthPct * W;
     let size = f.fontPx;
     ctx.font = `${size}px "${theme.fontFamily}"`;
@@ -111,7 +111,7 @@ export async function renderFirstDayFrame({ theme, photoSrc, transform, values }
   ctx.fillStyle = "#9aa896";
   ctx.textAlign = "center";
   ctx.font = `${Math.round(W * 0.02)}px "${theme.fontFamily}"`;
-  ctx.fillText(FIRST_DAY_BRANDING, W / 2, H * 0.972);
+  ctx.fillText(FIRST_DAY_BRANDING, W / 2, H * brandingYPct(theme));
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob(
