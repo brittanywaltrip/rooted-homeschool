@@ -274,7 +274,8 @@ test.describe('phone screenshots of every surface with a text box', () => {
     await gotoAppPage(page, '/dashboard/printables/first-day?theme=fall', { expectGreeting: false })
     const fall = page.getByRole('group', { name: 'Frame' }).getByRole('button', { name: "It's Fall Y'all", exact: true })
     await expect(fall).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 })
-    await page.locator('input[type="file"]').setInputFiles(
+    // Scoped to main: the dashboard layout has its own quick-photo file inputs.
+    await page.getByRole('main').locator('input[type="file"]').setInputFiles(
       resolve(__dirname, '../../public/resources/fall/leaf-hunt.webp'),
     )
     await expect(page.locator('img[src^="data:"]').first()).toBeVisible({ timeout: 20_000 })

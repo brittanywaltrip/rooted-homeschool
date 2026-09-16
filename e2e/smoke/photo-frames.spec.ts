@@ -33,7 +33,8 @@ function frameButton(page: Page, label: string) {
 }
 
 async function addPhoto(page: Page): Promise<void> {
-  await page.locator('input[type="file"]').setInputFiles({
+  // Scoped to main: the dashboard layout has its own quick-photo file inputs.
+  await page.getByRole('main').locator('input[type="file"]').setInputFiles({
     name: 'solid.png',
     mimeType: 'image/png',
     buffer: await solidPhoto(),
