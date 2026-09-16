@@ -1,5 +1,6 @@
 import {
   FIRST_DAY_BRANDING,
+  brandingColor,
   brandingYPct,
   frameTextRuns,
   type FirstDayFieldKey,
@@ -108,7 +109,7 @@ export async function renderFirstDayFrame({ theme, photoSrc, transform, values }
   //    The frame art leaves the bottom margin blank for this. Spelled exactly
   //    per the wording rule. Remove this block only if the art itself is later
   //    updated to bake the branding in.
-  ctx.fillStyle = "#9aa896";
+  ctx.fillStyle = brandingColor(theme);
   ctx.textAlign = "center";
   ctx.font = `${Math.round(W * 0.02)}px "${theme.fontFamily}"`;
   ctx.fillText(FIRST_DAY_BRANDING, W / 2, H * brandingYPct(theme));

@@ -10,6 +10,7 @@
  */
 import { test, expect, type Page } from '@playwright/test'
 import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import sharp from 'sharp'
 
 import { gotoAppPage } from '../helpers/overlays'
@@ -122,5 +123,25 @@ test.describe('Photo Frames', () => {
     expect(isPhoto(inside), `opening pixel ${JSON.stringify(inside)}`).toBe(true)
     const corner = px(60, 60)
     expect(isPhoto(corner), `corner pixel ${JSON.stringify(corner)}`).toBe(false)
+
+    // The branding line is cream (#f3ead9) on the wood. Count cream pixels in
+    // the line's band (baseline y 1045, text about 27px tall, centred) in the
+    // export and in the bare frame art: the export must add a clear number.
+    const frame = await sharp(resolve(__dirname, '../../public/frames/fall-yall.png'))
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    const creamIn = (buf: Buffer, channels: number, width: number) => {
+      let n = 0
+      for (let y = 1020; y <= 1050; y++) {
+        for (let x = 440; x <= 935; x++) {
+          const i = (y * width + x) * channels
+          if (Math.abs(buf[i] - 0xf3) < 28 && Math.abs(buf[i + 1] - 0xea) < 28 && Math.abs(buf[i + 2] - 0xd9) < 28) n++
+        }
+      }
+      return n
+    }
+    const added = creamIn(data, info.channels, info.width) - creamIn(frame.data, frame.info.channels, frame.info.width)
+    expect(added, 'cream branding pixels added on the wood').toBeGreaterThan(300)
   })
 })

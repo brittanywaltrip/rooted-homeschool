@@ -197,6 +197,8 @@ const VIRTUAL_TOURS: VirtualTour[] = [
 
 const BROWSE_CATS = [
   { id: "all",            label: "All"                },
+  // Shown only while the season has active resources (see the pill row).
+  { id: "back_to_school", label: "🍂 This Season"     },
   { id: "curriculum",     label: "📚 Curriculum"      },
   { id: "online_classes", label: "🖥️ Online Classes" },
   { id: "science",        label: "🔬 Science"         },
@@ -408,9 +410,13 @@ function ResourceCard({ r, savedMap, onToggle, onReport, onToast }: { r: DbResou
       )}
       <div className={resourceCardBodyClass(Boolean(image))}>
       <div className="flex items-start gap-3">
-        <div className="bg-[#f5f3f0] rounded-xl w-10 h-10 flex items-center justify-center shrink-0 text-xl">
-          {getCategoryEmoji(r.category)}
-        </div>
+        {/* A card with a picture drops the category tile: the picture already
+            says what it is. A card without one keeps it exactly as before. */}
+        {!image && (
+          <div className="bg-[#f5f3f0] rounded-xl w-10 h-10 flex items-center justify-center shrink-0 text-xl">
+            {getCategoryEmoji(r.category)}
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2 mb-1">
             <a href={r.url} target="_blank" rel="noopener noreferrer"
@@ -577,7 +583,11 @@ export default function ResourcesPage() {
   const seasonalResources = dbResources.filter((r) => r.category === "back_to_school");
   const browsableResources = dbResources.filter((r) => browsableCategories.includes(r.category));
 
+  // This Season rows already have their own block above Browse, so "All" (and a
+  // search from it) leaves them out rather than showing the same picture twice.
+  // The This Season pill still lists them for anyone who taps it.
   const filteredBrowse = browsableResources.filter((r) => {
+    if (browseFilter === "all" && r.category === "back_to_school") return false;
     if (browseFilter !== "all" && !["tours", "states", "saved"].includes(browseFilter) && r.category !== browseFilter) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -893,7 +903,10 @@ export default function ResourcesPage() {
 
         {/* ── Filter pills ──────────────────────────────────────── */}
         <div className="flex gap-2 flex-wrap pb-1">
-          {BROWSE_CATS.filter((cat) => cat.id !== "states" || showStateSection).map((cat) => (
+          {BROWSE_CATS.filter((cat) =>
+            (cat.id !== "states" || showStateSection) &&
+            (cat.id !== "back_to_school" || seasonalResources.length > 0)
+          ).map((cat) => (
             <button
               key={cat.id}
               onClick={() => { setBrowseFilter(cat.id); if (!["states", "saved"].includes(cat.id)) setSearchQuery(""); }}

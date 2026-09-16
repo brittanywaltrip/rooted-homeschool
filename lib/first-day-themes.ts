@@ -48,6 +48,8 @@ export interface FirstDayTheme {
    * DEFAULT_BRANDING_Y_PCT, which is where the eucalyptus art leaves room.
    */
   brandingYPct?: number;
+  /** Branding line colour. Defaults to DEFAULT_BRANDING_COLOR (eucalyptus). */
+  brandingColor?: string;
   /** File name stem for the export, e.g. "emma-fall.png" or "fall.png". */
   fileSlug: string;
   /** navigator.share title and text. */
@@ -98,6 +100,8 @@ export const FIRST_DAY_THEMES: Record<string, FirstDayTheme> = {
     // fully opaque across the text's width from y 985 to 1058; a baseline at
     // 0.913 (y 1045) keeps the whole line on it.
     brandingYPct: 0.913,
+    // Cream: the default grey-green is faint on the brown wood.
+    brandingColor: "#f3ead9",
     fileSlug: "fall",
     shareTitle: "Fall Photo",
     shareText: "Made with Rooted Homeschool App.",
@@ -116,6 +120,7 @@ export const FIRST_DAY_THEMES: Record<string, FirstDayTheme> = {
     // Opaque wood across the text's width from y 954 to 1077; same baseline
     // as the fall frame so the two read alike.
     brandingYPct: 0.913,
+    brandingColor: "#f3ead9",
     fileSlug: "fallCamp",
     shareTitle: "Fall Photo",
     shareText: "Made with Rooted Homeschool App.",
@@ -128,6 +133,12 @@ export const DEFAULT_FIRST_DAY_THEME = "eucalyptus";
 export const FIRST_DAY_THEME_ORDER = ["eucalyptus", "fall", "fallCamp"] as const;
 
 export const DEFAULT_BRANDING_Y_PCT = 0.972;
+
+export const DEFAULT_BRANDING_COLOR = "#9aa896";
+
+export function brandingColor(theme: FirstDayTheme): string {
+  return theme.brandingColor ?? DEFAULT_BRANDING_COLOR;
+}
 
 export function brandingYPct(theme: FirstDayTheme): number {
   return theme.brandingYPct ?? DEFAULT_BRANDING_Y_PCT;

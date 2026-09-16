@@ -13,6 +13,7 @@ import {
   DEFAULT_FIRST_DAY_THEME,
   FIRST_DAY_THEME_ORDER,
   FIRST_DAY_BRANDING,
+  brandingColor,
   brandingYPct,
   frameExportFilename,
   frameTextRuns,
@@ -500,7 +501,7 @@ export default function FirstDayFrameEditor() {
                   style={{
                     left: "50%", top: brandingYPct(theme) * containerH, transform: "translate(-50%, -100%)",
                     fontFamily: `"${theme.fontFamily}", Georgia, serif`,
-                    fontSize: 0.02 * previewW, color: "#9aa896", lineHeight: 1,
+                    fontSize: 0.02 * previewW, color: brandingColor(theme), lineHeight: 1,
                   }}
                 >
                   {FIRST_DAY_BRANDING}

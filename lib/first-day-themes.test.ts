@@ -10,6 +10,7 @@ import {
   FIRST_DAY_THEME_ORDER,
   DEFAULT_FIRST_DAY_THEME,
   DEFAULT_BRANDING_Y_PCT,
+  brandingColor,
   brandingYPct,
   frameExportFilename,
   frameTextRuns,
@@ -105,4 +106,11 @@ test("export file name uses the theme", () => {
   assert.equal(frameExportFilename("Mary Kate!", FIRST_DAY_THEMES.eucalyptus), "mary-kate-first-day.png");
   assert.equal(frameExportFilename("Emma", FIRST_DAY_THEMES.eucalyptus), "emma-first-day.png");
   assert.equal(frameExportFilename("", FIRST_DAY_THEMES.eucalyptus), "first-day.png");
+});
+
+test("the fall frames print the branding line in cream; eucalyptus keeps its colour", () => {
+  assert.equal(brandingColor(FIRST_DAY_THEMES.fall), "#f3ead9");
+  assert.equal(brandingColor(FIRST_DAY_THEMES.fallCamp), "#f3ead9");
+  assert.equal(brandingColor(FIRST_DAY_THEMES.eucalyptus), "#9aa896");
+  assert.equal(FIRST_DAY_THEMES.eucalyptus.brandingColor, undefined);
 });
