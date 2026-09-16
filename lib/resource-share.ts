@@ -72,7 +72,7 @@ type SlugRow = { id: string; active?: boolean | null; metadata?: unknown };
  * null. Only active rows count: a retired pack keeps its slugs in the column,
  * and a new pack should be able to reuse them.
  */
-export function findSlugConflict(slug: string, rows: SlugRow[], selfId: string | null): SlugRow | null {
+export function findSlugConflict<T extends SlugRow>(slug: string, rows: T[], selfId: string | null): T | null {
   const want = slug.trim();
   if (!want) return null;
   return (

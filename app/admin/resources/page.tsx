@@ -9,6 +9,7 @@ import {
   validateResourceSubject,
   withResourceMetadata,
 } from "@/lib/resource-metadata";
+import { findSlugConflict, validateResourceSlug } from "@/lib/resource-share";
 import Image from "next/image";
 import { Pencil, Trash2, Check, X, Plus, ChevronDown, ChevronUp, ExternalLink, ArrowLeft, Eye, EyeOff } from "lucide-react";
 
@@ -42,7 +43,7 @@ type Resource = {
   active: boolean;
   sort_order: number;
   is_free_pick: boolean;
-  /** Optional extras: { image, subject }. Other keys belong to other things. */
+  /** Optional extras: { image, subject, slug }. Other keys belong to other things. */
   metadata: Record<string, unknown> | null;
 };
 
@@ -51,7 +52,7 @@ type Resource = {
  * merged into the row's existing `metadata` at save time (withResourceMetadata),
  * so the column's other keys survive an edit.
  */
-type EditState = Partial<Resource> & { _image?: string; _subject?: string };
+type EditState = Partial<Resource> & { _image?: string; _subject?: string; _slug?: string };
 
 const EMPTY_RESOURCE = (category: CategoryId): Omit<Resource, "id"> => ({
   category,
@@ -88,11 +89,14 @@ function ResourceForm({
   onSave,
   onCancel,
   saving,
+  allResources,
 }: {
   initial: EditState;
   onSave: (data: EditState) => void;
   onCancel: () => void;
   saving: boolean;
+  /** For an early "already used" note; the save re-checks against the database. */
+  allResources: Resource[];
 }) {
   const [form, setForm] = useState<EditState>(initial);
   const set = (key: keyof EditState) => (val: string | boolean) =>
@@ -103,9 +107,14 @@ function ResourceForm({
   const meta = (initial.metadata ?? {}) as Record<string, unknown>;
   const [image, setImage] = useState(typeof meta.image === "string" ? meta.image : "");
   const [subject, setSubject] = useState(typeof meta.subject === "string" ? meta.subject : "");
+  const [slug, setSlug] = useState(typeof meta.slug === "string" ? meta.slug : "");
   const imageError = validateResourceImagePath(image);
   const subjectError = validateResourceSubject(subject);
-  const formWithMeta: EditState = { ...form, _image: image, _subject: subject };
+  const slugTaken = slug.trim() ? findSlugConflict(slug, allResources, initial.id ?? null) : null;
+  const slugError =
+    validateResourceSlug(slug) ??
+    (slugTaken ? `Already used by "${slugTaken.title}".` : null);
+  const formWithMeta: EditState = { ...form, _image: image, _subject: subject, _slug: slug };
 
   return (
     <div className="space-y-3 bg-[#f8f7f4] border border-[#e8e2d9] rounded-xl p-4">
@@ -159,6 +168,21 @@ function ResourceForm({
             placeholder="/resources/fall/leaf-hunt.webp"
           />
           {imageError && <p className="mt-1 text-[11px] text-[#b4472e]">{imageError}</p>}
+          <div className="mt-3">
+            <TextInput
+              label="Slug (optional)"
+              value={slug}
+              onChange={setSlug}
+              placeholder="leaf-hunt"
+            />
+            {slugError ? (
+              <p className="mt-1 text-[11px] text-[#b4472e]">{slugError}</p>
+            ) : (
+              <p className="mt-1 text-[11px] text-[#b5aca4]">
+                The share link: rootedhomeschoolapp.com/r/{slug.trim() || "(the id)"}
+              </p>
+            )}
+          </div>
         </div>
         <div className="flex items-end gap-3">
           <div className="flex-1">
@@ -184,7 +208,7 @@ function ResourceForm({
       <div className="flex gap-2 pt-1">
         <button
           onClick={() => onSave(formWithMeta)}
-          disabled={saving || !form.title?.trim() || Boolean(imageError) || Boolean(subjectError)}
+          disabled={saving || !form.title?.trim() || Boolean(imageError) || Boolean(subjectError) || Boolean(slugError)}
           className="flex items-center gap-1.5 px-4 py-2 bg-[#5c7f63] text-white text-sm font-medium rounded-lg hover:bg-[var(--g-deep)] disabled:opacity-50 transition-colors"
         >
           <Check size={14} />
@@ -354,9 +378,32 @@ export default function AdminResourcesPage() {
     if (!checking) loadResources();
   }, [checking, loadResources]);
 
+  /**
+   * A slug is unique among ACTIVE resources. Checked against the database at
+   * save time, not only against the list this page loaded, since three people
+   * have admin access. Returns the problem to show, or null.
+   */
+  async function slugProblem(slug: string | undefined, selfId: string | null, willBeActive: boolean): Promise<string | null> {
+    const s = (slug ?? "").trim().toLowerCase();
+    if (!s) return null;
+    const invalid = validateResourceSlug(s);
+    if (invalid) return invalid;
+    if (!willBeActive) return null;
+    const { data, error } = await supabase
+      .from("resources")
+      .select("id, title, active, metadata")
+      .eq("active", true)
+      .eq("metadata->>slug", s);
+    if (error) return "Couldn't check the slug: " + error.message;
+    const clash = findSlugConflict(s, (data ?? []) as Pick<Resource, "id" | "title" | "active" | "metadata">[], selfId);
+    return clash ? `The slug "${s}" is already used by "${clash.title}".` : null;
+  }
+
   // Save edit
   async function handleSaveEdit(id: string, form: EditState) {
     setSaving(true);
+    const slugIssue = await slugProblem(form._slug, id, form.active ?? true);
+    if (slugIssue) { setSaving(false); showToast("❌ " + slugIssue); return; }
     // Re-read the column instead of writing back the copy this page loaded.
     // Three people have admin access; a save of an unrelated field here would
     // otherwise drop whatever another one of them added to metadata since.
@@ -376,6 +423,7 @@ export default function AdminResourcesPage() {
         metadata:     withResourceMetadata(currentMetadata, {
           image: form._image ?? "",
           subject: form._subject ?? "",
+          slug: form._slug ?? "",
         }),
       })
       .eq("id", id);
@@ -390,6 +438,8 @@ export default function AdminResourcesPage() {
   async function handleAdd(category: CategoryId, form: EditState) {
     if (!form.title?.trim()) return;
     setSaving(true);
+    const slugIssue = await slugProblem(form._slug, null, form.active ?? true);
+    if (slugIssue) { setSaving(false); showToast("❌ " + slugIssue); return; }
     const maxOrder = resources
       .filter((r) => r.category === category)
       .reduce((max, r) => Math.max(max, r.sort_order), 0);
@@ -406,6 +456,7 @@ export default function AdminResourcesPage() {
       metadata:     withResourceMetadata(form.metadata, {
         image: form._image ?? "",
         subject: form._subject ?? "",
+        slug: form._slug ?? "",
       }),
     });
     setSaving(false);
@@ -509,6 +560,7 @@ export default function AdminResourcesPage() {
                     {catResources.map((resource) =>
                       editingId === resource.id ? (
                         <ResourceForm
+                          allResources={resources}
                           key={resource.id}
                           initial={resource}
                           onSave={(form) => handleSaveEdit(resource.id, form)}
@@ -529,6 +581,7 @@ export default function AdminResourcesPage() {
                     {/* Add new */}
                     {addingCat === cat.id ? (
                       <ResourceForm
+                        allResources={resources}
                         initial={EMPTY_RESOURCE(cat.id)}
                         onSave={(form) => handleAdd(cat.id, form)}
                         onCancel={() => setAddingCat(null)}

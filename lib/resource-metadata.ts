@@ -87,7 +87,7 @@ export function validateResourceSubject(value: string): string | null {
  */
 export function withResourceMetadata(
   existing: unknown,
-  next: { image?: string; subject?: string },
+  next: { image?: string; subject?: string; slug?: string },
 ): Record<string, unknown> {
   const base: Record<string, unknown> =
     existing && typeof existing === "object" && !Array.isArray(existing)
@@ -105,6 +105,13 @@ export function withResourceMetadata(
     const subject = next.subject.trim().replace(/\s+/g, " ");
     if (subject) base.subject = subject;
     else delete base.subject;
+  }
+  // The share slug (lib/resource-share.ts). Validated by the form before it
+  // gets here; stored trimmed and lowercased so a lookup never misses on case.
+  if (next.slug !== undefined) {
+    const slug = next.slug.trim().toLowerCase();
+    if (slug) base.slug = slug;
+    else delete base.slug;
   }
   return base;
 }

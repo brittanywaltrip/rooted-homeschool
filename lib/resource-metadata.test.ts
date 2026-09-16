@@ -146,3 +146,10 @@ test('a picture that fails to load takes itself out of the card', () => {
   assert.match(card, /tabIndex=\{-1\}/)
   assert.match(card, /alt=""/)
 })
+
+test('the share slug is set trimmed and lowercased, cleared by "", and left alone when absent', () => {
+  const existing = { image: '/resources/a.webp', note: 'keep me' };
+  assert.deepEqual(withResourceMetadata(existing, { slug: '  Leaf-Hunt ' }), { image: '/resources/a.webp', note: 'keep me', slug: 'leaf-hunt' });
+  assert.deepEqual(withResourceMetadata({ ...existing, slug: 'old' }, { slug: '' }), existing);
+  assert.deepEqual(withResourceMetadata({ ...existing, slug: 'old' }, { image: '/resources/a.webp' }), { ...existing, slug: 'old' });
+});

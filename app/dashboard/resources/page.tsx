@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowRight, Bookmark, BookmarkCheck, ChevronDown, ExternalLink, MapPin, Search, X } from "lucide-react";
+import { ArrowRight, Bookmark, BookmarkCheck, ChevronDown, ExternalLink, MapPin, Search, Share2, X } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 import { supabase } from "@/lib/supabase";
@@ -15,6 +15,8 @@ import {
   resourceImagePath,
   resourceSubject,
 } from "@/lib/resource-metadata";
+import { resourceCopyText, resourceShareKey, resourceShareText, resourceShareUrl } from "@/lib/resource-share";
+import { copyToClipboard } from "@/lib/clipboard";
 import ResourceReportSheet, { type ReportTarget } from "@/components/ResourceReportSheet";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -276,6 +278,34 @@ function trackResourceClick(args: { resource_id: string | null; title: string; c
   posthog.capture('resource_clicked', args);
 }
 
+/**
+ * Share a resource: the system share sheet when there is one, otherwise the
+ * line and link go on the clipboard. The link is the resource's public page
+ * (/r/<slug or id>), so the friend who opens it hears the word Rooted.
+ * Cancelling the share sheet is not an error and is not counted.
+ */
+async function shareResource(r: DbResource, onToast: (msg: string) => void) {
+  const key = resourceShareKey(r);
+  const counted = (method: "share" | "copy") =>
+    posthog.capture("resource_shared", { resource_id: r.id, slug: key, method });
+  if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+    try {
+      await navigator.share({ title: r.title, text: resourceShareText(r.title), url: resourceShareUrl(key) });
+      counted("share");
+      return;
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      // Any other refusal (no permission, nothing to share to): copy instead.
+    }
+  }
+  if (await copyToClipboard(resourceCopyText(r.title, key))) {
+    counted("copy");
+    onToast("Link copied");
+  } else {
+    onToast("Couldn't copy the link. Please try again.");
+  }
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function LoadingSkeleton() {
@@ -319,7 +349,21 @@ function GradePill({ grade }: { grade: string }) {
   );
 }
 
-function ResourceCard({ r, savedMap, onToggle, onReport }: { r: DbResource; savedMap: Record<string, string>; onToggle: (id: string) => void; onReport: (t: ReportTarget) => void }) {
+function ShareBtn({ r, onToast }: { r: DbResource; onToast: (msg: string) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); void shareResource(r, onToast); }}
+      aria-label="Share this resource"
+      title="Share"
+      className="shrink-0 w-8 h-8 rounded-full flex items-center justify-center bg-[#f5f3f0] text-[#7a6f65] hover:text-[#2d2926] hover:bg-[#ede8e2] transition-all"
+    >
+      <Share2 size={16} />
+    </button>
+  );
+}
+
+function ResourceCard({ r, savedMap, onToggle, onReport, onToast }: { r: DbResource; savedMap: Record<string, string>; onToggle: (id: string) => void; onReport: (t: ReportTarget) => void; onToast: (msg: string) => void }) {
   const isNew = isNewThisWeek(r.created_at);
   // Optional, and read defensively: see lib/resource-metadata.ts. A resource
   // with neither renders exactly the markup it always did.
@@ -375,7 +419,10 @@ function ResourceCard({ r, savedMap, onToggle, onReport }: { r: DbResource; save
               {r.title}
               <ExternalLink size={12} className="text-[#b5aca4] shrink-0" />
             </a>
-            <BookmarkBtn id={r.id} savedMap={savedMap} onToggle={onToggle} />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <ShareBtn r={r} onToast={onToast} />
+              <BookmarkBtn id={r.id} savedMap={savedMap} onToggle={onToggle} />
+            </div>
           </div>
           <p className="text-xs text-[#7a6f65] leading-relaxed mb-2.5 line-clamp-2">{r.description}</p>
           <div className="flex gap-1.5 flex-wrap">
@@ -814,7 +861,7 @@ export default function ResourcesPage() {
           <p className="text-[12px] text-[#8B7E74] mb-3 pl-1">Free picks for right now.</p>
           <div className="space-y-3">
             {seasonalResources.map((r) => (
-              <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} />
+              <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} onToast={setReportToast} />
             ))}
           </div>
         </div>
@@ -875,7 +922,7 @@ export default function ResourcesPage() {
               </p>
             ) : (
               filteredBrowse.map((r) => (
-                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} />
+                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} onToast={setReportToast} />
               ))
             )}
           </div>
@@ -985,7 +1032,7 @@ export default function ResourcesPage() {
               </div>
             ) : (
               savedItems.map((r) => (
-                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} />
+                <ResourceCard key={r.id} r={r} savedMap={savedMap} onToggle={toggleSave} onReport={setReportTarget} onToast={setReportToast} />
               ))
             )}
           </div>
