@@ -11,14 +11,23 @@
  *
  * Writes e2e/screenshots/out/<prefix>-<surface>.png (gitignored).
  *
- * In the `after` run it also proves the thing the pictures cannot: focusing a
- * text box does not zoom the page. Safari and the Android WebView zoom a
+ * In the `after` run it also measures the thing the pictures cannot: the
+ * computed size of a focused text box. Safari and the Android WebView zoom a
  * focused box under 16px and never zoom back out, which is what
  * `maximumScale: 1` was banning zoom to avoid. With the boxes at 16px the ban
  * is gone and the viewport must still sit at scale 1 after focus.
+ *
+ * Today covers itself a second after it renders: the missed-lesson recovery
+ * sheet mounts a full-screen scrim and blocks every tap until it is closed, so
+ * every navigation here goes through gotoAppPage (e2e/helpers/overlays.ts).
+ * Two things previously blamed for stalls in this spec were measured and
+ * cleared: getByRole is fast on Today (3ms on a 437-node document), and goto's
+ * default `load` wait resolves in about a second.
  */
 import { test, expect, type Page, type Route } from '@playwright/test'
 import { resolve } from 'node:path'
+
+import { gotoAppPage } from '../helpers/overlays'
 
 const PREFIX = process.env.SHOT_PREFIX ?? 'after'
 // Absolute: Playwright resolves a relative screenshot path against the working
@@ -74,39 +83,9 @@ async function expectNoZoomOnFocus(page: Page, name: string): Promise<void> {
   expect(zoom.scale, `${name}: focusing a text box must not zoom the page`).toBe(1)
 }
 
-/**
- * Today's missed-lesson recovery sheet covers the page and eats every tap, so
- * close it before touching anything. Same dialog and button the gate's own
- * helper uses (e2e/smoke/flows.spec.ts dismissMissedLessonModal).
- *
- * CSS and text locators for everything else on the dashboard: a getByRole
- * locator has to build an accessibility snapshot, and Today never stays still
- * long enough for one. A getByRole call here sat for a whole 240s test budget
- * without answering count(). Worth chasing separately; it is not what this
- * spec is for.
- */
-async function dismissModals(page: Page): Promise<void> {
-  const modal = page.locator('[role="dialog"][aria-labelledby="missed-recovery-title"]')
-  if (await modal.isVisible({ timeout: 6_000 }).catch(() => false)) {
-    await modal.locator('button[aria-label="Close"], button:has-text("Close")').first()
-      .click({ timeout: 5_000 })
-      .catch(() => {})
-    await modal.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => {})
-  }
-  const other = page
-    .locator('button')
-    .filter({ hasText: /^(not now|skip|dismiss|maybe later)$/i })
-    .first()
-  if ((await other.count()) > 0) await other.click({ timeout: 3_000 }).catch(() => {})
-}
-
 test.describe('phone screenshots of every surface with a text box', () => {
   test('today, and the edit lesson sheet', async ({ page }) => {
-    await page.goto('/dashboard', { waitUntil: 'domcontentloaded' })
-    await expect(page.getByText(/Good morning|Good afternoon|Good evening/i).first()).toBeVisible({
-      timeout: 30_000,
-    })
-    await dismissModals(page)
+    await gotoAppPage(page, '/dashboard')
     await shot(page, 'today')
 
     // The Edit lesson sheet. Its button is in the card's EXPANDED action row
@@ -149,7 +128,7 @@ test.describe('phone screenshots of every surface with a text box', () => {
   test('the schedule builder with a curriculum row expanded', async ({ page }) => {
     // Its per-day count boxes and the lessons-per-day stepper are the narrowest
     // inputs in the app, so they are where a 16px font shows first.
-    await page.goto('/dashboard/plan/schedule', { waitUntil: 'domcontentloaded' })
+    await gotoAppPage(page, '/dashboard/plan/schedule')
     await expect(page.getByRole('heading', { name: /Your Schedule/i }).first()).toBeVisible({
       timeout: 30_000,
     })

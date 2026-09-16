@@ -31,6 +31,13 @@ export default defineConfig({
   use: {
     baseURL: BASE_URL,
     trace: 'on-first-retry',
+    // A click that lands under an overlay is RETRIED until it times out, and an
+    // action with no timeout of its own inherits the test's whole budget: one
+    // helper sat for 240s that way and then reported "Target page, context or
+    // browser has been closed", which says nothing about the cause. Bounded
+    // here so the failure names the element instead.
+    actionTimeout: 15_000,
+    navigationTimeout: 30_000,
   },
   projects: [
     {

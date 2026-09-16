@@ -1,4 +1,5 @@
 import { test, expect, type ConsoleMessage, type Page } from '@playwright/test';
+import { dismissMissedLessonSheet } from '../helpers/overlays';
 
 import { adminClient, requireTestUserId } from '../admin';
 
@@ -54,21 +55,10 @@ function collectConsoleErrors(page: Page): string[] {
   return errors;
 }
 
-// The missed-lesson recovery modal (MissedLessonRecoveryModal.tsx) pops on
-// Today when the account has overdue lessons. Its full-screen backdrop
-// (z-[80]) intercepts pointer events, so any click flow must close it first.
-// Dismiss it via the X (aria-label="Close"). No-op when it isn't shown (fresh
-// account or no overdue lessons) so the flows stay account-state tolerant.
-async function dismissMissedLessonModal(page: Page) {
-  const modal = page.getByRole('dialog', { name: /lessons from earlier/i });
-  try {
-    await modal.waitFor({ state: 'visible', timeout: 6_000 });
-  } catch {
-    return; // modal not shown this run; nothing to dismiss
-  }
-  await modal.getByRole('button', { name: 'Close' }).click();
-  await expect(modal).toBeHidden({ timeout: 5_000 });
-}
+// The missed-lesson recovery sheet covers Today with a full-screen scrim and
+// every click underneath retries until it times out. One definition of getting
+// past it, shared with the screenshot specs: e2e/helpers/overlays.ts.
+const dismissMissedLessonModal = dismissMissedLessonSheet
 
 // ─────────────────────────────────────────────────────────────────────────────
 // FLOW 1. Today page loads
