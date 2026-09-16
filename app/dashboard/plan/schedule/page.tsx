@@ -7,6 +7,17 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
+import {
+  baselineCount,
+  dayNeedsBadge,
+  hasVariedCounts,
+  onDayIndices,
+  paceSentence,
+  sharedLessonCount,
+  withDayCount,
+  withSameCountEveryDay,
+  type PerDayShape,
+} from "@/app/lib/builder-pace";
 import { isPhase2NoOp, planPhase2Rows, phase2RedateTargets, builderNextLesson, skippedSlotsFromRows, type PinnableRow, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
@@ -30,6 +41,8 @@ import {
 const DAY_LABEL_SHORT = ["M", "T", "W", "Th", "F", "Sa", "Su"] as const;
 // DB / scheduler day labels matching curriculum_goals.school_days.
 const DAY_LABEL = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
+/** Spelled out for the per-day list, where there is room for the whole word. */
+const DAY_FULL = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"] as const;
 
 const CHILD_COLORS = [
   "#5c7f63", "#7a9e7e", "#4a7a8a",
@@ -4494,6 +4507,23 @@ function RowCard(props: {
   const isCurriculum = row.type === "curriculum";
   const isReadOnly = row.readOnly;
 
+  // ── The one pace control ────────────────────────────────────────────────
+  // `perDay` is a view of the row's own two arrays, so the sentence, the chip
+  // badges and the save all read the same numbers. Nothing here changes the
+  // saved shape: compactCurriculumPerDay still does that, untouched.
+  const perDay: PerDayShape = { activeDays: row.active_days, counts: row.per_day_counts };
+  const onDays = onDayIndices(perDay);
+  const shared = sharedLessonCount(perDay);
+  const baseline = baselineCount(perDay);
+  // A goal saved with uneven days (the walkthrough family's Mon 1 / Tue 1 /
+  // Wed 2) opens with its list already showing, or the difference would be
+  // invisible behind a link nobody has a reason to tap.
+  const [showPerDay, setShowPerDay] = useState(() => hasVariedCounts(perDay));
+  const setEveryDayCount = (next: number) => {
+    const clamped = Math.max(1, Math.min(3, next));
+    props.onPatchRow(row.localId, { per_day_counts: withSameCountEveryDay(perDay, clamped) });
+  };
+
   const typeLabel = row.type === "curriculum" ? "Curriculum" : row.type === "coop" ? "Co-op" : "Activity";
 
   // Guarded setter for start_at_lesson. When the row was pre-filled from a
@@ -4773,22 +4803,26 @@ function RowCard(props: {
         />
       )}
 
-      {/* Days — chip toggle for which days are school days. Per-day lesson
-          counts now live in the stepper list below (curriculum rows only). */}
+      {/* School days — asked once. The chips ARE the day question; nothing
+          below repeats them. A chip carries a small numeral when that day's
+          count differs from the shared one, so a heavier Wednesday is visible
+          even with the per-day list collapsed. */}
       <div className="mt-3">
         <p className="text-[10px] font-medium uppercase tracking-wide text-[#7a6f65] mb-1.5">
-          Days
+          School days
         </p>
         <div className="flex gap-1.5">
           {DAY_LABEL_SHORT.map((label, idx) => {
             const active = row.active_days[idx];
+            const badge = isCurriculum && dayNeedsBadge(perDay, idx) ? row.per_day_counts[idx] ?? 0 : null;
             return (
               <button
                 key={label}
                 onClick={() => props.onToggleDay(row.localId, idx)}
                 disabled={isReadOnly}
                 aria-pressed={active}
-                className="w-8 h-8 rounded-md text-xs font-medium transition-colors"
+                aria-label={badge != null ? `${label}, ${badge} lessons` : label}
+                className="relative w-8 h-8 rounded-md text-xs font-medium transition-colors"
                 style={{
                   background: active ? "var(--g-accent)" : "transparent",
                   color: active ? "white" : "#b5aca4",
@@ -4796,88 +4830,126 @@ function RowCard(props: {
                 }}
               >
                 {label}
+                {badge != null && (
+                  <span
+                    aria-hidden="true"
+                    className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-[3px] rounded-full bg-white text-[9px] font-bold leading-[14px] text-[#2D5A3D] border border-[#2D5A3D]"
+                  >
+                    {badge}
+                  </span>
+                )}
               </button>
             );
           })}
         </div>
       </div>
 
-      {/* Lessons per day — explicit +/- stepper for each weekday (curriculum
-          rows only). All 7 days always render so families can see exactly
-          where lessons land; rows whose day chip is off are disabled with a
-          "Not selected" hint. Counts of 0 are honored by the scheduler as
-          "skip this day" even when the day chip is on. */}
+      {/* Lessons a day — ONE stepper for every day that is on. The seven-row
+          list this replaces asked the same question a second time, and a family
+          nudged Wednesday to 2 in it by accident and then wrote in about the
+          extra lessons. A family who really does want an uneven week opens the
+          expander below and says so, one on-day at a time. */}
       {isCurriculum && (
         <div className="mt-3">
-          <p className="text-[10px] font-medium uppercase tracking-wide text-[#7a6f65]">
-            Lessons per day
-          </p>
-          <p className="text-[11px] text-[#8a8580] mt-0.5 mb-2">
-            Set how many lessons your child does each day. Days set to 0 will be skipped in the schedule.
-          </p>
-          <div className="rounded-xl border border-[#e8e2d9] divide-y divide-[#f0ede8] overflow-hidden">
-            {DAY_LABEL.map((dayName, idx) => {
-              const active = row.active_days[idx];
-              const count = row.per_day_counts[idx] ?? 0;
-              const setCount = (next: number) => {
-                const clamped = Math.max(0, Math.min(10, next));
-                const arr = [...row.per_day_counts];
-                arr[idx] = clamped;
-                props.onPatchRow(row.localId, { per_day_counts: arr });
-              };
-              const decDisabled = isReadOnly || !active || count <= 0;
-              const incDisabled = isReadOnly || !active || count >= 10;
-              return (
-                <div
-                  key={dayName}
-                  className={`flex items-center justify-between px-3 py-2 ${active ? "bg-white" : "bg-[#faf8f4]"}`}
-                >
-                  <div className="flex items-baseline gap-2 min-w-0">
-                    <span className={`text-[13px] font-medium ${active ? "text-[#2D2A26]" : "text-[#b5aca4]"}`}>
-                      {dayName === "Mon" ? "Monday"
-                        : dayName === "Tue" ? "Tuesday"
-                        : dayName === "Wed" ? "Wednesday"
-                        : dayName === "Thu" ? "Thursday"
-                        : dayName === "Fri" ? "Friday"
-                        : dayName === "Sat" ? "Saturday"
-                        : "Sunday"}
-                    </span>
-                    {!active ? (
-                      <span className="text-[11px] text-[#b5aca4]">Not selected</span>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setCount(count - 1)}
-                      disabled={decDisabled}
-                      aria-label={`One fewer lesson on ${dayName}`}
-                      className="w-7 h-7 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      −
-                    </button>
-                    <span
-                      className={`min-w-[24px] text-center text-[13px] font-semibold ${
-                        active && count > 0 ? "text-[#2D5A3D]" : "text-[#c8bfb5]"
-                      }`}
-                      aria-label={`${count} lessons on ${dayName}`}
-                    >
-                      {count}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setCount(count + 1)}
-                      disabled={incDisabled}
-                      aria-label={`One more lesson on ${dayName}`}
-                      className="w-7 h-7 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-[10px] font-medium uppercase tracking-wide text-[#7a6f65]">
+              Lessons a day
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setEveryDayCount((shared ?? baseline) - 1)}
+                disabled={isReadOnly || onDays.length === 0 || (shared ?? baseline) <= 1}
+                aria-label="One fewer lesson a day"
+                className="w-9 h-9 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-base text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                −
+              </button>
+              <span
+                className="min-w-[52px] text-center text-base font-semibold text-[#2D5A3D]"
+                aria-live="polite"
+              >
+                {shared === null ? "varies" : shared}
+              </span>
+              <button
+                type="button"
+                onClick={() => setEveryDayCount((shared ?? baseline) + 1)}
+                disabled={isReadOnly || onDays.length === 0 || (shared ?? baseline) >= 3}
+                aria-label="One more lesson a day"
+                className="w-9 h-9 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-base text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                +
+              </button>
+            </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (showPerDay) {
+                // "Same on every day" is both a collapse and a reset: the
+                // expander is the only place uneven counts can be set, so
+                // leaving them behind it would hide them.
+                props.onPatchRow(row.localId, {
+                  per_day_counts: withSameCountEveryDay(perDay, Math.max(1, baseline)),
+                });
+              }
+              setShowPerDay((v) => !v);
+            }}
+            disabled={isReadOnly || onDays.length === 0}
+            aria-expanded={showPerDay}
+            className="mt-1.5 text-[12px] font-medium text-[#2D5A3D] underline underline-offset-2 disabled:opacity-40 disabled:no-underline"
+          >
+            {showPerDay ? "Same on every day" : "Different on some days?"}
+          </button>
+
+          {showPerDay && onDays.length > 0 && (
+            <div className="mt-2 rounded-xl border border-[#e8e2d9] divide-y divide-[#f0ede8] overflow-hidden">
+              {onDays.map((idx) => {
+                const count = row.per_day_counts[idx] ?? 0;
+                const setCount = (next: number) =>
+                  props.onPatchRow(row.localId, {
+                    per_day_counts: withDayCount(perDay, idx, next),
+                  });
+                return (
+                  <div key={DAY_LABEL[idx]} className="flex items-center justify-between px-3 py-2 bg-white">
+                    <span className="text-[13px] font-medium text-[#2D2A26]">{DAY_FULL[idx]}</span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setCount(count - 1)}
+                        disabled={isReadOnly || count <= 0}
+                        aria-label={`One fewer lesson on ${DAY_FULL[idx]}`}
+                        className="w-9 h-9 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-base text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        −
+                      </button>
+                      <span
+                        className={`min-w-[24px] text-center text-base font-semibold ${count > 0 ? "text-[#2D5A3D]" : "text-[#c8bfb5]"}`}
+                        aria-label={`${count} lessons on ${DAY_FULL[idx]}`}
+                      >
+                        {count}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setCount(count + 1)}
+                        disabled={isReadOnly || count >= 3}
+                        aria-label={`One more lesson on ${DAY_FULL[idx]}`}
+                        className="w-9 h-9 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-base text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              <p className="px-3 py-2 text-[11px] text-[#8a8580] bg-[#faf8f4]">0 skips that day.</p>
+            </div>
+          )}
+
+          {/* Built from the same two arrays the save compacts, so what a family
+              reads here and what gets written cannot disagree. */}
+          <p className="mt-2 text-[12px] text-[#7a6f65] leading-relaxed">{paceSentence(perDay)}</p>
         </div>
       )}
 
@@ -5293,9 +5365,21 @@ function FieldDash(props: { label: string }) {
  * "Fridays" / "Mon, Wed, Fri". Returns null for a plain Mon-Fri week, which
  * needs no comment.
  */
+/**
+ * The pace, for the preview list. The SAME sentence the row's own control
+ * shows, so the two screens cannot describe one schedule differently: this used
+ * to be its own day-list that said nothing about counts, so a family with a
+ * heavier Wednesday read "Mon, Tue, Wed" here and "4 lessons a week: Mon, Tue,
+ * and Wed (2)." one screen back.
+ *
+ * Curriculum rows only; an activity row keeps its plain day list.
+ */
 function scheduleDaysLabel(row: Row): string | null {
   const idxs = activeDayIndices(row);
   if (idxs.length === 0) return null;
+  if (row.type === "curriculum") {
+    return paceSentence({ activeDays: row.active_days, counts: row.per_day_counts });
+  }
   const isMonFri = idxs.length === 5 && idxs.every((i) => i <= 4);
   if (isMonFri) return null;
   if (idxs.length === 1) {
