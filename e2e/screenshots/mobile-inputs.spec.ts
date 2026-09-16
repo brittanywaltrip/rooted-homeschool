@@ -242,7 +242,9 @@ test.describe('phone screenshots of every surface with a text box', () => {
     const heading = page.getByText('This Season').first()
     await heading.waitFor({ state: 'visible', timeout: 20_000 })
     await expect(page.getByText('Free picks for right now.')).toBeVisible()
-    const picture = page.locator('img[alt="Leaf hunt"]').first()
+    // By src, not by alt: the picture repeats the title's link, so its alt is
+    // deliberately empty and it is hidden from the accessibility tree.
+    const picture = page.locator('img[src*="leaf-hunt"]').first()
     await picture.waitFor({ state: 'visible', timeout: 15_000 })
     for (let attempt = 0; attempt < 3; attempt++) {
       const box = await heading.boundingBox()
