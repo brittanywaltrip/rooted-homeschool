@@ -11,6 +11,7 @@ import {
 } from "@/lib/auth-retry";
 import { capitalizeName } from "@/lib/utils";
 import { normalizeAffiliateCode } from "@/lib/referrals";
+import { readShareSource, shareSourceEventProps, SHARE_SOURCE_STORAGE_KEY } from "@/lib/resource-share";
 import { posthog } from "@/lib/posthog";
 import RootedCelebration from "@/app/components/RootedCelebration";
 
@@ -290,11 +291,14 @@ function CelebrationStep({
   childNames,
   goals,
   onNavigate,
+  sharedNext,
 }: {
   displayName: string;
   childNames: string[];
   goals: string[];
   onNavigate: (href: string) => void;
+  /** Where a family who signed up from a shared Rooted tool was headed (already checked same-site). */
+  sharedNext: string | null;
 }) {
   // Direct the family to their first meaningful action.
   //
@@ -313,12 +317,18 @@ function CelebrationStep({
   // straight to the planner, which is what they asked for.
   const includesMemories = goals.includes("memories");
   const planningOnly = goals.includes("planning") && !includesMemories;
-  const primaryLabel = planningOnly
-    ? "Add your first curriculum →"
-    : "Capture your first memory →";
-  const primaryHref = planningOnly
-    ? "/dashboard/plan"
-    : "/dashboard?capture=1";
+  // A family who came from a shared link to a Rooted tool (the fall photo
+  // frame) is sent back to it: that is what they signed up to make.
+  const primaryLabel = sharedNext
+    ? "Pick up where you left off →"
+    : planningOnly
+      ? "Add your first curriculum →"
+      : "Capture your first memory →";
+  const primaryHref = sharedNext
+    ? sharedNext
+    : planningOnly
+      ? "/dashboard/plan"
+      : "/dashboard?capture=1";
 
   // The green ground, the lockup and the confetti live in RootedCelebration
   // now, shared with the Schedule Builder's "You're Rooted" screen. The words
@@ -636,6 +646,12 @@ export default function OnboardingPage() {
   const [schoolYearStart, setSchoolYearStart] = useState("");
   const [schoolYearEnd, setSchoolYearEnd] = useState("");
   const [schoolDays, setSchoolDays] = useState<string[]>(["Mon", "Tue", "Wed", "Thu", "Fri"]);
+  // Set by /signup when the family arrived from a shared resource page. Read
+  // lazily: it only shapes the celebration step, never the first render.
+  const [shareSource] = useState(() => {
+    if (typeof window === "undefined") return null;
+    try { return readShareSource(localStorage.getItem(SHARE_SOURCE_STORAGE_KEY)); } catch { return null; }
+  });
   const datesTouchedRef = useRef(false);
   const schoolYearSavedRef = useRef(false);
   const schoolYearIdRef = useRef<string | null>(null);
@@ -1003,11 +1019,18 @@ export default function OnboardingPage() {
       localStorage.removeItem("rooted_ref");
     } catch {}
 
-    // Track signup conversion
+    // Read here, not from state: this callback is memoized with no deps.
+    let storedShareSource: ReturnType<typeof readShareSource> = null;
+    try { storedShareSource = readShareSource(localStorage.getItem(SHARE_SOURCE_STORAGE_KEY)); } catch {}
+
+    // Track signup conversion. `from` and `r` are present only for a family
+    // who signed up from a shared resource page (app/signup/page.tsx).
     posthog.capture('user_signed_up', {
       referred_by: referredBy ?? null,
       has_referral: !!referredBy,
+      ...shareSourceEventProps(storedShareSource),
     });
+    try { localStorage.removeItem(SHARE_SOURCE_STORAGE_KEY); } catch {}
   }, []);
 
   // ── Complete onboarding when celebration step renders ────────────────
@@ -1341,6 +1364,7 @@ export default function OnboardingPage() {
         childNames={childRows.filter(r => r.name.trim()).map(r => r.name.trim())}
         goals={goals}
         onNavigate={(href) => router.push(href)}
+        sharedNext={shareSource?.next ?? null}
       />
     );
   }

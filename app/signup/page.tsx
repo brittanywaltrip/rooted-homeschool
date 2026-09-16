@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { useIsOAuthHandoffContext } from "@/lib/platform";
 import AppSignInNotice from "@/app/components/AppSignInNotice";
+import { parseShareSource, SHARE_SOURCE_STORAGE_KEY } from "@/lib/resource-share";
 
 export default function SignupPage() {
   // OAuth cannot complete inside the native shell or the home-screen PWA.
@@ -30,6 +31,17 @@ export default function SignupPage() {
   const [resendCooldown, setResendCooldown] = useState(0);
   const [resendStatus, setResendStatus] = useState<"idle" | "sent" | "error">("idle");
   const [resendError, setResendError] = useState("");
+
+  // A friend arriving from a shared resource (/r/<slug>) carries
+  // ?from=share&r=<slug>[&next=<path>]. The signup event fires at the end of
+  // onboarding, so the checked values wait in localStorage until then
+  // (app/onboarding/page.tsx). Nothing is written to profiles, and referral
+  // attribution is a separate thing this does not touch.
+  useEffect(() => {
+    const source = parseShareSource(new URLSearchParams(window.location.search));
+    if (!source) return;
+    try { localStorage.setItem(SHARE_SOURCE_STORAGE_KEY, JSON.stringify(source)); } catch { /* private mode: not counted */ }
+  }, []);
 
   // Countdown tick: re-schedules itself once per second while a cooldown is
   // active, then stops (returns early at 0). clearTimeout on each change keeps
