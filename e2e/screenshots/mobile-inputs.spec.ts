@@ -206,6 +206,53 @@ test.describe('phone screenshots of every surface with a text box', () => {
     await shot(page, 'badge-zero')
   })
 
+  /**
+   * The Resources page's "This Season" block with a picture card (CC #17).
+   *
+   * The fall rows are added after the merge, so the resources query is MOCKED
+   * for this test: no row is inserted and nothing is deleted, so the e2e
+   * account and the shared resources table are untouched. The image itself is
+   * the real file from public/resources/fall.
+   */
+  test('resources, the This Season block', async ({ page }) => {
+    await page.route('**/rest/v1/resources*', (route: Route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            category: 'back_to_school',
+            title: 'Leaf hunt',
+            description: 'Take a bag outside and bring back one of every shape you can find.',
+            url: 'https://www.rootedhomeschoolapp.com',
+            grade_level: 'All Ages',
+            badge_text: 'Free',
+            metadata: { image: '/resources/fall/leaf-hunt.webp', subject: 'Science' },
+            is_free_pick: true,
+            created_at: new Date().toISOString(),
+          },
+        ]),
+      }),
+    )
+    await gotoAppPage(page, '/dashboard/resources', { expectGreeting: false })
+    const heading = page.getByText('This Season').first()
+    await heading.waitFor({ state: 'visible', timeout: 20_000 })
+    await expect(page.getByText('Free picks for right now.')).toBeVisible()
+    const picture = page.locator('img[alt="Leaf hunt"]').first()
+    await picture.waitFor({ state: 'visible', timeout: 15_000 })
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const box = await heading.boundingBox()
+      if (box && box.y > 40 && box.y < 300) break
+      await heading.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        window.scrollBy(0, r.top - 90)
+      })
+      await page.waitForTimeout(400)
+    }
+    await shot(page, 'this-season')
+  })
+
   test('login', async ({ page }) => {
     await page.context().clearCookies()
     await page.goto('/login', { waitUntil: 'domcontentloaded' })

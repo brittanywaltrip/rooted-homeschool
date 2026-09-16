@@ -458,7 +458,11 @@ Also: opening a younger child's transcript adds course rows for all of their sub
 
 **What it does**
 
-In order: a Mail Adventures card, Free Printables, Today's Easy Win (changes by day of the month), This Week's Free Picks (three picks that change every Monday), a banner with the family's state homeschool rules, Back to School picks when they are turned on, and Browse Everything (search, plus Curriculum, Online Classes, Science, Field Trips, Printables, Discounts, Virtual Tours, By State, Saved). Every card can be saved, and has a "This didn't work for us" report link.
+In order: a Mail Adventures card, Free Printables, Today's Easy Win (changes by day of the month), This Week's Free Picks (three picks that change every Monday), a banner with the family's state homeschool rules, **This Season** ("Free picks for right now.") when those picks are turned on, and Browse Everything (search, plus Curriculum, Online Classes, Science, Field Trips, Printables, Discounts, Virtual Tours, By State, Saved). Every card can be saved, and has a "This didn't work for us" report link.
+
+**This Season** is the standing seasonal slot: the fall pack now, whatever is next after that. It appears only while at least one of those resources is active, so turning them off in the admin page retires the block with no code change and no end date. Nothing about it is tied to a calendar.
+
+A resource card can carry a **picture** and a **subject tag**, both optional. The picture is a square that sits above the words and is the same link as the title, so tapping the art and tapping the words do the same thing. Both are set in the admin page: "Image path" is a file that already lives in the site (for example `/resources/fall/leaf-hunt.webp`), not an upload, and "Subject" is a short word like Science that shows as one more pill. A card with neither looks exactly as it always did.
 
 **What it looks at:** the resource list, the family's state and country, and their saved resources.
 

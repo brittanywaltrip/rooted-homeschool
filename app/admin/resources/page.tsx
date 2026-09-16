@@ -4,12 +4,20 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import {
+  validateResourceImagePath,
+  validateResourceSubject,
+  withResourceMetadata,
+} from "@/lib/resource-metadata";
+import Image from "next/image";
 import { Pencil, Trash2, Check, X, Plus, ChevronDown, ChevronUp, ExternalLink, ArrowLeft, Eye, EyeOff } from "lucide-react";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
 const CATEGORIES = [
-  { id: "back_to_school", label: "🎒 Back to School"  },
+  // The KEY is historical: this started as the August back-to-school set and is
+  // now the standing seasonal slot on Resources. Renaming it would move rows.
+  { id: "back_to_school", label: "🍂 This Season"     },
   { id: "curriculum",     label: "📚 Curriculum"      },
   { id: "online_classes", label: "🖥️ Online Classes" },
   { id: "science",        label: "🔬 Science"         },
@@ -34,9 +42,16 @@ type Resource = {
   active: boolean;
   sort_order: number;
   is_free_pick: boolean;
+  /** Optional extras: { image, subject }. Other keys belong to other things. */
+  metadata: Record<string, unknown> | null;
 };
 
-type EditState = Partial<Resource>;
+/**
+ * The form's own state. `_image` and `_subject` are edited as plain fields and
+ * merged into the row's existing `metadata` at save time (withResourceMetadata),
+ * so the column's other keys survive an edit.
+ */
+type EditState = Partial<Resource> & { _image?: string; _subject?: string };
 
 const EMPTY_RESOURCE = (category: CategoryId): Omit<Resource, "id"> => ({
   category,
@@ -48,6 +63,7 @@ const EMPTY_RESOURCE = (category: CategoryId): Omit<Resource, "id"> => ({
   active: true,
   sort_order: 0,
   is_free_pick: false,
+  metadata: null,
 });
 
 function TextInput({ label, value, onChange, placeholder, multiline }: {
@@ -81,6 +97,15 @@ function ResourceForm({
   const [form, setForm] = useState<EditState>(initial);
   const set = (key: keyof EditState) => (val: string | boolean) =>
     setForm((prev) => ({ ...prev, [key]: val }));
+
+  // The two metadata keys are edited as their own fields and merged back into
+  // whatever else the column holds at save time (withResourceMetadata).
+  const meta = (initial.metadata ?? {}) as Record<string, unknown>;
+  const [image, setImage] = useState(typeof meta.image === "string" ? meta.image : "");
+  const [subject, setSubject] = useState(typeof meta.subject === "string" ? meta.subject : "");
+  const imageError = validateResourceImagePath(image);
+  const subjectError = validateResourceSubject(subject);
+  const formWithMeta: EditState = { ...form, _image: image, _subject: subject };
 
   return (
     <div className="space-y-3 bg-[#f8f7f4] border border-[#e8e2d9] rounded-xl p-4">
@@ -122,10 +147,44 @@ function ResourceForm({
           </label>
         </div>
       </div>
+      {/* Optional picture and subject, both stored in the existing metadata
+          column (lib/resource-metadata.ts). A path only: files live in
+          public/resources, so nothing is uploaded here. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <TextInput
+            label="Image path (optional)"
+            value={image}
+            onChange={setImage}
+            placeholder="/resources/fall/leaf-hunt.webp"
+          />
+          {imageError && <p className="mt-1 text-[11px] text-[#b4472e]">{imageError}</p>}
+        </div>
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <TextInput
+              label="Subject (optional)"
+              value={subject}
+              onChange={setSubject}
+              placeholder="Science"
+            />
+            {subjectError && <p className="mt-1 text-[11px] text-[#b4472e]">{subjectError}</p>}
+          </div>
+          {image && !imageError && (
+            <Image
+              src={image}
+              alt="Preview"
+              width={96}
+              height={96}
+              className="w-24 h-24 rounded-lg object-cover border border-[#e8e2d9] shrink-0"
+            />
+          )}
+        </div>
+      </div>
       <div className="flex gap-2 pt-1">
         <button
-          onClick={() => onSave(form)}
-          disabled={saving || !form.title?.trim()}
+          onClick={() => onSave(formWithMeta)}
+          disabled={saving || !form.title?.trim() || Boolean(imageError) || Boolean(subjectError)}
           className="flex items-center gap-1.5 px-4 py-2 bg-[#5c7f63] text-white text-sm font-medium rounded-lg hover:bg-[var(--g-deep)] disabled:opacity-50 transition-colors"
         >
           <Check size={14} />
@@ -284,7 +343,7 @@ export default function AdminResourcesPage() {
     setLoading(true);
     const { data, error } = await supabase
       .from("resources")
-      .select("id, category, title, description, url, grade_level, badge_text, active, sort_order, is_free_pick")
+      .select("id, category, title, description, url, grade_level, badge_text, active, sort_order, is_free_pick, metadata")
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true });
     if (!error && data) setResources(data as Resource[]);
@@ -308,6 +367,11 @@ export default function AdminResourcesPage() {
         badge_text:   form.badge_text?.trim() ?? "",
         active:       form.active ?? true,
         is_free_pick: form.is_free_pick ?? false,
+        // Spread of whatever the row already had: this column is not only ours.
+        metadata:     withResourceMetadata(form.metadata, {
+          image: form._image ?? "",
+          subject: form._subject ?? "",
+        }),
       })
       .eq("id", id);
     setSaving(false);
@@ -334,6 +398,10 @@ export default function AdminResourcesPage() {
       active:       form.active ?? true,
       sort_order:   maxOrder + 1,
       is_free_pick: form.is_free_pick ?? false,
+      metadata:     withResourceMetadata(form.metadata, {
+        image: form._image ?? "",
+        subject: form._subject ?? "",
+      }),
     });
     setSaving(false);
     if (error) { showToast("❌ Add failed: " + error.message); return; }
