@@ -13,7 +13,11 @@
 import { getGrowthStage, getGrowthStageIndex, GROWTH_STAGES } from "../app/lib/garden-stages.ts";
 import { joinNames, possessive } from "../app/lib/garden-config.ts";
 
-export const WEEKLY_TODAY_URL = "https://rootedhomeschoolapp.com/dashboard";
+// www, not the apex: the apex 308-redirects, and a redirect on an email click
+// is a hop that some clients handle worse than others.
+export const WEEKLY_TODAY_URL = "https://www.rootedhomeschoolapp.com/dashboard";
+/** The quiet email's subject. The route sends it; the template carries a copy. */
+export const WEEKLY_QUIET_SUBJECT = "A quiet week is still a week";
 export const WEEKLY_EMAIL_TYPE = "weekly_summary";
 export const WINBACK_EMAIL_TYPE = "winback";
 /** A family who got a win-back this many days ago is left alone this Monday. */
@@ -196,11 +200,51 @@ export function gardenLine(children: readonly ChildLeaves[]): string {
     .join(" ");
 }
 
-/** "Your week with Rooted: 9 lessons, 3 memories" (and no memories half at 0). */
+/**
+ * "Your week with Rooted: 9 lessons, 3 memories". A half that is zero is left
+ * out entirely: the full email goes out for lessons OR memories, so a week of
+ * two photos and no lessons must not be announced as "0 lessons, 2 memories".
+ */
 export function weeklySubject(lessons: number, memories: number): string {
-  const head = `Your week with Rooted: ${plural(Math.max(0, lessons), "lesson")}`;
-  if (memories <= 0) return head;
-  return `${head}, ${plural(memories, "memory", "memories")}`;
+  const parts: string[] = [];
+  if (lessons > 0) parts.push(plural(lessons, "lesson"));
+  if (memories > 0) parts.push(plural(memories, "memory", "memories"));
+  if (parts.length === 0) return "Your week with Rooted";
+  return `Your week with Rooted: ${parts.join(", ")}`;
+}
+
+/** How many days of quiet still count as an audience for the Monday email. */
+export const WEEKLY_AUDIENCE_DAYS = 30;
+
+export type WeeklyVerdict = "full" | "quiet" | "too_stale" | "recent_winback" | "already_sent";
+
+/**
+ * What this family gets on Monday, and why.
+ *
+ * The audience used to be 14 days, which meant a family who took a fortnight
+ * off stopped hearing from Rooted entirely: the win-back email only starts at
+ * day 14 and goes once, ever. Thirty days keeps the Monday note going through a
+ * normal break. A family who got a win-back in the last week is left alone, so
+ * the two never land together.
+ */
+export function classifyWeeklyRecipient(args: {
+  /** Newest activity date (a memory's date or a completed lesson's scheduled_date). */
+  lastActiveDate: string | null;
+  now: Date;
+  timeZone: string;
+  weekLessons: number;
+  weekMemories: number;
+  recentWinback: boolean;
+  sentThisWeek: boolean;
+  audienceDays?: number;
+}): WeeklyVerdict {
+  if (args.recentWinback) return "recent_winback";
+  if (args.sentThisWeek) return "already_sent";
+  const days = args.audienceDays ?? WEEKLY_AUDIENCE_DAYS;
+  const today = dateInZone(args.now, args.timeZone);
+  const cutoff = addDaysYmd(today, -days);
+  if (!args.lastActiveDate || args.lastActiveDate < cutoff) return "too_stale";
+  return hadAQuietWeek(args.weekLessons, args.weekMemories) ? "quiet" : "full";
 }
 
 /** Did this family do anything in the week? Decides full email or quiet one. */

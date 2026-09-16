@@ -200,9 +200,11 @@ test("scheduled daily at 15:00 UTC, gated like the other nurture emails, same ac
   assert.match(route, /authorization'\) !== `Bearer \$\{process\.env\.CRON_SECRET\}`/);
   assert.match(route, /from\('memories'\)\.select\('id, user_id, date'\)\.gte\('date', since\)/);
   assert.match(route, /\.eq\('completed', true\)\s*\.gte\('scheduled_date', since\)/);
+  // The weekly summary reads the same two sources, over its own window: a
+  // memory's `date` and a completed lesson's `scheduled_date`.
   const weekly = readFileSync(resolve(import.meta.dirname, "..", "app/api/cron/weekly-summary/route.ts"), "utf8");
-  assert.match(weekly, /from\('memories'\)\.select\('user_id, type'\)\.gte\('date', since14\)/);
-  assert.match(weekly, /from\('lessons'\)\.select\('user_id'\)\.eq\('completed', true\)\.gte\('scheduled_date', since14\)/);
+  assert.match(weekly, /from\('memories'\)\.select\('id, user_id, type, date'\)\.gte\('date', since\)/);
+  assert.match(weekly, /\.eq\('completed', true\)\s*\.gte\('scheduled_date', since\)/);
 });
 
 test("a failed profile or email_log bulk read sends nothing", async () => {

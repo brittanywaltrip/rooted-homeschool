@@ -6,7 +6,11 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { GROWTH_STAGES } from "../app/lib/garden-stages.ts";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import {
+  classifyWeeklyRecipient,
   dateInZone,
   gardenLine,
   hadAQuietWeek,
@@ -17,6 +21,7 @@ import {
   safeTimeZone,
   weeklySubject,
   weekWindow,
+  WINBACK_QUIET_DAYS,
 } from "./weekly-summary.ts";
 
 test("lessons: one child, two children, three children", () => {
@@ -120,7 +125,12 @@ test("subject: counts, singulars, and no memories half at zero", () => {
   assert.equal(weeklySubject(9, 3), "Your week with Rooted: 9 lessons, 3 memories");
   assert.equal(weeklySubject(1, 1), "Your week with Rooted: 1 lesson, 1 memory");
   assert.equal(weeklySubject(4, 0), "Your week with Rooted: 4 lessons");
-  assert.equal(weeklySubject(0, 2), "Your week with Rooted: 0 lessons, 2 memories");
+  assert.equal(
+    weeklySubject(0, 2),
+    "Your week with Rooted: 2 memories",
+    "the full email goes out for lessons OR memories, so a zero half is left out",
+  );
+  assert.equal(weeklySubject(0, 0), "Your week with Rooted");
 });
 
 test("the week is the Monday to Sunday before the send, in her timezone", () => {
@@ -151,4 +161,88 @@ test("a broken timezone falls back to US Pacific, and a quiet week is lessons an
   assert.equal(hadAQuietWeek(0, 0), true);
   assert.equal(hadAQuietWeek(1, 0), false);
   assert.equal(hadAQuietWeek(0, 1), false);
+});
+
+/* ── Who gets Monday's email ───────────────────────────────────────────────
+ * The audience was 14 days, so a family who took a fortnight off stopped
+ * hearing from Rooted at all: the win-back only starts at day 14 and goes once,
+ * ever. Thirty days covers a normal break.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+const SEND = new Date("2026-09-21T15:00:00Z"); // Monday
+const ZONE = "America/Chicago";
+const daysBefore = (n: number) =>
+  new Date(Date.UTC(2026, 8, 21) - n * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+function verdict(over: Partial<Parameters<typeof classifyWeeklyRecipient>[0]> = {}) {
+  return classifyWeeklyRecipient({
+    lastActiveDate: daysBefore(2),
+    now: SEND,
+    timeZone: ZONE,
+    weekLessons: 0,
+    weekMemories: 0,
+    recentWinback: false,
+    sentThisWeek: false,
+    ...over,
+  });
+}
+
+test("audience: active this week is full, active 20 days ago with a quiet week is quiet", () => {
+  assert.equal(verdict({ lastActiveDate: daysBefore(2), weekLessons: 9, weekMemories: 2 }), "full");
+  assert.equal(verdict({ lastActiveDate: daysBefore(2), weekLessons: 0, weekMemories: 1 }), "full");
+  assert.equal(verdict({ lastActiveDate: daysBefore(20), weekLessons: 0, weekMemories: 0 }), "quiet");
+});
+
+test("audience: 35 days quiet gets neither, and 30 days is still in", () => {
+  assert.equal(verdict({ lastActiveDate: daysBefore(35) }), "too_stale");
+  assert.equal(verdict({ lastActiveDate: daysBefore(30) }), "quiet", "the 30th day is inside the window");
+  assert.equal(verdict({ lastActiveDate: daysBefore(31) }), "too_stale");
+  assert.equal(verdict({ lastActiveDate: null }), "too_stale");
+});
+
+test("audience: a win-back in the last 7 days wins, an older one does not", () => {
+  // The route reads email_log for the last WINBACK_QUIET_DAYS and passes the
+  // answer in; three days ago is inside that read, ten days ago is not.
+  assert.equal(verdict({ recentWinback: true, weekLessons: 5 }), "recent_winback");
+  assert.equal(verdict({ recentWinback: false, weekLessons: 5 }), "full", "a win-back 10 days ago is not in the way");
+  assert.equal(WINBACK_QUIET_DAYS, 7);
+});
+
+test("audience: one Monday email per family per week", () => {
+  assert.equal(verdict({ sentThisWeek: true, weekLessons: 5 }), "already_sent");
+  assert.equal(verdict({ sentThisWeek: true, recentWinback: true }), "recent_winback", "the win-back reason comes first");
+});
+
+test("the route sends the quiet template on a quiet week and logs user ids only", () => {
+  const route = readFileSync(resolve(import.meta.dirname, "..", "app/api/cron/weekly-summary/route.ts"), "utf8");
+  assert.match(route, /authorization'\) !== `Bearer \$\{process\.env\.CRON_SECRET\}`/);
+  assert.match(route, /TEMPLATES\.weeklySummaryQuiet/);
+  assert.match(route, /TEMPLATES\.weeklySummary,/);
+  assert.match(route, /canSendMarketingEmail\(userId, 'weekly_summary', supabase\)/);
+  assert.match(route, /skippedRecentWinback/);
+  assert.match(route, /eq\('email_type', WINBACK_EMAIL_TYPE\)/);
+  assert.ok(!/\$\{email\}/.test(route.replace(/encodeURIComponent\(email\)/g, "")), "no address in a log line");
+  assert.ok(!/testOnly/.test(route), "the unused test POST is retired");
+});
+
+test("route: every bulk read fails closed, and nothing is dropped in silence", () => {
+  const route = readFileSync(resolve(import.meta.dirname, "..", "app/api/cron/weekly-summary/route.ts"), "utf8");
+  // A read that failed is not a read that found nothing.
+  assert.match(route, /if \(error\) return readFailed\('profiles'\)/);
+  assert.match(route, /if \(error\) return readFailed\('auth users'\)/);
+  assert.match(route, /if \(weeklyErr \|\| winsErr\) return readFailed\('email_log'\)/);
+  assert.match(route, /if \(!lessons \|\| !memories\) return readFailed\('activity'\)/);
+  // A family left behind by the budget never catches up: this send is weekly.
+  assert.match(route, /\{ deferred\+\+; return \}/);
+  assert.match(route, /has4xx \|\| logWriteFailures > 0 \|\| deferred > 0/);
+  // One family's throw is not the whole Monday.
+  assert.match(route, /await sendOne\(userId\)\s*\} catch/);
+  // The week's rows are bucketed once, not re-scanned per family.
+  assert.match(route, /const lessonsByUser = new Map<string, LessonRow\[\]>\(\)/);
+  assert.match(route, /\(lessonsByUser\.get\(userId\) \?\? \[\]\)\.filter/);
+  // An archived child still did last week's lessons.
+  assert.match(route, /const perChild = allChildren\.map/);
+  assert.match(route, /!knownChildIds\.has\(l\.child_id\)/);
+  // One definition of the quiet subject, shared with the template script.
+  assert.match(route, /WEEKLY_QUIET_SUBJECT,/);
 });

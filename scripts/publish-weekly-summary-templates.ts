@@ -23,6 +23,7 @@
  */
 import { getTemplate, publishAndVerify, resendCall, type TemplateVariable } from './resend-templates-api.ts'
 import { TEMPLATES } from '../lib/resend-template.ts'
+import { WEEKLY_QUIET_SUBJECT } from '../lib/weekly-summary.ts'
 
 export const WEEKLY_QUIET_ALIAS = 'rooted-weekly-summary-quiet'
 
@@ -40,7 +41,7 @@ export const WEEKLY_QUIET_BODY = [
 
 export const WEEKLY_BUTTON = 'Open Today'
 export const WEEKLY_SIGNATURE = ['Brittany', 'Rooted Homeschool'] as const
-export const WEEKLY_QUIET_SUBJECT = 'A quiet week is still a week'
+export { WEEKLY_QUIET_SUBJECT }
 
 const p = (s: string) => `<p>${s}</p>`
 
@@ -148,6 +149,15 @@ async function main() {
   await publishAndVerify(quietId, [
     { mustInclude: ['Nothing was checked off in Rooted last week', '{{{gardenLine}}}', 'href="{{{todayUrl}}}"'] },
   ])
+  console.log(`quiet template id: ${quietId}`)
+  // The route posts to the hardcoded id. If this run wrote a DIFFERENT template
+  // (a fresh account, or an alias pointing somewhere else), say so loudly rather
+  // than leaving a published template nothing sends.
+  if (quietId !== TEMPLATES.weeklySummaryQuiet) {
+    throw new Error(
+      `published ${quietId}, but TEMPLATES.weeklySummaryQuiet is ${TEMPLATES.weeklySummaryQuiet}. Update lib/resend-template.ts.`,
+    )
+  }
 }
 
 if (process.argv[1] && process.argv[1].endsWith('publish-weekly-summary-templates.ts')) {

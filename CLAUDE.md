@@ -519,7 +519,14 @@ Tell them apart before touching anything: if any misaligned row in the goal has
 drifted before, so re-read the file rather than trusting the count here.
 - /api/cron/reengagement: daily 2PM UTC — 3-email drip sequence for inactive users
 - /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
-- /api/cron/weekly-summary: weekly Monday 3PM UTC — family weekly summary emails
+- /api/cron/weekly-summary: weekly Monday 3PM UTC, the Monday email. Audience is
+  families active in the last 30 days (a memory's date or a completed lesson's
+  scheduled_date). Two hosted templates: TEMPLATES.weeklySummary for a week with
+  something in it (lessons per child, memories by type, each child's garden
+  stage) and TEMPLATES.weeklySummaryQuiet for a week with nothing. Skips anyone
+  sent a 'winback' in the last 7 days, one send per family per ISO week,
+  `?dry=1` behind the cron secret. Sentences: lib/weekly-summary.ts; copy:
+  scripts/publish-weekly-summary-templates.ts.
 - /api/cron/onboarding-reminder: daily 2PM UTC — nudge families who signed up but never onboarded
 - /api/cron/health-check: daily 1PM UTC — smoke-checks a known memory row, emails on failure
 - /api/cron/expire-subscriptions: daily 11AM UTC — ends access for cancelled subscriptions
