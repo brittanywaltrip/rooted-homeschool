@@ -262,6 +262,32 @@ test.describe('phone screenshots of every surface with a text box', () => {
     await shot(page, 'this-season')
   })
 
+  /**
+   * The Photo Frames editor on the fall frame with a photo in it (CC #18).
+   *
+   * The e2e account has no fixture photo, so the picture is a real file from
+   * the repo (the leaf hunt resource image). Nothing is saved: the editor only
+   * downloads or shares, and this test does neither. The fall frame has no text
+   * boxes, so there is no focus-zoom check here.
+   */
+  test('photo frames, the fall frame', async ({ page }) => {
+    await gotoAppPage(page, '/dashboard/printables/first-day?theme=fall', { expectGreeting: false })
+    const fall = page.getByRole('group', { name: 'Frame' }).getByRole('button', { name: "It's Fall Y'all", exact: true })
+    await expect(fall).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 })
+    await page.locator('input[type="file"]').setInputFiles(
+      resolve(__dirname, '../../public/resources/fall/leaf-hunt.webp'),
+    )
+    await expect(page.locator('img[src^="data:"]').first()).toBeVisible({ timeout: 20_000 })
+    // Picker and preview are the top of the page on a phone.
+    await page.evaluate(() => window.scrollTo(0, 0))
+    const picker = page.getByRole('group', { name: 'Frame' })
+    await picker.evaluate((el) => {
+      const r = el.getBoundingClientRect()
+      window.scrollBy(0, r.top - 80)
+    })
+    await shot(page, 'fall-frame')
+  })
+
   test('login', async ({ page }) => {
     await page.context().clearCookies()
     await page.goto('/login', { waitUntil: 'domcontentloaded' })

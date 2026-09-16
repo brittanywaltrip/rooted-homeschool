@@ -8,6 +8,14 @@ import { ChevronLeft } from "lucide-react";
 
 const UPDATES = [
   {
+    date: "September 2026",
+    emoji: "🍂",
+    title: "Fall photo frames",
+    description:
+      "Printables now has Photo Frames with two new fall frames, It's Fall Y'all and Fall Camp, so you can drop a picture from the pumpkin patch or the leaf pile into one and share it in a minute.",
+    inspiredByFamily: false,
+  },
+  {
     date: "August 2026",
     emoji: "🔖",
     title: "Books in progress",

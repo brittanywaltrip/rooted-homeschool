@@ -11,10 +11,12 @@ import { PhotoReadError } from "@/lib/photo-pipeline";
 import {
   FIRST_DAY_THEMES,
   DEFAULT_FIRST_DAY_THEME,
+  FIRST_DAY_THEME_ORDER,
   FIRST_DAY_BRANDING,
   brandingYPct,
   frameExportFilename,
   frameTextRuns,
+  initialFirstDayThemeId,
   type FirstDayFieldKey,
 } from "@/lib/first-day-themes";
 import { renderFirstDayFrame, type PhotoTransform } from "@/lib/first-day-canvas";
@@ -35,6 +37,16 @@ function currentYearRange(): string {
 }
 
 type Values = Record<FirstDayFieldKey, string>;
+
+const THEME_STORAGE_KEY = "rooted:photo-frame-theme";
+
+function readStoredTheme(): string | null {
+  try { return window.localStorage.getItem(THEME_STORAGE_KEY); } catch { return null; }
+}
+
+function storeTheme(id: string) {
+  try { window.localStorage.setItem(THEME_STORAGE_KEY, id); } catch { /* private mode: not remembered */ }
+}
 
 interface ChildRow {
   id: string;
@@ -72,11 +84,24 @@ export default function FirstDayFrameEditor() {
   const previewRef = useRef<HTMLDivElement>(null);
   const [previewW, setPreviewW] = useState(0);
 
-  // ── Load children for autofill ─────────────────────────────────────────────
+  // ── Opening theme: ?theme= wins, then the last pick, then the default ─────────
+  // Read on mount rather than in the initial state so the server render and the
+  // first client render agree. Selecting a theme only swaps the frame: the
+  // photo, its zoom and its position are separate state and stay as they are.
   useEffect(() => {
-    document.title = "First Day Photo, Rooted";
-    posthog.capture("page_viewed", { page: "first_day_photo" });
+    document.title = "Photo Frames, Rooted";
+    const query = new URLSearchParams(window.location.search).get("theme");
+    const initial = initialFirstDayThemeId(query, readStoredTheme());
+    setThemeId(initial);
+    posthog.capture("page_viewed", { page: "first_day_photo", theme: initial });
   }, []);
+
+  function selectTheme(id: string) {
+    setThemeId(id);
+    storeTheme(id);
+  }
+
+  // ── Load children for autofill ─────────────────────────────────────────────
 
   useEffect(() => {
     async function load() {
@@ -234,11 +259,11 @@ export default function FirstDayFrameEditor() {
           title: theme.shareTitle,
           text: theme.shareText,
         } as ShareData);
-        posthog.capture("first_day_photo_shared");
+        posthog.capture("first_day_photo_shared", { theme: theme.id });
       } else {
         // No file-share support (most desktop browsers) — fall back to download.
         triggerDownload(blob);
-        posthog.capture("first_day_photo_exported", { via: "share_fallback" });
+        posthog.capture("first_day_photo_exported", { via: "share_fallback", theme: theme.id });
         setToast("Saved the photo. Sharing isn't supported on this device.");
         setTimeout(() => setToast(null), 4000);
       }
@@ -271,7 +296,7 @@ export default function FirstDayFrameEditor() {
     try {
       const blob = await buildBlob();
       triggerDownload(blob);
-      posthog.capture("first_day_photo_exported", { via: "download" });
+      posthog.capture("first_day_photo_exported", { via: "download", theme: theme.id });
     } catch (err) {
       console.error("[first-day] download failed:", err);
       setToast("Couldn't create the image. Please try again.");
@@ -287,8 +312,8 @@ export default function FirstDayFrameEditor() {
     <>
       <PageHero
         overline="Your Family's"
-        title="First Day Photo"
-        subtitle="Add a photo, fill in the details, then share a keepsake of their first day."
+        title="Photo Frames"
+        subtitle="Pick a frame, add a photo, then share the keepsake."
       />
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -395,6 +420,38 @@ export default function FirstDayFrameEditor() {
 
           {/* ── Live preview column ── */}
           <div className="order-1 lg:order-2">
+            {/* Frame picker */}
+            <div role="group" aria-label="Frame" className="grid grid-cols-3 gap-2 max-w-[360px] mx-auto mb-4">
+              {FIRST_DAY_THEME_ORDER.map((id) => {
+                const t = FIRST_DAY_THEMES[id];
+                const selected = id === theme.id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => selectTheme(id)}
+                    aria-pressed={selected}
+                    className="flex flex-col items-center gap-1 rounded-xl p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5c7f63]"
+                  >
+                    <span
+                      className={`block w-full aspect-square rounded-lg overflow-hidden bg-[#f3efe7] border-2 transition-colors ${
+                        selected ? "border-[#2D5A3D]" : "border-transparent"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={t.src} alt={t.label} className="w-full h-full object-contain" />
+                    </span>
+                    {/* The picture's alt already names the button; the caption is for the eye. */}
+                    <span
+                      aria-hidden="true"
+                      className={`text-[11px] leading-tight text-center ${selected ? "font-semibold text-[#2D5A3D]" : "text-[#7a6f65]"}`}
+                    >
+                      {t.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
             <div
               ref={previewRef}
               className="relative w-full max-w-[360px] mx-auto rounded-xl overflow-hidden shadow-lg select-none bg-[#f3efe7]"
