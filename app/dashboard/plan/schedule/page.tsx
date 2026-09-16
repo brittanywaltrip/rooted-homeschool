@@ -4828,7 +4828,10 @@ function RowCard(props: {
       {/* School days — asked once. The chips ARE the day question; nothing
           below repeats them. A chip carries a small numeral when that day's
           count differs from the shared one, so a heavier Wednesday is visible
-          even with the per-day list collapsed. */}
+          even with the per-day list collapsed. The numeral is a SQUARE with
+          softly rounded corners: Rooted has no round colour-coded elements, and
+          a circle in the corner of a chip reads as a status dot whatever colour
+          it is. */}
       <div className="mt-3">
         <p className="text-[10px] font-medium uppercase tracking-wide text-[#7a6f65] mb-1.5">
           School days
@@ -4859,7 +4862,7 @@ function RowCard(props: {
                 {badge != null && (
                   <span
                     aria-hidden="true"
-                    className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-[3px] rounded-full bg-white text-[9px] font-bold leading-[14px] text-[#2D5A3D] border border-[#2D5A3D]"
+                    className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-[3px] rounded-[3px] bg-white text-[9px] font-bold leading-[14px] text-[#2D5A3D] border border-[#2D5A3D]"
                   >
                     {badge}
                   </span>

@@ -145,7 +145,8 @@ test.describe('phone screenshots of every surface with a text box', () => {
   })
 
   /**
-   * The curriculum row's pace control, in its three states (CC #16).
+   * The curriculum row's pace control, in its three states (CC #16), including
+   * the numeral badge a chip wears when its day differs (squared off in #16b).
    *
    * Nothing is saved: the spec drives the form and screenshots it, and never
    * touches Preview or Save, so the e2e account's stored schedule is untouched.
@@ -164,12 +165,30 @@ test.describe('phone screenshots of every surface with a text box', () => {
     // [aria-expanded="false"]: on this page that matches the row's "More
     // actions" kebab first, whose open state drops a full-screen backdrop over
     // everything, which is what made this test fail before.
+    //
+    // Put the control in frame BY HAND. scrollIntoViewIfNeeded was satisfied
+    // while the row sat under the sticky header and the promo banner, and
+    // scrollIntoView({ block: 'center' }) did nothing here either, so the
+    // collapsed shot kept catching the page header. window.scrollBy off the
+    // element's own rect, then an assertion that it really is in frame, so this
+    // fails loudly instead of quietly photographing the wrong thing.
     const schoolDays = page.getByText('School days').first()
-    if ((await schoolDays.count()) > 0) await schoolDays.scrollIntoViewIfNeeded().catch(() => {})
-    await page.waitForTimeout(600)
+    await schoolDays.waitFor({ state: 'visible', timeout: 15_000 })
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const box = await schoolDays.boundingBox()
+      if (box && box.y > 60 && box.y < 400) break
+      await schoolDays.evaluate((el) => {
+        const r = el.getBoundingClientRect()
+        window.scrollBy(0, r.top - 140)
+      })
+      await page.waitForTimeout(500)
+    }
+    const framed = await schoolDays.boundingBox()
+    expect(framed, 'the School days row must be in frame before the shot').not.toBeNull()
+    expect(framed!.y, 'the School days row is above the fold in the capture').toBeLessThan(500)
 
     // (a) every day the same, list collapsed.
-    await shot(page, 'pace-same')
+    await shot(page, 'badge-same')
 
     // (b) Wednesday heavier than the rest.
     const openPerDay = page.locator('button', { hasText: /Different on some days\?/i }).first()
@@ -178,13 +197,13 @@ test.describe('phone screenshots of every surface with a text box', () => {
     const wedUp = page.locator('[aria-label="One more lesson on Wednesday"], [aria-label="One more lesson on Wed"]').first()
     if ((await wedUp.count()) > 0) await wedUp.click({ timeout: 5_000 })
     await page.waitForTimeout(400)
-    await shot(page, 'pace-varies')
+    await shot(page, 'badge-varies')
 
     // (c) a day set to 0, which the scheduler honours as "skip this day".
     const tueDown = page.locator('[aria-label="One fewer lesson on Tuesday"], [aria-label="One fewer lesson on Tue"]').first()
     if ((await tueDown.count()) > 0) await tueDown.click({ timeout: 5_000 })
     await page.waitForTimeout(400)
-    await shot(page, 'pace-zero')
+    await shot(page, 'badge-zero')
   })
 
   test('login', async ({ page }) => {
