@@ -30,6 +30,7 @@ test('the image: anything else is ignored rather than rendered', () => {
   assert.equal(resourceImagePath({ image: '/resources/../../secret.webp' }), null, 'no walking out of public/')
   assert.equal(resourceImagePath({ image: '/printables/a.webp' }), null, 'only under /resources/')
   assert.equal(resourceImagePath({ image: '/resources/a.pdf' }), null)
+  assert.equal(resourceImagePath({ image: '/resources/a.jpeg' }), '/resources/a.jpeg', 'jpeg is a picture too')
   assert.equal(resourceImagePath({ image: '' }), null)
   assert.equal(resourceImagePath({ image: 42 }), null)
   assert.equal(resourceImagePath({ image: { path: '/resources/a.webp' } }), null)
@@ -72,8 +73,17 @@ test('saving keeps every other key in the column', () => {
     affiliate: true,
     note: 'keep me',
   })
-  // Clearing a field removes the key rather than storing an empty string.
+  // Clearing a field (passing "") removes the key rather than storing an empty
+  // string. NOT passing it leaves whatever was there, so a caller that only
+  // sets the subject cannot silently drop the picture.
   assert.deepEqual(withResourceMetadata(existing, { image: '', subject: '' }), { affiliate: true, note: 'keep me' })
+  assert.deepEqual(withResourceMetadata(existing, { subject: 'Math' }), {
+    image: '/resources/old.webp',
+    subject: 'Math',
+    affiliate: true,
+    note: 'keep me',
+  })
+  assert.deepEqual(withResourceMetadata(existing, {}), existing, 'no keys passed, nothing changes')
   assert.deepEqual(withResourceMetadata(null, { image: '/resources/a.webp' }), { image: '/resources/a.webp' })
   assert.deepEqual(withResourceMetadata('not an object', { subject: 'Math' }), { subject: 'Math' })
   assert.deepEqual(withResourceMetadata(['array'], { subject: 'Math' }), { subject: 'Math' })
@@ -106,7 +116,10 @@ test('the picture is the same click as the title', () => {
   assert.equal((card.match(/rel="noopener noreferrer"/g) ?? []).length, 2)
   assert.match(card, /loading="lazy"/)
   assert.match(card, /sizes="\(max-width: 640px\) 100vw, 480px"/)
-  assert.match(card, /alt=\{r\.title\}/)
+  // alt is EMPTY on purpose: the picture repeats the title's link, so giving it
+  // the title as its accessible name announced every card twice. See the
+  // accessibility test below.
+  assert.match(card, /alt=""/)
 })
 
 test('the block is "This Season" and the category key never moved', () => {
@@ -119,4 +132,17 @@ test('the block is "This Season" and the category key never moved', () => {
   const withoutComments = src.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
   assert.ok(!withoutComments.includes('Back to School'), 'no "Back to School" copy left on the page')
   assert.match(src, /r\.category === "back_to_school"/, 'and the key is untouched, so no row moves')
+})
+
+test('a picture that fails to load takes itself out of the card', () => {
+  // A path can validate and still be a typo. A full-width grey square above the
+  // title, for every family, is worse than the text card.
+  const src = readFileSync(resolve(import.meta.dirname, '..', 'app/dashboard/resources/page.tsx'), 'utf8')
+  const card = src.slice(src.indexOf('function ResourceCard'), src.indexOf('// ─── Main Page'))
+  assert.match(card, /onError=\{\(\) => setImageBroken\(true\)\}/)
+  assert.match(card, /const image = imageBroken \? null : imagePath/)
+  // And it is not a second link to the same place for a screen reader.
+  assert.match(card, /aria-hidden="true"/)
+  assert.match(card, /tabIndex=\{-1\}/)
+  assert.match(card, /alt=""/)
 })

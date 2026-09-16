@@ -357,6 +357,11 @@ export default function AdminResourcesPage() {
   // Save edit
   async function handleSaveEdit(id: string, form: EditState) {
     setSaving(true);
+    // Re-read the column instead of writing back the copy this page loaded.
+    // Three people have admin access; a save of an unrelated field here would
+    // otherwise drop whatever another one of them added to metadata since.
+    const { data: fresh } = await supabase.from("resources").select("metadata").eq("id", id).maybeSingle();
+    const currentMetadata = (fresh as { metadata?: unknown } | null)?.metadata ?? form.metadata;
     const { error } = await supabase
       .from("resources")
       .update({
@@ -368,7 +373,7 @@ export default function AdminResourcesPage() {
         active:       form.active ?? true,
         is_free_pick: form.is_free_pick ?? false,
         // Spread of whatever the row already had: this column is not only ours.
-        metadata:     withResourceMetadata(form.metadata, {
+        metadata:     withResourceMetadata(currentMetadata, {
           image: form._image ?? "",
           subject: form._subject ?? "",
         }),

@@ -20,7 +20,9 @@
 
 /** Where a resource image may live. Anything else, including an absolute URL, is ignored. */
 export const RESOURCE_IMAGE_PREFIX = "/resources/";
-export const RESOURCE_IMAGE_EXTENSIONS = [".webp", ".png", ".jpg"] as const;
+// .jpeg included: it is what most photo exports produce, and rejecting it only
+// teaches an admin to rename a file for no reason.
+export const RESOURCE_IMAGE_EXTENSIONS = [".webp", ".png", ".jpg", ".jpeg"] as const;
 export const RESOURCE_SUBJECT_MAX = 24;
 
 /**
@@ -91,12 +93,19 @@ export function withResourceMetadata(
     existing && typeof existing === "object" && !Array.isArray(existing)
       ? { ...(existing as Record<string, unknown>) }
       : {};
-  const image = (next.image ?? "").trim();
-  const subject = (next.subject ?? "").trim().replace(/\s+/g, " ");
-  if (image) base.image = image;
-  else delete base.image;
-  if (subject) base.subject = subject;
-  else delete base.subject;
+  // A key that is not passed is LEFT ALONE. Passing "" is how a caller clears
+  // one. The first cut treated "absent" and "empty" the same, so a future
+  // caller writing only { subject } would have silently dropped the picture.
+  if (next.image !== undefined) {
+    const image = next.image.trim();
+    if (image) base.image = image;
+    else delete base.image;
+  }
+  if (next.subject !== undefined) {
+    const subject = next.subject.trim().replace(/\s+/g, " ");
+    if (subject) base.subject = subject;
+    else delete base.subject;
+  }
   return base;
 }
 

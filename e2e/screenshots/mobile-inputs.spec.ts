@@ -185,6 +185,9 @@ test.describe('phone screenshots of every surface with a text box', () => {
     }
     const framed = await schoolDays.boundingBox()
     expect(framed, 'the School days row must be in frame before the shot').not.toBeNull()
+    // BOTH bounds. Too low and the control is off the bottom; too high and it is
+    // back under the sticky header, which is the failure this exists for.
+    expect(framed!.y, 'the School days row is not under the sticky header').toBeGreaterThan(40)
     expect(framed!.y, 'the School days row is above the fold in the capture').toBeLessThan(500)
 
     // (a) every day the same, list collapsed.
@@ -250,6 +253,10 @@ test.describe('phone screenshots of every surface with a text box', () => {
       })
       await page.waitForTimeout(400)
     }
+    const framed = await heading.boundingBox()
+    expect(framed, 'the This Season heading must be in frame before the shot').not.toBeNull()
+    expect(framed!.y, 'not under the sticky header').toBeGreaterThan(20)
+    expect(framed!.y, 'above the fold in the capture').toBeLessThan(400)
     await shot(page, 'this-season')
   })
 

@@ -323,8 +323,13 @@ function ResourceCard({ r, savedMap, onToggle, onReport }: { r: DbResource; save
   const isNew = isNewThisWeek(r.created_at);
   // Optional, and read defensively: see lib/resource-metadata.ts. A resource
   // with neither renders exactly the markup it always did.
-  const image = resourceImagePath(r.metadata);
+  const imagePath = resourceImagePath(r.metadata);
   const subject = resourceSubject(r.metadata);
+  // A path that validates is not a file that exists. A typo would otherwise put
+  // a full-width grey square above the title for every family, so a picture
+  // that fails to load takes itself out and the card falls back to text.
+  const [imageBroken, setImageBroken] = useState(false);
+  const image = imageBroken ? null : imagePath;
   const openResource = () => trackResourceClick({ resource_id: r.id, title: r.title, category: r.category });
   return (
     <div className={resourceCardShellClass(Boolean(image))}>
@@ -337,15 +342,22 @@ function ResourceCard({ r, savedMap, onToggle, onReport }: { r: DbResource; save
           target="_blank"
           rel="noopener noreferrer"
           onClick={openResource}
+          // The picture repeats the title's link. Out of the tab order and
+          // hidden from screen readers, which would otherwise hear the same
+          // resource announced twice and tab through a stop that goes nowhere
+          // new; it stays clickable for anyone reaching for the art.
+          tabIndex={-1}
+          aria-hidden="true"
           className="block relative aspect-square w-full bg-[#f5f3f0]"
         >
           <Image
             src={image}
-            alt={r.title}
+            alt=""
             width={1000}
             height={1000}
             sizes="(max-width: 640px) 100vw, 480px"
             loading="lazy"
+            onError={() => setImageBroken(true)}
             className="w-full h-full object-cover rounded-t-2xl"
           />
         </a>
