@@ -37,3 +37,20 @@ test('touch-screen text boxes are 16px, which is what stops the focus zoom', () 
     assert.ok(block.includes(':not([type="' + excluded + '"])'), excluded + ' keeps its own size')
   }
 })
+
+test('16px is a floor: an input deliberately set larger keeps its size', () => {
+  // The first cut of this used a plain `input.text-lg`, which scores (0,1,1)
+  // against the base rule's (0,4,1) because every :not() carries its argument's
+  // specificity. The emoji box in the activity setup sheet measured 16px on a
+  // phone as a result. The chain has to be repeated, so the test pins it.
+  const globals = repo('app/globals.css')
+  const at = globals.indexOf('@media (pointer: coarse)')
+  const block = globals.slice(at, globals.indexOf('}\n}', at) + 3)
+  for (const size of ['text-lg', 'text-xl', 'text-2xl']) {
+    assert.ok(
+      block.includes(`input.${size}:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"])`),
+      `${size} must out-specify the base rule, not just name the class`,
+    )
+  }
+  assert.match(block, /font-size: 1\.125rem/)
+})

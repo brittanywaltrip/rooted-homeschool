@@ -165,21 +165,26 @@ body {
     font-size: 16px;
   }
 
-  /* A floor, not a fixed size. An input deliberately set BIGGER than 16px
-   * keeps what it was given: the emoji box in the activity setup sheet is
-   * text-lg because the glyph is the whole point of it, and 16px shrank it.
-   * Keyed on the utility class, so no component markup changes. */
-  input.text-lg,
+  /* A floor, not a fixed size. An input deliberately set BIGGER than 16px keeps
+   * what it was given: the emoji box in the activity setup sheet is text-lg
+   * because the glyph is the whole point of it, and a flat 16px shrank it.
+   * Keyed on the utility class, so no component markup changes.
+   *
+   * The :not() chain is repeated on purpose. Each :not() carries its argument's
+   * specificity, so the rule above scores (0,4,1) and a plain `input.text-lg`
+   * scores (0,1,1) and loses: the emoji box measured 16px on a phone with the
+   * short version. These match it and win on order. */
+  input.text-lg:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
   select.text-lg,
   textarea.text-lg {
     font-size: 1.125rem;
   }
-  input.text-xl,
+  input.text-xl:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
   select.text-xl,
   textarea.text-xl {
     font-size: 1.25rem;
   }
-  input.text-2xl,
+  input.text-2xl:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
   select.text-2xl,
   textarea.text-2xl {
     font-size: 1.5rem;
