@@ -13,6 +13,13 @@ const BASE_URL =
 // observe the unauthenticated experience.
 const STORAGE_STATE = path.resolve(__dirname, 'e2e/.auth/user.json');
 
+// The phone-screenshot project is OPT IN. A bare `npx playwright test` runs
+// every configured project, and these specs load /dashboard on the shared e2e
+// account: a Today load reconciles every goal, which is the overlap the
+// curriculum-writes teardown ordering exists to prevent. So the project is not
+// even in the config unless MOBILE_SCREENSHOTS=1 asks for it.
+const WANT_SCREENSHOTS = process.env.MOBILE_SCREENSHOTS === '1';
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 30_000,
@@ -59,21 +66,28 @@ export default defineConfig({
         storageState: STORAGE_STATE,
       },
     },
-    {
-      // Phone screenshots for eyeballing input sizing (CC #15). Never part of
-      // the gate: no other project picks this directory up, and this one runs
-      // only when asked for by name:
-      //   SHOT_PREFIX=before npx playwright test --project=mobile-screenshots
-      name: 'mobile-screenshots',
-      testMatch: /screenshots\/.*\.spec\.ts/,
-      // Several full-page navigations per test, on a phone viewport: the gate's
-      // 30s is not enough and this project never blocks a deploy.
-      timeout: 240_000,
-      use: {
-        ...devices['iPhone 14'],
-        storageState: STORAGE_STATE,
-      },
-    },
+    // Phone screenshots for eyeballing input sizing (CC #15). Present only when
+    // MOBILE_SCREENSHOTS=1:
+    //   MOBILE_SCREENSHOTS=1 SHOT_PREFIX=before npx playwright test --project=mobile-screenshots
+    ...(WANT_SCREENSHOTS
+      ? [
+          {
+            name: 'mobile-screenshots',
+            testMatch: /screenshots\/.*\.spec\.ts/,
+            // Several navigations per test on a phone viewport; the gate's 30s
+            // is not enough, and this project never blocks a deploy.
+            timeout: 240_000,
+            use: {
+              ...devices['iPhone 14'],
+              // The iPhone preset would bring webkit with it, and CI (and the
+              // repo's install step) only installs chromium. Chromium's phone
+              // emulation is what the other projects run anyway.
+              browserName: 'chromium' as const,
+              storageState: STORAGE_STATE,
+            },
+          },
+        ]
+      : []),
   ],
 });
 

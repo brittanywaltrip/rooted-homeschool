@@ -2,12 +2,12 @@
  * Phone screenshots of every surface with a text box in it, for eyeballing the
  * 16px input rule (CC #15).
  *
- * NOT part of the gate. It lives in its own Playwright project
- * (`mobile-screenshots` in playwright.config.ts, iPhone 14) and the gate
- * projects ignore this directory, so `npm run test:e2e` never runs it.
+ * NOT part of the gate. The `mobile-screenshots` project is only added to
+ * playwright.config.ts when MOBILE_SCREENSHOTS=1, and the gate projects ignore
+ * this directory, so no plain `npx playwright test` can pick it up.
  *
- *   SHOT_PREFIX=before npx playwright test --project=mobile-screenshots
- *   SHOT_PREFIX=after  npx playwright test --project=mobile-screenshots
+ *   MOBILE_SCREENSHOTS=1 SHOT_PREFIX=before npx playwright test --project=mobile-screenshots
+ *   MOBILE_SCREENSHOTS=1 SHOT_PREFIX=after  npx playwright test --project=mobile-screenshots
  *
  * Writes e2e/screenshots/out/<prefix>-<surface>.png (gitignored).
  *
@@ -18,9 +18,13 @@
  * is gone and the viewport must still sit at scale 1 after focus.
  */
 import { test, expect, type Page, type Route } from '@playwright/test'
+import { resolve } from 'node:path'
 
 const PREFIX = process.env.SHOT_PREFIX ?? 'after'
-const OUT = 'e2e/screenshots/out'
+// Absolute: Playwright resolves a relative screenshot path against the working
+// directory, so running from e2e/ would write a second out/ tree that
+// .gitignore does not cover.
+const OUT = resolve(__dirname, 'out')
 /** The after run asserts no zoom on focus; the before run cannot (the ban hides it). */
 const CHECK_ZOOM = PREFIX !== 'before'
 
@@ -34,22 +38,27 @@ async function shot(page: Page, name: string): Promise<void> {
   // Not fullPage: Today and the builder render metres of page on a phone, and a
   // full-page capture of one is slower than the whole test budget. The phone
   // viewport is what a family sees anyway.
-  await page.screenshot({ path: `${OUT}/${PREFIX}-${name}.png`, timeout: 30_000 })
+  await page.screenshot({ path: resolve(OUT, `${PREFIX}-${name}.png`), timeout: 30_000 })
 }
 
 /**
- * Focus the first text box on the page and read the visual viewport back.
+ * Focus the first text box on the page and measure it.
  *
- * scale > 1 means the browser zoomed in to make a small box readable, which on
- * iOS never zooms back out on its own.
+ * THE FONT SIZE IS THE REAL CHECK. Desktop Chromium's phone emulation does not
+ * implement mobile Safari's focus auto-zoom, so visualViewport.scale stays 1
+ * here whatever the font size is: that assertion is a canary for a future
+ * engine that does emulate it, not proof of anything today. What actually
+ * decides whether a real phone zooms is the computed size of the focused box,
+ * which is asserted, and asserted only after proving focus really landed on a
+ * text box. An unasserted pass is worse than no test.
  */
 async function expectNoZoomOnFocus(page: Page, name: string): Promise<void> {
   if (!CHECK_ZOOM) return
   const box = page
     .locator('input:not([type=checkbox]):not([type=radio]):not([type=range]):not([type=file]), textarea, select')
     .first()
-  if ((await box.count()) === 0) return
-  await box.focus().catch(() => {})
+  expect(await box.count(), `${name}: expected a text box on this surface`).toBeGreaterThan(0)
+  await box.focus()
   await page.waitForTimeout(400)
   const zoom = await page.evaluate(() => ({
     scale: window.visualViewport?.scale ?? 1,
@@ -58,10 +67,11 @@ async function expectNoZoomOnFocus(page: Page, name: string): Promise<void> {
       : 0,
     tag: document.activeElement?.tagName ?? '',
   }))
+  expect(zoom.tag, `${name}: focus must land on the text box, not ${zoom.tag}`).toMatch(
+    /INPUT|TEXTAREA|SELECT/,
+  )
+  expect(zoom.fontSize, `${name}: a focused text box is at least 16px`).toBeGreaterThanOrEqual(16)
   expect(zoom.scale, `${name}: focusing a text box must not zoom the page`).toBe(1)
-  if (/INPUT|TEXTAREA|SELECT/.test(zoom.tag)) {
-    expect(zoom.fontSize, `${name}: a focused text box is at least 16px`).toBeGreaterThanOrEqual(16)
-  }
 }
 
 /**

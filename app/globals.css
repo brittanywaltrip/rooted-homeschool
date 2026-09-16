@@ -164,6 +164,26 @@ body {
   textarea {
     font-size: 16px;
   }
+
+  /* A floor, not a fixed size. An input deliberately set BIGGER than 16px
+   * keeps what it was given: the emoji box in the activity setup sheet is
+   * text-lg because the glyph is the whole point of it, and 16px shrank it.
+   * Keyed on the utility class, so no component markup changes. */
+  input.text-lg,
+  select.text-lg,
+  textarea.text-lg {
+    font-size: 1.125rem;
+  }
+  input.text-xl,
+  select.text-xl,
+  textarea.text-xl {
+    font-size: 1.25rem;
+  }
+  input.text-2xl,
+  select.text-2xl,
+  textarea.text-2xl {
+    font-size: 1.5rem;
+  }
 }
 
 input:-webkit-autofill,

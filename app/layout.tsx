@@ -74,7 +74,7 @@ export const metadata: Metadata = {
 // vision, who lost pinch-zoom entirely. The focus zoom is fixed at its cause
 // instead: every text box is 16px on a touch screen (app/globals.css), and no
 // browser zooms a 16px box. A guard test keeps maximumScale from coming back
-// (app/layout.test.ts).
+// (app/lib/viewport-zoom.test.ts, which is inside the npm test glob).
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
