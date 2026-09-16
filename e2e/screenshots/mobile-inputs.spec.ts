@@ -83,6 +83,12 @@ async function expectNoZoomOnFocus(page: Page, name: string): Promise<void> {
   expect(zoom.scale, `${name}: focusing a text box must not zoom the page`).toBe(1)
 }
 
+// Serial. Five phone contexts against one staging preview, each loading the
+// dashboard or the builder, is enough parallel load to time a test out: the
+// pace-control test failed that way once in a five-worker run and passed alone
+// in 7.5s. These are screenshots, so wall-clock is not worth a flake.
+test.describe.configure({ mode: 'serial' })
+
 test.describe('phone screenshots of every surface with a text box', () => {
   test('today, and the edit lesson sheet', async ({ page }) => {
     await gotoAppPage(page, '/dashboard')
@@ -133,7 +139,7 @@ test.describe('phone screenshots of every surface with a text box', () => {
       timeout: 30_000,
     })
     const expander = page.locator('[aria-expanded="false"]').first()
-    if ((await expander.count()) > 0) await expander.click().catch(() => {})
+    if ((await expander.count()) > 0) await expander.click({ timeout: 5_000 }).catch(() => {})
     await shot(page, 'builder')
     await expectNoZoomOnFocus(page, 'builder')
   })
@@ -154,9 +160,13 @@ test.describe('phone screenshots of every surface with a text box', () => {
     await expect(page.getByRole('heading', { name: /Your Schedule/i }).first()).toBeVisible({
       timeout: 30_000,
     })
-    const expander = page.locator('[aria-expanded="false"]').first()
-    if ((await expander.count()) > 0) await expander.click({ timeout: 5_000 }).catch(() => {})
-    await page.waitForTimeout(800)
+    // Scroll the first curriculum row's controls into view. NOT a click on
+    // [aria-expanded="false"]: on this page that matches the row's "More
+    // actions" kebab first, whose open state drops a full-screen backdrop over
+    // everything, which is what made this test fail before.
+    const schoolDays = page.getByText('School days').first()
+    if ((await schoolDays.count()) > 0) await schoolDays.scrollIntoViewIfNeeded().catch(() => {})
+    await page.waitForTimeout(600)
 
     // (a) every day the same, list collapsed.
     await shot(page, 'pace-same')

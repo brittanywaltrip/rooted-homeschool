@@ -137,6 +137,7 @@ One card per child. Each curriculum row asks for:
 - Subject (Math) and Curriculum (who makes it, e.g. The Good and the Beautiful).
 - **School days:** seven chips, tap to turn a day on or off.
 - **Lessons a day:** one stepper, 1 to 3, for every day that is on. A family with the same count every day never sees anything else. "Different on some days?" opens a short list of only the days that are on, each with its own stepper, where 0 skips that day. When the days disagree, that list opens by itself, the single stepper reads "varies", the chips for the days that differ carry a small number, and the link reads "Same on every day", which collapses the list and puts every day back to the shared count.
+- **Known quirk:** a day set to 0 holds until the schedule is saved. On save, a 0 day is left out of the saved school days (that is what tells the scheduler to skip it), so reopening the builder shows that day's chip switched off rather than on-at-0. The schedule itself is right either way; only the way the builder redraws it differs. Making it survive the round trip needs a change to what is saved, which is deliberately out of scope here.
 - Under the control, a line that says the pace in words: "5 lessons a week, Mon to Fri." or "4 lessons a week: Mon, Tue, and Wed (2)." or "3 lessons a week: Mon, Tue, and Thu. Wed is skipped." The preview shows the same sentence.
 - Total lessons, minutes per lesson, and optionally a usual start time.
 - **"Where are you with this?"** with two choices:

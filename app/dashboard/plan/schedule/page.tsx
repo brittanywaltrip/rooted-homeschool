@@ -9,6 +9,8 @@ import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
 import {
   baselineCount,
+  countCeiling,
+  countForNewlyOnDay,
   dayNeedsBadge,
   hasVariedCounts,
   onDayIndices,
@@ -1613,6 +1615,14 @@ export default function ScheduleBuilderPage() {
         const nextActive = r.active_days.slice();
         const nextCounts = r.per_day_counts.slice();
         nextActive[dayIdx] = !nextActive[dayIdx];
+        // Turning a day ON adopts the count the rest of the week is running.
+        // Off days park at 1, so a family doing two a day who adds Saturday
+        // used to get Saturday at 1, a stepper reading "varies" and an
+        // overrides map they never asked for. Curriculum rows only; an
+        // activity row has no per-day counts to speak of.
+        if (nextActive[dayIdx] && r.type === "curriculum") {
+          nextCounts[dayIdx] = countForNewlyOnDay({ activeDays: r.active_days, counts: r.per_day_counts });
+        }
         // Toggle is a separate visual affordance from cycling the count
         // to 0. Toggling off always resets the count to 1 so the next
         // toggle-on resumes from a clean default — the count=0 state is
@@ -4518,9 +4528,21 @@ function RowCard(props: {
   // A goal saved with uneven days (the walkthrough family's Mon 1 / Tue 1 /
   // Wed 2) opens with its list already showing, or the difference would be
   // invisible behind a link nobody has a reason to tap.
-  const [showPerDay, setShowPerDay] = useState(() => hasVariedCounts(perDay));
+  const varies = hasVariedCounts(perDay);
+  const [showPerDay, setShowPerDay] = useState(false);
+  // Open whenever the days disagree, however they came to: a mount-time check
+  // alone left an uneven week that appeared mid-session (toggling a day on,
+  // say) hidden behind a collapsed link with only a chip badge to explain it.
+  const perDayOpen = showPerDay || varies;
   const setEveryDayCount = (next: number) => {
-    const clamped = Math.max(1, Math.min(3, next));
+    // Never while the days disagree: a single tap on a stepper reading "varies"
+    // would flatten a family's whole overrides map with no warning and no undo,
+    // and the next save would release the goal's pins and re-spread it. The way
+    // out of "varies" is the per-day list, or "Same on every day", which says
+    // what it does.
+    if (varies) return;
+    const ceiling = Math.max(3, ...onDays.map((i) => row.per_day_counts[i] ?? 0));
+    const clamped = Math.max(1, Math.min(ceiling, next));
     props.onPatchRow(row.localId, { per_day_counts: withSameCountEveryDay(perDay, clamped) });
   };
 
@@ -4821,7 +4843,11 @@ function RowCard(props: {
                 onClick={() => props.onToggleDay(row.localId, idx)}
                 disabled={isReadOnly}
                 aria-pressed={active}
-                aria-label={badge != null ? `${label}, ${badge} lessons` : label}
+                aria-label={
+                  badge != null
+                    ? `${DAY_FULL[idx]}, ${badge} ${badge === 1 ? "lesson" : "lessons"}`
+                    : DAY_FULL[idx]
+                }
                 className="relative w-8 h-8 rounded-md text-xs font-medium transition-colors"
                 style={{
                   background: active ? "var(--g-accent)" : "transparent",
@@ -4859,7 +4885,7 @@ function RowCard(props: {
               <button
                 type="button"
                 onClick={() => setEveryDayCount((shared ?? baseline) - 1)}
-                disabled={isReadOnly || onDays.length === 0 || (shared ?? baseline) <= 1}
+                disabled={isReadOnly || onDays.length === 0 || varies || (shared ?? baseline) <= 1}
                 aria-label="One fewer lesson a day"
                 className="w-9 h-9 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-base text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
               >
@@ -4874,7 +4900,12 @@ function RowCard(props: {
               <button
                 type="button"
                 onClick={() => setEveryDayCount((shared ?? baseline) + 1)}
-                disabled={isReadOnly || onDays.length === 0 || (shared ?? baseline) >= 3}
+                disabled={
+                  isReadOnly ||
+                  onDays.length === 0 ||
+                  varies ||
+                  (shared ?? baseline) >= Math.max(3, ...onDays.map((i) => row.per_day_counts[i] ?? 0))
+                }
                 aria-label="One more lesson a day"
                 className="w-9 h-9 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-base text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
               >
@@ -4886,7 +4917,7 @@ function RowCard(props: {
           <button
             type="button"
             onClick={() => {
-              if (showPerDay) {
+              if (perDayOpen) {
                 // "Same on every day" is both a collapse and a reset: the
                 // expander is the only place uneven counts can be set, so
                 // leaving them behind it would hide them.
@@ -4894,16 +4925,16 @@ function RowCard(props: {
                   per_day_counts: withSameCountEveryDay(perDay, Math.max(1, baseline)),
                 });
               }
-              setShowPerDay((v) => !v);
+              setShowPerDay(!perDayOpen);
             }}
             disabled={isReadOnly || onDays.length === 0}
-            aria-expanded={showPerDay}
+            aria-expanded={perDayOpen}
             className="mt-1.5 text-[12px] font-medium text-[#2D5A3D] underline underline-offset-2 disabled:opacity-40 disabled:no-underline"
           >
-            {showPerDay ? "Same on every day" : "Different on some days?"}
+            {perDayOpen ? "Same on every day" : "Different on some days?"}
           </button>
 
-          {showPerDay && onDays.length > 0 && (
+          {perDayOpen && onDays.length > 0 && (
             <div className="mt-2 rounded-xl border border-[#e8e2d9] divide-y divide-[#f0ede8] overflow-hidden">
               {onDays.map((idx) => {
                 const count = row.per_day_counts[idx] ?? 0;
@@ -4933,7 +4964,7 @@ function RowCard(props: {
                       <button
                         type="button"
                         onClick={() => setCount(count + 1)}
-                        disabled={isReadOnly || count >= 3}
+                        disabled={isReadOnly || count >= countCeiling(perDay, idx)}
                         aria-label={`One more lesson on ${DAY_FULL[idx]}`}
                         className="w-9 h-9 flex items-center justify-center rounded-md border border-[#e8e2d9] bg-white text-base text-[#2D5A3D] hover:bg-[#f0ede8] disabled:opacity-40 disabled:cursor-not-allowed"
                       >
@@ -5361,24 +5392,23 @@ function FieldDash(props: { label: string }) {
 // ─── Preview view ──────────────────────────────────────────────────────────
 
 /**
- * A row's days in words, when they are not the Mon-Fri default.
- * "Fridays" / "Mon, Wed, Fri". Returns null for a plain Mon-Fri week, which
- * needs no comment.
- */
-/**
  * The pace, for the preview list. The SAME sentence the row's own control
  * shows, so the two screens cannot describe one schedule differently: this used
  * to be its own day-list that said nothing about counts, so a family with a
  * heavier Wednesday read "Mon, Tue, Wed" here and "4 lessons a week: Mon, Tue,
  * and Wed (2)." one screen back.
  *
- * Curriculum rows only; an activity row keeps its plain day list.
+ * Curriculum rows only. An activity row keeps the older behaviour this
+ * function used to have for everything: its days in words ("Fridays", "Mon,
+ * Wed, Fri") and null for a plain Mon-Fri week, which needs no comment.
  */
 function scheduleDaysLabel(row: Row): string | null {
   const idxs = activeDayIndices(row);
   if (idxs.length === 0) return null;
   if (row.type === "curriculum") {
-    return paceSentence({ activeDays: row.active_days, counts: row.per_day_counts });
+    // Without the full stop: it is spliced into an inline list after the
+    // subject and the curriculum name, not read as its own sentence.
+    return paceSentence({ activeDays: row.active_days, counts: row.per_day_counts }).replace(/\.$/, "");
   }
   const isMonFri = idxs.length === 5 && idxs.every((i) => i <= 4);
   if (isMonFri) return null;

@@ -104,11 +104,37 @@ export function withSameCountEveryDay(p: PerDayShape, count: number): number[] {
   return next;
 }
 
-/** One on-day changed, clamped to 0..3. 0 means "chosen, but skipped". */
+/**
+ * The most this control will let a day go UP to: 3, or whatever a goal is
+ * already stored at if that is higher.
+ *
+ * The old builder allowed up to 10 and the scheduler still clamps at 10, so a
+ * goal saved at 5 must not be dragged to 3 by a control that says "one fewer".
+ */
+export function countCeiling(p: PerDayShape, dayIdx: number): number {
+  return Math.max(3, Math.floor(p.counts[dayIdx] ?? 0));
+}
+
+/** One on-day changed. Floor 0 ("chosen, but skipped"), ceiling per countCeiling. */
 export function withDayCount(p: PerDayShape, dayIdx: number, count: number): number[] {
   const next = [...p.counts];
-  next[dayIdx] = Math.max(0, Math.min(3, Math.floor(count)));
+  next[dayIdx] = Math.max(0, Math.min(countCeiling(p, dayIdx), Math.floor(count)));
   return next;
+}
+
+/**
+ * The count a day should take when its chip is turned ON: whatever the rest of
+ * the week is doing.
+ *
+ * Off days park at 1 (toggleDay resets them, and a saved goal hydrates them at
+ * 1). Without this, a family running two lessons a day who toggles Saturday on
+ * gets Saturday at 1, the stepper flips to "varies" and the save writes a
+ * lessons_per_day_overrides map they never asked for.
+ */
+export function countForNewlyOnDay(p: PerDayShape): number {
+  const shared = sharedLessonCount(p);
+  if (shared !== null && shared > 0) return shared;
+  return Math.max(1, baselineCount(p));
 }
 
 /** Oxford comma, because "Mon, Tue and Wed" reads as two items to some people. */

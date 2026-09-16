@@ -2,9 +2,13 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import {
   baselineCount,
+  countCeiling,
+  countForNewlyOnDay,
   dayNeedsBadge,
   hasVariedCounts,
   lessonDayIndices,
@@ -116,4 +120,49 @@ test('per-day counts clamp to 0..3, and 0 keeps the day chosen', () => {
   assert.deepEqual(onDayIndices(zeroed), [0, 1, 2], 'the chip stays on')
   assert.deepEqual(lessonDayIndices(zeroed), [0, 2], 'but it produces nothing')
   assert.equal(lessonsPerWeek(zeroed), 2)
+})
+
+/* ── What the review caught: the shapes the new control can produce ──────── */
+
+test('a day turned ON adopts the week\'s count, so an even week stays even', () => {
+  // Off days park at 1 (toggleDay resets them; a saved goal hydrates them at 1).
+  // A family doing 2 a day who adds Saturday must not be handed "varies" and an
+  // overrides map they never asked for.
+  const twoADay = shape([0, 1, 2, 3, 4], {}, 2)
+  assert.equal(countForNewlyOnDay(twoADay), 2)
+
+  const withSat = {
+    activeDays: twoADay.activeDays.map((on, i) => on || i === 5),
+    counts: twoADay.counts.map((c, i) => (i === 5 ? countForNewlyOnDay(twoADay) : c)),
+  }
+  assert.equal(hasVariedCounts(withSat), false, 'still an even week')
+  assert.equal(sharedLessonCount(withSat), 2)
+  assert.equal(paceSentence(withSat), '12 lessons a week: Mon, Tue, Wed, Thu, Fri, and Sat.')
+
+  // An already uneven week hands the new day the baseline, not a wrong guess.
+  assert.equal(countForNewlyOnDay(shape([0, 1, 2], { 2: 2 })), 1)
+  // A week where every on-day is skipped still gives the new day a real lesson.
+  assert.equal(countForNewlyOnDay(shape([0], { 0: 0 })), 1)
+})
+
+test('a stored count above 3 is not dragged down by the stepper', () => {
+  // The old builder allowed 10 and the scheduler still clamps at 10. A goal
+  // saved at 5 must step down to 4, not be clamped to 3.
+  const five = shape([0, 1, 2, 3, 4], {}, 5)
+  assert.equal(countCeiling(five, 0), 5)
+  assert.equal(withDayCount(five, 0, 4)[0], 4)
+  assert.equal(withDayCount(five, 0, 6)[0], 5, 'and it cannot be pushed past what it already is')
+  // A normal row still tops out at 3.
+  assert.equal(countCeiling(shape([0, 1, 2]), 0), 3)
+  assert.equal(withDayCount(shape([0, 1, 2]), 0, 9)[0], 3)
+})
+
+test('the row markup: the shared stepper is inert while the days disagree', () => {
+  // A single tap on a stepper reading "varies" would flatten the whole
+  // overrides map with no undo, and the next save would re-spread the goal.
+  const src = readFileSync(resolve(import.meta.dirname, '..', 'dashboard/plan/schedule/page.tsx'), 'utf8')
+  assert.match(src, /if \(varies\) return;/, 'setEveryDayCount refuses while varied')
+  assert.match(src, /disabled=\{isReadOnly \|\| onDays\.length === 0 \|\| varies \|\|/, 'and the button says so')
+  assert.match(src, /const perDayOpen = showPerDay \|\| varies/, 'the list opens whenever the days disagree')
+  assert.match(src, /countForNewlyOnDay\(\{ activeDays: r\.active_days, counts: r\.per_day_counts \}\)/)
 })
