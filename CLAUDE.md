@@ -515,8 +515,17 @@ Tell them apart before touching anything: if any misaligned row in the goal has
 `queue_pinned = true`, treat the whole goal as (b) and leave it alone.
 
 ## Cron jobs
-9 jobs in vercel.json. vercel.json is the source of truth; this list has
+10 jobs in vercel.json. vercel.json is the source of truth; this list has
 drifted before, so re-read the file rather than trusting the count here.
+- /api/cron/sync-audience: daily 12PM UTC. Makes the Resend audience that
+  Broadcasts go to (segment id in RESEND_ACTIVE_AUDIENCE_ID; does nothing and
+  says so when unset) match Rooted: pulls Resend unsubscribes into
+  profiles.email_unsubscribed (only ever true), adds eligible families
+  (onboarded, weekly-summary active, not unsubscribed, email_marketing not
+  false, not suppressed, not internal), and takes everyone else OUT OF THE
+  SEGMENT. It never deletes a contact and never sets Resend's global
+  `unsubscribed`, because the pull would read that back as an opt-out.
+  `?dry=1` writes nothing. Logic: lib/audience-sync.ts.
 - /api/cron/reengagement: daily 2PM UTC — 3-email drip sequence for inactive users
 - /api/cron/check-links: weekly Monday 9AM UTC — validate resource links
 - /api/cron/weekly-summary: weekly Monday 3PM UTC, the Monday email. Audience is

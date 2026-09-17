@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/sync-audience",
+      "schedule": "0 12 * * *"
+    },
+    {
       "path": "/api/cron/reengagement",
       "schedule": "0 14 * * *"
     },

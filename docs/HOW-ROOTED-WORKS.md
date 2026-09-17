@@ -532,6 +532,22 @@ The emails that go to a family because of how they are using Rooted, or because 
 - **Trial ending ("Your Rooted+ trial ends Sunday, September 27").** Checked daily at 16:00 UTC. It goes on day 24 of the 30-day Rooted+ trial, six days before it ends, to a family who finished onboarding and is still on the trial (a family who already upgraded hears nothing). It names the end date in the family's own timezone, says what stays (plan, lessons, garden, every memory) and what changes on the free plan, and links to the upgrade page. **One per family, ever.** This one is an account notice, so it still goes to a family who turned off nurture emails; only a full unsubscribe stops it.
 - **Win-back ("Still here whenever you are").** For a family who used Rooted and went quiet. Checked daily at 15:00 UTC. It goes to a family who finished onboarding and whose newest memory or completed lesson is dated 14 to 21 days ago, so it is the week right after the weekly summary stops. It names their first child ("since Zoe last checked something off"), or says "your family" when there are no children, and links to Today. **One per family, ever**: a family who drifts twice gets it once. At most 50 go out a day.
 
+### On-purpose emails (Resend Broadcasts) and the audience sync
+
+The emails above are automatic: the app sends them because of something a family did or did not do. The on-purpose ones (a new feature, a step by step guide to the yearbook, the fall pack) are written and sent by hand in **Resend Broadcasts**, which has its own editor, image hosting, and open and click counts. Always send a broadcast to the one audience this job looks after (in Resend an audience is now called a segment): the one whose id is in the `RESEND_ACTIVE_AUDIENCE_ID` setting in Vercel. Brittany creates it once in the Resend dashboard; the account's existing "General" segment is not it.
+
+That audience is kept matching Rooted every day at 12:00 UTC, two hours before the first automatic email, by the audience sync:
+
+- **Unsubscribing anywhere means unsubscribed everywhere.** A family who clicks Unsubscribe at the bottom of a broadcast is marked unsubscribed in Rooted the next morning, so the Monday email, the win-back and everything else stop too. A family who unsubscribes from a Rooted email is taken out of the audience the same morning.
+- **Who is in the audience:** families who finished onboarding, have a memory or a checked-off lesson in the last 30 days (the same families the Monday email goes to), have not unsubscribed or turned off Rooted's other emails, and whose address has not bounced or complained. Rooted's own test and staff accounts are never in it.
+- **Who leaves it:** anyone who stops matching that, for example a family who has gone quiet. They are taken out of the audience, not deleted from Resend, and not marked unsubscribed, so they come back the day they are active again.
+- **Opting back in** is something only the family can do, in the app. Nothing in this job, and nothing in Resend, ever turns a family's email back on.
+- **Names:** the audience gets each family's first name for the greeting. When the name a family typed is not a real first name ("The", "Mrs", one or two letters), the greeting reads "Hi there".
+
+The daily result says how many unsubscribes came in from Resend (`pulledUnsubscribes`), which is the number to watch after a broadcast: a jump means it annoyed people. A failed sync emails Brittany. Until `RESEND_ACTIVE_AUDIENCE_ID` is set, the job does nothing and says which setting is missing.
+
+(The app's own unsubscribe routes also tell Resend directly, through a separate setting, `RESEND_AUDIENCE_ID`; when that one is unset they skip that step, and the daily sync covers it.)
+
 The welcome email a family gets at the end of onboarding now says they have 30 days of Rooted+ (it used to say "You now have free access to Rooted", which read as if they were already on the free plan), and its footer says what the free plan keeps afterwards.
 
 "Active" means the same thing to the weekly summary and the win-back: a memory's date, or the day a lesson was checked off for. A lesson logged for a past day counts on that past day.
