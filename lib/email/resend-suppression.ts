@@ -84,3 +84,51 @@ export async function resendSuppress(email: string): Promise<{ ok: boolean; erro
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/**
+ * Suppression reasons that block a TRANSACTIONAL account notice.
+ *
+ * Deliberately excludes "user_unsubscribe". A family who opted out of nurture
+ * email has not opted out of being told their card was declined and their
+ * subscription is ending: that is an account notice about money they are
+ * paying, not marketing. 72 of the 193 suppression rows live are unsubscribes,
+ * so the distinction is the whole difference between telling those families and
+ * silently letting their access lapse.
+ *
+ * A hard bounce or spam complaint is different in kind: the address is dead or
+ * the recipient reported us, and sending anyway damages the sending domain for
+ * every other family. Those, and admin suppressions, are honoured.
+ */
+export const TRANSACTIONAL_BLOCKING_REASONS = ["hard_bounce", "spam_complaint", "admin_suppress"] as const;
+
+export type TransactionalBlockingReason = (typeof TRANSACTIONAL_BLOCKING_REASONS)[number];
+
+/**
+ * Why this address may not receive a transactional notice, or null when it may.
+ *
+ * Returns null on a read failure, matching loadSuppressedEmails' posture: a
+ * suppression-table problem must not silently swallow a billing notice. The
+ * caller logs the failure.
+ */
+export async function transactionalSuppressionFor(
+  email: string,
+  supabaseAdmin: SupabaseClient,
+): Promise<TransactionalBlockingReason | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("email_suppressions")
+      .select("reason")
+      .eq("email", email.toLowerCase())
+      .in("reason", TRANSACTIONAL_BLOCKING_REASONS as unknown as string[]);
+    if (error) {
+      console.warn("[transactionalSuppressionFor] read failed:", error.message);
+      return null;
+    }
+    const row = (data ?? [])[0] as { reason: string } | undefined;
+    if (!row) return null;
+    return row.reason as TransactionalBlockingReason;
+  } catch (err) {
+    console.warn("[transactionalSuppressionFor] threw:", err);
+    return null;
+  }
+}

@@ -26,6 +26,25 @@ import {
 } from '@/lib/stripe-invoice-line'
 import { classifyRefund } from '@/lib/invoice-refund'
 import { decideCancellation } from '@/lib/cancellation-decision'
+import {
+  decideFirstFailureCustomerEmail,
+  decideFinalFailureCustomerEmail,
+  firstFailureBody,
+  finalFailureBody,
+  adminNoticeSubject,
+  adminNoticeBody,
+  FIRST_FAILURE_SUBJECT,
+  FINAL_FAILURE_SUBJECT,
+  type LinkedProfile,
+} from '@/lib/payment-failure'
+import {
+  sendOnceClaimed,
+  firstFailureKey,
+  finalFailureKey,
+  type EmailClaimStore,
+  type SendOutcome,
+} from '@/lib/email/email-claim'
+import { transactionalSuppressionFor } from '@/lib/email/resend-suppression'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
@@ -67,6 +86,183 @@ async function sendEmail(to: string, subject: string, text: string, from = 'Root
   if (html) payload.html = html + emailFooterHtml()
   const result = await resend.emails.send(payload)
   if (result.error) console.error('Resend sendEmail error:', result.error)
+}
+
+const BILLING_URL = 'https://rootedhomeschoolapp.com/dashboard/settings'
+const UPGRADE_URL = 'https://rootedhomeschoolapp.com/upgrade'
+
+/**
+ * Send a transactional notice and report an outcome the claim layer can act on.
+ *
+ * sendEmail() above swallows its result, which is fine for fire-and-forget
+ * admin mail but useless here: the claim can only be released safely when we
+ * know whether Resend refused the payload (4xx, keep the claim) or was simply
+ * unreachable (5xx or transport, release so a webhook retry can try again).
+ */
+async function sendTransactional(to: string, subject: string, text: string): Promise<SendOutcome> {
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: 'Brittany at Rooted <hello@rootedhomeschoolapp.com>',
+        to,
+        subject,
+        text: text + emailFooterText(),
+      }),
+    })
+    if (res.ok) return { ok: true }
+    const body = await res.text().catch(() => '')
+    return { ok: false, retryable: res.status >= 500, status: res.status, error: body.slice(0, 300) }
+  } catch (err) {
+    return { ok: false, retryable: true, status: 0, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/**
+ * Claim-first store over email_log, backed by the live unique index
+ * email_log_user_type_idx on (user_id, email_type). 23505 is the ONLY code
+ * treated as "somebody else owns this key"; every other failure is an error, so
+ * an unrelated write problem can never masquerade as a duplicate and silently
+ * swallow a billing notice.
+ */
+const emailClaimStore: EmailClaimStore = {
+  async claim(userId, emailType) {
+    const { error } = await supabase
+      .from('email_log')
+      .insert({ user_id: userId, email_type: emailType, sent_at: null })
+    if (!error) return { ok: true, duplicate: false }
+    const duplicate = error.code === '23505'
+    return { ok: false, duplicate, error: error.message }
+  },
+  async confirm(userId, emailType) {
+    const { error } = await supabase
+      .from('email_log')
+      .update({ sent_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .eq('email_type', emailType)
+    return !error
+  },
+  async release(userId, emailType) {
+    // `is('sent_at', null)` is load-bearing: a late release must never delete a
+    // row another delivery already confirmed, which would re-open the key.
+    const { error } = await supabase
+      .from('email_log')
+      .delete()
+      .eq('user_id', userId)
+      .eq('email_type', emailType)
+      .is('sent_at', null)
+    return !error
+  },
+}
+
+/**
+ * Resolve the profile for a Stripe customer DETERMINISTICALLY, by
+ * stripe_customer_id and nothing else. No email lookup, no name matching.
+ * Returns null rather than guessing when nothing is linked.
+ */
+async function loadLinkedProfile(customerId: string): Promise<LinkedProfile | null> {
+  const { data: prof } = await supabase
+    .from('profiles')
+    .select('id, first_name, stripe_subscription_id')
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle()
+  if (!prof) return null
+  return hydrateLinkedProfile(prof as { id: string; first_name: string | null; stripe_subscription_id: string | null })
+}
+
+/** Same, for a profile already resolved by id on the cancellation path. */
+async function loadLinkedProfileById(userId: string): Promise<LinkedProfile | null> {
+  const { data: prof } = await supabase
+    .from('profiles')
+    .select('id, first_name, stripe_subscription_id')
+    .eq('id', userId)
+    .maybeSingle()
+  if (!prof) return null
+  return hydrateLinkedProfile(prof as { id: string; first_name: string | null; stripe_subscription_id: string | null })
+}
+
+/** The address comes from auth.users for THIS id, never from Stripe's copy. */
+async function hydrateLinkedProfile(prof: {
+  id: string
+  first_name: string | null
+  stripe_subscription_id: string | null
+}): Promise<LinkedProfile> {
+  let email: string | null = null
+  try {
+    const { data } = await supabase.auth.admin.getUserById(prof.id)
+    email = data?.user?.email ?? null
+  } catch (e) {
+    console.error('[webhook] could not read auth user for profile', prof.id, e)
+  }
+  return {
+    userId: prof.id,
+    stripeSubscriptionId: prof.stripe_subscription_id,
+    email,
+    firstName: prof.first_name,
+  }
+}
+
+/**
+ * One admin notice per invoice per stage.
+ *
+ * Deduped through the same claim store when a profile is linked. When nothing
+ * is linked there is no user_id to key on (email_log.user_id is a FK to
+ * auth.users, and Postgres unique indexes treat NULLs as distinct), so the
+ * unlinked notice is sent without a claim. That is the rare, loud case we most
+ * want to hear about, and it is admin-only.
+ */
+async function notifyAdminOnce(args: {
+  stage: 'first' | 'final'
+  invoiceId: string
+  customerId: string
+  subscriptionId: string | null
+  profile: LinkedProfile | null
+  familyLabel?: string | null
+  amountDue: number
+  attemptCount: number | null
+  nextPaymentAttemptIso: string | null
+  customerEmailOutcome: string
+}): Promise<void> {
+  const subject = adminNoticeSubject({
+    stage: args.stage,
+    familyLabel: args.familyLabel ?? null,
+    linked: !!args.profile,
+  })
+  const body = adminNoticeBody({
+    stage: args.stage,
+    familyLabel: args.familyLabel ?? null,
+    userId: args.profile?.userId ?? null,
+    customerId: args.customerId,
+    subscriptionId: args.subscriptionId,
+    invoiceId: args.invoiceId,
+    amountDue: `$${args.amountDue.toFixed(2)}`,
+    attemptCount: args.attemptCount,
+    nextPaymentAttemptIso: args.nextPaymentAttemptIso,
+    customerEmailOutcome: args.customerEmailOutcome,
+  })
+
+  if (!args.profile) {
+    await sendEmail(ADMIN_EMAIL, subject, body).catch((err) =>
+      console.error('[webhook] admin notice failed (unlinked):', err),
+    )
+    return
+  }
+
+  const key = args.stage === 'first'
+    ? `${firstFailureKey(args.invoiceId)}:admin`
+    : `${finalFailureKey(args.invoiceId)}:admin`
+  const result = await sendOnceClaimed({
+    store: emailClaimStore,
+    userId: args.profile.userId,
+    emailType: key,
+    log: (line) => console.log('[webhook] admin notice', line),
+    send: () => sendTransactional(ADMIN_EMAIL, subject, body),
+  })
+  console.log('[webhook] admin notice', result.status, { invoice: args.invoiceId, stage: args.stage })
 }
 
 
@@ -835,6 +1031,79 @@ export async function POST(req: NextRequest) {
         : `access revoked, paid through ${decision.patch.subscription_end_date}`,
     )
 
+    // ── Final failed-payment notice ───────────────────────────────────────
+    // Reached ONLY here, which is the one place termination is positively
+    // established: GUARD B re-read the subscription from Stripe and found it
+    // terminal, and GUARD C's write actually matched this subscription. Nothing
+    // about attempt counts, next_payment_attempt, invoice status alone or
+    // elapsed time is consulted.
+    //
+    // decideFinalFailureCustomerEmail additionally requires that the money was
+    // never collected, so a family who cancelled having paid the term out, or
+    // whose invoice was paid and later refunded, is never told their card was
+    // declined.
+    try {
+      const finalInvoiceId = invoice?.id ?? null
+      const finalProfile = await loadLinkedProfileById(profile.id)
+      const finalSuppression = finalProfile?.email
+        ? await transactionalSuppressionFor(finalProfile.email, supabase)
+        : null
+      const finalDecision = decideFinalFailureCustomerEmail({
+        terminationConfirmed: true,
+        paidThroughKind: classification.kind,
+        latestInvoiceStatus: invoice?.status ?? null,
+        profile: finalProfile,
+        suppression: finalSuppression,
+      })
+
+      if (!finalDecision.send) {
+        console.log('[webhook:payment_failed] final notice not sent', {
+          sub: sub.id,
+          reason: finalDecision.reason,
+          classification: classification.kind,
+          invoiceStatus: invoice?.status ?? null,
+        })
+      } else if (!finalInvoiceId) {
+        // No invoice id means no dedup key, and an un-keyed send could repeat on
+        // a Stripe redelivery. Staying silent is the safe failure here.
+        console.warn('[webhook:payment_failed] final notice skipped, no invoice id for', sub.id)
+      } else {
+        const linkedFinal = finalProfile as LinkedProfile
+        const finalResult = await sendOnceClaimed({
+          store: emailClaimStore,
+          userId: linkedFinal.userId,
+          emailType: finalFailureKey(finalInvoiceId),
+          log: (line) => console.log('[webhook:payment_failed]', line),
+          send: () =>
+            sendTransactional(
+              linkedFinal.email as string,
+              FINAL_FAILURE_SUBJECT,
+              finalFailureBody({ firstName: linkedFinal.firstName, upgradeUrl: UPGRADE_URL }),
+            ),
+        })
+        console.log('[webhook:payment_failed] access_ended, final notice', finalResult.status, {
+          invoice: finalInvoiceId,
+          user: linkedFinal.userId,
+        })
+        await notifyAdminOnce({
+          stage: 'final',
+          invoiceId: finalInvoiceId,
+          customerId: sub.customer as string,
+          subscriptionId: sub.id,
+          profile: linkedFinal,
+          familyLabel: profile.display_name ?? null,
+          amountDue: 0,
+          attemptCount: null,
+          nextPaymentAttemptIso: null,
+          customerEmailOutcome: finalResult.status,
+        })
+      }
+    } catch (err) {
+      // A notification problem must never fail the cancellation write that has
+      // already landed above.
+      console.error('[webhook:payment_failed] final notice threw for', sub.id, err)
+    }
+
     {
       // Look up customer email from Stripe
       let customerEmail = '—'
@@ -861,55 +1130,99 @@ export async function POST(req: NextRequest) {
   }
 
   // ── invoice.payment_failed ───────────────────────────────────────────────
-  // Fires when Stripe fails to charge a renewal. Stripe will keep retrying on
-  // its own schedule (and eventually fire subscription.updated/deleted once
-  // the final state is known), so we don't touch profile state here — we just
-  // log + notify admin so we can reach out before the sub goes to past_due.
+  // Stripe could not charge a renewal. Stripe keeps retrying on its own
+  // schedule, so ENTITLEMENT IS NOT TOUCHED HERE and must never be: a failed
+  // attempt is not proof that a paid term has ended, it is proof that Stripe is
+  // still collecting. classifyPaidThrough already returns `pending` for this
+  // shape and pending never revokes. The only side effects in this branch are
+  // one customer notice and one admin notice, each at most once per invoice.
+  //
+  // The final "your subscription has ended" notice is NOT sent from here. It
+  // hangs off customer.subscription.deleted, where a fresh Stripe read has
+  // positively confirmed termination.
   if (event.type === 'invoice.payment_failed') {
     const invoice = event.data.object as Stripe.Invoice & {
       subscription?: string | Stripe.Subscription | null
+      next_payment_attempt?: number | null
+      billing_reason?: string | null
     }
     const customerId = invoice.customer as string
+    // The invoice id IS the dedup key. Without it two different invoices would
+    // share one key and the second family notice would be swallowed, so a
+    // missing id means we notify the admin and tell the customer nothing.
+    const invoiceId = invoice.id ?? null
     const subId =
       typeof invoice.subscription === 'string'
         ? invoice.subscription
         : invoice.subscription?.id ?? null
     const amountDue = invoice.amount_due ? invoice.amount_due / 100 : 0
-    console.warn('[webhook] invoice.payment_failed', {
-      customerId,
-      subscriptionId: subId,
-      invoiceId: invoice.id,
-      attempt: invoice.attempt_count,
-      amountDue,
+    const nextAttempt = invoice.next_payment_attempt
+      ? new Date(invoice.next_payment_attempt * 1000)
+      : null
+
+    console.warn('[webhook:payment_failed]', nextAttempt ? 'retry_scheduled' : 'no_retry_scheduled', {
+      invoice: invoiceId,
+      sub: subId,
+      customer: customerId,
+      attempt: invoice.attempt_count ?? null,
+      billingReason: invoice.billing_reason ?? null,
+      retryAt: nextAttempt ? nextAttempt.toISOString() : null,
     })
 
-    let customerEmail = '—'
-    let familyName = 'Unknown Family'
-    try {
-      const customer = await stripe.customers.retrieve(customerId)
-      if (!customer.deleted) customerEmail = (customer as Stripe.Customer).email ?? '—'
-    } catch { /* best-effort */ }
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id, display_name')
-      .eq('stripe_customer_id', customerId)
-      .maybeSingle()
-    if (profile?.display_name) familyName = profile.display_name
+    // Deterministic identity: stripe_customer_id only. Never an email lookup,
+    // never a name. first_name addresses the mail and decides nothing.
+    const profile = await loadLinkedProfile(customerId)
 
-    await sendEmail(
-      ADMIN_EMAIL,
-      `⚠️ Payment failed — ${familyName}`,
-      `A subscription payment just failed on Rooted.\n\nFamily: ${familyName}\nEmail: ${customerEmail}\nCustomer: ${customerId}\nSubscription: ${subId ?? '—'}\nAmount due: $${amountDue.toFixed(2)}\nAttempt #: ${invoice.attempt_count ?? '—'}\n\nStripe will retry automatically. Watch for a follow-up subscription.updated event if the retry fails.`,
-    ).catch((err) => console.error('[webhook] payment_failed admin email error:', err))
+    const suppression = profile?.email
+      ? await transactionalSuppressionFor(profile.email, supabase)
+      : null
 
-    if (customerEmail && customerEmail !== '—') {
-      const firstName = profile?.display_name?.split(' ')[0] ?? 'friend'
-      await sendEmail(
-        customerEmail,
-        'Heads up: your Rooted payment didn\'t go through',
-        `Hi ${firstName},\n\nWe weren't able to process your Rooted+ payment. Stripe will retry automatically, but to make sure you don't lose access, please update your payment method at:\n\nhttps://rootedhomeschoolapp.com/dashboard/settings\n\nIf you have any trouble, just reply to this email and I'll help you sort it out.\n\nCheering you on,\nBrittany`,
-      ).catch((err) => console.error('[webhook] payment_failed user email error:', err))
+    // nextAttempt is NOT passed: it is observational only and must never gate
+    // the notice. It is logged above and reported to the admin below.
+    const decision = decideFirstFailureCustomerEmail({
+      invoiceId,
+      billingReason: invoice.billing_reason ?? null,
+      invoiceSubscriptionId: subId,
+      profile,
+      suppression,
+    })
+
+    let customerOutcome: string
+    if (!decision.send) {
+      customerOutcome = `skipped (${decision.reason})`
+      console.warn('[webhook:payment_failed] email skipped', { invoice: invoiceId, reason: decision.reason })
+    } else {
+      const linked = profile as LinkedProfile
+      const result = await sendOnceClaimed({
+        store: emailClaimStore,
+        userId: linked.userId,
+        emailType: firstFailureKey(invoiceId as string),
+        log: (line) => console.log('[webhook:payment_failed]', line),
+        send: () =>
+          sendTransactional(
+            linked.email as string,
+            FIRST_FAILURE_SUBJECT,
+            firstFailureBody({ firstName: linked.firstName, billingUrl: BILLING_URL }),
+          ),
+      })
+      customerOutcome = result.status
+      console.log('[webhook:payment_failed] email', result.status, { invoice: invoiceId, user: linked.userId })
     }
+
+    // The admin notice is claimed on the SAME invoice key namespace but its own
+    // type, so a duplicate delivery cannot double-notify either, and so a
+    // failure to mail the admin can never cause a second customer send.
+    await notifyAdminOnce({
+      stage: 'first',
+      invoiceId: invoiceId ?? '(no invoice id)',
+      customerId,
+      subscriptionId: subId,
+      profile,
+      amountDue,
+      attemptCount: invoice.attempt_count ?? null,
+      nextPaymentAttemptIso: nextAttempt ? nextAttempt.toISOString() : null,
+      customerEmailOutcome: customerOutcome,
+    })
   }
 
   return NextResponse.json({ received: true })

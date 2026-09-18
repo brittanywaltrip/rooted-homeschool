@@ -70,3 +70,28 @@ export async function canSendMarketingEmail(
   }
   return { allowed: true };
 }
+
+/**
+ * Transactional account notices, which are NOT gated by any marketing flag.
+ *
+ * canSendMarketingEmail above blocks everything on profiles.email_unsubscribed,
+ * including trial_ending, which its own comment calls an account notice. That
+ * is correct for nurture email and must not change. A failed-payment notice is
+ * a different class: the family is paying money, the charge did not go through,
+ * and their access is about to end. Withholding that because they once turned
+ * off nurture email would take away something they are paying for without
+ * telling them.
+ *
+ * So payment-failure notices DO NOT call canSendMarketingEmail. The only thing
+ * that stops them is a dead or hostile address, which is
+ * transactionalSuppressionFor() in lib/email/resend-suppression.ts.
+ *
+ * This function exists to make that decision explicit and greppable rather than
+ * an unexplained absence at the call site. It takes no flags on purpose: there
+ * is no profile field that may suppress a billing notice.
+ */
+export type AccountNoticeType = "payment_failed" | "payment_failed_final";
+
+export function accountNoticeIgnoresMarketingFlags(_type: AccountNoticeType): true {
+  return true;
+}
