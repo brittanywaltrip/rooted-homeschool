@@ -1,173 +1,239 @@
 // Unit tests for the paid-through classifier. Run with:
 //   node --test lib/paid-through.test.ts
 //
-// The case that matters most is "the bug": an open invoice whose subscription
-// period end has already advanced into the future. Every other test exists to
-// keep that one honest, and several exist to prove the locked principles:
-// no manufactured dates, no substitute for a missing billed period, and
-// "unknown" wherever the data is ambiguous.
+// Organised as the approved truth table, one describe-block comment per row,
+// plus the invariant tests: an unpaid future period can never be entitlement,
+// refund uncertainty never becomes "not refunded", and an absent retry date
+// never proves collection ended.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { classifyPaidThrough, type PaidThroughInput } from "./paid-through.ts";
 
-// Real shapes taken from the one live dunning case in this account: a monthly
-// subscription whose renewal invoice failed while the subscription's own
-// period end had already moved a month ahead. For an unpaid renewal the billed
-// line period IS that advanced period, so its start is the last paid end.
+// Shapes from the one real dunning case in this account.
 const LAST_PAID_END = new Date("2026-08-26T00:00:00.000Z"); // = unpaid period start
-const ADVANCED_END = new Date("2026-09-26T00:00:00.000Z"); // end of the billed period
+const BILLED_END = new Date("2026-09-26T00:00:00.000Z"); // end of the billed period
+const NOW = new Date("2026-09-18T00:00:00.000Z");
+const FUTURE_RETRY = new Date("2026-09-20T00:00:00.000Z");
+const PAST_RETRY = new Date("2026-09-10T00:00:00.000Z");
 
-function input(overrides: Partial<PaidThroughInput> = {}): PaidThroughInput {
+function input(over: Partial<PaidThroughInput> = {}): PaidThroughInput {
   return {
     latestInvoiceStatus: "paid",
     latestInvoiceLinePeriodStart: LAST_PAID_END,
-    latestInvoiceLinePeriodEnd: ADVANCED_END,
-    currentChargeFullyRefunded: false,
-    ...overrides,
+    latestInvoiceLinePeriodEnd: BILLED_END,
+    latestInvoiceNextPaymentAttempt: null,
+    collectionState: "terminated",
+    refundState: "none",
+    now: NOW,
+    ...over,
   };
 }
 
-// ── the regression this module exists for ───────────────────────────────────
+// ── Row 1: paid + no refund ─────────────────────────────────────────────────
 
-test("THE BUG: an open invoice never reports the advanced period as paid", () => {
-  const out = classifyPaidThrough(input({ latestInvoiceStatus: "open" }));
+test("row 1: paid invoice, no refund, is paid through the billed line end", () => {
+  const out = classifyPaidThrough(input());
+  assert.equal(out.kind, "paid");
+  if (out.kind !== "paid") return;
+  assert.equal(out.through.toISOString(), BILLED_END.toISOString());
+});
+
+// ── Row 2: paid + partial refund ────────────────────────────────────────────
+
+test("row 2: a PARTIAL refund never makes a paid term unpaid", () => {
+  const out = classifyPaidThrough(input({ refundState: "partial" }));
+  assert.equal(out.kind, "paid");
+  if (out.kind !== "paid") return;
+  assert.equal(out.through.toISOString(), BILLED_END.toISOString());
+});
+
+// ── Row 3: paid + full refund ───────────────────────────────────────────────
+
+test("row 3: a FULL refund makes the term unpaid, back to the period start", () => {
+  const out = classifyPaidThrough(input({ refundState: "full" }));
+  assert.equal(out.kind, "unpaid");
+  if (out.kind !== "unpaid") return;
+  assert.equal(out.through.toISOString(), LAST_PAID_END.toISOString());
+});
+
+test("row 3b: a full refund with no readable period start is unknown, not invented", () => {
+  const out = classifyPaidThrough(
+    input({ refundState: "full", latestInvoiceLinePeriodStart: null }),
+  );
+  assert.equal(out.kind, "unknown");
+});
+
+// ── Row 4: paid + unknown refund ────────────────────────────────────────────
+
+test("row 4: UNKNOWN refund state is unknown overall, never 'not refunded'", () => {
+  const out = classifyPaidThrough(input({ refundState: "unknown" }));
+  assert.equal(out.kind, "unknown");
+  if (out.kind !== "unknown") return;
+  assert.match(out.reason, /refund state/);
+});
+
+// ── Row 5: open + future retry ──────────────────────────────────────────────
+
+test("row 5: open with a FUTURE retry is pending, never unpaid", () => {
+  const out = classifyPaidThrough(
+    input({ latestInvoiceStatus: "open", latestInvoiceNextPaymentAttempt: FUTURE_RETRY }),
+  );
+  assert.equal(out.kind, "pending");
+  if (out.kind !== "pending") return;
+  assert.equal(out.retryAt.toISOString(), FUTURE_RETRY.toISOString());
+});
+
+test("row 5b: pending short-circuits before refund state is consulted", () => {
+  for (const refundState of ["none", "partial", "full", "unknown"] as const) {
+    const out = classifyPaidThrough(
+      input({
+        latestInvoiceStatus: "open",
+        latestInvoiceNextPaymentAttempt: FUTURE_RETRY,
+        refundState,
+      }),
+    );
+    assert.equal(out.kind, "pending", `refundState ${refundState} must not change pending`);
+  }
+});
+
+// ── Row 6: open + null retry + terminated ───────────────────────────────────
+
+test("row 6: open, no retry scheduled, collection terminated, is unpaid", () => {
+  const out = classifyPaidThrough(
+    input({
+      latestInvoiceStatus: "open",
+      latestInvoiceNextPaymentAttempt: null,
+      collectionState: "terminated",
+    }),
+  );
   assert.equal(out.kind, "unpaid");
   if (out.kind !== "unpaid") return;
   assert.equal(out.through.toISOString(), LAST_PAID_END.toISOString());
   assert.notEqual(
     out.through.toISOString(),
-    ADVANCED_END.toISOString(),
+    BILLED_END.toISOString(),
     "must never hand back the period Stripe advanced without payment",
   );
 });
 
-// ── paid ────────────────────────────────────────────────────────────────────
-
-test("a paid invoice is paid through its billed line period end", () => {
-  const out = classifyPaidThrough(input());
-  assert.equal(out.kind, "paid");
-  if (out.kind !== "paid") return;
-  assert.equal(out.through.toISOString(), ADVANCED_END.toISOString());
-});
-
-test("a paid invoice with no billed line period end is unknown, never substituted", () => {
-  // Locked principle: a paid invoice whose billed period we cannot read has no
-  // trustworthy answer. There is deliberately no second source to fall back to.
-  const out = classifyPaidThrough(input({ latestInvoiceLinePeriodEnd: null }));
-  assert.equal(out.kind, "unknown");
-});
-
-// ── unpaid ──────────────────────────────────────────────────────────────────
-
-test("an uncollectible invoice is treated exactly like an open one", () => {
-  const out = classifyPaidThrough(input({ latestInvoiceStatus: "uncollectible" }));
-  assert.equal(out.kind, "unpaid");
-  if (out.kind !== "unpaid") return;
-  assert.equal(out.through.toISOString(), LAST_PAID_END.toISOString());
-});
-
-test("an unpaid invoice with no line period start is unknown", () => {
+test("row 6b: terminated but refund state unknown is unknown overall", () => {
   const out = classifyPaidThrough(
-    input({ latestInvoiceStatus: "open", latestInvoiceLinePeriodStart: null }),
+    input({
+      latestInvoiceStatus: "open",
+      latestInvoiceNextPaymentAttempt: null,
+      collectionState: "terminated",
+      refundState: "unknown",
+    }),
   );
   assert.equal(out.kind, "unknown");
 });
 
-// ── refunds take precedence ─────────────────────────────────────────────────
+// ── Row 7: open + null retry + not corroborated ─────────────────────────────
 
-test("a fully refunded current charge is unpaid even when the invoice says paid", () => {
-  const out = classifyPaidThrough(input({ currentChargeFullyRefunded: true }));
-  assert.equal(out.kind, "unpaid");
-  if (out.kind !== "unpaid") return;
-  assert.equal(out.through.toISOString(), LAST_PAID_END.toISOString());
+test("row 7: a null retry date alone NEVER proves collection ended", () => {
+  for (const collectionState of ["live", "unknown"] as const) {
+    const out = classifyPaidThrough(
+      input({
+        latestInvoiceStatus: "open",
+        latestInvoiceNextPaymentAttempt: null,
+        collectionState,
+      }),
+    );
+    assert.equal(out.kind, "unknown", `collectionState ${collectionState} must be unknown`);
+    if (out.kind !== "unknown") return;
+    assert.match(out.reason, /not corroborated as terminated/);
+  }
 });
 
-test("a refund with no line period start is unknown rather than invented", () => {
+test("row 7b: a PAST retry date is also not proof on its own", () => {
   const out = classifyPaidThrough(
-    input({ currentChargeFullyRefunded: true, latestInvoiceLinePeriodStart: null }),
+    input({
+      latestInvoiceStatus: "open",
+      latestInvoiceNextPaymentAttempt: PAST_RETRY,
+      collectionState: "live",
+    }),
   );
   assert.equal(out.kind, "unknown");
 });
 
-// ── ambiguous statuses stay ambiguous ───────────────────────────────────────
+// ── uncollectible requires the same corroboration ───────────────────────────
 
-test("draft, void and null are unknown, so this function never revokes on ambiguity", () => {
+test("uncollectible ALONE does not revoke; it needs collectionState terminated", () => {
+  const notCorroborated = classifyPaidThrough(
+    input({ latestInvoiceStatus: "uncollectible", collectionState: "live" }),
+  );
+  assert.equal(notCorroborated.kind, "unknown");
+
+  const corroborated = classifyPaidThrough(
+    input({ latestInvoiceStatus: "uncollectible", collectionState: "terminated" }),
+  );
+  assert.equal(corroborated.kind, "unpaid");
+});
+
+// ── Row 8: draft / void / missing ───────────────────────────────────────────
+
+test("row 8: draft, void and missing invoice status are unknown", () => {
   for (const status of ["draft", "void", null] as const) {
     const out = classifyPaidThrough(input({ latestInvoiceStatus: status }));
     assert.equal(out.kind, "unknown", `status ${String(status)} should be unknown`);
   }
 });
 
-// ── no invented durations, no substitute sources ────────────────────────────
-
-test("never invents a duration: monthly and annual both return the given date", () => {
-  const monthlyEnd = new Date("2026-10-26T00:00:00.000Z");
-  const annualEnd = new Date("2027-08-26T00:00:00.000Z");
-
-  const monthly = classifyPaidThrough(input({ latestInvoiceLinePeriodEnd: monthlyEnd }));
-  const annual = classifyPaidThrough(input({ latestInvoiceLinePeriodEnd: annualEnd }));
-
-  assert.equal(monthly.kind, "paid");
-  assert.equal(annual.kind, "paid");
-  if (monthly.kind !== "paid" || annual.kind !== "paid") return;
-  // The old periodEndFromSubscription fallback would have produced now + 365
-  // days for BOTH of these, which is 12x too long for the monthly one.
-  assert.equal(monthly.through.toISOString(), monthlyEnd.toISOString());
-  assert.equal(annual.through.toISOString(), annualEnd.toISOString());
+test("row 8b: a paid invoice with no readable billed line end is unknown", () => {
+  const out = classifyPaidThrough(input({ latestInvoiceLinePeriodEnd: null }));
+  assert.equal(out.kind, "unknown");
 });
 
-test("there is no input that yields a paid result without a billed line period end", () => {
-  // Structural guard for locked principle 2. The subscription's own
-  // current_period_end is not a parameter, so no combination of inputs can
-  // resurrect it as a substitute.
-  for (const refunded of [false, true]) {
-    for (const status of ["draft", "open", "paid", "uncollectible", "void", null] as const) {
-      const out = classifyPaidThrough({
-        latestInvoiceStatus: status,
-        latestInvoiceLinePeriodStart: LAST_PAID_END,
-        latestInvoiceLinePeriodEnd: null,
-        currentChargeFullyRefunded: refunded,
-      });
-      assert.notEqual(
-        out.kind,
-        "paid",
-        `status ${String(status)} refunded=${refunded} must not be paid without a billed period end`,
-      );
+// ── Invariants ──────────────────────────────────────────────────────────────
+
+test("INVARIANT: no input ever yields `paid` without positive paid evidence", () => {
+  for (const status of ["draft", "open", "uncollectible", "void", null] as const) {
+    for (const collectionState of ["terminated", "live", "unknown"] as const) {
+      for (const refundState of ["none", "partial", "full", "unknown"] as const) {
+        const out = classifyPaidThrough(
+          input({ latestInvoiceStatus: status, collectionState, refundState }),
+        );
+        assert.notEqual(
+          out.kind,
+          "paid",
+          `status ${String(status)} / ${collectionState} / ${refundState} must not be paid`,
+        );
+      }
     }
   }
 });
 
-test("an Invalid Date is treated as missing, not as a date", () => {
+test("INVARIANT: unknown refund state can never produce unpaid either", () => {
+  // Refund uncertainty must not revoke any more than it may grant.
+  for (const status of ["paid", "open", "uncollectible"] as const) {
+    const out = classifyPaidThrough(
+      input({ latestInvoiceStatus: status, refundState: "unknown", collectionState: "terminated" }),
+    );
+    assert.equal(out.kind, "unknown", `status ${status} with unknown refund must be unknown`);
+  }
+});
+
+test("INVARIANT: never invents a duration, monthly or annual", () => {
+  const monthlyEnd = new Date("2026-10-26T00:00:00.000Z");
+  const annualEnd = new Date("2027-08-26T00:00:00.000Z");
+  const monthly = classifyPaidThrough(input({ latestInvoiceLinePeriodEnd: monthlyEnd }));
+  const annual = classifyPaidThrough(input({ latestInvoiceLinePeriodEnd: annualEnd }));
+  assert.equal(monthly.kind, "paid");
+  assert.equal(annual.kind, "paid");
+  if (monthly.kind !== "paid" || annual.kind !== "paid") return;
+  assert.equal(monthly.through.toISOString(), monthlyEnd.toISOString());
+  assert.equal(annual.through.toISOString(), annualEnd.toISOString());
+});
+
+test("INVARIANT: an Invalid Date is treated as missing", () => {
   const invalid = new Date("not a date");
-  assert.equal(
-    classifyPaidThrough(input({ latestInvoiceLinePeriodEnd: invalid })).kind,
-    "unknown",
-  );
+  assert.equal(classifyPaidThrough(input({ latestInvoiceLinePeriodEnd: invalid })).kind, "unknown");
   assert.equal(
     classifyPaidThrough(
       input({ latestInvoiceStatus: "open", latestInvoiceLinePeriodStart: invalid }),
     ).kind,
     "unknown",
   );
-});
-
-// ── shape callers depend on ─────────────────────────────────────────────────
-
-test("an unpaid result in the past makes `through > now` false for a caller", () => {
-  const out = classifyPaidThrough(input({ latestInvoiceStatus: "open" }));
-  assert.equal(out.kind, "unpaid");
-  if (out.kind !== "unpaid") return;
-  // This is precisely how the deleted handler will decide termRemaining.
-  const now = new Date("2026-09-18T00:00:00.000Z");
-  assert.equal(out.through > now, false, "an unpaid past term must not grant access");
-});
-
-test("a paid result in the future makes `through > now` true for a caller", () => {
-  const out = classifyPaidThrough(input());
-  assert.equal(out.kind, "paid");
-  if (out.kind !== "paid") return;
-  const now = new Date("2026-09-18T00:00:00.000Z");
-  assert.equal(out.through > now, true, "a paid future term must keep access");
 });

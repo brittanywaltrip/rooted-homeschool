@@ -1,152 +1,194 @@
 /**
  * "What period has actually been PAID for?"
  *
- * Both billing paths that decide entitlement used to ask the wrong question.
- * They read the subscription's current_period_end and treated it as the date
- * access was paid through. Stripe advances that field when it CREATES the
- * renewal invoice, not when the invoice is PAID, so a family whose card was
- * declined has a current_period_end up to a year in the future for a period
- * they never paid for. Reading it as "paid through" hands them a free term:
+ * Stripe advances a subscription's current_period_end when it CREATES the
+ * renewal invoice, not when that invoice is PAID. Reading it as a paid-through
+ * date hands a family whose card was declined a term they never paid for. This
+ * module is the single answer both the webhook and the nightly reconciliation
+ * ask, so the two can never disagree, and current_period_end is not even
+ * accepted as an input.
  *
- *   - app/api/stripe/webhook/route.ts (customer.subscription.deleted) computes
- *     termRemaining = periodEnd > now, so an unpaid advanced period keeps
- *     is_pro true and stamps subscription_end_date a year out.
- *   - lib/expire-subscriptions.ts rule 3 falls back to the same value when
- *     stamping subscription_end_date, which is then what rule 1 waits for.
+ * The load-bearing insight: when the current period's invoice is unpaid, the
+ * START of that unpaid period is the END of the last paid one. Verified against
+ * the one real dunning invoice in this account, where the billed line period
+ * started exactly where the last paid period ended while the subscription's own
+ * period end had already advanced a month past it.
  *
- * This module is the single answer both of them ask, so neither can grant an
- * unpaid future period while the other refuses to.
- *
- * The load-bearing insight is in rule 3 of classifyPaidThrough below: when the
- * current period's invoice is unpaid, the START of that unpaid period is the
- * END of the last paid one. Verified against a real dunning invoice in this
- * account, where the billed line period started at the same instant the last
- * paid period ended while the subscription's own period end had already
- * advanced a month past it.
+ * ── THE SAFETY INVARIANT ───────────────────────────────────────────────────
+ * Rooted may revoke Rooted+ only when it has POSITIVE EVIDENCE that the
+ * relevant paid entitlement has ended. Absence of evidence is never evidence of
+ * nonpayment. Every branch below that cannot prove what happened returns
+ * `unknown`, and `unknown` means callers write nothing at all.
  *
  * ── LOCKED PRINCIPLES ──────────────────────────────────────────────────────
- * These are deliberate constraints, not incidental implementation. Changing
- * any of them reopens a way to give away a paid product:
+ *   1. Never manufacture a paid-through date. No now + N fallback exists here.
+ *   2. Never use the subscription's current_period_end as proof of payment. It
+ *      is not a parameter, so it cannot be reached by accident.
+ *   3. draft, void, and missing or ambiguous data are all `unknown`.
+ *   4. `unknown` and `pending` never revoke Rooted+.
+ *   5. Refund uncertainty is NEVER converted to "not refunded". An unresolved
+ *      refund lookup propagates to `unknown`, because classifying a term as
+ *      paid on unknown refund evidence would assert something unproven.
+ *   6. An absent next_payment_attempt does NOT by itself prove collection has
+ *      ended. Only corroborating subscription state can, which is why
+ *      collectionState is an explicit input rather than a caller convention.
  *
- *   1. Never manufacture a paid-through date. There is no now + N fallback of
- *      any kind, anywhere in this file.
- *   2. Never use the subscription's current_period_end as proof of payment.
- *      It is not even accepted as an input, so it cannot be reached by
- *      accident. That is the whole bug in one field.
- *   3. draft, void, and missing or ambiguous data are all "unknown".
- *   4. "unknown" must never independently revoke Rooted+. Callers treat it as
- *      "leave this family alone", never as "unpaid".
- *
- * ── CONTRACT FOR CALLERS (phases B and C) ──────────────────────────────────
- *   - Do NOT blindly read lines.data[0]. An invoice can carry several lines
- *     with different periods after a proration or a plan change. Identify the
- *     line for THIS subscription deterministically, for example by matching
- *     its subscription item id. If the right line cannot be identified,
- *     pass nulls and accept "unknown". Guessing is the failure mode this
- *     module exists to prevent.
- *   - Do NOT pass invoice.period_start / invoice.period_end. Those describe
- *     the PREVIOUS cycle, not the purchased subscription period. On the real
- *     dunning invoice they differed from the billed line period by a full
- *     month, and the difference is silent: no error, just a wrong date.
+ * ── CONTRACT FOR CALLERS ───────────────────────────────────────────────────
+ *   - Identify the billed line deterministically (lib/stripe-invoice-line.ts).
+ *     Never lines.data[0]: a proration fragment can sit at index 0 and would
+ *     report a one-hour "term". If the right line cannot be identified, pass
+ *     nulls and accept `unknown`.
+ *   - Never pass invoice.period_start / invoice.period_end. Those describe the
+ *     PREVIOUS cycle and differed from the billed period by a full month on the
+ *     real dunning invoice. The difference is silent.
+ *   - Derive collectionState from FRESHLY retrieved Stripe state, not from the
+ *     webhook event payload, which is a snapshot of the past.
  *
  * Deliberately pure: no Stripe SDK, no network, no imports. It runs under
  * `node --test`, which is strip-only and cannot resolve "@/" at module scope.
  */
 
 /**
- * Stripe invoice statuses, as the API reports them. Note there is no
- * "past_due" here: that is a SUBSCRIPTION status. An unpaid invoice sits at
- * "open", which is the case rule 3 below is written for.
+ * Stripe invoice statuses. Note there is no "past_due" here: that is a
+ * SUBSCRIPTION status. An unpaid invoice sits at "open".
  */
 export type InvoiceStatus = "draft" | "open" | "paid" | "uncollectible" | "void";
 
 /**
+ * Invoice-scoped refund evidence for the period in question.
+ *
+ * `none` means the lookup SUCCEEDED and found nothing refunded, including the
+ * ordinary case of an open invoice with no successful payment to refund.
+ * `unknown` means the lookup itself failed. Those two are never conflated.
+ */
+export type RefundState = "none" | "partial" | "full" | "unknown";
+
+/**
+ * Whether Stripe has definitively stopped trying to collect, corroborated by
+ * freshly retrieved subscription state. `terminated` is the only value that
+ * lets an unpaid invoice become a revocation.
+ */
+export type CollectionState = "terminated" | "live" | "unknown";
+
+/**
  * paid    - definitively paid through `through`. Safe to grant access to it.
- * unpaid  - the current period was NOT paid for. `through` is the end of the
- *           last period that WAS paid, which is usually in the past, so a
- *           caller comparing it to now will correctly revoke.
- * unknown - we could not tell. Callers must do nothing rather than guess.
+ * unpaid  - positively evidenced as NOT paid. `through` is the end of the last
+ *           period that WAS paid.
+ * pending - Stripe is still collecting. Not a failure yet, and never a reason
+ *           to revoke.
+ * unknown - we could not tell. Callers write nothing.
  */
 export type PaidThrough =
   | { kind: "paid"; through: Date }
   | { kind: "unpaid"; through: Date }
-  | { kind: "unknown" };
+  | { kind: "pending"; retryAt: Date }
+  | { kind: "unknown"; reason: string };
 
 export interface PaidThroughInput {
-  /** Status of the subscription's latest invoice, or null if unavailable. */
   latestInvoiceStatus: InvoiceStatus | null;
   /**
-   * The SERVICE period the latest invoice bills for, taken from the line item
-   * belonging to this subscription. NOT invoice.period_start/period_end, which
-   * describe the previous cycle. See the caller contract above.
+   * The SERVICE period the latest invoice bills for, from the line item
+   * belonging to this subscription. See the caller contract above.
    */
   latestInvoiceLinePeriodStart: Date | null;
   latestInvoiceLinePeriodEnd: Date | null;
-  /**
-   * Whether the charge for the CURRENT period was fully refunded. Scoped to
-   * this period on purpose: an old refund on an earlier term says nothing
-   * about whether this one was paid.
-   */
-  currentChargeFullyRefunded: boolean;
+  /** Stripe's next scheduled collection attempt for this invoice, if any. */
+  latestInvoiceNextPaymentAttempt: Date | null;
+  /** Corroborating state from a FRESH subscription read. */
+  collectionState: CollectionState;
+  /** Invoice-scoped refund evidence. */
+  refundState: RefundState;
+  now: Date;
 }
-
-/**
- * Note what is absent: the subscription's current_period_end. It is not a
- * parameter, so no branch can consult it and no future edit can quietly
- * reintroduce it as a fallback. Locked principle 2.
- */
 
 /** A Date we can actually use: present, a real Date, and not Invalid Date. */
 function usable(d: Date | null | undefined): d is Date {
   return d instanceof Date && !Number.isNaN(d.getTime());
 }
 
+function unknown(reason: string): PaidThrough {
+  return { kind: "unknown", reason };
+}
+
 /**
  * Classify what a subscription has been paid through.
  *
- * Rules are ordered, and the order matters:
+ * Two passes, in this order, because refund evidence only matters once the
+ * structural answer would actually be paid or unpaid:
  *
- *   1. A fully refunded current charge means the money went back, so the
- *      period is not paid no matter what the invoice says.
- *   2. A paid invoice is paid through the end of the period it billed. If
- *      that period end is missing or unusable there is no trustworthy answer,
- *      so the result is unknown rather than a substitute date.
- *   3. An open or uncollectible invoice means the current period was never
- *      paid, so the last paid period ended where this unpaid one starts.
- *   4. Anything else is unknown. "draft" is not finalised yet and "void" was
- *      cancelled rather than collected, so neither proves payment OR
- *      non-payment. Returning unknown keeps this function from being the
- *      thing that revokes a paying family's access on ambiguous input.
+ *   STRUCTURAL
+ *     - open with a future retry        → pending  (refund never consulted)
+ *     - paid                            → paid, through the billed line END
+ *     - open/uncollectible + terminated → unpaid, through the billed line START
+ *     - open/uncollectible otherwise    → unknown  (collection not corroborated)
+ *     - draft / void / missing          → unknown
+ *
+ *   REFUND, only when structural is paid or unpaid
+ *     - unknown         → unknown   (never "not refunded")
+ *     - full            → unpaid, through the billed line START
+ *     - partial or none → keep the structural answer
+ *
+ * A partial refund never makes a term unpaid. Only the whole relevant charge
+ * coming back does.
  */
 export function classifyPaidThrough(input: PaidThroughInput): PaidThrough {
   const {
-    latestInvoiceStatus,
-    latestInvoiceLinePeriodStart,
-    latestInvoiceLinePeriodEnd,
-    currentChargeFullyRefunded,
+    latestInvoiceStatus: status,
+    latestInvoiceLinePeriodStart: lineStart,
+    latestInvoiceLinePeriodEnd: lineEnd,
+    latestInvoiceNextPaymentAttempt: nextAttempt,
+    collectionState,
+    refundState,
+    now,
   } = input;
 
-  // ── 1. Refunded beats every other signal ────────────────────────────────
-  if (currentChargeFullyRefunded) {
-    return usable(latestInvoiceLinePeriodStart)
-      ? { kind: "unpaid", through: latestInvoiceLinePeriodStart }
-      : { kind: "unknown" };
+  // ── Structural pass ─────────────────────────────────────────────────────
+
+  // Still in dunning. Stripe has not failed to collect, it simply has not
+  // finished trying, so nothing about entitlement has been decided yet.
+  if (status === "open" && usable(nextAttempt) && usable(now) && nextAttempt > now) {
+    return { kind: "pending", retryAt: nextAttempt };
   }
 
-  // ── 2. Paid ─────────────────────────────────────────────────────────────
-  if (latestInvoiceStatus === "paid") {
-    return usable(latestInvoiceLinePeriodEnd)
-      ? { kind: "paid", through: latestInvoiceLinePeriodEnd }
-      : { kind: "unknown" };
+  let structural: PaidThrough;
+
+  if (status === "paid") {
+    if (!usable(lineEnd)) {
+      return unknown("paid invoice with no readable billed line period end");
+    }
+    structural = { kind: "paid", through: lineEnd };
+  } else if (status === "open" || status === "uncollectible") {
+    // An absent next_payment_attempt is an absence, not a proof. Only fresh
+    // subscription state can corroborate that collection has terminated, and
+    // uncollectible alone is not enough.
+    if (collectionState !== "terminated") {
+      return unknown(
+        `invoice ${status} but collection state is ${collectionState}, not corroborated as terminated`,
+      );
+    }
+    if (!usable(lineStart)) {
+      return unknown(`invoice ${status} with no readable billed line period start`);
+    }
+    structural = { kind: "unpaid", through: lineStart };
+  } else {
+    return unknown(`invoice status ${status ?? "missing"} proves nothing either way`);
   }
 
-  // ── 3. Unpaid: the start of this period is the end of the last paid one ──
-  if (latestInvoiceStatus === "open" || latestInvoiceStatus === "uncollectible") {
-    return usable(latestInvoiceLinePeriodStart)
-      ? { kind: "unpaid", through: latestInvoiceLinePeriodStart }
-      : { kind: "unknown" };
+  // ── Refund pass ─────────────────────────────────────────────────────────
+
+  if (refundState === "unknown") {
+    // Locked principle 5. Treating this as "not refunded" would assert
+    // something the evidence does not support.
+    return unknown("refund state could not be determined");
   }
 
-  // ── 4. draft, void, null ────────────────────────────────────────────────
-  return { kind: "unknown" };
+  if (refundState === "full") {
+    if (!usable(lineStart)) {
+      return unknown("full refund but no readable billed line period start");
+    }
+    return { kind: "unpaid", through: lineStart };
+  }
+
+  // none or partial: a partial refund leaves the term paid for.
+  return structural;
 }

@@ -13,6 +13,18 @@ import {
   type LinkedPlanType,
 } from '@/lib/link-stripe-to-profile'
 import { commissionFromCents, isFirstPaymentEvent } from '@/lib/commission'
+import {
+  classifyPaidThrough,
+  type CollectionState,
+  type InvoiceStatus,
+  type RefundState,
+} from '@/lib/paid-through'
+import {
+  selectSubscriptionInvoiceLine,
+  type InvoiceLineLike,
+} from '@/lib/stripe-invoice-line'
+import { classifyRefund } from '@/lib/invoice-refund'
+import { decideCancellation } from '@/lib/cancellation-decision'
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-02-25.clover',
@@ -157,6 +169,51 @@ async function storedReferralCode(userId: string): Promise<string | null> {
     .eq('id', userId)
     .maybeSingle()
   return data?.referred_by ? String(data.referred_by).toUpperCase() : null
+}
+
+/**
+ * Invoice-scoped refund evidence for the period in question.
+ *
+ * Deliberately narrow. The version this replaces listed up to 100 charges
+ * across the customer's ENTIRE history and treated any refunded charge,
+ * including a partial one on an older subscription, as proof the current term
+ * was void. One live Rooted+ subscriber carries a $5.85 partial refund from an
+ * earlier term and would have lost their remaining paid access the moment they
+ * cancelled.
+ *
+ * Every failure path returns 'unknown' rather than 'none'. The difference is
+ * the whole point: a lookup that succeeded and found nothing refunded is
+ * evidence, a lookup that failed is not, and classifyPaidThrough turns
+ * 'unknown' into "write nothing" rather than into "not refunded".
+ */
+async function resolveInvoiceRefundState(invoiceId: string | null): Promise<RefundState> {
+  if (!invoiceId) return classifyRefund({ lookupSucceeded: false, charge: null })
+  try {
+    const payments = await stripe.invoicePayments.list({ invoice: invoiceId, limit: 10 })
+    const paid = payments.data.find((p) => p.status === 'paid')
+    // Lookup worked and nothing was ever collected: the ordinary open-invoice
+    // case. Nothing to refund is a fact, not an unknown.
+    if (!paid) return classifyRefund({ lookupSucceeded: true, charge: null })
+
+    const piRef = paid.payment?.payment_intent
+    const piId = typeof piRef === 'string' ? piRef : piRef?.id ?? null
+    if (!piId) return classifyRefund({ lookupSucceeded: false, charge: null })
+
+    const pi = await stripe.paymentIntents.retrieve(piId, { expand: ['latest_charge'] })
+    const charge =
+      pi.latest_charge && typeof pi.latest_charge === 'object'
+        ? (pi.latest_charge as Stripe.Charge)
+        : null
+    if (!charge) return classifyRefund({ lookupSucceeded: false, charge: null })
+
+    return classifyRefund({
+      lookupSucceeded: true,
+      charge: { amount: charge.amount, amountRefunded: charge.amount_refunded },
+    })
+  } catch (e) {
+    console.error('[webhook] refund lookup failed for invoice', invoiceId, '- treating as unknown:', e)
+    return classifyRefund({ lookupSucceeded: false, charge: null })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -524,78 +581,155 @@ export async function POST(req: NextRequest) {
   // ── customer.subscription.deleted ─────────────────────────────────────────
   if (event.type === 'customer.subscription.deleted') {
     const sub = event.data.object as Stripe.Subscription
+
+    // ── Honour the term they already paid for ──────────────────────────────
+    // A family who paid for a year and cancels in month three has still paid
+    // for the year, so access runs to the end of the purchased term and the
+    // nightly sweep downgrades them when it actually expires.
+    //
+    // THE SAFETY INVARIANT for everything below: Rooted may revoke Rooted+ only
+    // on positive evidence that the paid entitlement has ended. Absence of
+    // evidence is never evidence of nonpayment. Every guard that cannot prove
+    // what happened writes NOTHING AT ALL and leaves the row for
+    // /api/cron/expire-subscriptions to retry, which keeps the situation
+    // visible instead of silently frozen.
     const { data: profile } = await supabase
       .from('profiles')
-      .select('id, display_name')
+      .select('id, display_name, stripe_subscription_id')
       .eq('stripe_customer_id', sub.customer as string)
       .maybeSingle()
 
-    if (profile) {
-      const priceId = sub.items.data[0]?.price.id
+    if (!profile) {
+      console.warn('[webhook] subscription.deleted — no profile for customer:', sub.customer)
+      return NextResponse.json({ received: true, skipped: 'no_profile' })
+    }
 
-      // ── Honour the term they already paid for ──────────────────────────
-      // A family who paid for a year and cancels in month three has still
-      // paid for the year. Revoking on the spot takes back something they
-      // bought. So unless the money went back to them, access runs to the
-      // end of the paid period and a nightly sweep
-      // (/api/cron/expire-subscriptions) downgrades them when it actually
-      // expires.
-      //
-      // The one case that DOES revoke immediately is a refund: if the
-      // charge was returned, the term was not paid for after all.
-      //
-      // Note this only matters for subscriptions cancelled with immediate
-      // effect. Configure the Stripe billing portal to cancel at period end
-      // and this branch stops being reachable for self-serve cancellations,
-      // because Stripe keeps the subscription active until the term is up
-      // and only fires this event once it genuinely ends.
-      const periodEnd = periodEndFromSubscription(sub)
-      const now = new Date()
-
-      let refunded = false
-      try {
-        const charges = await stripe.charges.list({
-          customer: sub.customer as string,
-          limit: 100,
-        })
-        // Any refunded charge on this customer means we gave the money back.
-        // Deliberately broad: over-revoking a refunded account is the safe
-        // direction, and a partial refund still signals the term is void.
-        refunded = charges.data.some(
-          (c) => c.refunded || (c.amount_refunded ?? 0) > 0,
-        )
-      } catch (e) {
-        // Could not confirm. Assume NOT refunded, which errs toward letting
-        // the family keep what they most likely paid for.
-        console.error('[webhook] subscription.deleted — refund check failed, assuming not refunded. customer:', sub.customer, e)
-      }
-
-      const termRemaining = !refunded && periodEnd > now
-
-      // plan_type drives which tier's features render, so it has to stay
-      // set while access is still live. Build the patch explicitly rather
-      // than passing undefined, which supabase-js would silently drop.
-      const cancelPatch: Record<string, unknown> = {
-        // Keep access alive through a paid-for term; drop it otherwise.
-        is_pro: termRemaining,
-        subscription_status: 'cancelled',
-        subscription_end_date: (termRemaining ? periodEnd : now).toISOString(),
-        // The schedule has been honoured; subscription_end_date now carries the
-        // truth, so a leftover cancel_at would only be a stale second opinion.
-        cancel_at: null,
-      }
-      if (!termRemaining) cancelPatch.plan_type = null
-
-      await supabase.from('profiles').update(cancelPatch).eq('id', profile.id)
-      console.log(
-        '[webhook] subscription.deleted — cancelled profile:', profile.id,
-        'family:', profile.display_name,
-        'refunded:', refunded,
-        termRemaining
-          ? `access retained until ${periodEnd.toISOString()}`
-          : 'access revoked now',
+    // ── GUARD A: subscription identity ─────────────────────────────────────
+    // Match on the subscription, not just the customer. Stripe retries
+    // deliveries for three days, so a deleted event for an OLD subscription can
+    // land after the family has already resubscribed. Without this, that event
+    // stamps a paying family as cancelled.
+    if (profile.stripe_subscription_id !== sub.id) {
+      console.warn(
+        '[webhook] subscription.deleted — ignored, profile holds',
+        profile.stripe_subscription_id ?? '(none)', 'not', sub.id,
       )
+      return NextResponse.json({ received: true, skipped: 'subscription_mismatch' })
+    }
 
+    // ── GUARD B: stale event ───────────────────────────────────────────────
+    // event.data.object is a snapshot from when the event was CREATED. Ask
+    // Stripe what is true NOW, which is order-independent by construction.
+    let fresh: Stripe.Subscription | null = null
+    try {
+      fresh = await stripe.subscriptions.retrieve(sub.id, { expand: ['latest_invoice'] })
+    } catch (e) {
+      console.error('[webhook] subscription.deleted — could not re-read subscription, writing nothing:', sub.id, e)
+      return NextResponse.json({ received: true, skipped: 'stripe_unreadable' })
+    }
+
+    const collectionState: CollectionState =
+      fresh.status === 'canceled' || fresh.status === 'incomplete_expired'
+        ? 'terminated'
+        : 'live'
+    if (collectionState !== 'terminated') {
+      console.warn(
+        '[webhook] subscription.deleted — stale event, Stripe now reports',
+        fresh.status, 'for', sub.id, '— writing nothing',
+      )
+      return NextResponse.json({ received: true, skipped: 'not_terminal' })
+    }
+
+    // ── Evidence: the billed line for THIS subscription ────────────────────
+    const invoice =
+      fresh.latest_invoice && typeof fresh.latest_invoice === 'object'
+        ? (fresh.latest_invoice as Stripe.Invoice)
+        : null
+    // A truncated line list could hide a second candidate and make an ambiguous
+    // invoice look unambiguous.
+    const linesTruncated = invoice?.lines?.has_more === true
+    const selection = selectSubscriptionInvoiceLine({
+      subscriptionId: fresh.id,
+      subscriptionItemIds: (fresh.items?.data ?? []).map((item) => item.id),
+      lines: linesTruncated
+        ? null
+        : ((invoice?.lines?.data ?? null) as InvoiceLineLike[] | null),
+    })
+
+    // ── Evidence: invoice-scoped refund state ─────────────────────────────
+    const refundState = await resolveInvoiceRefundState(invoice?.id ?? null)
+
+    // One clock for both decisions: two calls to new Date() could straddle a
+    // millisecond and classify against a different instant than they decide on.
+    const now = new Date()
+
+    const classification = classifyPaidThrough({
+      latestInvoiceStatus: (invoice?.status ?? null) as InvoiceStatus | null,
+      latestInvoiceLinePeriodStart: selection.kind === 'found' ? selection.periodStart : null,
+      latestInvoiceLinePeriodEnd: selection.kind === 'found' ? selection.periodEnd : null,
+      latestInvoiceNextPaymentAttempt:
+        typeof invoice?.next_payment_attempt === 'number' && invoice.next_payment_attempt > 0
+          ? new Date(invoice.next_payment_attempt * 1000)
+          : null,
+      collectionState,
+      refundState,
+      now,
+    })
+
+    const decision = decideCancellation({ classification, now })
+
+    console.log(
+      '[webhook] subscription.deleted — classified', sub.id,
+      'as', classification.kind,
+      'invoice:', invoice?.status ?? 'unreadable',
+      'refund:', refundState,
+      'line:', selection.kind,
+    )
+
+    if (decision.action === 'skip') {
+      console.warn(
+        '[webhook] subscription.deleted — writing nothing for profile', profile.id,
+        '(', classification.kind, ':', decision.reason, ') — left for the nightly sweep',
+      )
+      return NextResponse.json({ received: true, skipped: `classification_${classification.kind}` })
+    }
+
+    const priceId = fresh.items.data[0]?.price.id
+    const termRemaining = decision.termRemaining
+
+    // ── GUARD C: re-assert the subscription in the write itself ────────────
+    // The read above and this write are not atomic. Re-asserting the
+    // subscription id means a family who resubscribed in between is never
+    // stamped on the strength of a stale read.
+    const { data: updatedRows, error: updateErr } = await supabase
+      .from('profiles')
+      .update(decision.patch)
+      .eq('id', profile.id)
+      .eq('stripe_subscription_id', sub.id)
+      .select('id')
+
+    if (updateErr) {
+      console.error('[webhook] subscription.deleted — update failed:', profile.id, updateErr.message)
+      return NextResponse.json({ error: 'update_failed' }, { status: 500 })
+    }
+    if (!updatedRows || updatedRows.length === 0) {
+      console.warn(
+        '[webhook] subscription.deleted — wrote nothing for profile', profile.id,
+        ': the row no longer holds', sub.id, '(resubscribed or changed underneath us)',
+      )
+      return NextResponse.json({ received: true, skipped: 'row_changed' })
+    }
+
+    console.log(
+      '[webhook] subscription.deleted — cancelled profile:', profile.id,
+      'family:', profile.display_name,
+      'refund:', refundState,
+      termRemaining
+        ? `access retained until ${decision.patch.subscription_end_date}`
+        : `access revoked, paid through ${decision.patch.subscription_end_date}`,
+    )
+
+    {
       // Look up customer email from Stripe
       let customerEmail = '—'
       try {

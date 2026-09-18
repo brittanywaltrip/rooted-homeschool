@@ -4,6 +4,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+
+import { classifyPaidThrough } from "./paid-through.ts";
+import { decideCancellation } from "./cancellation-decision.ts";
 import {
   sweepExpiredAccess,
   type SweepClient,
@@ -92,7 +95,14 @@ function rows(): Row[] {
 // What Stripe reports for each subscription id in the fixtures. null is the
 // "could not be asked, or could not answer" case.
 function paidInvoice(end: string, start = PAST): Omit<SubscriptionSnapshot, "status"> {
-  return { latestInvoiceStatus: "paid", linePeriodStart: start, linePeriodEnd: end };
+  return {
+    latestInvoiceId: "in_paid",
+    latestInvoiceStatus: "paid",
+    linePeriodStart: start,
+    linePeriodEnd: end,
+    nextPaymentAttempt: null,
+    collectionState: "terminated",
+  };
 }
 
 const snapshots: Record<string, SubscriptionSnapshot | null> = {
@@ -101,17 +111,43 @@ const snapshots: Record<string, SubscriptionSnapshot | null> = {
   // Stripe says cancelled, but nothing about the invoice can be read.
   sub_canceled_nodate: {
     status: "canceled",
+    latestInvoiceId: null,
     latestInvoiceStatus: null,
     linePeriodStart: null,
     linePeriodEnd: null,
+    nextPaymentAttempt: null,
+    collectionState: "terminated",
   },
   // The failed-renewal shape: the invoice was never paid, so the last paid
   // period ended where this unpaid one starts.
   sub_canceled_unpaid: {
     status: "canceled",
+    latestInvoiceId: "in_unpaid",
     latestInvoiceStatus: "open",
     linePeriodStart: PAST,
     linePeriodEnd: FUTURE,
+    nextPaymentAttempt: null,
+    collectionState: "terminated",
+  },
+  // Cancelled, but Stripe has another collection attempt scheduled.
+  sub_canceled_dunning: {
+    status: "canceled",
+    latestInvoiceId: "in_dunning",
+    latestInvoiceStatus: "open",
+    linePeriodStart: PAST,
+    linePeriodEnd: FUTURE,
+    nextPaymentAttempt: FUTURE,
+    collectionState: "terminated",
+  },
+  // Cancelled, unpaid invoice, but nothing corroborates that collection ended.
+  sub_canceled_uncorroborated: {
+    status: "canceled",
+    latestInvoiceId: "in_uncorroborated",
+    latestInvoiceStatus: "open",
+    linePeriodStart: PAST,
+    linePeriodEnd: FUTURE,
+    nextPaymentAttempt: null,
+    collectionState: "unknown",
   },
   sub_pastdue: { status: "past_due", ...paidInvoice(FUTURE) },
   sub_live: { status: "active", ...paidInvoice(FUTURE) },
@@ -119,6 +155,12 @@ const snapshots: Record<string, SubscriptionSnapshot | null> = {
 };
 const stripeSnapshot = async (id: string): Promise<SubscriptionSnapshot | null> =>
   snapshots[id] ?? null;
+
+// Refund evidence for the fixtures. The default is a SUCCESSFUL lookup that
+// found nothing refunded, which is evidence. "in_unknown" models a lookup that
+// failed, which is not, and must leave the family alone.
+const refundStates = async (invoiceId: string | null) =>
+  invoiceId === "in_unknown" ? ("unknown" as const) : ("none" as const);
 
 /** The sweep with rule 3 switched on. */
 const sweepWithReconcile = (
@@ -132,7 +174,7 @@ const sweepWithReconcile = (
     NOW,
     (...p) => logs.push(p.join(" ")),
     stripeSays,
-    { dryRun, getSubscriptionSnapshot: snapshot },
+    { dryRun, getSubscriptionSnapshot: snapshot, getInvoiceRefundState: refundStates },
   );
 
 test("a gift past its end date is expired, to free, and logged", async () => {
@@ -272,7 +314,7 @@ test("a cancelled subscription with no readable invoice is left alone, never giv
   assert.equal(nd.subscription_status, "active");
   assert.equal(nd.subscription_end_date, null);
   assert.equal(nd.is_pro, true);
-  assert.ok(logs.some((l) => l.includes("reconcile left alone, no trustworthy paid-through date reconcile-no-date")));
+  assert.ok(logs.some((l) => l.includes("reconcile left alone,") && l.includes("reconcile-no-date")));
 });
 
 test("a second run is a no-op: reconciliation is idempotent", async () => {
@@ -382,6 +424,7 @@ const sweepWithBulk = (
   sweepExpiredAccess(fakeClient(profiles), NOW, (...p) => logs.push(p.join(" ")), stripeSays, {
     dryRun,
     getSubscriptionSnapshots: bulk,
+    getInvoiceRefundState: refundStates,
   });
 
 test("the bulk form asks Stripe once for the whole run, with each candidate id exactly once", async () => {
@@ -559,5 +602,113 @@ test("rule 3 ignores the row's own current_period_end entirely", async () => {
 
   assert.equal(out.reconciled, 0, "an unreadable invoice must not borrow the row's date");
   assert.equal(profiles[0].subscription_end_date, null);
-  assert.ok(logs.some((l) => l.includes("no trustworthy paid-through date")));
+  assert.ok(logs.some((l) => l.includes("reconcile left alone,") && l.includes("proves nothing either way")));
+});
+
+// ── Phase C: pending, corroboration and refund evidence ─────────────────────
+
+function oneRow(subId: string): Row[] {
+  return [
+    {
+      id: "subject",
+      display_name: "Subject",
+      plan_type: "standard",
+      is_pro: true,
+      subscription_status: "active",
+      stripe_subscription_id: subId,
+      current_period_end: FUTURE,
+      subscription_end_date: null,
+    },
+  ];
+}
+
+test("rule 3 leaves a family alone while Stripe is still collecting", async () => {
+  const profiles = oneRow("sub_canceled_dunning");
+  const logs: string[] = [];
+  const out = await sweepWithBulk(profiles, logs, false);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 0);
+  assert.equal(profiles[0].subscription_status, "active", "nothing written at all");
+  assert.equal(profiles[0].subscription_end_date, null);
+  assert.ok(logs.some((l) => l.includes("still collecting")));
+});
+
+test("a null retry date alone never lets rule 3 revoke: corroboration required", async () => {
+  const profiles = oneRow("sub_canceled_uncorroborated");
+  const logs: string[] = [];
+  const out = await sweepWithBulk(profiles, logs, false);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 0);
+  assert.equal(profiles[0].subscription_end_date, null);
+  assert.ok(logs.some((l) => l.includes("not corroborated as terminated")));
+});
+
+test("a FAILED refund lookup leaves the family alone, never 'not refunded'", async () => {
+  const profiles = oneRow("sub_canceled_unpaid");
+  const logs: string[] = [];
+  const out = await sweepExpiredAccess(
+    fakeClient(profiles),
+    NOW,
+    (...p) => logs.push(p.join(" ")),
+    stripeSays,
+    {
+      dryRun: false,
+      getSubscriptionSnapshots: bulkFrom(),
+      // The lookup itself failed. Absence of evidence is not evidence.
+      getInvoiceRefundState: async () => "unknown" as const,
+    },
+  );
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 0);
+  assert.equal(profiles[0].subscription_end_date, null);
+  assert.ok(logs.some((l) => l.includes("refund state could not be determined")));
+});
+
+test("with NO refund resolver at all, rule 3 writes nothing rather than assuming", async () => {
+  const profiles = oneRow("sub_canceled_unpaid");
+  const out = await sweepExpiredAccess(
+    fakeClient(profiles),
+    NOW,
+    () => {},
+    stripeSays,
+    { dryRun: false, getSubscriptionSnapshots: bulkFrom() },
+  );
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 0, "an unperformed lookup must not become 'none'");
+  assert.equal(profiles[0].subscription_end_date, null);
+});
+
+test("PARITY: rule 3 and the webhook decision write the same date from the same evidence", async () => {
+  // The invariant that keeps the safety net and the primary path in step.
+  const profiles = oneRow("sub_canceled_unpaid");
+  const out = await sweepWithBulk(profiles, [], false);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 1);
+
+  const snap = snapshots["sub_canceled_unpaid"]!;
+  const classification = classifyPaidThrough({
+    latestInvoiceStatus: snap.latestInvoiceStatus,
+    latestInvoiceLinePeriodStart: new Date(snap.linePeriodStart!),
+    latestInvoiceLinePeriodEnd: new Date(snap.linePeriodEnd!),
+    latestInvoiceNextPaymentAttempt: null,
+    collectionState: snap.collectionState,
+    refundState: "none",
+    now: NOW,
+  });
+  const decision = decideCancellation({ classification, now: NOW });
+  assert.equal(decision.action, "write");
+  if (decision.action !== "write") return;
+
+  assert.equal(
+    profiles[0].subscription_end_date,
+    decision.patch.subscription_end_date,
+    "the safety net and the webhook must never disagree about the paid-through date",
+  );
+  assert.equal(decision.patch.is_pro, false, "the webhook revokes");
+  assert.equal(profiles[0].is_pro, true, "rule 3 never touches entitlement");
 });

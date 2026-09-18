@@ -6,7 +6,12 @@ import {
   type SweepClient,
   type SubscriptionSnapshot,
 } from '@/lib/expire-subscriptions'
-import { type InvoiceStatus } from '@/lib/paid-through'
+import {
+  type CollectionState,
+  type InvoiceStatus,
+  type RefundState,
+} from '@/lib/paid-through'
+import { classifyRefund } from '@/lib/invoice-refund'
 import {
   selectSubscriptionInvoiceLine,
   type InvoiceLineLike,
@@ -109,7 +114,17 @@ function snapshotOf(sub: Stripe.Subscription): SubscriptionSnapshot {
 
   return {
     status: sub.status,
+    latestInvoiceId: invoice?.id ?? null,
     latestInvoiceStatus: (invoice?.status ?? null) as InvoiceStatus | null,
+    nextPaymentAttempt:
+      typeof invoice?.next_payment_attempt === 'number' && invoice.next_payment_attempt > 0
+        ? new Date(invoice.next_payment_attempt * 1000).toISOString()
+        : null,
+    // An absent next attempt is not proof that collection ended, so the
+    // corroborating subscription state is carried explicitly.
+    collectionState: (sub.status === 'canceled' || sub.status === 'incomplete_expired'
+      ? 'terminated'
+      : 'live') as CollectionState,
     linePeriodStart:
       selection.kind === 'found' ? selection.periodStart?.toISOString() ?? null : null,
     linePeriodEnd:
@@ -191,6 +206,46 @@ async function getStripeSubscriptionSnapshots(
   return found
 }
 
+/**
+ * Invoice-scoped refund evidence, called LAZILY by rule 3 and only for
+ * candidates that already passed the terminal-status gate. Today that is zero
+ * subscriptions, and in normal operation a handful, so the run stays at one
+ * listing plus a couple of lookups.
+ *
+ * Every failure path is 'unknown', never 'none'. A lookup that succeeded and
+ * found nothing refunded is evidence; a lookup that failed is not, and the
+ * classifier turns 'unknown' into "leave this family alone".
+ */
+async function resolveInvoiceRefundState(invoiceId: string | null): Promise<RefundState> {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key || !invoiceId) return classifyRefund({ lookupSucceeded: false, charge: null })
+  try {
+    const stripe = new Stripe(key, { apiVersion: '2026-02-25.clover' })
+    const payments = await stripe.invoicePayments.list({ invoice: invoiceId, limit: 10 })
+    const paid = payments.data.find((p) => p.status === 'paid')
+    if (!paid) return classifyRefund({ lookupSucceeded: true, charge: null })
+
+    const piRef = paid.payment?.payment_intent
+    const piId = typeof piRef === 'string' ? piRef : piRef?.id ?? null
+    if (!piId) return classifyRefund({ lookupSucceeded: false, charge: null })
+
+    const pi = await stripe.paymentIntents.retrieve(piId, { expand: ['latest_charge'] })
+    const charge =
+      pi.latest_charge && typeof pi.latest_charge === 'object'
+        ? (pi.latest_charge as Stripe.Charge)
+        : null
+    if (!charge) return classifyRefund({ lookupSucceeded: false, charge: null })
+
+    return classifyRefund({
+      lookupSucceeded: true,
+      charge: { amount: charge.amount, amountRefunded: charge.amount_refunded },
+    })
+  } catch (err) {
+    console.error('[cron/expire-subscriptions] refund lookup failed for invoice', invoiceId, err)
+    return classifyRefund({ lookupSucceeded: false, charge: null })
+  }
+}
+
 export async function GET(request: Request) {
   // Vercel cron authentication, same shape as the other cron routes.
   if (
@@ -214,7 +269,11 @@ export async function GET(request: Request) {
     new Date(),
     console.log,
     isStripeSubscriptionLive,
-    { dryRun, getSubscriptionSnapshots: getStripeSubscriptionSnapshots },
+    {
+      dryRun,
+      getSubscriptionSnapshots: getStripeSubscriptionSnapshots,
+      getInvoiceRefundState: resolveInvoiceRefundState,
+    },
   )
   if (!result.ok) {
     console.error('[cron/expire-subscriptions] failed:', result.error)

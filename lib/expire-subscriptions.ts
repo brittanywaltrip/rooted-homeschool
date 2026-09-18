@@ -1,4 +1,9 @@
-import { classifyPaidThrough, type InvoiceStatus } from "./paid-through.ts";
+import {
+  classifyPaidThrough,
+  type CollectionState,
+  type InvoiceStatus,
+  type RefundState,
+} from "./paid-through.ts";
 
 // The nightly downgrade for paid time that has run out, with the client passed
 // in so node --test can run it (the cron route imports next/server and the "@/"
@@ -117,11 +122,21 @@ export type SubscriptionLiveCheck = (subscriptionId: string) => Promise<boolean 
 export type SubscriptionSnapshot = {
   /** Stripe's own status string, e.g. 'active' | 'canceled' | 'past_due'. */
   status: string;
+  /** The latest invoice's id, so refund evidence can be fetched lazily. */
+  latestInvoiceId: string | null;
   /**
    * Status of the subscription's latest invoice, or null when it could not be
    * read. Rule 3 classifies from this, never from a period end.
    */
   latestInvoiceStatus: InvoiceStatus | null;
+  /** Stripe's next scheduled collection attempt for that invoice, ISO. */
+  nextPaymentAttempt: string | null;
+  /**
+   * Whether Stripe has definitively stopped collecting, corroborated by the
+   * freshly listed subscription. An absent next attempt is NOT proof on its
+   * own, so this is carried explicitly rather than inferred.
+   */
+  collectionState: CollectionState;
   /**
    * The billed line period for THIS subscription, ISO, or null when the right
    * line could not be identified deterministically (see
@@ -185,6 +200,17 @@ export interface SweepOptions {
    * stays opt-in and the existing two rules behave exactly as before.
    */
   getSubscriptionSnapshots?: SubscriptionSnapshotBatch;
+  /**
+   * Invoice-scoped refund evidence, resolved LAZILY and only for candidates
+   * that already passed the terminal-status gate. That keeps the run to one
+   * Stripe listing plus a lookup for the handful of genuinely finished
+   * subscriptions, rather than a lookup per subscriber.
+   *
+   * When it is not supplied, refund state is "unknown", which classifies as
+   * unknown and leaves every family alone. Rule 3 refuses to manufacture "not
+   * refunded" out of a lookup it never performed.
+   */
+  getInvoiceRefundState?: (invoiceId: string | null) => Promise<RefundState>;
 }
 
 /** One change the sweep made, or would make on a dry run. */
@@ -377,23 +403,39 @@ export async function sweepExpiredAccess(
       //
       // The row's own current_period_end is deliberately NOT consulted as a
       // fallback any more. It is a copy of the same untrustworthy field.
+      // Refund evidence, fetched only now that the terminal gate has passed.
+      // Absent a resolver this is "unknown", which classifies as unknown and
+      // writes nothing: never a manufactured "not refunded".
+      const refundState: RefundState = options.getInvoiceRefundState
+        ? await options.getInvoiceRefundState(snap.latestInvoiceId)
+        : "unknown";
+
       const classification = classifyPaidThrough({
         latestInvoiceStatus: snap.latestInvoiceStatus,
         latestInvoiceLinePeriodStart: toDateOrNull(snap.linePeriodStart),
         latestInvoiceLinePeriodEnd: toDateOrNull(snap.linePeriodEnd),
-        // Rule 3 only ever SYNCHRONISES state and never revokes, so it does
-        // not carry charge-level refund data. Refund scoping belongs to the
-        // webhook path, which is the one that can take access away.
-        currentChargeFullyRefunded: false,
+        latestInvoiceNextPaymentAttempt: toDateOrNull(snap.nextPaymentAttempt),
+        collectionState: snap.collectionState,
+        refundState,
+        now,
       });
 
+      if (classification.kind === "pending") {
+        log(
+          tag,
+          "reconcile left alone, Stripe is still collecting until",
+          classification.retryAt.toISOString(), r.id, subId,
+        );
+        continue;
+      }
       if (classification.kind === "unknown") {
         log(
           tag,
-          "reconcile left alone, no trustworthy paid-through date",
+          "reconcile left alone,", classification.reason,
           r.id, subId,
           "stripe:", snap.status,
           "invoice:", snap.latestInvoiceStatus ?? "unreadable",
+          "refund:", refundState,
         );
         continue;
       }
