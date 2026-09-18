@@ -23,7 +23,10 @@ async function main() {
     console.log(JSON.stringify(report, null, 2))
   } else {
     console.log('\n=== Stripe ↔ Profile linkage audit ===')
-    console.log(`Stripe active/trialing subs: ${report.stripeActiveCount}`)
+    const byStatus = Object.entries(report.stripeCountsByStatus)
+      .map(([status, n]) => `${status}=${n}`)
+      .join(' ')
+    console.log(`Stripe billable subs:         ${report.stripeBillableCount} (${byStatus || 'none'})`)
     console.log(`Paid profiles:                ${report.paidProfilesCount}`)
     console.log(`Issues found:                 ${report.issueCount}`)
     for (const issue of report.issues) {

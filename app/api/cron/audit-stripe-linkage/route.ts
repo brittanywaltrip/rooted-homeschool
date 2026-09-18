@@ -23,7 +23,8 @@ export async function GET(req: Request) {
   try {
     const report = await runStripeLinkageAudit(stripe, supabase)
     console.log('[cron:audit-stripe-linkage]', {
-      stripeActiveCount: report.stripeActiveCount,
+      stripeBillableCount: report.stripeBillableCount,
+      stripeCountsByStatus: report.stripeCountsByStatus,
       paidProfilesCount: report.paidProfilesCount,
       issueCount: report.issueCount,
     })

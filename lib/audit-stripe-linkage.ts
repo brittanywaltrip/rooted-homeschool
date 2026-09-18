@@ -22,7 +22,35 @@ const PAID_PLAN_TYPES = ['founding_family', 'standard', 'monthly', 'gift'] as co
 export type LinkageIssueKind =
   | 'STRIPE_WITHOUT_PROFILE'
   | 'PROFILE_WITHOUT_STRIPE'
+  | 'PROFILE_IN_DUNNING'
   | 'FIELD_DRIFT'
+
+/**
+ * Statuses that still represent a live billing relationship, and therefore
+ * belong in the Stripe-side population.
+ *
+ * past_due is the fix: a family mid-collection was in NEITHER listing, so their
+ * customer id was absent from the Stripe side and they fell through to
+ * PROFILE_WITHOUT_STRIPE, which is meant to mean "entitlement with no Stripe
+ * backing". A bounced card was therefore indistinguishable from a genuine
+ * orphan, which is the more damaging half: it dilutes a finding that should
+ * always be taken seriously.
+ *
+ * unpaid is included even though it is unreachable under Rooted's current
+ * dunning configuration, which cancels the subscription once Smart Retries are
+ * exhausted rather than marking it unpaid. Three reasons: the listing is empty
+ * today so it costs one request that returns nothing; that configuration is a
+ * Dashboard toggle that can change without any code change here; and if it ever
+ * did occur it would reproduce exactly the bug this commit fixes.
+ *
+ * incomplete is deliberately NOT included. Those subscriptions never reached
+ * linkStripeSubscription, so their profiles carry no paid plan_type and are not
+ * loaded by listPaidProfiles at all. They cannot produce the false positive.
+ */
+const BILLABLE_STRIPE_STATUSES = ['active', 'trialing', 'past_due', 'unpaid'] as const
+
+/** The subset of the above that means "Stripe is still trying to collect". */
+const DUNNING_STRIPE_STATUSES = new Set<string>(['past_due', 'unpaid'])
 
 export interface LinkageIssue {
   kind: LinkageIssueKind
@@ -33,7 +61,14 @@ export interface LinkageIssue {
 }
 
 export interface LinkageAuditReport {
-  stripeActiveCount: number
+  /**
+   * Subscriptions in a live billing relationship: active, trialing, past_due
+   * and unpaid. Renamed from stripeActiveCount, which stopped being literally
+   * true once dunning statuses joined the population. The per-status breakdown
+   * below keeps "how many are actually active" answerable.
+   */
+  stripeBillableCount: number
+  stripeCountsByStatus: Record<string, number>
   paidProfilesCount: number
   issueCount: number
   issues: LinkageIssue[]
@@ -80,19 +115,16 @@ function expectedPaidThrough(sub: Stripe.Subscription): Date | null {
     : null
 }
 
-async function listActiveStripeSubscriptions(stripe: Stripe): Promise<Stripe.Subscription[]> {
+async function listBillableStripeSubscriptions(stripe: Stripe): Promise<Stripe.Subscription[]> {
   const all: Stripe.Subscription[] = []
   // latest_invoice is expanded so the audit can judge current_period_end by the
   // same evidence the writer used: a PAID invoice's billed line.
-  for await (const sub of stripe.subscriptions.list({
-    status: 'active', limit: 100, expand: ['data.latest_invoice'],
-  })) {
-    all.push(sub)
-  }
-  for await (const sub of stripe.subscriptions.list({
-    status: 'trialing', limit: 100, expand: ['data.latest_invoice'],
-  })) {
-    all.push(sub)
+  for (const status of BILLABLE_STRIPE_STATUSES) {
+    for await (const sub of stripe.subscriptions.list({
+      status, limit: 100, expand: ['data.latest_invoice'],
+    })) {
+      all.push(sub)
+    }
   }
   return all
 }
@@ -158,7 +190,7 @@ export async function runStripeLinkageAudit(
   stripe: Stripe,
   supabase: SupabaseClient,
 ): Promise<LinkageAuditReport> {
-  const stripeSubs = await listActiveStripeSubscriptions(stripe)
+  const stripeSubs = await listBillableStripeSubscriptions(stripe)
   const profiles = await listPaidProfiles(supabase)
 
   const profilesByCustomer = new Map<string, ProfileRow>()
@@ -179,9 +211,24 @@ export async function runStripeLinkageAudit(
         kind: 'STRIPE_WITHOUT_PROFILE',
         customerId,
         subscriptionId: sub.id,
-        details: `active Stripe sub has no profile linked — ${sub.status}, created ${new Date(sub.created * 1000).toISOString()}`,
+        details: `Stripe sub has no profile linked — ${sub.status}, created ${new Date(sub.created * 1000).toISOString()}`,
       })
       continue
+    }
+    // A family mid-collection is a real, recoverable customer, not an error.
+    // Reported so it is visible, with its own kind so it can never be mistaken
+    // for an orphan. Drift checks still run below: is_pro, subscription_status,
+    // legacy_free and the subscription id are all just as meaningful during
+    // dunning, and the current_period_end comparison already declines to judge
+    // when the latest invoice is unpaid.
+    if (DUNNING_STRIPE_STATUSES.has(sub.status)) {
+      issues.push({
+        kind: 'PROFILE_IN_DUNNING',
+        customerId,
+        subscriptionId: sub.id,
+        userId: profile.id,
+        details: `Stripe is still collecting — subscription is ${sub.status}; access is unchanged and this is informational`,
+      })
     }
     const drift = detectFieldDrift(profile, sub)
     if (drift.length > 0) {
@@ -199,18 +246,30 @@ export async function runStripeLinkageAudit(
     if (!profile.stripe_customer_id) continue
     if (profile.plan_type === 'gift') continue
     if (profile.plan_type === 'partner_comp') continue
+    // A cancelled profile is not claiming a live subscription. Rooted honours
+    // the term a family already paid for, so is_pro stays true with a future
+    // subscription_end_date and no Stripe subscription, by design, until the
+    // nightly sweep downgrades them. Flagging that as an orphan is a false
+    // positive, and there are 2 such profiles today.
+    if (profile.subscription_status === 'cancelled') continue
     if (!stripeCustomerIds.has(profile.stripe_customer_id)) {
       issues.push({
         kind: 'PROFILE_WITHOUT_STRIPE',
         userId: profile.id,
         customerId: profile.stripe_customer_id,
-        details: `profile is ${profile.plan_type}/${profile.subscription_status} but Stripe has no active sub for customer ${profile.stripe_customer_id}`,
+        details: `profile is ${profile.plan_type}/${profile.subscription_status} but Stripe has no billable subscription for customer ${profile.stripe_customer_id}`,
       })
     }
   }
 
+  const stripeCountsByStatus: Record<string, number> = {}
+  for (const sub of stripeSubs) {
+    stripeCountsByStatus[sub.status] = (stripeCountsByStatus[sub.status] ?? 0) + 1
+  }
+
   return {
-    stripeActiveCount: stripeSubs.length,
+    stripeBillableCount: stripeSubs.length,
+    stripeCountsByStatus,
     paidProfilesCount: profiles.length,
     issueCount: issues.length,
     issues,
