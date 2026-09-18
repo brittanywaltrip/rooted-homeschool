@@ -38,6 +38,41 @@
 //    value a family with no paid plan carries (the column's default). Not
 //    'cancelled': nobody cancelled anything, and admin reads that as churn.
 //
+// 3. A paid profile whose Stripe subscription is over, but whose row never
+//    heard about it (September 2026).
+//      is_pro = true
+//      stripe_subscription_id is set
+//      subscription_status is anything but 'cancelled'
+//      plan_type is not 'gift'                (rule 2 owns those)
+//      and Stripe DEFINITIVELY reports that subscription canceled
+//    Rule 1 can only act on a row that already carries 'cancelled' and an end
+//    date. A row that never got them is invisible to it forever, which is what
+//    happened when a stale customer.subscription.updated landed after the
+//    deleted event and linkStripeSubscription reset subscription_status to
+//    'active' and subscription_end_date to null (fixed going forward by the
+//    webhook's stale-event guard, e6cdeb4). Any deleted event that is lost,
+//    fails permanently, or was never subscribed leaves the same shape. This
+//    rule makes Stripe the source of truth so the row heals itself.
+//
+//    It only ever SYNCHRONISES state: it writes subscription_status
+//    'cancelled' and subscription_end_date = the end of the term the family
+//    paid for, and never touches is_pro or plan_type. Rule 1 then ends access
+//    on the correct day, on its own schedule. So this rule can never take
+//    access away from anyone, which is the point: the worst it can do is hand
+//    rule 1 a date.
+//
+//    "Definitively canceled" means Stripe answered and said 'canceled' or
+//    'incomplete_expired'. Anything else (active, trialing, past_due, unpaid,
+//    incomplete, paused) is left alone, and so is a subscription Stripe could
+//    not be asked about, or one with no paid-through date to write. Nobody is
+//    synchronised on a guess, and no end date is ever invented.
+//
+//    Idempotent by construction: the write sets subscription_status
+//    'cancelled', which removes the row from this rule's own candidate filter,
+//    so a second run finds nothing. The write re-asserts is_pro and the
+//    subscription id, so a family who resubscribed between the read and the
+//    write (linkStripeSubscription gives them a new id) is never stamped.
+//
 // The family portal links the gift extended (family_invites.trial_ends_at) are
 // left alone: the portal's own after-end-date rule handles them.
 
@@ -63,6 +98,7 @@ type DueRow = {
   subscription_end_date?: string | null;
   current_period_end?: string | null;
   stripe_subscription_id?: string | null;
+  subscription_status?: string | null;
 };
 
 /**
@@ -71,8 +107,88 @@ type DueRow = {
  */
 export type SubscriptionLiveCheck = (subscriptionId: string) => Promise<boolean | null>;
 
+/**
+ * What Stripe currently says about one subscription. `null` from the check
+ * means Stripe could not be asked, or could not answer, and the row must be
+ * left alone.
+ */
+export type SubscriptionSnapshot = {
+  /** Stripe's own status string, e.g. 'active' | 'canceled' | 'past_due'. */
+  status: string;
+  /** End of the term the family paid for, ISO, or null if Stripe gave none. */
+  periodEnd: string | null;
+};
+
+export type SubscriptionSnapshotCheck = (
+  subscriptionId: string,
+) => Promise<SubscriptionSnapshot | null>;
+
+/**
+ * Bulk form: given the subscription ids rule 3 cares about, return what Stripe
+ * says about them, as a map keyed by subscription id.
+ *
+ * The contract that keeps this as conservative as asking one at a time:
+ * **an id missing from the map means "Stripe did not tell us", never "gone".**
+ * A subscription Stripe did not return, because the listing was cut short, the
+ * page errored, or for any other reason, is inconclusive and its family is left
+ * alone. Only an id that IS in the map, carrying a terminal status, is acted on.
+ *
+ * Returning null means Stripe could not be asked at all, and rule 3 sits out the
+ * whole run.
+ */
+export type SubscriptionSnapshotBatch = (
+  subscriptionIds: string[],
+) => Promise<Map<string, SubscriptionSnapshot> | null>;
+
+/** Stripe statuses that mean the subscription is definitively over. */
+const TERMINAL_STRIPE_STATUSES = new Set(["canceled", "incomplete_expired"]);
+
+export interface SweepOptions {
+  /**
+   * Compute and report every change without writing any of them. Suppresses
+   * ALL THREE rules' writes, not just the reconciliation, so a dry run can
+   * never expire anybody either.
+   */
+  dryRun?: boolean;
+  /**
+   * Supplies rule 3 with Stripe's current view of a subscription, one id at a
+   * time. Kept as the reference semantics and for tests; in production prefer
+   * getSubscriptionSnapshots, which asks Stripe once instead of once per
+   * subscriber. When both are given the bulk form wins.
+   */
+  getSubscriptionSnapshot?: SubscriptionSnapshotCheck;
+  /**
+   * Bulk form of the above: one Stripe listing for the whole run rather than
+   * one API call per paid subscriber. Identical decision rules apply, because
+   * both forms end up as the same map and an absent id is inconclusive either
+   * way. Rule 3 does not run at all when neither is supplied, so reconciliation
+   * stays opt-in and the existing two rules behave exactly as before.
+   */
+  getSubscriptionSnapshots?: SubscriptionSnapshotBatch;
+}
+
+/** One change the sweep made, or would make on a dry run. */
+export type PlannedWrite = {
+  id: string;
+  rule: "cancelled-term-ended" | "gift-ended" | "reconcile-cancelled";
+  patch: Record<string, unknown>;
+  because: string;
+};
+
 export type SweepResult =
-  | { ok: true; expired: number; ids: string[]; giftsExpired: number; giftIds: string[] }
+  | {
+      ok: true;
+      expired: number;
+      ids: string[];
+      giftsExpired: number;
+      giftIds: string[];
+      /** Rows rule 3 synchronised with Stripe (state only, no downgrade). */
+      reconciled: number;
+      reconciledIds: string[];
+      /** Every write made, or on a dry run every write that would be made. */
+      planned: PlannedWrite[];
+      dryRun: boolean;
+    }
   | { ok: false; error: string };
 
 export async function sweepExpiredAccess(
@@ -80,10 +196,32 @@ export async function sweepExpiredAccess(
   now: Date = new Date(),
   log: (...parts: unknown[]) => void = console.log,
   isSubscriptionLive: SubscriptionLiveCheck = async () => null,
+  options: SweepOptions = {},
 ): Promise<SweepResult> {
   const nowIso = now.toISOString();
+  const dryRun = options.dryRun ?? false;
+  // One decision path regardless of which source was supplied: both forms are
+  // reduced to a map, and rule 3 only ever reads that map. The per-id form is
+  // adapted rather than duplicated, so the two cannot drift apart.
+  const singleSnapshot = options.getSubscriptionSnapshot;
+  const resolveSnapshots: SubscriptionSnapshotBatch | undefined =
+    options.getSubscriptionSnapshots ??
+    (singleSnapshot
+      ? async (ids) => {
+          const map = new Map<string, SubscriptionSnapshot>();
+          for (const id of ids) {
+            const snap = await singleSnapshot(id);
+            // A null answer means Stripe could not tell us. Leaving the id out
+            // of the map is exactly how the bulk form reports the same thing.
+            if (snap) map.set(id, snap);
+          }
+          return map;
+        }
+      : undefined);
+  const tag = dryRun ? "[cron/expire-subscriptions][dry-run]" : "[cron/expire-subscriptions]";
+  const planned: PlannedWrite[] = [];
 
-  const [cancelledRead, giftRead] = await Promise.all([
+  const [cancelledRead, giftRead, reconcileRead] = await Promise.all([
     client
       .from("profiles")
       .select("id, display_name, plan_type, subscription_end_date")
@@ -98,9 +236,20 @@ export async function sweepExpiredAccess(
       .eq("is_pro", true)
       .not("current_period_end", "is", null)
       .lt("current_period_end", nowIso),
+    // Rule 3 candidates. Deliberately broad in SQL and narrowed in JS below,
+    // because "anything but 'cancelled'" has to include NULL, which PostgREST
+    // cannot express as a single filter.
+    resolveSnapshots
+      ? client
+          .from("profiles")
+          .select("id, display_name, plan_type, subscription_status, subscription_end_date, current_period_end, stripe_subscription_id")
+          .eq("is_pro", true)
+          .not("stripe_subscription_id", "is", null)
+      : Promise.resolve({ data: [], error: null }),
   ]);
   if (cancelledRead.error) return { ok: false, error: `read cancelled: ${cancelledRead.error.message}` };
   if (giftRead.error) return { ok: false, error: `read gifts: ${giftRead.error.message}` };
+  if (reconcileRead.error) return { ok: false, error: `read reconcile: ${reconcileRead.error.message}` };
 
   const cancelled = (cancelledRead.data ?? []) as DueRow[];
   const giftCandidates = ((giftRead.data ?? []) as DueRow[]).filter((g) => !cancelled.some((c) => c.id === g.id));
@@ -119,33 +268,122 @@ export async function sweepExpiredAccess(
   }
 
   if (cancelled.length > 0) {
-    const { error } = await client
-      .from("profiles")
-      .update({ is_pro: false, plan_type: null })
-      .in("id", cancelled.map((p) => p.id));
-    if (error) return { ok: false, error: `write cancelled: ${error.message}` };
     for (const p of cancelled) {
-      log("[cron/expire-subscriptions] expired", p.id, p.display_name ?? "(no name)", "term ended", p.subscription_end_date);
+      planned.push({
+        id: p.id,
+        rule: "cancelled-term-ended",
+        patch: { is_pro: false, plan_type: null },
+        because: `paid term ended ${p.subscription_end_date}`,
+      });
+    }
+    if (!dryRun) {
+      const { error } = await client
+        .from("profiles")
+        .update({ is_pro: false, plan_type: null })
+        .in("id", cancelled.map((p) => p.id));
+      if (error) return { ok: false, error: `write cancelled: ${error.message}` };
+    }
+    for (const p of cancelled) {
+      log(tag, "expired", p.id, p.display_name ?? "(no name)", "term ended", p.subscription_end_date);
     }
   }
 
   if (gifts.length > 0) {
-    const { error } = await client
-      .from("profiles")
-      .update({ is_pro: false, plan_type: null, subscription_status: "free" })
-      .in("id", gifts.map((p) => p.id))
-      // Re-assert the rule in the write: subscribing rewrites plan_type, so a
-      // family who subscribed between the read and this update is never
-      // downgraded.
-      .eq("plan_type", "gift")
-      .eq("is_pro", true);
-    if (error) return { ok: false, error: `write gifts: ${error.message}` };
     for (const p of gifts) {
-      log("[cron/expire-subscriptions] expired gift", p.id, p.display_name ?? "(no name)", "gift ended", p.current_period_end);
+      planned.push({
+        id: p.id,
+        rule: "gift-ended",
+        patch: { is_pro: false, plan_type: null, subscription_status: "free" },
+        because: `gifted year ended ${p.current_period_end}`,
+      });
+    }
+    if (!dryRun) {
+      const { error } = await client
+        .from("profiles")
+        .update({ is_pro: false, plan_type: null, subscription_status: "free" })
+        .in("id", gifts.map((p) => p.id))
+        // Re-assert the rule in the write: subscribing rewrites plan_type, so a
+        // family who subscribed between the read and this update is never
+        // downgraded.
+        .eq("plan_type", "gift")
+        .eq("is_pro", true);
+      if (error) return { ok: false, error: `write gifts: ${error.message}` };
+    }
+    for (const p of gifts) {
+      log(tag, "expired gift", p.id, p.display_name ?? "(no name)", "gift ended", p.current_period_end);
     }
   }
 
-  if (cancelled.length === 0 && gifts.length === 0) log("[cron/expire-subscriptions] nothing due");
+  // ── Rule 3: make Stripe the source of truth for paid rows ────────────────
+  const reconciled: DueRow[] = [];
+  if (resolveSnapshots) {
+    const handled = new Set([...cancelled.map((r) => r.id), ...gifts.map((r) => r.id)]);
+    const candidates = ((reconcileRead.data ?? []) as DueRow[]).filter(
+      (r) =>
+        !handled.has(r.id) &&
+        r.plan_type !== "gift" &&
+        r.subscription_status !== "cancelled" &&
+        !!r.stripe_subscription_id,
+    );
+
+    // One Stripe round trip for the whole run instead of one per subscriber.
+    const wantedIds = [...new Set(candidates.map((r) => r.stripe_subscription_id as string))];
+    const snapshots = wantedIds.length > 0 ? await resolveSnapshots(wantedIds) : new Map();
+
+    if (!snapshots) {
+      // Stripe could not be asked at all. Nobody is synchronised on silence.
+      log(tag, "reconcile skipped for the whole run, Stripe could not be reached");
+    }
+    // No snapshots means no candidates are considered at all this run.
+    const confirmed = snapshots ?? new Map<string, SubscriptionSnapshot>();
+    const toCheck = snapshots ? candidates : [];
+
+    for (const r of toCheck) {
+      const subId = r.stripe_subscription_id as string;
+      const snap = confirmed.get(subId);
+
+      if (!snap) {
+        // Absent from the map is "Stripe did not tell us", never "gone".
+        log(tag, "reconcile left alone, Stripe could not confirm", r.id, subId);
+        continue;
+      }
+      if (!TERMINAL_STRIPE_STATUSES.has(snap.status)) continue;
+
+      // Never invent a date. Stripe's period end first, the row's own
+      // current_period_end second, and if neither exists the row waits.
+      const paidThrough = snap.periodEnd ?? r.current_period_end ?? null;
+      if (!paidThrough) {
+        log(tag, "reconcile left alone, no paid-through date to write", r.id, subId, "stripe:", snap.status);
+        continue;
+      }
+
+      const patch = { subscription_status: "cancelled", subscription_end_date: paidThrough };
+      planned.push({
+        id: r.id,
+        rule: "reconcile-cancelled",
+        patch,
+        because: `Stripe reports ${snap.status} for ${subId}; profile still says ${r.subscription_status ?? "null"}`,
+      });
+
+      if (!dryRun) {
+        const { error } = await client
+          .from("profiles")
+          .update(patch)
+          .eq("id", r.id)
+          // Re-assert what was read. A family downgraded in the meantime, or one
+          // who resubscribed (linkStripeSubscription writes them a new
+          // subscription id), is never stamped on the strength of a stale read.
+          .eq("is_pro", true)
+          .eq("stripe_subscription_id", subId);
+        if (error) return { ok: false, error: `write reconcile: ${error.message}` };
+      }
+
+      reconciled.push(r);
+      log(tag, "reconciled", r.id, r.display_name ?? "(no name)", "stripe:", snap.status, "paid through", paidThrough);
+    }
+  }
+
+  if (cancelled.length === 0 && gifts.length === 0 && reconciled.length === 0) log(tag, "nothing due");
 
   return {
     ok: true,
@@ -153,5 +391,9 @@ export async function sweepExpiredAccess(
     ids: cancelled.map((p) => p.id),
     giftsExpired: gifts.length,
     giftIds: gifts.map((p) => p.id),
+    reconciled: reconciled.length,
+    reconciledIds: reconciled.map((p) => p.id),
+    planned,
+    dryRun,
   };
 }

@@ -4,7 +4,11 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { sweepExpiredAccess, type SweepClient } from "./expire-subscriptions.ts";
+import {
+  sweepExpiredAccess,
+  type SweepClient,
+  type SubscriptionSnapshot,
+} from "./expire-subscriptions.ts";
 
 type Row = Record<string, unknown>;
 
@@ -64,8 +68,49 @@ function rows(): Row[] {
     { id: "gift-unknown", display_name: "Unconfirmed", plan_type: "gift", is_pro: true, subscription_status: "active", stripe_subscription_id: "sub_unknown", current_period_end: PAST, subscription_end_date: null },
     // An active paying subscriber.
     { id: "active", display_name: "Active", plan_type: "monthly", is_pro: true, subscription_status: "active", stripe_subscription_id: "sub_live", current_period_end: PAST, subscription_end_date: null },
+    // ── Rule 3 fixtures ──────────────────────────────────────────────────
+    // The shape the stale-event bug left behind: Stripe cancelled the
+    // subscription, then a late customer.subscription.updated reset the row to
+    // 'active' with a null end date, so rule 1 could never see it again.
+    { id: "stale-victim", display_name: "Stale Victim", plan_type: "standard", is_pro: true, subscription_status: "active", stripe_subscription_id: "sub_canceled", current_period_end: FUTURE, subscription_end_date: null },
+    // Same shape, but the term it was paid through is already over.
+    { id: "stale-victim-expired", display_name: "Stale Expired", plan_type: "standard", is_pro: true, subscription_status: "active", stripe_subscription_id: "sub_canceled_past", current_period_end: PAST, subscription_end_date: null },
+    // Stripe cannot be reached for this one.
+    { id: "reconcile-unknown", display_name: "Unreachable", plan_type: "standard", is_pro: true, subscription_status: "active", stripe_subscription_id: "sub_unreachable", current_period_end: FUTURE, subscription_end_date: null },
+    // Stripe answers, but not with a terminal status.
+    { id: "reconcile-past-due", display_name: "Past Due", plan_type: "standard", is_pro: true, subscription_status: "past_due", stripe_subscription_id: "sub_pastdue", current_period_end: FUTURE, subscription_end_date: null },
+    // Cancelled in Stripe, but there is no paid-through date anywhere.
+    { id: "reconcile-no-date", display_name: "No Date", plan_type: "standard", is_pro: true, subscription_status: "active", stripe_subscription_id: "sub_canceled_nodate", current_period_end: null, subscription_end_date: null },
   ];
 }
+
+// What Stripe reports for each subscription id in the fixtures. null is the
+// "could not be asked, or could not answer" case.
+const snapshots: Record<string, SubscriptionSnapshot | null> = {
+  sub_canceled: { status: "canceled", periodEnd: FUTURE },
+  sub_canceled_past: { status: "canceled", periodEnd: PAST },
+  sub_canceled_nodate: { status: "canceled", periodEnd: null },
+  sub_pastdue: { status: "past_due", periodEnd: FUTURE },
+  sub_live: { status: "active", periodEnd: FUTURE },
+  sub_unreachable: null,
+};
+const stripeSnapshot = async (id: string): Promise<SubscriptionSnapshot | null> =>
+  snapshots[id] ?? null;
+
+/** The sweep with rule 3 switched on. */
+const sweepWithReconcile = (
+  profiles: Row[],
+  logs: string[] = [],
+  dryRun = false,
+  snapshot = stripeSnapshot,
+) =>
+  sweepExpiredAccess(
+    fakeClient(profiles),
+    NOW,
+    (...p) => logs.push(p.join(" ")),
+    stripeSays,
+    { dryRun, getSubscriptionSnapshot: snapshot },
+  );
 
 test("a gift past its end date is expired, to free, and logged", async () => {
   const profiles = rows();
@@ -116,4 +161,308 @@ test("a gift to a former subscriber ends when Stripe says the old subscription i
   const unknown = profiles.find((p) => p.id === "gift-unknown")!;
   assert.equal(unknown.is_pro, true, "never downgraded on a guess");
   assert.ok(logs.some((l) => l.includes("gift left alone, Stripe could not confirm gift-unknown")));
+});
+
+// ── Rule 3: reconcile paid rows against Stripe ──────────────────────────────
+
+test("rule 3 does not run at all unless a Stripe snapshot source is supplied", async () => {
+  const profiles = rows();
+  const out = await sweepExpiredAccess(fakeClient(profiles), NOW, () => {}, stripeSays);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 0);
+  const victim = profiles.find((p) => p.id === "stale-victim")!;
+  assert.equal(victim.subscription_status, "active", "untouched when rule 3 is off");
+  assert.equal(victim.subscription_end_date, null);
+});
+
+test("an active Stripe subscription is never touched by reconciliation", async () => {
+  const profiles = rows();
+  const out = await sweepWithReconcile(profiles);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.ok(!out.reconciledIds.includes("active"), "an active subscriber is not reconciled");
+  const a = profiles.find((p) => p.id === "active")!;
+  assert.equal(a.is_pro, true);
+  assert.equal(a.subscription_status, "active");
+  assert.equal(a.subscription_end_date, null);
+});
+
+test("a cancelled Stripe subscription is synchronised: status and end date only, never entitlement", async () => {
+  const profiles = rows();
+  const logs: string[] = [];
+  const out = await sweepWithReconcile(profiles, logs);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.deepEqual(out.reconciledIds, ["stale-victim", "stale-victim-expired"]);
+
+  const v = profiles.find((p) => p.id === "stale-victim")!;
+  assert.equal(v.subscription_status, "cancelled");
+  assert.equal(v.subscription_end_date, FUTURE, "stamped with the term Stripe says they paid through");
+  assert.equal(v.is_pro, true, "reconciliation never removes access");
+  assert.equal(v.plan_type, "standard", "reconciliation never clears the plan");
+  assert.ok(logs.some((l) => l.includes("reconciled stale-victim")));
+});
+
+test("reconciliation hands rule 1 a date, and rule 1 ends access on the next run", async () => {
+  const profiles = rows();
+  const first = await sweepWithReconcile(profiles);
+  assert.ok(first.ok);
+  if (!first.ok) return;
+  assert.ok(first.reconciledIds.includes("stale-victim-expired"));
+  const row = profiles.find((p) => p.id === "stale-victim-expired")!;
+  assert.equal(row.is_pro, true, "still entitled immediately after being stamped");
+  assert.equal(row.subscription_end_date, PAST);
+
+  const second = await sweepWithReconcile(profiles);
+  assert.ok(second.ok);
+  if (!second.ok) return;
+  assert.ok(second.ids.includes("stale-victim-expired"), "rule 1 picks it up once it carries a past end date");
+  assert.equal(row.is_pro, false);
+  assert.equal(row.plan_type, null);
+  assert.equal(row.subscription_status, "cancelled");
+});
+
+test("a row Stripe cannot answer for, or answers non-terminally for, is left alone", async () => {
+  const profiles = rows();
+  const logs: string[] = [];
+  const out = await sweepWithReconcile(profiles, logs);
+  assert.ok(out.ok);
+
+  const unknown = profiles.find((p) => p.id === "reconcile-unknown")!;
+  assert.equal(unknown.subscription_status, "active", "never synchronised on a guess");
+  assert.equal(unknown.subscription_end_date, null);
+  assert.equal(unknown.is_pro, true);
+  assert.ok(logs.some((l) => l.includes("reconcile left alone, Stripe could not confirm reconcile-unknown")));
+
+  const pastDue = profiles.find((p) => p.id === "reconcile-past-due")!;
+  assert.equal(pastDue.subscription_status, "past_due", "past_due is not cancelled");
+  assert.equal(pastDue.subscription_end_date, null);
+  assert.equal(pastDue.is_pro, true);
+});
+
+test("a cancelled subscription with no paid-through date anywhere is left alone, never given an invented one", async () => {
+  const profiles = rows();
+  const logs: string[] = [];
+  await sweepWithReconcile(profiles, logs);
+  const nd = profiles.find((p) => p.id === "reconcile-no-date")!;
+  assert.equal(nd.subscription_status, "active");
+  assert.equal(nd.subscription_end_date, null);
+  assert.equal(nd.is_pro, true);
+  assert.ok(logs.some((l) => l.includes("reconcile left alone, no paid-through date to write reconcile-no-date")));
+});
+
+test("a second run is a no-op: reconciliation is idempotent", async () => {
+  const profiles = rows();
+  const first = await sweepWithReconcile(profiles);
+  assert.ok(first.ok);
+  if (!first.ok) return;
+  assert.equal(first.reconciled, 2);
+
+  const before = JSON.stringify(profiles.find((p) => p.id === "stale-victim"));
+  const second = await sweepWithReconcile(profiles);
+  assert.ok(second.ok);
+  if (!second.ok) return;
+  assert.equal(second.reconciled, 0, "nothing left to reconcile");
+  assert.deepEqual(second.reconciledIds, []);
+  assert.equal(JSON.stringify(profiles.find((p) => p.id === "stale-victim")), before, "row byte-identical after a second run");
+
+  const third = await sweepWithReconcile(profiles);
+  assert.ok(third.ok && third.reconciled === 0);
+});
+
+test("a family who resubscribed between the read and the write is never stamped", async () => {
+  const profiles = rows();
+  // Stripe answers "canceled" for the OLD id, but by the time the write lands
+  // linkStripeSubscription has given them a new subscription id.
+  const racing = async (id: string): Promise<SubscriptionSnapshot | null> => {
+    if (id === "sub_canceled") {
+      const row = profiles.find((p) => p.id === "stale-victim")!;
+      row.stripe_subscription_id = "sub_brand_new";
+      row.subscription_status = "active";
+    }
+    return snapshots[id] ?? null;
+  };
+  await sweepWithReconcile(profiles, [], false, racing);
+  const v = profiles.find((p) => p.id === "stale-victim")!;
+  assert.equal(v.subscription_status, "active", "the write guard rejected the stale read");
+  assert.equal(v.subscription_end_date, null);
+  assert.equal(v.is_pro, true);
+});
+
+test("a dry run reports every planned change and writes nothing, for all three rules", async () => {
+  const profiles = rows();
+  const snapshot = JSON.stringify(profiles);
+  const logs: string[] = [];
+  const out = await sweepWithReconcile(profiles, logs, true);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+
+  assert.equal(out.dryRun, true);
+  assert.equal(JSON.stringify(profiles), snapshot, "not one row changed");
+
+  const byRule = (r: string) => out.planned.filter((w) => w.rule === r).map((w) => w.id);
+  assert.deepEqual(byRule("reconcile-cancelled"), ["stale-victim", "stale-victim-expired"]);
+  assert.deepEqual(byRule("cancelled-term-ended"), ["cancelled-ended"], "rule 1 is suppressed too");
+  assert.deepEqual(byRule("gift-ended"), ["gift-ended", "gift-after-cancel"], "rule 2 is suppressed too");
+
+  const planned = out.planned.find((w) => w.id === "stale-victim")!;
+  assert.deepEqual(planned.patch, { subscription_status: "cancelled", subscription_end_date: FUTURE });
+  assert.ok(planned.because.includes("canceled"));
+  const actionLogs = logs.filter((l) => /(expired|reconciled) /.test(l));
+  assert.ok(actionLogs.length > 0);
+  assert.ok(
+    actionLogs.every((l) => l.startsWith("[cron/expire-subscriptions][dry-run]")),
+    "every line reporting a change is marked as a dry run",
+  );
+});
+
+test("rule 3 leaves gift rows to rule 2 and already-cancelled rows to rule 1", async () => {
+  const profiles = rows();
+  const out = await sweepWithReconcile(profiles);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  for (const id of ["gift-ended", "gift-running", "gift-then-paid", "gift-after-cancel", "gift-unknown", "cancelled-ended", "cancelled-running"]) {
+    assert.ok(!out.reconciledIds.includes(id), `${id} is not rule 3's to touch`);
+  }
+  assert.equal(profiles.find((p) => p.id === "cancelled-running")!.subscription_end_date, FUTURE, "an in-term cancellation keeps its own date");
+});
+
+// ── Rule 3, bulk form: one Stripe listing instead of one call per subscriber ──
+
+/** The bulk resolver built from the same fixture snapshots. */
+function bulkFrom(
+  map: Record<string, SubscriptionSnapshot | null> = snapshots,
+  calls: string[][] = [],
+) {
+  return async (ids: string[]) => {
+    calls.push(ids);
+    const out = new Map<string, SubscriptionSnapshot>();
+    for (const id of ids) {
+      const snap = map[id];
+      // An id Stripe did not return is simply absent from the map.
+      if (snap) out.set(id, snap);
+    }
+    return out;
+  };
+}
+
+const sweepWithBulk = (
+  profiles: Row[],
+  logs: string[] = [],
+  dryRun = false,
+  bulk = bulkFrom(),
+) =>
+  sweepExpiredAccess(fakeClient(profiles), NOW, (...p) => logs.push(p.join(" ")), stripeSays, {
+    dryRun,
+    getSubscriptionSnapshots: bulk,
+  });
+
+test("the bulk form asks Stripe once for the whole run, with each candidate id exactly once", async () => {
+  const profiles = rows();
+  const calls: string[][] = [];
+  const out = await sweepWithBulk(profiles, [], false, bulkFrom(snapshots, calls));
+  assert.ok(out.ok);
+  assert.equal(calls.length, 1, "exactly one Stripe round trip, not one per subscriber");
+  const ids = calls[0];
+  assert.equal(ids.length, new Set(ids).size, "no duplicate ids requested");
+  assert.ok(ids.includes("sub_canceled") && ids.includes("sub_live"));
+  assert.ok(!ids.includes("sub_123"), "gift rows are not rule 3's to ask about");
+  assert.ok(!ids.includes("sub_old"), "already-cancelled rows are not asked about");
+});
+
+test("bulk and per-id forms produce identical results", async () => {
+  const viaBulk = rows();
+  const viaSingle = rows();
+  const a = await sweepWithBulk(viaBulk);
+  const b = await sweepWithReconcile(viaSingle);
+  assert.ok(a.ok && b.ok);
+  if (!a.ok || !b.ok) return;
+  assert.deepEqual(a.reconciledIds, b.reconciledIds);
+  assert.deepEqual(a.ids, b.ids);
+  assert.deepEqual(a.giftIds, b.giftIds);
+  assert.deepEqual(viaBulk, viaSingle, "every row ends in the same state either way");
+});
+
+test("an id missing from the listing is treated as unknown, never as cancelled", async () => {
+  const profiles = rows();
+  const logs: string[] = [];
+  // Stripe returns nothing at all for the stuck row, as a truncated listing would.
+  const partial = bulkFrom({ ...snapshots, sub_canceled: null });
+  const out = await sweepWithBulk(profiles, logs, false, partial);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+
+  const v = profiles.find((p) => p.id === "stale-victim")!;
+  assert.equal(v.subscription_status, "active", "absence is not evidence of cancellation");
+  assert.equal(v.subscription_end_date, null);
+  assert.equal(v.is_pro, true);
+  assert.ok(!out.reconciledIds.includes("stale-victim"));
+  assert.ok(logs.some((l) => l.includes("reconcile left alone, Stripe could not confirm stale-victim")));
+});
+
+test("a partial listing still acts on what Stripe did return", async () => {
+  const profiles = rows();
+  // Stripe answered for one stuck row and not the other.
+  const partial = bulkFrom({ ...snapshots, sub_canceled_past: null });
+  const out = await sweepWithBulk(profiles, [], false, partial);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.deepEqual(out.reconciledIds, ["stale-victim"]);
+  assert.equal(profiles.find((p) => p.id === "stale-victim")!.subscription_status, "cancelled");
+  assert.equal(profiles.find((p) => p.id === "stale-victim-expired")!.subscription_status, "active");
+});
+
+test("when Stripe cannot be reached at all, rule 3 sits the whole run out", async () => {
+  const profiles = rows();
+  const logs: string[] = [];
+  const before = JSON.stringify(profiles.filter((p) => String(p.id).startsWith("stale")));
+  const out = await sweepWithBulk(profiles, logs, false, async () => null);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 0);
+  assert.equal(JSON.stringify(profiles.filter((p) => String(p.id).startsWith("stale"))), before);
+  assert.ok(logs.some((l) => l.includes("reconcile skipped for the whole run")));
+  assert.ok(out.ids.includes("cancelled-ended"), "rules 1 and 2 still run normally");
+});
+
+test("the bulk form keeps the stale-read guard, idempotency and dry run", async () => {
+  // Resubscribed between the read and the write.
+  const racing = rows();
+  await sweepWithBulk(racing, [], false, async (ids) => {
+    const row = racing.find((p) => p.id === "stale-victim")!;
+    row.stripe_subscription_id = "sub_brand_new";
+    return bulkFrom()(ids);
+  });
+  const raced = racing.find((p) => p.id === "stale-victim")!;
+  assert.equal(raced.subscription_status, "active", "stale read rejected by the write guard");
+  assert.equal(raced.subscription_end_date, null);
+
+  // Idempotent. Scoped to a row whose term is still running: a row rule 3
+  // stamps with a PAST end date is meant to be picked up by rule 1 on the next
+  // run, so the sweep as a whole is deliberately not stable across two runs.
+  const profiles = rows();
+  const first = await sweepWithBulk(profiles);
+  assert.ok(first.ok && first.reconciled === 2);
+  const stamped = JSON.stringify(profiles.find((p) => p.id === "stale-victim"));
+  const second = await sweepWithBulk(profiles);
+  assert.ok(second.ok && second.reconciled === 0, "rule 3 finds nothing left to do");
+  assert.equal(
+    JSON.stringify(profiles.find((p) => p.id === "stale-victim")),
+    stamped,
+    "an in-term row is byte-identical after a second run",
+  );
+
+  // Dry run.
+  const dry = rows();
+  const untouched = JSON.stringify(dry);
+  const out = await sweepWithBulk(dry, [], true);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.dryRun, true);
+  assert.equal(JSON.stringify(dry), untouched, "not one row changed");
+  assert.deepEqual(
+    out.planned.filter((w) => w.rule === "reconcile-cancelled").map((w) => w.id),
+    ["stale-victim", "stale-victim-expired"],
+  );
 });
