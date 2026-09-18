@@ -363,6 +363,32 @@ APPLIED must not be re-run. Before writing a migration that alters an existing
 constraint, index, or policy, check the live state first: it may already be
 what you are about to change it to.
 
+### Filenames do not match the migration ledger, and `db push` is banned
+
+`apply_migration` assigns its OWN version at apply time, while every repo file
+was named by hand beforehand. The two have never matched. Checked 2026-09-18:
+all 118 files use synthetic round versions (`20260914200000`) while the ledger
+holds real apply timestamps (`20260915025934`), and at least one file
+(`20260914000000_drop_lessons_goal_id.sql`) has no ledger row at all because it
+was never applied.
+
+So `supabase/migrations/` is a human-readable RECORD. The authoritative list is
+`supabase_migrations.schema_migrations` in the live database. **Never run
+`supabase db push` or `supabase migration up` against this project**: it would
+try to re-apply a large number of already-applied migrations.
+
+Do not retro-rename the 118 existing files; the churn buys nothing and the
+security-fix filenames are referenced from this document. Instead, for every NEW
+migration from 2026-09-18 onward:
+
+1. Apply it with `apply_migration` under a snake_case name.
+2. Read back the version it recorded:
+   `select version from supabase_migrations.schema_migrations where name = '<name>';`
+3. Name the repo file `<that version>_<name>.sql`, and its rollback to match.
+
+That makes new files match the ledger by construction.
+`profiles_cancel_at` is the first one to follow this rule.
+
 ## Database key tables
 - profiles: user settings, plan_type, school_days (text[] of weekday labels:
   "monday".."sunday"), family_photo_url, last_catchup_dismissed_at

@@ -5,6 +5,7 @@ import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
 import { affiliateCodeForStripeCoupon } from '@/lib/referrals'
 import {
+  cancelAtFromSubscription,
   couponIdFromSubscription,
   linkStripeSubscription,
   periodEndFromSubscription,
@@ -444,8 +445,9 @@ export async function POST(req: NextRequest) {
       // promote: a brief over-grant is far better than dropping a real
       // renewal and locking a paying family out of their own memories.
       let stillLive = true
+      let fresh: Stripe.Subscription | null = null
       try {
-        const fresh = await stripe.subscriptions.retrieve(sub.id)
+        fresh = await stripe.subscriptions.retrieve(sub.id)
         stillLive =
           fresh.status === 'active' ||
           fresh.status === 'trialing' ||
@@ -469,6 +471,15 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ received: true, skipped: 'stale_event' })
       }
 
+      // Stripe's current truth when the re-read succeeded, the event snapshot
+      // only as a fallback. Same reasoning as the guard above: event.data.object
+      // is a snapshot from when the event was CREATED, so a delayed or retried
+      // delivery describes the past. Deriving period end and cancellation state
+      // from `fresh` makes both order-independent by construction. When the
+      // retrieve failed we still promote (see above) and fall back to the
+      // snapshot, which is the best information available.
+      const authoritative = fresh ?? sub
+
       // Resolve the coupon code either from the subscription's coupon or the
       // profile's stored referred_by (URL ?ref= on signup).
       let couponCode = storedReferredBy ?? (await storedReferralCode(userId))
@@ -489,7 +500,8 @@ export async function POST(req: NextRequest) {
         userId,
         customerId,
         subscriptionId: sub.id,
-        periodEnd: periodEndFromSubscription(sub),
+        periodEnd: periodEndFromSubscription(authoritative),
+        cancelAt: cancelAtFromSubscription(authoritative),
         couponCode,
         planType: plan,
         stripeSessionId: sub.id,
@@ -568,6 +580,9 @@ export async function POST(req: NextRequest) {
         is_pro: termRemaining,
         subscription_status: 'cancelled',
         subscription_end_date: (termRemaining ? periodEnd : now).toISOString(),
+        // The schedule has been honoured; subscription_end_date now carries the
+        // truth, so a leftover cancel_at would only be a stale second opinion.
+        cancel_at: null,
       }
       if (!termRemaining) cancelPatch.plan_type = null
 

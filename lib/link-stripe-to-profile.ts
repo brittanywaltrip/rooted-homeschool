@@ -28,6 +28,11 @@ export interface LinkStripeSubscriptionOpts {
   // Optional overrides. planType defaults to 'founding_family' — see
   // planTypeForPriceId() for resolving from a Stripe price id instead.
   planType?: LinkedPlanType
+  // Stripe's scheduled-cancellation date, or null when nothing is scheduled.
+  // Advisory only: it never affects is_pro, so it cannot gate access. Passed on
+  // every event so a resumed subscription clears it by the same write that set
+  // it. See cancelAtFromSubscription().
+  cancelAt?: Date | null
   stripeSessionId?: string | null
   supabase?: SupabaseClient
   // Per-referral commission in dollars, computed from the actual Stripe
@@ -54,6 +59,7 @@ const LINKED_FIELDS = [
   'stripe_subscription_id',
   'current_period_end',
   'subscription_end_date',
+  'cancel_at',
 ] as const
 
 interface LinkedRow {
@@ -65,6 +71,7 @@ interface LinkedRow {
   stripe_subscription_id: string | null
   current_period_end: string | null
   subscription_end_date: string | null
+  cancel_at: string | null
 }
 
 function defaultSupabase(): SupabaseClient {
@@ -88,7 +95,11 @@ function rowMatches(row: LinkedRow, desired: Record<(typeof LINKED_FIELDS)[numbe
     const next = desired[field]
     // Normalize timestamps so Postgres's ISO form compares equal to whatever
     // shape the caller passed (Date or ISO string).
-    if (field === 'current_period_end' || field === 'subscription_end_date') {
+    if (
+      field === 'current_period_end' ||
+      field === 'subscription_end_date' ||
+      field === 'cancel_at'
+    ) {
       const a = current ? new Date(current as string).getTime() : null
       const b = next ? new Date(next as string).getTime() : null
       if (a !== b) return false
@@ -128,6 +139,7 @@ export async function linkStripeSubscription(
     stripe_subscription_id: subscriptionId,
     current_period_end: periodEnd.toISOString(),
     subscription_end_date: null as string | null,
+    cancel_at: (opts.cancelAt ? opts.cancelAt.toISOString() : null) as string | null,
   }
 
   // Idempotency: read once, skip the write if every field already matches.
@@ -229,4 +241,32 @@ export function periodEndFromSubscription(sub: Stripe.Subscription): Date {
     null
   if (typeof epoch === 'number' && epoch > 0) return new Date(epoch * 1000)
   return new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+}
+
+// Stripe's view of a scheduled cancellation, or null when nothing is scheduled.
+//
+// The billing portal is configured to cancel at period end, so a self-serve
+// cancellation leaves the subscription `active` and only sets
+// cancel_at_period_end/cancel_at. Nothing in the status tells us it is winding
+// down, which is why this is read separately.
+//
+// Reads cancel_at first (Stripe sets it when cancel_at_period_end flips true)
+// and falls back to the period end in the same top-level-then-item shape
+// periodEndFromSubscription uses. Deliberately NO invented date: unlike that
+// function there is no now + 365 fallback, because a wrong cancellation date is
+// worse than none at all.
+export function cancelAtFromSubscription(sub: Stripe.Subscription): Date | null {
+  const raw = sub as unknown as {
+    cancel_at_period_end?: boolean | null
+    cancel_at?: number | null
+    current_period_end?: number | null
+    items?: { data?: Array<{ current_period_end?: number | null }> } | null
+  }
+  if (!raw.cancel_at_period_end && !raw.cancel_at) return null
+  const epoch =
+    raw.cancel_at ??
+    raw.current_period_end ??
+    raw.items?.data?.[0]?.current_period_end ??
+    null
+  return typeof epoch === 'number' && epoch > 0 ? new Date(epoch * 1000) : null
 }

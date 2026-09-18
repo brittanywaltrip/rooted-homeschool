@@ -9,11 +9,14 @@
 //   • args extracted from a mocked checkout.session.completed payload match
 //     what linkStripeSubscription needs
 //   • couponIdFromSubscription handles both `discount` and `discounts`
+//   • cancel_at: a scheduled cancellation is recorded without touching
+//     entitlement, a resume clears it, and repeat events stay idempotent
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  cancelAtFromSubscription,
   couponIdFromSubscription,
   linkStripeSubscription,
   periodEndFromSubscription,
@@ -93,6 +96,7 @@ test('writes every linked field in a single UPDATE on first call', async () => {
     stripe_subscription_id: 'sub_456',
     current_period_end: '2027-04-23T00:00:00.000Z',
     subscription_end_date: null,
+    cancel_at: null,
   })
   assert.equal(updateCalls[0].filters.id, 'user-1')
 })
@@ -119,6 +123,7 @@ test('idempotent: matching row does not trigger an UPDATE', async () => {
       stripe_subscription_id: 'sub_456',
       current_period_end: '2027-04-23T00:00:00.000Z',
       subscription_end_date: null,
+      cancel_at: null,
     },
     error: null,
   }
@@ -141,6 +146,7 @@ test('drifting row triggers a fresh UPDATE', async () => {
       stripe_subscription_id: 'sub_456',
       current_period_end: '2027-04-23T00:00:00.000Z',
       subscription_end_date: null,
+      cancel_at: null,
     },
     error: null,
   }
@@ -271,4 +277,184 @@ test('couponIdFromSubscription reads new discounts[] shape', () => {
 test('couponIdFromSubscription returns null when no coupon', () => {
   const sub = { id: 'sub_x' } as unknown as import('stripe').Stripe.Subscription
   assert.equal(couponIdFromSubscription(sub), null)
+})
+
+
+// ── cancel_at: scheduled cancellation lifecycle ──────────────────────────────
+
+const SCHEDULED = new Date('2027-04-23T00:00:00.000Z')
+
+function linkedRow(overrides: Record<string, unknown> = {}) {
+  return {
+    is_pro: true,
+    subscription_status: 'active',
+    plan_type: 'founding_family',
+    legacy_free: false,
+    stripe_customer_id: 'cus_123',
+    stripe_subscription_id: 'sub_456',
+    current_period_end: '2027-04-23T00:00:00.000Z',
+    subscription_end_date: null,
+    cancel_at: null,
+    ...overrides,
+  }
+}
+
+test('scheduled cancellation records cancel_at without touching entitlement', async () => {
+  const { client, updateCalls } = makeSupabase()
+  await linkStripeSubscription(
+    baseOpts({
+      supabase: client as unknown as LinkStripeSubscriptionOpts['supabase'],
+      cancelAt: SCHEDULED,
+    }),
+  )
+
+  assert.equal(updateCalls.length, 1)
+  const patch = updateCalls[0].patch
+  assert.equal(patch.cancel_at, '2027-04-23T00:00:00.000Z')
+  // The whole point: access is untouched while the term runs out.
+  assert.equal(patch.is_pro, true)
+  assert.equal(patch.subscription_status, 'active')
+  assert.equal(patch.plan_type, 'founding_family')
+  assert.equal(patch.subscription_end_date, null)
+})
+
+test('resumed subscription clears cancel_at', async () => {
+  const selectResult: SelectResult = {
+    data: linkedRow({ cancel_at: '2027-04-23T00:00:00.000Z' }),
+    error: null,
+  }
+  const { client, updateCalls } = makeSupabase({ selectResult })
+  const result = await linkStripeSubscription(
+    baseOpts({
+      supabase: client as unknown as LinkStripeSubscriptionOpts['supabase'],
+      cancelAt: null,
+    }),
+  )
+
+  assert.equal(result.action, 'linked')
+  assert.equal(updateCalls.length, 1)
+  assert.equal(updateCalls[0].patch.cancel_at, null)
+  // Clearing the schedule must not disturb anything else.
+  assert.equal(updateCalls[0].patch.is_pro, true)
+  assert.equal(updateCalls[0].patch.subscription_status, 'active')
+})
+
+test('repeat event with the same cancel_at is idempotent, no UPDATE', async () => {
+  // The regression guard for rowMatches. Note the row uses the shape Postgres
+  // ACTUALLY returns ("2027-04-23 00:00:00+00"), not the idealized JS
+  // "2027-04-23T00:00:00.000Z". Those two strings are not equal, so without
+  // cancel_at in the timestamp-normalizing branch every Stripe event would see
+  // drift and issue a redundant write forever. current_period_end is given the
+  // same treatment here because the older tests only ever used the JS shape,
+  // which left the existing normalization unexercised too.
+  const selectResult: SelectResult = {
+    data: linkedRow({
+      cancel_at: '2027-04-23 00:00:00+00',
+      current_period_end: '2027-04-23 00:00:00+00',
+    }),
+    error: null,
+  }
+  const { client, updateCalls } = makeSupabase({ selectResult })
+  const result = await linkStripeSubscription(
+    baseOpts({
+      supabase: client as unknown as LinkStripeSubscriptionOpts['supabase'],
+      cancelAt: SCHEDULED,
+    }),
+  )
+
+  assert.equal(result.action, 'already_linked')
+  assert.equal(updateCalls.length, 0, 'no write when cancel_at already matches')
+})
+
+test('cancel_at drift (row null, Stripe scheduled) triggers an UPDATE', async () => {
+  const { client, updateCalls } = makeSupabase({
+    selectResult: { data: linkedRow(), error: null },
+  })
+  const result = await linkStripeSubscription(
+    baseOpts({
+      supabase: client as unknown as LinkStripeSubscriptionOpts['supabase'],
+      cancelAt: SCHEDULED,
+    }),
+  )
+
+  assert.equal(result.action, 'linked')
+  assert.equal(updateCalls.length, 1)
+  assert.equal(updateCalls[0].patch.cancel_at, '2027-04-23T00:00:00.000Z')
+})
+
+// ── cancelAtFromSubscription ─────────────────────────────────────────────────
+
+test('cancelAtFromSubscription returns null when nothing is scheduled', () => {
+  const sub = {
+    cancel_at_period_end: false,
+    cancel_at: null,
+    current_period_end: 1_800_000_000,
+  } as unknown as Parameters<typeof cancelAtFromSubscription>[0]
+  assert.equal(cancelAtFromSubscription(sub), null)
+})
+
+test('cancelAtFromSubscription prefers cancel_at', () => {
+  const sub = {
+    cancel_at_period_end: true,
+    cancel_at: 1_800_000_000,
+    current_period_end: 1_700_000_000,
+  } as unknown as Parameters<typeof cancelAtFromSubscription>[0]
+  assert.equal(
+    cancelAtFromSubscription(sub)?.toISOString(),
+    new Date(1_800_000_000 * 1000).toISOString(),
+  )
+})
+
+test('cancelAtFromSubscription falls back to top-level then item period end', () => {
+  const topLevel = {
+    cancel_at_period_end: true,
+    current_period_end: 1_700_000_000,
+  } as unknown as Parameters<typeof cancelAtFromSubscription>[0]
+  assert.equal(
+    cancelAtFromSubscription(topLevel)?.toISOString(),
+    new Date(1_700_000_000 * 1000).toISOString(),
+  )
+
+  const itemOnly = {
+    cancel_at_period_end: true,
+    items: { data: [{ current_period_end: 1_650_000_000 }] },
+  } as unknown as Parameters<typeof cancelAtFromSubscription>[0]
+  assert.equal(
+    cancelAtFromSubscription(itemOnly)?.toISOString(),
+    new Date(1_650_000_000 * 1000).toISOString(),
+  )
+})
+
+test('cancelAtFromSubscription never invents a date', () => {
+  // Unlike periodEndFromSubscription there is no now + 365 fallback: a wrong
+  // cancellation date is worse than none at all.
+  const sub = {
+    cancel_at_period_end: true,
+  } as unknown as Parameters<typeof cancelAtFromSubscription>[0]
+  assert.equal(cancelAtFromSubscription(sub), null)
+})
+
+test('stale event: the freshly retrieved subscription wins over the snapshot', () => {
+  // The webhook re-reads the subscription and derives both period end and
+  // cancellation state from that object, never from event.data.object, which is
+  // a snapshot from when the event was CREATED. Stripe does not guarantee
+  // ordering and retries for up to three days, so a delayed "not cancelling"
+  // event must not erase a cancellation that Stripe currently reports.
+  const snapshot = {
+    cancel_at_period_end: false,
+    cancel_at: null,
+    current_period_end: 1_700_000_000,
+  } as unknown as Parameters<typeof cancelAtFromSubscription>[0]
+  const fresh = {
+    cancel_at_period_end: true,
+    cancel_at: 1_800_000_000,
+    current_period_end: 1_800_000_000,
+  } as unknown as Parameters<typeof cancelAtFromSubscription>[0]
+
+  assert.equal(cancelAtFromSubscription(snapshot), null, 'snapshot alone would erase it')
+  assert.equal(
+    cancelAtFromSubscription(fresh)?.toISOString(),
+    new Date(1_800_000_000 * 1000).toISOString(),
+    'fresh retrieve preserves the scheduled cancellation',
+  )
 })
