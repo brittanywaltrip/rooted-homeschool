@@ -16,6 +16,7 @@ import {
   classifyPaidThrough,
   resolvePaidPeriodEnd,
   type CollectionState,
+  type PriorPaidThrough,
   type InvoiceStatus,
   type RefundState,
 } from '@/lib/paid-through'
@@ -206,7 +207,7 @@ function billedLineEndOf(
  * line is unambiguous, that is the answer. The extra lookup only happens when
  * the latest invoice is not paid, which in healthy operation is never.
  */
-async function resolveProvenPaidThrough(sub: Stripe.Subscription): Promise<Date | null> {
+async function resolveProvenPaidThrough(sub: Stripe.Subscription): Promise<PriorPaidThrough> {
   const latest =
     sub.latest_invoice && typeof sub.latest_invoice === 'object'
       ? (sub.latest_invoice as Stripe.Invoice)
@@ -215,33 +216,41 @@ async function resolveProvenPaidThrough(sub: Stripe.Subscription): Promise<Date 
   if (latest?.status === 'paid') {
     const end = billedLineEndOf(sub, latest)
     if (end) {
-      return resolvePaidPeriodEnd([
-        { invoiceStatus: 'paid', billedLineEnd: end },
-      ])
+      const through = resolvePaidPeriodEnd([{ invoiceStatus: 'paid', billedLineEnd: end }])
+      if (through) return { kind: 'proven', through }
     }
   }
 
-  // Latest invoice is unpaid, or its line could not be identified. Fall back to
-  // the most recent invoices that WERE paid, and take the furthest proven end.
+  // Latest invoice is unpaid, or its line could not be identified. Ask Stripe
+  // for invoices that WERE paid and take the furthest proven end.
   try {
     const paid = await stripe.invoices.list({
       subscription: sub.id,
       status: 'paid',
       limit: 3,
     })
-    return resolvePaidPeriodEnd(
+    const through = resolvePaidPeriodEnd(
       paid.data.map((inv) => ({
         invoiceStatus: (inv.status ?? null) as InvoiceStatus | null,
         billedLineEnd: billedLineEndOf(sub, inv),
       })),
     )
+    if (through) return { kind: 'proven', through }
+    // The lookup SUCCEEDED. Zero paid invoices is evidence that nothing was
+    // ever paid; a paid invoice whose line we cannot read is not.
+    return paid.data.length === 0 ? { kind: 'none' } : { kind: 'unknown' }
   } catch (e) {
     console.error(
       '[webhook] could not look up paid invoices for', sub.id,
-      '— storing no paid-through date rather than guessing:', e,
+      '— treating prior payment as unknown rather than guessing:', e,
     )
-    return null
+    return { kind: 'unknown' }
   }
+}
+
+/** The grant paths only want a date to store; anything unproven is no date. */
+function provenDateOrNull(prior: PriorPaidThrough): Date | null {
+  return prior.kind === 'proven' ? prior.through : null
 }
 
 /**
@@ -469,7 +478,7 @@ export async function POST(req: NextRequest) {
           userId: activatedUserId,
           customerId: stripeCustomerId,
           subscriptionId,
-          periodEnd: await resolveProvenPaidThrough(sub),
+          periodEnd: provenDateOrNull(await resolveProvenPaidThrough(sub)),
           couponCode: attributedCode,
           planType: plan,
           stripeSessionId: session.id,
@@ -643,7 +652,7 @@ export async function POST(req: NextRequest) {
         subscriptionId: sub.id,
         // Proven-paid only. During dunning this stores the last invoice that
         // actually cleared, never the period Stripe advanced without payment.
-        periodEnd: await resolveProvenPaidThrough(authoritative),
+        periodEnd: provenDateOrNull(await resolveProvenPaidThrough(authoritative)),
         cancelAt: cancelAtFromSubscription(authoritative),
         couponCode,
         planType: plan,
@@ -749,6 +758,11 @@ export async function POST(req: NextRequest) {
     // millisecond and classify against a different instant than they decide on.
     const now = new Date()
 
+    // Prior payment evidence, asked for only on this path. The fast path costs
+    // nothing when the latest invoice is paid; the lookup happens only when it
+    // is not, which is exactly the dunning case this exists for.
+    const priorPaidThrough = await resolveProvenPaidThrough(fresh)
+
     const classification = classifyPaidThrough({
       latestInvoiceStatus: (invoice?.status ?? null) as InvoiceStatus | null,
       latestInvoiceLinePeriodStart: selection.kind === 'found' ? selection.periodStart : null,
@@ -758,6 +772,11 @@ export async function POST(req: NextRequest) {
           ? new Date(invoice.next_payment_attempt * 1000)
           : null,
       collectionState,
+      priorPaidThrough,
+      subscriptionStartedAt:
+        typeof fresh.start_date === 'number' && fresh.start_date > 0
+          ? new Date(fresh.start_date * 1000)
+          : null,
       refundState,
       now,
     })
@@ -769,6 +788,7 @@ export async function POST(req: NextRequest) {
       'as', classification.kind,
       'invoice:', invoice?.status ?? 'unreadable',
       'refund:', refundState,
+      'prior:', priorPaidThrough.kind,
       'line:', selection.kind,
     )
 

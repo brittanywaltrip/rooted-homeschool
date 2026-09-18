@@ -55,6 +55,8 @@ const stripeSays = async (id: string): Promise<boolean | null> =>
 // timestamptz column; matching the emitted form keeps the assertions exact.
 const PAST = "2026-09-01T00:00:00.000Z";
 const FUTURE = "2027-03-01T00:00:00.000Z";
+const SUB_STARTED = "2026-01-01T00:00:00.000Z";
+const PRIOR_PAID_END = PAST;
 
 function rows(): Row[] {
   return [
@@ -102,6 +104,7 @@ function paidInvoice(end: string, start = PAST): Omit<SubscriptionSnapshot, "sta
     linePeriodEnd: end,
     nextPaymentAttempt: null,
     collectionState: "terminated",
+    subscriptionStartedAt: SUB_STARTED,
   };
 }
 
@@ -117,6 +120,7 @@ const snapshots: Record<string, SubscriptionSnapshot | null> = {
     linePeriodEnd: null,
     nextPaymentAttempt: null,
     collectionState: "terminated",
+    subscriptionStartedAt: SUB_STARTED,
   },
   // The failed-renewal shape: the invoice was never paid, so the last paid
   // period ended where this unpaid one starts.
@@ -128,6 +132,7 @@ const snapshots: Record<string, SubscriptionSnapshot | null> = {
     linePeriodEnd: FUTURE,
     nextPaymentAttempt: null,
     collectionState: "terminated",
+    subscriptionStartedAt: SUB_STARTED,
   },
   // Cancelled, but Stripe has another collection attempt scheduled.
   sub_canceled_dunning: {
@@ -138,6 +143,7 @@ const snapshots: Record<string, SubscriptionSnapshot | null> = {
     linePeriodEnd: FUTURE,
     nextPaymentAttempt: FUTURE,
     collectionState: "terminated",
+    subscriptionStartedAt: SUB_STARTED,
   },
   // Cancelled, unpaid invoice, but nothing corroborates that collection ended.
   sub_canceled_uncorroborated: {
@@ -148,6 +154,7 @@ const snapshots: Record<string, SubscriptionSnapshot | null> = {
     linePeriodEnd: FUTURE,
     nextPaymentAttempt: null,
     collectionState: "unknown",
+    subscriptionStartedAt: SUB_STARTED,
   },
   sub_pastdue: { status: "past_due", ...paidInvoice(FUTURE) },
   sub_live: { status: "active", ...paidInvoice(FUTURE) },
@@ -162,6 +169,16 @@ const stripeSnapshot = async (id: string): Promise<SubscriptionSnapshot | null> 
 const refundStates = async (invoiceId: string | null) =>
   invoiceId === "in_unknown" ? ("unknown" as const) : ("none" as const);
 
+// Prior payment evidence for the fixtures: a successful lookup that found a
+// paid invoice ending at PAST. "sub_no_prior" models a successful lookup that
+// found nothing, and "sub_prior_unreadable" a lookup that failed.
+const priorPaidThrough = async (subId: string) =>
+  subId === "sub_no_prior"
+    ? ({ kind: "none" } as const)
+    : subId === "sub_prior_unreadable"
+      ? ({ kind: "unknown" } as const)
+      : ({ kind: "proven", through: new Date(PRIOR_PAID_END) } as const);
+
 /** The sweep with rule 3 switched on. */
 const sweepWithReconcile = (
   profiles: Row[],
@@ -174,7 +191,12 @@ const sweepWithReconcile = (
     NOW,
     (...p) => logs.push(p.join(" ")),
     stripeSays,
-    { dryRun, getSubscriptionSnapshot: snapshot, getInvoiceRefundState: refundStates },
+    {
+      dryRun,
+      getSubscriptionSnapshot: snapshot,
+      getInvoiceRefundState: refundStates,
+      getPriorPaidThrough: priorPaidThrough,
+    },
   );
 
 test("a gift past its end date is expired, to free, and logged", async () => {
@@ -425,6 +447,7 @@ const sweepWithBulk = (
     dryRun,
     getSubscriptionSnapshots: bulk,
     getInvoiceRefundState: refundStates,
+    getPriorPaidThrough: priorPaidThrough,
   });
 
 test("the bulk form asks Stripe once for the whole run, with each candidate id exactly once", async () => {
@@ -656,7 +679,9 @@ test("a FAILED refund lookup leaves the family alone, never 'not refunded'", asy
     {
       dryRun: false,
       getSubscriptionSnapshots: bulkFrom(),
-      // The lookup itself failed. Absence of evidence is not evidence.
+      // Prior payment IS known, so the run reaches the refund question.
+      getPriorPaidThrough: priorPaidThrough,
+      // The refund lookup itself failed. Absence of evidence is not evidence.
       getInvoiceRefundState: async () => "unknown" as const,
     },
   );
@@ -697,6 +722,8 @@ test("PARITY: rule 3 and the webhook decision write the same date from the same 
     latestInvoiceLinePeriodEnd: new Date(snap.linePeriodEnd!),
     latestInvoiceNextPaymentAttempt: null,
     collectionState: snap.collectionState,
+    priorPaidThrough: { kind: "proven", through: new Date(PRIOR_PAID_END) },
+    subscriptionStartedAt: new Date(SUB_STARTED),
     refundState: "none",
     now: NOW,
   });
@@ -711,4 +738,81 @@ test("PARITY: rule 3 and the webhook decision write the same date from the same 
   );
   assert.equal(decision.patch.is_pro, false, "the webhook revokes");
   assert.equal(profiles[0].is_pro, true, "rule 3 never touches entitlement");
+});
+
+// ── A: prior-payment evidence in reconciliation ─────────────────────────────
+
+test("A: a missing prior-payment callback defaults to UNKNOWN, never none", async () => {
+  // An unperformed lookup must not become proof that nothing was paid.
+  const profiles = oneRow("sub_canceled_unpaid");
+  const logs: string[] = [];
+  const out = await sweepExpiredAccess(
+    fakeClient(profiles),
+    NOW,
+    (...p) => logs.push(p.join(" ")),
+    stripeSays,
+    {
+      dryRun: false,
+      getSubscriptionSnapshots: bulkFrom(),
+      getInvoiceRefundState: refundStates,
+      // getPriorPaidThrough deliberately omitted
+    },
+  );
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 0);
+  assert.equal(profiles[0].subscription_end_date, null, "nothing written");
+  assert.ok(logs.some((l) => l.includes("prior payment history could not be read")));
+});
+
+test("A: a FAILED prior-payment lookup leaves the family alone", async () => {
+  const profiles = oneRow("sub_canceled_unpaid");
+  const logs: string[] = [];
+  const out = await sweepExpiredAccess(
+    fakeClient(profiles),
+    NOW,
+    (...p) => logs.push(p.join(" ")),
+    stripeSays,
+    {
+      dryRun: false,
+      getSubscriptionSnapshots: bulkFrom(),
+      getInvoiceRefundState: refundStates,
+      getPriorPaidThrough: async () => ({ kind: "unknown" }) as const,
+    },
+  );
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 0);
+  assert.equal(profiles[0].is_pro, true, "unknown must never revoke");
+});
+
+test("A: reconciliation stamps the PROVEN prior end, not the unpaid boundary", async () => {
+  const profiles = oneRow("sub_canceled_unpaid");
+  const out = await sweepWithBulk(profiles, [], false);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 1);
+  assert.equal(profiles[0].subscription_end_date, PRIOR_PAID_END);
+  assert.notEqual(profiles[0].subscription_end_date, FUTURE);
+  assert.equal(profiles[0].is_pro, true, "rule 3 never touches entitlement");
+});
+
+test("A: no paid history at all stamps the subscription start date", async () => {
+  const profiles = oneRow("sub_canceled_unpaid");
+  const out = await sweepExpiredAccess(
+    fakeClient(profiles),
+    NOW,
+    () => {},
+    stripeSays,
+    {
+      dryRun: false,
+      getSubscriptionSnapshots: bulkFrom(),
+      getInvoiceRefundState: refundStates,
+      getPriorPaidThrough: async () => ({ kind: "none" }) as const,
+    },
+  );
+  assert.ok(out.ok);
+  if (!out.ok) return;
+  assert.equal(out.reconciled, 1);
+  assert.equal(profiles[0].subscription_end_date, SUB_STARTED);
 });

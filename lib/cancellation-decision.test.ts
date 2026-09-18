@@ -119,3 +119,17 @@ test("cancel_at is always cleared on a write, never on a skip", () => {
   if (w.action !== "write") return;
   assert.equal(w.patch.cancel_at, null);
 });
+
+test("A: an unpaid classification never grants, whatever date it carries", () => {
+  // Phase A changes WHERE the unpaid date comes from, not what it means. This
+  // pins the meaning so a future change to the source cannot leak entitlement.
+  const dates = [PAST, FUTURE, new Date("2030-01-01T00:00:00.000Z")];
+  for (const through of dates) {
+    const d = decideCancellation({ classification: { kind: "unpaid", through }, now: NOW });
+    assert.equal(d.action, "write");
+    if (d.action !== "write") return;
+    assert.equal(d.patch.is_pro, false, `unpaid through ${through.toISOString()}`);
+    assert.equal(d.patch.plan_type, null);
+    assert.equal(d.patch.subscription_end_date, through.toISOString());
+  }
+});

@@ -22,6 +22,7 @@ const BILLED_END = new Date("2026-09-26T00:00:00.000Z"); // end of the billed pe
 const NOW = new Date("2026-09-18T00:00:00.000Z");
 const FUTURE_RETRY = new Date("2026-09-20T00:00:00.000Z");
 const PAST_RETRY = new Date("2026-09-10T00:00:00.000Z");
+const SUB_STARTED_AT = new Date("2026-05-01T00:00:00.000Z");
 
 function input(over: Partial<PaidThroughInput> = {}): PaidThroughInput {
   return {
@@ -30,6 +31,8 @@ function input(over: Partial<PaidThroughInput> = {}): PaidThroughInput {
     latestInvoiceLinePeriodEnd: BILLED_END,
     latestInvoiceNextPaymentAttempt: null,
     collectionState: "terminated",
+    priorPaidThrough: { kind: "proven", through: LAST_PAID_END },
+    subscriptionStartedAt: SUB_STARTED_AT,
     refundState: "none",
     now: NOW,
     ...over,
@@ -105,12 +108,13 @@ test("row 5b: pending short-circuits before refund state is consulted", () => {
 
 // ── Row 6: open + null retry + terminated ───────────────────────────────────
 
-test("row 6: open, no retry scheduled, collection terminated, is unpaid", () => {
+test("row 6: open, terminated, PROVEN prior payment is unpaid through that date", () => {
   const out = classifyPaidThrough(
     input({
       latestInvoiceStatus: "open",
       latestInvoiceNextPaymentAttempt: null,
       collectionState: "terminated",
+      priorPaidThrough: { kind: "proven", through: LAST_PAID_END },
     }),
   );
   assert.equal(out.kind, "unpaid");
@@ -234,10 +238,31 @@ test("INVARIANT: never invents a duration, monthly or annual", () => {
 
 test("INVARIANT: an Invalid Date is treated as missing", () => {
   const invalid = new Date("not a date");
+  // On the paid branch, an unusable billed line end.
   assert.equal(classifyPaidThrough(input({ latestInvoiceLinePeriodEnd: invalid })).kind, "unknown");
+  // On the unpaid branch, an unusable PROVEN date. A bad date wearing the right
+  // label is still missing evidence.
   assert.equal(
     classifyPaidThrough(
-      input({ latestInvoiceStatus: "open", latestInvoiceLinePeriodStart: invalid }),
+      input({
+        latestInvoiceStatus: "open",
+        latestInvoiceNextPaymentAttempt: null,
+        collectionState: "terminated",
+        priorPaidThrough: { kind: "proven", through: invalid },
+      }),
+    ).kind,
+    "unknown",
+  );
+  // And an unusable subscription start when there is no paid history.
+  assert.equal(
+    classifyPaidThrough(
+      input({
+        latestInvoiceStatus: "open",
+        latestInvoiceNextPaymentAttempt: null,
+        collectionState: "terminated",
+        priorPaidThrough: { kind: "none" },
+        subscriptionStartedAt: invalid,
+      }),
     ).kind,
     "unknown",
   );
@@ -397,4 +422,138 @@ test("GIFT +365 is a different thing and must remain untouched", () => {
     src.includes("plan_type: 'gift'"),
     "the gift branch must still set plan_type gift",
   );
+});
+
+// ── A: paid-through comes from PRIOR PAID evidence, never an unpaid boundary ──
+
+const PROVEN_PRIOR = new Date("2026-08-26T00:00:00.000Z");
+const UNPAID_BOUNDARY_AFTER_A_GAP = new Date("2026-11-01T00:00:00.000Z");
+
+function unpaidInput(over: Partial<PaidThroughInput> = {}): PaidThroughInput {
+  return input({
+    latestInvoiceStatus: "open",
+    latestInvoiceNextPaymentAttempt: null,
+    collectionState: "terminated",
+    ...over,
+  });
+}
+
+test("A5: ordinary failed renewal uses the PROVEN prior paid end", () => {
+  const out = classifyPaidThrough(
+    unpaidInput({ priorPaidThrough: { kind: "proven", through: PROVEN_PRIOR } }),
+  );
+  assert.equal(out.kind, "unpaid");
+  if (out.kind !== "unpaid") return;
+  assert.equal(out.through.toISOString(), PROVEN_PRIOR.toISOString());
+});
+
+test("A4: no paid history at all is unpaid through the SUBSCRIPTION START", () => {
+  // "none" means the lookup succeeded and found zero paid invoices, which is
+  // positive evidence that no time was ever paid for.
+  const out = classifyPaidThrough(
+    unpaidInput({ priorPaidThrough: { kind: "none" } }),
+  );
+  assert.equal(out.kind, "unpaid");
+  if (out.kind !== "unpaid") return;
+  assert.equal(out.through.toISOString(), SUB_STARTED_AT.toISOString());
+});
+
+test("A4b: no paid history AND no usable start date is unknown", () => {
+  const out = classifyPaidThrough(
+    unpaidInput({ priorPaidThrough: { kind: "none" }, subscriptionStartedAt: null }),
+  );
+  assert.equal(out.kind, "unknown");
+});
+
+test("A7: a FAILED prior-payment lookup is unknown, and never revokes", () => {
+  const out = classifyPaidThrough(
+    unpaidInput({ priorPaidThrough: { kind: "unknown" } }),
+  );
+  assert.equal(out.kind, "unknown");
+  if (out.kind !== "unknown") return;
+  assert.match(out.reason, /prior payment history could not be read/);
+  assert.notEqual(out.kind, "unpaid", "absence of evidence must not revoke");
+});
+
+test("A6: THE GAP CASE — the proven prior end wins over the unpaid boundary", () => {
+  // The unpaid invoice's own line start sits AFTER the real last paid end.
+  // Reading it would hand out time nobody bought.
+  const out = classifyPaidThrough(
+    unpaidInput({
+      latestInvoiceLinePeriodStart: UNPAID_BOUNDARY_AFTER_A_GAP,
+      priorPaidThrough: { kind: "proven", through: PROVEN_PRIOR },
+    }),
+  );
+  assert.equal(out.kind, "unpaid");
+  if (out.kind !== "unpaid") return;
+  assert.equal(out.through.toISOString(), PROVEN_PRIOR.toISOString());
+  assert.notEqual(
+    out.through.toISOString(),
+    UNPAID_BOUNDARY_AFTER_A_GAP.toISOString(),
+    "an unpaid invoice boundary must never be paid-through",
+  );
+  assert.ok(out.through.getTime() < UNPAID_BOUNDARY_AFTER_A_GAP.getTime());
+});
+
+test("A: the unpaid invoice's lineStart is never consulted, whatever it says", () => {
+  // Same prior evidence, wildly different lineStart values: the answer must not
+  // move at all.
+  const answers = [
+    new Date("2020-01-01T00:00:00.000Z"),
+    new Date("2030-01-01T00:00:00.000Z"),
+    null,
+  ].map((lineStart) =>
+    classifyPaidThrough(
+      unpaidInput({
+        latestInvoiceLinePeriodStart: lineStart,
+        priorPaidThrough: { kind: "proven", through: PROVEN_PRIOR },
+      }),
+    ),
+  );
+  for (const out of answers) {
+    assert.equal(out.kind, "unpaid");
+    if (out.kind !== "unpaid") return;
+    assert.equal(out.through.toISOString(), PROVEN_PRIOR.toISOString());
+  }
+});
+
+test("A: uncollectible follows the same prior-payment rules as open", () => {
+  for (const prior of [
+    { kind: "proven" as const, through: PROVEN_PRIOR },
+    { kind: "none" as const },
+    { kind: "unknown" as const },
+  ]) {
+    const out = classifyPaidThrough(
+      unpaidInput({ latestInvoiceStatus: "uncollectible", priorPaidThrough: prior }),
+    );
+    assert.equal(
+      out.kind,
+      prior.kind === "unknown" ? "unknown" : "unpaid",
+      `prior ${prior.kind}`,
+    );
+  }
+});
+
+test("A: pending still short-circuits before prior payment is consulted", () => {
+  const out = classifyPaidThrough(
+    input({
+      latestInvoiceStatus: "open",
+      latestInvoiceNextPaymentAttempt: FUTURE_RETRY,
+      priorPaidThrough: { kind: "unknown" },
+    }),
+  );
+  assert.equal(out.kind, "pending");
+});
+
+test("A: the PAID branch is untouched by any prior-payment value", () => {
+  for (const prior of [
+    { kind: "proven" as const, through: PROVEN_PRIOR },
+    { kind: "none" as const },
+    { kind: "unknown" as const },
+  ]) {
+    const out = classifyPaidThrough(input({ priorPaidThrough: prior }));
+    assert.equal(out.kind, "paid", `prior ${prior.kind} must not disturb a paid invoice`);
+    if (out.kind !== "paid") return;
+    assert.equal(out.through.toISOString(), BILLED_END.toISOString());
+  }
 });

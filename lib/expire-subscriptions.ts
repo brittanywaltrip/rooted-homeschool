@@ -2,6 +2,7 @@ import {
   classifyPaidThrough,
   type CollectionState,
   type InvoiceStatus,
+  type PriorPaidThrough,
   type RefundState,
 } from "./paid-through.ts";
 
@@ -137,6 +138,8 @@ export type SubscriptionSnapshot = {
    * own, so this is carried explicitly rather than inferred.
    */
   collectionState: CollectionState;
+  /** Stripe's sub.start_date, ISO. Used only to express zero paid time. */
+  subscriptionStartedAt: string | null;
   /**
    * The billed line period for THIS subscription, ISO, or null when the right
    * line could not be identified deterministically (see
@@ -211,6 +214,17 @@ export interface SweepOptions {
    * refunded" out of a lookup it never performed.
    */
   getInvoiceRefundState?: (invoiceId: string | null) => Promise<RefundState>;
+  /**
+   * What this subscription was paid through BEFORE its latest invoice,
+   * established by asking Stripe for invoices whose status is "paid". Resolved
+   * LAZILY and only for candidates that already passed the terminal-status
+   * gate, the same shape as getInvoiceRefundState.
+   *
+   * When it is not supplied the answer is "unknown", never "none". An
+   * unperformed lookup is absence of evidence, and treating it as proof that
+   * nothing was paid would revoke on a question nobody asked.
+   */
+  getPriorPaidThrough?: (subscriptionId: string) => Promise<PriorPaidThrough>;
 }
 
 /** One change the sweep made, or would make on a dry run. */
@@ -410,12 +424,20 @@ export async function sweepExpiredAccess(
         ? await options.getInvoiceRefundState(snap.latestInvoiceId)
         : "unknown";
 
+      // Prior payment evidence, fetched only now that the terminal gate has
+      // passed. Absent a resolver this is "unknown", never "none".
+      const priorPaidThrough: PriorPaidThrough = options.getPriorPaidThrough
+        ? await options.getPriorPaidThrough(subId)
+        : { kind: "unknown" };
+
       const classification = classifyPaidThrough({
         latestInvoiceStatus: snap.latestInvoiceStatus,
         latestInvoiceLinePeriodStart: toDateOrNull(snap.linePeriodStart),
         latestInvoiceLinePeriodEnd: toDateOrNull(snap.linePeriodEnd),
         latestInvoiceNextPaymentAttempt: toDateOrNull(snap.nextPaymentAttempt),
         collectionState: snap.collectionState,
+        priorPaidThrough,
+        subscriptionStartedAt: toDateOrNull(snap.subscriptionStartedAt),
         refundState,
         now,
       });
@@ -436,6 +458,7 @@ export async function sweepExpiredAccess(
           "stripe:", snap.status,
           "invoice:", snap.latestInvoiceStatus ?? "unreadable",
           "refund:", refundState,
+          "prior:", priorPaidThrough.kind,
         );
         continue;
       }

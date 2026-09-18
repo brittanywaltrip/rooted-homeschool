@@ -71,6 +71,27 @@ export type RefundState = "none" | "partial" | "full" | "unknown";
 export type CollectionState = "terminated" | "live" | "unknown";
 
 /**
+ * What this subscription was paid through BEFORE the invoice in question,
+ * established by asking Stripe for invoices whose status is "paid".
+ *
+ * The three-way split is the whole reason an unpaid invoice's own period
+ * boundary is no longer consulted:
+ *
+ *   proven  - at least one paid invoice exists; `through` is the furthest
+ *             billed line end among them, each independently proven.
+ *   none    - the lookup SUCCEEDED and found zero paid invoices. That is
+ *             positive evidence that nothing was ever paid, the same standard
+ *             already applied to refunds, and it is what stops a subscriber who
+ *             never paid from keeping Rooted+ behind a nightly log line.
+ *   unknown - the lookup itself failed. Absence of evidence, so nothing is
+ *             written and nobody is revoked.
+ */
+export type PriorPaidThrough =
+  | { kind: "proven"; through: Date }
+  | { kind: "none" }
+  | { kind: "unknown" };
+
+/**
  * paid    - definitively paid through `through`. Safe to grant access to it.
  * unpaid  - positively evidenced as NOT paid. `through` is the end of the last
  *           period that WAS paid.
@@ -96,6 +117,19 @@ export interface PaidThroughInput {
   latestInvoiceNextPaymentAttempt: Date | null;
   /** Corroborating state from a FRESH subscription read. */
   collectionState: CollectionState;
+  /**
+   * What was paid for BEFORE this invoice. Replaces the old habit of reading
+   * the unpaid invoice's own line period START, which is a boundary rather than
+   * evidence of payment and diverges outright on a first-ever open invoice, on
+   * a proration, and on any gap from a pause or a billing-anchor change.
+   */
+  priorPaidThrough: PriorPaidThrough;
+  /**
+   * Stripe's sub.start_date. Used ONLY when prior payment is positively known
+   * to be `none`, to express zero paid time as a real fact about the
+   * subscription rather than a boundary inference.
+   */
+  subscriptionStartedAt: Date | null;
   /** Invoice-scoped refund evidence. */
   refundState: RefundState;
   now: Date;
@@ -189,6 +223,8 @@ export function classifyPaidThrough(input: PaidThroughInput): PaidThrough {
     latestInvoiceLinePeriodEnd: lineEnd,
     latestInvoiceNextPaymentAttempt: nextAttempt,
     collectionState,
+    priorPaidThrough,
+    subscriptionStartedAt,
     refundState,
     now,
   } = input;
@@ -217,10 +253,34 @@ export function classifyPaidThrough(input: PaidThroughInput): PaidThrough {
         `invoice ${status} but collection state is ${collectionState}, not corroborated as terminated`,
       );
     }
-    if (!usable(lineStart)) {
-      return unknown(`invoice ${status} with no readable billed line period start`);
+    // Paid-through comes only from an invoice that was actually PAID. The
+    // unpaid invoice's own lineStart is deliberately NOT consulted here: it
+    // marks where the unpaid period begins, which is not the same as where a
+    // paid one ended, and on a gap it sits LATER than the real last paid end,
+    // which would hand out time nobody bought.
+    if (priorPaidThrough.kind === "unknown") {
+      return unknown(
+        `invoice ${status} but prior payment history could not be read`,
+      );
     }
-    structural = { kind: "unpaid", through: lineStart };
+    if (priorPaidThrough.kind === "proven") {
+      // Even a "proven" answer has to carry a usable date. An Invalid Date is
+      // missing evidence wearing the right label.
+      if (!usable(priorPaidThrough.through)) {
+        return unknown(`invoice ${status} with an unusable proven paid-through date`);
+      }
+      structural = { kind: "unpaid", through: priorPaidThrough.through };
+    } else {
+      // "none": the lookup succeeded and there are no paid invoices at all, so
+      // zero time was ever paid for. The subscription's own start date says
+      // that as a fact rather than inferring it from an invoice boundary.
+      if (!usable(subscriptionStartedAt)) {
+        return unknown(
+          `invoice ${status} with no paid history and no usable subscription start date`,
+        );
+      }
+      structural = { kind: "unpaid", through: subscriptionStartedAt };
+    }
   } else {
     return unknown(`invoice status ${status ?? "missing"} proves nothing either way`);
   }

@@ -7,8 +7,10 @@ import {
   type SubscriptionSnapshot,
 } from '@/lib/expire-subscriptions'
 import {
+  resolvePaidPeriodEnd,
   type CollectionState,
   type InvoiceStatus,
+  type PriorPaidThrough,
   type RefundState,
 } from '@/lib/paid-through'
 import { classifyRefund } from '@/lib/invoice-refund'
@@ -125,6 +127,10 @@ function snapshotOf(sub: Stripe.Subscription): SubscriptionSnapshot {
     collectionState: (sub.status === 'canceled' || sub.status === 'incomplete_expired'
       ? 'terminated'
       : 'live') as CollectionState,
+    subscriptionStartedAt:
+      typeof sub.start_date === 'number' && sub.start_date > 0
+        ? new Date(sub.start_date * 1000).toISOString()
+        : null,
     linePeriodStart:
       selection.kind === 'found' ? selection.periodStart?.toISOString() ?? null : null,
     linePeriodEnd:
@@ -246,6 +252,53 @@ async function resolveInvoiceRefundState(invoiceId: string | null): Promise<Refu
   }
 }
 
+/**
+ * What a subscription was paid through BEFORE its latest invoice, asked of
+ * Stripe directly and LAZILY: rule 3 only calls this for candidates that
+ * already passed the terminal-status gate, which today is zero subscriptions.
+ *
+ * The same three-way answer the webhook uses, so the two paths cannot reach
+ * different conclusions. A successful lookup finding zero paid invoices is
+ * evidence ("none"); a failed lookup is not ("unknown").
+ */
+async function resolvePriorPaidThrough(subscriptionId: string): Promise<PriorPaidThrough> {
+  const key = process.env.STRIPE_SECRET_KEY
+  if (!key || !subscriptionId) return { kind: 'unknown' }
+  try {
+    const stripe = new Stripe(key, { apiVersion: '2026-02-25.clover' })
+    const sub = await stripe.subscriptions.retrieve(subscriptionId)
+    const paid = await stripe.invoices.list({
+      subscription: subscriptionId,
+      status: 'paid',
+      limit: 3,
+    })
+    const itemIds = (sub.items?.data ?? []).map((item) => item.id)
+    const through = resolvePaidPeriodEnd(
+      paid.data.map((inv) => {
+        const selection = selectSubscriptionInvoiceLine({
+          subscriptionId,
+          subscriptionItemIds: itemIds,
+          lines:
+            inv.lines?.has_more === true
+              ? null
+              : ((inv.lines?.data ?? null) as InvoiceLineLike[] | null),
+        })
+        return {
+          invoiceStatus: (inv.status ?? null) as InvoiceStatus | null,
+          billedLineEnd: selection.kind === 'found' ? selection.periodEnd : null,
+        }
+      }),
+    )
+    if (through) return { kind: 'proven', through }
+    return paid.data.length === 0 ? { kind: 'none' } : { kind: 'unknown' }
+  } catch (err) {
+    console.error(
+      '[cron/expire-subscriptions] prior payment lookup failed for', subscriptionId, err,
+    )
+    return { kind: 'unknown' }
+  }
+}
+
 export async function GET(request: Request) {
   // Vercel cron authentication, same shape as the other cron routes.
   if (
@@ -273,6 +326,7 @@ export async function GET(request: Request) {
       dryRun,
       getSubscriptionSnapshots: getStripeSubscriptionSnapshots,
       getInvoiceRefundState: resolveInvoiceRefundState,
+      getPriorPaidThrough: resolvePriorPaidThrough,
     },
   )
   if (!result.ok) {
