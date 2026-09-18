@@ -1,4 +1,4 @@
--- ROLLBACK for 20260918000000_profiles_cancel_at.sql
+-- ROLLBACK for 20260918054914_profiles_cancel_at.sql
 --
 -- NOT NEEDED FOR A CODE ROLLBACK. An unused nullable column is completely inert,
 -- so reverting the deploy is sufficient on its own and leaving cancel_at in place

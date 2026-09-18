@@ -1,14 +1,12 @@
 -- Fix #2 Phase 2: record a scheduled cancellation without touching entitlement.
 --
--- ⚠ PROVISIONAL FILENAME. This migration has NOT been applied yet. Apply it with
--- the Supabase migration API under the name `profiles_cancel_at`, then read the
--- version it recorded:
---     select version from supabase_migrations.schema_migrations
---      where name = 'profiles_cancel_at';
--- and rename this file (and its rollback) to that exact version. The API assigns
--- its own version at apply time, and every older file in this folder was named by
--- hand beforehand, so none of them match the ledger. This is the first one that
--- will. See the migration convention note in CLAUDE.md.
+-- APPLIED TO PRODUCTION 2026-09-18 via the Supabase migration API (ledger version
+-- 20260918054914, name profiles_cancel_at). This file is a RECORD of an applied
+-- change. DO NOT RUN IT AGAIN.
+--
+-- Its filename matches the ledger version exactly, per the convention in
+-- CLAUDE.md. It is the first file in this folder that does; every older file was
+-- named by hand before being applied and none of them match.
 --
 -- THE GAP
 -- The Stripe billing portal is configured with subscription_cancel.mode =
@@ -32,7 +30,7 @@
 -- cancel_at is ADVISORY. It never influences access, so a wrong value here is a
 -- display bug rather than an entitlement bug.
 --
--- Rollback: supabase/rollbacks/20260918000000_profiles_cancel_at_ROLLBACK.sql
+-- Rollback: supabase/rollbacks/20260918054914_profiles_cancel_at_ROLLBACK.sql
 
 -- ── The column ────────────────────────────────────────────────────────────
 -- Nullable with no default, so Postgres records this as metadata only: no table
