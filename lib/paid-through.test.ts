@@ -6,10 +6,15 @@
 // refund uncertainty never becomes "not refunded", and an absent retry date
 // never proves collection ended.
 
+import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { classifyPaidThrough, type PaidThroughInput } from "./paid-through.ts";
+import {
+  classifyPaidThrough,
+  resolvePaidPeriodEnd,
+  type PaidThroughInput,
+} from "./paid-through.ts";
 
 // Shapes from the one real dunning case in this account.
 const LAST_PAID_END = new Date("2026-08-26T00:00:00.000Z"); // = unpaid period start
@@ -235,5 +240,161 @@ test("INVARIANT: an Invalid Date is treated as missing", () => {
       input({ latestInvoiceStatus: "open", latestInvoiceLinePeriodStart: invalid }),
     ).kind,
     "unknown",
+  );
+});
+
+// ── resolvePaidPeriodEnd: a date counts only when an invoice was PAID ────────
+//
+// Every case below exists because "the unpaid period starts here, so the paid
+// one ended here" is an inference about adjacency, not evidence of payment.
+
+const PAID_TERM_END = new Date("2026-08-26T00:00:00.000Z");
+const LATER_TERM_END = new Date("2026-09-26T00:00:00.000Z");
+
+const paid = (d: Date | null) => ({ invoiceStatus: "paid" as const, billedLineEnd: d });
+
+test("resolver: the only paid candidate wins", () => {
+  assert.equal(
+    resolvePaidPeriodEnd([paid(PAID_TERM_END)])?.toISOString(),
+    PAID_TERM_END.toISOString(),
+  );
+});
+
+test("resolver: MULTIPLE paid candidates choose the furthest proven end", () => {
+  // Taking the max can never over-state, because every candidate is itself a
+  // period somebody paid for. Taking merely the newest could under-state when a
+  // recent proration invoice bills a short fragment.
+  const out = resolvePaidPeriodEnd([
+    paid(PAID_TERM_END),
+    paid(LATER_TERM_END),
+    paid(PAID_TERM_END),
+  ]);
+  assert.equal(out?.toISOString(), LATER_TERM_END.toISOString());
+});
+
+test("resolver: no candidates at all is null, never a date", () => {
+  assert.equal(resolvePaidPeriodEnd([]), null);
+});
+
+test("resolver: a first-ever OPEN invoice contributes nothing", () => {
+  // Its line period starts at the subscription creation instant. Counting it
+  // would assert "paid through the moment they signed up" when nothing was
+  // ever paid.
+  const subscriptionCreationInstant = new Date("2026-08-26T00:00:00.000Z");
+  const out = resolvePaidPeriodEnd([
+    { invoiceStatus: "open", billedLineEnd: subscriptionCreationInstant },
+  ]);
+  assert.equal(out, null);
+});
+
+test("resolver: UNCOLLECTIBLE with no prior paid invoice is null", () => {
+  assert.equal(
+    resolvePaidPeriodEnd([{ invoiceStatus: "uncollectible", billedLineEnd: LATER_TERM_END }]),
+    null,
+  );
+});
+
+test("resolver: draft and void contribute nothing either", () => {
+  for (const status of ["draft", "void", null] as const) {
+    assert.equal(
+      resolvePaidPeriodEnd([{ invoiceStatus: status, billedLineEnd: LATER_TERM_END }]),
+      null,
+      `status ${String(status)} must not count`,
+    );
+  }
+});
+
+test("resolver: an ambiguous or missing paid line contributes nothing", () => {
+  // selectSubscriptionInvoiceLine returned ambiguous, so the caller passes null.
+  assert.equal(resolvePaidPeriodEnd([paid(null)]), null);
+  assert.equal(
+    resolvePaidPeriodEnd([paid(null), paid(PAID_TERM_END)])?.toISOString(),
+    PAID_TERM_END.toISOString(),
+    "one unreadable invoice must not discard a readable one",
+  );
+});
+
+test("resolver: a Stripe lookup failure is null, never a guess", () => {
+  // The caller catches and passes nothing at all.
+  assert.equal(resolvePaidPeriodEnd([]), null);
+});
+
+test("resolver: Invalid Dates are ignored rather than compared", () => {
+  const invalid = new Date("not a date");
+  assert.equal(resolvePaidPeriodEnd([paid(invalid)]), null);
+  assert.equal(
+    resolvePaidPeriodEnd([paid(invalid), paid(PAID_TERM_END)])?.toISOString(),
+    PAID_TERM_END.toISOString(),
+  );
+});
+
+test("resolver: THE GAP CASE — an unpaid boundary after the paid end is ignored", () => {
+  // A pause/resume or billing-anchor change can put the unpaid invoice's line
+  // boundary AFTER the real last paid end. If it counted, it would hand out
+  // time nobody bought. The status filter is what stops it.
+  const lastProvenPaidEnd = PAID_TERM_END;
+  const unpaidBoundaryAfterTheGap = new Date("2026-11-01T00:00:00.000Z");
+
+  const out = resolvePaidPeriodEnd([
+    paid(lastProvenPaidEnd),
+    { invoiceStatus: "open", billedLineEnd: unpaidBoundaryAfterTheGap },
+  ]);
+
+  assert.equal(out?.toISOString(), lastProvenPaidEnd.toISOString());
+  assert.notEqual(
+    out?.toISOString(),
+    unpaidBoundaryAfterTheGap.toISOString(),
+    "a boundary from an UNPAID invoice must never become paid-through",
+  );
+  assert.ok(
+    out!.getTime() < unpaidBoundaryAfterTheGap.getTime(),
+    "the proven answer is earlier than the unpaid boundary, never later",
+  );
+});
+
+test("resolver: DUNNING uses the last actually paid invoice", () => {
+  // The live shape: the renewal invoice is open for the advanced period, and
+  // the previous cycle was paid.
+  const lastPaidEnd = PAID_TERM_END;
+  const advancedUnpaidEnd = LATER_TERM_END;
+  const out = resolvePaidPeriodEnd([
+    { invoiceStatus: "open", billedLineEnd: advancedUnpaidEnd },
+    paid(lastPaidEnd),
+  ]);
+  assert.equal(out?.toISOString(), lastPaidEnd.toISOString());
+  assert.notEqual(out?.toISOString(), advancedUnpaidEnd.toISOString());
+});
+
+test("resolver: MONTHLY can never become +365", () => {
+  const monthlyEnd = new Date("2026-09-26T00:00:00.000Z");
+  const out = resolvePaidPeriodEnd([paid(monthlyEnd)]);
+  assert.equal(out?.toISOString(), monthlyEnd.toISOString());
+  const aYearOut = Date.now() + 365 * 24 * 60 * 60 * 1000;
+  assert.ok(
+    Math.abs(out!.getTime() - aYearOut) > 30 * 24 * 60 * 60 * 1000,
+    "a monthly term must never land a year out",
+  );
+});
+
+test("resolver: ANNUAL with no provable date is null, not a manufactured year", () => {
+  assert.equal(resolvePaidPeriodEnd([]), null);
+});
+
+test("GIFT +365 is a different thing and must remain untouched", () => {
+  // The gift path adds a year because somebody BOUGHT a year. The fallback that
+  // was deleted invented a year for a period nobody could read. Same number,
+  // opposite epistemics, and the risk is that a future cleanup removes the
+  // wrong one.
+  const src = readFileSync(
+    new URL("../app/api/stripe/webhook/route.ts", import.meta.url),
+    "utf8",
+  );
+  assert.ok(
+    src.includes("Math.max(currentEnd.getTime(), Date.now()) + 365 * 24 * 60 * 60 * 1000"),
+    "the gift extension arithmetic must stay exactly as it is",
+  );
+  assert.ok(
+    src.includes("plan_type: 'gift'"),
+    "the gift branch must still set plan_type gift",
   );
 });

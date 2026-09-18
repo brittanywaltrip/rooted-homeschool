@@ -101,6 +101,57 @@ export interface PaidThroughInput {
   now: Date;
 }
 
+/**
+ * The paid-through date for a subscription, chosen from invoices that were each
+ * independently PROVEN paid.
+ *
+ * ── WHY UNPAID INVOICES CANNOT CONTRIBUTE ──────────────────────────────────
+ * The obvious-looking shortcut is to take an unpaid invoice's line period
+ * START, on the reasoning that the unpaid period begins where the last paid one
+ * ended. That is an inference about adjacency, not evidence of payment, and it
+ * breaks in three real shapes:
+ *
+ *   - A first-ever invoice that is open (billing_reason subscription_create)
+ *     has a line period starting at the subscription creation instant. Using
+ *     its start asserts "paid through the moment they signed up" when nothing
+ *     was ever paid.
+ *   - A proration invoice (subscription_update) starts at a mid-cycle boundary
+ *     that is not the end of any paid period.
+ *   - A GAP, from a pause and resume or a billing-anchor change, puts the
+ *     unpaid line start LATER than the real last paid end, which would hand out
+ *     entitlement time nobody bought.
+ *
+ * So the rule is enforced here rather than left to callers: each candidate
+ * carries its invoice status, and anything that is not "paid" is ignored. A
+ * caller cannot smuggle an unpaid boundary in by mislabelling it as a date.
+ *
+ * The maximum is safe precisely because every surviving candidate is proven, so
+ * it can never over-state. Taking the max rather than the newest also stops a
+ * recent proration invoice from under-stating the real term.
+ *
+ * Returns null when nothing qualifies. Null means "we could not prove this",
+ * never "there is none".
+ */
+export interface PaidPeriodCandidate {
+  /** The status of the invoice this date came from. Only "paid" counts. */
+  invoiceStatus: InvoiceStatus | null;
+  /** That invoice's billed line END for this subscription. */
+  billedLineEnd: Date | null;
+}
+
+export function resolvePaidPeriodEnd(candidates: PaidPeriodCandidate[]): Date | null {
+  let best: Date | null = null;
+  for (const candidate of candidates) {
+    // The enforced contract: an unpaid invoice proves nothing about paid time.
+    if (candidate.invoiceStatus !== "paid") continue;
+    if (!usable(candidate.billedLineEnd)) continue;
+    if (best === null || candidate.billedLineEnd.getTime() > best.getTime()) {
+      best = candidate.billedLineEnd;
+    }
+  }
+  return best;
+}
+
 /** A Date we can actually use: present, a real Date, and not Invalid Date. */
 function usable(d: Date | null | undefined): d is Date {
   return d instanceof Date && !Number.isNaN(d.getTime());

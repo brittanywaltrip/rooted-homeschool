@@ -12,6 +12,7 @@
 //   • cancel_at: a scheduled cancellation is recorded without touching
 //     entitlement, a resume clears it, and repeat events stay idempotent
 
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
@@ -19,10 +20,10 @@ import {
   cancelAtFromSubscription,
   couponIdFromSubscription,
   linkStripeSubscription,
-  periodEndFromSubscription,
   planTypeForPriceId,
   type LinkStripeSubscriptionOpts,
 } from './link-stripe-to-profile.ts'
+import { resolvePaidPeriodEnd } from './paid-through.ts'
 
 type UpdateCall = { patch: Record<string, unknown>; filters: Record<string, unknown> }
 type SelectResult = { data: Record<string, unknown> | null; error: { message: string } | null }
@@ -239,7 +240,12 @@ test('mock checkout.session.completed payload produces correct link args', () =>
     userId: mockedSession.metadata.userId,
     customerId: mockedSession.customer,
     subscriptionId: mockedSession.subscription,
-    periodEnd: periodEndFromSubscription(mockedSubscription),
+    // The paid-through date now comes from a PAID invoice's billed line, which
+    // the webhook resolves before calling in. The subscription's own period
+    // field is no longer consulted at all.
+    periodEnd: resolvePaidPeriodEnd([
+      { invoiceStatus: 'paid', billedLineEnd: new Date(1800000000 * 1000) },
+    ]),
     couponCode: mockedSession.metadata.referral,
     planType: planTypeForPriceId(mockedSubscription.items.data[0]?.price?.id),
     stripeSessionId: mockedSession.id,
@@ -251,15 +257,91 @@ test('mock checkout.session.completed payload produces correct link args', () =>
   assert.equal(linkArgs.couponCode, 'KENDRA')
   assert.equal(linkArgs.stripeSessionId, 'cs_test_session')
   assert.ok(linkArgs.periodEnd instanceof Date)
-  assert.equal(linkArgs.periodEnd.getTime(), 1800000000 * 1000)
+  assert.equal(linkArgs.periodEnd!.getTime(), 1800000000 * 1000)
 })
 
-test('periodEndFromSubscription falls back one year out when Stripe omits it', () => {
-  const sub = { id: 'sub_x', items: { data: [] } } as unknown as import('stripe').Stripe.Subscription
-  const now = Date.now()
-  const end = periodEndFromSubscription(sub)
-  const approx = now + 365 * 24 * 60 * 60 * 1000
-  assert.ok(Math.abs(end.getTime() - approx) < 5000, 'within 5 seconds of one year')
+test('the manufactured now + 365 fallback is gone for good', () => {
+  // periodEndFromSubscription used to answer "one year from now" whenever
+  // Stripe's payload carried no period. The function is deleted, not merely
+  // fallback-free, so nobody can re-fatten it. This test is its headstone.
+  const src = readFileSync(new URL('./link-stripe-to-profile.ts', import.meta.url), 'utf8')
+  assert.equal(
+    src.includes('365 * 24 * 60 * 60 * 1000'),
+    false,
+    'no manufactured year may reappear in the linker',
+  )
+  assert.equal(
+    /export function periodEndFromSubscription/.test(src),
+    false,
+    'periodEndFromSubscription must stay deleted',
+  )
+})
+
+test('a null periodEnd stores no date and still grants access', async () => {
+  const { client, updateCalls } = makeSupabase()
+  const result = await linkStripeSubscription(
+    baseOpts({
+      supabase: client as unknown as LinkStripeSubscriptionOpts['supabase'],
+      periodEnd: null,
+      planType: 'monthly',
+    }),
+  )
+
+  assert.equal(result.action, 'linked')
+  assert.equal(updateCalls.length, 1)
+  const patch = updateCalls[0].patch
+  // Never invent a date...
+  assert.equal(patch.current_period_end, null)
+  // ...and never withhold access that was just paid for.
+  assert.equal(patch.is_pro, true)
+  assert.equal(patch.subscription_status, 'active')
+  assert.equal(patch.plan_type, 'monthly')
+})
+
+test('MONTHLY can never become +365: a null periodEnd stays null', async () => {
+  const { client, updateCalls } = makeSupabase()
+  await linkStripeSubscription(
+    baseOpts({
+      supabase: client as unknown as LinkStripeSubscriptionOpts['supabase'],
+      periodEnd: null,
+      planType: 'monthly',
+    }),
+  )
+  const stored = updateCalls[0].patch.current_period_end
+  assert.equal(stored, null)
+  assert.notEqual(
+    typeof stored,
+    'string',
+    'a monthly subscriber must never be handed a manufactured year',
+  )
+})
+
+test('ANNUAL with a missing date can never become +365 either', async () => {
+  const { client, updateCalls } = makeSupabase()
+  await linkStripeSubscription(
+    baseOpts({
+      supabase: client as unknown as LinkStripeSubscriptionOpts['supabase'],
+      periodEnd: null,
+      planType: 'standard',
+    }),
+  )
+  assert.equal(updateCalls[0].patch.current_period_end, null)
+})
+
+test('a null periodEnd is idempotent: the second event does not rewrite', async () => {
+  const selectResult: SelectResult = {
+    data: linkedRow({ current_period_end: null, cancel_at: null }),
+    error: null,
+  }
+  const { client, updateCalls } = makeSupabase({ selectResult })
+  const result = await linkStripeSubscription(
+    baseOpts({
+      supabase: client as unknown as LinkStripeSubscriptionOpts['supabase'],
+      periodEnd: null,
+    }),
+  )
+  assert.equal(result.action, 'already_linked')
+  assert.equal(updateCalls.length, 0)
 })
 
 test('couponIdFromSubscription reads legacy discount shape', () => {

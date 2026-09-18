@@ -8,13 +8,13 @@ import {
   cancelAtFromSubscription,
   couponIdFromSubscription,
   linkStripeSubscription,
-  periodEndFromSubscription,
   planTypeForPriceId,
   type LinkedPlanType,
 } from '@/lib/link-stripe-to-profile'
 import { commissionFromCents, isFirstPaymentEvent } from '@/lib/commission'
 import {
   classifyPaidThrough,
+  resolvePaidPeriodEnd,
   type CollectionState,
   type InvoiceStatus,
   type RefundState,
@@ -172,6 +172,79 @@ async function storedReferralCode(userId: string): Promise<string | null> {
 }
 
 /**
+ * The billed line end for THIS subscription on one invoice, or null when the
+ * right line cannot be identified. A truncated line list counts as unreadable,
+ * because it could hide a second candidate and make an ambiguous invoice look
+ * unambiguous.
+ */
+function billedLineEndOf(
+  sub: Stripe.Subscription,
+  invoice: Stripe.Invoice | null,
+): Date | null {
+  if (!invoice) return null
+  const selection = selectSubscriptionInvoiceLine({
+    subscriptionId: sub.id,
+    subscriptionItemIds: (sub.items?.data ?? []).map((item) => item.id),
+    lines:
+      invoice.lines?.has_more === true
+        ? null
+        : ((invoice.lines?.data ?? null) as InvoiceLineLike[] | null),
+  })
+  return selection.kind === 'found' ? selection.periodEnd : null
+}
+
+/**
+ * What this subscription is PROVEN paid through, or null.
+ *
+ * A date is only ever taken from an invoice whose status is "paid". An unpaid
+ * invoice's period boundaries are never used: they describe when an UNPAID
+ * period begins, which is not the same as when a paid one ended, and they
+ * diverge outright on a first-ever open invoice, on a proration, and on any gap
+ * from a pause or a billing-anchor change.
+ *
+ * The fast path costs nothing: when the latest invoice is already paid and its
+ * line is unambiguous, that is the answer. The extra lookup only happens when
+ * the latest invoice is not paid, which in healthy operation is never.
+ */
+async function resolveProvenPaidThrough(sub: Stripe.Subscription): Promise<Date | null> {
+  const latest =
+    sub.latest_invoice && typeof sub.latest_invoice === 'object'
+      ? (sub.latest_invoice as Stripe.Invoice)
+      : null
+
+  if (latest?.status === 'paid') {
+    const end = billedLineEndOf(sub, latest)
+    if (end) {
+      return resolvePaidPeriodEnd([
+        { invoiceStatus: 'paid', billedLineEnd: end },
+      ])
+    }
+  }
+
+  // Latest invoice is unpaid, or its line could not be identified. Fall back to
+  // the most recent invoices that WERE paid, and take the furthest proven end.
+  try {
+    const paid = await stripe.invoices.list({
+      subscription: sub.id,
+      status: 'paid',
+      limit: 3,
+    })
+    return resolvePaidPeriodEnd(
+      paid.data.map((inv) => ({
+        invoiceStatus: (inv.status ?? null) as InvoiceStatus | null,
+        billedLineEnd: billedLineEndOf(sub, inv),
+      })),
+    )
+  } catch (e) {
+    console.error(
+      '[webhook] could not look up paid invoices for', sub.id,
+      '— storing no paid-through date rather than guessing:', e,
+    )
+    return null
+  }
+}
+
+/**
  * Invoice-scoped refund evidence for the period in question.
  *
  * Deliberately narrow. The version this replaces listed up to 100 charges
@@ -256,6 +329,15 @@ export async function POST(req: NextRequest) {
           .eq('id', recipientUserId)
           .maybeSingle()
 
+        // This +365 is UNCHANGED and must stay that way. It is not a guess:
+        // somebody bought a year, so a year is the thing being granted. The
+        // fallback that was removed elsewhere invented a year for a period
+        // nobody could read, which is the opposite. Same number, opposite
+        // epistemics.
+        //
+        // A null current_period_end already behaves correctly here: currentEnd
+        // becomes now, and max(now, now) + 365 is exactly right for gifting
+        // someone with no existing paid term.
         const currentEnd = recipientProfile?.current_period_end
           ? new Date(recipientProfile.current_period_end)
           : new Date()
@@ -373,7 +455,9 @@ export async function POST(req: NextRequest) {
     let activated = wasAlreadyActive
     if (subscriptionId) {
       try {
-        const sub = await stripe.subscriptions.retrieve(subscriptionId)
+        const sub = await stripe.subscriptions.retrieve(subscriptionId, {
+          expand: ['latest_invoice'],
+        })
         // Prefer session.amount_total (what Stripe actually charged on this
         // checkout, post-coupon) — it's the most accurate signal at this
         // event time. Fall back to the subscription invoice for parity with
@@ -385,7 +469,7 @@ export async function POST(req: NextRequest) {
           userId: activatedUserId,
           customerId: stripeCustomerId,
           subscriptionId,
-          periodEnd: periodEndFromSubscription(sub),
+          periodEnd: await resolveProvenPaidThrough(sub),
           couponCode: attributedCode,
           planType: plan,
           stripeSessionId: session.id,
@@ -504,7 +588,7 @@ export async function POST(req: NextRequest) {
       let stillLive = true
       let fresh: Stripe.Subscription | null = null
       try {
-        fresh = await stripe.subscriptions.retrieve(sub.id)
+        fresh = await stripe.subscriptions.retrieve(sub.id, { expand: ['latest_invoice'] })
         stillLive =
           fresh.status === 'active' ||
           fresh.status === 'trialing' ||
@@ -557,7 +641,9 @@ export async function POST(req: NextRequest) {
         userId,
         customerId,
         subscriptionId: sub.id,
-        periodEnd: periodEndFromSubscription(authoritative),
+        // Proven-paid only. During dunning this stores the last invoice that
+        // actually cleared, never the period Stripe advanced without payment.
+        periodEnd: await resolveProvenPaidThrough(authoritative),
         cancelAt: cancelAtFromSubscription(authoritative),
         couponCode,
         planType: plan,

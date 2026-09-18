@@ -23,7 +23,18 @@ export interface LinkStripeSubscriptionOpts {
   userId: string
   customerId: string
   subscriptionId: string
-  periodEnd: Date
+  /**
+   * The date this subscription is PROVEN paid through, or null when Rooted
+   * could not prove one. Null is a real answer, not a failure: a date is only
+   * ever derived from an invoice that was actually paid (see
+   * resolvePaidPeriodEnd), and this used to be a manufactured now + 365 days
+   * whenever Stripe's payload did not carry a period, which was 12x too long
+   * for a monthly plan.
+   *
+   * A null date never withholds access. Entitlement comes from the payment
+   * event; this field only records when the paid term ends.
+   */
+  periodEnd: Date | null
   couponCode: string | null
   // Optional overrides. planType defaults to 'founding_family' — see
   // planTypeForPriceId() for resolving from a Stripe price id instead.
@@ -123,8 +134,17 @@ export async function linkStripeSubscription(
   if (!userId) throw new Error('linkStripeSubscription: userId required')
   if (!customerId) throw new Error('linkStripeSubscription: customerId required')
   if (!subscriptionId) throw new Error('linkStripeSubscription: subscriptionId required')
-  if (!periodEnd || Number.isNaN(periodEnd.getTime())) {
-    throw new Error('linkStripeSubscription: valid periodEnd required')
+  // periodEnd is deliberately NOT required. An unprovable paid-through date
+  // must not block a family who has just paid; it is stored as null and logged
+  // so the gap is visible rather than papered over with an invented date.
+  const usablePeriodEnd =
+    periodEnd instanceof Date && !Number.isNaN(periodEnd.getTime()) ? periodEnd : null
+  if (!usablePeriodEnd) {
+    console.warn(
+      '[link-stripe] no provable paid-through date for',
+      subscriptionId,
+      '— storing current_period_end: null and granting access on the payment evidence',
+    )
   }
 
   const logCtx = { userId, customerId, subscriptionId, planType }
@@ -137,7 +157,7 @@ export async function linkStripeSubscription(
     legacy_free: false,
     stripe_customer_id: customerId,
     stripe_subscription_id: subscriptionId,
-    current_period_end: periodEnd.toISOString(),
+    current_period_end: (usablePeriodEnd ? usablePeriodEnd.toISOString() : null) as string | null,
     subscription_end_date: null as string | null,
     cancel_at: (opts.cancelAt ? opts.cancelAt.toISOString() : null) as string | null,
   }
@@ -227,21 +247,19 @@ export function couponIdFromSubscription(sub: Stripe.Subscription): string | nul
   return null
 }
 
-// Resolves the `current_period_end` timestamp off a subscription, with a
-// safe fallback of "one year from now" if Stripe doesn't include it on the
-// event (which can happen on partial payloads / trialing subs).
-export function periodEndFromSubscription(sub: Stripe.Subscription): Date {
-  const raw = sub as unknown as {
-    current_period_end?: number | null
-    items?: { data?: Array<{ current_period_end?: number | null }> } | null
-  }
-  const epoch =
-    raw.current_period_end ??
-    raw.items?.data?.[0]?.current_period_end ??
-    null
-  if (typeof epoch === 'number' && epoch > 0) return new Date(epoch * 1000)
-  return new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
-}
+// periodEndFromSubscription was DELETED here.
+//
+// It read the subscription's own current_period_end and, when Stripe's payload
+// carried none, returned `now + 365 days`. Two things were wrong with it. The
+// subscription field advances when Stripe CREATES a renewal invoice rather than
+// when that invoice is paid, so it describes an unpaid period during dunning;
+// and the fallback manufactured a year out of nothing, which is 12x too long
+// for a monthly plan and silently absorbed the API change that moved
+// current_period_end onto the subscription items.
+//
+// A date now comes only from an invoice that was actually paid. See
+// resolvePaidPeriodEnd in lib/paid-through.ts. The function is gone rather than
+// merely fallback-free so nobody can re-fatten it.
 
 // Stripe's view of a scheduled cancellation, or null when nothing is scheduled.
 //
@@ -251,10 +269,11 @@ export function periodEndFromSubscription(sub: Stripe.Subscription): Date {
 // down, which is why this is read separately.
 //
 // Reads cancel_at first (Stripe sets it when cancel_at_period_end flips true)
-// and falls back to the period end in the same top-level-then-item shape
-// periodEndFromSubscription uses. Deliberately NO invented date: unlike that
-// function there is no now + 365 fallback, because a wrong cancellation date is
-// worse than none at all.
+// and falls back to the subscription's period end. Deliberately NO invented
+// date: a wrong cancellation date is worse than none at all. Note this is the
+// one place the subscription's own period field is still read, and it is safe
+// here because it answers "when is the cancellation scheduled", not "what was
+// paid for".
 export function cancelAtFromSubscription(sub: Stripe.Subscription): Date | null {
   const raw = sub as unknown as {
     cancel_at_period_end?: boolean | null

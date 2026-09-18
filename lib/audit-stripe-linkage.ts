@@ -11,6 +11,11 @@
 
 import type Stripe from 'stripe'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { resolvePaidPeriodEnd } from './paid-through.ts'
+import {
+  selectSubscriptionInvoiceLine,
+  type InvoiceLineLike,
+} from './stripe-invoice-line.ts'
 
 const PAID_PLAN_TYPES = ['founding_family', 'standard', 'monthly', 'gift'] as const
 
@@ -47,12 +52,46 @@ interface ProfileRow {
   display_name: string | null
 }
 
+/**
+ * What the writer would have stored for this subscription, judged from the same
+ * evidence: the billed line end of a PAID latest invoice.
+ *
+ * Returns null when the latest invoice is not paid or its line cannot be
+ * identified. The audit deliberately does not fall back to older invoices the
+ * way the webhook does, because an auditor that cannot prove the expectation
+ * should stay silent rather than manufacture a finding.
+ */
+function expectedPaidThrough(sub: Stripe.Subscription): Date | null {
+  const invoice =
+    sub.latest_invoice && typeof sub.latest_invoice === 'object'
+      ? (sub.latest_invoice as Stripe.Invoice)
+      : null
+  if (invoice?.status !== 'paid') return null
+  const selection = selectSubscriptionInvoiceLine({
+    subscriptionId: sub.id,
+    subscriptionItemIds: (sub.items?.data ?? []).map((item) => item.id),
+    lines:
+      invoice.lines?.has_more === true
+        ? null
+        : ((invoice.lines?.data ?? null) as InvoiceLineLike[] | null),
+  })
+  return selection.kind === 'found'
+    ? resolvePaidPeriodEnd([{ invoiceStatus: 'paid', billedLineEnd: selection.periodEnd }])
+    : null
+}
+
 async function listActiveStripeSubscriptions(stripe: Stripe): Promise<Stripe.Subscription[]> {
   const all: Stripe.Subscription[] = []
-  for await (const sub of stripe.subscriptions.list({ status: 'active', limit: 100 })) {
+  // latest_invoice is expanded so the audit can judge current_period_end by the
+  // same evidence the writer used: a PAID invoice's billed line.
+  for await (const sub of stripe.subscriptions.list({
+    status: 'active', limit: 100, expand: ['data.latest_invoice'],
+  })) {
     all.push(sub)
   }
-  for await (const sub of stripe.subscriptions.list({ status: 'trialing', limit: 100 })) {
+  for await (const sub of stripe.subscriptions.list({
+    status: 'trialing', limit: 100, expand: ['data.latest_invoice'],
+  })) {
     all.push(sub)
   }
   return all
@@ -92,21 +131,26 @@ function detectFieldDrift(profile: ProfileRow, sub: Stripe.Subscription): string
   if (profile.stripe_subscription_id !== sub.id) {
     drift.push(`stripe_subscription_id=${profile.stripe_subscription_id} (stripe says ${sub.id})`)
   }
-  const subPeriodEnd =
-    (sub as unknown as { current_period_end?: number }).current_period_end ??
-    sub.items.data[0]?.current_period_end ??
-    null
-  if (subPeriodEnd && profile.current_period_end) {
-    const stripeMs = subPeriodEnd * 1000
+  // profiles.current_period_end means "the date Rooted can PROVE this family
+  // paid through". Judge it by that same evidence, not by the subscription's
+  // own period field, which advances when Stripe CREATES a renewal invoice
+  // rather than when it is paid. Comparing against the subscription field would
+  // report a family mid-collection as drift when the stored value is exactly
+  // what it should be.
+  const expected = expectedPaidThrough(sub)
+  if (expected && profile.current_period_end) {
     const profileMs = new Date(profile.current_period_end).getTime()
-    if (Math.abs(stripeMs - profileMs) > 24 * 60 * 60 * 1000) {
+    if (Math.abs(expected.getTime() - profileMs) > 24 * 60 * 60 * 1000) {
       drift.push(
-        `current_period_end drift (stripe=${new Date(stripeMs).toISOString()} profile=${profile.current_period_end})`,
+        `current_period_end drift (paid-through=${expected.toISOString()} profile=${profile.current_period_end})`,
       )
     }
-  } else if (subPeriodEnd && !profile.current_period_end) {
+  } else if (expected && !profile.current_period_end) {
     drift.push('current_period_end missing on profile')
   }
+  // expected === null means this audit cannot establish a paid-through date
+  // from the latest invoice alone. It does not chase older invoices, so it
+  // asserts nothing either way rather than reporting drift it cannot prove.
   return drift
 }
 

@@ -1914,7 +1914,16 @@ export default function SettingsPage() {
               </p>
               {currentPeriodEnd && subscriptionStatus === 'active' && (
                 <p className="text-xs text-[#7a6f65] mt-1">
-                  Next billing:{' '}
+                  {/* current_period_end is the date Rooted can PROVE the family
+                      paid through. While a renewal is still being collected
+                      that date is already behind us, and calling it "Next
+                      billing" would promise a future charge we cannot support.
+                      "Paid through" is true in both states, and it deliberately
+                      does not announce a payment problem: that message belongs
+                      to the failed-payment emails, not here. */}
+                  {new Date(currentPeriodEnd) > new Date()
+                    ? 'Next billing: '
+                    : 'Paid through '}
                   {new Date(currentPeriodEnd).toLocaleDateString('en-US', {
                     month: 'long', day: 'numeric', year: 'numeric',
                   })}
