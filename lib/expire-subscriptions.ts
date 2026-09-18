@@ -1,3 +1,5 @@
+import { classifyPaidThrough, type InvoiceStatus } from "./paid-through.ts";
+
 // The nightly downgrade for paid time that has run out, with the client passed
 // in so node --test can run it (the cron route imports next/server and the "@/"
 // alias). app/api/cron/expire-subscriptions/route.ts is the thin wrapper.
@@ -115,8 +117,19 @@ export type SubscriptionLiveCheck = (subscriptionId: string) => Promise<boolean 
 export type SubscriptionSnapshot = {
   /** Stripe's own status string, e.g. 'active' | 'canceled' | 'past_due'. */
   status: string;
-  /** End of the term the family paid for, ISO, or null if Stripe gave none. */
-  periodEnd: string | null;
+  /**
+   * Status of the subscription's latest invoice, or null when it could not be
+   * read. Rule 3 classifies from this, never from a period end.
+   */
+  latestInvoiceStatus: InvoiceStatus | null;
+  /**
+   * The billed line period for THIS subscription, ISO, or null when the right
+   * line could not be identified deterministically (see
+   * lib/stripe-invoice-line.ts). NOT the invoice's own period_start/period_end,
+   * which describe the previous cycle.
+   */
+  linePeriodStart: string | null;
+  linePeriodEnd: string | null;
 };
 
 export type SubscriptionSnapshotCheck = (
@@ -139,6 +152,13 @@ export type SubscriptionSnapshotCheck = (
 export type SubscriptionSnapshotBatch = (
   subscriptionIds: string[],
 ) => Promise<Map<string, SubscriptionSnapshot> | null>;
+
+/** Parse an ISO string into a usable Date, or null. Never throws. */
+function toDateOrNull(iso: string | null | undefined): Date | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
 
 /** Stripe statuses that mean the subscription is definitively over. */
 const TERMINAL_STRIPE_STATUSES = new Set(["canceled", "incomplete_expired"]);
@@ -349,13 +369,36 @@ export async function sweepExpiredAccess(
       }
       if (!TERMINAL_STRIPE_STATUSES.has(snap.status)) continue;
 
-      // Never invent a date. Stripe's period end first, the row's own
-      // current_period_end second, and if neither exists the row waits.
-      const paidThrough = snap.periodEnd ?? r.current_period_end ?? null;
-      if (!paidThrough) {
-        log(tag, "reconcile left alone, no paid-through date to write", r.id, subId, "stripe:", snap.status);
+      // What did this family actually PAY for? Never "when does the period
+      // end", which is the question that hands out unpaid terms: Stripe
+      // advances current_period_end when it CREATES the renewal invoice, not
+      // when that invoice is paid. lib/paid-through.ts is the single answer
+      // the webhook path will ask too, so the two can never disagree.
+      //
+      // The row's own current_period_end is deliberately NOT consulted as a
+      // fallback any more. It is a copy of the same untrustworthy field.
+      const classification = classifyPaidThrough({
+        latestInvoiceStatus: snap.latestInvoiceStatus,
+        latestInvoiceLinePeriodStart: toDateOrNull(snap.linePeriodStart),
+        latestInvoiceLinePeriodEnd: toDateOrNull(snap.linePeriodEnd),
+        // Rule 3 only ever SYNCHRONISES state and never revokes, so it does
+        // not carry charge-level refund data. Refund scoping belongs to the
+        // webhook path, which is the one that can take access away.
+        currentChargeFullyRefunded: false,
+      });
+
+      if (classification.kind === "unknown") {
+        log(
+          tag,
+          "reconcile left alone, no trustworthy paid-through date",
+          r.id, subId,
+          "stripe:", snap.status,
+          "invoice:", snap.latestInvoiceStatus ?? "unreadable",
+        );
         continue;
       }
+
+      const paidThrough = classification.through.toISOString();
 
       const patch = { subscription_status: "cancelled", subscription_end_date: paidThrough };
       planned.push({

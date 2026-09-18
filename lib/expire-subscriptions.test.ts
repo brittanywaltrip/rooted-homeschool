@@ -46,8 +46,12 @@ const NOW = new Date("2026-09-15T12:00:00Z");
 // What Stripe says about each subscription id in the fixtures.
 const stripeSays = async (id: string): Promise<boolean | null> =>
   id === "sub_123" ? true : id === "sub_finished" ? false : null;
-const PAST = "2026-09-01T00:00:00Z";
-const FUTURE = "2027-03-01T00:00:00Z";
+// Full ISO form with milliseconds: rule 3 now normalises through Date, so the
+// value it writes is toISOString() output rather than whatever literal Stripe
+// or a fixture happened to use. Postgres parses both identically into the
+// timestamptz column; matching the emitted form keeps the assertions exact.
+const PAST = "2026-09-01T00:00:00.000Z";
+const FUTURE = "2027-03-01T00:00:00.000Z";
 
 function rows(): Row[] {
   return [
@@ -87,12 +91,30 @@ function rows(): Row[] {
 
 // What Stripe reports for each subscription id in the fixtures. null is the
 // "could not be asked, or could not answer" case.
+function paidInvoice(end: string, start = PAST): Omit<SubscriptionSnapshot, "status"> {
+  return { latestInvoiceStatus: "paid", linePeriodStart: start, linePeriodEnd: end };
+}
+
 const snapshots: Record<string, SubscriptionSnapshot | null> = {
-  sub_canceled: { status: "canceled", periodEnd: FUTURE },
-  sub_canceled_past: { status: "canceled", periodEnd: PAST },
-  sub_canceled_nodate: { status: "canceled", periodEnd: null },
-  sub_pastdue: { status: "past_due", periodEnd: FUTURE },
-  sub_live: { status: "active", periodEnd: FUTURE },
+  sub_canceled: { status: "canceled", ...paidInvoice(FUTURE) },
+  sub_canceled_past: { status: "canceled", ...paidInvoice(PAST) },
+  // Stripe says cancelled, but nothing about the invoice can be read.
+  sub_canceled_nodate: {
+    status: "canceled",
+    latestInvoiceStatus: null,
+    linePeriodStart: null,
+    linePeriodEnd: null,
+  },
+  // The failed-renewal shape: the invoice was never paid, so the last paid
+  // period ended where this unpaid one starts.
+  sub_canceled_unpaid: {
+    status: "canceled",
+    latestInvoiceStatus: "open",
+    linePeriodStart: PAST,
+    linePeriodEnd: FUTURE,
+  },
+  sub_pastdue: { status: "past_due", ...paidInvoice(FUTURE) },
+  sub_live: { status: "active", ...paidInvoice(FUTURE) },
   sub_unreachable: null,
 };
 const stripeSnapshot = async (id: string): Promise<SubscriptionSnapshot | null> =>
@@ -242,7 +264,7 @@ test("a row Stripe cannot answer for, or answers non-terminally for, is left alo
   assert.equal(pastDue.is_pro, true);
 });
 
-test("a cancelled subscription with no paid-through date anywhere is left alone, never given an invented one", async () => {
+test("a cancelled subscription with no readable invoice is left alone, never given an invented date", async () => {
   const profiles = rows();
   const logs: string[] = [];
   await sweepWithReconcile(profiles, logs);
@@ -250,7 +272,7 @@ test("a cancelled subscription with no paid-through date anywhere is left alone,
   assert.equal(nd.subscription_status, "active");
   assert.equal(nd.subscription_end_date, null);
   assert.equal(nd.is_pro, true);
-  assert.ok(logs.some((l) => l.includes("reconcile left alone, no paid-through date to write reconcile-no-date")));
+  assert.ok(logs.some((l) => l.includes("reconcile left alone, no trustworthy paid-through date reconcile-no-date")));
 });
 
 test("a second run is a no-op: reconciliation is idempotent", async () => {
@@ -469,4 +491,73 @@ test("the bulk form keeps the stale-read guard, idempotency and dry run", async 
     out.planned.filter((w) => w.rule === "reconcile-cancelled").map((w) => w.id),
     ["stale-victim", "stale-victim-expired"],
   );
+});
+
+// ── Phase B: paid-through classification ────────────────────────────────────
+
+test("an unpaid renewal is reconciled to the LAST PAID period, never the advanced one", async () => {
+  // The failed-payment shape. Stripe advanced the subscription period to
+  // FUTURE when it created the renewal invoice, then the card was declined and
+  // the subscription was cancelled. Before the paid-through classifier this
+  // stamped FUTURE and handed the family a term they never paid for.
+  const profiles: Row[] = [
+    {
+      id: "unpaid-renewal",
+      display_name: "Unpaid Renewal",
+      plan_type: "standard",
+      is_pro: true,
+      subscription_status: "active",
+      stripe_subscription_id: "sub_canceled_unpaid",
+      current_period_end: FUTURE,
+      subscription_end_date: null,
+    },
+  ];
+
+  const out = await sweepWithBulk(profiles, [], false);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+
+  assert.deepEqual(out.reconciledIds, ["unpaid-renewal"]);
+  const row = profiles[0];
+  assert.equal(row.subscription_status, "cancelled");
+  assert.equal(
+    row.subscription_end_date,
+    PAST,
+    "must be the end of the last PAID period, which is the unpaid period's start",
+  );
+  assert.notEqual(
+    row.subscription_end_date,
+    FUTURE,
+    "must never stamp the period Stripe advanced without payment",
+  );
+  // Rule 3 still never touches entitlement.
+  assert.equal(row.is_pro, true);
+  assert.equal(row.plan_type, "standard");
+});
+
+test("rule 3 ignores the row's own current_period_end entirely", async () => {
+  // The row claims a future paid-through date, but the invoice says the period
+  // was never paid. The invoice wins; the row's copy of the advanced field is
+  // not consulted as a fallback any more.
+  const profiles: Row[] = [
+    {
+      id: "row-claims-future",
+      display_name: "Row Claims Future",
+      plan_type: "standard",
+      is_pro: true,
+      subscription_status: "active",
+      stripe_subscription_id: "sub_canceled_nodate",
+      current_period_end: FUTURE,
+      subscription_end_date: null,
+    },
+  ];
+
+  const logs: string[] = [];
+  const out = await sweepWithBulk(profiles, logs, false);
+  assert.ok(out.ok);
+  if (!out.ok) return;
+
+  assert.equal(out.reconciled, 0, "an unreadable invoice must not borrow the row's date");
+  assert.equal(profiles[0].subscription_end_date, null);
+  assert.ok(logs.some((l) => l.includes("no trustworthy paid-through date")));
 });

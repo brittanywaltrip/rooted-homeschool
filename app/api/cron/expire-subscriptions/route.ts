@@ -6,6 +6,11 @@ import {
   type SweepClient,
   type SubscriptionSnapshot,
 } from '@/lib/expire-subscriptions'
+import { type InvoiceStatus } from '@/lib/paid-through'
+import {
+  selectSubscriptionInvoiceLine,
+  type InvoiceLineLike,
+} from '@/lib/stripe-invoice-line'
 
 /**
  * Nightly sweep that ends access for subscriptions whose paid term is over.
@@ -66,22 +71,49 @@ async function isStripeSubscriptionLive(subscriptionId: string): Promise<boolean
  * explicit answer from Stripe. A subscription Stripe cannot find is inconclusive
  * here, not cancelled.
  *
- * periodEnd is read the same way the webhook reads it (top-level first, then the
- * first subscription item) but without periodEndFromSubscription's
- * now + 365 days fallback: rule 3 would rather write nothing than invent a date.
+ * It reports what rule 3 needs to answer "what was PAID for", and deliberately
+ * does NOT report the subscription's current_period_end. Stripe advances that
+ * field when it CREATES the renewal invoice, not when the invoice is paid, so
+ * reading it as a paid-through date hands a family whose card was declined a
+ * free term. lib/paid-through.ts does the classifying; this only gathers.
+ *
+ * The billed period comes from the invoice line that belongs to this
+ * subscription, chosen deterministically by lib/stripe-invoice-line.ts, never
+ * from lines.data[0] and never from invoice.period_start/period_end, which
+ * describe the PREVIOUS cycle. When the right line cannot be identified the
+ * dates are null and rule 3 leaves the family alone.
  */
 function snapshotOf(sub: Stripe.Subscription): SubscriptionSnapshot {
-  const raw = sub as unknown as {
-    current_period_end?: number | null
-    items?: { data?: Array<{ current_period_end?: number | null }> } | null
+  const invoice =
+    sub.latest_invoice && typeof sub.latest_invoice === 'object'
+      ? (sub.latest_invoice as Stripe.Invoice)
+      : null
+
+  // A truncated line list could hide a second candidate and make an ambiguous
+  // invoice look unambiguous, so a paged one is treated as unreadable.
+  const linesTruncated = invoice?.lines?.has_more === true
+  const selection = selectSubscriptionInvoiceLine({
+    subscriptionId: sub.id,
+    subscriptionItemIds: (sub.items?.data ?? []).map((item) => item.id),
+    lines: linesTruncated
+      ? null
+      : ((invoice?.lines?.data ?? null) as InvoiceLineLike[] | null),
+  })
+
+  if (invoice && selection.kind === 'ambiguous') {
+    console.warn(
+      '[cron/expire-subscriptions] could not identify the billed line for',
+      sub.id, '-', selection.reason, '- leaving this family alone',
+    )
   }
-  const epoch = raw.current_period_end ?? raw.items?.data?.[0]?.current_period_end ?? null
+
   return {
     status: sub.status,
-    periodEnd:
-      typeof epoch === 'number' && epoch > 0
-        ? new Date(epoch * 1000).toISOString()
-        : null,
+    latestInvoiceStatus: (invoice?.status ?? null) as InvoiceStatus | null,
+    linePeriodStart:
+      selection.kind === 'found' ? selection.periodStart?.toISOString() ?? null : null,
+    linePeriodEnd:
+      selection.kind === 'found' ? selection.periodEnd?.toISOString() ?? null : null,
   }
 }
 
@@ -119,7 +151,14 @@ async function getStripeSubscriptionSnapshots(
   let pages = 0
   try {
     const stripe = new Stripe(key, { apiVersion: '2026-02-25.clover' })
-    for await (const sub of stripe.subscriptions.list({ status: 'all', limit: 100 })) {
+    // latest_invoice is expanded so rule 3 can tell a PAID period from an
+    // advanced-but-unpaid one, still in a single listing rather than one
+    // retrieve per subscriber.
+    for await (const sub of stripe.subscriptions.list({
+      status: 'all',
+      limit: 100,
+      expand: ['data.latest_invoice'],
+    })) {
       if (!wanted.has(sub.id)) continue
       found.set(sub.id, snapshotOf(sub))
       if (found.size === wanted.size) break
@@ -136,9 +175,18 @@ async function getStripeSubscriptionSnapshots(
     if (found.size === 0) return null
   }
 
+  // How many carried a readable invoice matters as much as how many were
+  // found: rule 3 classifies from the invoice, so if the expand ever stopped
+  // working every family would be left alone and the run would look identical
+  // to a healthy "nothing due". This counter is what tells those two apart.
+  let withReadableInvoice = 0
+  for (const snap of found.values()) {
+    if (snap.latestInvoiceStatus !== null) withReadableInvoice++
+  }
   console.log(
     '[cron/expire-subscriptions] Stripe listing resolved',
     found.size, 'of', wanted.size, 'subscriptions in one pass', pages ? '' : '(partial)',
+    '-', withReadableInvoice, 'with a readable invoice',
   )
   return found
 }
