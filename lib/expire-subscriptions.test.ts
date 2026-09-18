@@ -8,6 +8,7 @@ import {
   sweepExpiredAccess,
   type SweepClient,
   type SubscriptionSnapshot,
+  type SubscriptionSnapshotBatch,
 } from "./expire-subscriptions.ts";
 
 type Row = Record<string, unknown>;
@@ -351,7 +352,10 @@ const sweepWithBulk = (
   profiles: Row[],
   logs: string[] = [],
   dryRun = false,
-  bulk = bulkFrom(),
+  // Typed as the production callback, not inferred from bulkFrom(): the default
+  // always returns a Map, so inference would narrow this to exclude null and
+  // reject a fake that reports "Stripe could not be reached at all".
+  bulk: SubscriptionSnapshotBatch = bulkFrom(),
 ) =>
   sweepExpiredAccess(fakeClient(profiles), NOW, (...p) => logs.push(p.join(" ")), stripeSays, {
     dryRun,
