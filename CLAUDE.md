@@ -437,6 +437,48 @@ Baseline: Blair Torres (`blairkernwi@gmail.com`, code `BLAIR`) — first partner
 
 ## Security Rules
 
+### profiles entitlement columns are server-managed (applied September 17, 2026)
+
+Migration `20260917000000_security_fix_1_profiles_entitlement_guard.sql`. Before it, `authenticated`
+held a TABLE-level UPDATE grant on `profiles` and the only write policy checked `id = auth.uid()`.
+RLS is row level, so any signed-in user could PATCH `/rest/v1/profiles` with their own token and set
+`is_pro` / `plan_type` / `subscription_status` / the Stripe ids, unlocking Rooted+ without paying.
+Confirmed exploitable, swept all 2,465 profiles, nobody had used it.
+
+Thirteen columns are now SERVER-MANAGED and cannot be written by `authenticated` or `anon`:
+
+    is_pro, plan_type, subscription_status, stripe_customer_id, stripe_subscription_id,
+    current_period_end, subscription_end_date, trial_started_at, legacy_free, referred_by,
+    photo_count, yearly_review_count, yearly_review_reset_year
+
+Two layers enforce it:
+
+1. The blanket table UPDATE grant was replaced with a column allowlist (the other 31 columns).
+   A column-level REVOKE cannot subtract from a table-level GRANT, so the table grant had to be
+   revoked first and the permitted columns granted back. Get that order wrong and the hole stays
+   open while looking closed.
+2. Trigger `profiles_guard_entitlement` (function `public.guard_profile_entitlement`) raises 42501
+   if `current_user` is `authenticated` or `anon` and any of the thirteen changes. It exists so a
+   future `grant all on all tables in schema public to authenticated` cannot silently reopen
+   layer 1.
+
+Consequences for anyone writing code against `profiles`:
+
+- Never write an entitlement column from a browser client. It will fail with 42501
+  "permission denied for table profiles". Route it through a service-role API handler.
+- `/api/profile/update` is the correct client path for profile edits. Its `allowed` array is a
+  hardcoded allowlist and MUST NOT gain an entitlement field.
+- Adding a NEW column to `profiles` that clients need to write now requires an explicit
+  `grant update (col) on public.profiles to authenticated` migration. This is deliberate: new
+  columns are unwritable by clients by default.
+- Service role, `postgres` and SECURITY DEFINER functions are unaffected. The Stripe webhook,
+  `lib/link-stripe-to-profile.ts`, `lib/comp-partner.ts`, the expire-subscriptions cron, the admin
+  routes, the auth/callback profile upsert and `increment_photo_count` all still work.
+
+Rollback: `supabase/rollbacks/20260917000000_security_fix_1_ROLLBACK.sql`. Reopens the hole; only
+for a broken legitimate write path.
+
+
 ### get_user_id_by_email — service_role only
 The function `public.get_user_id_by_email(text)` is a SECURITY DEFINER function that queries auth.users. Any role that can execute it can enumerate whether an email address has a Rooted account (user enumeration vulnerability), so execute is locked down to `service_role` only. The sole caller is `app/api/gift/route.ts`, which uses the SUPABASE_SERVICE_ROLE_KEY, so no anon or authenticated access is needed.
 
