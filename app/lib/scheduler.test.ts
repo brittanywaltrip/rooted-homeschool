@@ -7613,7 +7613,7 @@ test('big families: the builder inserts lessons through the shared batch helper,
     // instead, since it is parsed whole.
     assert.match(body, /const insertRows = \[\.\.\.histToInsert, \.\.\.toInsert\]/)
     assert.match(
-      stripComments(loadRepoFile('supabase/migrations/20260919235000_schedule_commit_lesson_updates.sql')),
+      stripComments(loadRepoFile('supabase/migrations/20260919231840_schedule_commit_lesson_updates.sql')),
       /limit 5000/, 'the RPC caps what one save may insert')
   assert.ok(!/\.slice\(i, i \+ 100\)/.test(body), 'no hand-rolled 100-row chunks remain')
   const helper = stripComments(loadRepoFile('app/lib/batches.ts'))
@@ -10281,7 +10281,7 @@ test('completed lessons stay protected: the plan excludes them and the RPC refus
   const sched = stripComments(loadRepoFile('app/lib/scheduler.ts'))
   const planner = sched.slice(sched.indexOf('export function planPhase2Rows'), sched.indexOf('export function isPhase2NoOp'))
   assert.match(planner, /!r\.completed/, 'the planner never puts a completed row in deletedIds')
-  const rpc = stripComments(loadRepoFile('supabase/migrations/20260919235000_schedule_commit_lesson_updates.sql'))
+  const rpc = stripComments(loadRepoFile('supabase/migrations/20260919231840_schedule_commit_lesson_updates.sql'))
   assert.match(rpc, /completed\s*\n\s*or \(notes is not null/,
     'schedule_commit refuses to delete a completed row')
   assert.match(rpc, /or coalesce\(hours, 0\) > 0/,

@@ -8,16 +8,20 @@ the callers before the functions exist calls things that are not there.
 
 ## Stage 1 — EXPAND (database only, additive)
 
+**APPLIED to rooted-staging 2026-09-19.** The ledger versions below are the ones
+`apply_migration` assigned; the repo filenames were renamed to match, per
+CLAUDE.md's rule for migrations from 2026-09-18 onward.
+
 Apply, in order, with `apply_migration` (migrations do not run on deploy in this
 repo; see CLAUDE.md):
 
 | # | migration | adds |
 |---|---|---|
-| 1 | `20260919230000_schedule_commit_atomic` | `delete_lesson`, first `schedule_commit` |
-| 2 | `20260919233000_schedule_state_version_title` | `title` + `hours` in the digest |
-| 3 | `20260919234000_delete_lessons_rpcs` | `delete_lessons`, `delete_year_lessons`, `delete_goal_pending_lessons` |
-| 4 | `20260919235000_schedule_commit_lesson_updates` | `schedule_commit` with lesson updates, locks, guards |
-| 5 | `20260919236000_schedule_commit_status` | `schedule_commit_status` |
+| 1 | `20260919231657_schedule_commit_atomic` (ledger 20260919231657) | `delete_lesson`, first `schedule_commit` |
+| 2 | `20260919231716_schedule_state_version_title` | `title` + `hours` in the digest |
+| 3 | `20260919231737_delete_lessons_rpcs` | `delete_lessons`, `delete_year_lessons`, `delete_goal_pending_lessons` |
+| 4 | `20260919231840_schedule_commit_lesson_updates` | `schedule_commit` with lesson updates, locks, guards |
+| 5 | `20260919231848_schedule_commit_status` | `schedule_commit_status` |
 
 **One behaviour change to know about before stage 1.** `schedule_commit` locks
 the account's `auth.users` row **first**, before the proposal, goal, lesson and

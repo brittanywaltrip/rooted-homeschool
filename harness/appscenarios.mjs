@@ -1,6 +1,10 @@
-import { client, raw, UID } from "/tmp/appcheck.mjs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO = join(HERE, "..");
+const { client, raw, UID } = await import(join(HERE, "appcheck.mjs"));
 const { commitGoalSave, ScheduleSaveError } =
-  await import("/tmp/atomic-commit/app/lib/schedule-commit-client.ts");
+  await import(join(REPO, "app/lib/schedule-commit-client.ts"));
 
 const G = "aaaaaaaa-0000-4000-8000-0000000000cc";
 const C = "cccccccc-0000-4000-8000-000000000001";

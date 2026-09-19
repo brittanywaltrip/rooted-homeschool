@@ -15,6 +15,7 @@
 set -uo pipefail
 export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"
 D="postgresql://postgres@127.0.0.1:55432/atomic?sslmode=disable"
+OUT="$(mktemp -d)"; trap 'rm -rf "$OUT"' EXIT
 U=11111111-1111-4111-8111-111111111111
 C=cccccccc-0000-4000-8000-000000000001
 G=aaaaaaaa-0000-4000-8000-0000000000dd
@@ -32,7 +33,7 @@ insert into schedule_proposals (id,user_id,action,goal_ids,proposal_hash,canonic
 values ('$P','$U','rebuild',array['$G']::uuid[],repeat('a',64),'{}',public.schedule_state_version(array['$G']::uuid[]),'{}'::jsonb,0);" >/dev/null
 
 # B first: take auth.users key-share, wait, then need the goal.
-( psql -X -tA -d "$D" > /tmp/dl.b 2>&1 <<SQL
+( psql -X -tA -d "$D" > "$OUT/b" 2>&1 <<SQL
 begin;
 insert into vacation_blocks (user_id,start_date,end_date) values ('$U','2027-11-01','2027-11-05');
 select pg_sleep(2.5);
@@ -43,7 +44,7 @@ SQL
 ) & BPID=$!
 sleep 1.0
 # A second: the save.
-( psql -X -tA -d "$D" > /tmp/dl.a 2>&1 <<SQL
+( psql -X -tA -d "$D" > "$OUT/a" 2>&1 <<SQL
 set role authenticated; select set_config('request.jwt.claim.sub','$U',false);
 begin;
 select public.schedule_commit('$P'::uuid,'{}'::jsonb,'[]'::jsonb,
@@ -52,8 +53,8 @@ commit;
 SQL
 ) & APID=$!
 wait $BPID; wait $APID
-if grep -qi "deadlock detected" /tmp/dl.a /tmp/dl.b; then
-  echo "  DEADLOCK  $(grep -hi 'deadlock detected' /tmp/dl.a /tmp/dl.b | head -1 | cut -c1-70)"
+if grep -qi "deadlock detected" "$OUT/a" "$OUT/b"; then
+  echo "  DEADLOCK  $(grep -hi 'deadlock detected' "$OUT/a" "$OUT/b" | head -1 | cut -c1-70)"
   exit 2
 fi
 # Success is "no cycle, and each transaction reached a definite end". The save
@@ -63,7 +64,7 @@ fi
 # deadlock, or a save that half-wrote.
 COMMITTED=$(psql -X -tA -d "$D" -c "select count(*) from schedule_transactions where idempotency_key='deadlock-probe-key-1';")
 PROBE=$(psql -X -tA -d "$D" -c "select count(*) from lessons where title='deadlock probe';")
-REFUSED=$(grep -ci "changed since this proposal" /tmp/dl.a || true)
+REFUSED=$(grep -ci "changed since this proposal" "$OUT/a" || true)
 if [ "$PROBE" != "1" ]; then echo "  INCOMPLETE: the concurrent insert did not land"; exit 3; fi
 if [ "$COMMITTED" = "1" ]; then
   echo "  NO DEADLOCK: the concurrent insert landed and the save committed"; exit 0

@@ -6,12 +6,15 @@
 # not a rollback.
 set -uo pipefail
 export PATH="/opt/homebrew/opt/postgresql@17/bin:$PATH"
-M=/tmp/atomic-commit/supabase/migrations
-R=/tmp/atomic-commit/supabase/rollbacks
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO="$(cd "$HERE/.." && pwd)"
+M="$REPO/supabase/migrations"
+R="$REPO/supabase/rollbacks"
 psql -q -d "postgresql://postgres@127.0.0.1:55432/postgres?sslmode=disable" \
   -c "drop database if exists rbtest with (force);" -c "create database rbtest;" >/dev/null
 D="postgresql://postgres@127.0.0.1:55432/rbtest?sslmode=disable"
-S=/private/tmp/claude-501/-Users-brittanywaltrip/4a7a796e-cec0-4f82-a59f-a0f12c5ca1d7/scratchpad
+# The transcribed staging schema. Override with ROOTED_SCHEMA_DIR.
+S="${ROOTED_SCHEMA_DIR:-/private/tmp/claude-501/-Users-brittanywaltrip/4a7a796e-cec0-4f82-a59f-a0f12c5ca1d7/scratchpad}"
 psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$S/schema.sql"   >/dev/null 2>&1
 psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$S/triggers.sql" >/dev/null 2>&1
 psql -q -d "$D" -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<SQL
@@ -30,16 +33,16 @@ for m in 20260919013700_schedule_transactions_and_preview 20260919013822_schedul
   psql -q -d "$D" -f "$M/$m.sql" >/dev/null 2>&1
 done
 sed '/create type actor_type_t/,/^$/d' "$M/20260919021050_schedule_transactions_actor_ready.sql" | psql -q -d "$D" >/dev/null 2>&1
-psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$M/20260919230000_schedule_commit_atomic.sql" >/dev/null 2>&1
+psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$M/20260919231657_schedule_commit_atomic.sql" >/dev/null 2>&1
 
 BEFORE=$(psql -X -tA -d "$D" -c "select pg_get_functiondef(p.oid) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='schedule_commit';")
 echo "  captured BEFORE: $(printf '%s' "$BEFORE" | wc -c | tr -d ' ') bytes, $(psql -X -tA -d "$D" -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='schedule_commit';") definition(s)"
 
-psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$M/20260919233000_schedule_state_version_title.sql" >/dev/null 2>&1
-psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$M/20260919235000_schedule_commit_lesson_updates.sql" >/dev/null 2>&1
+psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$M/20260919231716_schedule_state_version_title.sql" >/dev/null 2>&1
+psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$M/20260919231840_schedule_commit_lesson_updates.sql" >/dev/null 2>&1
 echo "  after FORWARD:   $(psql -X -tA -d "$D" -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='schedule_commit';") definition(s)"
 
-psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$R/20260919235000_schedule_commit_lesson_updates_ROLLBACK.sql" >/dev/null 2>&1
+psql -q -d "$D" -v ON_ERROR_STOP=1 -f "$R/20260919231840_schedule_commit_lesson_updates_ROLLBACK.sql" >/dev/null 2>&1
 AFTER=$(psql -X -tA -d "$D" -c "select pg_get_functiondef(p.oid) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='schedule_commit';")
 N=$(psql -X -tA -d "$D" -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='schedule_commit';")
 echo "  after ROLLBACK:  $(printf '%s' "$AFTER" | wc -c | tr -d ' ') bytes, $N definition(s)"
