@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   deleteLessonById, deleteLessonsByIds, deleteYearLessons, restoreRemovedRow,
-  LessonDeleteError, messageFor,
+  LessonDeleteError, messageFor, type LessonDeleteClient,
 } from "./lesson-delete.ts";
 
 const ok = { rpc: async () => ({ error: null }) };
@@ -92,4 +92,70 @@ test("restoring does not mutate the previous list", () => {
   const next = restoreRemovedRow(prev, { id: "b" });
   assert.equal(prev.length, 1);
   assert.equal(next.length, 2);
+});
+
+// ── Deferred / timer-driven deletes ────────────────────────────────────────
+// Today removes the lesson, then deletes it 5s later from a setTimeout. The
+// old shape was `setTimeout(async () => { await deleteLessonById(...) })`:
+// setTimeout DISCARDS the promise an async callback returns, so a rejection
+// was unhandled, the row stayed in the database, and the screen showed it gone
+// until the next load. These pin the replacement's behaviour.
+
+function deferred<T extends { id: string }>(
+  client: LessonDeleteClient,
+  row: T,
+  state: { list: T[]; message: string | null },
+): Promise<void> {
+  // The exact shape used in app/dashboard/page.tsx: a chain with its own
+  // catch, started with `void`, never an async callback.
+  return deleteLessonById(client, row.id)
+    .catch((err: unknown) => {
+      state.list = restoreRemovedRow(state.list, row);
+      state.message = err instanceof LessonDeleteError ? err.message : "fallback";
+    });
+}
+
+test("a deferred delete that fails restores the row and sets a message", async () => {
+  const row = { id: "x" };
+  const state = { list: [] as { id: string }[], message: null as string | null };
+  await deferred(denied, row, state);
+  assert.deepEqual(state.list, [row], "the row the screen removed is put back");
+  assert.match(String(state.message), /reload/i, "and the parent is told why");
+});
+
+test("a deferred delete that succeeds leaves the row removed and says nothing", async () => {
+  const state = { list: [] as { id: string }[], message: null as string | null };
+  await deferred(ok, { id: "x" }, state);
+  assert.deepEqual(state.list, []);
+  assert.equal(state.message, null);
+});
+
+test("a failing deferred delete produces NO unhandled rejection", async () => {
+  const seen: unknown[] = [];
+  const onUnhandled = (e: unknown) => seen.push(e);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const state = { list: [] as { id: string }[], message: null as string | null };
+    void deferred(denied, { id: "x" }, state);
+    // Let the microtask queue drain, then a macrotask, which is when an
+    // unhandled rejection would be reported.
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(seen.length, 0, "the chain must carry its own catch");
+    assert.equal(state.list.length, 1, "and still restore the row");
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
+
+test("a deferred BULK delete restores every row it removed", async () => {
+  const rows = [{ id: "a" }, { id: "b" }, { id: "c" }];
+  let list: { id: string }[] = [];
+  let msg: string | null = null;
+  await deleteLessonsByIds(denied, rows.map((r) => r.id)).catch((err: unknown) => {
+    list = rows.reduce((acc, r) => restoreRemovedRow(acc, r), list);
+    msg = err instanceof LessonDeleteError ? err.message : "fallback";
+  });
+  assert.deepEqual(list.map((r) => r.id).sort(), ["a", "b", "c"],
+    "a partial restore would leave the parent short without saying so");
+  assert.notEqual(msg, null);
 });

@@ -3592,18 +3592,36 @@ export default function PlanV2() {
   }, [selectedLessons]);
 
   // Commit any pending bulk delete (run on unmount + before starting a new one).
-  const commitPendingBulkDelete = useCallback(async () => {
-    const pending = pendingBulkDeleteRef.current;
-    if (!pending) return;
-    window.clearTimeout(pending.timer);
-    pendingBulkDeleteRef.current = null;
-    const ids = pending.rows.map((r) => r.id);
-    try {
-      await deleteLessonsByIds(supabase, ids);
-    } catch {
-      /* best-effort on unmount; next loadData will reconcile */
-    }
-  }, []);
+  // Two callers, two obligations. From a user action the rows have already
+  // left the screen, so a failure must put them back and say so; only the
+  // unmount path may stay quiet, and even then it logs. Lumping them together
+  // meant a user-confirmed bulk delete could fail in silence and the lessons
+  // would reappear on the next load with no explanation.
+  const commitPendingBulkDelete = useCallback(
+    async (reason: "user" | "teardown" = "user") => {
+      const pending = pendingBulkDeleteRef.current;
+      if (!pending) return;
+      window.clearTimeout(pending.timer);
+      pendingBulkDeleteRef.current = null;
+      const rows = pending.rows;
+      try {
+        await deleteLessonsByIds(supabase, rows.map((r) => r.id));
+      } catch (err) {
+        if (reason === "teardown") {
+          // Nothing is on screen to restore; the next loadData reconciles.
+          console.warn("[PlanV2] pending bulk delete failed on teardown", err);
+          return;
+        }
+        setLessons((prev) => rows.reduce((acc, r) => restoreRemovedRow(acc, r), prev));
+        flashNotice(
+          err instanceof LessonDeleteError
+            ? err.message
+            : "We couldn't remove those lessons. They're still here.",
+        );
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     return () => {

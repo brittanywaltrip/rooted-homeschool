@@ -15,6 +15,9 @@ a stated observation; "it seemed fine" is not one of them.
 - [ ] **Skips**: a skipped row is never re-dated.
 - [ ] **Continuations**: a lesson continuing from another saves without
       silently removing its partner.
+- [ ] A lesson whose continuation target is **in another curriculum of the same
+      family** saves. That is allowed on purpose: a continuation spans
+      curricula and the target is never written by the save.
 - [ ] Sibling curricula the save did not touch are **not** re-spread.
 
 ## 2. Injected insert failure
@@ -43,6 +46,15 @@ Two browsers, same account.
       with B's edit intact, or refuses. B's words are never lost.
 - [ ] Same for **hours**.
 - [ ] Same for a **pin** and a **skip**.
+- [ ] **A vacation ADDED during the save** (not an edit to an existing one).
+      `FOR UPDATE` cannot lock a row that does not exist, so the commit locks
+      the `auth.users` row the vacation FK key-shares. Observe: B's insert waits
+      for A, and the resulting schedule accounts for the new vacation or the
+      save refuses. Never a schedule computed as if the vacation were absent.
+- [ ] While a save is open, confirm this account's **other inserts** (a new
+      goal, a new lesson) also wait, and that **another account is unaffected**.
+      That serialisation is the cost of the lock and should be seen, not
+      discovered later.
 
 ## 5. Oversized input
 
@@ -57,6 +69,17 @@ Two browsers, same account.
 - [ ] "Add a past year" undo.
 - [ ] For each: force a failure and confirm the optimistically removed row
       **comes back** and a message appears. No vanish-and-reappear.
+- [ ] **Today's 5-second undo window**: delete a lesson, let the window elapse
+      with the request failing. The lesson returns and a message appears. Check
+      the browser console for an **unhandled promise rejection** — there must
+      be none.
+- [ ] **Today, two deletes in a row**: start a second delete while the first is
+      still in its undo window and make the first fail. The first lesson comes
+      back with a message; the second proceeds on its own terms.
+- [ ] **Deferred bulk delete from a user action** that fails: every removed row
+      returns, not some of them, and a message appears.
+- [ ] **Deferred bulk delete on navigation away** that fails: nothing is on
+      screen to restore, and the failure is in the console. Reload reconciles.
 
 ## 7. After the revoke — an old bundle
 

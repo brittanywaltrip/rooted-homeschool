@@ -138,7 +138,31 @@ begin
     end if;
   end if;
 
+  -- Unknown keys are refused rather than ignored, in every object the payload
+  -- carries. A typo in a field name used to be silently dropped: the save
+  -- reported success and the value the parent set never arrived.
+  if p_goal_updates is not null and p_goal_updates <> '{}'::jsonb then
+    select count(*) into v_bad from (
+      select jsonb_object_keys(v) as k from jsonb_each(p_goal_updates) e(gid, v)) t
+     where t.k not in ('curriculum_name','total_lessons','lessons_per_day',
+                       'start_date','target_date','archived','school_days');
+    if v_bad > 0 then
+      raise exception '% unknown key(s) in the goal updates', v_bad using errcode = '22023';
+    end if;
+  end if;
+
   if p_insert_rows is not null and jsonb_array_length(p_insert_rows) > 0 then
+    select count(*) into v_bad from (
+      select jsonb_object_keys(r) as k from jsonb_array_elements(p_insert_rows) r) t
+     where t.k not in ('id','child_id','curriculum_goal_id','subject_id','school_year_id',
+                       'title','date','scheduled_date','scheduled_source','lesson_number',
+                       'queue_position','queue_pinned','completed','completed_at','notes',
+                       'minutes_spent','hours','is_backfill','skipped','counts_toward_goal',
+                       'continues_lesson_id','created_at','updated_at');
+    if v_bad > 0 then
+      raise exception '% unknown key(s) in the inserted rows', v_bad using errcode = '22023';
+    end if;
+
     if jsonb_array_length(p_insert_rows) <>
        (select count(distinct r->>'id') from jsonb_array_elements(p_insert_rows) r) then
       raise exception 'the insert rows repeat an id' using errcode = '22023';
@@ -238,8 +262,29 @@ begin
   -- written.
   perform 1 from public.lessons
     where curriculum_goal_id = any(v_prop.goal_ids) order by id for update;
+
+  -- EXISTING vacation rows. Necessary, and on its own not sufficient: FOR
+  -- UPDATE cannot lock a row that does not exist yet, so a vacation INSERTED
+  -- after this point could still commit between the hash and the delete and
+  -- change which days the save should have used.
   perform 1 from public.vacation_blocks
     where user_id = v_uid order by id for update;
+
+  -- So the parent row the vacation FK must key-share is locked too.
+  -- vacation_blocks.user_id references auth.users(id), so INSERTing a vacation
+  -- takes FOR KEY SHARE on this row, and FOR KEY SHARE conflicts with FOR
+  -- UPDATE. Holding it here makes a concurrent vacation insert WAIT rather
+  -- than slip in behind the check.
+  --
+  -- STATE THE COST, because it is broader than it looks: every table whose
+  -- user_id references auth.users takes that same key-share on insert, so for
+  -- the length of this transaction this account's concurrent goal, lesson,
+  -- transcript and vacation INSERTS serialise behind the save, and a GoTrue
+  -- token refresh that updates auth.users waits too. The transaction is short
+  -- -- validate, write, commit -- and one account saving its own schedule
+  -- twice at once is a case worth serialising. It is a deliberate trade, not
+  -- an accident.
+  perform 1 from auth.users where id = v_uid for update;
 
   v_now_ver := public.schedule_state_version(v_prop.goal_ids);
   if v_now_ver is distinct from v_prop.state_version then
@@ -357,10 +402,24 @@ begin
             select 1 from public.subjects sj where sj.id = l.subject_id and sj.user_id = v_uid))
       or (l.school_year_id is not null and not exists (
             select 1 from public.school_years y where y.id = l.school_year_id and y.user_id = v_uid))
+      -- continues_lesson_id was missing from this check. Without it a payload
+      -- could create a lesson that continues from ANOTHER FAMILY'S lesson --
+      -- and because that FK is ON DELETE CASCADE, deleting their row would
+      -- then delete ours, or ours theirs, depending which way the link ran.
+      --
+      -- DECISION on same-account, out-of-proposal targets: ALLOWED. A
+      -- continuation legitimately spans curricula ("this carries on from the
+      -- lesson we did in the other book"), and the proposal's goal scope is
+      -- about what this save may REWRITE, not about what a row may point at.
+      -- The target is never written by this call. What is refused is a target
+      -- that is missing, or that belongs to someone else.
+      or (l.continues_lesson_id is not null and not exists (
+            select 1 from public.lessons cl
+             where cl.id = l.continues_lesson_id and cl.user_id = v_uid))
        );
     if v_bad > 0 then
       raise exception
-        '% inserted row(s) reference a child, subject or school year that is not yours', v_bad
+        '% inserted row(s) reference a child, subject, school year or continued lesson that is missing or not yours', v_bad
         using errcode = '42501';
     end if;
   end if;

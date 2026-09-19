@@ -19,6 +19,13 @@ repo; see CLAUDE.md):
 | 4 | `20260919235000_schedule_commit_lesson_updates` | `schedule_commit` with lesson updates, locks, guards |
 | 5 | `20260919236000_schedule_commit_status` | `schedule_commit_status` |
 
+**One behaviour change to know about before stage 1.** `schedule_commit` locks
+the account's `auth.users` row, because that is the parent a vacation INSERT
+must key-share and `FOR UPDATE` cannot lock a vacation row that does not exist
+yet. For the length of a save — validate, write, commit — that account's other
+inserts and a GoTrue token refresh for that user wait. It is one row, so other
+accounts are unaffected. Verified by two-session test.
+
 Every one only adds functions or redefines `schedule_state_version`. **No
 privilege changes.** The currently deployed app keeps working throughout,
 because it still holds DELETE and does not call any of these.

@@ -8,7 +8,7 @@ import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { deleteLessonById } from "@/lib/lesson-delete";
+import { LessonDeleteError, deleteLessonById, restoreRemovedRow } from "@/lib/lesson-delete";
 import { usePartner } from "@/lib/partner-context";
 import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/lib/profile-context";
 import { useSessionUser } from "@/lib/session-context";
@@ -611,6 +611,8 @@ export default function TodayPage() {
   const reschedulingGateRef = useRef<InFlightGate>(createInFlightGate());
   const [rescheduleBusy, setRescheduleBusy] = useState(false);
   const [pendingDelete,          setPendingDelete]          = useState<{ lesson: Lesson } | null>(null);
+  // Shown when a delete already taken off the screen turns out to have failed.
+  const [deleteFailedMsg,        setDeleteFailedMsg]        = useState<string | null>(null);
   const pendingDeleteTimer       = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Lesson note editing (ported from Plan page for parity)
   const [editingNoteId,          setEditingNoteId]          = useState<string | null>(null);
@@ -3411,24 +3413,49 @@ export default function TodayPage() {
     setEditingLesson(null);
   }
 
+  // A delete that has already left the screen MUST either land or come back
+  // with an explanation. Both call sites below awaited deleteLessonById with
+  // no catch: the timer's rejection was unhandled entirely, and in both cases
+  // the lesson stayed in the database while the screen showed it gone until
+  // the next load.
+  function restoreFailedDelete(lesson: Lesson, err: unknown) {
+    setLessons((prev) => restoreRemovedRow(prev, lesson));
+    setDeleteFailedMsg(
+      err instanceof LessonDeleteError
+        ? err.message
+        : "We couldn't remove that lesson. It's still here.",
+    );
+    window.setTimeout(() => setDeleteFailedMsg(null), 6000);
+  }
+
   async function deleteLesson(id: string) {
     // If a previous delete is still pending its undo window, commit it now
     // before starting a new one (only one delete can be undoable at a time).
     if (pendingDelete && pendingDeleteTimer.current) {
       clearTimeout(pendingDeleteTimer.current);
       pendingDeleteTimer.current = null;
-      const prevId = pendingDelete.lesson.id;
-      await deleteLessonById(supabase, prevId);
+      const previous = pendingDelete.lesson;
+      try {
+        await deleteLessonById(supabase, previous.id);
+      } catch (err) {
+        restoreFailedDelete(previous, err);
+      }
     }
     const lesson = lessons.find((l) => l.id === id);
     if (!lesson) return;
     setLessons((prev) => prev.filter((l) => l.id !== id));
     setPendingDelete({ lesson });
-    pendingDeleteTimer.current = setTimeout(async () => {
-      await deleteLessonById(supabase, id);
-      await refreshLeafCounts();
-      setPendingDelete(null);
-      pendingDeleteTimer.current = null;
+    pendingDeleteTimer.current = setTimeout(() => {
+      // Deliberately NOT an async callback: setTimeout discards the promise it
+      // returns, so a rejection inside one is unhandled. This is a chain with
+      // its own catch, so nothing escapes.
+      void deleteLessonById(supabase, id)
+        .then(() => refreshLeafCounts())
+        .catch((err) => restoreFailedDelete(lesson, err))
+        .finally(() => {
+          setPendingDelete(null);
+          pendingDeleteTimer.current = null;
+        });
     }, 5000);
   }
 
