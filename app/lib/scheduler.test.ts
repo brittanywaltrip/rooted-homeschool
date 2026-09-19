@@ -7532,8 +7532,13 @@ test('past year: writes run in order and a failure rolls everything back before 
   assert.ok(body.indexOf('await rollback(yearId)') > body.indexOf('catch'), 'a failure rolls back')
   assert.match(body, /Nothing was added\. Try again\?/)
   const rb = extractFunctionBody(src, /const rollback = useCallback\(async \(yearId: string\) =>/)
-  const l = rb.indexOf('.from("lessons").delete()'); const g = rb.indexOf('.from("curriculum_goals").delete()'); const y = rb.indexOf('.from("school_years").delete()')
+  // Lessons no longer go through .from("lessons").delete(): `authenticated` is
+    // losing that privilege, so the rollback calls the owner- and year-scoped
+    // deleteYearLessons RPC. The ORDER is the invariant and it is unchanged, so
+    // the guard still enforces it -- on the call that now does the work.
+    const l = rb.indexOf('deleteYearLessons('); const g = rb.indexOf('.from("curriculum_goals").delete()'); const y = rb.indexOf('.from("school_years").delete()')
   assert.ok(l !== -1 && g !== -1 && y !== -1 && l < g && g < y, 'rollback deletes lessons, then goals, then the year')
+    assert.ok(!/\.from\("lessons"\)\s*\.delete\(\)/.test(src), 'the past-year flow deletes no lesson directly')
   assert.ok(!/\.from\("lessons"\)\s*\.update/.test(src) && !/\.from\("curriculum_goals"\)\s*\.update/.test(src), 'the flow never updates an existing row')
 })
 

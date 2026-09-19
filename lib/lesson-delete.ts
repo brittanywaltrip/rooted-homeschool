@@ -42,7 +42,7 @@ export type LessonDeleteClient = {
   rpc: (
     fn: string,
     args: Record<string, unknown>,
-  ) => PromiseLike<{ error: { message: string; code?: string } | null }>;
+  ) => PromiseLike<{ error: { message: string; code?: string } | null; data?: unknown }>;
 };
 
 /**
@@ -59,6 +59,52 @@ export function messageFor(err: { message: string; code?: string }): string {
     return "We couldn't remove that lesson. This page may be out of date — reload and try again.";
   }
   return "We couldn't remove that lesson. Please try again.";
+}
+
+/**
+ * Several lessons at once. All-or-nothing: the server refuses the whole call if
+ * any id is not the caller's, so a partial delete cannot happen.
+ * Returns the number of rows the DATABASE removed, not the number asked for.
+ */
+export async function deleteLessonsByIds(
+  client: LessonDeleteClient,
+  lessonIds: readonly string[],
+): Promise<number> {
+  const ids = lessonIds.filter(Boolean);
+  if (ids.length === 0) return 0;
+  const { error, data } = await client.rpc("delete_lessons", { p_lesson_ids: ids });
+  if (error) {
+    throw new LessonDeleteError(messageFor(error), error.code, error.code === PERMISSION_DENIED);
+  }
+  return typeof data === "number" ? data : ids.length;
+}
+
+/** Every lesson in one school year. Used only by the "add a past year" undo. */
+export async function deleteYearLessons(
+  client: LessonDeleteClient,
+  schoolYearId: string,
+): Promise<number> {
+  if (!schoolYearId) throw new LessonDeleteError("No school year id given.", undefined, false);
+  const { error, data } = await client.rpc("delete_year_lessons", {
+    p_school_year_id: schoolYearId,
+  });
+  if (error) {
+    throw new LessonDeleteError(messageFor(error), error.code, error.code === PERMISSION_DENIED);
+  }
+  return typeof data === "number" ? data : 0;
+}
+
+/** Every PENDING lesson of one curriculum. Completed history is never touched. */
+export async function deleteGoalPendingLessons(
+  client: LessonDeleteClient,
+  goalId: string,
+): Promise<number> {
+  if (!goalId) throw new LessonDeleteError("No curriculum id given.", undefined, false);
+  const { error, data } = await client.rpc("delete_goal_pending_lessons", { p_goal_id: goalId });
+  if (error) {
+    throw new LessonDeleteError(messageFor(error), error.code, error.code === PERMISSION_DENIED);
+  }
+  return typeof data === "number" ? data : 0;
 }
 
 export async function deleteLessonById(

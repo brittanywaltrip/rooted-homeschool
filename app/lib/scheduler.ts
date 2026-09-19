@@ -4,6 +4,7 @@ import { addDays, isoDowFromYmd } from "./timezone.ts";
 // Relative + explicit extension so `node --test` (which runs this module
 // directly) can resolve it, same as ./timezone.ts above.
 import { captureSupabaseError } from "../../lib/sentry-error.ts";
+import { deleteLessonsByIds } from "../../lib/lesson-delete.ts";
 
 // Day index conventions: Mon=0..Sun=6 for school_days / school_days bool arrays
 // (matches the wizard and plan page). getDay() → Sun=0..Sat=6, so translate with
@@ -564,7 +565,7 @@ export async function healGoalIntegrity(
     }
   }
   for (let i = 0; i < toDelete.length; i += 100) {
-    await supabase.from("lessons").delete().in("id", toDelete.slice(i, i + 100));
+    await deleteLessonsByIds(supabase, toDelete.slice(i, i + 100));
   }
 }
 

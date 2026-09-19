@@ -8,6 +8,7 @@ import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { deleteLessonById } from "@/lib/lesson-delete";
 import { usePartner } from "@/lib/partner-context";
 import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/lib/profile-context";
 import { useSessionUser } from "@/lib/session-context";
@@ -3417,14 +3418,14 @@ export default function TodayPage() {
       clearTimeout(pendingDeleteTimer.current);
       pendingDeleteTimer.current = null;
       const prevId = pendingDelete.lesson.id;
-      await supabase.from("lessons").delete().eq("id", prevId);
+      await deleteLessonById(supabase, prevId);
     }
     const lesson = lessons.find((l) => l.id === id);
     if (!lesson) return;
     setLessons((prev) => prev.filter((l) => l.id !== id));
     setPendingDelete({ lesson });
     pendingDeleteTimer.current = setTimeout(async () => {
-      await supabase.from("lessons").delete().eq("id", id);
+      await deleteLessonById(supabase, id);
       await refreshLeafCounts();
       setPendingDelete(null);
       pendingDeleteTimer.current = null;

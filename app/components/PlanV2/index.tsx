@@ -16,7 +16,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
-import { deleteLessonById } from "@/lib/lesson-delete";
+import { deleteGoalPendingLessons, deleteLessonById, deleteLessonsByIds } from "@/lib/lesson-delete";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import PageHero from "@/app/components/PageHero";
@@ -1969,11 +1969,7 @@ export default function PlanV2() {
         if (unschedErr) throw new Error(unschedErr.message);
       }
       if (plan.deleteIds.length > 0) {
-        const { error: delErr } = await supabase
-          .from("lessons")
-          .delete()
-          .in("id", plan.deleteIds);
-        if (delErr) throw new Error(delErr.message);
+        await deleteLessonsByIds(supabase, plan.deleteIds);  // owner-checked, all-or-nothing, throws
       }
       const { error: goalErr } = await supabase
         .from("curriculum_goals")
@@ -2006,11 +2002,7 @@ export default function PlanV2() {
     try {
       // 1. Wipe future / uncompleted lesson rows so the queue projector
       //    has nothing left to schedule.
-      await supabase
-        .from("lessons")
-        .delete()
-        .eq("curriculum_goal_id", goal.id)
-        .eq("completed", false);
+      await deleteGoalPendingLessons(supabase, goal.id);
       // 2. Cap total_lessons at the actual completed count and mark
       //    completed_at so the goal moves into the celebrating /
       //    completed buckets and disappears from active.
@@ -3589,7 +3581,7 @@ export default function PlanV2() {
     pendingBulkDeleteRef.current = null;
     const ids = pending.rows.map((r) => r.id);
     try {
-      await supabase.from("lessons").delete().in("id", ids);
+      await deleteLessonsByIds(supabase, ids);
     } catch {
       /* best-effort on unmount; next loadData will reconcile */
     }
@@ -3604,7 +3596,11 @@ export default function PlanV2() {
         pendingBulkDeleteRef.current = null;
         const ids = pending.rows.map((r) => r.id);
         // Fire and forget — we're tearing down.
-        supabase.from("lessons").delete().in("id", ids).then(() => {}, () => {});
+        // Teardown path: still best-effort, but the failure is now VISIBLE in the
+          // console instead of discarded, and it throws nowhere to break unmount.
+          void deleteLessonsByIds(supabase, ids).catch((e) => {
+            console.warn("[PlanV2] pending bulk delete failed on teardown", e);
+          });
       }
     };
   }, []);
@@ -4135,7 +4131,7 @@ export default function PlanV2() {
     const timer = window.setTimeout(async () => {
       pendingBulkDeleteRef.current = null;
       try {
-        await supabase.from("lessons").delete().in("id", Array.from(rowIdSet));
+        await deleteLessonsByIds(supabase, Array.from(rowIdSet));
       } catch {
         /* silent — next reload reconciles */
       }

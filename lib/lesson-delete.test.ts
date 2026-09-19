@@ -1,6 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deleteLessonById, LessonDeleteError, messageFor } from "./lesson-delete.ts";
+import {
+  deleteLessonById, deleteLessonsByIds, deleteYearLessons,
+  LessonDeleteError, messageFor,
+} from "./lesson-delete.ts";
 
 const ok = { rpc: async () => ({ error: null }) };
 const denied = {
@@ -41,4 +44,35 @@ test("an empty id never reaches the network", async () => {
   await assert.rejects(() =>
     deleteLessonById({ rpc: async () => { called = true; return { error: null }; } }, ""));
   assert.equal(called, false);
+});
+
+test("bulk delete returns the count the DATABASE reported, not the count asked for", async () => {
+  const n = await deleteLessonsByIds(
+    { rpc: async () => ({ error: null, data: 2 }) },
+    ["a", "b", "c"],
+  );
+  assert.equal(n, 2);
+});
+
+test("bulk delete with nothing to do never calls the server", async () => {
+  let called = false;
+  const n = await deleteLessonsByIds(
+    { rpc: async () => { called = true; return { error: null, data: 0 }; } }, [],
+  );
+  assert.equal(n, 0);
+  assert.equal(called, false);
+});
+
+test("a refused bulk delete throws rather than reporting a silent zero", async () => {
+  await assert.rejects(
+    () => deleteLessonsByIds(
+      { rpc: async () => ({ error: { message: "denied", code: "42501" } }) }, ["a"]),
+    LessonDeleteError);
+});
+
+test("year delete passes the server's parameter name", async () => {
+  let seen: unknown = null;
+  await deleteYearLessons(
+    { rpc: async (_f, a) => { seen = a; return { error: null, data: 7 }; } }, "year-1");
+  assert.deepEqual(seen, { p_school_year_id: "year-1" });
 });

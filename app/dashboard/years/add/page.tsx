@@ -27,6 +27,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { deleteYearLessons } from "@/lib/lesson-delete";
 import { usePartner } from "@/lib/partner-context";
 import { useSessionUser } from "@/lib/session-context";
 import { capitalizeName, childNameKey } from "@/lib/utils";
@@ -328,8 +329,7 @@ export default function AddPastYearPage() {
     // year this run created, so nothing else of the family's can be touched.
     // supabase-js resolves on a failed request, so each result is checked;
     // a delete that did not happen is an error, not a success.
-    const l = await supabase.from("lessons").delete().eq("user_id", userId).eq("school_year_id", yearId);
-    if (l.error) throw l.error;
+    await deleteYearLessons(supabase, yearId);   // owner- and year-scoped server side; throws on refusal
     const a = await supabase.from("school_year_archives").delete().eq("user_id", userId).eq("school_year_id", yearId);
     if (a.error) throw a.error;
     const g = await supabase.from("curriculum_goals").delete().eq("user_id", userId).eq("school_year_id", yearId);

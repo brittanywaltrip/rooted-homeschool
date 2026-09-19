@@ -1,0 +1,3 @@
+-- Re-apply 20260919013822_schedule_state_version_fix_owner_lookup.sql to
+-- restore the previous digest (without title/hours). Doing so re-opens the
+-- silent loss of a concurrent rename.
