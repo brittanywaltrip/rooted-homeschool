@@ -8,6 +8,7 @@ import path from 'node:path';
 import { adminClient } from './admin';
 import { seedE2ECurriculum } from './seed-curriculum';
 import { assertIsTestAccount, E2E_EMAIL } from './test-account';
+import { assertSafeForTestWrites } from '../lib/env-identity';
 
 // Required env (set locally via .env.local for `npm run test:e2e`,
 // via GitHub Actions secrets for CI):
@@ -65,6 +66,31 @@ async function resolveSignedInUserId(context: BrowserContext): Promise<string | 
 }
 
 export default async function globalSetup(config: FullConfig) {
+  // ── PROJECT GUARD ────────────────────────────────────────────────────────
+  // FIRST. Before the browser, before storageState, before authentication,
+  // before any service-role client exists.
+  //
+  // The account guard further down checks WHO is signed in. It never checked
+  // WHICH database, and until 2026-09-19 the staging Vercel environment pointed
+  // at the PRODUCTION Supabase project, so every staging push ran this suite
+  // against real customer data. The account guard kept the blast radius to the
+  // e2e account; it was never isolation.
+  //
+  // Fails closed: a missing ROOTED_ENV or ROOTED_EXPECTED_SUPABASE_REF is a
+  // refusal, because an absent expectation is exactly what a misconfigured
+  // runner looks like.
+  const envIdentity = assertSafeForTestWrites(
+    {
+      supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+      rootedEnv: process.env.ROOTED_ENV,
+      expectedRef: process.env.ROOTED_EXPECTED_SUPABASE_REF,
+    },
+    'e2e/global-setup',
+  );
+  console.log(
+    `[global-setup] ✓ project guard passed — ROOTED_ENV=${envIdentity.env}, project ${envIdentity.projectRef} (not production, not recovery)`,
+  );
+
   // Prefer TEST_BASE_URL when set, fall back to the Playwright config's
   // baseURL, then localhost. This matches the spec's contract while still
   // letting CI override via PLAYWRIGHT_BASE_URL through the config layer.
