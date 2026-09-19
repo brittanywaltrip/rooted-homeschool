@@ -7109,7 +7109,7 @@ test('rebuild: the floor delete holds back rows carrying notes or minutes', () =
   // drifted apart once already, over the pin exclusion.
   assert.ok(/!heldBackIds\.has\(r\.id\)/.test(planner), 'the simulation excludes held-back rows')
   assert.ok(
-    /floorDelete\.not\("id", "in", `\(\$\{\[\.\.\.heldBackIds\]\.join\(","\)\}\)`\)/.test(src),
+    /const deleteIds = \[\.\.\.deletedIds/.test(src),
     'the real delete excludes the same set',
   )
 })
@@ -7604,8 +7604,13 @@ test('big families: a second tap on a lesson still in flight is ignored, not que
 test('big families: the builder inserts lessons through the shared batch helper, 500 at a time', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
-  assert.match(body, /batches\(histToInsert, LESSON_INSERT_BATCH\)/)
-  assert.match(body, /batches\(toInsert, LESSON_INSERT_BATCH\)/)
+    // The BUILDER no longer batches, deliberately: batching is incompatible
+    // with atomicity -- the rows must land together or not at all. It sends one
+    // array to schedule_commit, which caps the size itself.
+    assert.match(body, /const insertRows = \[\.\.\.histToInsert, \.\.\.toInsert\]/)
+    assert.match(
+      stripComments(loadRepoFile('supabase/migrations/20260919235000_schedule_commit_lesson_updates.sql')),
+      /limit 5000/, 'the RPC caps what one save may insert')
   assert.ok(!/\.slice\(i, i \+ 100\)/.test(body), 'no hand-rolled 100-row chunks remain')
   const helper = stripComments(loadRepoFile('app/lib/batches.ts'))
   assert.match(helper, /export const LESSON_INSERT_BATCH = 500/)
@@ -8890,10 +8895,10 @@ test('an unclaimed short goal is left alone, not rebuilt without the part that d
   const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
   const bail = phase2.indexOf('if (unclaimedShortfall)')
   const firstWrite = phase2.indexOf('if (clearPins && pinnedRows.length > 0)')
-  const floorDelete = phase2.indexOf('const { error: incompleteDeleteErr } = await floorDelete')
+    const floorDelete = phase2.indexOf('await commitGoalSave(')
   assert.ok(bail !== -1, 'the bail-out exists')
   assert.ok(bail < firstWrite, 'it returns before the first phase-2 write')
-  assert.ok(bail < floorDelete, 'and well before the floor delete')
+  assert.ok(bail < floorDelete, 'and well before the atomic commit')
   const block = phase2.slice(bail, firstWrite)
   assert.match(block, /return;/, 'it returns rather than falling through')
   assert.match(block, /invariant_21_untouched/, 'and the shortfall is still reported')
@@ -9555,8 +9560,10 @@ test('the builder confirms what the database wrote and refuses a short batch', (
   // The insert returns its rows, so the count is the server's answer and not
   // ours. schedule.rebuilt logged toInsert.length, the PLANNED number, which is
   // why goal 69e9b6b8 is recorded as "inserted: 52" while holding 51 rows.
-  assert.match(body, /\.insert\(batch\)\s*\.select\("id"\)/)
-  assert.match(body, /const confirmedInsertCount = histInserted \+ forwardInserted/)
+    // Still the server's answer, not ours: the `inserted` count the RPC
+    // reports from its own GET DIAGNOSTICS.
+    assert.match(body, /const confirmedInsertCount = saved\.inserted/)
+    assert.match(body, /const plannedInsertCount = insertRows\.length/)
   assert.match(body, /if \(confirmedInsertCount !== plannedInsertCount\)/)
   assert.match(body, /inserted: confirmedInsertCount/, 'the event logs the confirmed count')
   assert.ok(
@@ -9687,21 +9694,26 @@ test.skip('UNRESOLVED: a lesson dated the save day is lost somewhere between the
   assert.fail('no reproduction yet; see the comment above for what is and is not proven')
 })
 
-test('a short insert recomputes the pointer before it fails the save', () => {
-  // The delete and both inserts have committed by then, and the throw skips
-  // the over-ceiling cleanup, the pin release and the recompute. Leaving the
-  // goal rebuilt with a pointer describing the old row set is the "throw
-  // between two PostgREST calls with no transaction" shape the PLAN/COMMIT
-  // split exists to avoid, so at minimum the pointer is put right.
+test('a failed save writes nothing at all, so there is no pointer to put right', () => {
+  // This guard used to require a pointer recompute before the throw, because
+  // the delete and both inserts HAD committed by then and the goal would
+  // otherwise be left rebuilt with a pointer describing the old row set.
+  //
+  // That premise is gone. The save is one transaction now: if the count check
+  // fails, nothing was committed, and a repair write would be the only write
+  // the failed save made. So the invariant is inverted -- the failure path
+  // must write NOTHING.
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
   const check = body.indexOf('if (confirmedInsertCount !== plannedInsertCount)')
+  assert.notEqual(check, -1, 'the count check is gone')
   const block = body.slice(check, check + 900)
-  const recompute = block.indexOf('await recomputeCurrentLesson(supabase, goalId)')
-  const thrown = block.indexOf('throw new ScheduleAssertionError')
-  assert.ok(recompute !== -1 && recompute < thrown, 'the pointer is recomputed before the throw')
+  assert.ok(!/await recomputeCurrentLesson\(/.test(block),
+    'a failed save must not write a pointer: nothing was committed')
+  assert.ok(!/\.insert\(|\.update\(|\.delete\(/.test(block),
+    'the failure path performs no writes')
+  assert.match(block, /throw new ScheduleAssertionError/)
 })
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Invariant 22: a skipped lesson is never re-dated, never healed, never
 // counted done, and the queue steps over its number.
@@ -10047,7 +10059,7 @@ test('builder rebuild: the Schedule Builder runs those same pieces', () => {
   assert.match(phase2, /computeNextLessonsForGoal\(goalConfig, forwardAnchor, 3650, vacations, 0, holds\)/)
   assert.match(phase2, /skippedSlots: projectableSkippedSlots,/)
   assert.match(phase2, /for \(const t of phase2RedateTargets\(\{ beforeRows, workRowIds, projDateBySlot \}\)\)/)
-  assert.match(phase2, /floorDelete\.not\("id", "in", `\(\$\{\[\.\.\.heldBackIds\]\.join\(","\)\}\)`\)/)
+  assert.match(phase2, /const deleteIds = \[\.\.\.deletedIds/)
   assert.doesNotMatch(phase2, /const deletedIds = new Set\(/, 'the delete simulation has one definition, in planPhase2Rows')
 })
 
@@ -10256,15 +10268,19 @@ test('a curriculum whose own settings changed still reaches phase 2', () => {
   assert.ok(body.includes('clearPins'), 'the existing pin-release path was removed')
 })
 
-test('completed lessons stay protected by the floor delete', () => {
-  const body = applyPhase2Body()
-  const del = body.indexOf('.delete()')
-  assert.ok(del !== -1, 'floor delete not found')
-  const stmt = body.slice(del, del + 400)
-  assert.ok(stmt.includes('"completed", false') || stmt.includes("'completed', false"),
-    'the floor delete no longer excludes completed rows')
+test('completed lessons stay protected: the plan excludes them and the RPC refuses them', () => {
+  // The protection used to be a `.eq("completed", false)` on the delete. The
+  // delete is now by explicit id, so the rule moved to the two places that can
+  // still enforce it: the planner that chooses the ids, and the server that
+  // executes them. Belt and braces, and the server half cannot be bypassed by
+  // a client that computes the wrong list.
+  const sched = stripComments(loadRepoFile('app/lib/scheduler.ts'))
+  const planner = sched.slice(sched.indexOf('export function planPhase2Rows'), sched.indexOf('export function isPhase2NoOp'))
+  assert.match(planner, /!r\.completed/, 'the planner never puts a completed row in deletedIds')
+  const rpc = stripComments(loadRepoFile('supabase/migrations/20260919235000_schedule_commit_lesson_updates.sql'))
+  assert.match(rpc, /completed or \(notes is not null/,
+    'schedule_commit refuses to delete a completed row or one holding the parent\'s words')
 })
-
 test('a destructive save discloses its impact before any write', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)

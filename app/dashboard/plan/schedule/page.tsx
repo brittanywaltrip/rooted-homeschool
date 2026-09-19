@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { MoreVertical, Trash2 } from "lucide-react";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
+import { commitGoalSave, type LessonUpdate } from "@/app/lib/schedule-commit-client";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
 import {
@@ -1851,6 +1852,10 @@ export default function ScheduleBuilderPage() {
 
   // ── Save flow ────────────────────────────────────────────────────────────
   async function handleSave() {
+    // One id per attempt. Combined with the goal id it is the idempotency
+    // key, so a retry after an uncertain response replays rather than
+    // re-saves. A fresh click is a fresh attempt and a fresh key.
+    const saveAttemptId = crypto.randomUUID();
     if (saveGate.isBusy() || saving || !effectiveUserId) return;
     if (!allValid) return;
     if (!saveGate.tryEnter()) return;
@@ -3360,173 +3365,102 @@ export default function ScheduleBuilderPage() {
         }
 
 
-        if (clearPins && pinnedRows.length > 0) {
-          const { error: unpinErr } = await supabase
-            .from("lessons")
-            .update({ queue_pinned: false })
-            .in("id", pinnedRows.map((r) => r.id));
-          if (unpinErr) throw unpinErr;
-        }
-
-        let floorDelete = supabase
-          .from("lessons")
-          .delete()
-          .eq("curriculum_goal_id", goalId)
-          .eq("completed", false)
-          .gt("lesson_number", completedFloor);
-        // Manual placements survive the re-spread (unless this goal's own
-        // schedule changed, in which case no pin is held back and they were
-        // already released above). Without this exclusion the delete wiped them
-        // and the reinsert brought them back unpinned at projector dates.
-        if (heldBackIds.size > 0) {
-          floorDelete = floorDelete.not("id", "in", `(${[...heldBackIds].join(",")})`);
-        }
-        const { error: incompleteDeleteErr } = await floorDelete;
-        if (incompleteDeleteErr) throw incompleteDeleteErr;
-
-        // One request per batch of 500 (app/lib/batches.ts), the same helper
-        // "Add a past year" writes with. 100 per request cost a 180-lesson
-        // goal two round trips where one does.
-        // ── Count what the DATABASE wrote, not what we planned to write ─────
+        // ── COMMIT: one transaction ──────────────────────────────────────────
+        // Everything this goal writes is now an argument to schedule_commit: the
+        // pin release, the floor delete, both insert batches, the over-ceiling
+        // unschedule and delete, the re-dates and the pointer.
         //
-        // These two loops threw on error and counted nothing, and the
-        // schedule.rebuilt event below logged `toInsert.length`: the PLANNED
-        // number. So an insert that landed short reported success in the audit
-        // trail. Goal 69e9b6b8 is logged as "inserted: 52, skipped: 0" and
-        // holds 51 rows, numbered 2 to 52, every one created in that save. The
-        // log asserting 52 is why nobody looked for a week.
-        //
-        // `.select("id")` makes the insert return its rows, so the count is the
-        // server's answer. A short batch now fails the save loudly instead of
-        // being written down as a success.
-        let histInserted = 0;
-        for (const batch of batches(histToInsert, LESSON_INSERT_BATCH)) {
-          const { data: wrote, error: histErr } = await supabase
-            .from("lessons")
-            .insert(batch)
-            .select("id");
-          if (histErr) throw histErr;
-          histInserted += (wrote ?? []).length;
-        }
-        let forwardInserted = 0;
-        for (const batch of batches(toInsert, LESSON_INSERT_BATCH)) {
-          const { data: wrote, error: lessonErr } = await supabase
-            .from("lessons")
-            .insert(batch)
-            .select("id");
-          if (lessonErr) throw lessonErr;
-          forwardInserted += (wrote ?? []).length;
-        }
-        const plannedInsertCount = histToInsert.length + toInsert.length;
-        const confirmedInsertCount = histInserted + forwardInserted;
-        if (confirmedInsertCount !== plannedInsertCount) {
-          // Deterministic by construction: the same batch rebuilds identically,
-          // so a retry reproduces it. ScheduleAssertionError skips the retry and
-          // routes to the notice, and the goal is named for support.
-          console.error("[handleSave] insert landed short", {
-            goalId,
-            planned: plannedInsertCount,
-            confirmed: confirmedInsertCount,
-          });
-          // The delete and the inserts have committed by the time we get here,
-          // and throwing skips everything below: the over-ceiling cleanup, the
-          // pin release and the pointer recompute. Recompute at least, so the
-          // goal is not left rebuilt with a pointer describing the old row set.
-          // The rest is re-applied by the next save.
-          await recomputeCurrentLesson(supabase, goalId);
-          throw new ScheduleAssertionError(
-            `Lesson scheduling wrote ${confirmedInsertCount} of ${plannedInsertCount} planned rows. ` +
-              "The curriculum saved, but its lessons are incomplete. We've been notified.",
-          );
-        }
-
-        // Cleanup: if the user reduced total_lessons on an edit, any rows
-        // previously inserted past the new ceiling become stale. Delete
-        // only INCOMPLETE rows so historical completions are preserved
-        // (Invariant 3: backfilled / completed lessons stay put).
-        //
-        // Pinned rows are deliberately NOT excluded here. A pin says "this
-        // lesson belongs on this day"; it cannot say "this lesson exists" once
-        // the user has shortened the curriculum past it. Reducing total_lessons
-        // to 100 retires lesson 120 whether or not it was hand-placed. Note
-        // that shortening total_lessons is itself a schedule-field change, so
-        // scheduleFieldsChangedForRow already released this goal's pins above.
-        let overCeilingDelete = supabase
-          .from("lessons")
-          .delete()
-          .eq("curriculum_goal_id", goalId)
-          .gt("lesson_number", row.total_lessons)
-          .eq("completed", false);
-        // Item 4 again. Shortening a curriculum retires the lessons past the
-        // new end, but it does not entitle the app to shred what the parent
-        // wrote on one of them. A retired row carrying notes or logged minutes
-        // is UNSCHEDULED instead of deleted: it leaves every calendar surface
-        // (they all select on scheduled_date) and it stops holding a queue
-        // slot, so it can blank nothing, and the text survives.
-        const overCeilingWorkIds = beforeRows
-          .filter(
-            (r) =>
-              !r.completed &&
-              r.lesson_number != null &&
-              // Unknown ceiling retires nothing, matching how PostgREST's `gt`
-              // treats the NULL in the delete above.
-              row.total_lessons != null &&
-              r.lesson_number > row.total_lessons &&
-              holdsParentWork(r),
-          )
+        // Each of those used to be its own PostgREST call, committing on its own.
+        // A save that died between the delete and the inserts left the goal's
+        // lessons gone, which is how one family lost 99 completed lessons. There
+        // is no longer a "between": the server either applies all of it or none.
+        
+        // The over-ceiling band, computed here instead of as a predicate, because
+        // the RPC deletes by explicit id and never by a filter it cannot show you.
+        // Same rule as before: rows past a reduced total_lessons are retired, and
+        // a retired row carrying the parent's notes or minutes is UNSCHEDULED
+        // rather than deleted so the text survives. Pins are NOT spared here: a
+        // pin says where a lesson sits, not that it still exists.
+        const overCeilingRows = beforeRows.filter(
+          (r) =>
+            !r.completed &&
+            r.lesson_number != null &&
+            // An unknown ceiling retires nothing, matching the old `gt` on NULL.
+            row.total_lessons != null &&
+            r.lesson_number > row.total_lessons,
+        );
+        const overCeilingWorkIds = overCeilingRows.filter(holdsParentWork).map((r) => r.id);
+        const overCeilingDeleteIds = overCeilingRows
+          .filter((r) => !holdsParentWork(r))
           .map((r) => r.id);
-        if (overCeilingWorkIds.length > 0) {
-          overCeilingDelete = overCeilingDelete.not("id", "in", `(${overCeilingWorkIds.join(",")})`);
-          const { error: unscheduleErr } = await supabase
-            .from("lessons")
-            .update({ scheduled_date: null, queue_position: null, queue_pinned: false })
-            .in("id", overCeilingWorkIds);
-          if (unscheduleErr) throw unscheduleErr;
+        
+        const lessonUpdates: LessonUpdate[] = [];
+        if (clearPins && pinnedRows.length > 0) {
+          for (const r of pinnedRows) lessonUpdates.push({ lesson_id: r.id, queue_pinned: false });
         }
-        const { error: cleanupErr } = await overCeilingDelete;
-        if (cleanupErr) throw cleanupErr;
-
-        // Item 4: the held-back rows are UPDATED rather than deleted and
-        // recreated. They keep their id, their notes and their lesson_number;
-        // what the rebuild is entitled to change is where they sit. The
-        // projector's date for a slot is read out of `upcoming`, the same
-        // output the fresh inserts were built from, so a kept row lands on the
-        // same day the row that replaced it would have.
-        //
-        // Pinned rows are excluded: a pin is the parent saying "this lesson
-        // belongs on this day" and Invariant 12 is that the system never
-        // re-dates a manual placement. They were already surviving the delete
-        // before this change and they keep surviving it untouched.
-        // ProjectedLesson.lesson_number IS the queue slot, not the lesson
-        // number — see its doc comment. That is the column a kept row is
-        // matched on, the same way the fresh inserts take their date from the
-        // slot they land in.
-        // Skipped rows are excluded for the same reason (Invariant 22): a skip
-        // has no day. phase2RedateTargets is the one rule, shared with the
-        // no-op check.
+        for (const id of overCeilingWorkIds) {
+          lessonUpdates.push({
+            lesson_id: id, scheduled_date: null, queue_position: null, queue_pinned: false,
+          });
+        }
+        // Item 4: held-back rows keep their id, notes and lesson_number; what the
+        // re-spread may change is where they sit. phase2RedateTargets is the one
+        // rule, shared with the no-op check, and it excludes pins (Invariant 12)
+        // and skips (Invariant 22).
         let rebuiltUpdated = 0;
         for (const t of phase2RedateTargets({ beforeRows, workRowIds, projDateBySlot })) {
-          const { error: redateErr } = await supabase
-            .from("lessons")
-            .update({ scheduled_date: t.date, date: t.date, scheduled_source: "wizard_create" })
-            .eq("id", t.id);
-          if (redateErr) throw redateErr;
+          lessonUpdates.push({
+            lesson_id: t.id, scheduled_date: t.date, date: t.date, scheduled_source: "wizard_create",
+          });
           rebuiltUpdated += 1;
         }
-
+        
+        const deleteIds = [...deletedIds, ...overCeilingDeleteIds];
+        const insertRows = [...histToInsert, ...toInsert];
+        const plannedInsertCount = insertRows.length;
+        
+        // The key is stable for this attempt and this goal, so a retry after a
+        // lost response replays the first result instead of saving twice.
+        const saved = await commitGoalSave(supabase, {
+          goalId,
+          lessonUpdates,
+          deleteIds,
+          insertRows,
+          idempotencyKey: `${saveAttemptId}:${goalId}`,
+        });
+        
+        const confirmedInsertCount = saved.inserted;
+        if (confirmedInsertCount !== plannedInsertCount) {
+          // Belt and braces. schedule_commit asserts this itself and aborts the
+          // whole transaction, so reaching here means the RPC's own count and its
+          // reported count disagree. Nothing has been committed either way -- the
+          // old note about "the delete and the inserts have committed by the time
+          // we get here" no longer applies, and no recompute is needed to patch up
+          // a half-written goal, because there is no half-written goal.
+          console.error("[handleSave] insert count disagreed", {
+            goalId, planned: plannedInsertCount, confirmed: confirmedInsertCount,
+          });
+          throw new ScheduleAssertionError(
+            `Lesson scheduling reported ${confirmedInsertCount} of ${plannedInsertCount} planned rows. ` +
+              "Nothing was saved. We've been notified.",
+          );
+        }
+        
         void logPlanEvent({
           userId: effectiveUserId,
           type: "schedule.rebuilt",
           payload: {
             goal_id: goalId,
             curriculum_name: row.name,
-            // The count the database confirmed, not the count we planned.
+            // The counts the database confirmed, not the counts we planned.
             inserted: confirmedInsertCount,
-            updated: rebuiltUpdated,
-            // Rows the rebuild deliberately did not touch: completed history,
-            // pins, and the notes/minutes rows it is no longer allowed to
-            // delete.
+            updated: saved.updated,
+            deleted: saved.deleted,
+            // Rows the rebuild deliberately did not touch: completed history, pins,
+            // and the notes/minutes rows it is no longer allowed to delete.
             skipped: survivors.length,
+            transaction_id: saved.transactionId,
+            replayed: saved.status === "already_committed",
           },
         });
 
