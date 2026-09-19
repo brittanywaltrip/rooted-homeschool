@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  deleteLessonById, deleteLessonsByIds, deleteYearLessons,
+  deleteLessonById, deleteLessonsByIds, deleteYearLessons, restoreRemovedRow,
   LessonDeleteError, messageFor,
 } from "./lesson-delete.ts";
 
@@ -75,4 +75,21 @@ test("year delete passes the server's parameter name", async () => {
   await deleteYearLessons(
     { rpc: async (_f, a) => { seen = a; return { error: null, data: 7 }; } }, "year-1");
   assert.deepEqual(seen, { p_school_year_id: "year-1" });
+});
+
+test("restoring a removed row puts it back", () => {
+  const prev = [{ id: "a" }, { id: "c" }];
+  assert.deepEqual(restoreRemovedRow(prev, { id: "b" }), [{ id: "a" }, { id: "c" }, { id: "b" }]);
+});
+
+test("restoring is idempotent: a row a reload already re-added is not duplicated", () => {
+  const prev = [{ id: "a" }, { id: "b" }];
+  assert.equal(restoreRemovedRow(prev, { id: "b" }), prev, "the same array is returned, so React sees no change");
+});
+
+test("restoring does not mutate the previous list", () => {
+  const prev = [{ id: "a" }];
+  const next = restoreRemovedRow(prev, { id: "b" });
+  assert.equal(prev.length, 1);
+  assert.equal(next.length, 2);
 });

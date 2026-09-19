@@ -71,7 +71,7 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare v_uid uuid := auth.uid(); v_deleted int;
+declare v_uid uuid := auth.uid(); v_deleted int; v_bad int;
 begin
   if v_uid is null then
     raise exception 'not authenticated' using errcode = '42501';
@@ -82,6 +82,23 @@ begin
   if not exists (select 1 from public.school_years y
                   where y.id = p_school_year_id and y.user_id = v_uid) then
     raise exception 'school year not found' using errcode = '42501';
+  end if;
+
+  -- CASCADE, predicate-complete. The set being deleted is (this user, this
+  -- year). A continuation row OUTSIDE that set -- in another year, or another
+  -- goal -- that continues from a row inside it would be taken by the cascade
+  -- without appearing in the row count. Deleting one year must not reach into
+  -- another.
+  select count(*) into v_bad
+    from public.lessons c
+   where c.continues_lesson_id in (
+           select l.id from public.lessons l
+            where l.user_id = v_uid and l.school_year_id = p_school_year_id)
+     and not (c.user_id = v_uid and c.school_year_id is not distinct from p_school_year_id);
+  if v_bad > 0 then
+    raise exception
+      '% lesson(s) outside this school year continue from one inside it and would be deleted with it', v_bad
+      using errcode = '40001';
   end if;
 
   -- Scoped to the caller AND the year. Both, not either.
@@ -114,16 +131,20 @@ begin
     raise exception 'curriculum not found' using errcode = '42501';
   end if;
 
-  -- A completed row is never removed here, so the cascade check only has to
-  -- consider continuations of the PENDING rows being taken.
-  select count(*) into v_bad from public.lessons c
-   where c.completed
-     and c.continues_lesson_id in (
-       select l.id from public.lessons l
-        where l.curriculum_goal_id = p_goal_id and not l.completed);
+  -- CASCADE, predicate-complete. The earlier version only looked for COMPLETED
+  -- continuations, which left a PENDING continuation in another goal free to be
+  -- cascaded away unnoticed. The set being deleted is (this goal, not
+  -- completed); anything outside that set which continues from inside it is a
+  -- row this call was not asked to touch, whatever its own state.
+  select count(*) into v_bad
+    from public.lessons c
+   where c.continues_lesson_id in (
+           select l.id from public.lessons l
+            where l.curriculum_goal_id = p_goal_id and l.completed = false)
+     and not (c.curriculum_goal_id is not distinct from p_goal_id and c.completed = false);
   if v_bad > 0 then
     raise exception
-      '% completed row(s) continue from a pending row and would be deleted with it', v_bad
+      '% lesson(s) outside this curriculum''s pending rows continue from one inside it and would be deleted with it', v_bad
       using errcode = '40001';
   end if;
 

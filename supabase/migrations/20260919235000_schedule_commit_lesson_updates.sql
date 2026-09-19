@@ -94,8 +94,60 @@ begin
         'idempotency key % was already used for a different request. A key identifies one request; use a new key.', p_idempotency_key
         using errcode = '22023';
     end if;
-    return jsonb_build_object('status','already_committed','transaction_id',v_existing.id,
-                              'impact',v_existing.impact,'after_version',v_existing.after_version);
+    -- SAME SHAPE AS A FRESH COMMIT. The counts were only inside `impact`, so a
+    -- client reading data.inserted got 0 from a replay -- and the builder then
+    -- compared 0 against its planned count and told the parent nothing was
+    -- saved, after the save had committed. They are lifted to the top level
+    -- here and `impact` is kept for the audit trail.
+    return jsonb_build_object(
+      'status','already_committed','transaction_id',v_existing.id,
+      'deleted',  coalesce((v_existing.impact->>'deleted')::int, 0),
+      'inserted', coalesce((v_existing.impact->>'inserted')::int, 0),
+      'updated',  coalesce((v_existing.impact->>'updated')::int, 0),
+      'impact',v_existing.impact,'after_version',v_existing.after_version);
+  end if;
+
+  -- ── PAYLOAD VALIDATION, before any lock or write ───────────────────────
+  -- Duplicates are not a stylistic matter here. A repeated delete id makes the
+  -- "planned N, matched N" assertion compare a list length against a row count
+  -- that can never equal it; a repeated lesson_id in the updates makes which
+  -- source row wins nondeterministic; a repeated insert id or slot fails deep
+  -- inside the statement with a constraint error instead of a clear refusal.
+  if p_delete_ids is not null and array_length(p_delete_ids,1) > 0
+     and array_length(p_delete_ids,1) <> (select count(distinct x) from unnest(p_delete_ids) x) then
+    raise exception 'the delete list repeats an id' using errcode = '22023';
+  end if;
+
+  if p_lesson_updates is not null and jsonb_array_length(p_lesson_updates) > 0 then
+    if jsonb_array_length(p_lesson_updates) <>
+       (select count(distinct u->>'lesson_id') from jsonb_array_elements(p_lesson_updates) u) then
+      raise exception 'the lesson updates repeat a lesson_id' using errcode = '22023';
+    end if;
+    if exists (select 1 from jsonb_array_elements(p_lesson_updates) u
+                where nullif(u->>'lesson_id','') is null) then
+      raise exception 'a lesson update has no lesson_id' using errcode = '22023';
+    end if;
+    -- An allowlist, so a typo cannot be silently ignored and a column this
+    -- operation has no business writing cannot be smuggled in.
+    select count(*) into v_bad from (
+      select jsonb_object_keys(u) as k from jsonb_array_elements(p_lesson_updates) u) t
+     where t.k not in ('lesson_id','scheduled_date','date','queue_position',
+                       'queue_pinned','scheduled_source');
+    if v_bad > 0 then
+      raise exception '% unknown key(s) in the lesson updates', v_bad using errcode = '22023';
+    end if;
+  end if;
+
+  if p_insert_rows is not null and jsonb_array_length(p_insert_rows) > 0 then
+    if jsonb_array_length(p_insert_rows) <>
+       (select count(distinct r->>'id') from jsonb_array_elements(p_insert_rows) r) then
+      raise exception 'the insert rows repeat an id' using errcode = '22023';
+    end if;
+    if jsonb_array_length(p_insert_rows) <>
+       (select count(distinct (r->>'curriculum_goal_id') || ':' || coalesce(r->>'lesson_number','~'))
+          from jsonb_array_elements(p_insert_rows) r) then
+      raise exception 'two inserted rows claim the same queue slot' using errcode = '22023';
+    end if;
   end if;
 
   select * into v_prop from public.schedule_proposals where id = p_proposal_id for update;
@@ -137,10 +189,17 @@ begin
     -- covered by the state version instead; see the header.
     select count(*) into v_bad from public.lessons
      where id = any(p_delete_ids)
-       and (completed or (notes is not null and btrim(notes) <> '') or minutes_spent is not null);
+       and (completed
+            or (notes is not null and btrim(notes) <> '')
+            or minutes_spent is not null
+            -- hours is parent-entered work too. Adding it to the state digest
+            -- protected a CONCURRENT hours edit; it did nothing for a row that
+            -- already held hours when the proposal was sealed, which stayed
+            -- eligible for deletion the whole time.
+            or coalesce(hours, 0) > 0);
     if v_bad > 0 then
       raise exception
-        '% row(s) in this save carry work that must not be deleted (completed, or holding notes or minutes). Rebuild the proposal.', v_bad
+        '% row(s) in this save carry work that must not be deleted (completed, or holding notes, minutes or hours). Rebuild the proposal.', v_bad
         using errcode = '40001';
     end if;
 
@@ -165,6 +224,22 @@ begin
         using errcode = '42501';
     end if;
   end if;
+
+  -- ── LOCK WHAT THE CHECK PROTECTS ────────────────────────────────────────
+  -- Locking only the goals left a race the hash could not see: a concurrent
+  -- title, hours, notes, minutes, pin or skip edit does not touch the goal
+  -- row, so it could commit AFTER schedule_state_version was computed and
+  -- BEFORE the delete ran, and be destroyed without anything going stale.
+  --
+  -- So every lesson under the proposal's goals is locked here, in id order to
+  -- keep two concurrent saves from deadlocking, and the vacation rows too
+  -- because they are part of the same digest. The locks are taken BEFORE the
+  -- version is computed and held to COMMIT, so what is hashed is what is
+  -- written.
+  perform 1 from public.lessons
+    where curriculum_goal_id = any(v_prop.goal_ids) order by id for update;
+  perform 1 from public.vacation_blocks
+    where user_id = v_uid order by id for update;
 
   v_now_ver := public.schedule_state_version(v_prop.goal_ids);
   if v_now_ver is distinct from v_prop.state_version then
@@ -220,12 +295,19 @@ begin
 
   if p_insert_rows is not null and jsonb_array_length(p_insert_rows) > 0 then
     -- The client used to insert in batches of 500 to keep any one request
-    -- small. Batching is incompatible with atomicity -- the whole point is that
-    -- the rows land together or not at all -- so the rows come in one array and
-    -- the size is capped instead. 5000 matches schedule_seal_proposal's own
-    -- placement ceiling. A real curriculum is a few hundred rows; anything near
-    -- this limit is a bug upstream, and failing loudly beats a request that
-    -- times out half way.
+    -- small.
+    --
+    -- CORRECTION to an earlier note here: batching is NOT incompatible with
+    -- atomicity. Several statements, or chunked set-based inserts, run happily
+    -- inside one transaction. The reason this takes a single array is simpler
+    -- and worth stating accurately: one RPC call is one round trip and one
+    -- payload to hash for idempotency, and the count assertion is a single
+    -- comparison rather than a running total across chunks.
+    --
+    -- What a single array does need is a ceiling, since the whole payload is
+    -- parsed at once. 5000 matches schedule_seal_proposal's placement limit. A
+    -- real curriculum is a few hundred rows; anything near this is a bug
+    -- upstream, and failing loudly beats a request that times out half way.
     if jsonb_array_length(p_insert_rows) > 5000 then
       raise exception 'refusing to insert % rows in one save (limit 5000)',
         jsonb_array_length(p_insert_rows) using errcode = '22023';
@@ -258,6 +340,28 @@ begin
        and (curriculum_goal_id is null or not (curriculum_goal_id = any(v_prop.goal_ids)));
     if v_bad > 0 then
       raise exception '% inserted row(s) fall outside the proposal''s goals', v_bad using errcode = '42501';
+    end if;
+
+    -- The row's user_id is forced to the caller, but its FOREIGN KEYS are not:
+    -- child_id, subject_id and school_year_id come from the payload, and this
+    -- function is SECURITY DEFINER, so RLS will not check them. A row could
+    -- otherwise be attached to another family's child. Verified against the
+    -- rows as inserted, so a NULL is allowed and anything present must be the
+    -- caller's.
+    select count(*) into v_bad from public.lessons l
+     where l.id in (select (r->>'id')::uuid from jsonb_array_elements(p_insert_rows) r)
+       and (
+         (l.child_id is not null and not exists (
+            select 1 from public.children c where c.id = l.child_id and c.user_id = v_uid))
+      or (l.subject_id is not null and not exists (
+            select 1 from public.subjects sj where sj.id = l.subject_id and sj.user_id = v_uid))
+      or (l.school_year_id is not null and not exists (
+            select 1 from public.school_years y where y.id = l.school_year_id and y.user_id = v_uid))
+       );
+    if v_bad > 0 then
+      raise exception
+        '% inserted row(s) reference a child, subject or school year that is not yours', v_bad
+        using errcode = '42501';
     end if;
   end if;
 

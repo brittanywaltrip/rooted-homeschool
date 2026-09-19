@@ -53,6 +53,35 @@ export type GoalSaveResult = {
 /** 40001 covers the refusals that mean "re-plan and try again". */
 const SERIALIZATION = "40001";
 const PERMISSION_DENIED = "42501";
+/** 22023 is invalid_parameter_value: the payload was rejected before any write. */
+const INVALID_PARAMETER = "22023";
+
+/**
+ * Do we know the transaction did NOT commit?
+ *
+ * The whole save is one function call, so if PostgreSQL raised, it rolled
+ * back. Receiving a SQLSTATE therefore means the server processed the request
+ * and aborted it -- that includes constraint violations like 23505, which an
+ * earlier version of this list wrongly treated as unknown.
+ *
+ * What is genuinely unknown is everything where PostgreSQL may have committed
+ * and the ANSWER went missing:
+ *
+ *   - no code at all: a transport failure, a timeout, a dropped connection
+ *   - class 08, connection exception
+ *   - 57014 / 57P01, cancelled or shut down, which can land after the commit
+ *
+ * Only the first group may be reported to the parent as "nothing changed".
+ */
+const UNKNOWN_OUTCOME_CODES = new Set(["57014", "57P01", "57P02", "57P03"]);
+
+export function outcomeIsKnown(code: string | undefined): boolean {
+  if (!code) return false;
+  if (code.startsWith("08")) return false;
+  if (UNKNOWN_OUTCOME_CODES.has(code)) return false;
+  // A SQLSTATE is five characters. Anything else did not come from PostgreSQL.
+  return /^[0-9A-Za-z]{5}$/.test(code);
+}
 
 export class ScheduleSaveError extends Error {
   readonly code: string | undefined;
@@ -60,12 +89,19 @@ export class ScheduleSaveError extends Error {
   readonly retryable: boolean;
   /** This tab predates the change and no longer has the privilege it used. */
   readonly staleClient: boolean;
+  /**
+   * False when we cannot say whether the transaction committed -- a lost
+   * response, a timeout, an unrecognised code. The UI must not claim a
+   * rollback in that case.
+   */
+  readonly outcomeKnown: boolean;
   constructor(message: string, code: string | undefined) {
     super(message);
     this.name = "ScheduleSaveError";
     this.code = code;
     this.retryable = code === SERIALIZATION;
     this.staleClient = code === PERMISSION_DENIED;
+    this.outcomeKnown = outcomeIsKnown(code);
   }
 }
 
@@ -76,7 +112,15 @@ export function saveMessageFor(err: { message: string; code?: string }): string 
   if (err.code === PERMISSION_DENIED) {
     return "We couldn't save this schedule. This page may be out of date — reload and try again. Nothing was changed.";
   }
-  return "We couldn't save this schedule. Nothing was changed — please try again.";
+  if (outcomeIsKnown(err.code)) {
+    // PostgreSQL raised, so the transaction rolled back. Safe to promise.
+    return "We couldn't save this schedule — something about it didn't add up, so nothing was changed. Your settings are still here.";
+  }
+  // UNKNOWN OUTCOME. The request may have committed and its response been
+  // lost. Saying "nothing was changed" here would be a guess, and the previous
+  // wording made that guess for every unclassified failure. Say what is true:
+  // we do not know yet, and we are finding out.
+  return "We couldn't confirm whether your schedule saved. Your settings are still here — reopen the page to see where it got to before saving again.";
 }
 
 /**
@@ -84,9 +128,17 @@ export function saveMessageFor(err: { message: string; code?: string }): string 
  *
  * The proposal is sealed with NO placements. schedule_seal_proposal requires
  * every placement to reference an EXISTING lesson, and a rebuild's rows do not
- * exist yet. What the seal is doing here is capturing the state version,
- * proving ownership and scope, and giving the commit something that can only
- * be consumed once.
+ * exist yet.
+ *
+ * SO BE CLEAR ABOUT WHAT THE SEAL DOES AND DOES NOT DO HERE. It establishes
+ * the owner, the goal scope, an expiry, a state version, and a token that can
+ * be consumed exactly once. It does NOT bind the operation: the payload is
+ * supplied afterwards, on the commit call, and the seal never saw it. The
+ * commit re-validates every id in that payload against the owner and the
+ * proposal's goals, so nothing is trusted on the seal's word -- but a reader
+ * should not imagine the sealed hash covers the rows being written, because it
+ * does not. Binding a digest of the intended payload at seal time would close
+ * that gap and is the obvious next step if this contract needs to be stronger.
  */
 export async function commitGoalSave(
   client: ScheduleCommitClient,
@@ -127,13 +179,50 @@ export async function commitGoalSave(
     throw new ScheduleSaveError(saveMessageFor(committed.error), committed.error.code);
   }
 
-  const d = (committed.data ?? {}) as Record<string, unknown>;
+  return readResult(committed.data);
+}
+
+/**
+ * Normalise a commit result.
+ *
+ * A REPLAY used to carry its counts only inside `impact`, so reading
+ * data.inserted gave 0 -- and the builder then compared 0 against its planned
+ * count and told the parent nothing was saved, after the save had committed.
+ * The SQL now lifts the counts to the top level; this reads `impact` as well,
+ * so an older function or a future shape change cannot reintroduce the bug
+ * silently.
+ */
+export function readResult(data: unknown): GoalSaveResult {
+  const d = (data ?? {}) as Record<string, unknown>;
+  const impact = (d.impact ?? {}) as Record<string, unknown>;
+  const n = (k: string) => Number(d[k] ?? impact[k] ?? 0);
   return {
     status: d.status === "already_committed" ? "already_committed" : "committed",
-    deleted: Number(d.deleted ?? 0),
-    inserted: Number(d.inserted ?? 0),
-    updated: Number(d.updated ?? 0),
+    deleted: n("deleted"),
+    inserted: n("inserted"),
+    updated: n("updated"),
     transactionId: String(d.transaction_id ?? ""),
     afterVersion: String(d.after_version ?? ""),
   };
+}
+
+/**
+ * After an unknown outcome, ask whether the save landed.
+ *
+ * Returns the committed result if a transaction carrying this key exists, or
+ * null if none does. Null is NOT "nothing was saved": a request still in
+ * flight looks the same, which is why the caller retries the exact payload
+ * under the exact key rather than concluding anything from it.
+ */
+export async function reconcileGoalSave(
+  client: ScheduleCommitClient,
+  idempotencyKey: string,
+): Promise<GoalSaveResult | null> {
+  const { data, error } = await client.rpc("schedule_commit_status", {
+    p_idempotency_key: idempotencyKey,
+  });
+  if (error) throw new ScheduleSaveError(saveMessageFor(error), error.code);
+  const d = (data ?? {}) as Record<string, unknown>;
+  if (d.status !== "committed") return null;
+  return readResult({ ...d, status: "already_committed" });
 }

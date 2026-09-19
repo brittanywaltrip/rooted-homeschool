@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { MoreVertical, Trash2 } from "lucide-react";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabase } from "@/lib/supabase";
-import { commitGoalSave, type LessonUpdate } from "@/app/lib/schedule-commit-client";
+import {
+  commitGoalSave, reconcileGoalSave, ScheduleSaveError, type LessonUpdate,
+} from "@/app/lib/schedule-commit-client";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
 import {
@@ -1888,7 +1890,7 @@ export default function ScheduleBuilderPage() {
       try {
         const { data: impactData, error: impactErr } = await supabase
           .from("lessons")
-          .select("id, completed, queue_pinned, skipped, notes, minutes_spent")
+          .select("id, completed, queue_pinned, skipped, notes, minutes_spent, hours")
           .in("curriculum_goal_id", respreadIds);
         if (!impactErr) {
           const impact = (impactData ?? []) as {
@@ -2658,7 +2660,13 @@ export default function ScheduleBuilderPage() {
         // value is the post-recompute current_lesson; for brand-new goals
         // it equals max(start_at_lesson - 1, 0). For UPDATE flows it can be
         // higher if the user has completed lessons past start_at_lesson.
-        const newCurrent = await recomputeCurrentLesson(supabase, goalId);
+        // Where the queue stands, READ ONLY. This used to WRITE the pointer
+        // before schedule_commit ran, so a commit that refused left
+        // current_lesson moved while the UI said nothing had changed. The value
+        // is still needed for the projection maths; the pointer itself is
+        // settled inside the transaction by the lessons trigger, next to the
+        // rows it describes.
+        const newCurrent = await recomputeCurrentLesson(supabase, goalId, { dryRun: true });
         const currentLesson = newCurrent ?? Math.max(0, row.start_at_lesson - 1);
 
         if (!row.total_lessons || row.total_lessons <= 0) return;
@@ -2702,7 +2710,7 @@ export default function ScheduleBuilderPage() {
           count: beforeRowsCount,
         } = await supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned, skipped, scheduled_date, date, title", { count: "exact" })
+          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, hours, queue_pinned, skipped, scheduled_date, date, title", { count: "exact" })
           .eq("curriculum_goal_id", goalId);
         if (beforeRowsErr) throw beforeRowsErr;
         const beforeRows = (beforeRowsData ?? []) as {
@@ -3442,7 +3450,7 @@ export default function ScheduleBuilderPage() {
           });
           throw new ScheduleAssertionError(
             `Lesson scheduling reported ${confirmedInsertCount} of ${plannedInsertCount} planned rows. ` +
-              "Nothing was saved. We've been notified.",
+              "The save did go through \u2014 reopen the page to see where it got to. We've been notified.",
           );
         }
         
@@ -3640,6 +3648,23 @@ export default function ScheduleBuilderPage() {
           } catch (err) {
             lastErr = err;
             if (isDeterministicPhase2Failure(err)) break;
+            // UNKNOWN OUTCOME. A lost response is not a rollback: the commit may
+            // have landed and only the answer gone missing. Ask, using the SAME
+            // key, before doing anything else. Re-running the plan against
+            // whatever state exists now would build a different payload under that
+            // key and be refused as key reuse -- precisely the case the key exists
+            // to serve.
+            if (err instanceof ScheduleSaveError && !err.outcomeKnown) {
+              const landed = await reconcileGoalSave(
+                supabase,
+                `${saveAttemptId}:${goalId}`,
+              ).catch(() => null);
+              if (landed) {
+                console.debug(`[handleSave] goal ${goalId}: the save had committed after all`, landed);
+                lastErr = null;
+                break;
+              }
+            }
             if (attempt === 0) {
               await new Promise((r) => setTimeout(r, 500));
             }

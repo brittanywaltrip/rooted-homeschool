@@ -7102,8 +7102,10 @@ test('rebuild: the floor delete holds back rows carrying notes or minutes', () =
     'phase 2 must define what "the parent put this here" means, once',
   )
   assert.ok(
-    /notes != null && r\.notes\.trim\(\)\.length > 0\) \|\| r\.minutes_spent != null/.test(planner),
-    'notes and minutes_spent are both parent-authored and both protected',
+      /r\.notes\.trim\(\)\.length > 0\)/.test(planner) &&
+        /r\.minutes_spent != null/.test(planner) &&
+        /r\.hours != null && r\.hours > 0/.test(planner),
+      'notes, minutes_spent AND hours are parent-authored and all three protected',
   )
   // The simulated delete and the real one must read from the same set. They
   // drifted apart once already, over the pin exclusion.
@@ -7604,9 +7606,11 @@ test('big families: a second tap on a lesson still in flight is ignored, not que
 test('big families: the builder inserts lessons through the shared batch helper, 500 at a time', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
-    // The BUILDER no longer batches, deliberately: batching is incompatible
-    // with atomicity -- the rows must land together or not at all. It sends one
-    // array to schedule_commit, which caps the size itself.
+    // The BUILDER no longer batches. Not because batching and atomicity are
+    // incompatible -- they are not, several statements run fine in one
+    // transaction -- but because one RPC call is one round trip, one payload to
+    // hash for idempotency, and one count comparison. The array is capped
+    // instead, since it is parsed whole.
     assert.match(body, /const insertRows = \[\.\.\.histToInsert, \.\.\.toInsert\]/)
     assert.match(
       stripComments(loadRepoFile('supabase/migrations/20260919235000_schedule_commit_lesson_updates.sql')),
@@ -10278,8 +10282,11 @@ test('completed lessons stay protected: the plan excludes them and the RPC refus
   const planner = sched.slice(sched.indexOf('export function planPhase2Rows'), sched.indexOf('export function isPhase2NoOp'))
   assert.match(planner, /!r\.completed/, 'the planner never puts a completed row in deletedIds')
   const rpc = stripComments(loadRepoFile('supabase/migrations/20260919235000_schedule_commit_lesson_updates.sql'))
-  assert.match(rpc, /completed or \(notes is not null/,
-    'schedule_commit refuses to delete a completed row or one holding the parent\'s words')
+  assert.match(rpc, /completed\s*\n\s*or \(notes is not null/,
+    'schedule_commit refuses to delete a completed row')
+  assert.match(rpc, /or coalesce\(hours, 0\) > 0/,
+    'and one holding logged hours, which the planner also holds back')
+
 })
 test('a destructive save discloses its impact before any write', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))

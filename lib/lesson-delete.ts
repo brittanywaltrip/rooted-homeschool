@@ -117,3 +117,16 @@ export async function deleteLessonById(
     throw new LessonDeleteError(messageFor(error), error.code, error.code === PERMISSION_DENIED);
   }
 }
+
+
+/**
+ * Put an optimistically-removed row back.
+ *
+ * Idempotent: if a reload already re-added the row, the previous list is
+ * returned unchanged so React sees no new identity. Pure, so it is safe inside
+ * a setState updater (see app/components/updaterPurity.test.ts) and can be
+ * tested without a renderer.
+ */
+export function restoreRemovedRow<T extends { id: string }>(prev: T[], row: T): T[] {
+  return prev.some((r) => r.id === row.id) ? prev : [...prev, row];
+}

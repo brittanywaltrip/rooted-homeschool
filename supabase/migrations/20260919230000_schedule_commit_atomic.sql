@@ -51,7 +51,7 @@ language plpgsql
 security definer
 set search_path = public, pg_temp
 as $$
-declare v_owner uuid;
+declare v_owner uuid; v_cascade int;
 begin
   if p_lesson_id is null then
     raise exception 'delete_lesson requires a lesson id' using errcode = '22023';
@@ -67,6 +67,17 @@ begin
   end if;
   if v_owner is distinct from auth.uid() then
     raise exception 'lesson not found' using errcode = '42501';
+  end if;
+
+  -- CASCADE. lessons.continues_lesson_id references lessons ON DELETE CASCADE,
+  -- so removing one row silently removes anything continuing from it. A parent
+  -- deleting a single lesson is not asking for that.
+  select count(*) into v_cascade from public.lessons
+   where continues_lesson_id = p_lesson_id and id <> p_lesson_id;
+  if v_cascade > 0 then
+    raise exception
+      '% lesson(s) continue from this one and would be deleted with it', v_cascade
+      using errcode = '40001';
   end if;
 
   delete from public.lessons where id = p_lesson_id;
@@ -402,21 +413,12 @@ $$;
 revoke all on function public.schedule_commit(uuid, jsonb, uuid[], uuid[], jsonb, jsonb, text) from public, anon;
 grant execute on function public.schedule_commit(uuid, jsonb, uuid[], uuid[], jsonb, jsonb, text) to authenticated, service_role;
 
--- ── 3. Remove the client's ability to delete lessons at all ────────────────
--- THIS is the containment. Not a shape test, not a flag: a privilege the
--- client role no longer holds. It applies identically to a bundle loaded five
--- minutes ago and one loaded last week, because it is enforced by the server
--- on every statement.
+-- ── 3. The revoke is NOT here ──────────────────────────────────────────────
+-- It lives in 20260920000000_contract_revoke_client_delete.sql and must not be
+-- applied until the callers are deployed.
 --
--- A column-level revoke cannot subtract from a table-level grant, and DELETE
--- has no column form, so this is the whole privilege.
-revoke delete on public.lessons from authenticated;
-revoke delete on public.lessons from anon;
-
--- anon additionally holds INSERT here with no policy to match it. RLS closes
--- it today, which means the grant is dead weight that would come alive the
--- moment a permissive anon policy were added. Removed while we are here.
-revoke insert on public.lessons from anon;
-
-comment on function public.schedule_commit(uuid, jsonb, uuid[], uuid[], jsonb, jsonb, text) is
-  'Atomic Schedule Builder save: goal updates, pin releases, deletes, inserts and pointers in ONE transaction. Re-validates ownership, proposal freshness and state version inside that transaction. Idempotent per (user, idempotency_key).';
+-- Applying it here would have broken the running app the moment the migration
+-- landed: the deployed bundle still deletes directly, and the replacement RPCs
+-- did not all exist yet either. Database-first breaks the current app;
+-- app-first calls functions that are not there. This file is the EXPAND step
+-- and only adds.

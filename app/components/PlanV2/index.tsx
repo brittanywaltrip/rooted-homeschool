@@ -16,7 +16,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
-import { deleteGoalPendingLessons, deleteLessonById, deleteLessonsByIds } from "@/lib/lesson-delete";
+import { LessonDeleteError, deleteGoalPendingLessons, deleteLessonById, deleteLessonsByIds, restoreRemovedRow } from "@/lib/lesson-delete";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import PageHero from "@/app/components/PageHero";
@@ -1404,9 +1404,18 @@ export default function PlanV2() {
             // refused delete was indistinguishable from a successful one.
 
             await deleteLessonById(supabase, row.id);
-          } catch {
-
-            /* best-effort; next reload reconciles */
+          } catch (err) {
+            // USER-CONFIRMED action with an optimistic removal, so a failure
+            // must put the row back and say so. Swallowing it left the lesson
+            // gone from the screen, still in the database, and back on the next
+            // load with nothing said in between -- the vanish/reappear this
+            // change exists to end.
+            setLessons((prev) => restoreRemovedRow(prev, row));
+            flashNotice(
+              err instanceof LessonDeleteError
+                ? err.message
+                : "We couldn't remove that lesson. Please try again.",
+            );
           }
           reload();
         },
@@ -1536,9 +1545,18 @@ export default function PlanV2() {
           // refused delete was indistinguishable from a successful one.
 
           await deleteLessonById(supabase, row.id);
-        } catch {
-
-          /* best-effort; next reload reconciles */
+        } catch (err) {
+          // USER-CONFIRMED action with an optimistic removal, so a failure
+          // must put the row back and say so. Swallowing it left the lesson
+          // gone from the screen, still in the database, and back on the next
+          // load with nothing said in between -- the vanish/reappear this
+          // change exists to end.
+          setLessons((prev) => restoreRemovedRow(prev, row));
+          flashNotice(
+            err instanceof LessonDeleteError
+              ? err.message
+              : "We couldn't remove that lesson. Please try again.",
+          );
         }
         reload();
       },

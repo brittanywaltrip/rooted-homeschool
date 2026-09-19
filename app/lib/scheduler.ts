@@ -86,6 +86,18 @@ export function forwardScheduleStart(userPickedStart: Date, today: Date): Date {
  */
 export interface RecomputeCurrentLessonOptions {
   /**
+   * Compute the pointer and return it WITHOUT writing.
+   *
+   * The Schedule Builder used to call this for its projection maths, which
+   * wrote current_lesson before schedule_commit ran. If the commit then
+   * refused, the pointer had already moved while the UI said nothing had
+   * changed. The builder now asks for the value only; the pointer itself is
+   * settled inside the transaction, by the lessons trigger, next to the rows
+   * it describes.
+   */
+  dryRun?: boolean;
+
+  /**
    * A value the pointer may not be written BELOW, on top of the
    * `start_at_lesson - 1` floor the formula already applies.
    *
@@ -148,6 +160,9 @@ export async function recomputeCurrentLesson(
   const holdAt = Math.max(0, options.neverBelow ?? 0);
   let value = Math.max(floor, maxCompleted, holdAt);
   if (total > 0) value = Math.min(value, total);
+
+  // Asked for the value, not the write.
+  if (options.dryRun) return value;
 
   // The pointer already says this. Writing it again costs a round trip and
   // fires the goal's triggers for nothing; the Schedule Builder calls this
@@ -2126,8 +2141,20 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
     0,
   );
 
-  const holdsParentWork = (r: { notes: string | null; minutes_spent: number | null }) =>
-    (r.notes != null && r.notes.trim().length > 0) || r.minutes_spent != null;
+  // `hours` is parent-entered work in the same way notes and minutes are: a row
+  // with hours logged against it records that the family did something. Adding
+  // hours to the state digest protected a CONCURRENT edit; it did nothing for a
+  // row that ALREADY held hours when the proposal was sealed, which stayed
+  // eligible for deletion the whole time. schedule_commit's content guard
+  // refuses it too, so the planner and the server agree.
+  const holdsParentWork = (r: {
+    notes: string | null;
+    minutes_spent: number | null;
+    hours?: number | null;
+  }) =>
+    (r.notes != null && r.notes.trim().length > 0) ||
+    r.minutes_spent != null ||
+    (r.hours != null && r.hours > 0);
   const workRowIds = new Set(
     beforeRows.filter((r) => !r.completed && holdsParentWork(r)).map((r) => r.id),
   );
