@@ -99,6 +99,39 @@ export default async function globalSetup(config: FullConfig) {
     config.projects[0].use.baseURL ||
     'http://localhost:3000';
 
+  // ── Gate 2: is THIS BUILD the commit under test, and is it staging? ──────
+  //
+  // The identity guard above proves what the RUNNER expects. It says nothing
+  // about which build is serving. Vercel keeps serving the previous deployment
+  // until the new one is READY, so a healthy response can come from code that
+  // predates the change being gated.
+  //
+  // Server-to-server fetch, NOT a browser request: the bypass secret goes from
+  // Node to the approved origin only. `redirect: 'error'` means it can never be
+  // replayed to a third-party origin by a redirect.
+  const expectedCommit = process.env.GITHUB_SHA ?? null;
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  if (expectedCommit) {
+    const res = await fetch(new URL('/api/health', baseURL), {
+      headers: bypassSecret ? { 'x-vercel-protection-bypass': bypassSecret } : {},
+      redirect: 'error',
+    });
+    const health = (await res.json()) as {
+      env?: string; projectRef?: string; identityOk?: boolean; commit?: string | null;
+    };
+    const fail = (why: string) => {
+      throw new Error(`[global-setup] ${why}. Refusing to run. (health: env=${health.env}, ` +
+        `projectRef=${health.projectRef}, identityOk=${health.identityOk}, commit=${health.commit})`);
+    };
+    if (health.commit !== expectedCommit) fail(`deployment serves commit ${health.commit ?? 'unknown'}, not ${expectedCommit}`);
+    if (health.identityOk !== true) fail('deployment reports identityOk=false');
+    if (health.env !== 'staging') fail(`deployment reports env=${health.env}, not staging`);
+    if (health.projectRef !== envIdentity.projectRef) {
+      fail(`deployment project ${health.projectRef} disagrees with the runner's ${envIdentity.projectRef}`);
+    }
+    console.log(`[global-setup] ✓ build guard passed — ${health.projectRef} @ ${health.commit}`);
+  }
+
   const TEST_EMAIL = requireEnv('PLAYWRIGHT_EMAIL');
   const TEST_PASSWORD = requireEnv('PLAYWRIGHT_PASSWORD');
 
@@ -110,6 +143,40 @@ export default async function globalSetup(config: FullConfig) {
   // approach.
   const browser = await chromium.launch();
   const context = await browser.newContext({ baseURL });
+
+  // Preview deployments are protection-enabled. The bypass is installed as an
+  // ORIGIN-SCOPED COOKIE, never as a header.
+  //
+  // Playwright's `extraHTTPHeaders` apply to EVERY request a context makes,
+  // including cross-origin calls to Supabase, PostHog and Sentry. That would
+  // hand the bypass secret to third parties on every page load. A cookie is
+  // scoped to one host by the browser and cannot be forwarded off it.
+  if (bypassSecret) {
+    const approvedHost = new URL(baseURL).host;
+    const res = await context.request.get(
+      `${new URL(baseURL).origin}/api/health` +
+        `?x-vercel-protection-bypass=${encodeURIComponent(bypassSecret)}` +
+        `&x-vercel-set-bypass-cookie=true`,
+      { maxRedirects: 0 },
+    );
+    if (!res.ok()) {
+      throw new Error(`[global-setup] protection bypass rejected by ${approvedHost} (${res.status()}).`);
+    }
+    // Prove it actually landed in THIS browser context and is scoped to the
+    // approved host. An assertion, because a silently missing cookie would
+    // surface later as an unexplained Vercel login page mid-suite.
+    const cookies = await context.cookies();
+    const jwt = cookies.find((c) => c.name === '_vercel_jwt');
+    if (!jwt) throw new Error('[global-setup] bypass cookie was not installed in the browser context.');
+    const scopedHost = jwt.domain.replace(/^\./, '');
+    if (!approvedHost.endsWith(scopedHost)) {
+      throw new Error(`[global-setup] bypass cookie is scoped to ${jwt.domain}, not ${approvedHost}.`);
+    }
+    const offHost = cookies.filter((c) => c.name === '_vercel_jwt' && !approvedHost.endsWith(c.domain.replace(/^\./, '')));
+    if (offHost.length > 0) throw new Error('[global-setup] a bypass cookie exists for an unapproved host.');
+    console.log(`[global-setup] ✓ bypass cookie installed, scoped to ${jwt.domain} only`);
+  }
+
   const page = await context.newPage();
 
   try {

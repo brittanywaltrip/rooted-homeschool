@@ -30,7 +30,20 @@ export default defineConfig({
   globalSetup: require.resolve('./e2e/global-setup.ts'),
   use: {
     baseURL: BASE_URL,
-    trace: 'on-first-retry',
+    // NOTHING RECORDED IN CI.
+    //
+    // A trace records every request with its headers and cookies, so a run
+    // that carries the Vercel protection-bypass cookie writes that secret into
+    // the trace. The trace is stored as playwright-report/data/<sha1>.zip --
+    // NOT "trace.zip" -- so excluding it by filename does not work, verified by
+    // generating a real report. Attachments in data/ also include a plain-text
+    // error-context .md that can embed a code frame.
+    //
+    // Local runs keep the trace: there is no bypass cookie against localhost,
+    // and this is the one thing that makes a flaky failure debuggable.
+    trace: process.env.CI ? 'off' : 'on-first-retry',
+    video: 'off',
+    screenshot: 'off',
     // A click that lands under an overlay is RETRIED until it times out, and an
     // action with no timeout of its own inherits the test's whole budget: one
     // helper sat for 240s that way and then reported "Target page, context or

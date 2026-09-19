@@ -1,13 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isBillingDisabled, billingDisabledReason, billingDisabledPayload } from "@/lib/billing-guard";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2026-02-25.clover",
-});
+// Lazy, not module scope. `new Stripe(undefined)` THROWS, so building the
+// client at import turned a missing credential into a route-load crash
+// instead of the explicit 503 below. Nothing constructs until the guard
+// has already returned.
+let _stripe: Stripe | null = null;
+function stripeClient(): Stripe {
+  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.clover' });
+  return _stripe;
+}
 
 // POST: Create a gift checkout session ($59 one-time)
 export async function POST(req: NextRequest) {
+  // FIRST statement, before any Stripe construction or provider call.
+  if (isBillingDisabled()) {
+    console.warn(`[billing] refused: ${billingDisabledReason()}`);
+    return NextResponse.json(billingDisabledPayload(), { status: 503 });
+  }
   try {
     const { token, viewer_name } = await req.json();
 
@@ -37,7 +49,7 @@ export async function POST(req: NextRequest) {
     const familyName = profile?.display_name ?? profile?.first_name ?? "A Rooted family";
     const gifterName = viewer_name || invite.viewer_name || "A family member";
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripeClient().checkout.sessions.create({
       mode: "payment",
       line_items: [
         {

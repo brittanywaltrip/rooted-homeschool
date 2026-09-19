@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { createClient } from '@supabase/supabase-js'
+import { isBillingDisabled, billingDisabledReason, billingDisabledPayload } from "@/lib/billing-guard";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.clover',
-})
+// Lazy, not module scope. `new Stripe(undefined)` THROWS, so building the
+// client at import turned a missing credential into a route-load crash
+// instead of the explicit 503 below. Nothing constructs until the guard
+// has already returned.
+let _stripe: Stripe | null = null;
+function stripeClient(): Stripe {
+  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-02-25.clover' });
+  return _stripe;
+}
 
 const PRICE_IDS: Record<string, string | undefined> = {
   founding: process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID,
@@ -22,6 +29,11 @@ const PLAN_ENV_VAR: Record<string, string> = {
 }
 
 export async function POST(req: NextRequest) {
+  // FIRST statement, before any Stripe construction or provider call.
+  if (isBillingDisabled()) {
+    console.warn(`[billing] refused: ${billingDisabledReason()}`);
+    return NextResponse.json(billingDisabledPayload(), { status: 503 });
+  }
   // Verify user via Bearer token
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
   if (!token) {
@@ -63,7 +75,7 @@ export async function POST(req: NextRequest) {
     let discounts: { promotion_code: string }[] | undefined = undefined
     if (ref) {
       try {
-        const promoCodes = await stripe.promotionCodes.list({ code: (ref as string).toUpperCase(), active: true, limit: 1 })
+        const promoCodes = await stripeClient().promotionCodes.list({ code: (ref as string).toUpperCase(), active: true, limit: 1 })
         if (promoCodes.data.length > 0) {
           discounts = [{ promotion_code: promoCodes.data[0].id }]
         }
@@ -74,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     let session
     try {
-      session = await stripe.checkout.sessions.create({
+      session = await stripeClient().checkout.sessions.create({
         mode: 'subscription',
         line_items: [{ price: priceId, quantity: 1 }],
         allow_promotion_codes: !discounts,
@@ -93,7 +105,7 @@ export async function POST(req: NextRequest) {
         raw: (firstErr as any)?.raw,
       }))
       if (!discounts) throw firstErr
-      session = await stripe.checkout.sessions.create({
+      session = await stripeClient().checkout.sessions.create({
         mode: 'subscription',
         line_items: [{ price: priceId, quantity: 1 }],
         allow_promotion_codes: true,
