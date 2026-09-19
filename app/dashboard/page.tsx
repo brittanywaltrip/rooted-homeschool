@@ -13,7 +13,7 @@ import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/
 import { useSessionUser } from "@/lib/session-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, verifyAuthoritativePlacement, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import {
   completeLessonOnDate,
   buildCompletionPayload,
@@ -1164,7 +1164,7 @@ export default function TodayPage() {
       // Curriculum goals — full config for queue-based scheduling. The same
       // query also feeds the icon emoji + per-goal school_days lookups that
       // used to be its only purpose.
-      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, lessons_per_day_overrides, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date, catchup_answered_on, created_at").eq("user_id", effectiveUserId).eq("archived", false),
+      supabase.from("curriculum_goals").select("id, icon_emoji, school_days, current_lesson, total_lessons, lessons_per_day, lessons_per_day_overrides, child_id, subject_label, curriculum_name, default_minutes, scheduled_start_time, start_date, catchup_answered_on, created_at, placement_mode").eq("user_id", effectiveUserId).eq("archived", false),
       // Lessons completed today per goal (local-day window). The queue
       // projector subtracts these from today's slot allocation so that
       // marking complete keeps today's slot count stable instead of
@@ -1352,6 +1352,13 @@ export default function TodayPage() {
       catchup_answered_on: string | null;
       /** Age guard for the empty-goal self-heal. */
       created_at: string | null;
+      /**
+       * Who owns this curriculum's placement. 'authoritative' means
+       * scheduled_date IS the schedule and page load may only verify it.
+       * Every existing curriculum is 'legacy_projection' until it crosses
+       * deliberately (Stage 0b).
+       */
+      placement_mode: "legacy_projection" | "authoritative" | null;
     };
     const goalRows = (curriculumGoalsResult.data ?? []) as GoalRow[];
     const emojiMap = new Map<string, string>();
@@ -1473,14 +1480,35 @@ export default function TodayPage() {
     // incomplete tail is far under the cap, so its fetch is complete and the
     // diff-write stays gap-free. Fire-and-forget; the display below uses its
     // own narrower projection and does not depend on these writes.
+    // ── Placement authority routing (Stage 0b) ──────────────────────────
+    // An AUTHORITATIVE curriculum's scheduled_date is the schedule, not a
+    // cache of a projection, so it must never be reconciled from one. It goes
+    // to the verifier, which compares and reports and writes nothing.
+    //
+    // A LEGACY curriculum keeps today's behaviour exactly: the reconciler
+    // still rewrites its cache on load. That is the thing we are migrating
+    // away from, but flipping it for everyone at once would strand the 1,703
+    // dormant goals Stage 0a measured, so curricula cross one at a time.
+    //
+    // Nothing is authoritative yet, so the verifier branch is currently dead.
+    const authoritativeGoalIds = new Set(
+      goalRows.filter((g) => g.placement_mode === "authoritative").map((g) => g.id),
+    );
     void Promise.all(
       goalConfigs.map((goal) =>
-        reconcileGoalScheduleCache(
-          supabase,
-          goal,
-          vacationBlocks,
-          completedTodayPerGoal.get(goal.id) ?? 0,
-        ),
+        authoritativeGoalIds.has(goal.id)
+          ? verifyAuthoritativePlacement(
+              supabase,
+              goal,
+              vacationBlocks,
+              completedTodayPerGoal.get(goal.id) ?? 0,
+            )
+          : reconcileGoalScheduleCache(
+              supabase,
+              goal,
+              vacationBlocks,
+              completedTodayPerGoal.get(goal.id) ?? 0,
+            ),
       ),
     );
     const todayProjDateByKey = new Map<string, string>(

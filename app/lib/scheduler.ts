@@ -396,6 +396,102 @@ export async function reconcileGoalScheduleCache(
 }
 
 /**
+ * VERIFY an authoritative curriculum's placement. Detects. Never repairs.
+ *
+ * An authoritative curriculum's lessons.scheduled_date IS the schedule. It is
+ * not a cache of a projection, so it must never be "reconciled" from one:
+ * that is why this is a separate function with a separate name rather than a
+ * branch inside reconcileGoalScheduleCache. Routing an authoritative goal
+ * through a reconciler would be the bug, not the fix.
+ *
+ * What it does: recompute what the projector WOULD say, compare, and report a
+ * disagreement so we can see drift in production before anything depends on
+ * it. What it must never do: write. There is deliberately no supabase write
+ * call anywhere in this function, and a test asserts that.
+ *
+ * PERMANENT INVARIANT: verification detects, it never repairs. Opening Rooted
+ * must never change a family's schedule.
+ */
+export async function verifyAuthoritativePlacement(
+  supabase: SupabaseClient,
+  goal: CurriculumGoalConfig,
+  vacationBlocks: VacationBlock[],
+  completedTodayCount: number = 0,
+  today: Date = new Date(),
+): Promise<{ checked: number; disagreements: number }> {
+  const result = { checked: 0, disagreements: 0 };
+  try {
+    const { data, error } = await supabase
+      .from("lessons")
+      .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned, skipped")
+      .eq("curriculum_goal_id", goal.id)
+      .eq("completed", false);
+    if (error || !data) return result;
+
+    const rows = data as Array<
+      QueueResyncRow & { queue_position: number | null; queue_pinned: boolean | null }
+    >;
+
+    const pins: QueueHold[] = skippedSlotsFromRows(rows);
+    for (const r of rows) {
+      if (!r.queue_pinned || r.skipped) continue;
+      if (r.queue_position == null || !r.scheduled_date) continue;
+      pins.push({ slot: r.queue_position, date: r.scheduled_date });
+    }
+
+    const projected = computeNextLessonsForGoal(
+      goal,
+      today,
+      3650,
+      vacationBlocks,
+      completedTodayCount,
+      pins,
+    );
+    const projBySlot = new Map<number, string>();
+    for (const p of projected) {
+      if (!projBySlot.has(p.lesson_number)) projBySlot.set(p.lesson_number, p.date);
+    }
+
+    const examples: { id: string; stored: string | null; projected: string }[] = [];
+    for (const r of rows) {
+      if (r.completed || r.skipped || r.queue_pinned) continue;
+      if (r.queue_position == null) continue;
+      const expected = projBySlot.get(r.queue_position);
+      if (expected === undefined) continue;
+      result.checked += 1;
+      if (r.scheduled_date !== expected) {
+        result.disagreements += 1;
+        if (examples.length < 5) {
+          examples.push({ id: r.id, stored: r.scheduled_date, projected: expected });
+        }
+      }
+    }
+
+    if (result.disagreements > 0) {
+      // Reported, not repaired. An authoritative goal drifting from the
+      // projector is information about our own writers, not a licence to
+      // rewrite the family's dates.
+      Sentry.captureMessage(
+        `Authoritative placement disagrees with projection for goal ${goal.id}: ` +
+          `${result.disagreements} of ${result.checked}`,
+        {
+          level: "warning",
+          tags: { area: "placement", goal_id: goal.id },
+          extra: { checked: result.checked, disagreements: result.disagreements, examples },
+        },
+      );
+    }
+    return result;
+  } catch (err) {
+    captureSupabaseError("verifyAuthoritativePlacement failed", err, {
+      level: "warning",
+      extra: { goalId: goal.id },
+    });
+    return result;
+  }
+}
+
+/**
  * Heal a goal's lesson rows to match invariants:
  *   - completed=true implies completed_at IS NOT NULL
  *   - delete incomplete duplicate lesson_number rows (keep one)
