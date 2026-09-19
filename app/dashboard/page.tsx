@@ -13,6 +13,7 @@ import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/
 import { useSessionUser } from "@/lib/session-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
+import { SOURCE } from "@/app/lib/scheduled-source";
 import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, verifyAuthoritativePlacement, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import {
   completeLessonOnDate,
@@ -3841,7 +3842,7 @@ export default function TodayPage() {
       for (let i = 0; i < updates.length; i += 20) {
         await Promise.all(
           updates.slice(i, i + 20).map(({ id, newDate }) =>
-            supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+            supabase.from("lessons").update({ scheduled_date: newDate, date: newDate, scheduled_source: SOURCE.CATCHUP_SPREAD }).eq("id", id)
           )
         );
       }
@@ -3873,7 +3874,7 @@ export default function TodayPage() {
       for (let i = 0; i < updates.length; i += 20) {
         await Promise.all(
           updates.slice(i, i + 20).map(({ id, newDate }) =>
-            supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+            supabase.from("lessons").update({ scheduled_date: newDate, date: newDate, scheduled_source: SOURCE.CATCHUP_PUSHBACK }).eq("id", id)
           )
         );
       }
@@ -3952,9 +3953,12 @@ export default function TodayPage() {
           return supabase
             .from("lessons")
             .update(
+              // Invariant 10: the undo is itself a date write, so it names
+              // itself. The row's prior source is deliberately NOT restored --
+              // what is true after this write is that a parent undid something.
               unskip
-                ? { date: s.date, scheduled_date: s.scheduled_date, skipped: false, queue_pinned: unskip.queue_pinned }
-                : { date: s.date, scheduled_date: s.scheduled_date },
+                ? { date: s.date, scheduled_date: s.scheduled_date, skipped: false, queue_pinned: unskip.queue_pinned, scheduled_source: SOURCE.RESCHEDULE_UNDO }
+                : { date: s.date, scheduled_date: s.scheduled_date, scheduled_source: SOURCE.RESCHEDULE_UNDO },
             )
             .eq("id", s.id);
         })
@@ -3985,7 +3989,7 @@ export default function TodayPage() {
       const snapshot = priorRow
         ? buildLessonDateSnapshot([priorRow as { id: string; date: string | null; scheduled_date: string | null }])
         : buildLessonDateSnapshot([{ id: rescheduleLesson.id, date: today, scheduled_date: today }]);
-      await supabase.from("lessons").update({ scheduled_date: targetDate, date: targetDate }).eq("id", rescheduleLesson.id);
+      await supabase.from("lessons").update({ scheduled_date: targetDate, date: targetDate, scheduled_source: SOURCE.MANUAL_RESCHEDULE }).eq("id", rescheduleLesson.id);
       setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setMissedLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setRescheduleLesson(null);
@@ -4047,7 +4051,7 @@ export default function TodayPage() {
       for (let i = 0; i < updates.length; i += 20) {
         await Promise.all(
           updates.slice(i, i + 20).map(({ id, newDate }) =>
-            supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+            supabase.from("lessons").update({ scheduled_date: newDate, date: newDate, scheduled_source: SOURCE.CATCHUP_PUSH_ALL }).eq("id", id)
           )
         );
       }
@@ -4083,7 +4087,7 @@ export default function TodayPage() {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = localDateStr(tomorrow);
 
-      await supabase.from("lessons").update({ scheduled_date: tomorrowStr, date: tomorrowStr }).eq("id", rescheduleLesson.id);
+      await supabase.from("lessons").update({ scheduled_date: tomorrowStr, date: tomorrowStr, scheduled_source: SOURCE.CATCHUP_DOUBLE_UP }).eq("id", rescheduleLesson.id);
       setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setMissedLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setRescheduleLesson(null);
@@ -4146,6 +4150,7 @@ export default function TodayPage() {
           supabase.from("lessons").update({
             scheduled_date: newDate,
             date: newDate,
+            scheduled_source: SOURCE.DAY_RESCHEDULE_UNCOMPLETE,
             completed: false,
             completed_at: null,
             minutes_spent: null,

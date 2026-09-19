@@ -139,7 +139,12 @@ const RESTORES_ONLY = process.argv.includes('--restores-only')
 //                          through its own dedicated query.
 //   recalibrate_estimate — synthesized completion dates from "I'm actually on
 //                          lesson X".
-const OFF_QUEUE_SOURCES = new Set(['extra_log', 'continuation', 'recalibrate_estimate'])
+//   completion_backfill  — 'log past hours': NEW completed rows with no
+//                          lesson_number and no queue_position at all. They
+//                          cannot reach the restore path today (it is keyed on
+//                          lesson_number), but naming them here keeps the
+//                          reasoning explicit rather than incidental.
+const OFF_QUEUE_SOURCES = new Set(['extra_log', 'continuation', 'recalibrate_estimate', 'completion_backfill'])
 
 // The projector's safety bound, matching the Schedule Builder's create path and
 // repair-empty-goals. Invariant 11: never a small fixed window.

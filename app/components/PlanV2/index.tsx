@@ -115,6 +115,7 @@ import { PillShell } from "./LessonPill";
 import { AppointmentPillShell } from "./AppointmentPill";
 import { useIsMobile } from "./useIsMobile";
 import { hapticTap } from "./haptic";
+import { SOURCE } from "@/app/lib/scheduled-source";
 import type { PlanV2Activity, PlanV2Appointment, PlanV2Lesson } from "./types";
 import type {
   TodayLessonCardChild,
@@ -2264,6 +2265,12 @@ export default function PlanV2() {
       title: `${goal?.curriculum_name ?? "Lesson"} — backfill`,
       scheduled_date: e.date,
       date: e.date,
+      // Invariant 10. NOT catchup_resched: that source belongs to marking an
+      // EXISTING queue row done on a chosen past day
+      // (buildPastDateCompletionPayload). These are NEW rows with no
+      // lesson_number and no queue_position -- a parent logging past hours as
+      // history, outside the queue entirely. It moves no future lesson.
+      scheduled_source: SOURCE.COMPLETION_BACKFILL,
       completed: true,
       // Noon UTC, matching every other synthetic completion stamp. Local noon
       // serializes to the previous calendar day east of UTC, and attendance
@@ -3687,7 +3694,7 @@ export default function PlanV2() {
             succeeded.map((m) =>
               supabase
                 .from("lessons")
-                .update({ scheduled_date: m.from, date: m.from, queue_pinned: false })
+                .update({ scheduled_date: m.from, date: m.from, queue_pinned: false, scheduled_source: SOURCE.PLAN_MOVE_UNDO })
                 .eq("id", m.id),
             ),
           );
@@ -4061,7 +4068,7 @@ export default function PlanV2() {
             succeeded.map((s) =>
               supabase
                 .from("lessons")
-                .update({ skipped: false, scheduled_date: s.from, date: s.from, queue_pinned: pinnedIds.has(s.id) })
+                .update({ skipped: false, scheduled_date: s.from, date: s.from, queue_pinned: pinnedIds.has(s.id), scheduled_source: SOURCE.SKIP_UNDO })
                 .eq("id", s.id),
             ),
           );

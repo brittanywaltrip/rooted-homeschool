@@ -224,6 +224,20 @@ export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
   projDateByKey: Map<string, string>,
   rowKey: (r: T) => string | null,
 ): Promise<void> {
+  // The gate lives HERE, not in the callers.
+  //
+  // It used to be checked only by reconcileGoalScheduleCache, so
+  // app/lib/recalibrate.ts -- which imports this function directly -- kept
+  // rewriting dates with the switch off. Any future caller would have
+  // inherited the same hole by default. A policy that each caller has to
+  // remember is not a policy.
+  //
+  // Scope, stated honestly: NEXT_PUBLIC_ is inlined at build time, so this
+  // binds every caller in a FRESH bundle and cannot reach JavaScript already
+  // running in a stale tab. Containment for those is a separate problem; see
+  // QUEUE-RESYNC-CONTAINMENT-DESIGN.md.
+  if (!isSchedulerSyncEnabled()) return;
+
   const byDate = new Map<string, string[]>();
   for (const r of rows) {
     if (r.completed) continue;
@@ -291,6 +305,10 @@ export async function reconcileGoalScheduleCache(
   completedTodayCount: number = 0,
   today: Date = new Date(),
 ): Promise<void> {
+  // Defence in depth. syncProjectedScheduledDates now enforces this itself, so
+  // this check is redundant by design: it saves the tail SELECT below when the
+  // switch is off, and it is kept so removing one of the two never silently
+  // re-opens the path.
   if (!isSchedulerSyncEnabled()) return;
   try {
     // Load the tail FIRST so the projection can be pin-aware. The pinned rows

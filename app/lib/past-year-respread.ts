@@ -59,7 +59,12 @@ async function applyDateWrites(supabase: SupabaseClient, userId: string, writes:
       jobs.push(() =>
         supabase
           .from("lessons")
-          .update({ date: w.date, scheduled_date: w.scheduled_date, completed_at: w.completed_at })
+          .update({ date: w.date, scheduled_date: w.scheduled_date, completed_at: w.completed_at,
+                    // Invariant 10, re-stamping the SAME tag. past_year is not just
+                    // provenance here: it marks the year as filed, and the respread
+                    // guard above, the Years page filed-count and NOT_FILED_PAST_YEAR
+                    // (a filed year earns no badges) all read it.
+                    scheduled_source: PAST_YEAR_SOURCE })
           .eq("user_id", userId)
           .in("id", ids),
       );
