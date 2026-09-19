@@ -34,6 +34,7 @@ import { getRemainingPhotoSlots } from "@/app/lib/integrity-checks";
 import { LESSON_PHOTO_SAVED_EVENT } from "@/lib/lesson-photo";
 import SignedImage from "@/components/SignedImage";
 import { useDashboardLayout } from "@/lib/dashboard-layout-context";
+import { countLabel } from "@/lib/plural";
 import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { schoolNameFor } from "@/lib/school-name";
@@ -4882,7 +4883,7 @@ export default function TodayPage() {
           </p>
           {totalMemories > 0 && (
             <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.70)" }}>
-              {totalMemories} memories{activeDaysThisMonth > 0 ? ` · ${activeDaysThisMonth} day${activeDaysThisMonth !== 1 ? "s" : ""} active` : ""}
+              {countLabel(totalMemories, "memory")}{activeDaysThisMonth > 0 ? ` · ${countLabel(activeDaysThisMonth, "day")} active` : ""}
             </p>
           )}
         </div>

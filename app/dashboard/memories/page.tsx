@@ -20,6 +20,7 @@ import { posthog } from "@/lib/posthog";
 import { capitalizeChildNames } from "@/lib/utils";
 import { memoryDisplayLabel } from "@/lib/photo-caption";
 import { possessive } from "@/app/lib/garden-config";
+import { countLabel } from "@/lib/plural";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -855,7 +856,7 @@ export default function MemoriesPage() {
           >
             <div className="w-10 h-10 rounded-xl bg-[#fef6e4] flex items-center justify-center text-lg mb-2">📖</div>
             <p className="text-[13px] font-bold text-[#2D2A26] leading-tight">Yearbook</p>
-            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">{memories.filter((m) => m.include_in_book).length} memories saved this year</p>
+            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">{countLabel(memories.filter((m) => m.include_in_book).length, "memory")} saved this year</p>
           </Link>
           <Link
             href="/dashboard/settings?tab=family#family-sharing"

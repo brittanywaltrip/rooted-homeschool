@@ -10,6 +10,7 @@ import { schoolDaysBetween } from "@/app/lib/scheduler";
 import { DEFAULT_SCHOOL_DAYS, PAST_YEAR_SOURCE, daysAttendedProblem, schoolDaysInRangeHint } from "@/app/lib/past-year-dates";
 import { RespreadRefused, RespreadUndoFailed, respreadPastYear } from "@/app/lib/past-year-respread";
 import { captureSupabaseError } from "@/lib/sentry-error";
+import { countLabel } from "@/lib/plural";
 
 type SchoolYear = {
   id: string;
@@ -328,7 +329,7 @@ export default function YearsArchivePage() {
                                 {t.name} · {stage.name}
                               </span>
                               <span className="block text-[11px] text-[#7a6f65]">
-                                {t.leaves} {t.leaves === 1 ? "leaf" : "leaves"}
+                                {countLabel(t.leaves, "leaf")}
                                 {t.badges > 0 ? ` · ${t.badges} ${t.badges === 1 ? "badge" : "badges"}` : ""}
                               </span>
                             </span>

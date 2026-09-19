@@ -1,3 +1,5 @@
+import { countLabel } from "./plural.ts";
+
 export type CertificateStyle = "garden" | "heritage" | "artisan";
 export type CertificateType =
   | "graduation"
@@ -199,6 +201,18 @@ function trimDanglingConnector(bodyText: string): string {
     .trim();
 }
 
+/**
+ * `data` is Record<string, string>, so a count arrives as String(n) — or not
+ * at all on the printables catalog path described below. Parse before
+ * pluralizing; when the field is absent, fall back to the exact string the
+ * template produced before (" memories"), so a missing field still reads the
+ * way it always has rather than claiming a count of zero.
+ */
+function memoriesPhrase(raw: string | undefined): string {
+  const n = Number.parseInt(raw ?? "", 10);
+  return Number.isFinite(n) ? countLabel(n, "memory") : `${raw ?? ""} memories`;
+}
+
 function resolveCertContentInner(
   type: string,
   data: Record<string, string>
@@ -320,13 +334,13 @@ function resolveCertContentInner(
       return {
         heroName: data.educatorName ?? "",
         certTitle: "Memory Keeper",
-        bodyText: `${data.educatorName ?? ""} has preserved ${data.memoryCount ?? ""} memories for ${data.academyName ?? ""}`,
+        bodyText: `${data.educatorName ?? ""} has preserved ${memoriesPhrase(data.memoryCount)} for ${data.academyName ?? ""}`,
       };
     case "story_keeper":
       return {
         heroName: data.educatorName ?? "",
         certTitle: "Story Keeper",
-        bodyText: `${data.educatorName ?? ""} has built a treasure of ${data.memoryCount ?? ""} memories for ${data.academyName ?? ""}`,
+        bodyText: `${data.educatorName ?? ""} has built a treasure of ${memoriesPhrase(data.memoryCount)} for ${data.academyName ?? ""}`,
       };
     case "you_did_that":
       return {

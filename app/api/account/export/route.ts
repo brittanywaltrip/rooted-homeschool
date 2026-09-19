@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import archiver from "archiver";
 import { PassThrough } from "stream";
+import { countLabel } from "@/lib/plural";
 
 // Supabase public-bucket URLs can appear in several shapes depending on
 // whether they came from getPublicUrl() today vs older code paths. Parse
@@ -224,10 +225,10 @@ export async function POST(req: NextRequest) {
     `                          investigate.`,
     ``,
     `Summary`,
-    `  ${memoriesCount} memories (${memoriesWithPhotoCount} with photos)`,
-    `  ${photoCount} photos successfully exported`,
-    `  ${photoMissing} photo${photoMissing === 1 ? "" : "s"} missing (see MISSING.txt)`,
-    `  ${reflectionsCount} daily reflections`,
+    `  ${countLabel(memoriesCount, "memory")} (${memoriesWithPhotoCount} with photos)`,
+    `  ${countLabel(photoCount, "photo")} successfully exported`,
+    `  ${countLabel(photoMissing, "photo")} missing (see MISSING.txt)`,
+    `  ${countLabel(reflectionsCount, "daily reflection")}`,
     `  family photo: ${familyPhotoIncluded ? "yes" : familyPhotoUrl ? "no (failed, see MISSING.txt)" : "not set"}`,
     ``,
   ].join("\n");

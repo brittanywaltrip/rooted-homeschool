@@ -20,6 +20,7 @@ import { validateStreak } from "@/app/lib/integrity-checks";
 import { GROWTH_STAGES, getGrowthStage, getGrowthStageIndex } from "@/app/lib/garden-stages";
 import { getCurrentSchoolYear } from "@/app/lib/school-year";
 import { loadLeafCounts, gardenStageSeenId, gardenStageSeenPrefix } from "@/app/lib/garden-leaves";
+import { countLabel, pluralize } from "@/lib/plural";
 
 // ─── Types ──────────────────────────────────────────────────────────────────────
 
@@ -905,12 +906,12 @@ export default function GardenPage() {
                           {stage.name}
                         </span>
                         <span className="text-[11px] text-[#8B7E74]">
-                          · {stage.min === 0 ? "0 leaves" : stage.min === 1 ? "1 leaf" : `${stage.min} leaves`}
+                          · {countLabel(stage.min, "leaf")}
                         </span>
                         {isNext && <span className="text-[10px] font-semibold text-[#2D5A3D] bg-[#e8f0e9] px-1.5 py-0.5 rounded">NEXT</span>}
                       </div>
                       <p className="text-[11px] text-[#8B7E74] mt-0.5 pl-7">
-                        {isEarned ? "\u2713 Reached" : isNext ? `${leavesToGo} more leaf${leavesToGo !== 1 ? "s" : ""} to go` : stage.label}
+                        {isEarned ? "\u2713 Reached" : isNext ? `${leavesToGo} more ${pluralize(leavesToGo, "leaf")} to go` : stage.label}
                       </p>
                     </div>
                   </div>
@@ -1039,7 +1040,7 @@ export default function GardenPage() {
                 {celebrationData.childName} reached {celebrationData.stage.name}!
               </h2>
               <p className="text-sm text-[#8B7E74] mb-6">
-                {celebrationData.leafCount} {celebrationData.leafCount === 1 ? "leaf" : "leaves"} earned by {celebrationData.childName}
+                {countLabel(celebrationData.leafCount, "leaf")} earned by {celebrationData.childName}
               </p>
               <button
                 type="button"

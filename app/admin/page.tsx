@@ -10,6 +10,7 @@ import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { countLabel } from "@/lib/plural";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
@@ -788,7 +789,7 @@ export default function AdminPage() {
                       <span className="text-[#2d2926] font-medium">{u.name}</span>
                       <span className="text-[#b5aca4] text-xs ml-2">{u.email}</span>
                     </div>
-                    <span className="text-amber-600 font-semibold shrink-0 ml-2">{u.count} memories</span>
+                    <span className="text-amber-600 font-semibold shrink-0 ml-2">{countLabel(u.count, "memory")}</span>
                   </div>
                 ))}
               </div>

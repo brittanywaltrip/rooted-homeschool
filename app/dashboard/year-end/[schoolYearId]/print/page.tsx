@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import AspectPhoto from "@/components/AspectPhoto";
+import { countLabel } from "@/lib/plural";
 
 type Photo = {
   id: string;
@@ -94,7 +95,7 @@ function tagline(familyName: string, lessons: number, memoriesCount: number): st
     return `${familyName} showed up ${lessons} times this year. That's what homeschooling looks like.`;
   }
   if (lessons >= 20) {
-    return `${lessons} lessons. ${memoriesCount} memories. One whole year of choosing your kids.`;
+    return `${countLabel(lessons, "lesson")}. ${countLabel(memoriesCount, "memory")}. One whole year of choosing your kids.`;
   }
   return "Every lesson, every memory. This was your year.";
 }
