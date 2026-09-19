@@ -13,6 +13,7 @@ run "application scenarios"      node "$HERE/appscenarios.mjs"
 run "two-session concurrency"    "$HERE/twosession.sh"
 run "deadlock probe"             "$HERE/deadlock.sh"
 run "rollback round trip"        "$HERE/rollback-roundtrip.sh"
+run "temp-object shadowing"      "$HERE/shadowing.sh"
 printf '\n'
 [ $RC -eq 0 ] && echo "ALL HARNESSES PASSED" || echo "ONE OR MORE HARNESSES FAILED"
 exit $RC

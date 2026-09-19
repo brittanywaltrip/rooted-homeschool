@@ -53,6 +53,20 @@ match the ledger, per CLAUDE.md's rule for new migrations.
 Rolling back #2 re-opens the silent loss of a concurrent rename; that is the
 decision it represents.
 
+### Stage 1b — search_path hardening (applied 2026-09-19)
+
+`20260919232901_harden_scheduler_search_paths` puts `pg_temp` LAST on all 13
+privileged functions in the scheduling chain that lacked it. Without it,
+PostgreSQL searches the caller's TEMPORARY schema first for relation names, so
+any authenticated caller can shadow a table a SECURITY DEFINER body reads.
+Demonstrated in both directions by `harness/shadowing.sh`.
+
+Bodies are untouched: `ALTER FUNCTION ... SET`, so behaviour, owner and grants
+are unchanged. Executable rollback restores each previous path exactly.
+
+Also see `STAGING-LEDGER-REPAIR.md` — a staging-only prerequisite repair,
+**not** to be applied to production.
+
 ## Stage 2 — DEPLOY the app, and verify
 
 Merge the branch to `staging`, let it deploy, and run the browser tests in
