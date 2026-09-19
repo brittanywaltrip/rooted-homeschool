@@ -23,7 +23,17 @@ export async function GET() {
   // 200 even when misconfigured: this endpoint exists to REPORT the problem,
   // so it must stay reachable when the problem is present.
   return NextResponse.json(
-    { env: identity.env, projectRef: identity.projectRef, identityOk: identity.ok, error: identity.error ?? null },
+    {
+      env: identity.env,
+      projectRef: identity.projectRef,
+      identityOk: identity.ok,
+      error: identity.error ?? null,
+      // WHICH BUILD answered. A healthy identity from a stale deployment is not
+      // evidence about the commit under test: Vercel keeps serving the previous
+      // build until the new one is READY, so a gate that checks identity alone
+      // can pass against code that predates the change it is gating.
+      commit: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+    },
     { headers: { "cache-control": "no-store" } },
   );
 }
