@@ -55,6 +55,11 @@ Two browsers, same account.
       goal, a new lesson) also wait, and that **another account is unaffected**.
       That serialisation is the cost of the lock and should be seen, not
       discovered later.
+- [ ] **Auth, unclaimed and therefore worth checking.** The package proves the
+      FK key-share behaviour, not what Supabase Auth writes. Keep a session
+      open across several saves and confirm nothing about signing in, staying
+      signed in, or refreshing stalls. If it does, that is new information and
+      the lock choice should be revisited before the revoke.
 
 ## 5. Oversized input
 

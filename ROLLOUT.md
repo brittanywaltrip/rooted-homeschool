@@ -20,11 +20,23 @@ repo; see CLAUDE.md):
 | 5 | `20260919236000_schedule_commit_status` | `schedule_commit_status` |
 
 **One behaviour change to know about before stage 1.** `schedule_commit` locks
-the account's `auth.users` row, because that is the parent a vacation INSERT
-must key-share and `FOR UPDATE` cannot lock a vacation row that does not exist
-yet. For the length of a save — validate, write, commit — that account's other
-inserts and a GoTrue token refresh for that user wait. It is one row, so other
-accounts are unaffected. Verified by two-session test.
+the account's `auth.users` row **first**, before the proposal, goal, lesson and
+vacation locks. It is the parent a vacation INSERT must key-share, and
+`FOR UPDATE` cannot lock a vacation row that does not exist yet.
+
+What is **demonstrated** by the two-session tests: for the length of a save —
+validate, write, commit — a concurrent INSERT into a table whose `user_id`
+references `auth.users(id)` for *that* account waits and then completes; and
+another account is unaffected, because it is one row. Taking this lock first is
+what avoids a deadlock: with it taken last, the probe in `deadlock.sh` produces
+`deadlock detected`.
+
+What is **not** demonstrated, and so is not claimed: whether an ordinary
+Supabase Auth token refresh writes to `auth.users`. An earlier draft of this
+document asserted that it does. It may, and if it does that write would wait
+too — but the package proves the FK key-share behaviour and the vacation race,
+not Auth's internals. **Worth observing during stage 2** on staging: sign in,
+leave a session open across a save, and confirm nothing about auth stalls.
 
 Every one only adds functions or redefines `schedule_state_version`. **No
 privilege changes.** The currently deployed app keeps working throughout,

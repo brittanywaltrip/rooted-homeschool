@@ -7322,6 +7322,16 @@ export default function TodayPage() {
       )}
 
       {/* ── Delete undo toast (5s window before DB delete) ──── */}
+      {/* A delete that already left the screen but did not land. role=status
+          so a screen reader announces it without stealing focus. */}
+      {deleteFailedMsg && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]" role="status" aria-live="polite">
+          <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg max-w-[90vw]">
+            {deleteFailedMsg}
+          </div>
+        </div>
+      )}
+
       {pendingDelete && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-[70]">
           <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-2.5 rounded-2xl shadow-lg flex items-center gap-3">

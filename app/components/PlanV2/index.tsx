@@ -4164,14 +4164,26 @@ export default function PlanV2() {
 
     // Defer the DB delete to the end of the 5s undo window. If the user
     // taps Undo first, the timer is cleared and the rows are restored.
-    const timer = window.setTimeout(async () => {
+    // Not an async callback: setTimeout DISCARDS the promise one returns, so a
+    // rejection inside it is unhandled. This is a chain with its own catch.
+    //
+    // And this is a USER action -- the rows are already off the screen -- so a
+    // failure restores every one of them and says so. The old `catch { /* silent
+    // -- next reload reconciles */ }` meant the lessons came back on the next
+    // load with no explanation, which is the vanish/reappear this work exists to
+    // end.
+    const timer = window.setTimeout(() => {
       pendingBulkDeleteRef.current = null;
-      try {
-        await deleteLessonsByIds(supabase, Array.from(rowIdSet));
-      } catch {
-        /* silent — next reload reconciles */
-      }
-      reload();
+      void deleteLessonsByIds(supabase, Array.from(rowIdSet))
+        .catch((err: unknown) => {
+          setLessons((prev) => rows.reduce((acc, r) => restoreRemovedRow(acc, r), prev));
+          flashNotice(
+            err instanceof LessonDeleteError
+              ? err.message
+              : "We couldn't remove those lessons. They're still here.",
+          );
+        })
+        .finally(() => reload());
     }, 5_000);
     pendingBulkDeleteRef.current = { rows, timer };
 

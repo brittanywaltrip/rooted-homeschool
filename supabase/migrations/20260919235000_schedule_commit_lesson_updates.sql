@@ -174,6 +174,31 @@ begin
     end if;
   end if;
 
+  -- ── THE ACCOUNT LOCK, FIRST. LOCK ORDER IS THE POINT. ──────────────────
+  -- vacation_blocks.user_id references auth.users(id), so INSERTing a vacation
+  -- takes FOR KEY SHARE on this row, and FOR KEY SHARE conflicts with FOR
+  -- UPDATE. Holding it is what makes a concurrent vacation insert WAIT rather
+  -- than slip in behind the state-version check -- FOR UPDATE cannot lock a
+  -- vacation row that does not exist yet.
+  --
+  -- IT MUST BE TAKEN BEFORE THE PROPOSAL, GOAL, LESSON AND VACATION LOCKS.
+  -- Taken after them, this deadlocks: a concurrent insert acquires FOR KEY
+  -- SHARE on auth.users as part of its own FK check, then waits on a goal or
+  -- lesson row this transaction already holds, while this transaction waits on
+  -- that transaction's auth.users lock. Two waiters, opposite order, a cycle.
+  -- Every writer that reaches this account's rows passes through auth.users on
+  -- its way in, so taking it first gives every transaction the same order.
+  --
+  -- THE COST, stated: for the length of this transaction -- validate, write,
+  -- commit -- any concurrent INSERT into a table whose user_id references
+  -- auth.users(id) for THIS account waits. That is goals, lessons,
+  -- transcripts, vacations. Other accounts are untouched: it is one row.
+  -- Anything else that UPDATEs this auth.users row would wait too; what the
+  -- package demonstrates is the FK key-share behaviour, and no claim is made
+  -- here about what Supabase Auth does or does not write during a token
+  -- refresh, which has not been observed.
+  perform 1 from auth.users where id = v_uid for update;
+
   select * into v_prop from public.schedule_proposals where id = p_proposal_id for update;
   if not found or v_prop.user_id is distinct from v_uid then
     raise exception 'proposal not found' using errcode = '42501';
@@ -270,21 +295,6 @@ begin
   perform 1 from public.vacation_blocks
     where user_id = v_uid order by id for update;
 
-  -- So the parent row the vacation FK must key-share is locked too.
-  -- vacation_blocks.user_id references auth.users(id), so INSERTing a vacation
-  -- takes FOR KEY SHARE on this row, and FOR KEY SHARE conflicts with FOR
-  -- UPDATE. Holding it here makes a concurrent vacation insert WAIT rather
-  -- than slip in behind the check.
-  --
-  -- STATE THE COST, because it is broader than it looks: every table whose
-  -- user_id references auth.users takes that same key-share on insert, so for
-  -- the length of this transaction this account's concurrent goal, lesson,
-  -- transcript and vacation INSERTS serialise behind the save, and a GoTrue
-  -- token refresh that updates auth.users waits too. The transaction is short
-  -- -- validate, write, commit -- and one account saving its own schedule
-  -- twice at once is a case worth serialising. It is a deliberate trade, not
-  -- an accident.
-  perform 1 from auth.users where id = v_uid for update;
 
   v_now_ver := public.schedule_state_version(v_prop.goal_ids);
   if v_now_ver is distinct from v_prop.state_version then
@@ -357,6 +367,46 @@ begin
       raise exception 'refusing to insert % rows in one save (limit 5000)',
         jsonb_array_length(p_insert_rows) using errcode = '22023';
     end if;
+    -- ── REFERENCES VALIDATED BEFORE THE INSERT ──────────────────────────
+    -- The post-insert checks below still run, but they are defence in depth,
+    -- not the front line. Letting the INSERT go first has two problems:
+    --
+    --   1. A foreign key error distinguishes "no such id" from "an id that
+    --      exists but belongs to another family" -- the constraint fires only
+    --      in the first case -- so the pair of outcomes is an oracle for
+    --      whether another account owns a given uuid.
+    --   2. The lessons INSERT triggers run BEFORE any post-insert refusal:
+    --      lessons_child_id_matches_goal raises its own message naming the
+    --      goal, and trg_lessons_recompute_current_lesson has already
+    --      recomputed a pointer, inside a transaction that is about to abort.
+    --
+    -- Reading the ids straight out of the payload settles both: every
+    -- reference is checked against the caller before a row is written, and
+    -- every failure gives the same answer regardless of why.
+    select count(*) into v_bad
+      from jsonb_array_elements(p_insert_rows) r
+     where
+       -- the goal must be the caller's AND inside the proposal
+       (nullif(r->>'curriculum_goal_id','') is null
+        or not ((r->>'curriculum_goal_id')::uuid = any(v_prop.goal_ids)))
+    or (nullif(r->>'child_id','') is not null and not exists (
+          select 1 from public.children c
+           where c.id = (r->>'child_id')::uuid and c.user_id = v_uid))
+    or (nullif(r->>'subject_id','') is not null and not exists (
+          select 1 from public.subjects sj
+           where sj.id = (r->>'subject_id')::uuid and sj.user_id = v_uid))
+    or (nullif(r->>'school_year_id','') is not null and not exists (
+          select 1 from public.school_years y
+           where y.id = (r->>'school_year_id')::uuid and y.user_id = v_uid))
+    or (nullif(r->>'continues_lesson_id','') is not null and not exists (
+          select 1 from public.lessons cl
+           where cl.id = (r->>'continues_lesson_id')::uuid and cl.user_id = v_uid));
+    if v_bad > 0 then
+      raise exception
+        '% inserted row(s) reference a curriculum, child, subject, school year or continued lesson that is missing or not yours', v_bad
+        using errcode = '42501';
+    end if;
+
     insert into public.lessons (
       id, user_id, child_id, curriculum_goal_id, subject_id, school_year_id,
       title, date, scheduled_date, scheduled_source, lesson_number, queue_position,
