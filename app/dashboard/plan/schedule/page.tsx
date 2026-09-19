@@ -1858,6 +1858,70 @@ export default function ScheduleBuilderPage() {
     setSaveError(null);
     setPostSaveNotice(null);
 
+    // ── Destructive-save disclosure ────────────────────────────────────────
+    // A save that re-spreads a curriculum deletes its incomplete future rows
+    // and re-inserts them at projector dates, and if that goal's schedule
+    // fields moved it also releases the pins holding the family's manual
+    // placements. None of that was visible before pressing Save, and the
+    // button only says "Save".
+    //
+    // Only goals this save will actually re-spread are counted, which is the
+    // same predicate phase 2 now gates on, so the numbers describe the work
+    // that is really about to happen. A save with nothing to re-spread asks
+    // nothing: a true no-op must never look frightening.
+    //
+    // Counts come from one read. If that read fails we still warn, just
+    // without numbers, rather than block a save or invent a figure.
+    const respreadRows = rows.filter(
+      (r) => !r.readOnly && !r.pendingDelete && r.dbId && r.previouslySavedAs === "curriculum_goals"
+        && scheduleFieldsChangedForRow(r),
+    );
+    if (respreadRows.length > 0) {
+      const respreadIds = respreadRows.map((r) => r.dbId as string);
+      let futureCount: number | null = null;
+      let pinnedCount: number | null = null;
+      try {
+        const { data: impactData, error: impactErr } = await supabase
+          .from("lessons")
+          .select("id, completed, queue_pinned, skipped, notes, minutes_spent")
+          .in("curriculum_goal_id", respreadIds);
+        if (!impactErr) {
+          const impact = (impactData ?? []) as {
+            completed: boolean;
+            queue_pinned: boolean | null;
+            skipped: boolean | null;
+            notes: string | null;
+            minutes_spent: number | null;
+          }[];
+          // Mirrors what phase 2 actually rewrites: incomplete rows that are
+          // not skipped and carry none of the parent's own work.
+          futureCount = impact.filter(
+            (r) => !r.completed && !r.skipped
+              && !(r.notes != null && r.notes.trim().length > 0)
+              && r.minutes_spent == null,
+          ).length;
+          pinnedCount = impact.filter((r) => !r.completed && !r.skipped && r.queue_pinned === true).length;
+        }
+      } catch {
+        // Fall through to the number-free wording.
+      }
+
+      const lessonPart = futureCount == null
+        ? "This will rebuild the upcoming schedule"
+        : `This will reschedule ${futureCount} future ${futureCount === 1 ? "lesson" : "lessons"}`;
+      const pinPart = pinnedCount != null && pinnedCount > 0
+        ? ` and reset ${pinnedCount} ${pinnedCount === 1 ? "lesson you've placed" : "lessons you've placed"} by hand`
+        : "";
+      const proceed = window.confirm(
+        `${lessonPart}${pinPart}. Your completed lessons will not change. Continue?`,
+      );
+      if (!proceed) {
+        setSaving(false);
+        saveGate.exit();
+        return;
+      }
+    }
+
     // Duplicate pre-check. The Layer-1 in-flight gate above stops true
     // double-clicks; this layer stops the slower duplicate path that's
     // been hitting prod (same name, same child, separate save events
@@ -2539,6 +2603,52 @@ export default function ScheduleBuilderPage() {
       // from the original inline loop and mean "no Phase 2 work for this
       // goal" (no lessons to project, no school days, etc.).
       const applyPhase2ForGoal = async (goalId: string, row: Row): Promise<void> => {
+        // ── CONTAINMENT: an untouched curriculum is left alone ───────────────
+        // Editing curriculum A must never regenerate curriculum B's future
+        // schedule when B's own scheduling settings did not change.
+        //
+        // Phase 2 has always re-spread EVERY curriculum in the builder on every
+        // save. Its floor delete removes incomplete rows above the completed
+        // floor and re-inserts them at projector dates with NEW row ids, and a
+        // schedule-field change on the goal also releases its pins. So a family
+        // adjusting one curriculum silently had the future of all the others
+        // deleted and rebuilt. On 2026-09-18 one family saved five times in two
+        // hours; each save destroyed and recreated roughly 175 future rows per
+        // goal across nine curricula, and the schedule they had arranged by
+        // hand did not survive it.
+        //
+        // scheduleFieldsChangedForRow is the existing, tested definition of
+        // "this goal's grid moved" (school_days, per-day counts and overrides,
+        // total_lessons, start_date; always true for a never-saved row). When it
+        // is false the family is not asking for this goal to be re-spread, so
+        // nothing here runs: no recompute, no read, no delete, no re-insert, no
+        // pin release.
+        //
+        // Deliberately NOT changed here: a goal whose settings DID change still
+        // follows the existing algorithm, pin release included. That is the next
+        // piece of work, not this one.
+        //
+        // Safe because vacation blocks are read-only in this builder (all three
+        // vacation_blocks accesses are SELECTs); breaks are re-spread from the
+        // Plan page, which has its own path. And a goal left with a projection
+        // hole is already healed by Today's next-row self-heal on the next load.
+        if (!scheduleFieldsChangedForRow(row)) {
+          void logPlanEvent({
+            userId: effectiveUserId,
+            type: "schedule.rebuilt",
+            payload: {
+              goal_id: goalId,
+              curriculum_name: row.name,
+              inserted: 0,
+              updated: 0,
+              skipped: 0,
+              unchanged: true,
+              reason: "settings_unchanged",
+            },
+          });
+          return;
+        }
+
         // Recompute first so we know where the queue stands. The return
         // value is the post-recompute current_lesson; for brand-new goals
         // it equals max(start_at_lesson - 1, 0). For UPDATE flows it can be

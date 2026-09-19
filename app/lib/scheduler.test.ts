@@ -10189,3 +10189,115 @@ test('builder preview: skips are loaded once and handed to every schedule line',
   assert.match(src, /calcPace\(row, today, projected\[0\]\?\.date, vacations, skippedSlots\)/)
   assert.equal((src.match(/nextLesson: sched\.nextLesson,/g) ?? []).length, 4, 'both stored-progress lines and both next-lesson lines read the stepped lesson')
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CONTAINMENT (2026-09-18): an untouched curriculum is never re-spread.
+//
+// Phase 2 re-spread EVERY curriculum in the builder on every save. Its floor
+// delete removes incomplete rows above the completed floor and re-inserts them
+// at projector dates with new row ids; a schedule-field change also releases
+// that goal's pins. So editing curriculum A destroyed curriculum B's future.
+//
+// These are source sweeps because applyPhase2ForGoal is a closure inside a
+// React component and cannot be imported. They check the real shipped file.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function applyPhase2Body(): string {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const m = src.match(/const applyPhase2ForGoal\s*=\s*async\s*\([^)]*\)\s*:\s*Promise<void>\s*=>/)
+  if (!m) throw new Error('applyPhase2ForGoal not found')
+  const start = src.indexOf('{', m.index! + m[0].length - 1)
+  let depth = 0
+  for (let i = start; i < src.length; i++) {
+    if (src[i] === '{') depth++
+    else if (src[i] === '}') { depth--; if (depth === 0) return src.slice(start, i + 1) }
+  }
+  throw new Error('unbalanced braces in applyPhase2ForGoal')
+}
+
+test('an unchanged sibling curriculum is skipped before phase 2 does anything', () => {
+  const body = applyPhase2Body()
+  const guard = body.indexOf('if (!scheduleFieldsChangedForRow(row))')
+  assert.ok(guard !== -1, 'the unchanged-sibling guard is gone')
+
+  // The guard must precede EVERY destructive or state-touching call, or a
+  // sibling still pays for a save it did not ask for.
+  for (const marker of [
+    'recomputeCurrentLesson(',   // fires the current_lesson triggers
+    'planPhase2Rows(',           // computes the delete set
+    '.delete()',                 // the floor delete
+    '.insert(',                  // the re-spread
+    'queue_pinned: false',       // the pin release
+  ]) {
+    const at = body.indexOf(marker)
+    if (at === -1) continue
+    assert.ok(guard < at, `the unchanged-sibling guard must run before ${marker}`)
+  }
+})
+
+test('the unchanged-sibling guard returns instead of falling through', () => {
+  const body = applyPhase2Body()
+  const guard = body.indexOf('if (!scheduleFieldsChangedForRow(row))')
+  const block = body.slice(guard, guard + 600)
+  assert.ok(/\breturn\b/.test(block), 'the guard does not return, so phase 2 still runs')
+})
+
+test('a curriculum whose own settings changed still reaches phase 2', () => {
+  // Containment only protects UNTOUCHED goals. A goal the family edited keeps
+  // the existing algorithm, pin release included. If this stops being true the
+  // change has grown beyond its remit.
+  const body = applyPhase2Body()
+  assert.ok(body.includes('planPhase2Rows('), 'phase 2 planning was removed outright')
+  assert.ok(body.includes('clearPins'), 'the existing pin-release path was removed')
+})
+
+test('completed lessons stay protected by the floor delete', () => {
+  const body = applyPhase2Body()
+  const del = body.indexOf('.delete()')
+  assert.ok(del !== -1, 'floor delete not found')
+  const stmt = body.slice(del, del + 400)
+  assert.ok(stmt.includes('"completed", false') || stmt.includes("'completed', false"),
+    'the floor delete no longer excludes completed rows')
+})
+
+test('a destructive save discloses its impact before any write', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  const confirmAt = body.indexOf('window.confirm')
+  assert.ok(confirmAt !== -1, 'the destructive-save disclosure is gone')
+
+  // It must sit ahead of the first write of the save.
+  for (const marker of ['.insert(', '.update(', '.delete()']) {
+    const at = body.indexOf(marker)
+    if (at === -1) continue
+    assert.ok(confirmAt < at, `the disclosure must come before ${marker}`)
+  }
+})
+
+test('the disclosure is only raised when something will actually be re-spread', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  // Gated on a non-empty set of goals whose schedule fields moved, so a true
+  // no-op save asks nothing.
+  assert.ok(body.includes('respreadRows.length > 0'), 'the disclosure is not gated')
+  assert.ok(body.includes('scheduleFieldsChangedForRow(r)'),
+    'the disclosure does not use the re-spread predicate')
+})
+
+test('the disclosure copy reassures about completed work and carries no em dash', () => {
+  const src = loadRepoFile('app/dashboard/plan/schedule/page.tsx')
+  assert.ok(src.includes('Your completed lessons will not change.'),
+    'the disclosure no longer reassures about completed lessons')
+  const line = src.slice(src.indexOf('Your completed lessons will not change.') - 400,
+                         src.indexOf('Your completed lessons will not change.') + 120)
+  assert.ok(!line.includes('—'), 'em dash in the disclosure copy')
+})
+
+test('a cancelled disclosure writes nothing and releases the save gate', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  const body = extractFunctionBody(src, /async function handleSave\s*\(/)
+  const confirmAt = body.indexOf('window.confirm')
+  const block = body.slice(confirmAt, confirmAt + 400)
+  assert.ok(block.includes('saveGate.exit()'), 'cancelling leaves the save gate locked')
+  assert.ok(/\breturn\b/.test(block), 'cancelling does not return')
+})
