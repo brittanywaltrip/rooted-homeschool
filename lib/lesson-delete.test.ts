@@ -1,0 +1,44 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { deleteLessonById, LessonDeleteError, messageFor } from "./lesson-delete.ts";
+
+const ok = { rpc: async () => ({ error: null }) };
+const denied = {
+  rpc: async () => ({ error: { message: "permission denied for table lessons", code: "42501" } }),
+};
+
+test("a successful delete resolves", async () => {
+  await deleteLessonById(ok, "abc");
+});
+
+test("an error is THROWN, not returned — the whole point", async () => {
+  await assert.rejects(() => deleteLessonById(denied, "abc"), LessonDeleteError);
+});
+
+test("a refusal after the grant is removed is flagged as a stale client", async () => {
+  await deleteLessonById(denied, "abc").catch((e: LessonDeleteError) => {
+    assert.equal(e.staleClient, true);
+    assert.match(e.message, /reload/i);
+  });
+});
+
+test("other failures are not blamed on the page being out of date", () => {
+  const m = messageFor({ message: "deadlock detected", code: "40P01" });
+  assert.doesNotMatch(m, /out of date/i);
+});
+
+test("the rpc is called with the server's parameter name", async () => {
+  let seen: unknown = null;
+  await deleteLessonById(
+    { rpc: async (_fn, args) => { seen = args; return { error: null }; } },
+    "lesson-1",
+  );
+  assert.deepEqual(seen, { p_lesson_id: "lesson-1" });
+});
+
+test("an empty id never reaches the network", async () => {
+  let called = false;
+  await assert.rejects(() =>
+    deleteLessonById({ rpc: async () => { called = true; return { error: null }; } }, ""));
+  assert.equal(called, false);
+});

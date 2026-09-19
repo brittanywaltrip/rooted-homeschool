@@ -10,6 +10,7 @@ import {
   type LessonCompletedEvent,
 } from "@/app/lib/completeLessonOnDate";
 import { onLogAction } from "@/app/lib/onLogAction";
+import { deleteLessonById } from "@/lib/lesson-delete";
 
 /* ============================================================================
  * usePlanLessonActions — shared lesson handlers for the Plan page.
@@ -203,9 +204,26 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
   }, [findLesson, setLessons, setMonthLessons, onNeedsDateChoice, completeWithChoice]);
 
   const deleteLesson = useCallback(async (id: string) => {
+    // The row is removed optimistically, so a failed delete must put it back.
+    // The old version dropped the error supabase-js RETURNS rather than throws:
+    // the lesson vanished from the screen, stayed in the database, and came
+    // back on the next load with nothing said in between.
+    //
+    // The row is read HERE, not inside the updater. Updaters run at render and
+    // may run more than once, so they must stay pure -- see
+    // app/components/updaterPurity.test.ts, which fails on a write from inside
+    // one. The restore below is pure and idempotent.
+    const removed = findLesson(id);
     setLessons(prev => prev.filter(l => l.id !== id));
-    await supabase.from("lessons").delete().eq("id", id);
-  }, [setLessons]);
+    try {
+      await deleteLessonById(supabase, id);
+    } catch (err) {
+      if (removed) {
+        setLessons(prev => (prev.some(l => l.id === id) ? prev : [...prev, removed]));
+      }
+      throw err;
+    }
+  }, [findLesson, setLessons]);
 
   const skipLesson = useCallback(async (lesson: T) => {
     const originalDate = lesson.scheduled_date ?? lesson.date;

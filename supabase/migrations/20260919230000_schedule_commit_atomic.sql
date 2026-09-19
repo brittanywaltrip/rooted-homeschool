@@ -34,6 +34,13 @@
 -- each old path does; do not assume every one of them recovers on reload.
 -- ============================================================================
 
+-- SEARCH_PATH: every function here sets `public, pg_temp`. Naming pg_temp
+-- LAST is the point: when it is not listed, the temporary schema is searched
+-- FIRST for relation names, so a caller who can create a temp table can shadow
+-- a table a SECURITY DEFINER body refers to. The repo's own trigger functions
+-- already use this form; several older schedule_* functions set only
+-- `public` and should be brought into line separately.
+
 -- ── 1. The deliberate single-lesson delete keeps working, via a function ────
 -- Today and Plan let a parent delete one lesson. That is legitimate and must
 -- survive the revoke, so it gets its own narrow entry point. It deletes
@@ -42,7 +49,7 @@ create or replace function public.delete_lesson(p_lesson_id uuid)
 returns void
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare v_owner uuid;
 begin
@@ -85,7 +92,7 @@ create or replace function public.schedule_commit(
 ) returns jsonb
 language plpgsql
 security definer
-set search_path = public
+set search_path = public, pg_temp
 as $$
 declare
   v_uid        uuid := auth.uid();
@@ -98,6 +105,7 @@ declare
   v_inserted   int := 0;
   v_goal       uuid;
   v_bad        int;
+  v_digest     text;
 begin
   if v_uid is null then
     raise exception 'not authenticated' using errcode = '42501';
@@ -110,15 +118,33 @@ begin
   -- ── RETRY AFTER AN UNCERTAIN RESPONSE ───────────────────────────────────
   -- The client cannot tell a lost response from a lost request. If this key
   -- already committed, return that result rather than doing the work twice.
+  -- The digest binds the key to THIS request. Returning the old result for a
+  -- DIFFERENT payload under a reused key would silently discard the new work
+  -- and report success for something that never happened.
+  v_digest := encode(sha256(convert_to(
+      coalesce(p_proposal_id::text,'') || '|' ||
+      coalesce(p_goal_updates::text,'') || '|' ||
+      coalesce(array_to_string(p_release_pins, ','),'') || '|' ||
+      coalesce(array_to_string(p_delete_ids, ','),'') || '|' ||
+      coalesce(p_insert_rows::text,'') || '|' ||
+      coalesce(p_pointers::text,''), 'UTF8')), 'hex');
+
   select * into v_existing from public.schedule_transactions
    where user_id = v_uid and idempotency_key = p_idempotency_key;
   if found then
+    if coalesce(v_existing.impact->>'request_digest','') is distinct from v_digest then
+      raise exception
+        'idempotency key % was already used for a different request. A key identifies one request; use a new key.', p_idempotency_key
+        using errcode = '22023';
+    end if;
     return jsonb_build_object(
       'status', 'already_committed',
       'transaction_id', v_existing.id,
       'impact', v_existing.impact,
       'after_version', v_existing.after_version);
   end if;
+  -- A key is per user: the unique index is (user_id, idempotency_key), so the
+  -- same key from another account is a different row and cannot collide.
 
   -- ── THE PROPOSAL ────────────────────────────────────────────────────────
   -- Locked, so two concurrent saves cannot both consume it.
@@ -178,6 +204,45 @@ begin
             or not (curriculum_goal_id = any(v_prop.goal_ids)));
     if v_bad > 0 then
       raise exception '% pin id(s) are outside the proposal''s goals', v_bad using errcode = '42501';
+    end if;
+  end if;
+
+  -- ── V2: WHAT THE DELETE MAY NOT TOUCH, RE-DERIVED HERE ──────────────────
+  -- The builder decides what to hold back (surviving pins, skipped rows, and
+  -- rows carrying the parent's notes or minutes) from a read it took BEFORE
+  -- the proposal. The state version does not hash notes, minutes_spent or
+  -- title, so a row that gains any of them between that read and this commit
+  -- is neither held back nor detected as drift -- and delete-then-reinsert
+  -- would destroy the parent's words.
+  --
+  -- So the rule is re-evaluated against the rows as they are NOW, under the
+  -- locks taken above. The client's list is a request; this is the check.
+  if p_delete_ids is not null and array_length(p_delete_ids, 1) > 0 then
+    select count(*) into v_bad from public.lessons
+     where id = any(p_delete_ids)
+       and (completed
+            or queue_pinned
+            or skipped
+            or (notes is not null and btrim(notes) <> '')
+            or minutes_spent is not null);
+    if v_bad > 0 then
+      raise exception
+        '% row(s) in this save now carry work that must not be deleted (completed, pinned, skipped, or holding notes or minutes). Rebuild the proposal.', v_bad
+        using errcode = '40001';
+    end if;
+
+    -- ── V5: CASCADE. lessons.continues_lesson_id references lessons ON
+    -- DELETE CASCADE, so deleting a row silently deletes its continuations.
+    -- GET DIAGNOSTICS counts only directly-matched rows, so a plan to delete
+    -- five could remove twelve and still assert "5 = 5". Refuse when a row the
+    -- plan did not name would be taken with it.
+    select count(*) into v_bad from public.lessons c
+     where c.continues_lesson_id = any(p_delete_ids)
+       and not (c.id = any(p_delete_ids));
+    if v_bad > 0 then
+      raise exception
+        '% continuation row(s) would cascade-delete with this save but are not in the plan', v_bad
+        using errcode = '40001';
     end if;
   end if;
 
@@ -315,7 +380,8 @@ begin
   values
     (v_uid, v_prop.action, v_prop.goal_ids, 'schedule_commit',
      jsonb_build_object('deleted', v_deleted, 'inserted', v_inserted,
-                        'pins_released', coalesce(array_length(p_release_pins,1),0)),
+                        'pins_released', coalesce(array_length(p_release_pins,1),0),
+                        'request_digest', v_digest),
      '{}'::jsonb, 'parent'::actor_type_t, v_uid, v_before,
      public.schedule_state_version(v_prop.goal_ids), p_idempotency_key)
   returning id into v_txn_id;

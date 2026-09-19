@@ -16,6 +16,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
+import { deleteLessonById } from "@/lib/lesson-delete";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import PageHero from "@/app/components/PageHero";
@@ -1395,8 +1396,16 @@ export default function PlanV2() {
           setLessons((prev) => prev.filter((l) => l.id !== row.id));
           hapticTap(20);
           try {
-            await supabase.from("lessons").delete().eq("id", row.id);
+
+            // deleteLessonById THROWS. The old form could not: supabase-js
+
+            // resolves on a failed request, so this catch never fired and a
+
+            // refused delete was indistinguishable from a successful one.
+
+            await deleteLessonById(supabase, row.id);
           } catch {
+
             /* best-effort; next reload reconciles */
           }
           reload();
@@ -1519,8 +1528,16 @@ export default function PlanV2() {
         setLessons((prev) => prev.filter((l) => l.id !== row.id));
         hapticTap(20);
         try {
-          await supabase.from("lessons").delete().eq("id", row.id);
+
+          // deleteLessonById THROWS. The old form could not: supabase-js
+
+          // resolves on a failed request, so this catch never fired and a
+
+          // refused delete was indistinguishable from a successful one.
+
+          await deleteLessonById(supabase, row.id);
         } catch {
+
           /* best-effort; next reload reconciles */
         }
         reload();
