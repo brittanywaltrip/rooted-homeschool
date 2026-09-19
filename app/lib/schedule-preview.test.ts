@@ -286,3 +286,117 @@ test("the seal writes only schedule_proposals", () => {
 test("proposals expire in 15 minutes", () => {
   assert.ok(/interval '15 minutes'/.test(SEAL_FN_SQL), "the expiry window changed");
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 0e: actor-ready history + schedule_commit_dry_run.
+//
+// Behavioural proof is rolled-back transactions against the live database:
+// the V0-V12 pipeline, 16 hostile payloads, and fingerprints around every call.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ACTOR_SQL = repoFile(
+  "supabase/migrations/20260919021050_schedule_transactions_actor_ready.sql",
+);
+const DRYRUN_SQL = repoFile(
+  "supabase/migrations/20260919021146_schedule_commit_dry_run.sql",
+);
+
+test("actor is a typed principal, not free text", () => {
+  assert.ok(/create type actor_type_t as enum \('parent', 'system'\)/.test(ACTOR_SQL),
+    "actor_type is no longer a closed enum");
+  assert.ok(/drop column if exists actor\b/.test(ACTOR_SQL), "the free-text actor column survived");
+  for (const col of ["actor_type", "actor_user_id", "actor_ref"]) {
+    assert.ok(ACTOR_SQL.includes(col), `${col} is missing`);
+  }
+});
+
+test("child, guardian and delegate are documented but NOT implemented", () => {
+  // Sol's instruction: preserve them as documented future extensions only.
+  assert.ok(!/enum \([^)]*'child'/.test(ACTOR_SQL), "child was added to the enum");
+  assert.ok(!/enum \([^)]*'guardian'/.test(ACTOR_SQL), "guardian was added to the enum");
+  assert.ok(!/enum \([^)]*'delegate'/.test(ACTOR_SQL), "delegate was added to the enum");
+  for (const word of ["guardian", "child", "delegate"]) {
+    assert.ok(ACTOR_SQL.includes(word), `${word} is no longer documented as a future value`);
+  }
+});
+
+test("actor_ref is deliberately not a foreign key", () => {
+  // A child or delegate may never be an auth.users row. A FK would permanently
+  // encode "an actor is an account", which is what this column exists to avoid.
+  const line = ACTOR_SQL.split("\n").find((l) => /add column actor_ref/.test(l)) ?? "";
+  assert.ok(!/references/i.test(line), "actor_ref became a foreign key");
+  assert.ok(/actor_user_id uuid references auth\.users\(id\) on delete set null/.test(ACTOR_SQL),
+    "actor_user_id lost its FK or its SET NULL behaviour");
+});
+
+test("immutable history stores no display name", () => {
+  // memory_comments and memory_reactions each carry TWO name columns that have
+  // drifted. Names are resolved at read time instead.
+  for (const bad of ["actor_name", "display_name", "commenter_name", "viewer_name"]) {
+    assert.ok(!new RegExp(`add column ${bad}`).test(ACTOR_SQL), `${bad} was added to history`);
+  }
+});
+
+test("a parent action names its account and a system action names its job", () => {
+  assert.ok(/actor_type = 'parent' and actor_user_id is not null/.test(ACTOR_SQL),
+    "a parent action could be recorded without an account");
+  assert.ok(/actor_type = 'system' and actor_user_id is null and actor_ref is not null/.test(ACTOR_SQL),
+    "a system action could claim an account or stay anonymous");
+});
+
+test("the dry run has zero scheduling write capability", () => {
+  const body = DRYRUN_SQL.replace(/--[^\n]*/g, " ");
+  for (const table of ["lessons", "curriculum_goals", "vacation_blocks",
+                       "schedule_proposals", "schedule_transactions", "activities", "appointments"]) {
+    for (const verb of ["insert into", "update", "delete from"]) {
+      assert.ok(!new RegExp(`${verb}\\s+(public\\.)?${table}\\b`, "i").test(body),
+        `the dry run performs ${verb} ${table}`);
+    }
+  }
+});
+
+test("the dry run never consumes a proposal", () => {
+  const body = DRYRUN_SQL.replace(/--[^\n]*/g, " ");
+  assert.ok(!/consumed_at\s*=/.test(body), "the dry run writes a consumption marker");
+  assert.ok(/'proposal_consumed', false/.test(DRYRUN_SQL), "it no longer reports that it consumed nothing");
+});
+
+test("the dry run runs every V0-V12 gate", () => {
+  for (const code of ["bad_request", "permission_denied", "proposal_expired",
+                      "proposal_consumed", "proposal_mismatch", "state_changed",
+                      "duplicate_lesson", "foreign_lesson", "completed_immutable",
+                      "skipped_lesson", "parent_work_row", "pin_change_not_allowed",
+                      "invalid_date", "slot_collision", "not_mutable",
+                      "migration_not_permitted"]) {
+    assert.ok(DRYRUN_SQL.includes(code), `the dry run lost its ${code} gate`);
+  }
+});
+
+test("the dry run verifies the seal and the world, not just one of them", () => {
+  assert.ok(/schedule_canonicalize_proposal\(/.test(DRYRUN_SQL), "V6 seal check is gone");
+  assert.ok(/v_hash <> v_prop\.proposal_hash/.test(DRYRUN_SQL), "V6 no longer compares to the stored hash");
+  assert.ok(/schedule_state_version\(p_goal_ids\)/.test(DRYRUN_SQL), "V7 state check is gone");
+  assert.ok(/v_version <> v_prop\.state_version/.test(DRYRUN_SQL), "V7 no longer compares to the seal");
+});
+
+test("the dry run takes real locks in a deadlock-safe order", () => {
+  assert.ok(/pg_advisory_xact_lock/.test(DRYRUN_SQL), "the advisory lock is gone");
+  assert.ok(/order by id for update/.test(DRYRUN_SQL), "goal rows are no longer locked in id order");
+});
+
+test("V12 reports the actor the commit would record", () => {
+  assert.ok(/'actor', jsonb_build_object\('type','parent','user_id', v_uid\)/.test(DRYRUN_SQL),
+    "the dry run no longer reports its actor");
+});
+
+test("authoritative transition is gated on action and on having no holes", () => {
+  assert.ok(/p_action not in \('materialize','recalculate','rebuild'\)/.test(DRYRUN_SQL),
+    "any action could establish authority");
+  // Assert the GUARD, not the message: `if false then` left the message
+  // present while disabling the rule entirely.
+  assert.ok(/if v_holes > 0 then/.test(DRYRUN_SQL), "the no-holes guard was disabled");
+  assert.ok(/lesson\(s\) would have no date/.test(DRYRUN_SQL), "the no-holes message is gone");
+  // And the hole count must actually be computed from unplaced rows.
+  assert.ok(/coalesce\(nullif\(e->>'scheduled_date',''\), l\.scheduled_date::text\) is null/.test(DRYRUN_SQL),
+    "holes are no longer computed from the proposed plus existing dates");
+});
