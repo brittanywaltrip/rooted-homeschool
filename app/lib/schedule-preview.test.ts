@@ -180,3 +180,109 @@ test("the migration files are named for their recorded ledger versions", () => {
       `${f} does not record its own ledger version; the filename may be a guess`);
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stage 0d: the sealed proposal.
+//
+// Behavioural proof is a rolled-back transaction against the live database:
+// 12 canonicalization assertions, 15 seal/authorization assertions, and 8 RLS
+// assertions measured on ROWS AFFECTED (RLS filters silently; "no exception"
+// is not "denied"). These are the repo-side guards.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const SEAL_SQL = repoFile(
+  "supabase/migrations/20260919015230_schedule_proposals_seal.sql",
+);
+const SEAL_FN_SQL = repoFile(
+  "supabase/migrations/20260919015417_schedule_seal_proposal_explicit_missing_lesson_id.sql",
+);
+
+test("canonicalization is order independent and null safe", () => {
+  // Sorting by lesson_id is what makes a reordered client array hash the same.
+  assert.ok(/order by sort_key/.test(SEAL_SQL), "placements are no longer sorted; array order would change the hash");
+  assert.ok(/order by g::text/.test(SEAL_SQL), "goal_ids are no longer sorted");
+  // The sentinel guards all THREE placement fields. Asserting it merely
+  // "appears somewhere" let a mutation strip one occurrence and survive.
+  assert.ok(/coalesce\(nullif\(e->>'scheduled_date',''\), '~'\)/.test(SEAL_SQL),
+    "scheduled_date lost its null sentinel");
+  assert.ok(/coalesce\(nullif\(e->>'queue_position',''\), '~'\)/.test(SEAL_SQL),
+    "queue_position lost its null sentinel");
+  assert.ok(/jsonb_typeof\(e->'queue_pinned'\) = 'null' then '~'/.test(SEAL_SQL),
+    "queue_pinned lost its null sentinel");
+  assert.ok(/'v1' \|\| e'\\n'/.test(SEAL_SQL), "the canonical form lost its version prefix");
+});
+
+test("every field capable of changing the schedule is in the canonical form", () => {
+  // Scope to the SELECT that builds the canonical string, not the signature:
+  // a field can appear as a parameter while contributing nothing to the hash.
+  const body = SEAL_SQL.slice(SEAL_SQL.indexOf("select\n    'v1'"),
+                              SEAL_SQL.indexOf("revoke all on function public.schedule_canonicalize_proposal"));
+  assert.ok(body.length > 100, "could not isolate the canonical-form expression");
+  for (const field of ["p_action", "p_goal_ids", "p_reset_parent_placements",
+                       "p_become_authoritative", "lesson_id", "scheduled_date",
+                       "queue_position", "queue_pinned"]) {
+    assert.ok(body.includes(field), `${field} contributes nothing to the hash`);
+  }
+});
+
+test("the proposal hash is SHA-256, not md5", () => {
+  assert.ok(/digest\(v_canonical, 'sha256'\)/.test(SEAL_FN_SQL), "the seal no longer uses sha256");
+  assert.ok(/proposal_hash ~ '\^\[0-9a-f\]\{64\}\$'/.test(SEAL_SQL),
+    "the stored-hash shape constraint is gone");
+});
+
+test("confirmation facts are computed server side, never accepted from the client", () => {
+  // There must be no facts parameter to forge.
+  const sig = SEAL_FN_SQL.slice(SEAL_FN_SQL.indexOf("create or replace function public.schedule_seal_proposal"),
+                                SEAL_FN_SQL.indexOf("returns jsonb"));
+  assert.ok(!/facts/i.test(sig), "the seal accepts confirmation facts as input");
+  assert.ok(/into v_facts/.test(SEAL_FN_SQL), "facts are no longer computed in the function");
+});
+
+test("FROM and TO are derived from the sealed placements", () => {
+  // Bound to the exact proposal that was hashed, not to the goal at large.
+  assert.ok(/min\(s\.scheduled_date\) as from_date/.test(SEAL_FN_SQL), "FROM is not from the sealed set");
+  assert.ok(/max\(s\.scheduled_date\) as to_date/.test(SEAL_FN_SQL), "TO is not from the sealed set");
+  assert.ok(/join sealed s on s\.lesson_id = l\.id/.test(SEAL_FN_SQL), "facts are not joined to the sealed set");
+});
+
+test("the seal refuses foreign, completed, duplicate and nameless placements", () => {
+  // Assert each guard RAISES. A message downgraded to `raise notice` still
+  // contains the text but no longer refuses anything.
+  for (const guard of ["placement references a lesson outside the sealed scope",
+                       "placement references a completed lesson",
+                       "duplicate lesson_id in placements",
+                       "placement is missing lesson_id",
+                       "goals do not belong to the current user"]) {
+    const at = SEAL_FN_SQL.indexOf(guard);
+    assert.ok(at > 0, `the seal lost its guard: ${guard}`);
+    const before = SEAL_FN_SQL.slice(Math.max(0, at - 60), at);
+    assert.ok(/raise exception/.test(before), `guard does not raise: ${guard}`);
+  }
+});
+
+test("schedule_proposals is readable by its owner and writable by no client", () => {
+  assert.ok(/enable row level security/.test(SEAL_SQL), "RLS is not enabled");
+  assert.ok(/for select using \(auth\.uid\(\) = user_id\)/.test(SEAL_SQL), "the owner-read policy is gone");
+  assert.ok(!/for (insert|update|delete)/i.test(SEAL_SQL),
+    "a client write policy was added; only the seal function may write");
+});
+
+test("nothing in the seal consumes a proposal", () => {
+  // Consumption belongs to the future schedule_commit. The columns exist; no
+  // function sets them.
+  assert.ok(!/set[\s\S]{0,80}consumed_at/i.test(SEAL_FN_SQL), "the seal consumes a proposal");
+  assert.ok(!/consumed_by_transaction_id\s*=/.test(SEAL_FN_SQL), "the seal writes a consumption marker");
+});
+
+test("the seal writes only schedule_proposals", () => {
+  const fn = SEAL_FN_SQL.replace(/--[^\n]*/g, " ");
+  const writes = fn.match(/\b(insert into|update|delete from)\s+(public\.)?(\w+)/gi) ?? [];
+  for (const w of writes) {
+    assert.ok(/schedule_proposals/.test(w), `the seal writes outside schedule_proposals: ${w}`);
+  }
+});
+
+test("proposals expire in 15 minutes", () => {
+  assert.ok(/interval '15 minutes'/.test(SEAL_FN_SQL), "the expiry window changed");
+});
