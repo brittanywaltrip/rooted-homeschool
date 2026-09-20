@@ -47,9 +47,19 @@ export default defineConfig({
     // generating a real report. Attachments in data/ also include a plain-text
     // error-context .md that can embed a code frame.
     //
-    // Local runs keep the trace: there is no bypass cookie against localhost,
-    // and this is the one thing that makes a flaky failure debuggable.
-    trace: process.env.CI ? 'off' : 'on-first-retry',
+    // The rule is NOT "off in CI". It is "off whenever a bypass secret exists",
+    // because that is what determines whether a trace can contain one.
+    //
+    // The old comment here said local runs are safe since "there is no bypass
+    // cookie against localhost". That stopped being true the moment a local run
+    // pointed at a protected rooted-staging deployment: retries is 1, so a
+    // single flaky test writes the _vercel_jwt cookie into
+    // playwright-report/data/<sha1>.zip. Keep the trace only when there is no
+    // secret in the environment to leak.
+    trace:
+      process.env.CI || process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+        ? 'off'
+        : 'on-first-retry',
     video: 'off',
     screenshot: 'off',
     // A click that lands under an overlay is RETRIED until it times out, and an
