@@ -951,6 +951,23 @@ export default function YearbookReadPage() {
 
   useEffect(() => { localStorage.setItem("rooted_visited_yearbook", "1"); posthog.capture('page_viewed', { page: 'yearbook' }); }, []);
 
+  /**
+   * Mark the body for the whole time the reader is open.
+   *
+   * The print stylesheet blanks everything and re-inks only
+   * .yearbook-print-only. That suppression has to be scoped, or it applies to
+   * every other page and they all print blank -- which is exactly what
+   * happened to the Hours & Attendance log. Scoping it needs a class, and this
+   * route did not set one; the Plan sheets set theirs around a button click.
+   *
+   * Held for the route's lifetime rather than around a button, because a
+   * family can print with Cmd+P and never touch ours.
+   */
+  useEffect(() => {
+    document.body.classList.add("print-mode-yearbook");
+    return () => { document.body.classList.remove("print-mode-yearbook"); };
+  }, []);
+
   // ── Load data ───────────────────────────────────────────────────────────────
 
   useEffect(() => {
