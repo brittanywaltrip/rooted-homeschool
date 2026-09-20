@@ -9,6 +9,37 @@ const ok = (over: Record<string, unknown> = {}) =>
 
 const base = { expectedRef: REF, expectedCommit: "abc123", bypassConfigured: true, host: "x.vercel.app" };
 
+test("the REAL protection response (302 to vercel.com/sso-api) is named as protection", () => {
+  // Observed against rooted-staging: Deployment Protection answers 302 with
+  // location: https://vercel.com/sso-api?url=...&nonce=..., NOT 401. A gate
+  // that only knew 401 called a correctly protected deployment "unreachable".
+  const r = evaluateHealthGate({
+    ...base,
+    bypassConfigured: false,
+    status: 302,
+    location:
+      "https://vercel.com/sso-api?url=https%3A%2F%2Frooted-homeschool-env-rooted-staging" +
+      "-brittanywaltrips-projects.vercel.app%2Fapi%2Fhealth&nonce=a718e42e",
+    bodyText: "Redirecting...",
+  });
+  assert.equal((r as { code: string }).code, "protection_blocked");
+  assert.match((r as { message: string }).message, /Deployment Protection is on/);
+});
+
+test("a 302 to SSO WITH a bypass secret says the secret was rejected", () => {
+  const r = evaluateHealthGate({
+    ...base, status: 302, location: "https://vercel.com/sso-api?url=x", bodyText: "",
+  });
+  assert.equal((r as { code: string }).code, "protection_bypass_rejected");
+});
+
+test("a redirect somewhere OTHER than SSO is not mislabelled as protection", () => {
+  const r = evaluateHealthGate({
+    ...base, status: 302, location: "https://example.com/elsewhere", bodyText: "",
+  });
+  assert.equal((r as { code: string }).code, "unexpected_redirect");
+});
+
 test("a 401 with no bypass secret names PROTECTION, not JSON", () => {
   const r = evaluateHealthGate({ ...base, bypassConfigured: false, status: 401, bodyText: "<html>Login</html>" });
   assert.equal(r.ok, false);
