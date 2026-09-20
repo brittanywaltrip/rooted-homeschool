@@ -499,3 +499,29 @@ begin
     'after_version', public.schedule_state_version(v_prop.goal_ids));
 end;
 $$;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- HOW THIS WAS APPLIED, and the ledger versions it occupies.
+--
+-- 20260920055539  schedule_commit_db_owned_ids       -- A NO-OP. See below.
+-- 20260920055712  schedule_commit_db_owned_ids_apply -- the real change.
+--
+-- The first version is a mistake of mine, recorded here rather than hidden: I
+-- called apply_migration with only the guard DO block and none of the function
+-- body, so it checked that schedule_commit exists and changed nothing. It is
+-- harmless and idempotent, but it occupies a ledger version, and a later reader
+-- comparing names to changes would otherwise find one that did nothing.
+--
+-- The real application could not send this file's text: there is no direct
+-- database connection to rooted-staging from here, and the MCP takes literal
+-- SQL. So it derived the new definition ON THE SERVER from the deployed one,
+-- applying exactly the seven edits in this file, with an assertion after each
+-- that it matched something -- a missed edit aborts rather than silently
+-- shipping a half-rewritten function. The result was then verified
+-- structurally: no payload-id reference remains, the ids are captured with
+-- RETURNING, the dup-id check is gone, 'id' is out of the allowlist, the slot
+-- check and auth.uid() derivation are intact, and both post-insert ownership
+-- checks are rewired to the generated ids.
+--
+-- This file is the reviewable statement of that change and the one to apply to
+-- any environment where a direct connection exists.
