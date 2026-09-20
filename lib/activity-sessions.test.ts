@@ -282,6 +282,16 @@ test('the detail table has one row per session, in date order', () => {
   assert.deepEqual(dates, [...dates].sort(), 'rows are chronological')
 })
 
+test('the detail row preserves its editable id and trims parent notes', () => {
+  const [session] = selectActivitySessions(
+    [{ id: 'log-1', activity_id: 'a1', date: '2026-09-10', minutes_spent: 45, completed: true, notes: '  Fractions through baking  ' }],
+    DEFS,
+    { ...RANGE, childId: null },
+  )
+  assert.equal(session.logId, 'log-1')
+  assert.equal(session.notes, 'Fractions through baking')
+})
+
 test('durations format for a person, not a machine', () => {
   assert.equal(formatSessionDuration(45), '45m')
   assert.equal(formatSessionDuration(60), '1h')

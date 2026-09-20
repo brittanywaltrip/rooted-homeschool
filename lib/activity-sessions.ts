@@ -37,14 +37,19 @@ export interface ActivityDefinition {
 
 /** One completed occurrence of an activity. */
 export interface ActivityLogRow {
+  /** The occurrence row, used when a parent edits its historical details. */
+  id?: string;
   activity_id: string;
   date: string;
   minutes_spent: number | null;
   completed?: boolean | null;
+  notes?: string | null;
 }
 
 /** A session resolved against its definition, ready to render. */
 export interface ActivitySession {
+  /** Null only for legacy/test inputs that did not select the log id. */
+  logId: string | null;
   activityId: string;
   name: string;
   emoji: string | null;
@@ -56,6 +61,8 @@ export interface ActivitySession {
   definitionMissing: boolean;
   /** The definition's children, for labelling. Null when it cannot be known. */
   childIds: string[] | null;
+  /** Parent-written evidence for this specific occurrence. */
+  notes: string | null;
 }
 
 export interface ActivitySessionFilter {
@@ -123,6 +130,7 @@ export function selectActivitySessions(
     const def = byId.get(log.activity_id);
     if (!activityBelongsToChild(def, filter.childId)) continue;
     out.push({
+      logId: log.id ?? null,
       activityId: log.activity_id,
       name: def?.name ?? RETIRED_ACTIVITY_LABEL,
       emoji: def?.emoji ?? null,
@@ -131,6 +139,7 @@ export function selectActivitySessions(
       definitionIsActive: def ? def.is_active !== false : false,
       definitionMissing: !def,
       childIds: def ? (def.child_ids ?? []) : null,
+      notes: log.notes?.trim() || null,
     });
   }
   out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.name.localeCompare(b.name)));
