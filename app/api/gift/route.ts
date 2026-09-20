@@ -2,9 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+// Lazy, not module scope. `new Stripe(undefined)` THROWS, so building the
+// client at import turns a missing credential into a route-load crash that
+// fails `next build` during page-data collection. That is what stopped this
+// branch deploying to rooted-staging, which has no Stripe key by design.
+let _stripe: Stripe | null = null;
+function stripeClient(): Stripe {
+  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: "2026-02-25.clover",
 });
+  return _stripe;
+}
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,7 +51,7 @@ export async function POST(req: NextRequest) {
 
     const familyName = profile?.display_name ?? profile?.first_name ?? "A Rooted family";
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripeClient().checkout.sessions.create({
       mode: "payment",
       line_items: [
         {
