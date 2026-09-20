@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
+import { stripeClient } from '@/lib/api-clients'
 import { createClient } from '@supabase/supabase-js'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.clover',
-})
 
 const PRICE_IDS: Record<string, string | undefined> = {
   founding: process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID,
@@ -63,7 +60,7 @@ export async function POST(req: NextRequest) {
     let discounts: { promotion_code: string }[] | undefined = undefined
     if (ref) {
       try {
-        const promoCodes = await stripe.promotionCodes.list({ code: (ref as string).toUpperCase(), active: true, limit: 1 })
+        const promoCodes = await stripeClient().promotionCodes.list({ code: (ref as string).toUpperCase(), active: true, limit: 1 })
         if (promoCodes.data.length > 0) {
           discounts = [{ promotion_code: promoCodes.data[0].id }]
         }
@@ -74,7 +71,7 @@ export async function POST(req: NextRequest) {
 
     let session
     try {
-      session = await stripe.checkout.sessions.create({
+      session = await stripeClient().checkout.sessions.create({
         mode: 'subscription',
         line_items: [{ price: priceId, quantity: 1 }],
         allow_promotion_codes: !discounts,
@@ -93,7 +90,7 @@ export async function POST(req: NextRequest) {
         raw: (firstErr as any)?.raw,
       }))
       if (!discounts) throw firstErr
-      session = await stripe.checkout.sessions.create({
+      session = await stripeClient().checkout.sessions.create({
         mode: 'subscription',
         line_items: [{ price: priceId, quantity: 1 }],
         allow_promotion_codes: true,

@@ -1,12 +1,9 @@
 import { NextResponse } from 'next/server'
-import Stripe from 'stripe'
+import { stripeClient } from '@/lib/api-clients'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.clover',
-})
 
 export async function POST() {
   const cookieStore = await cookies()
@@ -43,7 +40,7 @@ export async function POST() {
   const origin = process.env.NEXT_PUBLIC_APP_URL ?? 'https://rootedhomeschoolapp.com'
 
   try {
-    const session = await stripe.billingPortal.sessions.create({
+    const session = await stripeClient().billingPortal.sessions.create({
       customer: profile.stripe_customer_id,
       return_url: `${origin}/dashboard/settings`,
     })

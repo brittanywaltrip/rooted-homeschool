@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
+import { stripeClient } from "@/lib/api-clients";
 import { createClient } from "@supabase/supabase-js";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2026-02-25.clover",
-});
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,7 +40,7 @@ export async function POST(req: NextRequest) {
 
     const familyName = profile?.display_name ?? profile?.first_name ?? "A Rooted family";
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripeClient().checkout.sessions.create({
       mode: "payment",
       line_items: [
         {

@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabase-admin";
-import { Resend } from "resend";
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+import { resendClient } from "@/lib/api-clients";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -222,7 +220,7 @@ export async function GET(request: Request) {
 
     const subject = `Weekly Link Check: ${summaryParts.join(", ")}`;
 
-    await resend.emails.send({
+    await resendClient().emails.send({
       from: "Rooted <hello@rootedhomeschoolapp.com>",
       to: "garfieldbrittany@gmail.com",
       subject,

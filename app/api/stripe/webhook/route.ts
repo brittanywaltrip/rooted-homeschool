@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
+import { stripeClient } from '@/lib/api-clients'
 import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
@@ -46,10 +47,6 @@ import {
 } from '@/lib/email/email-claim'
 import { transactionalSuppressionFor } from '@/lib/email/resend-suppression'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.clover',
-})
-
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -69,7 +66,7 @@ function planLabel(priceId: string | undefined): string {
 
 async function getActiveSubCount(): Promise<number> {
   try {
-    const subs = await stripe.subscriptions.list({ status: 'active', limit: 100 })
+    const subs = await stripeClient().subscriptions.list({ status: 'active', limit: 100 })
     return subs.data.length
   } catch {
     return 0
@@ -314,7 +311,7 @@ async function findUserByEmail(
 // caller falls back to profiles.referred_by when this returns null.
 async function couponCodeForCheckoutSession(sessionId: string): Promise<string | null> {
   try {
-    const expanded = await stripe.checkout.sessions.retrieve(sessionId, {
+    const expanded = await stripeClient().checkout.sessions.retrieve(sessionId, {
       expand: ['total_details.breakdown.discounts'],
     })
     const discountList = expanded.total_details?.breakdown?.discounts ?? []
@@ -342,7 +339,7 @@ async function commissionFromSubscription(sub: Stripe.Subscription): Promise<num
   const invoiceId = typeof latest === 'string' ? latest : latest?.id ?? null
   if (invoiceId) {
     try {
-      const invoice = await stripe.invoices.retrieve(invoiceId)
+      const invoice = await stripeClient().invoices.retrieve(invoiceId)
       const paid = (invoice as unknown as { amount_paid?: number | null }).amount_paid ?? null
       const viaPaid = commissionFromCents(paid)
       if (viaPaid !== null) return viaPaid
@@ -420,7 +417,7 @@ async function resolveProvenPaidThrough(sub: Stripe.Subscription): Promise<Prior
   // Latest invoice is unpaid, or its line could not be identified. Ask Stripe
   // for invoices that WERE paid and take the furthest proven end.
   try {
-    const paid = await stripe.invoices.list({
+    const paid = await stripeClient().invoices.list({
       subscription: sub.id,
       status: 'paid',
       limit: 3,
@@ -467,7 +464,7 @@ function provenDateOrNull(prior: PriorPaidThrough): Date | null {
 async function resolveInvoiceRefundState(invoiceId: string | null): Promise<RefundState> {
   if (!invoiceId) return classifyRefund({ lookupSucceeded: false, charge: null })
   try {
-    const payments = await stripe.invoicePayments.list({ invoice: invoiceId, limit: 10 })
+    const payments = await stripeClient().invoicePayments.list({ invoice: invoiceId, limit: 10 })
     const paid = payments.data.find((p) => p.status === 'paid')
     // Lookup worked and nothing was ever collected: the ordinary open-invoice
     // case. Nothing to refund is a fact, not an unknown.
@@ -477,7 +474,7 @@ async function resolveInvoiceRefundState(invoiceId: string | null): Promise<Refu
     const piId = typeof piRef === 'string' ? piRef : piRef?.id ?? null
     if (!piId) return classifyRefund({ lookupSucceeded: false, charge: null })
 
-    const pi = await stripe.paymentIntents.retrieve(piId, { expand: ['latest_charge'] })
+    const pi = await stripeClient().paymentIntents.retrieve(piId, { expand: ['latest_charge'] })
     const charge =
       pi.latest_charge && typeof pi.latest_charge === 'object'
         ? (pi.latest_charge as Stripe.Charge)
@@ -500,7 +497,7 @@ export async function POST(req: NextRequest) {
 
   let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!)
+    event = stripeClient().webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET!)
   } catch {
     return NextResponse.json({ error: 'Webhook signature verification failed' }, { status: 400 })
   }
@@ -608,7 +605,7 @@ export async function POST(req: NextRequest) {
     let priceId: string | undefined
     let plan: LinkedPlanType = 'founding_family'
     try {
-      const lineItems = await stripe.checkout.sessions.listLineItems(session.id)
+      const lineItems = await stripeClient().checkout.sessions.listLineItems(session.id)
       priceId = lineItems.data[0]?.price?.id
       plan = planTypeForPriceId(priceId)
       console.log('[webhook] plan determined from line items:', plan, 'priceId:', priceId)
@@ -660,7 +657,7 @@ export async function POST(req: NextRequest) {
     let activated = wasAlreadyActive
     if (subscriptionId) {
       try {
-        const sub = await stripe.subscriptions.retrieve(subscriptionId, {
+        const sub = await stripeClient().subscriptions.retrieve(subscriptionId, {
           expand: ['latest_invoice'],
         })
         // Prefer session.amount_total (what Stripe actually charged on this
@@ -758,7 +755,7 @@ export async function POST(req: NextRequest) {
         : null
     } else if (isActive) {
       try {
-        const customer = await stripe.customers.retrieve(customerId)
+        const customer = await stripeClient().customers.retrieve(customerId)
         if (!customer.deleted && (customer as Stripe.Customer).email) {
           const email = (customer as Stripe.Customer).email!
           console.log('[webhook]', event.type, '— no profile for customerId, trying email:', email)
@@ -793,7 +790,7 @@ export async function POST(req: NextRequest) {
       let stillLive = true
       let fresh: Stripe.Subscription | null = null
       try {
-        fresh = await stripe.subscriptions.retrieve(sub.id, { expand: ['latest_invoice'] })
+        fresh = await stripeClient().subscriptions.retrieve(sub.id, { expand: ['latest_invoice'] })
         stillLive =
           fresh.status === 'active' ||
           fresh.status === 'trialing' ||
@@ -913,7 +910,7 @@ export async function POST(req: NextRequest) {
     // Stripe what is true NOW, which is order-independent by construction.
     let fresh: Stripe.Subscription | null = null
     try {
-      fresh = await stripe.subscriptions.retrieve(sub.id, { expand: ['latest_invoice'] })
+      fresh = await stripeClient().subscriptions.retrieve(sub.id, { expand: ['latest_invoice'] })
     } catch (e) {
       console.error('[webhook] subscription.deleted — could not re-read subscription, writing nothing:', sub.id, e)
       return NextResponse.json({ received: true, skipped: 'stripe_unreadable' })
@@ -1108,7 +1105,7 @@ export async function POST(req: NextRequest) {
       // Look up customer email from Stripe
       let customerEmail = '—'
       try {
-        const customer = await stripe.customers.retrieve(sub.customer as string)
+        const customer = await stripeClient().customers.retrieve(sub.customer as string)
         if (!customer.deleted) customerEmail = (customer as Stripe.Customer).email ?? '—'
       } catch { /* best-effort */ }
 

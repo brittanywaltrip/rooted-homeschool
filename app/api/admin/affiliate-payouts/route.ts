@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import Stripe from "stripe";
+import type Stripe from "stripe";
+import { stripeClient } from "@/lib/api-clients";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
@@ -8,8 +9,6 @@ const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export const dynamic = "force-dynamic";
 
@@ -155,7 +154,7 @@ export async function GET(req: Request) {
   while (hasMore) {
     const params: Stripe.ChargeListParams = { limit: 100 };
     if (startingAfter) params.starting_after = startingAfter;
-    const batch = await stripe.charges.list(params);
+    const batch = await stripeClient(null).charges.list(params);
     charges.push(...batch.data);
     hasMore = batch.has_more;
     if (batch.data.length > 0) startingAfter = batch.data[batch.data.length - 1].id;
@@ -172,7 +171,7 @@ export async function GET(req: Request) {
     if (!chargeAny.invoice || charge.status !== "succeeded") continue;
 
     try {
-      const invoice = await stripe.invoices.retrieve(chargeAny.invoice as string);
+      const invoice = await stripeClient(null).invoices.retrieve(chargeAny.invoice as string);
       const invoiceAny = invoice as any;
       const couponId = invoiceAny.discount?.coupon?.id
         ?? invoiceAny.discounts?.[0]?.coupon?.id
