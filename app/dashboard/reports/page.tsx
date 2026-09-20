@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { FileText, Printer, Calendar, Clock, BookOpen, CheckSquare } from "lucide-react";
+import { FileText, Printer, Calendar, Clock, BookOpen, CheckSquare, Sparkles } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
@@ -13,6 +13,10 @@ import { mergeBookRecords, bookBelongsToChild, bookCover, bookHowLabel, ratingLe
 import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
 import { attendancePresentDates, lessonReportSubject } from "@/lib/progress-report-rows";
+import {
+  selectActivitySessions, summarizeActivitySessions, groupActivitySessions,
+  type ActivityDefinition, type ActivityLogRow,
+} from "@/lib/activity-sessions";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { fallbackSchoolYear, getCurrentSchoolYear, todayLocalYmd } from "@/app/lib/school-year";
 
@@ -192,14 +196,20 @@ function formatLogDate(d: string | null): string {
 
 function PrintReport({
   child, children: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
+  activityLogs, activityDefs,
 }: {
   child: Child | null;
   children: Child[];
   dateFrom: string; dateTo: string;
   lessons: Lesson[];
   books: BookRecord[];
+  /** TIMED MEMORIES, not recurring activities. See lib/activity-sessions.ts. */
   activities: MemoryActivity[];
   appointments: ReportAppointment[];
+  /** Completed occurrences of a recurring activity. */
+  activityLogs: ActivityLogRow[];
+  /** Their definitions, INCLUDING retired ones. */
+  activityDefs: ActivityDefinition[];
 }) {
   const filteredLessons = lessons.filter((l) => {
     const d = l.date ?? l.scheduled_date;
@@ -221,8 +231,22 @@ function PrintReport({
     return a.date >= dateFrom && a.date <= dateTo && a.duration_minutes;
   });
   const lessonHours = completedLessons.reduce((sum, l) => sum + ((l.minutes_spent ?? 30) / 60), 0);
-  const activityHours = filteredActivities.reduce((sum, a) => sum + ((a.duration_minutes ?? 0) / 60), 0);
-  const totalHours = lessonHours + activityHours;
+  const memoryHours = filteredActivities.reduce((sum, a) => sum + ((a.duration_minutes ?? 0) / 60), 0);
+
+  // Completed recurring-activity sessions: a FOURTH source, distinct from the
+  // timed memories above. They come from activity_logs, which this page did not
+  // read at all, so a family recording her out-of-curriculum time as recurring
+  // activities saw none of it here while the Progress Report showed all of it.
+  //
+  // No double counting: these are activity_logs rows, `filteredActivities` are
+  // memories rows, and nothing writes one when the other is created.
+  const activitySessions = selectActivitySessions(activityLogs, activityDefs, {
+    childId: child ? child.id : null, dateFrom, dateTo,
+  });
+  const activitySummary = summarizeActivitySessions(activitySessions);
+  const activityGroups = groupActivitySessions(activitySessions);
+
+  const totalHours = lessonHours + memoryHours + activitySummary.hours;
 
   const subjectMap: Record<string, { name: string; color: string | null; count: number; hours: number }> = {};
   completedLessons.forEach((l) => {
@@ -282,6 +306,9 @@ function PrintReport({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { icon: CheckSquare, label: "Lessons Completed", value: completedLessons.length, color: "#5c7f63" },
+          // Sessions, not activity types: 8 activities producing 20 sessions is
+          // 20 here. Both numbers appear in the Activities section below.
+          { icon: Sparkles,    label: "Activity Sessions",  value: activitySummary.sessions, color: "#7a6f9a" },
           { icon: Clock,       label: "Hours Logged",      value: `${totalHours.toFixed(1)}h`, color: "#8b6f47" },
           { icon: Calendar,    label: "Days Present",      value: presentDates.size, color: "#4a7a8a" },
           { icon: BookOpen,    label: "Books Read",        value: filteredBooks.length, color: "#7a4a8a" },
@@ -371,6 +398,37 @@ function PrintReport({
               <div key={i} className="flex items-center gap-2 text-sm">
                 <span className="text-[#5c7f63]">📖</span>
                 <span className="text-[#2d2926]">{b.title ?? "Untitled"}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Recurring activity sessions — a SEPARATE source from timed memories
+           above and from appointments below. Each line is a definition; the
+           count beside it is completed sessions, not definitions. */}
+      {activitySessions.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
+            Activities ({activitySummary.activityTypes} {activitySummary.activityTypes === 1 ? "activity" : "activities"},{" "}
+            {activitySummary.sessions} {activitySummary.sessions === 1 ? "session" : "sessions"},{" "}
+            {activitySummary.hours.toFixed(1)}h)
+          </h3>
+          <div className="space-y-1">
+            {activityGroups.map((g) => (
+              <div key={g.activityId} className="flex items-center justify-between text-sm">
+                <span className="flex items-center gap-2">
+                  <span>{g.emoji ?? "\u2728"}</span>
+                  <span className="text-[#2d2926]">{g.name}</span>
+                  {/* A retired activity keeps its history and says so, rather
+                      than vanishing from a document a family may need to file. */}
+                  {g.retired && (
+                    <span className="text-[10px] uppercase tracking-wide text-[#b5aca4]">no longer scheduled</span>
+                  )}
+                </span>
+                <span className="text-[#7a6f65]">
+                  {g.sessions} {g.sessions === 1 ? "session" : "sessions"} · {(g.minutes / 60).toFixed(1)}h
+                </span>
               </div>
             ))}
           </div>
@@ -611,6 +669,8 @@ export default function ReportsPage() {
   const [lessons,    setLessons]    = useState<Lesson[]>([]);
   const [books,      setBooks]      = useState<BookRecord[]>([]);
   const [activities, setActivities] = useState<MemoryActivity[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLogRow[]>([]);
+  const [activityDefs, setActivityDefs] = useState<ActivityDefinition[]>([]);
   const [appointments, setAppointments] = useState<ReportAppointment[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [isPro,      setIsPro]      = useState<boolean | null>(null);
@@ -783,6 +843,8 @@ export default function ReportsPage() {
         { data: bookMemories },
         { data: bookEvts },
         { data: memActivities },
+        { data: actLogRows },
+        { data: actDefRows },
         { data: profile },
         { data: oneTimeAppts },
         { data: exceptionAppts },
@@ -815,6 +877,21 @@ export default function ReportsPage() {
         supabase.from("memories").select("id, child_id, type, title, caption, photo_url, date, book_child_ids, book_author, book_pages, book_cover_url, book_how, book_rating, book_notes, book_status, book_started_date").eq("user_id", effectiveUserId).eq("type", "book"),
         supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_BOOK_EVENT_TYPES]),
         supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
+        // Completed recurring-activity sessions and their definitions. PAGED:
+        // a PostgREST select caps at 1000 rows, and a family several years in
+        // passes that, at which point the report would quietly under-report
+        // rather than fail. Definitions are fetched WITHOUT an is_active filter
+        // so a retired activity's historical sessions keep their name.
+        selectAllRowsResult<ActivityLogRow>((from, to) =>
+          supabase.from("activity_logs")
+            .select("activity_id, date, minutes_spent, completed")
+            .eq("user_id", effectiveUserId).eq("completed", true)
+            .order("date").range(from, to)),
+        selectAllRowsResult<ActivityDefinition>((from, to) =>
+          supabase.from("activities")
+            .select("id, name, emoji, child_ids, is_active")
+            .eq("user_id", effectiveUserId)
+            .order("id").range(from, to)),
         supabase.from("profiles").select("is_pro, trial_started_at, display_name, last_name").eq("id", effectiveUserId).single(),
         // One-time completed appointments: completion lives on the base row.
         supabase
@@ -838,6 +915,8 @@ export default function ReportsPage() {
       setLessons([...(doneLessons ?? []), ...(openLessons ?? [])]);
       setBooks(mergeBookRecords(bookMemories ?? [], (bookEvts as unknown as { id?: string; type: string; payload: { title?: string; caption?: string; photo_url?: string; child_id?: string; date?: string } | null }[]) ?? []));
       setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
+      setActivityLogs(actLogRows ?? []);
+      setActivityDefs(actDefRows ?? []);
 
       type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null; is_school_activity: boolean };
       type ExceptionRow = {
@@ -1126,6 +1205,8 @@ export default function ReportsPage() {
           lessons={lessons}
           books={books}
           activities={activities}
+          activityLogs={activityLogs}
+          activityDefs={activityDefs}
           appointments={appointments}
         />
       )}
