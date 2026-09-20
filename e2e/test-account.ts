@@ -1,3 +1,5 @@
+import { projectRefFromSupabaseUrl } from '../lib/env-identity.ts';
+
 /* ============================================================================
  * The one account the e2e suite is allowed to touch.
  *
@@ -24,10 +26,52 @@
  * closes.
  * ==========================================================================*/
 
-/** rooted.e2e@rootedhomeschoolapp.com — "Rooted E2E", free tier, one child. */
-export const E2E_USER_ID = 'a7011926-149e-42d1-9dde-e55b16059859';
+/**
+ * The one account the suite may drive, PER SUPABASE PROJECT.
+ *
+ * Hardcoded, for the reason in the header: there is deliberately no env var,
+ * because an env-configurable allowlist would reintroduce the hole this file
+ * closes. The project ref below is not configuration either — it is read from
+ * the Supabase URL the client is actually connected to, so it can only ever
+ * make this guard REFUSE (unknown project, or the other project's account).
+ * Nothing in the environment can add an account or relax a check.
+ *
+ * A project absent from this map has no test account and the suite refuses to
+ * run against it. New projects are not implicitly trusted.
+ */
+export const E2E_ACCOUNTS: Record<string, { id: string; email: string }> = {
+  // Production project. "Rooted E2E", free tier, one child.
+  // UNCHANGED from the original single pin.
+  gvkbegvvmhcrmxdorctk: {
+    id: 'a7011926-149e-42d1-9dde-e55b16059859',
+    email: 'rooted.e2e@rootedhomeschoolapp.com',
+  },
+  // rooted-staging. Synthetic project, catalog-cloned 2026-09; every account on
+  // it is @rooted-staging.test or @example.invalid and it has never held a real
+  // family.
+  cvgqovweybggrqakhdtd: {
+    id: '11111111-1111-4111-8111-000000000002',
+    email: 'e2e@rooted-staging.test',
+  },
+};
 
-export const E2E_EMAIL = 'rooted.e2e@rootedhomeschoolapp.com';
+/** The production pin, still exported so existing importers keep their meaning. */
+export const E2E_USER_ID = E2E_ACCOUNTS.gvkbegvvmhcrmxdorctk.id;
+
+export const E2E_EMAIL = E2E_ACCOUNTS.gvkbegvvmhcrmxdorctk.email;
+
+/**
+ * Which project is this process actually talking to?
+ *
+ * Derived from the connection target, not from a setting that names an
+ * allowlist entry. If it cannot be resolved, callers refuse: "we do not know
+ * which database this is" is exactly when a destructive suite must stop.
+ */
+export function currentProjectRef(): string | null {
+  return projectRefFromSupabaseUrl(
+    process.env.NEXT_PUBLIC_SUPABASE_URL ?? process.env.SUPABASE_URL,
+  );
+}
 
 /**
  * Accounts that must NEVER be driven by the suite, named explicitly so the
@@ -50,23 +94,67 @@ export const NEVER_TOUCH_USER_IDS: Record<string, string> = {
  * unresolvable id aborts too, because "we could not tell whose account this is"
  * is exactly when a destructive suite must not proceed.
  */
-export function assertIsTestAccount(userId: string | null | undefined, context: string): void {
+export function assertIsTestAccount(
+  userId: string | null | undefined,
+  context: string,
+  opts?: { projectRef?: string | null; email?: string | null },
+): void {
+  const projectRef = opts?.projectRef ?? currentProjectRef();
+
+  if (!projectRef) {
+    throw new Error(
+      `[${context}] REFUSING TO RUN: could not determine which Supabase project this is. ` +
+        'Fail-closed by design: an unidentified database may be production.',
+    );
+  }
+
+  const account = Object.prototype.hasOwnProperty.call(E2E_ACCOUNTS, projectRef)
+    ? E2E_ACCOUNTS[projectRef]
+    : undefined;
+  if (!account) {
+    throw new Error(
+      `[${context}] REFUSING TO RUN: project ${projectRef} has no designated e2e account. ` +
+        `Known projects: ${Object.keys(E2E_ACCOUNTS).join(', ')}. ` +
+        'A project is never implicitly trusted; add it to E2E_ACCOUNTS deliberately.',
+    );
+  }
+
   if (!userId) {
     throw new Error(
       `[${context}] REFUSING TO RUN: could not resolve the signed-in user id. ` +
-        `The e2e suite only runs as ${E2E_EMAIL} (${E2E_USER_ID}). ` +
+        `The e2e suite only runs as ${account.email} (${account.id}) on project ${projectRef}. ` +
         'Fail-closed by design: an unidentified account may be a real family.',
     );
   }
-  if (userId === E2E_USER_ID) return;
 
-  const known = NEVER_TOUCH_USER_IDS[userId];
-  throw new Error(
-    `[${context}] REFUSING TO RUN: signed in as ${userId}, which is not the e2e test account.\n` +
-      (known ? `  That id is: ${known}\n` : '') +
-      `  Expected ${E2E_USER_ID} (${E2E_EMAIL}).\n` +
-      '  These specs create, re-spread and DELETE curriculum data. Point PLAYWRIGHT_EMAIL /\n' +
-      '  PLAYWRIGHT_PASSWORD at the test account, or update E2E_USER_ID in e2e/test-account.ts\n' +
-      '  if the test account itself was rotated.',
-  );
+  if (userId !== account.id) {
+    const known = NEVER_TOUCH_USER_IDS[userId];
+    // Name the cross-project case explicitly: the other project's test account
+    // is the most plausible wrong id, and "not the e2e test account" reads as
+    // nonsense when it plainly IS an e2e test account, just the wrong one.
+    const otherProject = Object.entries(E2E_ACCOUNTS).find(
+      ([ref, a]) => ref !== projectRef && a.id === userId,
+    );
+    throw new Error(
+      `[${context}] REFUSING TO RUN: signed in as ${userId}, which is not the e2e test account.\n` +
+        (known ? `  That id is: ${known}\n` : '') +
+        (otherProject
+          ? `  That id is the e2e account for project ${otherProject[0]}, not ${projectRef}.\n`
+          : '') +
+        `  Expected ${account.id} (${account.email}) on project ${projectRef}.\n` +
+        '  These specs create, re-spread and DELETE curriculum data. Point PLAYWRIGHT_EMAIL /\n' +
+        '  PLAYWRIGHT_PASSWORD at the test account, or update E2E_ACCOUNTS in e2e/test-account.ts\n' +
+        '  if the test account itself was rotated.',
+    );
+  }
+
+  // The id is right. If an email was resolved too, it must agree: an id that
+  // matches while the email does not means the two came from different places.
+  if (opts?.email != null && opts.email.toLowerCase() !== account.email.toLowerCase()) {
+    throw new Error(
+      `[${context}] REFUSING TO RUN: signed in as ${opts.email}, but project ${projectRef}'s ` +
+        `e2e account is ${account.email}. The id matched and the email did not, which means ` +
+        'they were resolved from different sources. Refusing rather than guessing which is right.',
+    );
+  }
 }

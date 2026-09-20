@@ -38,6 +38,48 @@ const STORAGE_PATH = path.resolve(__dirname, '.auth/user.json');
  * because the whole point of the guard is that env may be wrong. Returns null
  * on any parse failure, which the caller treats as a hard stop.
  */
+/**
+ * The signed-in EMAIL, from the same session cookie as the id above.
+ *
+ * Read from the session rather than from PLAYWRIGHT_EMAIL for the same reason
+ * the id is: env may be wrong, and the guard exists to catch exactly that. An
+ * id that matches while the email does not means the two came from different
+ * places, which the account guard refuses rather than resolve by preference.
+ *
+ * Returns null on any parse failure; a null email simply skips the email cross
+ * check, because the id check above is already fail-closed on its own.
+ */
+async function resolveSignedInEmail(context: BrowserContext): Promise<string | null> {
+  try {
+    const session = await readSessionCookie(context);
+    if (typeof session?.user?.email === 'string') return session.user.email;
+    const jwt: string | undefined = session?.access_token;
+    if (typeof jwt === 'string') {
+      const claims = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64').toString('utf8'));
+      if (typeof claims?.email === 'string') return claims.email;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** The decoded @supabase/ssr session cookie, or null. Shared by both resolvers
+ *  so they can never disagree about which session they are reading. */
+async function readSessionCookie(context: BrowserContext): Promise<any | null> {
+  const cookies = await context.cookies();
+  const chunks = cookies
+    .filter((c) => /^sb-.+-auth-token(\.\d+)?$/.test(c.name))
+    .sort((a, b) => {
+      const idx = (n: string) => Number(n.split('.').pop()) || 0;
+      return idx(a.name) - idx(b.name);
+    });
+  if (chunks.length === 0) return null;
+  const raw = chunks.map((c) => c.value).join('');
+  const payload = raw.startsWith('base64-') ? raw.slice('base64-'.length) : raw;
+  return JSON.parse(Buffer.from(payload, 'base64').toString('utf8'));
+}
+
 async function resolveSignedInUserId(context: BrowserContext): Promise<string | null> {
   try {
     const cookies = await context.cookies();
@@ -297,8 +339,12 @@ export default async function globalSetup(config: FullConfig) {
     // never reaches disk for a later run to pick up. Any stale state file is
     // deleted on failure for the same reason. See e2e/test-account.ts.
     const signedInUserId = await resolveSignedInUserId(context);
+    const signedInEmail = await resolveSignedInEmail(context);
     try {
-      assertIsTestAccount(signedInUserId, 'global-setup');
+      assertIsTestAccount(signedInUserId, 'global-setup', {
+        projectRef: envIdentity.projectRef,
+        email: signedInEmail,
+      });
     } catch (err) {
       if (fs.existsSync(STORAGE_PATH)) fs.rmSync(STORAGE_PATH);
       throw err;
@@ -310,7 +356,14 @@ export default async function globalSetup(config: FullConfig) {
     console.log(
       `[global-setup] ✓ logged in as ${TEST_EMAIL} (${signedInUserId}) via /login form, storageState saved to ${STORAGE_PATH}`,
     );
-    console.log(`[global-setup] ✓ account guard passed — this is the e2e test account (${E2E_EMAIL})`);
+    // Name the account for THIS project, not the production constant: the
+    // guard validated against the project's own entry, and logging E2E_EMAIL
+    // here printed "rooted.e2e@rootedhomeschoolapp.com" during a staging run,
+    // which reads as though the suite had authenticated against production.
+    console.log(
+      `[global-setup] ✓ account guard passed — e2e test account for ${envIdentity.projectRef} ` +
+        `(${signedInEmail ?? signedInUserId})`,
+    );
 
     // ── Seed the curriculum the completion flows need ──────────────────────
     // AFTER the guard, never before: this writes and deletes, and it must only
