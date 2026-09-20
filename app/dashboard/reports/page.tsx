@@ -15,6 +15,7 @@ import ExportGateModal from "@/app/components/ExportGateModal";
 import { attendancePresentDates, lessonReportSubject } from "@/lib/progress-report-rows";
 import {
   selectActivitySessions, summarizeActivitySessions, groupActivitySessions,
+  activityChildLabel, formatSessionDuration,
   type ActivityDefinition, type ActivityLogRow,
 } from "@/lib/activity-sessions";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
@@ -303,7 +304,10 @@ function PrintReport({
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {/* Five tiles. sm:grid-cols-3 then lg:grid-cols-5, never 4, because 5
+          across a 4-column grid leaves the last tile alone on its own row at
+          normal desktop widths. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
           { icon: CheckSquare, label: "Lessons Completed", value: completedLessons.length, color: "#5c7f63" },
           // Sessions, not activity types: 8 activities producing 20 sessions is
@@ -432,6 +436,46 @@ function PrintReport({
               </div>
             ))}
           </div>
+
+          {/* One row per completed session, in date order. The grouped totals
+              above answer "how much"; this answers "when", which is what a
+              family is asked for when she has to show her work. Same source,
+              same filters: no row here is absent from the totals above. */}
+          <table className="w-full mt-4 text-sm border-t border-[#e8e2d9]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-widest text-[#b5aca4]">
+                <th className="py-2 font-medium">Date</th>
+                <th className="py-2 font-medium">Activity</th>
+                <th className="py-2 font-medium">For</th>
+                <th className="py-2 font-medium text-right">Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activitySessions.map((s, i) => {
+                const who = activityChildLabel(s, (id) => allKids.find((k) => k.id === id)?.name);
+                return (
+                  <tr key={`${s.activityId}-${s.date}-${i}`} className="border-t border-[#f2ede6]">
+                    <td className="py-1.5 text-[#7a6f65] whitespace-nowrap">{formatLogDate(s.date)}</td>
+                    <td className="py-1.5 text-[#2d2926]">
+                      <span className="mr-1">{s.emoji ?? "\u2728"}</span>
+                      {s.name}
+                      {s.definitionMissing ? (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-[#b5aca4]">past activity</span>
+                      ) : !s.definitionIsActive ? (
+                        <span className="ml-2 text-[10px] uppercase tracking-wide text-[#b5aca4]">no longer scheduled</span>
+                      ) : null}
+                    </td>
+                    {/* Blank rather than a guess: a missing definition carries
+                        no child_ids, so whose session it was is not known. */}
+                    <td className="py-1.5 text-[#7a6f65]">{who ?? "\u2014"}</td>
+                    <td className="py-1.5 text-[#7a6f65] text-right whitespace-nowrap">
+                      {formatSessionDuration(s.minutes)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 

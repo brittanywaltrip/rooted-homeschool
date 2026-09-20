@@ -16,6 +16,8 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
+  activityChildLabel,
+  formatSessionDuration,
   selectActivitySessions,
   summarizeActivitySessions,
   groupActivitySessions,
@@ -181,4 +183,108 @@ test('standalone lessons are never attached to a curriculum', () => {
     (standalone as { curriculum_goal_id: string | null }).curriculum_goal_id, null,
     'and it still has no curriculum_goal_id: categorizing is not attaching',
   )
+})
+
+// ── correction 1: completion must be EXPLICIT ───────────────────────────────
+// `!== false` also admitted null and undefined, so a log whose completion is
+// unknown would have been reported as time a family actually spent.
+
+test('only completed === true is included; null, undefined and false are not', () => {
+  const base = { activity_id: 'a1', date: '2026-09-01', minutes_spent: 60 }
+  const cases: Array<[string, ActivityLogRow]> = [
+    ['true', { ...base, completed: true }],
+    ['false', { ...base, completed: false }],
+    ['null', { ...base, completed: null }],
+    ['undefined', { ...base, completed: undefined }],
+    ['absent', base as ActivityLogRow],
+  ]
+  for (const [label, log] of cases) {
+    const got = selectActivitySessions([log], DEFS, { ...RANGE, childId: null })
+    assert.equal(got.length, label === 'true' ? 1 : 0, `completed=${label} must ${label === 'true' ? 'be included' : 'be excluded'}`)
+  }
+})
+
+// ── correction 2: a missing definition is never attributed to a child ───────
+
+test('a session with no definition appears for ALL children but no single child', () => {
+  const orphan: ActivityLogRow[] = [
+    { activity_id: 'vanished', date: '2026-09-01', minutes_spent: 30, completed: true },
+  ]
+  const all = selectActivitySessions(orphan, DEFS, { ...RANGE, childId: null })
+  assert.equal(all.length, 1, 'the all-children report keeps it')
+  assert.equal(all[0].name, RETIRED_ACTIVITY_LABEL)
+
+  for (const kid of [CHILD_A, CHILD_B]) {
+    const scoped = selectActivitySessions(orphan, DEFS, { ...RANGE, childId: kid })
+    assert.equal(scoped.length, 0, `child ${kid} must not be credited with an unattributable session`)
+  }
+})
+
+test('an unattributable session is not silently given to every child', () => {
+  // The failure this prevents: one child's hours appearing on every sibling's
+  // filed document.
+  const orphan: ActivityLogRow[] = [
+    { activity_id: 'vanished', date: '2026-09-01', minutes_spent: 30, completed: true },
+  ]
+  const perChild = [CHILD_A, CHILD_B]
+    .map((k) => selectActivitySessions(orphan, DEFS, { ...RANGE, childId: k }).length)
+  assert.deepEqual(perChild, [0, 0])
+  assert.equal(activityBelongsToChild(undefined, CHILD_A), false)
+  assert.equal(activityBelongsToChild(undefined, null), true, 'all-children still takes it')
+})
+
+test('a RETIRED definition keeps its real child_ids and scopes normally', () => {
+  // a6 Old Ballet is retired and named to child A only.
+  const forA = selectActivitySessions(LOGS, DEFS, { ...RANGE, childId: CHILD_A })
+  const forB = selectActivitySessions(LOGS, DEFS, { ...RANGE, childId: CHILD_B })
+  assert.ok(forA.some((s) => s.activityId === 'a6'), 'child A keeps her retired activity')
+  assert.ok(!forB.some((s) => s.activityId === 'a6'), 'child B does not inherit it')
+  // a7 Old Chess is retired and whole-family: both children get it.
+  assert.ok(forA.some((s) => s.activityId === 'a7'))
+  assert.ok(forB.some((s) => s.activityId === 'a7'))
+
+  // And a retired definition keeps its child_ids for LABELLING too, not only
+  // for selection. Blanking them would print "—" in the For column for every
+  // historical row, which reads as "we do not know" about something we do.
+  const name = (id: string) => ({ [CHILD_A]: 'Ada', [CHILD_B]: 'Ben' } as Record<string, string>)[id]
+  const ballet = forA.find((s) => s.activityId === 'a6')!
+  assert.deepEqual(ballet.childIds, [CHILD_A], 'retired definition keeps its real child_ids')
+  assert.equal(activityChildLabel(ballet, name), 'Ada')
+  const chess = forA.find((s) => s.activityId === 'a7')!
+  assert.equal(activityChildLabel(chess, name), 'Whole family')
+})
+
+// ── correction 3: the detail row ────────────────────────────────────────────
+
+test('the detail row says who a session was for, or nothing at all', () => {
+  const name = (id: string) => ({ [CHILD_A]: 'Ada', [CHILD_B]: 'Ben' } as Record<string, string>)[id]
+  const sessions = selectActivitySessions(LOGS, DEFS, { ...RANGE, childId: null })
+
+  const piano = sessions.find((s) => s.activityId === 'a1')!
+  assert.equal(activityChildLabel(piano, name), 'Ada')
+
+  const coop = sessions.find((s) => s.activityId === 'a3')!
+  assert.equal(activityChildLabel(coop, name), 'Whole family', 'empty child_ids is whole family')
+
+  const scouts = sessions.find((s) => s.activityId === 'a5')!
+  assert.equal(activityChildLabel(scouts, name), 'Whole family', 'null child_ids is whole family')
+
+  const orphan = selectActivitySessions(
+    [{ activity_id: 'vanished', date: '2026-09-01', minutes_spent: 30, completed: true }],
+    DEFS, { ...RANGE, childId: null })[0]
+  assert.equal(activityChildLabel(orphan, name), null, 'unknown attribution must not be guessed')
+})
+
+test('the detail table has one row per session, in date order', () => {
+  const sessions = selectActivitySessions(LOGS, DEFS, { ...RANGE, childId: null })
+  assert.equal(sessions.length, 20, 'one row per completed session, not per activity')
+  const dates = sessions.map((s) => s.date)
+  assert.deepEqual(dates, [...dates].sort(), 'rows are chronological')
+})
+
+test('durations format for a person, not a machine', () => {
+  assert.equal(formatSessionDuration(45), '45m')
+  assert.equal(formatSessionDuration(60), '1h')
+  assert.equal(formatSessionDuration(90), '1h 30m')
+  assert.equal(formatSessionDuration(0), '\u2014')
 })
