@@ -8,44 +8,24 @@ import {
   type BadgeTierDef,
   type MetTieredBadge,
 } from "./badge-tiers";
+import { checkCreativeBadgesWith, type BadgeWriteClient } from "./badge-award";
 
 // The definitions and the "which badges are met" rule live in badge-tiers.ts,
 // pure so they can be tested; this file writes the awards.
 export { BADGE_CATEGORIES, metTieredBadges };
+export type { BadgeWriteClient };
 export type { BadgeCategory, BadgeCheckData, BadgeTier, BadgeTierDef, MetTieredBadge };
 
 // ─── Badge checking logic ────────────────────────────────────────────────────
 
+/** Binds the singleton client to the award logic in badge-award.ts. */
 export async function checkCreativeBadges(
   userId: string,
-  childId: string,
+  childId: string | undefined | null,
   data: BadgeCheckData,
+  client: BadgeWriteClient = supabase as unknown as BadgeWriteClient,
 ): Promise<MetTieredBadge[]> {
-  const { data: existingRows } = await supabase
-    .from("badges")
-    .select("badge_key")
-    .eq("user_id", userId)
-    .eq("child_id", childId);
-
-  const earned = new Set((existingRows ?? []).map((b: { badge_key: string }) => b.badge_key));
-  const newBadges = metTieredBadges(data, earned);
-  for (const b of newBadges) {
-    await awardBadge(userId, childId, b.category.id, b.badgeKey, b.tierDef.tier);
-  }
-  return newBadges;
-}
-
-async function awardBadge(userId: string, childId: string, badgeType: string, badgeKey: string, tier: string) {
-  const { error } = await supabase.from("badges").insert({
-    user_id: userId,
-    child_id: childId,
-    badge_type: badgeType,
-    badge_key: badgeKey,
-    tier,
-  });
-  if (error && !error.message.includes("duplicate") && !error.code?.includes("23505")) {
-    console.error("[badges-tiered] award failed:", error);
-  }
+  return checkCreativeBadgesWith(client, userId, childId, data);
 }
 
 export async function getEarnedBadgeKeys(userId: string, childId: string): Promise<Set<string>> {
