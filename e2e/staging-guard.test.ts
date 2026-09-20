@@ -43,15 +43,29 @@ test('the server-to-server health fetch cannot be replayed cross-origin', () => 
     "the health fetch must use redirect:'error' so the header cannot follow a redirect")
 })
 
-test('global-setup asserts commit, identityOk, env and the exact project ref', () => {
-  for (const probe of [
-    /health\.commit !== expectedCommit/,
-    /health\.identityOk !== true/,
-    /health\.env !== 'staging'/,
-    /health\.projectRef !== envIdentity\.projectRef/,
-  ]) {
-    assert.ok(probe.test(setup), `global-setup is missing the check ${probe}`)
-  }
+test('global-setup delegates the health gate and refuses when it fails', () => {
+  // The four checks (commit, identityOk, env, projectRef) MOVED into
+  // e2e/health-gate.ts, where e2e/health-gate.test.ts drives them for real
+  // instead of grepping for them. What has to be asserted here is the wiring:
+  // that global-setup actually calls the gate and actually stops on a refusal.
+  assert.ok(/evaluateHealthGate\(/.test(code(setup)), 'global-setup must call the gate')
+  assert.ok(/if \(!gate\.ok\)/.test(code(setup)), 'a failed gate must be checked')
+  assert.ok(/throw new Error\(`\[global-setup\] \$\{gate\.message\}/.test(code(setup)),
+    'a failed gate must throw, not warn')
+})
+
+test('the health gate is NOT gated on GITHUB_SHA', () => {
+  // It used to be. Every run outside GitHub Actions therefore skipped the whole
+  // gate in silence, which is the failure mode a guard must never have.
+  assert.ok(/if \(isRemote\)/.test(code(setup)),
+    'the gate must run for any remote base URL, not only in CI')
+  const gateAt = code(setup).indexOf('evaluateHealthGate(')
+  const shaAt = code(setup).indexOf('GITHUB_SHA')
+  assert.ok(gateAt > -1)
+  assert.ok(
+    shaAt === -1 || !/if \s*\(\s*expectedCommit\s*\)[\s\S]{0,200}evaluateHealthGate/.test(code(setup)),
+    'the gate must not sit inside an `if (expectedCommit)` block',
+  )
 })
 
 test('the identity guard still runs before the browser launches', () => {
