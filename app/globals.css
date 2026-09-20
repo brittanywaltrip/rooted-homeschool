@@ -475,6 +475,20 @@ input:-webkit-autofill:focus {
     padding: 24px !important;
     max-width: 100% !important;
   }
+  /* Long tables inside a printed report: repeat the header on each sheet and
+     never split a row across the fold. Same treatment the reading-log sheet
+     already gets further down; a session table can run past one page. */
+  .print-content table { page-break-inside: auto; }
+  .print-content thead { display: table-header-group; }
+  .print-content tbody tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  /* A section heading must not be the last thing on a sheet. */
+  .print-content h3 {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
 
   /* Year in Review print styles */
   main {
@@ -524,22 +538,32 @@ input:-webkit-autofill:focus {
      sidebar / nav / avatar / FAB live OUTSIDE that class (they're
      rendered by app/dashboard/layout.tsx around every route). Hiding
      them via visibility keeps the DOM layout untouched (safer for the
-     screen view) while making only the print-only container inked. */
-  body * {
+     screen view) while making only the print-only container inked.
+     SCOPED TO body.print-mode-yearbook. Unscoped, `body *` applied on
+     EVERY page: it blanked the whole document and re-inked only
+     .yearbook-print-only, which exists on the yearbook reader alone. So
+     Print / Save PDF anywhere else produced an empty sheet -- the Hours
+     & Attendance log printed blank from 2026-04-23 until this scope was
+     added. The Plan and reading-log blocks below already scope their
+     identical suppression by a body class; this one did not.
+     The class is applied for the lifetime of the yearbook reader route,
+     not just around a button, because a family can print with Cmd+P. */
+  body.print-mode-yearbook * {
     visibility: hidden !important;
   }
-  .yearbook-print-only,
-  .yearbook-print-only * {
+  body.print-mode-yearbook .yearbook-print-only,
+  body.print-mode-yearbook .yearbook-print-only * {
     visibility: visible !important;
   }
-  .yearbook-print-only {
+  body.print-mode-yearbook .yearbook-print-only {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
   }
   /* Hide the on-screen reader shell so the browser doesn't try to
-     paginate its fixed layout. */
+     paginate its fixed layout. Safe unscoped: the class only exists on
+     the yearbook reader. */
   .yearbook-screen-only {
     display: none !important;
   }
