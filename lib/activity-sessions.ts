@@ -54,6 +54,8 @@ export interface ActivitySession {
   definitionIsActive: boolean;
   /** True when no definition row exists at all. The session still counts. */
   definitionMissing: boolean;
+  /** The definition's children, for labelling. Null when it cannot be known. */
+  childIds: string[] | null;
 }
 
 export interface ActivitySessionFilter {
@@ -78,9 +80,16 @@ export function activityBelongsToChild(
   def: ActivityDefinition | undefined,
   childId: string | null | undefined,
 ): boolean {
+  // "All children": everything, including sessions whose definition is gone.
   if (!childId) return true;
-  if (!def) return true; // a session whose definition is gone is not hidden
+  // A MISSING definition carries no child_ids, so whose session it was cannot
+  // be proven. It appears in the all-children report and in no child's own
+  // report. Treating it as whole-family would put one child's hours on every
+  // sibling's document, which is worse than omitting it from a per-child view
+  // where the all-children total still shows it.
+  if (!def) return false;
   const ids = def.child_ids ?? [];
+  // A RETIRED definition still has its real child_ids and is scoped normally.
   if (ids.length === 0) return true;
   return ids.includes(childId);
 }
@@ -104,7 +113,11 @@ export function selectActivitySessions(
 
   const out: ActivitySession[] = [];
   for (const log of logs) {
-    if (log.completed === false) continue;
+    // EXPLICIT completion only. `!== false` also admitted null and undefined,
+    // so a log whose completion is simply unknown would have been reported as
+    // time a family actually spent. On a document filed with a state, an
+    // unknown must not read as a yes.
+    if (log.completed !== true) continue;
     if (!log.date) continue;
     if (log.date < filter.dateFrom || log.date > filter.dateTo) continue;
     const def = byId.get(log.activity_id);
@@ -117,6 +130,7 @@ export function selectActivitySessions(
       minutes: log.minutes_spent ?? 0,
       definitionIsActive: def ? def.is_active !== false : false,
       definitionMissing: !def,
+      childIds: def ? (def.child_ids ?? []) : null,
     });
   }
   out.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.name.localeCompare(b.name)));
@@ -167,4 +181,32 @@ export function groupActivitySessions(
     }
   }
   return [...agg.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Who a session belongs to, for the detail table.
+ *
+ * Only says a child's name when that is actually known. A missing definition
+ * yields null rather than a guess: the row still appears in the all-children
+ * report, honestly unattributed.
+ */
+export function activityChildLabel(
+  session: ActivitySession,
+  childName: (id: string) => string | undefined,
+): string | null {
+  if (session.childIds === null) return null;
+  if (session.childIds.length === 0) return "Whole family";
+  const names = session.childIds.map((id) => childName(id)).filter(Boolean) as string[];
+  if (names.length === 0) return null;
+  return names.join(", ");
+}
+
+/** "1h 30m", "45m", "—". One formatter for screen and print. */
+export function formatSessionDuration(minutes: number): string {
+  if (!minutes) return "\u2014";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
 }
