@@ -14,6 +14,8 @@
  * they need no Supabase client and no network.
  */
 
+import { assertNoServerOwnedFields } from "./phase2-insert-rows.ts";
+
 export type ScheduleCommitClient = {
   rpc: (
     fn: string,
@@ -165,6 +167,13 @@ export async function commitGoalSave(
   if (!proposalId) {
     throw new ScheduleSaveError("The server did not return a proposal to save against.", undefined);
   }
+
+  // Defence in depth, and the answer to "could another caller reintroduce it".
+  // schedule_commit derives ownership from auth.uid(); a caller-supplied owner
+  // is refused by the RPC's key allowlist anyway, but refusing it HERE names
+  // the problem instead of surfacing as 22023 "unknown key(s) in the inserted
+  // rows" with a count that scales with the number of lessons.
+  assertNoServerOwnedFields(req.insertRows ?? [], "commitGoalSave");
 
   const committed = await client.rpc("schedule_commit", {
     p_proposal_id: proposalId,

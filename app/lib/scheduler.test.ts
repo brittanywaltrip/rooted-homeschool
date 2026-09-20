@@ -113,6 +113,7 @@ import { resolve } from 'node:path'
 
 import { todayInTz, isoDowFromYmd, addDays, ymdInTz } from './timezone.ts'
 import { schoolDaysBetween, isPhase2NoOp, planPhase2Rows, phase2RedateTargets, type Phase2BeforeRow, type Phase2InsertRow, type Phase2PlanRow } from './scheduler.ts'
+import { buildBackfillInsertRow } from './phase2-insert-rows.ts'
 import { mapLessonDateAcrossVacation } from '../components/PlanV2/handleVacationSave.shift.ts'
 import {
   countSchoolDaysInRange,
@@ -3061,14 +3062,25 @@ test('every synthetic completed_at is noon UTC, never local noon', () => {
 })
 
 test('historical backfill stamps completed_at at noon UTC', () => {
-  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
-  const body = extractFunctionBody(src, /const planHistoricalBackfill = \(\) =>/)
-  assert.ok(
-    /completed_at:\s*`\$\{p\.date\}T12:00:00Z`/.test(body),
+  // The row shape moved into app/lib/phase2-insert-rows.ts, so this now RUNS
+  // the builder instead of grepping the page for a literal. A behavioural
+  // assertion also survives the next refactor, which the source check did not.
+  const row = buildBackfillInsertRow({
+    childId: 'c1', goalId: 'g1', lessonNumber: 3, queuePosition: 3,
+    curriculumName: 'Math', date: '2026-03-04', minutes: 30,
+  })
+  assert.equal(
+    row.completed_at, '2026-03-04T12:00:00Z',
     'the backfill row stamps noon UTC of its own projected day',
   )
   assert.ok(
-    !/new Date\(`\$\{p\.date\}T12:00:00`\)/.test(body),
+    String(row.completed_at).endsWith('Z'),
+    'a local-noon stamp would serialize to the previous day east of UTC',
+  )
+  // And the page must not reintroduce a local-noon Date construction.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+  assert.ok(
+    !/new Date\(`\$\{p\.date\}T12:00:00`\)/.test(src),
     'the local-noon Date construction is gone',
   )
 })

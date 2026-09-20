@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabase";
 import {
   commitGoalSave, reconcileGoalSave, ScheduleSaveError, type LessonUpdate,
 } from "@/app/lib/schedule-commit-client";
+import { buildForwardInsertRow, buildBackfillInsertRow } from "@/app/lib/phase2-insert-rows";
 import { capitalizeName } from "@/lib/utils";
 import { usePartner } from "@/lib/partner-context";
 import {
@@ -2997,30 +2998,17 @@ export default function ScheduleBuilderPage() {
           const minutes = row.minutes_per_lesson ?? 30;
           return pastSlots
             .filter((p) => !existingHistNums.has(p.lesson_number))
-            .map((p) => ({
-              user_id: effectiveUserId,
-              child_id: row.child_id,
-              curriculum_goal_id: goalId,
-              lesson_number: p.lesson_number,
-              queue_position: occupiedSlots.has(p.lesson_number) ? null : p.lesson_number,
-              title: `${row.name.trim()} — Lesson ${p.lesson_number}`,
-              scheduled_date: p.date,
-              date: p.date,
-              // `wizard_create` covers both forward AND backfill rows per
-              // Invariant 10 in docs/CURRICULUM-SCHEDULING.md.
-              scheduled_source: "wizard_create",
-              completed: true,
-              // Noon UTC, matching logPastDayLessons.ts and recalibrate.ts.
-              // `T12:00:00` with no Z is browser-local noon, which serializes to
-              // the PREVIOUS calendar day east of UTC (local noon at UTC+13 is
-              // 23:00Z the day before). Attendance in app/dashboard/reports
-              // buckets on completed_at.slice(0, 10), so those families had
-              // every backfilled lesson reported a day early.
-              completed_at: `${p.date}T12:00:00Z`,
-              is_backfill: true,
-              minutes_spent: minutes,
-              hours: minutes / 60,
-            }));
+            .map((p) =>
+              buildBackfillInsertRow({
+                childId: row.child_id,
+                goalId,
+                lessonNumber: p.lesson_number,
+                queuePosition: occupiedSlots.has(p.lesson_number) ? null : p.lesson_number,
+                curriculumName: row.name,
+                date: p.date,
+                minutes,
+              }),
+            );
         };
         const histToInsert = planHistoricalBackfill();
 
@@ -3134,19 +3122,20 @@ export default function ScheduleBuilderPage() {
           skippedSlots: projectableSkippedSlots,
         });
 
-        const toInsert = plannedInserts.map((p) => ({
-          user_id: effectiveUserId,
-          child_id: row.child_id,
-          curriculum_goal_id: goalId,
-          lesson_number: p.lesson_number,
-          queue_position: p.queue_position,
-          title: `${row.name.trim()} — Lesson ${p.lesson_number}`,
-          scheduled_date: p.date,
-          date: p.date,
-          scheduled_source: "wizard_create",
-          completed: false,
-          hours: 0,
-        }));
+        // Shaped by the shared serializer, which deliberately omits user_id:
+        // schedule_commit is SECURITY DEFINER and sets the owner from
+        // auth.uid(). Sending it was refused with 22023 "unknown key(s) in the
+        // inserted rows" and broke every Phase 2 save that inserted lessons.
+        const toInsert = plannedInserts.map((p) =>
+          buildForwardInsertRow({
+            childId: row.child_id,
+            goalId,
+            lessonNumber: p.lesson_number,
+            queuePosition: p.queue_position,
+            curriculumName: row.name,
+            date: p.date,
+          }),
+        );
 
         // How many lessons of this goal may land on one date. One local
         // definition so the pre-write assertion, the pin warning and the
