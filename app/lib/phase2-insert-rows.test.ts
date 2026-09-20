@@ -102,21 +102,26 @@ test('the page uses these builders rather than inlining a row', () => {
     resolve(import.meta.dirname, '../dashboard/plan/schedule/page.tsx'), 'utf8')
   assert.ok(/buildForwardInsertRow\(/.test(page), 'the page must use the shared forward builder')
   assert.ok(/buildBackfillInsertRow\(/.test(page), 'the page must use the shared backfill builder')
-  // The specific regression: no LESSON insert row may carry user_id.
+  // The specific regression, checked precisely rather than with a clever
+  // regex. An earlier attempt used a pattern that spanned the whole file and
+  // matched anything; another matched the curriculum_goals payload and failed
+  // for the wrong reason.
   //
-  // Scoped to lesson rows on purpose. The page also builds direct PostgREST
-  // inserts for children, activities and curriculum_goals, and those SHOULD
-  // set user_id: they are ordinary RLS-protected inserts where the client owns
-  // the row it is creating. Only rows headed for schedule_commit must not,
-  // because that function is SECURITY DEFINER and assigns the owner itself.
-  // An earlier version of this assertion matched the curriculum_goals payload
-  // and failed for the wrong reason.
-  const lessonRowWithOwner = /\{[^{}]*\buser_id:[^{}]*\blesson_number:[^{}]*\}/s.test(page)
-    || /\{[^{}]*\blesson_number:[^{}]*\buser_id:[^{}]*\}/s.test(page)
-  assert.ok(
-    !lessonRowWithOwner,
-    'no lesson insert row in the page may carry user_id: schedule_commit assigns the owner',
-  )
+  // Scoped to LESSON rows on purpose: the page also builds direct PostgREST
+  // inserts for children, activities and curriculum_goals, and those SHOULD set
+  // user_id -- ordinary RLS-protected inserts where the client owns the row it
+  // creates. Only rows headed for schedule_commit must not, because that
+  // function is SECURITY DEFINER and assigns the owner itself.
+  const lines = page.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    if (!/\buser_id:/.test(lines[i])) continue
+    const window = lines.slice(i, i + 4).join('\n')
+    assert.ok(
+      !/\blesson_number:/.test(window) && !/\bcurriculum_goal_id:\s*goalId/.test(window),
+      `line ${i + 1} builds a lesson insert row carrying user_id; ` +
+        'schedule_commit assigns the owner from auth.uid()',
+    )
+  }
 })
 
 test('the builders shape the fields the scheduler depends on', () => {
