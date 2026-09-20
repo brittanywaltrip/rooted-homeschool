@@ -8,6 +8,7 @@ import path from 'node:path';
 import { adminClient } from './admin';
 import { seedE2ECurriculum } from './seed-curriculum';
 import { assertIsTestAccount, E2E_EMAIL } from './test-account';
+import { evaluateHealthGate } from './health-gate';
 import { assertSafeForTestWrites } from '../lib/env-identity';
 
 // Required env (set locally via .env.local for `npm run test:e2e`,
@@ -109,27 +110,56 @@ export default async function globalSetup(config: FullConfig) {
   // Server-to-server fetch, NOT a browser request: the bypass secret goes from
   // Node to the approved origin only. `redirect: 'error'` means it can never be
   // replayed to a third-party origin by a redirect.
-  const expectedCommit = process.env.GITHUB_SHA ?? null;
+  // EXPECTED_COMMIT pins the build for a manual run; GITHUB_SHA does it in CI.
+  // Previously the whole gate was gated on GITHUB_SHA, so every manual run
+  // skipped it silently. Now the identity checks ALWAYS run against a remote
+  // deployment and only the commit comparison is optional.
+  const expectedCommit = process.env.EXPECTED_COMMIT ?? process.env.GITHUB_SHA ?? null;
   const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-  if (expectedCommit) {
-    const res = await fetch(new URL('/api/health', baseURL), {
-      headers: bypassSecret ? { 'x-vercel-protection-bypass': bypassSecret } : {},
-      redirect: 'error',
-    });
-    const health = (await res.json()) as {
-      env?: string; projectRef?: string; identityOk?: boolean; commit?: string | null;
-    };
-    const fail = (why: string) => {
-      throw new Error(`[global-setup] ${why}. Refusing to run. (health: env=${health.env}, ` +
-        `projectRef=${health.projectRef}, identityOk=${health.identityOk}, commit=${health.commit})`);
-    };
-    if (health.commit !== expectedCommit) fail(`deployment serves commit ${health.commit ?? 'unknown'}, not ${expectedCommit}`);
-    if (health.identityOk !== true) fail('deployment reports identityOk=false');
-    if (health.env !== 'staging') fail(`deployment reports env=${health.env}, not staging`);
-    if (health.projectRef !== envIdentity.projectRef) {
-      fail(`deployment project ${health.projectRef} disagrees with the runner's ${envIdentity.projectRef}`);
+  const isRemote = !/^https?:\/\/(localhost|127\.0\.0\.1)([:/]|$)/.test(baseURL);
+
+  if (isRemote) {
+    const healthUrl = new URL('/api/health', baseURL);
+    // Server-to-server fetch, NOT a browser request: the bypass secret goes
+    // from Node to the approved origin only. `redirect: 'error'` means it can
+    // never be replayed to a third-party origin by a redirect.
+    let status: number;
+    let bodyText: string;
+    try {
+      const res = await fetch(healthUrl, {
+        headers: bypassSecret ? { 'x-vercel-protection-bypass': bypassSecret } : {},
+        redirect: 'error',
+      });
+      status = res.status;
+      bodyText = await res.text();
+    } catch (err) {
+      throw new Error(
+        `[global-setup] could not reach ${healthUrl.host}/api/health ` +
+          `(${err instanceof Error ? err.message : String(err)}). Refusing to run.`,
+      );
     }
-    console.log(`[global-setup] ✓ build guard passed — ${health.projectRef} @ ${health.commit}`);
+
+    const gate = evaluateHealthGate({
+      status,
+      bodyText,
+      expectedRef: envIdentity.projectRef,
+      expectedCommit,
+      bypassConfigured: Boolean(bypassSecret),
+      host: healthUrl.host,
+    });
+
+    if (!gate.ok) {
+      throw new Error(`[global-setup] ${gate.message} (${gate.code}) Refusing to run.`);
+    }
+    if (gate.commitPinned) {
+      console.log(`[global-setup] ✓ build guard passed — ${gate.projectRef} @ ${gate.commit}`);
+    } else {
+      console.warn(
+        `[global-setup] ⚠ identity verified (${gate.projectRef}) but the COMMIT IS NOT PINNED. ` +
+          `Serving ${gate.commit ?? 'unknown'}. Set EXPECTED_COMMIT to prove the deployment ` +
+          'under test is the commit you think it is.',
+      );
+    }
   }
 
   const TEST_EMAIL = requireEnv('PLAYWRIGHT_EMAIL');

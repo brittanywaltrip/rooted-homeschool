@@ -22,6 +22,14 @@ const WANT_SCREENSHOTS = process.env.MOBILE_SCREENSHOTS === '1';
 
 export default defineConfig({
   testDir: './e2e',
+  // Playwright specs are *.spec.ts. The *.test.ts files beside them are
+  // node --test files (they `import { test } from 'node:test'`), and Playwright
+  // throws on loading one: "Playwright Test did not expect test() to be called
+  // here". Without this, `npx playwright test` collects 0 tests in 0 files and
+  // exits 1 before running anything. Pre-existing since e2e/staging-guard.test.ts
+  // landed; it made the whole suite unrunnable, which is easy to misread as
+  // "no tests to run".
+  testMatch: /.*\.spec\.ts$/,
   timeout: 30_000,
   retries: 1,
   // Global setup signs in once via @supabase/ssr (no bypass route),
