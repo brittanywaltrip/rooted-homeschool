@@ -1031,7 +1031,18 @@ export default function ReportsPage() {
     if (selectedChild !== "all" && a.child_id !== selectedChild) return false;
     return a.date >= dateFrom && a.date <= dateTo;
   }).reduce((s, a) => s + ((a.duration_minutes ?? 0) / 60), 0);
-  const totalHours          = lessonHoursQuick + activityHoursQuick;
+  // The panel above the Preview button must agree with the document below it.
+  // Adding activity sessions to the report alone left this tile reading 106.3h
+  // while the report it generates read 125.8h -- the same page contradicting
+  // itself, which is how a family stops trusting either number. Same helper,
+  // same filters.
+  const activitySessionHoursQuick = summarizeActivitySessions(
+    selectActivitySessions(activityLogs, activityDefs, {
+      childId: selectedChild === "all" ? null : selectedChild,
+      dateFrom, dateTo,
+    }),
+  ).hours;
+  const totalHours          = lessonHoursQuick + activityHoursQuick + activitySessionHoursQuick;
   const subjectsCount       = new Set(
     completedFiltered.map((l) => l.curriculum_goal_id).filter((id): id is string => id !== null)
   ).size;
