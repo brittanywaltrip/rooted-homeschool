@@ -9,7 +9,7 @@ import { adminClient } from './admin';
 import { seedE2ECurriculum } from './seed-curriculum';
 import { assertIsTestAccount, E2E_EMAIL } from './test-account';
 import { evaluateHealthGate } from './health-gate';
-import { assertSafeForTestWrites } from '../lib/env-identity';
+import { assertSafeForTestWrites, supabaseKeyIdentity } from '../lib/env-identity';
 
 // Required env (set locally via .env.local for `npm run test:e2e`,
 // via GitHub Actions secrets for CI):
@@ -91,6 +91,32 @@ export default async function globalSetup(config: FullConfig) {
   console.log(
     `[global-setup] ✓ project guard passed — ROOTED_ENV=${envIdentity.env}, project ${envIdentity.projectRef} (not production, not recovery)`,
   );
+
+  // The runner's OWN credentials must name this project AND carry the right
+  // role. The build-time gate checks this on Vercel, but nothing checked the
+  // machine running the suite, and the two are configured separately.
+  //
+  // Caught a real one on 2026-09-20: the anon key had been pasted into
+  // SUPABASE_SERVICE_ROLE_KEY. Right project, wrong role. Every admin call
+  // failed with a bare "Invalid API key", which names neither the key nor the
+  // reason. A key in the wrong slot is a privilege error, not a typo.
+  const serviceKeyId = supabaseKeyIdentity(process.env.SUPABASE_SERVICE_ROLE_KEY);
+  if (serviceKeyId) {
+    if (serviceKeyId.ref !== envIdentity.projectRef) {
+      throw new Error(
+        `[global-setup] SUPABASE_SERVICE_ROLE_KEY belongs to project ${serviceKeyId.ref}, ` +
+          `not ${envIdentity.projectRef}. Refusing to run.`,
+      );
+    }
+    if (serviceKeyId.role !== 'service_role') {
+      throw new Error(
+        `[global-setup] SUPABASE_SERVICE_ROLE_KEY carries role "${serviceKeyId.role}", ` +
+          'expected "service_role". An anon key in the service-role slot cannot perform ' +
+          'admin operations and fails later as a bare "Invalid API key". Refusing to run.',
+      );
+    }
+    console.log(`[global-setup] ✓ service-role key names ${serviceKeyId.ref} with role service_role`);
+  }
 
   // Prefer TEST_BASE_URL when set, fall back to the Playwright config's
   // baseURL, then localhost. This matches the spec's contract while still
@@ -198,8 +224,24 @@ export default async function globalSetup(config: FullConfig) {
         `&x-vercel-set-bypass-cookie=true`,
       { maxRedirects: 0 },
     );
-    if (!res.ok()) {
-      throw new Error(`[global-setup] protection bypass rejected by ${approvedHost} (${res.status()}).`);
+    // A 307 is the SUCCESS path, not a rejection. Vercel answers the
+    // set-bypass-cookie request with `307 -> same host, same path` and a
+    // Set-Cookie: _vercel_jwt. Verified against the live deployment:
+    //   status 307, location host = this host, path /api/health,
+    //   set-cookie names: _vercel_jwt
+    // Treating anything non-2xx as a rejection failed the run with
+    // "protection bypass rejected (307)" while the bypass was working.
+    //
+    // A genuinely rejected secret redirects to /sso-api instead, so that is
+    // what to refuse on. Everything else is settled by the _vercel_jwt
+    // assertion below, which is the authoritative check.
+    const installStatus = res.status();
+    const installLocation = res.headers()['location'] ?? '';
+    if (installStatus >= 400 || /\/sso-api\b/.test(installLocation)) {
+      throw new Error(
+        `[global-setup] protection bypass rejected by ${approvedHost} (${installStatus}` +
+          `${/\/sso-api\b/.test(installLocation) ? ', redirected to Vercel SSO' : ''}).`,
+      );
     }
     // Prove it actually landed in THIS browser context and is scoped to the
     // approved host. An assertion, because a silently missing cookie would
