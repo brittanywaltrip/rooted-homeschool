@@ -24,6 +24,8 @@ function requireEnv(name: string): string {
 }
 
 const STORAGE_PATH = path.resolve(__dirname, '.auth/user.json');
+/** Vercel protection bypass only, never a Rooted session. See where it is written. */
+const BYPASS_PATH = path.resolve(__dirname, '.auth/bypass.json');
 
 /**
  * Read the signed-in user id out of the Supabase auth cookie.
@@ -299,6 +301,39 @@ export default async function globalSetup(config: FullConfig) {
     if (offHost.length > 0) throw new Error('[global-setup] a bypass cookie exists for an unapproved host.');
     console.log(`[global-setup] ✓ bypass cookie installed, scoped to ${jwt.domain} only`);
   }
+
+  // ── BYPASS-ONLY STATE, written BEFORE the Rooted login ──────────────────
+  //
+  // Logged-out specs used `storageState: { cookies: [], origins: [] }`, which
+  // drops the Vercel protection bypass along with the Rooted session. Vercel
+  // then answers with its own protection page at status 200, so a spec
+  // asserting the app's 404 saw 200 and failed for a reason that had nothing
+  // to do with the app.
+  //
+  // This is written here, before any sign-in, so the only thing it CAN contain
+  // is the bypass. It is then filtered to exactly `_vercel_jwt` and empty
+  // origins rather than trusting that: a guarantee that is merely incidental
+  // is not a guarantee, and localStorage is where a Supabase session would
+  // otherwise hide.
+  const preLogin = await context.storageState();
+  const bypassOnly = {
+    cookies: preLogin.cookies.filter((c) => c.name === '_vercel_jwt'),
+    origins: [] as typeof preLogin.origins,
+  };
+  const leaked = preLogin.cookies.filter(
+    (c) => /^sb-/.test(c.name) || /auth-token/.test(c.name),
+  );
+  if (leaked.length > 0) {
+    throw new Error(
+      `[global-setup] refusing to write a bypass-only state holding ${leaked.length} ` +
+        'Rooted/Supabase cookie(s). It must carry the Vercel bypass and nothing else.',
+    );
+  }
+  fs.mkdirSync(path.dirname(BYPASS_PATH), { recursive: true });
+  fs.writeFileSync(BYPASS_PATH, JSON.stringify(bypassOnly, null, 2));
+  console.log(
+    `[global-setup] ✓ bypass-only state written (${bypassOnly.cookies.length} cookie, no session)`,
+  );
 
   const page = await context.newPage();
 

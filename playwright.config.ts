@@ -41,6 +41,13 @@ if (
 // observe the unauthenticated experience.
 const STORAGE_STATE = path.resolve(__dirname, 'e2e/.auth/user.json');
 
+// The Vercel protection bypass WITHOUT any Rooted session. Logged-out specs use
+// this instead of an empty state: an empty state also drops the bypass, so the
+// browser gets Vercel's protection page (status 200) instead of the app, and a
+// spec asserting a 404 fails for a reason unrelated to the app. Written by
+// global-setup before it signs in, so it cannot contain a session.
+const BYPASS_STATE = path.resolve(__dirname, 'e2e/.auth/bypass.json');
+
 // The phone-screenshot project is OPT IN. A bare `npx playwright test` runs
 // every configured project, and these specs load /dashboard on the shared e2e
 // account: a Today load reconciles every goal, which is the overlap the
@@ -157,4 +164,4 @@ export default defineConfig({
   ],
 });
 
-export { STORAGE_STATE, BASE_URL };
+export { STORAGE_STATE, BYPASS_STATE, BASE_URL };
