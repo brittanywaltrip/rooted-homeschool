@@ -7,8 +7,13 @@
  * that links to an outside site.
  */
 import { test, expect } from '@playwright/test'
+import { BYPASS_STATE } from '../../playwright.config'
 
-test.use({ storageState: { cookies: [], origins: [] } })
+// Logged out of ROOTED, but still through Vercel protection. An empty state
+// drops the protection bypass too, and Vercel then answers with its own page
+// at status 200, so the 404 assertion below failed on the interstitial rather
+// than on the app. This state carries the bypass and no session.
+test.use({ storageState: BYPASS_STATE })
 
 const env = (k: string) => (process.env[k] ?? '').replace(/^"|"$/g, '')
 

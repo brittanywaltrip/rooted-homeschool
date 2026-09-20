@@ -1,9 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { BYPASS_STATE } from '../../playwright.config'
 
 // These tests observe the unauthenticated experience. The default project
 // applies storageState — we override it here with an empty state so the
 // browser arrives at /login as a fresh visitor.
-test.use({ storageState: { cookies: [], origins: [] } });
+// Logged out of ROOTED, but still through Vercel protection. See
+// shared-resource.spec.ts: an empty state also drops the bypass.
+test.use({ storageState: BYPASS_STATE });
 
 test.describe('Auth — unauthenticated', () => {
   test('login page shows Continue with Google button', async ({ page }) => {
