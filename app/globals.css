@@ -475,6 +475,20 @@ input:-webkit-autofill:focus {
     padding: 24px !important;
     max-width: 100% !important;
   }
+  /* Long tables inside a printed report: repeat the header on each sheet and
+     never split a row across the fold. Same treatment the reading-log sheet
+     already gets further down; a session table can run past one page. */
+  .print-content table { page-break-inside: auto; }
+  .print-content thead { display: table-header-group; }
+  .print-content tbody tr {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  /* A section heading must not be the last thing on a sheet. */
+  .print-content h3 {
+    break-after: avoid-page;
+    page-break-after: avoid;
+  }
 
   /* Year in Review print styles */
   main {

@@ -316,8 +316,16 @@ function PrintReport({
           { icon: Clock,       label: "Hours Logged",      value: `${totalHours.toFixed(1)}h`, color: "#8b6f47" },
           { icon: Calendar,    label: "Days Present",      value: presentDates.size, color: "#4a7a8a" },
           { icon: BookOpen,    label: "Books Read",        value: filteredBooks.length, color: "#7a4a8a" },
-        ].map(({ icon: Icon, label, value, color }) => (
-          <div key={label} className="rounded-xl border border-[#e8e2d9] p-3 text-center">
+        ].map(({ icon: Icon, label, value, color }, i, arr) => (
+          // Five tiles in a two-column phone grid leave the fifth alone on a
+          // half-empty row. The odd one out spans both columns there; at sm and
+          // above the grid divides evenly and it goes back to one cell.
+          <div
+            key={label}
+            className={`rounded-xl border border-[#e8e2d9] p-3 text-center${
+              i === arr.length - 1 && arr.length % 2 === 1 ? " col-span-2 sm:col-span-1" : ""
+            }`}
+          >
             <Icon size={16} className="mx-auto mb-1" style={{ color }} />
             <p className="text-xl font-bold text-[#2d2926]">{value}</p>
             <p className="text-[10px] text-[#7a6f65] leading-tight">{label}</p>
@@ -427,7 +435,7 @@ function PrintReport({
                   {/* A retired activity keeps its history and says so, rather
                       than vanishing from a document a family may need to file. */}
                   {g.retired && (
-                    <span className="text-[10px] uppercase tracking-wide text-[#b5aca4]">no longer scheduled</span>
+                    <span className="text-[10px] uppercase tracking-wide text-[#b5aca4] whitespace-nowrap">no longer scheduled</span>
                   )}
                 </span>
                 <span className="text-[#7a6f65]">
@@ -444,9 +452,9 @@ function PrintReport({
           <table className="w-full mt-4 text-sm border-t border-[#e8e2d9]">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-widest text-[#b5aca4]">
-                <th className="py-2 font-medium">Date</th>
-                <th className="py-2 font-medium">Activity</th>
-                <th className="py-2 font-medium">For</th>
+                <th className="py-2 pr-3 font-medium">Date</th>
+                <th className="py-2 pr-3 font-medium">Activity</th>
+                <th className="py-2 pr-3 font-medium">For</th>
                 <th className="py-2 font-medium text-right">Time</th>
               </tr>
             </thead>
@@ -455,20 +463,27 @@ function PrintReport({
                 const who = activityChildLabel(s, (id) => allKids.find((k) => k.id === id)?.name);
                 return (
                   <tr key={`${s.activityId}-${s.date}-${i}`} className="border-t border-[#f2ede6]">
-                    <td className="py-1.5 text-[#7a6f65] whitespace-nowrap">{formatLogDate(s.date)}</td>
-                    <td className="py-1.5 text-[#2d2926]">
+                    <td className="py-1.5 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(s.date)}</td>
+                    <td className="py-1.5 pr-3 align-top text-[#2d2926]">
                       <span className="mr-1">{s.emoji ?? "\u2728"}</span>
                       {s.name}
+                      {/* On its own line under the name. Inline, the marker
+                          widened the Activity column past a phone and pushed the
+                          Time column off the screen entirely. */}
                       {s.definitionMissing ? (
-                        <span className="ml-2 text-[10px] uppercase tracking-wide text-[#b5aca4]">past activity</span>
+                        <span className="block text-[10px] uppercase tracking-wide text-[#b5aca4]">past activity</span>
                       ) : !s.definitionIsActive ? (
-                        <span className="ml-2 text-[10px] uppercase tracking-wide text-[#b5aca4]">no longer scheduled</span>
+                        <span className="block text-[10px] uppercase tracking-wide text-[#b5aca4]">no longer scheduled</span>
                       ) : null}
                     </td>
                     {/* Blank rather than a guess: a missing definition carries
                         no child_ids, so whose session it was is not known. */}
-                    <td className="py-1.5 text-[#7a6f65]">{who ?? "\u2014"}</td>
-                    <td className="py-1.5 text-[#7a6f65] text-right whitespace-nowrap">
+                    {/* Wraps rather than nowrap: "Whole family" held on one line made the
+                        table wider than a phone and pushed the Time column out of
+                        sight entirely. align-top keeps a wrapped name lined up with
+                        its date, which was the actual complaint. */}
+                    <td className="py-1.5 pr-3 align-top text-[#7a6f65]">{who ?? "\u2014"}</td>
+                    <td className="py-1.5 align-top text-[#7a6f65] text-right whitespace-nowrap">
                       {formatSessionDuration(s.minutes)}
                     </td>
                   </tr>
