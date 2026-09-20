@@ -177,6 +177,10 @@ test('the Reports page reads no lessons without a range or a head count', () => 
   const offenders: string[] = []
   for (let i = src.indexOf(needle); i !== -1; i = src.indexOf(needle, i + 1)) {
     const chain = chainAt(src, i)
+    // This guard is about reads that can be silently capped. Updates are
+    // deliberately id-scoped and return no collection unless followed by a
+    // select, so they do not need pagination.
+    if (!chain.includes('.select(')) continue
     const paged = chain.includes('.range(')
     const headCount = chain.includes('head: true')
     if (!paged && !headCount) offenders.push(chain.replace(/\s+/g, ' ').slice(0, 160))

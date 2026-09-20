@@ -20,6 +20,7 @@ import {
 } from "@/lib/activity-sessions";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { fallbackSchoolYear, getCurrentSchoolYear, todayLocalYmd } from "@/app/lib/school-year";
+import { selectReportPhotos, type ReportPhoto } from "@/lib/report-evidence";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +32,7 @@ type Lesson   = {
   title: string; date: string | null; scheduled_date: string | null;
   completed: boolean;
   minutes_spent: number | null;
+  notes: string | null;
 };
 /**
  * A book read, from `memories` (type 'book') merged with the pre-March
@@ -64,7 +66,7 @@ function fallbackYearStart() {
 
 /** Every column this page reads off a lesson row. Shared by both reads. */
 const LESSON_COLUMNS =
-  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, minutes_spent";
+  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, minutes_spent, notes";
 
 /**
  * The window the UNCOMPLETED half of the lesson read covers.
@@ -196,11 +198,11 @@ function formatLogDate(d: string | null): string {
 // ─── Print Report Component ───────────────────────────────────────────────────
 
 function PrintReport({
-  child, children: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
-  activityLogs, activityDefs,
+  child, allChildren: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
+  activityLogs, activityDefs, photos, canEdit, onSaveLessonNote, onSaveActivityNote,
 }: {
   child: Child | null;
-  children: Child[];
+  allChildren: Child[];
   dateFrom: string; dateTo: string;
   lessons: Lesson[];
   books: BookRecord[];
@@ -211,7 +213,16 @@ function PrintReport({
   activityLogs: ActivityLogRow[];
   /** Their definitions, INCLUDING retired ones. */
   activityDefs: ActivityDefinition[];
+  photos: ReportPhoto[];
+  canEdit: boolean;
+  onSaveLessonNote: (lessonId: string, notes: string | null) => Promise<boolean>;
+  onSaveActivityNote: (logId: string, notes: string | null) => Promise<boolean>;
 }) {
+  const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
+  const [detailText, setDetailText] = useState("");
+  const [detailSaving, setDetailSaving] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const filteredLessons = lessons.filter((l) => {
     const d = l.date ?? l.scheduled_date;
     if (!d) return false;
@@ -227,6 +238,11 @@ function PrintReport({
   });
 
   const completedLessons = filteredLessons.filter((l) => l.completed);
+  const lessonDetails = completedLessons.slice().sort((a, b) => {
+    const ad = a.date ?? a.scheduled_date ?? "";
+    const bd = b.date ?? b.scheduled_date ?? "";
+    return ad.localeCompare(bd) || a.title.localeCompare(b.title);
+  });
   const filteredActivities = activities.filter((a) => {
     if (child && a.child_id !== child.id) return false;
     return a.date >= dateFrom && a.date <= dateTo && a.duration_minutes;
@@ -246,6 +262,24 @@ function PrintReport({
   });
   const activitySummary = summarizeActivitySessions(activitySessions);
   const activityGroups = groupActivitySessions(activitySessions);
+
+  const filteredPhotos = selectReportPhotos(photos, child?.id ?? null, dateFrom, dateTo);
+
+  async function saveLessonDetail(lessonId: string) {
+    setDetailSaving(true);
+    const ok = await onSaveLessonNote(lessonId, detailText.trim() || null);
+    setDetailSaving(false);
+    if (ok) { setEditingLessonId(null); setDetailText(""); setDetailError(null); }
+    else setDetailError("That didn't save. Please try again.");
+  }
+
+  async function saveActivityDetail(logId: string) {
+    setDetailSaving(true);
+    const ok = await onSaveActivityNote(logId, detailText.trim() || null);
+    setDetailSaving(false);
+    if (ok) { setEditingActivityId(null); setDetailText(""); setDetailError(null); }
+    else setDetailError("That didn't save. Please try again.");
+  }
 
   const totalHours = lessonHours + memoryHours + activitySummary.hours;
 
@@ -285,7 +319,7 @@ function PrintReport({
   const toLabel   = new Date(dateTo   + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
   return (
-    <div className="print-content bg-white p-6 rounded-2xl border border-[#e8e2d9] space-y-6">
+    <div className="print-content hours-report-print-sheet bg-white p-6 rounded-2xl border border-[#e8e2d9] space-y-6">
       {/* Report header */}
       <div className="flex items-start justify-between border-b border-[#e8e2d9] pb-4">
         <div>
@@ -356,6 +390,66 @@ function PrintReport({
                 </div>
               ))}
           </div>
+        </div>
+      )}
+
+      {/* A legal/portfolio record needs the work itself, not only aggregate
+          counts. Notes are the family's own description and are never
+          synthesized. The edit control is screen-only; the saved words are
+          part of the printed row. */}
+      {lessonDetails.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
+            Completed Lessons ({lessonDetails.length})
+          </h3>
+          <table className="w-full text-sm border-t border-[#e8e2d9]">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-widest text-[#b5aca4]">
+                <th className="py-2 pr-3 font-medium">Date</th>
+                <th className="py-2 pr-3 font-medium">Subject</th>
+                <th className="py-2 pr-3 font-medium">Lesson and details</th>
+                <th className="py-2 font-medium text-right">Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lessonDetails.map((lesson) => {
+                const date = lesson.date ?? lesson.scheduled_date;
+                const minutes = lesson.minutes_spent ?? 30;
+                return (
+                  <tr key={lesson.id} className="border-t border-[#f2ede6]">
+                    <td className="py-2 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(date)}</td>
+                    <td className="py-2 pr-3 align-top text-[#7a6f65]">{lessonReportSubject(lesson, "Unassigned")}</td>
+                    <td className="py-2 pr-3 align-top text-[#2d2926]">
+                      <span className="font-medium">{lesson.title}</span>
+                      {lesson.notes && <span className="block mt-0.5 text-[#6b6560] whitespace-pre-wrap">{lesson.notes}</span>}
+                      {canEdit && editingLessonId === lesson.id ? (
+                        <div className="no-print mt-2 space-y-2">
+                          <textarea value={detailText} onChange={(e) => setDetailText(e.target.value)}
+                            placeholder="What was covered? Add the details you want in the report."
+                            className="w-full min-h-20 rounded-xl border border-[#d8d0c6] bg-white p-2.5 text-sm text-[#2d2926]" />
+                          {detailError && <p className="text-xs text-red-600">{detailError}</p>}
+                          <div className="flex gap-2">
+                            <button type="button" disabled={detailSaving} onClick={() => saveLessonDetail(lesson.id)}
+                              className="rounded-lg bg-[#5c7f63] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                              {detailSaving ? "Saving..." : "Save details"}
+                            </button>
+                            <button type="button" onClick={() => { setEditingLessonId(null); setDetailText(""); }}
+                              className="px-2 py-1.5 text-xs font-medium text-[#7a6f65]">Cancel</button>
+                          </div>
+                        </div>
+                      ) : canEdit ? (
+                        <button type="button" className="no-print block mt-1 text-xs font-medium text-[#5c7f63]"
+                          onClick={() => { setEditingActivityId(null); setEditingLessonId(lesson.id); setDetailText(lesson.notes ?? ""); setDetailError(null); }}>
+                          {lesson.notes ? "Edit details" : "+ Add details"}
+                        </button>
+                      ) : null}
+                    </td>
+                    <td className="py-2 align-top text-right text-[#7a6f65] whitespace-nowrap">{formatSessionDuration(minutes)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -475,6 +569,28 @@ function PrintReport({
                       ) : !s.definitionIsActive ? (
                         <span className="block text-[10px] uppercase tracking-wide text-[#b5aca4]">no longer scheduled</span>
                       ) : null}
+                      {s.notes && <span className="block mt-0.5 text-[#6b6560] whitespace-pre-wrap">{s.notes}</span>}
+                      {canEdit && s.logId && (editingActivityId === s.logId ? (
+                        <div className="no-print mt-2 space-y-2">
+                          <textarea value={detailText} onChange={(e) => setDetailText(e.target.value)}
+                            placeholder="What did you work on during this activity?"
+                            className="w-full min-h-20 rounded-xl border border-[#d8d0c6] bg-white p-2.5 text-sm text-[#2d2926]" />
+                          {detailError && <p className="text-xs text-red-600">{detailError}</p>}
+                          <div className="flex gap-2">
+                            <button type="button" disabled={detailSaving} onClick={() => saveActivityDetail(s.logId!)}
+                              className="rounded-lg bg-[#5c7f63] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                              {detailSaving ? "Saving..." : "Save details"}
+                            </button>
+                            <button type="button" onClick={() => { setEditingActivityId(null); setDetailText(""); }}
+                              className="px-2 py-1.5 text-xs font-medium text-[#7a6f65]">Cancel</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button type="button" className="no-print block mt-1 text-xs font-medium text-[#5c7f63]"
+                          onClick={() => { setEditingLessonId(null); setEditingActivityId(s.logId); setDetailText(s.notes ?? ""); setDetailError(null); }}>
+                          {s.notes ? "Edit details" : "+ Add details"}
+                        </button>
+                      ))}
                     </td>
                     {/* Blank rather than a guess: a missing definition carries
                         no child_ids, so whose session it was is not known. */}
@@ -491,6 +607,37 @@ function PrintReport({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {filteredPhotos.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
+            Photo Documentation ({filteredPhotos.length})
+          </h3>
+          <p className="no-print -mt-1 mb-3 text-xs text-[#7a6f65]">
+            Need to change a caption? Open <Link href="/dashboard/memories" className="font-semibold text-[#5c7f63] underline underline-offset-2">Memories</Link>, select the photo, and choose Edit.
+          </p>
+          <div className="grid grid-cols-2 gap-4 report-photo-grid">
+            {filteredPhotos.map((photo) => {
+              const childName = photo.child_id ? allKids.find((kid) => kid.id === photo.child_id)?.name : null;
+              // Only print words the family actually supplied. A neutral alt
+              // label is accessibility metadata, not evidence on the page.
+              const caption = photo.caption?.trim() || photo.title?.trim() || null;
+              return (
+                <figure key={photo.id} data-report-photo className="break-inside-avoid rounded-xl border border-[#e8e2d9] overflow-hidden bg-white">
+                  <SignedImage src={photo.photo_url} bucket="memory-photos" alt={caption ?? "Photo documentation"}
+                    className="block w-full aspect-[4/3] object-contain bg-[#f5f0e8]" />
+                  <figcaption className="p-3">
+                    {caption && <p className="text-sm text-[#2d2926] whitespace-pre-wrap">{caption}</p>}
+                    <p className={`${caption ? "mt-1 " : ""}text-[11px] text-[#8a8078]`}>
+                      {formatLogDate(photo.date)}{childName ? ` · ${childName}` : " · Whole family"}
+                    </p>
+                  </figcaption>
+                </figure>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -690,7 +837,7 @@ function ReadingLogPrintSheet({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function ReportsPage() {
-  const { effectiveUserId } = usePartner();
+  const { effectiveUserId, isPartner } = usePartner();
   // Archived years become presets, so a year a family filed after the fact
   // ("Add a past year") is one tap away. Completed lessons are read with no
   // date filter, so those rows are already in the data; this only points the
@@ -730,6 +877,7 @@ export default function ReportsPage() {
   const [activities, setActivities] = useState<MemoryActivity[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLogRow[]>([]);
   const [activityDefs, setActivityDefs] = useState<ActivityDefinition[]>([]);
+  const [photos, setPhotos] = useState<ReportPhoto[]>([]);
   const [appointments, setAppointments] = useState<ReportAppointment[]>([]);
   const [loading,    setLoading]    = useState(true);
   const [isPro,      setIsPro]      = useState<boolean | null>(null);
@@ -739,6 +887,8 @@ export default function ReportsPage() {
   const [dateTo,        setDateTo]        = useState(toDateStr(new Date()));
   const [showPreview,   setShowPreview]   = useState(false);
   const [showExportGate, setShowExportGate] = useState(false);
+  const [preparingPrint, setPreparingPrint] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
   const [trialStartedAt, setTrialStartedAt] = useState<string | null>(null);
   // Rendered verbatim on the print sheet. See lib/school-name.ts — no
   // " Academy" suffix is ever appended, same as printables.
@@ -902,6 +1052,7 @@ export default function ReportsPage() {
         { data: bookMemories },
         { data: bookEvts },
         { data: memActivities },
+        { data: photoRows },
         { data: actLogRows },
         { data: actDefRows },
         { data: profile },
@@ -936,6 +1087,14 @@ export default function ReportsPage() {
         supabase.from("memories").select("id, child_id, type, title, caption, photo_url, date, book_child_ids, book_author, book_pages, book_cover_url, book_how, book_rating, book_notes, book_status, book_started_date").eq("user_id", effectiveUserId).eq("type", "book"),
         supabase.from("app_events").select("id, type, payload").eq("user_id", effectiveUserId).in("type", [...LEGACY_BOOK_EVENT_TYPES]),
         supabase.from("memories").select("child_id, type, date, duration_minutes").eq("user_id", effectiveUserId).not("duration_minutes", "is", null).in("type", ["field_trip", "project", "activity", "win"]),
+        // The legal/portfolio report carries the family's actual visual
+        // evidence, not only a count of it. Books are excluded because their
+        // photo_url is a cover, not documentation of completed work.
+        selectAllRowsResult<ReportPhoto>((from, to) =>
+          supabase.from("memories")
+            .select("id, child_id, type, title, caption, photo_url, date, lesson_id")
+            .eq("user_id", effectiveUserId).not("photo_url", "is", null).neq("type", "book")
+            .order("id").range(from, to)),
         // Completed recurring-activity sessions and their definitions. PAGED:
         // a PostgREST select caps at 1000 rows, and a family several years in
         // passes that, at which point the report would quietly under-report
@@ -943,7 +1102,7 @@ export default function ReportsPage() {
         // so a retired activity's historical sessions keep their name.
         selectAllRowsResult<ActivityLogRow>((from, to) =>
           supabase.from("activity_logs")
-            .select("activity_id, date, minutes_spent, completed")
+            .select("id, activity_id, date, minutes_spent, completed, notes")
             .eq("user_id", effectiveUserId).eq("completed", true)
             .order("date").range(from, to)),
         selectAllRowsResult<ActivityDefinition>((from, to) =>
@@ -974,6 +1133,7 @@ export default function ReportsPage() {
       setLessons([...(doneLessons ?? []), ...(openLessons ?? [])]);
       setBooks(mergeBookRecords(bookMemories ?? [], (bookEvts as unknown as { id?: string; type: string; payload: { title?: string; caption?: string; photo_url?: string; child_id?: string; date?: string } | null }[]) ?? []));
       setActivities((memActivities as unknown as MemoryActivity[]) ?? []);
+      setPhotos(photoRows ?? []);
       setActivityLogs(actLogRows ?? []);
       setActivityDefs(actDefRows ?? []);
 
@@ -1021,7 +1181,7 @@ export default function ReportsPage() {
       setAppointments(merged);
 
       setIsPro((profile as { is_pro?: boolean } | null)?.is_pro ?? false);
-      setTrialStartedAt((profile as any)?.trial_started_at ?? null);
+      setTrialStartedAt((profile as { trial_started_at?: string | null } | null)?.trial_started_at ?? null);
       setSchoolName(schoolNameFor(
         (profile as { display_name?: string } | null)?.display_name || "",
         (profile as { last_name?: string } | null)?.last_name || "",
@@ -1031,6 +1191,30 @@ export default function ReportsPage() {
   }, [effectiveUserId]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function saveLessonNote(lessonId: string, notes: string | null): Promise<boolean> {
+    if (!effectiveUserId || isPartner) return false;
+    const { error } = await supabase.from("lessons").update({ notes })
+      .eq("id", lessonId).eq("user_id", effectiveUserId);
+    if (error) {
+      console.error("[hours-report] lesson details save failed", error);
+      return false;
+    }
+    setLessons((rows) => rows.map((row) => row.id === lessonId ? { ...row, notes } : row));
+    return true;
+  }
+
+  async function saveActivityNote(logId: string, notes: string | null): Promise<boolean> {
+    if (!effectiveUserId || isPartner) return false;
+    const { error } = await supabase.from("activity_logs").update({ notes })
+      .eq("id", logId).eq("user_id", effectiveUserId);
+    if (error) {
+      console.error("[hours-report] activity details save failed", error);
+      return false;
+    }
+    setActivityLogs((rows) => rows.map((row) => row.id === logId ? { ...row, notes } : row));
+    return true;
+  }
 
   const activeChild = selectedChild === "all" ? null : (children.find((c) => c.id === selectedChild) ?? null);
 
@@ -1105,6 +1289,65 @@ export default function ReportsPage() {
     { label: "Books", value: readingLog.length },
     { label: "Pages", value: readingLogPages.toLocaleString() },
   ];
+
+  /**
+   * Print only the Hours & Attendance document.
+   *
+   * The former button toggled React state and guessed that 300ms was enough
+   * before calling print. Leslie's desktop opened an eleven-page job with no
+   * ink. This path waits for the report DOM, fonts, and already-selected photo
+   * evidence, then gives this document its own print mode. Conflicting Rooted
+   * print modes are removed first so a stale yearbook or Plan class cannot
+   * hide this report.
+   */
+  async function printHoursReport() {
+    if (!canExport({ is_pro: isPro, trial_started_at: trialStartedAt })) {
+      setShowExportGate(true);
+      return;
+    }
+    setPreparingPrint(true);
+    setPrintError(null);
+    posthog.capture("plan_pdf_downloaded", { user_plan: isPro ? "paid" : "free" });
+    setShowPreview(true);
+    try {
+      await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      const report = document.querySelector<HTMLElement>(".hours-report-print-sheet");
+      if (!report) throw new Error("Hours report did not render");
+
+      if (document.fonts?.ready) await document.fonts.ready;
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        const frames = [...report.querySelectorAll<HTMLElement>("[data-report-photo]")];
+        const ready = frames.every((frame) => {
+          const image = frame.querySelector<HTMLImageElement>("img");
+          return !!image && image.complete;
+        });
+        if (ready) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+
+      const body = document.body;
+      for (const cls of [
+        "print-mode-yearbook", "print-mode-reading-log", "print-mode-daily",
+        "print-mode-weekly", "print-mode-monthly",
+      ]) body.classList.remove(cls);
+      body.classList.add("print-mode-hours-report");
+      const cleanup = () => {
+        body.classList.remove("print-mode-hours-report");
+        window.removeEventListener("afterprint", cleanup);
+      };
+      window.addEventListener("afterprint", cleanup);
+      setPreparingPrint(false);
+      window.print();
+      // Some Safari versions omit afterprint. Screen layout is unaffected by
+      // this class, but clear it eventually so a later Cmd+P cannot inherit it.
+      setTimeout(cleanup, 60_000);
+    } catch (err) {
+      console.error("[hours-report] print preparation failed", err);
+      setPreparingPrint(false);
+      setPrintError("The report could not open. Please try again.");
+    }
+  }
 
   /**
    * Print only the reading-log sheet. The page's other cards stay on screen
@@ -1228,6 +1471,13 @@ export default function ReportsPage() {
           ))}
         </div>
 
+        <div className="rounded-xl border border-[#dfe9e1] bg-[#f4f8f4] px-3.5 py-3">
+          <p className="text-xs font-semibold text-[#2D5A3D]">Complete documentation is included</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-[#6b756d]">
+            Your report includes each completed lesson, saved lesson and activity details, and dated photos with their captions.
+          </p>
+        </div>
+
         {/* Quick stats preview */}
         <div className="grid grid-cols-4 gap-2 pt-1">
           {[
@@ -1254,22 +1504,21 @@ export default function ReportsPage() {
           {showPreview ? "Hide Preview" : "Preview Log"}
         </button>
         <button
-          onClick={() => {
-            if (!canExport({ is_pro: isPro, trial_started_at: trialStartedAt })) { setShowExportGate(true); return; }
-            posthog.capture('plan_pdf_downloaded', { user_plan: isPro ? 'paid' : 'free' }); setShowPreview(true); setTimeout(() => window.print(), 300);
-          }}
-          className="flex-1 flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-medium py-3 rounded-xl transition-colors"
+          onClick={printHoursReport}
+          disabled={preparingPrint}
+          className="flex-1 flex items-center justify-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] disabled:opacity-60 text-white text-sm font-medium py-3 rounded-xl transition-colors"
         >
           <Printer size={16} />
-          Print / Save PDF
+          {preparingPrint ? "Preparing report..." : "Print / Save PDF"}
         </button>
       </div>
+      {printError && <p className="text-sm text-red-600">{printError}</p>}
 
       {/* Report preview */}
       {showPreview && (
         <PrintReport
           child={activeChild}
-          children={children}
+          allChildren={children}
           dateFrom={dateFrom}
           dateTo={dateTo}
           lessons={lessons}
@@ -1277,7 +1526,11 @@ export default function ReportsPage() {
           activities={activities}
           activityLogs={activityLogs}
           activityDefs={activityDefs}
+          photos={photos}
           appointments={appointments}
+          canEdit={!isPartner}
+          onSaveLessonNote={saveLessonNote}
+          onSaveActivityNote={saveActivityNote}
         />
       )}
 
@@ -1692,6 +1945,20 @@ export default function ReportsPage() {
       <style>{`
         .reading-log-print-host { display: none; }
         @media print {
+          body.print-mode-hours-report { background: #ffffff !important; }
+          body.print-mode-hours-report * { visibility: hidden !important; }
+          body.print-mode-hours-report .hours-report-print-sheet,
+          body.print-mode-hours-report .hours-report-print-sheet * { visibility: visible !important; }
+          body.print-mode-hours-report .hours-report-print-sheet {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
+          body.print-mode-hours-report [data-report-photo] {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
           body.print-mode-reading-log { background: #ffffff !important; }
           body.print-mode-reading-log .reading-log-print-host { display: block; }
           body.print-mode-reading-log * { visibility: hidden !important; }
