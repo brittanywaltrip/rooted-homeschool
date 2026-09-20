@@ -68,6 +68,19 @@ test('the health gate is NOT gated on GITHUB_SHA', () => {
   )
 })
 
+test('tracing is disabled whenever a bypass secret exists, not merely in CI', () => {
+  // A local run against a PROTECTED remote deployment carries the _vercel_jwt
+  // bypass cookie, and retries is 1, so one flaky test would write that secret
+  // into playwright-report/data/<sha1>.zip. Keying this on CI alone left that
+  // hole open for exactly the run this branch exists to do.
+  const c = code(config)
+  assert.ok(/trace:/.test(c), 'no trace setting found')
+  assert.ok(
+    /VERCEL_AUTOMATION_BYPASS_SECRET[\s\S]{0,80}'off'/.test(c),
+    'trace must be off when VERCEL_AUTOMATION_BYPASS_SECRET is set',
+  )
+})
+
 test('the identity guard still runs before the browser launches', () => {
   const guardAt = setup.indexOf('assertSafeForTestWrites')
   const launchAt = setup.indexOf('chromium.launch')
@@ -92,8 +105,12 @@ test('the workflow parses JSON and never references a production secret', () => 
 test('layer 1: CI records no trace, video or screenshot', () => {
   // A trace logs every request with its headers and cookies, so a run carrying
   // the bypass cookie writes the secret into it.
-  assert.ok(/trace:\s*process\.env\.CI \? 'off' : 'on-first-retry'/.test(code(config)),
-    'CI must record no trace')
+  // Asserted as a PROPERTY, not as one exact expression: pinning the literal
+  // made this test fail the moment the rule was correctly strengthened to also
+  // cover a local run holding a bypass secret.
+  const traceExpr = (code(config).match(/trace:[\s\S]{0,200}?,\n/) ?? [''])[0]
+  assert.ok(/process\.env\.CI/.test(traceExpr), 'CI must be part of the trace condition')
+  assert.ok(/'off'/.test(traceExpr), 'CI must record no trace')
   assert.ok(/video:\s*'off'/.test(code(config)), 'video must be off')
   assert.ok(/screenshot:\s*'off'/.test(code(config)), 'screenshot must be off')
 })
