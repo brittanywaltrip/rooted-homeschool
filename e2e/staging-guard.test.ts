@@ -81,6 +81,19 @@ test('tracing is disabled whenever a bypass secret exists, not merely in CI', ()
   )
 })
 
+test('the specs and global-setup target the SAME deployment', () => {
+  // global-setup resolves TEST_BASE_URL first. When the config ignored it, the
+  // setup authenticated against rooted-staging while every spec loaded a
+  // hardcoded git-staging URL backed by the PRODUCTION project, and the whole
+  // suite failed as "element not found" because no session applied there.
+  const c = code(config)
+  assert.ok(/TEST_BASE_URL/.test(c), 'playwright.config must honour TEST_BASE_URL')
+  const idxTest = c.indexOf('process.env.TEST_BASE_URL')
+  const idxPw = c.indexOf('process.env.PLAYWRIGHT_BASE_URL')
+  assert.ok(idxTest > -1 && idxTest < idxPw, 'TEST_BASE_URL must take precedence')
+  assert.ok(/disagree/.test(c), 'a disagreement between the two must be a refusal')
+})
+
 test('the identity guard still runs before the browser launches', () => {
   const guardAt = setup.indexOf('assertSafeForTestWrites')
   const launchAt = setup.indexOf('chromium.launch')

@@ -3,9 +3,37 @@ import path from 'node:path';
 
 // Tests run against a deployed environment (staging by default).
 // Override with PLAYWRIGHT_BASE_URL=http://localhost:3000 for local runs.
+// ONE source of truth for the target. global-setup resolves the base URL as
+// TEST_BASE_URL first, so a config that ignored TEST_BASE_URL meant global-setup
+// authenticated against one deployment while every spec ran against another.
+//
+// That happened on 2026-09-20: global-setup signed in to the rooted-staging
+// custom environment and wrote storageState with cookies scoped to THAT host,
+// while the specs loaded this hardcoded git-staging URL, where those cookies do
+// not apply. 24 specs failed as "element not found" because they were never
+// signed in, and the deployment they were hitting is backed by the PRODUCTION
+// Supabase project. Nothing was written there -- the session never applied and
+// service-role writes use their own key -- but the suite was pointed somewhere
+// nobody intended.
 const BASE_URL =
+  process.env.TEST_BASE_URL ||
   process.env.PLAYWRIGHT_BASE_URL ||
   'https://rooted-homeschool-git-staging-brittanywaltrips-projects.vercel.app';
+
+// Fail closed if the two are set and disagree, rather than silently preferring
+// one. A disagreement means somebody believes the suite is testing something it
+// is not.
+if (
+  process.env.TEST_BASE_URL &&
+  process.env.PLAYWRIGHT_BASE_URL &&
+  process.env.TEST_BASE_URL !== process.env.PLAYWRIGHT_BASE_URL
+) {
+  throw new Error(
+    `[playwright.config] TEST_BASE_URL (${process.env.TEST_BASE_URL}) and ` +
+      `PLAYWRIGHT_BASE_URL (${process.env.PLAYWRIGHT_BASE_URL}) disagree. ` +
+      'Refusing to run: global-setup and the specs would target different deployments.',
+  );
+}
 
 // Auth state captured by global-setup. Tests that need a signed-in user
 // reference this via test.use({ storageState: STORAGE_STATE }) — see
