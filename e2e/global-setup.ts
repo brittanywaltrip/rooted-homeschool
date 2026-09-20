@@ -125,12 +125,20 @@ export default async function globalSetup(config: FullConfig) {
     // never be replayed to a third-party origin by a redirect.
     let status: number;
     let bodyText: string;
+    let location: string | null = null;
     try {
+      // redirect: 'manual' -- NOT 'follow' and not 'error'. The bypass secret
+      // must never be replayed to a third-party origin by a redirect, so we do
+      // not follow. But 'error' throws on the protection redirect and loses the
+      // status, which is how a correctly protected deployment came back as
+      // "could not reach". 'manual' surfaces the 302 and its Location without
+      // ever sending the header onward.
       const res = await fetch(healthUrl, {
         headers: bypassSecret ? { 'x-vercel-protection-bypass': bypassSecret } : {},
-        redirect: 'error',
+        redirect: 'manual',
       });
       status = res.status;
+      location = res.headers.get('location');
       bodyText = await res.text();
     } catch (err) {
       throw new Error(
@@ -141,6 +149,7 @@ export default async function globalSetup(config: FullConfig) {
 
     const gate = evaluateHealthGate({
       status,
+      location,
       bodyText,
       expectedRef: envIdentity.projectRef,
       expectedCommit,

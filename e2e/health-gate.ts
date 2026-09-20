@@ -20,6 +20,8 @@
 
 export interface HealthGateInput {
   status: number;
+  /** The Location header, when the response was a redirect. */
+  location?: string | null;
   bodyText: string;
   expectedRef: string;
   /** null means "not pinned": identity is still checked, the commit is not. */
@@ -34,6 +36,33 @@ export type HealthGateResult =
 
 export function evaluateHealthGate(input: HealthGateInput): HealthGateResult {
   const no = (code: string, message: string): HealthGateResult => ({ ok: false, code, message });
+
+  // Vercel Deployment Protection does NOT answer 401. It answers 302 to
+  // vercel.com/sso-api with a _vercel_sso_nonce cookie. Observed directly
+  // against the rooted-staging deployment; assuming 401 here would have
+  // reported a live, correctly protected deployment as simply unreachable.
+  const isRedirect = input.status >= 300 && input.status < 400;
+  const toSso = Boolean(input.location && /\/sso-api\b/.test(input.location));
+  if (isRedirect && toSso) {
+    return input.bypassConfigured
+      ? no(
+          "protection_bypass_rejected",
+          `${input.host} redirected to Vercel SSO despite the bypass secret. The secret is set ` +
+            "but not accepted: confirm it is this project's current VERCEL_AUTOMATION_BYPASS_SECRET.",
+        )
+      : no(
+          "protection_blocked",
+          `${input.host} redirected to Vercel SSO. Deployment Protection is on and ` +
+            "VERCEL_AUTOMATION_BYPASS_SECRET is not set, so the suite cannot reach the deployment.",
+        );
+  }
+  if (isRedirect) {
+    return no(
+      "unexpected_redirect",
+      `${input.host}/api/health redirected to ${input.location ?? 'an unknown location'} ` +
+        "(HTTP " + input.status + "). The health endpoint must answer directly.",
+    );
+  }
 
   if (input.status === 401 || input.status === 403) {
     return input.bypassConfigured
