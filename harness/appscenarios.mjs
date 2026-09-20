@@ -5,6 +5,8 @@ const REPO = join(HERE, "..");
 const { client, raw, UID } = await import(join(HERE, "appcheck.mjs"));
 const { commitGoalSave, ScheduleSaveError } =
   await import(join(REPO, "app/lib/schedule-commit-client.ts"));
+const { buildForwardInsertRow } =
+  await import(join(REPO, "app/lib/phase2-insert-rows.ts"));
 
 const G = "aaaaaaaa-0000-4000-8000-0000000000cc";
 const C = "cccccccc-0000-4000-8000-000000000001";
@@ -28,8 +30,15 @@ const snapshot = async () => (await raw(
   `select md5(string_agg(to_jsonb(l)::text, chr(10) order by l.id)) from lessons l where l.curriculum_goal_id='${G}';`)).out;
 const count = async () => (await raw(`select count(*) from lessons where curriculum_goal_id='${G}';`)).out;
 
-const row = (id, n, d) => ({ id, child_id: C, curriculum_goal_id: G, title: `L${n} fresh`,
-  date: d, scheduled_date: d, lesson_number: n, queue_position: n, scheduled_source: "wizard_create" });
+// The SHIPPED serializer, not a hand-rolled shape. This harness previously
+// built insert rows from the allowlist's own key names, so it validated the
+// function against the same assumption the function was written from and
+// missed both the user_id and the id defects. It now sends exactly what the
+// page sends. The id is no longer supplied at all: the database assigns it.
+const row = (n, d) => buildForwardInsertRow({
+  childId: C, goalId: G, lessonNumber: n, queuePosition: n,
+  curriculumName: `L${n} fresh`, date: d,
+});
 
 // 1 ── a successful save
 await reset();
@@ -40,7 +49,7 @@ try {
     lessonUpdates: [{ lesson_id: "cafe0000-0000-4000-8000-000000000003", queue_pinned: false,
                       scheduled_date: "2027-02-01", date: "2027-02-01", scheduled_source: "wizard_create" }],
     deleteIds: ["cafe0000-0000-4000-8000-000000000004"],
-    insertRows: [row("cafe0000-0000-4000-8000-0000000000a4", 4, "2027-02-02")],
+    insertRows: [row(4, "2027-02-02")],
     idempotencyKey: "app-scenario-save-001",
   });
   r.status === "committed" && r.deleted === 1 && r.inserted === 1 && r.updated === 1
@@ -55,7 +64,7 @@ try {
     lessonUpdates: [{ lesson_id: "cafe0000-0000-4000-8000-000000000003", queue_pinned: false,
                       scheduled_date: "2027-02-01", date: "2027-02-01", scheduled_source: "wizard_create" }],
     deleteIds: ["cafe0000-0000-4000-8000-000000000004"],
-    insertRows: [row("cafe0000-0000-4000-8000-0000000000a4", 4, "2027-02-02")],
+    insertRows: [row(4, "2027-02-02")],
     idempotencyKey: "app-scenario-save-001",
   });
   r.status === "already_committed"
@@ -94,7 +103,7 @@ await reset();
     p_delete_ids: ["cafe0000-0000-4000-8000-000000000004"],
     // lesson_number 3 is ALREADY taken by a row we are NOT deleting: this gets
     // past prevalidation and violates lessons_goal_lesson_unique at the insert
-    p_insert_rows: [row("cafe0000-0000-4000-8000-0000000000f4", 3, "2029-02-02")],
+    p_insert_rows: [row(3, "2029-02-02")],
     p_pointers: { [G]: 7 },
     p_idempotency_key: "late-failure-key-003" });
 
@@ -189,7 +198,7 @@ for (const [label, payload, want] of [
   ["a repeated delete id", { p_delete_ids: ["cafe0000-0000-4000-8000-000000000004","cafe0000-0000-4000-8000-000000000004"] }, /repeats an id/],
   ["a repeated lesson_id in updates", { p_lesson_updates: [{lesson_id:"cafe0000-0000-4000-8000-000000000003",queue_pinned:false},{lesson_id:"cafe0000-0000-4000-8000-000000000003",date:"2027-01-01"}] }, /repeat a lesson_id/],
   ["an unknown update key", { p_lesson_updates: [{lesson_id:"cafe0000-0000-4000-8000-000000000003", completed: true}] }, /unknown key/],
-  ["two inserts claiming one slot", { p_insert_rows: [row("cafe0000-0000-4000-8000-0000000000d1",9,"2027-04-01"), row("cafe0000-0000-4000-8000-0000000000d2",9,"2027-04-02")] }, /same queue slot/],
+  ["two inserts claiming one slot", { p_insert_rows: [row(9,"2027-04-01"), row(9,"2027-04-02")] }, /same queue slot/],
 ]) {
   const seal = await client.rpc("schedule_seal_proposal", { p_action: "rebuild", p_goal_ids: [G], p_placements: [] });
   const c = await client.rpc("schedule_commit", Object.assign({
@@ -205,7 +214,7 @@ for (const [label, payload, want] of [
 await reset();
 {
   const seal = await client.rpc("schedule_seal_proposal", { p_action: "rebuild", p_goal_ids: [G], p_placements: [] });
-  const sneak = row("cafe0000-0000-4000-8000-0000000000e9", 9, "2027-04-09");
+  const sneak = row(9, "2027-04-09");
   sneak.child_id = "cccccccc-0000-4000-8000-000000000002";   // the other account's child
   const c = await client.rpc("schedule_commit", {
     p_proposal_id: seal.data.preview_id, p_goal_updates: {}, p_lesson_updates: [],
@@ -241,13 +250,13 @@ await reset();
       p_delete_ids: [], p_insert_rows: [sneak], p_pointers: {},
       p_idempotency_key: "cont-" + Math.random().toString(36).slice(2, 12) });
   };
-  const other = row("cafe0000-0000-4000-8000-0000000000c1", 11, "2027-06-01");
+  const other = row(11, "2027-06-01");
   other.continues_lesson_id = "dddddddd-0000-4000-8000-0000000000e2";  // the OTHER family's lesson
   const r1 = await mk(other);
   r1.error ? ok(`a continuation pointing at another family's lesson is refused: "${r1.error.message.slice(0,46)}…"`)
            : bad("a row was linked to another family's lesson (ON DELETE CASCADE runs both ways)");
 
-  const missing = row("cafe0000-0000-4000-8000-0000000000c2", 12, "2027-06-02");
+  const missing = row(12, "2027-06-02");
   missing.continues_lesson_id = "00000000-0000-4000-8000-00000000dead";
   const r2 = await mk(missing);
   r2.error ? ok("a continuation pointing at a lesson that does not exist is refused")
@@ -255,7 +264,7 @@ await reset();
 
   // DECIDED: same-account, outside the proposal's goals, is ALLOWED. A
   // continuation legitimately spans curricula, and the target is never written.
-  const crossGoal = row("cafe0000-0000-4000-8000-0000000000c3", 13, "2027-06-03");
+  const crossGoal = row(13, "2027-06-03");
   crossGoal.continues_lesson_id = "dddddddd-0000-4000-8000-0000000000e1";  // own row, other goal
   const r3 = await mk(crossGoal);
   r3.error ? bad("a same-account cross-curriculum continuation was refused", String(r3.error.message).slice(0,90))
@@ -266,7 +275,7 @@ await reset();
 await reset();
 for (const [label, payload, want] of [
   ["an unknown key in the goal updates", { p_goal_updates: { [G]: { total_lessns: 9 } } }, /unknown key\(s\) in the goal updates/],
-  ["an unknown key in an inserted row", { p_insert_rows: [Object.assign(row("cafe0000-0000-4000-8000-0000000000c8", 14, "2027-06-08"), { titel: "typo" })] }, /unknown key\(s\) in the inserted rows/],
+  ["an unknown key in an inserted row", { p_insert_rows: [Object.assign(row(14, "2027-06-08"), { titel: "typo" })] }, /unknown key\(s\) in the inserted rows/],
 ]) {
   const seal = await client.rpc("schedule_seal_proposal", { p_action: "rebuild", p_goal_ids: [G], p_placements: [] });
   const c = await client.rpc("schedule_commit", Object.assign({
@@ -277,6 +286,68 @@ for (const [label, payload, want] of [
     ? ok(`refused: ${label}`)
     : bad(`a typo was silently accepted: ${label}`, JSON.stringify(c).slice(0, 120));
 }
+
+// ── server-owned identity: id and user_id both belong to the database ───────
+// Added 2026-09-20 after both were found only by the real client on staging.
+
+const txnCount = async () =>
+  Number((await raw(`select count(*) from schedule_transactions where user_id='${UID}';`)).out.trim());
+
+await reset();
+{
+  const r = await commitGoalSave(client, {
+    goalId: G,
+    insertRows: [row(41, "2027-09-01"), row(42, "2027-09-02")],
+    idempotencyKey: "app-dbids-001",
+  });
+  r.inserted === 2
+    ? ok("the real builder payload -- no id, no user_id -- commits")
+    : bad(`the real builder payload did not commit (inserted=${r.inserted})`);
+
+  const written = (await raw(
+    `select id::text || ' ' || user_id::text from lessons
+      where curriculum_goal_id='${G}' and lesson_number in (41,42) order by lesson_number;`))
+    .out.trim().split("\n").filter(Boolean).map((l) => l.trim().split(/\s+/));
+  written.length === 2
+    ? ok("both rows are present after the commit")
+    : bad(`expected 2 written rows, found ${written.length}`);
+  written.every(([id]) => id && id.length === 36)
+    ? ok("every inserted lesson carries a database-generated id")
+    : bad("an inserted lesson has no id");
+  new Set(written.map(([id]) => id)).size === written.length
+    ? ok("the generated ids are distinct")
+    : bad("the database generated a duplicate id");
+  written.every(([, uid]) => uid === UID)
+    ? ok("user_id came from auth.uid(), not from the payload")
+    : bad(`user_id is not the caller: ${written.map(([, u]) => u).join(",")}`);
+}
+
+// A payload that supplies an id is refused, exactly as user_id is, and neither
+// writes anything.
+for (const [label, extra] of [
+  ["an insert row supplying its own id", { id: "cafe0000-0000-4000-8000-0000000000ff" }],
+  ["an insert row supplying user_id", { user_id: UID }],
+]) {
+  await reset();
+  const lessonsBefore = Number((await count()).trim());
+  const txnsBefore = await txnCount();
+  const seal = await client.rpc("schedule_seal_proposal", {
+    p_action: "rebuild", p_goal_ids: [G], p_placements: [],
+    p_reset_parent_placements: false, p_become_authoritative: false });
+  const c = await client.rpc("schedule_commit", {
+    p_proposal_id: seal.data.preview_id, p_goal_updates: {}, p_lesson_updates: [],
+    p_delete_ids: [], p_insert_rows: [{ ...row(51, "2027-10-01"), ...extra }], p_pointers: {},
+    p_idempotency_key: `app-owned-${label.length}` });
+  c.error && /unknown key/.test(c.error.message)
+    ? ok(`${label} is refused: "${c.error.message.slice(0, 44)}..."`)
+    : bad(`${label} was NOT refused (${c.error ? c.error.message : "no error"})`);
+  const lessonsAfter = Number((await count()).trim());
+  const txnsAfter = await txnCount();
+  lessonsAfter === lessonsBefore && txnsAfter === txnsBefore
+    ? ok("  and it wrote no lesson and no schedule_transaction")
+    : bad(`  but it changed rows: lessons ${lessonsBefore}->${lessonsAfter}, txns ${txnsBefore}->${txnsAfter}`);
+}
+
 
 console.log(`\n  ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
