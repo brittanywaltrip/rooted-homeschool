@@ -127,6 +127,25 @@ async function main() {
   }
   say(`  NEXT_PUBLIC_SUPABASE_URL: project ${urlRef}`);
 
+  // SUPABASE_URL is a server-side fallback in app/api/health, e2e/global-setup
+  // and scripts/cleanup-bunched-lessons. When it is set it must agree: a
+  // NEXT_PUBLIC pointed at staging and a SUPABASE_URL pointed at production is
+  // a working app with a server half talking to real customers.
+  const serverUrl = process.env.SUPABASE_URL;
+  if (serverUrl) {
+    const serverRef = projectRefFromSupabaseUrl(serverUrl);
+    if (serverRef !== urlRef) {
+      fail(
+        "server_url_disagrees",
+        `SUPABASE_URL names project ${serverRef ?? "(unresolvable)"} but ` +
+          `NEXT_PUBLIC_SUPABASE_URL names ${urlRef}. Both halves must agree.`,
+      );
+    }
+    say(`  SUPABASE_URL: project ${serverRef} (agrees)`);
+  } else {
+    say("  SUPABASE_URL: not set (optional; the public URL is authoritative)");
+  }
+
   let binding;
   try {
     binding = assertCredentialsBindToProject({
