@@ -136,13 +136,39 @@ test('a WRONG id on a known project is rejected', () => {
 })
 
 test('a WRONG email is rejected even when the id is correct', () => {
+  for (const [label, id, project] of [
+    ['staging', STAGING_ACCOUNT.id, STAGING],
+    ['production', PROD_ACCOUNT.id, PROD],
+  ] as const) {
+    assert.throws(
+      () => assertIsTestAccount(id, 'unit', { ...project, email: 'someone@example.com' }),
+      /resolved from different sources/,
+      `${label}: a foreign address must be rejected`,
+    )
+  }
+})
+
+test('the two projects share one address, so only the id separates them', () => {
+  // Deliberate, and asserted so nobody "fixes" the duplicate into a false
+  // distinction. PLAYWRIGHT_EMAIL is the same string on both projects, which
+  // means the email check CANNOT catch production/staging confusion and is not
+  // asked to. Three other things do, and all of them are derived rather than
+  // configured: the pinned id differs per project, the project ref is read
+  // from the connection target, and lib/env-identity refuses a ref that is not
+  // the one ROOTED_EXPECTED_SUPABASE_REF names.
+  assert.equal(STAGING_ACCOUNT.email, PROD_ACCOUNT.email)
+  assert.notEqual(STAGING_ACCOUNT.id, PROD_ACCOUNT.id)
+
+  // The case this replaces: production credentials against the staging project.
+  // It is caught on the id, and the message says which project the id belongs
+  // to rather than the useless "not the e2e test account".
   assert.throws(
-    () => assertIsTestAccount(STAGING_ACCOUNT.id, 'unit', { ...STAGING, email: PROD_ACCOUNT.email }),
-    /resolved from different sources/,
+    () => assertIsTestAccount(PROD_ACCOUNT.id, 'unit', { ...STAGING, email: PROD_ACCOUNT.email }),
+    /is the e2e account for project gvkbegvvmhcrmxdorctk/,
   )
   assert.throws(
-    () => assertIsTestAccount(PROD_ACCOUNT.id, 'unit', { ...PROD, email: 'someone@example.com' }),
-    /resolved from different sources/,
+    () => assertIsTestAccount(STAGING_ACCOUNT.id, 'unit', { ...PROD, email: STAGING_ACCOUNT.email }),
+    /is the e2e account for project cvgqovweybggrqakhdtd/,
   )
 })
 

@@ -9,16 +9,25 @@ import path from 'node:path';
 //
 // That happened on 2026-09-20: global-setup signed in to the rooted-staging
 // custom environment and wrote storageState with cookies scoped to THAT host,
-// while the specs loaded this hardcoded git-staging URL, where those cookies do
+// while the specs loaded a hardcoded git-staging URL, where those cookies do
 // not apply. 24 specs failed as "element not found" because they were never
 // signed in, and the deployment they were hitting is backed by the PRODUCTION
 // Supabase project. Nothing was written there -- the session never applied and
 // service-role writes use their own key -- but the suite was pointed somewhere
 // nobody intended.
+//
+// The default is the rooted-staging CUSTOM ENVIRONMENT host, not the
+// `-git-staging-` branch alias. The branch alias is a Preview deployment: it
+// is built with the Preview environment's variables, and it only moves when
+// something is pushed to the `staging` branch, so it can serve a build that is
+// weeks old while looking current. The custom-environment host is the one that
+// is rebuilt for this work and is backed by the rooted-staging Supabase
+// project. Both are behind Vercel Authentication; global-setup installs the
+// bypass cookie for whichever host it is given.
 const BASE_URL =
   process.env.TEST_BASE_URL ||
   process.env.PLAYWRIGHT_BASE_URL ||
-  'https://rooted-homeschool-git-staging-brittanywaltrips-projects.vercel.app';
+  'https://rooted-homeschool-env-rooted-staging-brittanywaltrips-projects.vercel.app';
 
 // Fail closed if the two are set and disagree, rather than silently preferring
 // one. A disagreement means somebody believes the suite is testing something it

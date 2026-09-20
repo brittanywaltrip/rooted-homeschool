@@ -46,12 +46,21 @@ export const E2E_ACCOUNTS: Record<string, { id: string; email: string }> = {
     id: 'a7011926-149e-42d1-9dde-e55b16059859',
     email: 'rooted.e2e@rootedhomeschoolapp.com',
   },
-  // rooted-staging. Synthetic project, catalog-cloned 2026-09; every account on
-  // it is @rooted-staging.test or @example.invalid and it has never held a real
-  // family.
+  // rooted-staging. Synthetic project, catalog-cloned 2026-09; it has never
+  // held a real family.
+  //
+  // Provisioned 2026-09-20 as a DEDICATED account rather than reusing one of
+  // the seeded @rooted-staging.test families. family-a in particular carries
+  // the Leslie-shaped report fixture, and a suite that re-spreads curricula
+  // would quietly rewrite the fixture other work reads.
+  //
+  // It carries the SAME address as the production account above, deliberately.
+  // The address is therefore NOT what tells the two projects apart: the project
+  // ref is, and that is read from the connection target rather than from
+  // configuration. A run pointed at the wrong project fails on the id.
   cvgqovweybggrqakhdtd: {
-    id: '11111111-1111-4111-8111-000000000002',
-    email: 'e2e@rooted-staging.test',
+    id: '1954d827-ac7d-41e8-aeef-f8e07d4337a4',
+    email: 'rooted.e2e@rootedhomeschoolapp.com',
   },
 };
 

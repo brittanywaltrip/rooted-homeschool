@@ -26,7 +26,7 @@ jobs:
       # follow a redirect to another origin.
       - name: Wait for, and verify, the staging deployment of this commit
         env:
-          PLAYWRIGHT_BASE_URL: https://rooted-homeschool-git-staging-brittanywaltrips-projects.vercel.app
+          PLAYWRIGHT_BASE_URL: https://rooted-homeschool-env-rooted-staging-brittanywaltrips-projects.vercel.app
           BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           EXPECTED_REF: cvgqovweybggrqakhdtd
         run: |
@@ -58,7 +58,7 @@ jobs:
 
       - name: Run smoke tests
         env:
-          PLAYWRIGHT_BASE_URL: https://rooted-homeschool-git-staging-brittanywaltrips-projects.vercel.app
+          PLAYWRIGHT_BASE_URL: https://rooted-homeschool-env-rooted-staging-brittanywaltrips-projects.vercel.app
           # Staging-only secrets. The production-named secrets are deliberately
           # NOT referenced, so re-adding them cannot silently re-point this job.
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
