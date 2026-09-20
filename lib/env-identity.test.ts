@@ -11,6 +11,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
+  supabaseKeyIdentity,
+  keyRequiresLiveProbe,
+  assertCredentialsBindToProject,
   PRODUCTION_PROJECT_REF,
   RECOVERY_PROJECT_REF,
   projectRefFromSupabaseUrl,
@@ -210,4 +213,114 @@ test("the env badge is hidden in production", () => {
   const src = readFileSync(resolve(process.cwd(), "app/components/EnvBadge.tsx"), "utf-8");
   assert.ok(/env === "production"\s*\)\s*return null/.test(src),
     "the badge would render for real families");
+});
+
+// --- credential binding (added 2026-09-19, Stage 2 preflight) ---------------
+// These exist because checking the URL alone is not enough: the incident that
+// prompted them was a correct-looking environment whose URL was a custom
+// domain resolving to production. A key carries its own project ref, so it can
+// disagree with the URL, and that disagreement is the bug.
+
+const REF_STAGING = "cvgqovweybggrqakhdtd";
+
+function jwtWith(claims: Record<string, unknown>): string {
+  const b64 = (o: unknown) =>
+    Buffer.from(JSON.stringify(o)).toString("base64url");
+  return `${b64({ alg: "HS256", typ: "JWT" })}.${b64(claims)}.sig`;
+}
+
+test("supabaseKeyIdentity reads ref and role from a legacy JWT key", () => {
+  const id = supabaseKeyIdentity(jwtWith({ iss: "supabase", ref: REF_STAGING, role: "anon" }));
+  assert.deepEqual(id, { ref: REF_STAGING, role: "anon" });
+});
+
+test("supabaseKeyIdentity returns null for an opaque sb_ key rather than guessing", () => {
+  assert.equal(supabaseKeyIdentity("sb_publishable_cGilYdKx8nTvekicqpU8Ag_9eY_XFNq"), null);
+  assert.equal(keyRequiresLiveProbe("sb_publishable_cGilYdKx8nTvekicqpU8Ag_9eY_XFNq"), true);
+});
+
+test("supabaseKeyIdentity returns null, never throws, on malformed input", () => {
+  for (const bad of ["", "a.b", "a.b.c", "x.!!!.z"]) {
+    assert.equal(supabaseKeyIdentity(bad), null);
+  }
+});
+
+test("a key from another project is refused even when the URL is right", () => {
+  assert.throws(
+    () =>
+      assertCredentialsBindToProject({
+        supabaseUrl: `https://${REF_STAGING}.supabase.co`,
+        anonKey: jwtWith({ ref: PRODUCTION_PROJECT_REF, role: "anon" }),
+        serviceRoleKey: jwtWith({ ref: REF_STAGING, role: "service_role" }),
+        expectedRef: REF_STAGING,
+      }),
+    (e: unknown) => (e as EnvironmentIdentityError).code === "credential_ref_mismatch",
+  );
+});
+
+test("an anon key in the service-role slot is a privilege error, not a typo", () => {
+  assert.throws(
+    () =>
+      assertCredentialsBindToProject({
+        supabaseUrl: `https://${REF_STAGING}.supabase.co`,
+        anonKey: jwtWith({ ref: REF_STAGING, role: "anon" }),
+        serviceRoleKey: jwtWith({ ref: REF_STAGING, role: "anon" }),
+        expectedRef: REF_STAGING,
+      }),
+    (e: unknown) => (e as EnvironmentIdentityError).code === "credential_role_mismatch",
+  );
+});
+
+test("a missing credential fails closed", () => {
+  assert.throws(
+    () =>
+      assertCredentialsBindToProject({
+        supabaseUrl: `https://${REF_STAGING}.supabase.co`,
+        anonKey: jwtWith({ ref: REF_STAGING, role: "anon" }),
+        serviceRoleKey: undefined,
+        expectedRef: REF_STAGING,
+      }),
+    (e: unknown) => (e as EnvironmentIdentityError).code === "credential_missing",
+  );
+});
+
+test("the production custom domain is refused as an unresolvable ref", () => {
+  assert.throws(
+    () =>
+      assertCredentialsBindToProject({
+        supabaseUrl: "https://auth.rootedhomeschoolapp.com",
+        anonKey: jwtWith({ ref: REF_STAGING, role: "anon" }),
+        serviceRoleKey: jwtWith({ ref: REF_STAGING, role: "service_role" }),
+        expectedRef: REF_STAGING,
+      }),
+    (e: unknown) => (e as EnvironmentIdentityError).code === "url_ref_mismatch",
+  );
+});
+
+test("matching url and both keys passes, and reports what still needs a probe", () => {
+  const r = assertCredentialsBindToProject({
+    supabaseUrl: `https://${REF_STAGING}.supabase.co`,
+    anonKey: "sb_publishable_cGilYdKx8nTvekicqpU8Ag_9eY_XFNq",
+    serviceRoleKey: jwtWith({ ref: REF_STAGING, role: "service_role" }),
+    expectedRef: REF_STAGING,
+  });
+  assert.deepEqual(r.verifiedOffline, ["SUPABASE_SERVICE_ROLE_KEY"]);
+  assert.deepEqual(r.needsLiveProbe, ["NEXT_PUBLIC_SUPABASE_ANON_KEY"]);
+});
+
+test("no error message from a binding failure contains key material", () => {
+  const secret = jwtWith({ ref: PRODUCTION_PROJECT_REF, role: "anon" });
+  try {
+    assertCredentialsBindToProject({
+      supabaseUrl: `https://${REF_STAGING}.supabase.co`,
+      anonKey: secret,
+      serviceRoleKey: jwtWith({ ref: REF_STAGING, role: "service_role" }),
+      expectedRef: REF_STAGING,
+    });
+    assert.fail("expected a refusal");
+  } catch (e) {
+    const msg = (e as Error).message;
+    assert.ok(!msg.includes(secret), "message must not contain the key");
+    assert.ok(!msg.includes("eyJ"), "message must not contain any JWT fragment");
+  }
 });

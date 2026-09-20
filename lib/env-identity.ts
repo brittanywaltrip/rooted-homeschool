@@ -196,3 +196,119 @@ export function publicEnvIdentity(input: EnvIdentityInput): {
     };
   }
 }
+
+/**
+ * What a Supabase API key claims about itself.
+ *
+ * `ref` is the project the key was minted for; `role` is anon or service_role.
+ * Both are claims INSIDE the key, so reading them costs no network call and
+ * cannot be spoofed by a misconfigured URL: this is what catches "right URL,
+ * wrong project's key" and "anon key pasted into the service-role slot".
+ */
+export interface SupabaseKeyIdentity {
+  ref: string;
+  role: string;
+}
+
+/**
+ * Read the ref and role out of a Supabase key WITHOUT logging or returning any
+ * key material.
+ *
+ * Legacy keys are JWTs whose payload carries {iss, ref, role}. Newer keys
+ * (sb_publishable_*, sb_secret_*) are opaque: they carry no ref at all, so the
+ * honest answer is null and the caller must verify them over the network
+ * instead. Returning null never means "fine", it means "not knowable here".
+ *
+ * Every failure path returns null rather than throwing, because a throw
+ * carrying a malformed key in its message is exactly the leak this avoids.
+ */
+export function supabaseKeyIdentity(key: string | undefined | null): SupabaseKeyIdentity | null {
+  if (!key) return null;
+  const parts = key.split(".");
+  if (parts.length !== 3) return null; // opaque sb_* key, or not a key at all
+  try {
+    const pad = parts[1].length % 4 === 0 ? "" : "=".repeat(4 - (parts[1].length % 4));
+    const json = Buffer.from(parts[1].replace(/-/g, "+").replace(/_/g, "/") + pad, "base64").toString("utf8");
+    const claims = JSON.parse(json) as { ref?: unknown; role?: unknown };
+    if (typeof claims.ref !== "string" || typeof claims.role !== "string") return null;
+    return { ref: claims.ref.toLowerCase(), role: claims.role };
+  } catch {
+    return null;
+  }
+}
+
+/** True when a key is opaque (sb_publishable_/sb_secret_) and must be probed live. */
+export function keyRequiresLiveProbe(key: string | undefined | null): boolean {
+  return Boolean(key) && supabaseKeyIdentity(key) === null;
+}
+
+export interface CredentialBindingInput {
+  supabaseUrl?: string | null;
+  anonKey?: string | null;
+  serviceRoleKey?: string | null;
+  expectedRef: string;
+}
+
+export interface CredentialBindingResult {
+  /** Names of credentials proven to belong to expectedRef offline. */
+  verifiedOffline: string[];
+  /** Names of credentials that are opaque and still need a live probe. */
+  needsLiveProbe: string[];
+}
+
+/**
+ * Check that the URL and BOTH keys name the same project.
+ *
+ * Throws on the first disagreement. Messages name the credential and the refs
+ * involved; refs are not secrets, key material never appears.
+ */
+export function assertCredentialsBindToProject(
+  input: CredentialBindingInput,
+): CredentialBindingResult {
+  const expectedRef = input.expectedRef.trim().toLowerCase();
+  const urlRef = projectRefFromSupabaseUrl(input.supabaseUrl);
+  if (urlRef !== expectedRef) {
+    throw new EnvironmentIdentityError(
+      "url_ref_mismatch",
+      `Supabase URL names project ${urlRef ?? "(unresolvable)"} but ${expectedRef} was required.`,
+    );
+  }
+
+  const verifiedOffline: string[] = [];
+  const needsLiveProbe: string[] = [];
+
+  const checks: Array<{ name: string; key: string | null | undefined; role: string }> = [
+    { name: "NEXT_PUBLIC_SUPABASE_ANON_KEY", key: input.anonKey, role: "anon" },
+    { name: "SUPABASE_SERVICE_ROLE_KEY", key: input.serviceRoleKey, role: "service_role" },
+  ];
+
+  for (const c of checks) {
+    if (!c.key) {
+      throw new EnvironmentIdentityError(
+        "credential_missing",
+        `${c.name} is not set. Refusing to continue: an unset credential fails closed.`,
+      );
+    }
+    const id = supabaseKeyIdentity(c.key);
+    if (id === null) {
+      needsLiveProbe.push(c.name);
+      continue;
+    }
+    if (id.ref !== expectedRef) {
+      throw new EnvironmentIdentityError(
+        "credential_ref_mismatch",
+        `${c.name} belongs to project ${id.ref}, not ${expectedRef}. Refusing to continue.`,
+      );
+    }
+    if (id.role !== c.role) {
+      throw new EnvironmentIdentityError(
+        "credential_role_mismatch",
+        `${c.name} carries role ${id.role}, expected ${c.role}. ` +
+          "A key in the wrong slot is a privilege error, not a typo.",
+      );
+    }
+    verifiedOffline.push(c.name);
+  }
+
+  return { verifiedOffline, needsLiveProbe };
+}
