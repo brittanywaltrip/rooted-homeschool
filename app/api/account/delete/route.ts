@@ -10,10 +10,26 @@ import {
   unremovedCount,
 } from "@/lib/storage-cleanup";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2026-02-25.clover",
-});
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy, not module scope. Constructing at import turns a missing credential
+// into a route-load crash that fails `next build` during page-data collection,
+// which is what stopped the rooted-staging deploy: that environment has no
+// Resend or Stripe key by design. Same pattern as create-checkout-session.
+let _stripe: Stripe | null = null;
+function stripeClient(): Stripe {
+  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: "2026-02-25.clover",
+  });
+  return _stripe;
+}
+// Lazy, not module scope. Constructing at import turns a missing credential
+// into a route-load crash that fails `next build` during page-data collection,
+// which is what stopped the rooted-staging deploy: that environment has no
+// Resend or Stripe key by design. Same pattern as create-checkout-session.
+let _resend: Resend | null = null;
+function resendClient(): Resend {
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
+}
 
 export async function DELETE(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace("Bearer ", "");
@@ -216,12 +232,12 @@ export async function DELETE(req: NextRequest) {
     // ── 9. Cancel Stripe subscription ───────────────────────────
     if (profile?.stripe_customer_id) {
       try {
-        const subscriptions = await stripe.subscriptions.list({
+        const subscriptions = await stripeClient().subscriptions.list({
           customer: profile.stripe_customer_id,
           status: "active",
         });
         for (const sub of subscriptions.data) {
-          await stripe.subscriptions.cancel(sub.id);
+          await stripeClient().subscriptions.cancel(sub.id);
         }
       } catch {
         // Non-critical — subscription may already be cancelled
@@ -257,7 +273,7 @@ export async function DELETE(req: NextRequest) {
     // Skipped on a repeat run: the first one already sent this.
     if (userEmail && !alreadyLogged) {
       try {
-        await resend.emails.send({
+        await resendClient().emails.send({
           from: "Brittany from Rooted <hello@rootedhomeschoolapp.com>",
           to: userEmail,
           subject: "Your Rooted account has been deleted",
