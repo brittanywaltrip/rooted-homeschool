@@ -9,7 +9,15 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+// Lazy, not module scope. Constructing at import turns a missing credential
+// into a route-load crash that fails `next build` during page-data collection,
+// which is what stopped the rooted-staging deploy: that environment has no
+// Resend or Stripe key by design. Same pattern as create-checkout-session.
+let _stripe: Stripe | null = null;
+function stripeClient(): Stripe {
+  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+  return _stripe;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -155,7 +163,7 @@ export async function GET(req: Request) {
   while (hasMore) {
     const params: Stripe.ChargeListParams = { limit: 100 };
     if (startingAfter) params.starting_after = startingAfter;
-    const batch = await stripe.charges.list(params);
+    const batch = await stripeClient().charges.list(params);
     charges.push(...batch.data);
     hasMore = batch.has_more;
     if (batch.data.length > 0) startingAfter = batch.data[batch.data.length - 1].id;
@@ -172,7 +180,7 @@ export async function GET(req: Request) {
     if (!chargeAny.invoice || charge.status !== "succeeded") continue;
 
     try {
-      const invoice = await stripe.invoices.retrieve(chargeAny.invoice as string);
+      const invoice = await stripeClient().invoices.retrieve(chargeAny.invoice as string);
       const invoiceAny = invoice as any;
       const couponId = invoiceAny.discount?.coupon?.id
         ?? invoiceAny.discounts?.[0]?.coupon?.id
