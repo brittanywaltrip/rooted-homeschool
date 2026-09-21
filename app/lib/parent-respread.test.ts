@@ -380,3 +380,30 @@ test('every Plan undo that restores a snapshotted source maps it', () => {
   assert.ok(!/\w+\.scheduled_source\s*=\s*[a-zA-Z_]+\.scheduled_source\b/.test(src))
   assert.ok((src.match(/sourceForUndoRestore\(/g) ?? []).length >= 3)
 })
+
+test('every Plan write that restores a snapshotted source is confirmed', () => {
+  // supabase-js resolves on failure, so an undo that does not ask for the
+  // changed rows back cannot know it failed. Each restoring update must end in
+  // .select("id") and its result must be checked.
+  const src = stripComments(read('app/components/PlanV2/index.tsx'))
+  let at = src.indexOf('sourceForUndoRestore(')
+  let seen = 0
+  while (at !== -1) {
+    const updateAt = src.lastIndexOf('.update(', at)
+    const tail = src.slice(at, at + 900)
+    const lineStart = src.lastIndexOf('\n', at)
+    const isHelperDecl = /export function sourceForUndoRestore/.test(src.slice(lineStart, at + 40))
+    if (!isHelperDecl && updateAt !== -1) {
+      seen++
+      assert.ok(/\.select\("id"\)/.test(tail), `restore near offset ${at} is not confirmed with .select("id")`)
+    }
+    at = src.indexOf('sourceForUndoRestore(', at + 1)
+  }
+  assert.ok(seen >= 3, `expected at least three restoring writes, saw ${seen}`)
+})
+
+test('the edit-date undo no longer swallows its write result', () => {
+  const src = stripComments(read('app/components/PlanV2/index.tsx'))
+  assert.ok(!/await supabase\.from\("lessons"\)\.update\(undoUpdate\)\.eq\("id", lessonId\);\s*\}\s*catch/.test(src))
+  assert.ok(/\.update\(undoUpdate\)\s*\.eq\("id", lessonId\)\s*\.select\("id"\)/.test(src))
+})

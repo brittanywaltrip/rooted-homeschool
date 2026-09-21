@@ -1822,11 +1822,14 @@ export default function PlanV2() {
           undoUpdate.scheduled_source = sourceForUndoRestore(priorPin.scheduled_source);
         }
 
-        try {
-          await supabase.from("lessons").update(undoUpdate).eq("id", lessonId);
-        } catch {
-          /* best-effort; reload reconciles */
-        }
+        // supabase-js resolves on failure, so check the result: a row the
+        // database did not change back is missing from `data`.
+        const { data: undone, error: undoErr } = await supabase
+          .from("lessons")
+          .update(undoUpdate)
+          .eq("id", lessonId)
+          .select("id");
+        if (undoErr || (undone?.length ?? 0) !== 1) flashNotice(UNDO_INCOMPLETE_NOTICE);
         reload();
         if (priorPin) reloadPins();
       },
@@ -3948,10 +3951,10 @@ export default function PlanV2() {
             }),
           );
           hapticTap(20);
-          await Promise.allSettled(
-            succeededIds.map((id) => {
+          const undoResults = await Promise.allSettled(
+            succeededIds.map(async (id) => {
               const snap = snapById.get(id);
-              return supabase
+              const { data, error } = await supabase
                 .from("lessons")
                 .update(
                   snap
@@ -3966,9 +3969,12 @@ export default function PlanV2() {
                       }
                     : { completed: false, completed_at: null, is_backfill: false, queue_pinned: false },
                 )
-                .eq("id", id);
+                .eq("id", id)
+                .select("id");
+              return !error && (data?.length ?? 0) === 1;
             }),
           );
+          const undoFailed = undoResults.filter((r) => r.status !== "fulfilled" || !r.value).length;
           // Recompute after undo so current_lesson reflects the rolled-back
           // state. completed_at on the goal is intentionally never cleared
           // (historical record of first completion).
@@ -3977,6 +3983,9 @@ export default function PlanV2() {
               Array.from(affectedGoalIds).map((gid) => recomputeCurrentLesson(supabase, gid)),
             );
           }
+          // The local patch above is optimistic; reload() replaces it with
+          // what the database holds, and the notice says why they differ.
+          if (undoFailed > 0) flashNotice(UNDO_INCOMPLETE_NOTICE);
           reload();
         },
       });

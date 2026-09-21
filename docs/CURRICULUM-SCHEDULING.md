@@ -1216,7 +1216,7 @@ Auto-scheduling never bunches; only the user can.
   written (a read failure or the per-day cap writes nothing), each row's date
   and its unpin go in one update under the parent's source, every write is
   confirmed with `.select("id")`, a partial failure puts back what it moved,
-  and the toast reports what actually landed. The recalibration's step 4 uses
+  and the toast reports what actually landed. The recalibration's Phase 5 (re-dating the upcoming lessons) uses
   the same parent writer. The one projector, the one cap rule
   (`projectionOverCap`) and the one write-set rule (`planProjectedDateWrites`)
   are shared with the automatic path, so this is not a second scheduler
