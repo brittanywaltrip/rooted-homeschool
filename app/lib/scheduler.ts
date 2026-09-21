@@ -218,12 +218,18 @@ export interface QueueResyncRow {
   skipped?: boolean | null;
 }
 
-export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
-  supabase: SupabaseClient,
+/**
+ * Which rows the projector should re-date, grouped by their new date.
+ *
+ * Shared by the automatic cache sync and the parent-requested recalibration
+ * write, so the two can never disagree about which rows are the projector's to
+ * move. Pure: no I/O.
+ */
+export function planProjectedDateWrites<T extends QueueResyncRow>(
   rows: T[],
   projDateByKey: Map<string, string>,
   rowKey: (r: T) => string | null,
-): Promise<void> {
+): Map<string, string[]> {
   const byDate = new Map<string, string[]>();
   for (const r of rows) {
     if (r.completed) continue;
@@ -244,6 +250,30 @@ export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
     list.push(r.id);
     byDate.set(projDate, list);
   }
+  return byDate;
+}
+
+/**
+ * The AUTOMATIC cache sync: no person asked for these writes.
+ *
+ * The only writer of scheduled_source = 'queue_resync'. Parent-requested
+ * re-spreads must use reprojectGoalForParent or writeParentProjectedDates
+ * instead, which name their own source and confirm what landed.
+ */
+export async function syncProjectedScheduledDates<T extends QueueResyncRow>(
+  supabase: SupabaseClient,
+  rows: T[],
+  projDateByKey: Map<string, string>,
+  rowKey: (r: T) => string | null,
+): Promise<void> {
+  // The gate lives HERE, not only in the callers. It used to be checked only
+  // by reconcileGoalScheduleCache, so any other caller rewrote dates with the
+  // switch off. NEXT_PUBLIC_ is inlined at build time, so this binds a FRESH
+  // bundle and cannot reach JavaScript already running in an old tab; the
+  // lessons_block_stale_resync trigger is the containment for those.
+  if (!isSchedulerSyncEnabled()) return;
+
+  const byDate = planProjectedDateWrites(rows, projDateByKey, rowKey);
   if (byDate.size === 0) return;
   await Promise.all(
     Array.from(byDate.entries()).map(([date, ids]) =>
@@ -291,6 +321,10 @@ export async function reconcileGoalScheduleCache(
   completedTodayCount: number = 0,
   today: Date = new Date(),
 ): Promise<void> {
+  // Redundant with the gate inside syncProjectedScheduledDates by design: it
+  // saves the tail SELECT when the switch is off, and keeping both means
+  // removing one never silently re-opens the path. Parent actions do not come
+  // through here; they use reprojectGoalForParent.
   if (!isSchedulerSyncEnabled()) return;
   try {
     // Load the tail FIRST so the projection can be pin-aware. The pinned rows
@@ -353,29 +387,13 @@ export async function reconcileGoalScheduleCache(
     // Not reported from here. This runs on every page load, so a warning would
     // reproduce the noise the guard was creating; the Schedule Builder reports
     // stacked pins once, at the save that is actually changing something.
-    let maxPerDay = goal.lessons_per_day ?? 1;
-    for (const v of Object.values(goal.lessons_per_day_overrides ?? {})) {
-      const n = typeof v === "number" ? v : Number(v);
-      if (Number.isFinite(n)) maxPerDay = Math.max(maxPerDay, n);
-    }
-    // isPinProjectable is the same rule the projector applied when it decided
-    // which of these pins to place, so this set can never disagree with what
-    // came back in `projected`.
-    const pinnedSlots = new Set(
-      pins.filter((p) => !isSkippedSlot(p) && isPinProjectable(p, goal)).map((p) => p.slot),
-    );
-    const perDate = new Map<string, number>();
-    for (const p of projected) {
-      if (pinnedSlots.has(p.lesson_number)) continue;
-      const count = (perDate.get(p.date) ?? 0) + 1;
-      perDate.set(p.date, count);
-      if (count > maxPerDay) {
-        Sentry.captureMessage(
-          `Projection exceeds per-day cap for goal ${goal.id}: ${p.date} has ${count} (max ${maxPerDay})`,
-          "error",
-        );
-        return;
-      }
+    const overCap = projectionOverCap(projected, goal, pins);
+    if (overCap) {
+      Sentry.captureMessage(
+        `Projection exceeds per-day cap for goal ${goal.id}: ${overCap.date} has ${overCap.count} (max ${overCap.max})`,
+        "error",
+      );
+      return;
     }
 
     const projDateByKey = new Map(
@@ -393,6 +411,294 @@ export async function reconcileGoalScheduleCache(
       extra: { goalId: goal.id },
     });
   }
+}
+
+/**
+ * The per-day cap the projector must never exceed for unpinned slots, or null
+ * when the projection is within it. Pinned slots are exempt: stacking is a
+ * family's choice (see the carve-out in reconcileGoalScheduleCache).
+ */
+export function projectionOverCap(
+  projected: { lesson_number: number; date: string }[],
+  goal: CurriculumGoalConfig,
+  pins: QueueHold[],
+): { date: string; count: number; max: number } | null {
+  let maxPerDay = goal.lessons_per_day ?? 1;
+  for (const v of Object.values(goal.lessons_per_day_overrides ?? {})) {
+    const n = typeof v === "number" ? v : Number(v);
+    if (Number.isFinite(n)) maxPerDay = Math.max(maxPerDay, n);
+  }
+  // isPinProjectable is the same rule the projector applied when it decided
+  // which of these pins to place, so this set can never disagree with what
+  // came back in `projected`.
+  const pinnedSlots = new Set(
+    pins.filter((p) => !isSkippedSlot(p) && isPinProjectable(p, goal)).map((p) => p.slot),
+  );
+  const perDate = new Map<string, number>();
+  for (const p of projected) {
+    if (pinnedSlots.has(p.lesson_number)) continue;
+    const count = (perDate.get(p.date) ?? 0) + 1;
+    perDate.set(p.date, count);
+    if (count > maxPerDay) return { date: p.date, count, max: maxPerDay };
+  }
+  return null;
+}
+
+// ─── Parent-requested re-spreads ────────────────────────────────────────────
+//
+// A parent tapping "re-spread", "push back" or "I'm actually on lesson X" asks
+// for the projector's answer, but it is still a PERSON'S action. Until
+// 2026-09 those flows unpinned the tail and then called the automatic
+// reconciler, so at the database they were byte-identical to a stale tab's
+// background resync ({scheduled_date, date, scheduled_source:'queue_resync'}),
+// and turning the automatic switch off silently turned them off too: pins
+// cleared, no dates written, success toast shown.
+//
+// So parent re-spreads name their own source, never read the automatic
+// switch, and CONFIRM what landed (.select("id") returns only the rows the
+// database actually changed; RLS or a trigger that skips a row is visible as a
+// missing id, not a silent success).
+
+/** scheduled_source values written by parent-requested re-spreads. */
+export const PARENT_RESPREAD_SOURCE = {
+  /** Plan catch-up: "re-spread my remaining lessons from today". */
+  catchUp: "catchup_spread",
+  /** Plan: "push my schedule back N school days". */
+  pushBack: "catchup_pushback",
+  /** Plan: moved one lesson and chose to shift the rest after it. */
+  cascade: "plan_cascade_shift",
+  /** "I'm actually on lesson X": re-date the upcoming queue after the pivot. */
+  recalibrate: "recalibrate_respread",
+} as const;
+export type ParentRespreadSource =
+  (typeof PARENT_RESPREAD_SOURCE)[keyof typeof PARENT_RESPREAD_SOURCE];
+
+/**
+ * Written by an undo that puts a row back where the automatic projector had
+ * it. The row's previous source was 'queue_resync', and writing that literal
+ * back from a parent's tap would make the undo indistinguishable from the
+ * automatic writer again (and the containment trigger would refuse it).
+ */
+export const UNDO_RESTORE_SOURCE = "undo_restore";
+
+/** The scheduled_source an undo should write back for a snapshotted value. */
+export function sourceForUndoRestore(previous: string | null | undefined): string | null {
+  return previous === "queue_resync" ? UNDO_RESTORE_SOURCE : previous ?? null;
+}
+
+/**
+ * Sources that mean "the projector chose this date", whether automatically or
+ * because a parent asked for a re-spread. Nobody hand-placed the row, so it is
+ * still an untouched placeholder (see handleSubmitAddLesson in PlanV2).
+ */
+const PROJECTOR_PLACED_SOURCES: ReadonlySet<string> = new Set([
+  "queue_resync",
+  ...Object.values(PARENT_RESPREAD_SOURCE),
+  UNDO_RESTORE_SOURCE,
+]);
+
+export function isProjectorPlacedSource(source: string | null | undefined): boolean {
+  return source == null || PROJECTOR_PLACED_SOURCES.has(source);
+}
+
+/** What a confirmed lessons write actually did. */
+export interface ConfirmedWriteOutcome {
+  /** Rows the caller asked to change. */
+  expected: number;
+  /** Rows the database reports it changed. */
+  written: number;
+  /** Ids of those rows. */
+  writtenIds: string[];
+  /** Rows asked for but not changed (error, RLS, or a trigger that skipped them). */
+  failedIds: string[];
+}
+
+const CONFIRMED_WRITE_CHUNK = 100;
+
+/**
+ * Apply one payload to many rows and report which rows really changed.
+ * Never throws; a request error counts every row in that chunk as failed.
+ */
+export async function confirmedLessonsUpdate(
+  supabase: SupabaseClient,
+  ids: string[],
+  payload: Record<string, unknown>,
+): Promise<ConfirmedWriteOutcome> {
+  const written = new Set<string>();
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += CONFIRMED_WRITE_CHUNK) {
+    chunks.push(ids.slice(i, i + CONFIRMED_WRITE_CHUNK));
+  }
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      try {
+        const { data, error } = await supabase
+          .from("lessons")
+          .update(payload)
+          .in("id", chunk)
+          .select("id");
+        if (error || !data) return;
+        for (const r of data as { id: string }[]) written.add(r.id);
+      } catch {
+        // Counted as failed below.
+      }
+    }),
+  );
+  return {
+    expected: ids.length,
+    written: written.size,
+    writtenIds: [...written],
+    failedIds: ids.filter((id) => !written.has(id)),
+  };
+}
+
+/** An outcome for "nothing was asked for". */
+export const NO_WRITES: ConfirmedWriteOutcome = Object.freeze({
+  expected: 0,
+  written: 0,
+  writtenIds: [],
+  failedIds: [],
+}) as ConfirmedWriteOutcome;
+
+export function mergeOutcomes(outcomes: ConfirmedWriteOutcome[]): ConfirmedWriteOutcome {
+  return {
+    expected: outcomes.reduce((n, o) => n + o.expected, 0),
+    written: outcomes.reduce((n, o) => n + o.written, 0),
+    writtenIds: outcomes.flatMap((o) => o.writtenIds),
+    failedIds: outcomes.flatMap((o) => o.failedIds),
+  };
+}
+
+/**
+ * The parent-requested twin of syncProjectedScheduledDates: same write set,
+ * a named source, NOT gated by the automatic switch, and confirmed.
+ */
+export async function writeParentProjectedDates<T extends QueueResyncRow>(
+  supabase: SupabaseClient,
+  rows: T[],
+  projDateByKey: Map<string, string>,
+  rowKey: (r: T) => string | null,
+  source: ParentRespreadSource,
+): Promise<ConfirmedWriteOutcome> {
+  const byDate = planProjectedDateWrites(rows, projDateByKey, rowKey);
+  const outcomes = await Promise.all(
+    Array.from(byDate.entries()).map(([date, ids]) =>
+      confirmedLessonsUpdate(supabase, ids, {
+        scheduled_date: date,
+        date: date,
+        scheduled_source: source,
+      }),
+    ),
+  );
+  return mergeOutcomes(outcomes);
+}
+
+export type ParentReprojectResult = ConfirmedWriteOutcome & {
+  ok: boolean;
+  /** Why nothing was written, when the answer is "nothing". */
+  reason?: "read_failed" | "over_cap";
+};
+
+/**
+ * Re-spread ONE goal's incomplete tail because a parent asked for it.
+ *
+ * Computes the projection BEFORE writing anything, as though every pin except
+ * `keepPinnedIds` were already released, then writes each row's new date and
+ * its unpin in the SAME update. So a declined projection (read failure, per-day
+ * cap) writes nothing at all, instead of clearing pins and then skipping the
+ * dates the family asked for.
+ *
+ * The writes are still one request per date, not one transaction: a network
+ * failure part-way can leave some rows moved. `failedIds` names them, and the
+ * caller must restore its snapshot and say so rather than claim success.
+ */
+export async function reprojectGoalForParent(
+  supabase: SupabaseClient,
+  goal: CurriculumGoalConfig,
+  vacationBlocks: VacationBlock[],
+  opts: { from: Date; source: ParentRespreadSource; keepPinnedIds?: string[] },
+): Promise<ParentReprojectResult> {
+  const keep = new Set(opts.keepPinnedIds ?? []);
+  const { data, error } = await supabase
+    .from("lessons")
+    .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned, skipped")
+    .eq("curriculum_goal_id", goal.id)
+    .eq("completed", false);
+  if (error || !data) {
+    if (error) {
+      captureSupabaseError("reprojectGoalForParent: incomplete-tail read failed", error, {
+        extra: { goalId: goal.id },
+      });
+    }
+    return { ok: false, reason: "read_failed", ...NO_WRITES };
+  }
+  const rows = data as Array<
+    QueueResyncRow & { queue_position: number | null; queue_pinned: boolean | null }
+  >;
+
+  // The pins that survive this operation: skips always, plus the rows the
+  // caller is deliberately keeping pinned (the lesson a cascade just moved).
+  const holds: QueueHold[] = skippedSlotsFromRows(rows);
+  for (const r of rows) {
+    if (!r.queue_pinned || r.skipped || !keep.has(r.id)) continue;
+    if (r.queue_position == null || !r.scheduled_date) continue;
+    holds.push({ slot: r.queue_position, date: r.scheduled_date });
+  }
+
+  const projected = computeNextLessonsForGoal(goal, opts.from, 3650, vacationBlocks, 0, holds);
+  const overCap = projectionOverCap(projected, goal, holds);
+  if (overCap) {
+    Sentry.captureMessage(
+      `Parent re-spread declined, projection exceeds per-day cap for goal ${goal.id}: ${overCap.date} has ${overCap.count} (max ${overCap.max})`,
+      "error",
+    );
+    return { ok: false, reason: "over_cap", ...NO_WRITES };
+  }
+  const projDateBySlot = new Map<number, string>();
+  for (const p of projected) {
+    if (!projDateBySlot.has(p.lesson_number)) projDateBySlot.set(p.lesson_number, p.date);
+  }
+
+  const byDate = new Map<string, string[]>();
+  const unpinOnly: string[] = [];
+  for (const r of rows) {
+    if (keep.has(r.id)) continue;
+    const projDate =
+      !r.is_backfill && !r.skipped && r.queue_position != null
+        ? projDateBySlot.get(r.queue_position)
+        : undefined;
+    if (projDate && (r.scheduled_date !== projDate || r.queue_pinned)) {
+      const list = byDate.get(projDate) ?? [];
+      list.push(r.id);
+      byDate.set(projDate, list);
+    } else if (!projDate && r.queue_pinned) {
+      // Released like every other pin, but the projector has no date for it.
+      unpinOnly.push(r.id);
+    }
+  }
+
+  const outcomes = await Promise.all([
+    ...Array.from(byDate.entries()).map(([date, ids]) =>
+      confirmedLessonsUpdate(supabase, ids, {
+        scheduled_date: date,
+        date: date,
+        scheduled_source: opts.source,
+        queue_pinned: false,
+      }),
+    ),
+    ...(unpinOnly.length > 0
+      ? [confirmedLessonsUpdate(supabase, unpinOnly, { queue_pinned: false })]
+      : []),
+  ]);
+  const merged = mergeOutcomes(outcomes);
+  if (merged.failedIds.length > 0) {
+    captureSupabaseError(
+      "reprojectGoalForParent: some rows were not written",
+      new Error(`${merged.failedIds.length} of ${merged.expected} rows not written`),
+      { extra: { goalId: goal.id, source: opts.source } },
+    );
+  }
+  return { ok: merged.failedIds.length === 0, ...merged };
 }
 
 /**

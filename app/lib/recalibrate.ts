@@ -1,8 +1,13 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   computeNextLessonsForGoal,
-  syncProjectedScheduledDates,
+  writeParentProjectedDates,
+  confirmedLessonsUpdate,
+  mergeOutcomes,
+  NO_WRITES,
+  PARENT_RESPREAD_SOURCE,
   queueHoldsFromRows,
+  type ConfirmedWriteOutcome,
   type CurriculumGoalConfig,
   type VacationBlock,
 } from "./scheduler.ts";
@@ -30,9 +35,16 @@ import {
  *      estimates and a later move_lesson_to_date clears the flag. Each row
  *      KEEPS its queue_position, so it counts toward current_lesson exactly
  *      like a real completion (see the Phase 4 comment).
- *   4. Re-project upcoming lessons from today via syncProjectedScheduledDates
- *      so lesson `clamped` lands on the next valid school day instead of its
- *      wizard-assigned future date.
+ *   4. Re-project upcoming lessons from today via writeParentProjectedDates
+ *      (scheduled_source 'recalibrate_respread') so lesson `clamped` lands on
+ *      the next valid school day instead of its wizard-assigned future date.
+ *      This is a parent's action, so it is NOT gated by the automatic
+ *      NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED switch, and it never writes
+ *      'queue_resync'.
+ *
+ * Steps 3 and 4 report what actually landed (`estimates`, `respread`). The
+ * pointer in step 2 is already committed by then, so a partial failure is not
+ * rolled back: callers must say so instead of reporting success.
  *
  * Untouched (per spec): forward projector, orphan-cleanup trigger, recalibration
  * arithmetic (current_lesson = userInput - 1), real-history completions
@@ -59,6 +71,21 @@ export interface RecalibrateResult {
   newCountDone: number;
   /** Gap rows that were re-stamped with estimated dates. */
   gapCount: number;
+  /** Step 3: gap rows asked to become estimates vs rows that did. */
+  estimates: ConfirmedWriteOutcome;
+  /** Step 4: upcoming rows asked to move vs rows that did. */
+  respread: ConfirmedWriteOutcome;
+  /** Step 4 could not read the upcoming lessons, so it moved nothing. */
+  respreadReadFailed: boolean;
+}
+
+/** True when every write the recalibration asked for landed. */
+export function recalibrateFullyApplied(r: RecalibrateResult): boolean {
+  return (
+    r.estimates.failedIds.length === 0 &&
+    r.respread.failedIds.length === 0 &&
+    !r.respreadReadFailed
+  );
 }
 
 export async function recalibrateCurriculumGoal(opts: {
@@ -137,6 +164,7 @@ export async function recalibrateCurriculumGoal(opts: {
   if (updErr) throw new Error(updErr.message);
 
   // ── Phase 4: distribute gap lessons across the calendar window. ─────────
+  let estimates: ConfirmedWriteOutcome = NO_WRITES;
   if (gapLessons.length > 0) {
     const todayMid = new Date();
     todayMid.setHours(0, 0, 0, 0);
@@ -225,16 +253,17 @@ export async function recalibrateCurriculumGoal(opts: {
       date: date,
       scheduled_source: "recalibrate_estimate",
     });
-    await Promise.all(
+    const outcomes = await Promise.all(
       Array.from(updatesByDate.entries()).flatMap(([date, { keepSlot, dropSlot }]) => [
         ...(keepSlot.length > 0
-          ? [supabase.from("lessons").update(estimate(date)).in("id", keepSlot)]
+          ? [confirmedLessonsUpdate(supabase, keepSlot, estimate(date))]
           : []),
         ...(dropSlot.length > 0
-          ? [supabase.from("lessons").update({ ...estimate(date), queue_position: null }).in("id", dropSlot)]
+          ? [confirmedLessonsUpdate(supabase, dropSlot, { ...estimate(date), queue_position: null })]
           : []),
       ]),
     );
+    estimates = mergeOutcomes(outcomes);
   }
 
   // ── Phase 5: re-align cached scheduled_date on the upcoming queue. ──────
@@ -257,7 +286,7 @@ export async function recalibrateCurriculumGoal(opts: {
   // (they hold their dates and consume capacity) and are excluded from the
   // write set by syncProjectedScheduledDates. Recalibrating the queue pointer
   // must not silently undo mom's manual moves.
-  const { data: rowsData } = await supabase
+  const { data: rowsData, error: rowsErr } = await supabase
     .from("lessons")
     .select("id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned, skipped")
     .eq("curriculum_goal_id", goalId)
@@ -284,12 +313,20 @@ export async function recalibrateCurriculumGoal(opts: {
   const projDateByKey = new Map(
     projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
   );
-  await syncProjectedScheduledDates(
+  const respread = await writeParentProjectedDates(
     supabase,
     rows,
     projDateByKey,
     (r) => (r.lesson_number != null ? `${goalId}|${r.lesson_number}` : null),
+    PARENT_RESPREAD_SOURCE.recalibrate,
   );
 
-  return { clamped, newCountDone, gapCount: gapLessons.length };
+  return {
+    clamped,
+    newCountDone,
+    gapCount: gapLessons.length,
+    estimates,
+    respread,
+    respreadReadFailed: !!rowsErr,
+  };
 }

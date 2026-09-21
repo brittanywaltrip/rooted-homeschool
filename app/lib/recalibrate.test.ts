@@ -140,9 +140,16 @@ function makeRecalibrateSupabase(opts: {
         return Promise.resolve({ data, error: null }).then(onFulfilled, onRejected)
       },
       update: (payload: Record<string, unknown>) => ({
-        in: async (_col: string, ids: string[]) => {
+        // Awaitable directly, or with .select('id') for a confirmed write,
+        // which reports every targeted row as changed.
+        in: (_col: string, ids: string[]) => {
           writes.push({ table: 'lessons', payload, ids: [...ids] })
-          return { error: null }
+          const res = { error: null }
+          return {
+            select: async () => ({ data: ids.map((id) => ({ id })), error: null }),
+            then: (ok: (v: unknown) => unknown, bad?: (e: unknown) => unknown) =>
+              Promise.resolve(res).then(ok, bad),
+          }
         },
       }),
     }

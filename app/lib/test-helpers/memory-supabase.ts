@@ -10,8 +10,12 @@
 // Supported: select (columns ignored, whole rows returned), eq, neq, lt, lte,
 // gt, gte, in, not(col, "is", null), is(col, null), or("a.is.null,b.neq.x"),
 // order, limit, maybeSingle, and awaiting the chain; update and delete with the
-// same filters; insert. Enough for recalibrateCurriculumGoal and
-// recomputeCurrentLesson. Not a database: no triggers, no unique indexes.
+// same filters; insert. update(...).select() returns the rows it changed, the
+// way PostgREST's return=representation does. Enough for
+// recalibrateCurriculumGoal and recomputeCurrentLesson. Not a database: no
+// triggers, no unique indexes. `refuseUpdate` stands in for a BEFORE UPDATE
+// trigger that returns NULL: the row is silently left alone and is missing
+// from the returned representation, with no error.
 
 type Row = Record<string, unknown>
 type Pred = (r: Row) => boolean
@@ -39,7 +43,10 @@ function orPredicate(expr: string): Pred {
   return (r) => parts.some((p) => p(r))
 }
 
-export function makeMemorySupabase(seed: Record<string, Row[]>) {
+export function makeMemorySupabase(
+  seed: Record<string, Row[]>,
+  opts: { refuseUpdate?: (table: string, row: Row, payload: Row) => boolean } = {},
+) {
   const tables: Record<string, Row[]> = {}
   for (const [name, rows] of Object.entries(seed)) tables[name] = rows.map((r) => ({ ...r }))
   let nextId = 1
@@ -49,13 +56,15 @@ export function makeMemorySupabase(seed: Record<string, Row[]>) {
     let orderCol: string | null = null
     let ascending = true
     let limitN: number | null = null
+    let returning = false
 
     const run = () => {
       const rows = (tables[table] ??= [])
       const hit = rows.filter((r) => preds.every((p) => p(r)))
       if (mode === 'update') {
-        for (const r of hit) Object.assign(r, payload)
-        return { data: null, error: null }
+        const changed = hit.filter((r) => !opts.refuseUpdate?.(table, r, payload ?? {}))
+        for (const r of changed) Object.assign(r, payload)
+        return { data: returning ? changed.map((r) => ({ ...r })) : null, error: null }
       }
       if (mode === 'delete') {
         tables[table] = rows.filter((r) => !hit.includes(r))
@@ -78,7 +87,10 @@ export function makeMemorySupabase(seed: Record<string, Row[]>) {
     }
 
     const chain: Record<string, unknown> = {
-      select: () => chain,
+      select: () => {
+        if (mode === 'update') returning = true
+        return chain
+      },
       eq: (c: string, v: unknown) => (preds.push((r) => r[c] === v), chain),
       neq: (c: string, v: unknown) => (preds.push((r) => r[c] !== v), chain),
       lt: (c: string, v: number) => (preds.push((r) => r[c] != null && (r[c] as number) < v), chain),
