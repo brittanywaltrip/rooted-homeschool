@@ -8,7 +8,10 @@
 -- It does not replay blocked attempts, does not reverse legitimate edits made
 -- while it was on, and does not repair any earlier batch.
 --
--- LEVEL 1, fastest, no DDL on the function or table:
+-- LEVEL 1, fastest, no DDL on the function or table. Also the fast path when
+-- the blocked-attempts audit (or the intent check it calls) is failing: that
+-- failure fails the whole legacy statement, and this takes the trigger out of
+-- the write path (proven on staging 2026-09-21):
 --   ALTER TABLE public.lessons DISABLE TRIGGER lessons_block_stale_resync;
 -- Re-arm with:
 --   ALTER TABLE public.lessons ENABLE TRIGGER lessons_block_stale_resync;

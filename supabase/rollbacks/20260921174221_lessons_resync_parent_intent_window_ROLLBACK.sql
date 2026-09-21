@@ -1,4 +1,19 @@
--- Rollback for 20260921174221_lessons_resync_parent_intent_window.
+-- Rollback for 20260921174221_lessons_resync_parent_intent_window
+-- (and 20260921183953_lessons_resync_intent_session_scope, which amends it).
+--
+-- FAST PATH, if intent tracking itself is failing writes. Its two triggers sit
+-- in the write path of every bare unpin and every curriculum_goals
+-- start_at_lesson write; a failure in either fails that write. This removes
+-- both from the write path at once (proven on staging 2026-09-21: an injected
+-- schedule_intent failure broke both writes, and both landed after this):
+--   ALTER TABLE public.lessons          DISABLE TRIGGER lessons_note_schedule_intent;
+--   ALTER TABLE public.curriculum_goals DISABLE TRIGGER curriculum_goals_note_schedule_intent;
+-- With the signals off, no new intent is recorded, so an OLD tab's parent
+-- re-spread is blocked again as in 20260921172242. If has_recent_schedule_intent
+-- itself is what fails, the containment rollback (disable
+-- lessons_block_stale_resync) is the fast path, because that trigger calls it.
+--
+-- FULL REMOVAL below.
 --
 -- Returns the block to its 20260921172242 behaviour: EVERY legacy
 -- queue_resync write from a browser is refused again, including an old tab's

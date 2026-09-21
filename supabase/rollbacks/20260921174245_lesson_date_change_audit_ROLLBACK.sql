@@ -4,8 +4,13 @@
 -- KEPT: export it first, then drop it by hand once the export is confirmed:
 --   drop table rooted_private.lesson_date_changes;
 --
--- Fastest, no DDL on functions:
+-- FAST PATH, if the audit is failing writes. The trigger is in the write path
+-- of every lesson date change, and an audit failure fails that write. This
+-- takes it out of the write path (proven on staging 2026-09-21: an injected
+-- lesson_date_changes failure broke an ordinary parent move, which landed
+-- after this):
 --   ALTER TABLE public.lessons DISABLE TRIGGER lessons_audit_date_change;
+-- Blocking is unaffected; landed changes simply stop being recorded.
 
 begin;
 drop trigger if exists lessons_audit_date_change on public.lessons;
