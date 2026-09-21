@@ -167,7 +167,10 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'catchup_resched'` — catch-up modal accepted
 - `'skip_today'` — "skip rest of today" pushed today's incompletes forward. Retired September 2026: the Running late sheet that held it was never drawn, so it and its handler were removed. Older rows still carry the label.
 - `'plan_move'` — user dragged or rescheduled a single lesson on the Plan page (queue reorder)
-- `'queue_resync'` — Plan / Today data loader aligned the cached scheduled_date with the queue projector's output (no user-visible change, just keeps the cache honest after current_lesson advances or a `plan_move` shifts siblings without re-dating them)
+- `'queue_resync'` — Plan / Today data loader aligned the cached scheduled_date with the queue projector's output (no user-visible change, just keeps the cache honest after current_lesson advances or a `plan_move` shifts siblings without re-dating them). AUTOMATIC ONLY: `syncProjectedScheduledDates` is its one writer, it is gated by `NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED` inside the helper, and no action a parent takes may write it (September 2026, see "Parent re-spreads" below).
+- `'catchup_spread'`, `'catchup_pushback'`, `'plan_cascade_shift'`, `'recalibrate_respread'`: a PARENT asked for the projector's answer: Plan catch-up re-spread, push back N school days, the tail of a cascade shift, and "I'm actually on lesson X". Written by `reprojectGoalForParent` / `writeParentProjectedDates`, never gated by the automatic switch.
+- `'skip_respread'`, `'skip_undo'`: a PARENT skipped a lesson (the lessons after it move up) or unskipped one, or undid a bulk skip (the queue is re-dated around it). Also `'catchup_spread'` from Today's recovery Yes and No. Written by `resyncGoalsForParent`, which projects exactly as the automatic reconciler does (pins held, skips stepped over, the per-day cap, lessons completed today counted against today) but is never gated by the switch and never writes `'queue_resync'`. Distinct sources on purpose: renaming the automatic writer's source would walk straight past the containment trigger.
+- `'undo_restore'`: an undo put a row back where the automatic projector had it. Written instead of restoring `'queue_resync'` (`sourceForUndoRestore`); every other snapshotted source is restored as it was.
 - `'recalibrate_estimate'` — synthesized completion date written by the "I'm actually on lesson X" recalibration gap-fill. Lessons stamped with this source have completed_at + scheduled_date evenly distributed across the window between the goal's last real completion (or start_date / created_at) and yesterday. The Plan calendar lesson card surfaces an "Estimated date · tap to move." hint for these rows; moving the lesson via `move_lesson_to_date` overwrites the source with `'plan_move'`.
 - `'manual_uncomplete'` — the user unchecked a completed lesson (`toggleLesson` in `app/components/PlanV2/usePlanLessonActions.ts`). This write does NOT move either date column; it exists to mark that the row went back into the queue, and it clears `is_backfill` alongside. Without that clear, a lesson logged on a past day (`catchup_resched` + `is_backfill`) and then unchecked kept its past date permanently: `syncProjectedScheduledDates` skips `is_backfill` rows, so the reconciler could never roll it forward and every load counted it as missed.
 - `'completion_pin'` — a lesson was marked done, so its calendar date was pinned
@@ -1200,8 +1203,36 @@ Auto-scheduling never bunches; only the user can.
 
   The catch-up shift-forward flow shed this in `04fa1eb`, and push-back plus
   the cascade shift followed. All three now use one shape: snapshot the goal's
-  incomplete rows, clear `queue_pinned`, and let `reconcileGoalScheduleCache`
-  re-project the tail. Undo restores the snapshot. The only path that may pin
+  incomplete rows, then `reprojectGoalForParent` re-projects the tail and
+  releases the pins in the same per-row writes. Undo restores the rows it
+  changed.
+
+  **Remaining containment limitation (September 2026).** The database block
+  on legacy `'queue_resync'` date writes has a heuristic exception: a write
+  from the same login session, within 10 minutes of that session unpinning
+  the goal's lessons or writing its `start_at_lesson`, is let through, because
+  an old tab's parent re-spread and its background resync send identical
+  requests. Inside that window an OLD bundle's automatic resync from the same
+  session (or another tab of the same browser, which shares the session) also
+  lands. Nothing on the server can tell the two apart; the exception closes
+  when those old tabs are gone. See
+  `supabase/migrations/20260921183953_lessons_resync_intent_session_scope.sql`.
+
+  **Parent re-spreads (September 2026).** Until then these three unpinned the
+  tail and called `reconcileGoalScheduleCache`, the AUTOMATIC reconciler. Two
+  things followed. With `NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED=false` the
+  reconciler returns at once, so the family's tap cleared every pin, moved no
+  date and still said "Re-spread 12 lessons". And the write was byte-identical
+  to a stale tab's background `queue_resync`, so no database guard could stop
+  one without the other. Now: the projection is computed before anything is
+  written (a read failure or the per-day cap writes nothing), each row's date
+  and its unpin go in one update under the parent's source, every write is
+  confirmed with `.select("id")`, a partial failure puts back what it moved,
+  and the toast reports what actually landed. The recalibration's Phase 5 (re-dating the upcoming lessons) uses
+  the same parent writer. The one projector, the one cap rule
+  (`projectionOverCap`) and the one write-set rule (`planProjectedDateWrites`)
+  are shared with the automatic path, so this is not a second scheduler
+  (Anti-pattern F); only the provenance and the switch differ. The only path that may pin
   is `move_lesson_to_date`, which writes the slot and the flag in the same
   statement. **If you are about to write `queue_pinned: true` anywhere else,
   you are reintroducing this bug.** The carve-outs are the Edit lesson date

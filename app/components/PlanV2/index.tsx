@@ -93,7 +93,12 @@ import {
   planGoalDelete,
   computeNextLessonsForGoal,
   computeGapLessonsForGoal,
-  reconcileGoalScheduleCache,
+  reprojectGoalForParent,
+  resyncGoalsForParent,
+  sourceForUndoRestore,
+  isProjectorPlacedSource,
+  PARENT_RESPREAD_SOURCE,
+  type ParentRespreadSource,
   toGoalConfig,
   GOAL_CONFIG_COLUMNS,
   type CurriculumGoalConfig,
@@ -101,7 +106,7 @@ import {
   type QueueHold,
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
-import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
+import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
 import {
   buildOptimisticEventRow,
   filterEventsForDay,
@@ -262,7 +267,30 @@ type ReprojectSnapshotRow = {
   date: string | null;
   queue_pinned: boolean | null;
   scheduled_source: string | null;
+  /** Read by the cascade shift only, to prove its undo restored the order. */
+  queue_position?: number | null;
 };
+
+/** One goal's parent re-spread, as reprojectGoalTail reports it. */
+type TailReprojectOutcome = {
+  ok: boolean;
+  /** Failed, AND some rows moved that could not be put back. */
+  partial: boolean;
+  /** Prior state of exactly the rows this action changed, for Undo. */
+  undoRows: ReprojectSnapshotRow[];
+};
+
+const UNDO_INCOMPLETE_NOTICE =
+  "Couldn't undo everything. Some lessons kept their new dates, so check your plan.";
+
+/** The honest tail of a toast when some curriculums were not re-spread. */
+function respreadFailureNote(failed: number, partial: number): string {
+  const kept = failed - partial;
+  const parts: string[] = [];
+  if (kept > 0) parts.push(`${kept} couldn't be moved and kept ${kept === 1 ? "its" : "their"} dates`);
+  if (partial > 0) parts.push(`${partial} only partly moved, so check ${partial === 1 ? "it" : "them"}`);
+  return `${parts.join(", ")}.`.replace(/^./, (c) => c.toUpperCase());
+}
 
 export default function PlanV2() {
   const { effectiveUserId, isPartner } = usePartner();
@@ -1092,6 +1120,17 @@ export default function PlanV2() {
         flashNotice("Couldn't skip, try again.");
         return;
       }
+      // The projector steps over the skipped slot, so the lessons after it move
+      // up a day. That re-dating is the family's own action (source
+      // 'skip_respread'), not the automatic reconciler, which does nothing
+      // while NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED is "false": Plan kept a hole
+      // where the skipped lesson was while Today (which projects) moved on.
+      // Pins, completions, queue order and today's used-up lessons are kept
+      // (resyncGoalsForParent).
+      const goalId = lesson.curriculum_goal_id;
+      const moved = goalId && effectiveUserId
+        ? await resyncGoalsForParent(supabase, effectiveUserId, [goalId], PARENT_RESPREAD_SOURCE.skip)
+        : { ok: true, written: 0, failedGoals: [] as string[] };
       const title = lesson.title && lesson.title.trim().length > 0
         ? lesson.title
         : lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "lesson";
@@ -1101,7 +1140,13 @@ export default function PlanV2() {
         from_date: from,
         actor: "user",
       });
-      flashNotice("Lesson skipped");
+      flashNotice(
+        moved.ok
+          ? "Lesson skipped"
+          : "Lesson skipped, but the lessons after it couldn't be moved up. Try again, or check your connection.",
+      );
+      reload();
+      reloadPins();
       // Cross-route notification — Today page + InlineScheduleTabs listen
       // for this event and reload so the skipped lesson disappears from
       // their views without a manual page refresh.
@@ -1109,11 +1154,15 @@ export default function PlanV2() {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [skipLesson, recordEvent],
+    [skipLesson, recordEvent, effectiveUserId, reload, reloadPins],
   );
 
-  // Unskip puts the lesson back in the queue. It gets no date here: the next
-  // Today load's reconciler dates it like any other unfinished lesson.
+  // Unskip puts the lesson back in the queue, and this action dates it: the
+  // goal's unpinned tail is re-dated as the family's own action
+  // (resyncGoalsForParent, source 'skip_undo'), pins honored. It used to rely
+  // on the next Today load's automatic reconciler, which does nothing while
+  // NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED is "false": the lesson sat with no day,
+  // absent from Plan while Today (which projects) already showed it.
   //
   // Unless the queue has already moved past it. Skip 12, finish 13, and
   // current_lesson is 13: the projector starts at 14, so a plain unskip would
@@ -1144,18 +1193,32 @@ export default function PlanV2() {
         return;
       }
       setSkippedLessons((prev) => prev.filter((l) => l.id !== lesson.id));
-      flashNotice(
-        passed
-          ? "You've already moved past this one, so it's on today's plan."
-          : "Back in the queue. It gets a day the next time Today opens.",
-      );
+      if (passed) {
+        flashNotice("You've already moved past this one, so it's on today's plan.");
+      } else {
+        const goalId = lesson.curriculum_goal_id;
+        const resync = goalId && effectiveUserId
+          ? await resyncGoalsForParent(supabase, effectiveUserId, [goalId], PARENT_RESPREAD_SOURCE.unskip)
+          : { ok: false, written: 0, failedGoals: [] as string[] };
+        const { data: dated } = await supabase
+          .from("lessons")
+          .select("scheduled_date")
+          .eq("id", lesson.id)
+          .maybeSingle();
+        const day = (dated as { scheduled_date: string | null } | null)?.scheduled_date;
+        flashNotice(
+          resync.ok && day
+            ? `Back in the queue, on ${new Date(`${day}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}.`
+            : "Back in the queue, but it couldn't be given a day. Try again, or check your connection.",
+        );
+      }
       reloadPins();
       reload();
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [reload, reloadPins, todayStr],
+    [reload, reloadPins, todayStr, effectiveUserId],
   );
 
   // ── Submit handlers for Add / Edit lesson modals ─────────────────────────
@@ -1237,7 +1300,9 @@ export default function PlanV2() {
           ex.completed === false &&
           (ex.minutes_spent == null || ex.minutes_spent === 0) &&
           (ex.notes == null || ex.notes.trim().length === 0) &&
-          (ex.scheduled_source == null || ex.scheduled_source === "queue_resync");
+          // Placed by the projector (automatically, or because the family asked
+          // for a re-spread), never by hand.
+          isProjectorPlacedSource(ex.scheduled_source);
 
         if (!isUntouchedPlaceholder) {
           // Same date formatting as `dateLabel` below so both read alike.
@@ -1792,14 +1857,17 @@ export default function PlanV2() {
         if (originals.child_id !== undefined) undoUpdate.child_id = originals.child_id;
         if (priorPin) {
           undoUpdate.queue_pinned = !!priorPin.queue_pinned;
-          undoUpdate.scheduled_source = priorPin.scheduled_source;
+          undoUpdate.scheduled_source = sourceForUndoRestore(priorPin.scheduled_source);
         }
 
-        try {
-          await supabase.from("lessons").update(undoUpdate).eq("id", lessonId);
-        } catch {
-          /* best-effort; reload reconciles */
-        }
+        // supabase-js resolves on failure, so check the result: a row the
+        // database did not change back is missing from `data`.
+        const { data: undone, error: undoErr } = await supabase
+          .from("lessons")
+          .update(undoUpdate)
+          .eq("id", lessonId)
+          .select("id");
+        if (undoErr || (undone?.length ?? 0) !== 1) flashNotice(UNDO_INCOMPLETE_NOTICE);
         reload();
         if (priorPin) reloadPins();
       },
@@ -2327,7 +2395,14 @@ export default function PlanV2() {
         new_current_lesson: result.clamped,
         gap_count: result.gapCount,
       });
-      flashNotice(`Schedule updated to lesson ${result.clamped}`);
+      // Say what actually landed. The pointer is committed before the lesson
+      // writes, so a partial failure is not rolled back and must not read as
+      // success.
+      flashNotice(
+        recalibrateFullyApplied(result)
+          ? `Schedule updated to lesson ${result.clamped}`
+          : `Moved to lesson ${result.clamped}, but some lessons didn't update. Try again, or check your connection.`,
+      );
       // Optimistic local patch so the goal card shows the new pointer
       // before the background refetch lands. GoalFull does not carry
       // start_at_lesson (it's only read inside Schedule Builder), so we
@@ -3818,12 +3893,12 @@ export default function PlanV2() {
     // a few hundred ids from "Select all" can overrun the URL), and nothing is
     // written without it: an undo with no snapshot would leave lessons moved to
     // today, or pinned as history while no longer done.
-    type Snap = { id: string; completed_at: string | null; date: string; scheduled_date: string | null; scheduled_source: string | null; is_backfill: boolean | null; queue_pinned: boolean | null };
+    type Snap = { id: string; completed_at: string | null; date: string; scheduled_date: string | null; scheduled_source: string | null; is_backfill: boolean | null; queue_pinned: boolean | null; queue_position: number | null };
     const snapById = new Map<string, Snap>();
     for (let i = 0; i < toComplete.length; i += 100) {
       const { data: snapRows, error: snapErr } = await supabase
         .from("lessons")
-        .select("id, completed_at, date, scheduled_date, scheduled_source, is_backfill, queue_pinned")
+        .select("id, completed_at, date, scheduled_date, scheduled_source, is_backfill, queue_pinned, queue_position")
         .in("id", toComplete.slice(i, i + 100));
       if (snapErr) {
         flashNotice("Couldn't mark those done, nothing changed. Try again?");
@@ -3914,10 +3989,24 @@ export default function PlanV2() {
             }),
           );
           hapticTap(20);
-          await Promise.allSettled(
-            succeededIds.map((id) => {
-              const snap = snapById.get(id);
-              return supabase
+          // One at a time, highest queue slot first. Each un-completion makes
+          // the lessons trigger recompute current_lesson = MAX(completed slot).
+          // Run in parallel, a transaction that still sees a higher slot as
+          // completed can raise the pointer again, and a raised pointer fires
+          // trg_curriculum_goals_cleanup_orphans, which unschedules
+          // (scheduled_date = NULL) every incomplete row at or below it: the
+          // rows this undo had just put back. Found on staging 2026-09-21: four
+          // of eight lessons lost their dates after a bulk undo. Highest slot
+          // first means the pointer only ever falls, and the cleanup only runs
+          // when it rises.
+          const undoOrder = [...succeededIds].sort(
+            (a, b) => (snapById.get(b)?.queue_position ?? -1) - (snapById.get(a)?.queue_position ?? -1),
+          );
+          let undoFailed = 0;
+          for (const id of undoOrder) {
+            const snap = snapById.get(id);
+            try {
+              const { data, error } = await supabase
                 .from("lessons")
                 .update(
                   snap
@@ -3926,15 +4015,19 @@ export default function PlanV2() {
                         completed_at: null,
                         date: snap.date,
                         scheduled_date: snap.scheduled_date,
-                        scheduled_source: snap.scheduled_source,
+                        scheduled_source: sourceForUndoRestore(snap.scheduled_source),
                         is_backfill: !!snap.is_backfill,
                         queue_pinned: !!snap.queue_pinned,
                       }
                     : { completed: false, completed_at: null, is_backfill: false, queue_pinned: false },
                 )
-                .eq("id", id);
-            }),
-          );
+                .eq("id", id)
+                .select("id");
+              if (error || (data?.length ?? 0) !== 1) undoFailed++;
+            } catch {
+              undoFailed++;
+            }
+          }
           // Recompute after undo so current_lesson reflects the rolled-back
           // state. completed_at on the goal is intentionally never cleared
           // (historical record of first completion).
@@ -3943,6 +4036,9 @@ export default function PlanV2() {
               Array.from(affectedGoalIds).map((gid) => recomputeCurrentLesson(supabase, gid)),
             );
           }
+          // The local patch above is optimistic; reload() replaces it with
+          // what the database holds, and the notice says why they differ.
+          if (undoFailed > 0) flashNotice(UNDO_INCOMPLETE_NOTICE);
           reload();
         },
       });
@@ -3994,29 +4090,32 @@ export default function PlanV2() {
     }
 
     setBulkBusy(true);
-    // Each row's pin, so undo puts a dragged lesson back as a pin.
-    const { data: pinRows } = await supabase
+    // Each row's pin, source and goal: undo puts a dragged lesson back as a pin
+    // with its own source, and the skips re-date the goals they landed in.
+    const { data: priorRows } = await supabase
       .from("lessons")
-      .select("id, queue_pinned")
+      .select("id, queue_pinned, scheduled_source, curriculum_goal_id")
       .in("id", snap.map((s) => s.id));
-    const pinnedIds = new Set(
-      ((pinRows ?? []) as { id: string; queue_pinned: boolean | null }[])
-        .filter((r) => r.queue_pinned)
-        .map((r) => r.id),
-    );
+    type PriorRow = { id: string; queue_pinned: boolean | null; scheduled_source: string | null; curriculum_goal_id: string | null };
+    const priorById = new Map(((priorRows ?? []) as PriorRow[]).map((r) => [r.id, r]));
     const snapIds = new Set(snap.map((s) => s.id));
     setLessons((prev) =>
       prev.map((l) => (snapIds.has(l.id) ? { ...l, scheduled_date: null } : l)),
     );
     hapticTap(20);
 
+    // Confirmed per row: a row the database leaves alone comes back missing
+    // from the representation with no error, and counts as a failure.
     const results = await Promise.allSettled(
       snap.map((s) =>
         supabase
           .from("lessons")
           .update({ skipped: true, scheduled_date: null, queue_pinned: false })
           .eq("id", s.id)
-          .then(({ error }) => (error ? Promise.reject(error) : true)),
+          .select("id")
+          .then(({ data, error }) =>
+            error || (data ?? []).length !== 1 ? Promise.reject(error ?? new Error("not skipped")) : true,
+          ),
       ),
     );
 
@@ -4038,33 +4137,71 @@ export default function PlanV2() {
       );
     }
 
+    // The lessons after each skipped slot move up, as the family's own action
+    // (source 'skip_respread'), the same as a single Skip.
+    const skippedGoalIds = Array.from(new Set(
+      succeeded
+        .map((s) => priorById.get(s.id)?.curriculum_goal_id)
+        .filter((g): g is string => !!g),
+    ));
+    const moved = skippedGoalIds.length > 0 && effectiveUserId
+      ? await resyncGoalsForParent(supabase, effectiveUserId, skippedGoalIds, PARENT_RESPREAD_SOURCE.skip)
+      : { ok: true, written: 0, failedGoals: [] as string[] };
+    const notMovedNote = moved.ok ? "" : ". The lessons after them couldn't be moved up, try again";
+
     if (succeeded.length > 0) {
       setUndoAction({
         message:
-          failedIds.length > 0
+          (failedIds.length > 0
             ? `Skipped ${succeeded.length} of ${snap.length}, ${failedIds.length} couldn't be skipped`
-            : `Skipped ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"}`,
+            : `Skipped ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"}`) + notMovedNote,
         key: `bulk-skip:${Date.now()}`,
         onUndo: async () => {
-          const sMap = new Map(succeeded.map((s) => [s.id, s.from]));
-          setLessons((prev) =>
-            prev.map((l) => {
-              const from = sMap.get(l.id);
-              return from ? { ...l, scheduled_date: from, date: from } : l;
+          hapticTap(20);
+          // Undo is an unskip. Each row goes back into the queue; one that was
+          // pinned gets its day, pin and source back. Then the goals are
+          // re-dated as the family's own action ('skip_undo'), exactly as a
+          // single Unskip does. Restoring the old dates alone would put the
+          // skipped lessons back on days the moved-up lessons now hold.
+          const restored = await Promise.all(
+            succeeded.map(async (s) => {
+              const prior = priorById.get(s.id);
+              const payload = prior?.queue_pinned
+                ? {
+                    skipped: false,
+                    scheduled_date: s.from,
+                    date: s.from,
+                    queue_pinned: true,
+                    scheduled_source: sourceForUndoRestore(prior.scheduled_source) ?? "plan_move",
+                  }
+                : { skipped: false };
+              const { data, error } = await supabase
+                .from("lessons")
+                .update(payload)
+                .eq("id", s.id)
+                .select("id");
+              return !error && (data ?? []).length === 1;
             }),
           );
-          hapticTap(20);
-          // Reappearing pills get the "just-landed" ring so the eye finds
-          // where the skipped lessons reattach on the calendar.
-          succeeded.forEach((s) => flagLanded(s.id));
-          await Promise.allSettled(
-            succeeded.map((s) =>
-              supabase
-                .from("lessons")
-                .update({ skipped: false, scheduled_date: s.from, date: s.from, queue_pinned: pinnedIds.has(s.id) })
-                .eq("id", s.id),
-            ),
-          );
+          const notRestored = restored.filter((ok) => !ok).length;
+          const back = skippedGoalIds.length > 0 && effectiveUserId
+            ? await resyncGoalsForParent(supabase, effectiveUserId, skippedGoalIds, PARENT_RESPREAD_SOURCE.unskip)
+            : { ok: true, written: 0, failedGoals: [] as string[] };
+          const { data: dated, error: datedErr } = await supabase
+            .from("lessons")
+            .select("id, scheduled_date")
+            .in("id", succeeded.map((s) => s.id));
+          const undated = ((dated ?? []) as { scheduled_date: string | null }[])
+            .filter((r) => !r.scheduled_date).length;
+          if (notRestored > 0) {
+            flashNotice(`${notRestored} lesson${notRestored === 1 ? "" : "s"} couldn't be put back. Try again.`);
+          } else if (!back.ok || datedErr || undated > 0) {
+            flashNotice("They're back in the queue, but some couldn't be given a day. Try again, or check your connection.");
+          } else {
+            // Reappearing pills get the "just-landed" ring so the eye finds
+            // where the skipped lessons reattach on the calendar.
+            succeeded.forEach((s) => flagLanded(s.id));
+          }
           reload();
           reloadPins();
         },
@@ -4087,7 +4224,7 @@ export default function PlanV2() {
     if (succeeded.length > 0) reloadPins();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, reloadPins, exitSelectMode, flagLanded, recordEvent]);
+  }, [lessons, setLessons, reload, reloadPins, exitSelectMode, flagLanded, recordEvent, effectiveUserId]);
 
   // ── Bulk: delete (deferred DB write to undo window) ──────────────────────
 
@@ -4212,137 +4349,39 @@ export default function PlanV2() {
   );
 
   /**
-   * Catch-up: re-project each affected goal's remaining tail from today.
-   *
-   * The old handler took hand-computed target dates from the modal and wrote
-   * them with batchUpdateScheduledDates(pairs, "plan_move", true). That was
-   * wrong twice over. The dates came from one global counter that ignored each
-   * goal's school_days and lessons_per_day, and the write PINNED every row
-   * without ever setting queue_position, but reconcileGoalScheduleCache keys
-   * pins on queue_position, so those pins dragged the projector cursor and the
-   * unpinned tail got re-dated around the mess on every Today load.
-   *
-   * Now the flow defers to the projector instead of competing with it: clear
-   * the goal's pins, then let reconcileGoalScheduleCache lay the whole tail out
-   * on that goal's own school days, in lesson order, honoring per-weekday
-   * overrides and vacation blocks. One definition of "where does this lesson
-   * go" (Invariant 8), and the result is stable across resyncs because it IS
-   * what the reconciler would produce anyway.
+   * Put snapshotted rows back: dates and pin flag exactly, and the source
+   * mapped through sourceForUndoRestore (a restored 'queue_resync' is written
+   * as 'undo_restore', because a parent's undo is not the automatic writer).
+   * Confirmed per row: `ok` is false when any row did not change back.
    */
-  const handleCatchUpReprojectConfirm = useCallback(async () => {
-    const plan = shiftForwardPlan;
-    if (plan.length === 0) return;
-    setBulkBusy(true);
-
-    const today = new Date();
-    const snapshot: ReprojectSnapshotRow[] = [];
-    const doneGoals: { goal_id: string; curriculum_name: string; lesson_count: number }[] = [];
-    let failedGoals = 0;
-
-    for (const entry of plan) {
-      // (a) Snapshot BEFORE touching anything. If this read fails we skip the
-      // goal entirely rather than clear pins we could never restore.
-      const { data: snapRows, error: snapErr } = await supabase
-        .from("lessons")
-        .select("id, scheduled_date, date, queue_pinned, scheduled_source")
-        .eq("curriculum_goal_id", entry.config.id)
-        .eq("completed", false);
-      if (snapErr || !snapRows) {
-        failedGoals++;
-        continue;
-      }
-      snapshot.push(...(snapRows as unknown as ReprojectSnapshotRow[]));
-
-      // (b) Release the pins. The family asked for a fresh spread, and a pin
-      // is the one thing that would hold a lesson on the day she is trying to
-      // move away from. Cleared explicitly rather than ignored so the rows do
-      // not freeze at their new projector dates either (Invariant 12).
-      const { error: unpinErr } = await supabase
-        .from("lessons")
-        .update({ queue_pinned: false })
-        .eq("curriculum_goal_id", entry.config.id)
-        .eq("completed", false);
-      if (unpinErr) {
-        failedGoals++;
-        continue;
-      }
-
-      // (c) Let the reconciler write the dates. It owns the kill switch
-      // (NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED) and its own per-day overcapacity
-      // guard; if it declines, the pins are still cleared and the next Today
-      // load reconciles. Do not second-guess it here.
-      await reconcileGoalScheduleCache(
-        supabase,
-        entry.config,
-        vacationBlocks as unknown as SchedVacationBlock[],
-        0,
-        today,
+  const restoreLessonSnapshot = useCallback(async (
+    rows: ReprojectSnapshotRow[],
+  ): Promise<{ ok: boolean; failed: number }> => {
+    let failed = 0;
+    for (let i = 0; i < rows.length; i += 20) {
+      const results = await Promise.allSettled(
+        rows.slice(i, i + 20).map(async (s) => {
+          const { data, error } = await supabase
+            .from("lessons")
+            .update({
+              scheduled_date: s.scheduled_date,
+              date: s.date,
+              queue_pinned: s.queue_pinned ?? false,
+              scheduled_source: sourceForUndoRestore(s.scheduled_source),
+            })
+            .eq("id", s.id)
+            .select("id");
+          return !error && (data?.length ?? 0) === 1;
+        }),
       );
-
-      doneGoals.push({
-        goal_id: entry.config.id,
-        curriculum_name: entry.preview.curriculumName,
-        lesson_count: entry.preview.lessonCount,
-      });
+      for (const r of results) if (r.status !== "fulfilled" || !r.value) failed++;
     }
-
-    const totalLessons = doneGoals.reduce((sum, g) => sum + g.lesson_count, 0);
-
-    recordEvent("lesson.bulk_action", {
-      action: "catch_up_reproject",
-      count: totalLessons,
-      goal_ids: doneGoals.map((g) => g.goal_id),
-      per_goal: doneGoals,
-      succeeded: doneGoals.length,
-      failed: failedGoals,
-    });
-
-    if (doneGoals.length > 0) {
-      setUndoAction({
-        message:
-          failedGoals > 0
-            ? `Re-spread ${doneGoals.length} of ${plan.length} curriculums, ${failedGoals} couldn't be re-spread`
-            : `Re-spread ${totalLessons} lesson${totalLessons === 1 ? "" : "s"} from today`,
-        key: `catch-up-reproject:${Date.now()}`,
-        onUndo: async () => {
-          hapticTap(20);
-          // Put every snapshotted row back exactly as it was: dates, pin flag
-          // and scheduled_source. Chunked at 20 to match the rest of the file.
-          for (let i = 0; i < snapshot.length; i += 20) {
-            await Promise.allSettled(
-              snapshot.slice(i, i + 20).map((s) =>
-                supabase
-                  .from("lessons")
-                  .update({
-                    scheduled_date: s.scheduled_date,
-                    date: s.date,
-                    queue_pinned: s.queue_pinned ?? false,
-                    scheduled_source: s.scheduled_source,
-                  })
-                  .eq("id", s.id),
-              ),
-            );
-          }
-          reloadPins();
-          reload();
-        },
-      });
-    } else {
-      flashNotice("Couldn't re-spread your schedule, check your connection.");
-    }
-
-    reloadPins();
-    reload();
-    setBulkBusy(false);
-    // Cross-route notification: Today re-reads so the new dates show without
-    // a manual refresh, same as every other bulk path here.
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
-    }
-  }, [shiftForwardPlan, vacationBlocks, recordEvent, reload, reloadPins]);
+    return { ok: failed === 0, failed };
+  }, []);
 
   /**
-   * Snapshot, unpin, and re-project ONE goal's incomplete tail.
+   * Snapshot, then re-project and unpin ONE goal's incomplete tail, as a
+   * parent's action (reprojectGoalForParent, never the automatic reconciler).
    *
    * This is the shared shape of every bulk reschedule now: never hand-place
    * dates, never pin rows the projector will have to fight. Hand-placing was
@@ -4365,67 +4404,140 @@ export default function PlanV2() {
    * just moved through the move_lesson_to_date RPC, which pins it correctly
    * (slot AND flag together).
    *
-   * Returns the snapshot even on failure so the caller can still offer Undo.
+   * On success `undoRows` holds the prior state of exactly the rows it changed.
+   * On failure it has already put back whatever it moved; `partial` says that
+   * restore did not fully land either.
    */
   const reprojectGoalTail = useCallback(async (
     config: CurriculumGoalConfig,
-    opts: { from?: Date; keepPinnedIds?: string[] } = {},
-  ): Promise<{ snapshot: ReprojectSnapshotRow[]; ok: boolean }> => {
+    opts: { from?: Date; keepPinnedIds?: string[]; source: ParentRespreadSource },
+  ): Promise<TailReprojectOutcome> => {
     // (a) Snapshot BEFORE touching anything. A failed read means we skip the
-    // goal rather than clear pins we could never restore.
+    // goal rather than change rows we could never restore.
     const { data: snapRows, error: snapErr } = await supabase
       .from("lessons")
       .select("id, scheduled_date, date, queue_pinned, scheduled_source")
       .eq("curriculum_goal_id", config.id)
       .eq("completed", false);
-    if (snapErr || !snapRows) return { snapshot: [], ok: false };
+    if (snapErr || !snapRows) return { ok: false, partial: false, undoRows: [] };
     const snapshot = snapRows as unknown as ReprojectSnapshotRow[];
 
-    // (b) Release the pins. Cleared explicitly rather than ignored so the rows
-    // do not freeze at their new projector dates either (Invariant 12).
-    let unpinReq = supabase
-      .from("lessons")
-      .update({ queue_pinned: false })
-      .eq("curriculum_goal_id", config.id)
-      .eq("completed", false);
-    for (const keepId of opts.keepPinnedIds ?? []) {
-      unpinReq = unpinReq.neq("id", keepId);
-    }
-    const { error: unpinErr } = await unpinReq;
-    if (unpinErr) return { snapshot, ok: false };
-
-    // (c) Let the reconciler write the dates. It owns the kill switch and its
-    // own overcapacity guard; if it declines, the pins are still cleared and
-    // the next Today load reconciles.
-    await reconcileGoalScheduleCache(
+    // (b) Project first, then write each row's new date and its unpin in one
+    // update, under the parent's own source. This does not go through the
+    // automatic reconciler: its switch (NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED) is
+    // for background resyncs, and routing a parent's tap through it meant the
+    // switch being off cleared the pins, wrote no dates, and still said done.
+    const result = await reprojectGoalForParent(
       supabase,
       config,
       vacationBlocks as unknown as SchedVacationBlock[],
-      0,
-      opts.from ?? new Date(),
+      { from: opts.from ?? new Date(), source: opts.source, keepPinnedIds: opts.keepPinnedIds },
     );
-    return { snapshot, ok: true };
-  }, [vacationBlocks]);
+    const written = new Set(result.writtenIds);
+    const changed = snapshot.filter((s) => written.has(s.id));
+    if (result.ok) return { ok: true, partial: false, undoRows: changed };
 
-  /** Put a set of snapshotted rows back exactly as they were: dates, pin flag
-   *  and scheduled_source. Chunked at 20, matching the rest of the file. */
-  const restoreLessonSnapshot = useCallback(async (snapshot: ReprojectSnapshotRow[]) => {
-    for (let i = 0; i < snapshot.length; i += 20) {
-      await Promise.allSettled(
-        snapshot.slice(i, i + 20).map((s) =>
-          supabase
-            .from("lessons")
-            .update({
-              scheduled_date: s.scheduled_date,
-              date: s.date,
-              queue_pinned: s.queue_pinned ?? false,
-              scheduled_source: s.scheduled_source,
-            })
-            .eq("id", s.id),
-        ),
+    // (c) Some rows may have moved before a later request failed. Put them
+    // back now, so a failure leaves the goal as it was rather than half done.
+    if (changed.length === 0) return { ok: false, partial: false, undoRows: [] };
+    const rolledBack = await restoreLessonSnapshot(changed);
+    return { ok: false, partial: !rolledBack.ok, undoRows: [] };
+  }, [vacationBlocks, restoreLessonSnapshot]);
+
+  /**
+   * Catch-up: re-project each affected goal's remaining tail from today.
+   *
+   * The old handler took hand-computed target dates from the modal and wrote
+   * them with batchUpdateScheduledDates(pairs, "plan_move", true). That was
+   * wrong twice over. The dates came from one global counter that ignored each
+   * goal's school_days and lessons_per_day, and the write PINNED every row
+   * without ever setting queue_position, but reconcileGoalScheduleCache keys
+   * pins on queue_position, so those pins dragged the projector cursor and the
+   * unpinned tail got re-dated around the mess on every Today load.
+   *
+   * Now the flow defers to the projector instead of competing with it:
+   * reprojectGoalTail lays the whole tail out on that goal's own school days,
+   * in lesson order, honoring per-weekday overrides and vacation blocks, and
+   * releases the pins in the same writes. One definition of "where does this
+   * lesson go" (Invariant 8), and the result is stable across resyncs because
+   * it IS what the reconciler would produce anyway. It is written as the
+   * family's action (catchup_spread), not as the automatic resync.
+   */
+  const handleCatchUpReprojectConfirm = useCallback(async () => {
+    const plan = shiftForwardPlan;
+    if (plan.length === 0) return;
+    setBulkBusy(true);
+
+    const today = new Date();
+    // Only the rows this action actually changed, so Undo puts back exactly
+    // those and nothing else.
+    const undoRows: ReprojectSnapshotRow[] = [];
+    const doneGoals: { goal_id: string; curriculum_name: string; lesson_count: number }[] = [];
+    let failedGoals = 0;
+    // A failed goal whose partial writes could not be put back.
+    let partialGoals = 0;
+
+    for (const entry of plan) {
+      const r = await reprojectGoalTail(entry.config, {
+        from: today,
+        source: PARENT_RESPREAD_SOURCE.catchUp,
+      });
+      undoRows.push(...r.undoRows);
+      if (!r.ok) {
+        failedGoals++;
+        if (r.partial) partialGoals++;
+        continue;
+      }
+      doneGoals.push({
+        goal_id: entry.config.id,
+        curriculum_name: entry.preview.curriculumName,
+        lesson_count: entry.preview.lessonCount,
+      });
+    }
+
+    const totalLessons = doneGoals.reduce((sum, g) => sum + g.lesson_count, 0);
+
+    recordEvent("lesson.bulk_action", {
+      action: "catch_up_reproject",
+      count: totalLessons,
+      goal_ids: doneGoals.map((g) => g.goal_id),
+      per_goal: doneGoals,
+      succeeded: doneGoals.length,
+      failed: failedGoals,
+    });
+
+    if (doneGoals.length > 0) {
+      setUndoAction({
+        message:
+          failedGoals > 0
+            ? `Re-spread ${doneGoals.length} of ${plan.length} curriculums. ${respreadFailureNote(failedGoals, partialGoals)}`
+            : `Re-spread ${totalLessons} lesson${totalLessons === 1 ? "" : "s"} from today`,
+        key: `catch-up-reproject:${Date.now()}`,
+        onUndo: async () => {
+          hapticTap(20);
+          const undone = await restoreLessonSnapshot(undoRows);
+          if (!undone.ok) flashNotice(UNDO_INCOMPLETE_NOTICE);
+          reloadPins();
+          reload();
+        },
+      });
+    } else {
+      flashNotice(
+        partialGoals > 0
+          ? "Couldn't re-spread your schedule. Some lessons moved and couldn't be put back, so check your plan."
+          : "Couldn't re-spread your schedule, so nothing changed. Check your connection and try again.",
       );
     }
-  }, []);
+
+    reloadPins();
+    reload();
+    setBulkBusy(false);
+    // Cross-route notification: Today re-reads so the new dates show without
+    // a manual refresh, same as every other bulk path here.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+    }
+  }, [shiftForwardPlan, reprojectGoalTail, restoreLessonSnapshot, recordEvent, reload, reloadPins]);
 
   /**
    * Where a goal resumes after pausing for `shiftDays` school days.
@@ -4479,18 +4591,21 @@ export default function PlanV2() {
     if (plan.length === 0) return;
     setBulkBusy(true);
 
-    const snapshot: ReprojectSnapshotRow[] = [];
+    const undoRows: ReprojectSnapshotRow[] = [];
     const doneGoals: { goal_id: string; curriculum_name: string; lesson_count: number; resumes: string }[] = [];
     let failedGoals = 0;
+    let partialGoals = 0;
 
     for (const entry of plan) {
       const resume = pushBackResumeDate(entry.config, shiftDays);
-      const { snapshot: snap, ok } = await reprojectGoalTail(entry.config, {
+      const r = await reprojectGoalTail(entry.config, {
         from: new Date(`${resume}T00:00:00`),
+        source: PARENT_RESPREAD_SOURCE.pushBack,
       });
-      snapshot.push(...snap);
-      if (!ok) {
+      undoRows.push(...r.undoRows);
+      if (!r.ok) {
         failedGoals++;
+        if (r.partial) partialGoals++;
         continue;
       }
       doneGoals.push({
@@ -4517,18 +4632,23 @@ export default function PlanV2() {
       setUndoAction({
         message:
           failedGoals > 0
-            ? `Pushed ${doneGoals.length} of ${plan.length} curriculums back, ${failedGoals} couldn't be moved`
+            ? `Pushed ${doneGoals.length} of ${plan.length} curriculums back. ${respreadFailureNote(failedGoals, partialGoals)}`
             : `Pushed your schedule back by ${shiftDays} school day${shiftDays === 1 ? "" : "s"}`,
         key: `push-back-reproject:${Date.now()}`,
         onUndo: async () => {
           hapticTap(20);
-          await restoreLessonSnapshot(snapshot);
+          const undone = await restoreLessonSnapshot(undoRows);
+          if (!undone.ok) flashNotice(UNDO_INCOMPLETE_NOTICE);
           reloadPins();
           reload();
         },
       });
     } else {
-      flashNotice("Couldn't push the schedule back, check your connection.");
+      flashNotice(
+        partialGoals > 0
+          ? "Couldn't push the schedule back. Some lessons moved and couldn't be put back, so check your plan."
+          : "Couldn't push the schedule back, so nothing changed. Check your connection and try again.",
+      );
     }
 
     reloadPins();
@@ -4581,10 +4701,11 @@ export default function PlanV2() {
     const config = toGoalConfig(goalRow as unknown as GoalConfigRow);
 
     // Snapshot first: it covers the moved lesson too (it is incomplete), so
-    // Undo restores its date and pin state along with the rest of the tail.
+    // Undo restores its date and pin state along with the rest of the tail,
+    // and queue_position so Undo can prove the queue order came back.
     const { data: snapRows, error: snapErr } = await supabase
       .from("lessons")
-      .select("id, scheduled_date, date, queue_pinned, scheduled_source")
+      .select("id, scheduled_date, date, queue_pinned, scheduled_source, queue_position")
       .eq("curriculum_goal_id", c.goalId)
       .eq("completed", false);
     if (snapErr || !snapRows) {
@@ -4609,7 +4730,13 @@ export default function PlanV2() {
 
     // Unpin and re-project everything else. keepPinnedIds protects the lesson
     // we just pinned through the RPC.
-    const { ok } = await reprojectGoalTail(config, { keepPinnedIds: [c.lessonId] });
+    const tail = await reprojectGoalTail(config, {
+      keepPinnedIds: [c.lessonId],
+      source: PARENT_RESPREAD_SOURCE.cascade,
+    });
+    const ok = tail.ok;
+    const movedPrior = snapshot.find((s) => s.id === c.lessonId) ?? null;
+    const tailUndoRows = tail.undoRows.filter((s) => s.id !== c.lessonId);
 
     setLessons((prev) =>
       prev.map((l) =>
@@ -4624,28 +4751,77 @@ export default function PlanV2() {
       count: snapshot.length,
       goal_ids: [c.goalId],
       school_days_shifted: c.shiftDays,
-      succeeded: ok ? snapshot.length : 0,
-      failed: ok ? 0 : snapshot.length,
+      succeeded: ok ? tail.undoRows.length : 0,
+      failed: ok ? 0 : 1,
       trigger_lesson_id: c.lessonId,
       goal_id: c.goalId,
     });
 
-    if (ok) {
-      setUndoAction({
-        message: `Moved the lesson and re-spread the rest of ${
-          curriculumGoals.find((g) => g.id === c.goalId)?.curriculum_name ?? "this curriculum"
-        }`,
-        key: `shift-forward-cascade:${Date.now()}`,
-        onUndo: async () => {
-          hapticTap(20);
-          await restoreLessonSnapshot(snapshot);
-          reloadPins();
-          reload();
-        },
-      });
-    } else {
-      flashNotice("Moved the lesson, but couldn't re-spread the rest. It'll settle on the next load.");
-    }
+    const curriculumName =
+      curriculumGoals.find((g) => g.id === c.goalId)?.curriculum_name ?? "this curriculum";
+    setUndoAction({
+      // Nothing re-spreads the tail later: the background reconciler may be
+      // switched off, so never promise that it will "settle".
+      message: ok
+        ? `Moved the lesson and re-spread the rest of ${curriculumName}`
+        : tail.partial
+          ? `Moved the lesson, but the rest of ${curriculumName} only partly moved, so check it`
+          : `Moved the lesson, but couldn't re-spread the rest of ${curriculumName}. They kept their dates.`,
+      key: `shift-forward-cascade:${Date.now()}`,
+      onUndo: async () => {
+        hapticTap(20);
+        // The RPC moved the lesson into a new queue slot and shifted its
+        // siblings. Restoring dates alone left the slots shifted: Today (which
+        // projects by slot) then showed the next lesson where Plan (which reads
+        // the date) showed the moved one. Found on staging 2026-09-21.
+        //
+        // So: put the tail's dates back first, then move the lesson back with
+        // the same RPC, which recomputes its slot from what now sits on that
+        // day and shifts the siblings back; then its prior pin and source.
+        const undone = await restoreLessonSnapshot(tailUndoRows);
+        let ok = undone.ok;
+        if (movedPrior?.scheduled_date) {
+          const { error: moveBackErr } = await supabase.rpc("move_lesson_to_date", {
+            p_lesson_id: c.lessonId,
+            p_target_date: movedPrior.scheduled_date,
+          });
+          if (moveBackErr) ok = false;
+          const { data: back, error: pinErr } = await supabase
+            .from("lessons")
+            .update({
+              queue_pinned: movedPrior.queue_pinned ?? false,
+              scheduled_source: sourceForUndoRestore(movedPrior.scheduled_source),
+            })
+            .eq("id", c.lessonId)
+            .select("id");
+          if (pinErr || (back?.length ?? 0) !== 1) ok = false;
+        }
+        // Prove the order came back rather than assume it. The RPC places a
+        // lesson after anything already on its day, so a day holding several
+        // lessons of one goal can come back in a different order.
+        const { data: slotsNow } = await supabase
+          .from("lessons")
+          .select("id, queue_position")
+          .in("id", snapshot.map((s) => s.id));
+        const slotById = new Map(((slotsNow ?? []) as { id: string; queue_position: number | null }[]).map((r) => [r.id, r.queue_position]));
+        const orderRestored = snapshot.every((s) => slotById.get(s.id) === (s.queue_position ?? null));
+        if (!ok) flashNotice(UNDO_INCOMPLETE_NOTICE);
+        else if (!orderRestored) {
+          flashNotice("Dates are back, but the lesson order changed. Check this curriculum on Plan.");
+          recordEvent("lesson.bulk_action", {
+            action: "shift_forward_cascade_undo",
+            count: snapshot.length,
+            goal_ids: [c.goalId],
+            succeeded: 0,
+            failed: 1,
+            trigger_lesson_id: c.lessonId,
+            goal_id: c.goalId,
+          });
+        }
+        reloadPins();
+        reload();
+      },
+    });
 
     reloadPins();
     reload();

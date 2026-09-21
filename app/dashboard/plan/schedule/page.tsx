@@ -21,7 +21,7 @@ import {
   type PerDayShape,
 } from "@/app/lib/builder-pace";
 import { isPhase2NoOp, planPhase2Rows, phase2RedateTargets, builderNextLesson, skippedSlotsFromRows, type PinnableRow, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
-import { recalibrateCurriculumGoal } from "@/app/lib/recalibrate";
+import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
@@ -3892,6 +3892,13 @@ export default function ScheduleBuilderPage() {
         ),
       );
       setRecalibratingLocalId((id) => (id === localId ? null : id));
+      // The pointer is committed before the lesson writes, so a partial
+      // failure is not rolled back. Say so rather than look finished.
+      if (!recalibrateFullyApplied(result)) {
+        setRowActionError(
+          `Moved to lesson ${result.clamped}, but some lessons didn't update. Try again, or check your connection.`,
+        );
+      }
     } catch (err) {
       const msg = (err as { message?: string })?.message ?? "Couldn't recalibrate.";
       setRowActionError(msg);

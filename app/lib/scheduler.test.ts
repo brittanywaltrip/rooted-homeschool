@@ -9829,9 +9829,13 @@ test('skip: every skip call site writes skipped, clears the date and the pin, an
 
 test('skip: the reconciler loads skipped rows and passes them to the projector with the pins', () => {
   const src = stripComments(loadRepoFile('app/lib/scheduler.ts'))
+  // The load-and-project step lives in planGoalResync, shared with the
+  // parent-action resync (Unskip, Today catch-up). The reconciler delegates.
   const body = extractFunctionBody(src, /export async function reconcileGoalScheduleCache\s*\(/)
-  assert.match(body, /queue_pinned, skipped/)
-  assert.match(body, /skippedSlotsFromRows\(rows\)/)
+  assert.match(body, /planGoalResync\(/)
+  const plan = extractFunctionBody(src, /async function planGoalResync\s*\(/)
+  assert.match(plan, /queue_pinned, skipped/)
+  assert.match(plan, /skippedSlotsFromRows\(rows\)/)
   const loader = extractFunctionBody(src, /export async function loadPinsByGoal\s*\(/)
   assert.match(loader, /queue_pinned\.eq\.true,skipped\.eq\.true/)
 })

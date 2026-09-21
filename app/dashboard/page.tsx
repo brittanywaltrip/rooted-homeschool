@@ -13,7 +13,7 @@ import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/
 import { useSessionUser } from "@/lib/session-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, resyncGoalsForParent, PARENT_RESPREAD_SOURCE, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import {
   completeLessonOnDate,
   buildCompletionPayload,
@@ -2610,6 +2610,16 @@ export default function TodayPage() {
     for (const goalId of goalIds) {
       await recomputeCurrentLesson(supabase, goalId);
     }
+
+    // Move the offered goals' remaining lessons to their new days, as the
+    // family's own action (see handleMissedRecoveryNo). After the completions
+    // and the pointer recompute, so the projection starts from what they did.
+    const moved = await resyncGoalsForParent(
+      supabase, effectiveUserId, offeredGoalIds, PARENT_RESPREAD_SOURCE.catchUp,
+    );
+    if (!moved.ok) {
+      throw new Error("Your lessons were saved, but some upcoming ones couldn't be moved to their new days. Try again.");
+    }
     } catch (err) {
       Sentry.captureException(err, { tags: { fn: "acceptMissedRecovery" } });
       // Some rows may already be written, so Today must show what landed
@@ -2637,12 +2647,15 @@ export default function TodayPage() {
    * end here, because they are the same answer about different rows: "we did
    * not do these, move them ahead."
    *
-   * No DB write, and none is needed. The lessons themselves are already moving:
-   * reconcileGoalScheduleCache re-projects every unpinned incomplete row from
-   * the pointer on each load, so the work is upcoming before this runs. What
-   * was missing is that computeGapLessonsForGoal never reads a lesson row — it
-   * projects from the goal's config between two dates — so re-dating rows could
-   * not stop the prompt returning. Recording the answer is what stops it.
+   * Recording the answer is what stops the prompt returning:
+   * computeGapLessonsForGoal never reads a lesson row, it projects from the
+   * goal's config between two dates, so re-dating rows alone could not stop it.
+   *
+   * Moving the lessons is a separate step the callers take first
+   * (resyncGoalsForParent). It used to be left to the automatic reconciler on
+   * the next Today load, which does nothing while
+   * NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED is "false": Today (which projects)
+   * showed the lessons ahead while Plan kept them on their missed days.
    */
   async function markCatchupAnswered(goalIds: string[]) {
     if (goalIds.length === 0) return;
@@ -2669,9 +2682,19 @@ export default function TodayPage() {
   async function handleMissedRecoveryNo() {
     markMissedRecoveryShown();
     // Every goal the prompt offered: the family answered "not these" for all
-    // of them. Same helper the Yes path uses for its unchecked rows. The sheet
-    // stays up ("Rescheduling…") until this has landed, same as Yes.
-    await markCatchupAnswered(Array.from(missedEntriesByGoal.keys()));
+    // of them. Their lessons move ahead first, as the family's own action; the
+    // answer is recorded only once that has landed, so a failure leaves the
+    // prompt able to ask again. The sheet stays up ("Rescheduling…") until
+    // both are done, and a failure is thrown for the modal to show.
+    const offered = Array.from(missedEntriesByGoal.keys());
+    if (effectiveUserId) {
+      const moved = await resyncGoalsForParent(supabase, effectiveUserId, offered, PARENT_RESPREAD_SOURCE.catchUp);
+      if (!moved.ok) {
+        await loadData();
+        throw new Error("Some lessons couldn't be moved ahead. Try again, or check your connection.");
+      }
+    }
+    await markCatchupAnswered(offered);
     setShowMissedRecovery(false);
     // Still refresh both surfaces so the dashboard re-renders without the
     // banner. The queue projector has already absorbed the lessons forward.

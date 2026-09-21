@@ -235,18 +235,21 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     // optimistic UI cleared. On error, roll the optimistic state back so
     // the lesson reappears in place and surface the failure to the caller
     // (which shows a flashNotice).
-    const { error } = await supabase
+    // Confirmed: a row the database leaves alone comes back missing from the
+    // representation with no error, and counts as a failure too.
+    const { data: skippedRows, error } = await supabase
       .from("lessons")
       .update({ skipped: true, scheduled_date: null, queue_pinned: false })
-      .eq("id", lesson.id);
-    if (error) {
+      .eq("id", lesson.id)
+      .select("id");
+    if (error || (skippedRows ?? []).length !== 1) {
       const restore = (l: T): T => l.id === lesson.id
         ? { ...l, scheduled_date: originalScheduled }
         : l;
       setLessons(prev => prev.map(restore));
       setMonthLessons(prev => prev.map(restore));
       if (setAllLessons) setAllLessons(prev => prev.map(restore));
-      throw new Error(error.message);
+      throw new Error(error?.message ?? "The skip did not land");
     }
     onSkipUndo?.(lesson.id, originalDate);
   }, [setLessons, setMonthLessons, setAllLessons, onSkipUndo]);
