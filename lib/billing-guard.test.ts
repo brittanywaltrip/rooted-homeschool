@@ -53,7 +53,20 @@ test("no billing route constructs Stripe at module scope", () => {
       !/^const stripe = new Stripe\(/m.test(src),
       `${rel} still builds its Stripe client at module scope`,
     );
-    assert.ok(/function stripeClient\(\)/.test(src), `${rel} has no lazy stripeClient()`);
+    // The lazy client used to be a copy of the same six lines in each of these
+    // five routes. PR #78 replaced every copy with one shared implementation in
+    // lib/api-clients.ts, which also names the missing variable rather than
+    // letting the SDK complain. What must never come back is construction at
+    // IMPORT, and that is what the assertion above pins. This one only checks
+    // the route gets its client from something lazy, by either route.
+    //
+    // lib/api-keys.test.ts enforces the general rule across every file under
+    // app/api with a brace-depth scanner; this stays as the billing-specific
+    // statement of the same invariant.
+    assert.ok(
+      /from ["']@\/lib\/api-clients["']/.test(src) || /function stripeClient\(\)/.test(src),
+      `${rel} does not obtain its Stripe client lazily`,
+    );
   }
 });
 
