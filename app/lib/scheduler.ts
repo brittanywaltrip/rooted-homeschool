@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as Sentry from "@sentry/nextjs";
-import { addDays, isoDowFromYmd } from "./timezone.ts";
+import { addDays, isoDowFromYmd, startOfDayInTzAsUtc, todayInTz } from "./timezone.ts";
 // Relative + explicit extension so `node --test` (which runs this module
 // directly) can resolve it, same as ./timezone.ts above.
 import { captureSupabaseError } from "../../lib/sentry-error.ts";
@@ -657,28 +657,62 @@ export async function resyncGoalForParent(
 }
 
 /**
- * resyncGoalForParent for a list of goals, loading their configs and the
- * family's breaks itself so a page handler needs no scheduler state.
+ * resyncGoalForParent for a list of goals, loading their configs, the
+ * family's breaks and each goal's completed-today count itself so a page
+ * handler needs no scheduler state.
  * `ok` is false when any goal could not be loaded or fully written.
+ *
+ * The completed-today count is Today's own: lessons whose completed_at falls
+ * in the local day of `timezone` (the browser's, by default, as Today uses).
+ * Today's projector subtracts it from today's allowance, so a goal that had
+ * lessons marked done today (a catch-up "Yes" does exactly that) starts its
+ * remaining lessons tomorrow. Passing 0 put them on today in the cache while
+ * Today showed them tomorrow.
  */
 export async function resyncGoalsForParent(
   supabase: SupabaseClient,
   userId: string,
   goalIds: string[],
   source: ParentRespreadSource,
+  opts: { timezone?: string } = {},
 ): Promise<{ ok: boolean; written: number; failedGoals: string[] }> {
   if (goalIds.length === 0) return { ok: true, written: 0, failedGoals: [] };
-  const [{ data: goalRows, error: goalErr }, { data: vacRows, error: vacErr }] = await Promise.all([
+  const tz = opts.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const todayYmd = todayInTz(tz);
+  const dayStartIso = startOfDayInTzAsUtc(todayYmd, tz).toISOString();
+  const dayEndIso = startOfDayInTzAsUtc(addDays(todayYmd, 1), tz).toISOString();
+  const [
+    { data: goalRows, error: goalErr },
+    { data: vacRows, error: vacErr },
+    { data: doneRows, error: doneErr },
+  ] = await Promise.all([
     supabase.from("curriculum_goals").select(GOAL_CONFIG_COLUMNS).in("id", goalIds),
     supabase.from("vacation_blocks").select("start_date, end_date").eq("user_id", userId),
+    supabase
+      .from("lessons")
+      .select("curriculum_goal_id")
+      .eq("user_id", userId)
+      .in("curriculum_goal_id", goalIds)
+      .eq("completed", true)
+      .gte("completed_at", dayStartIso)
+      .lt("completed_at", dayEndIso),
   ]);
-  if (goalErr || vacErr || !goalRows) return { ok: false, written: 0, failedGoals: [...goalIds] };
+  // A missing count would place today's allowance a second time, so it is a
+  // failure like the other two reads, not a zero.
+  if (goalErr || vacErr || doneErr || !goalRows) return { ok: false, written: 0, failedGoals: [...goalIds] };
   const vacations = ((vacRows ?? []) as VacationBlock[]).map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+  const doneToday = new Map<string, number>();
+  for (const r of (doneRows ?? []) as { curriculum_goal_id: string | null }[]) {
+    if (r.curriculum_goal_id) doneToday.set(r.curriculum_goal_id, (doneToday.get(r.curriculum_goal_id) ?? 0) + 1);
+  }
   const configs = (goalRows as unknown as GoalConfigRow[]).map(toGoalConfig);
   const failedGoals = goalIds.filter((id) => !configs.some((c) => c.id === id));
   let written = 0;
   for (const config of configs) {
-    const r = await resyncGoalForParent(supabase, config, vacations, { source });
+    const r = await resyncGoalForParent(supabase, config, vacations, {
+      source,
+      completedTodayCount: doneToday.get(config.id) ?? 0,
+    });
     written += r.written;
     if (!r.ok) failedGoals.push(config.id);
   }

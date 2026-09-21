@@ -496,6 +496,32 @@ test('resyncGoalsForParent loads configs itself and fails closed on a missing go
   assert.deepEqual(missing.failedGoals, ['no-such-goal'])
 })
 
+test('resyncGoalsForParent counts lessons completed today the way Today does', async () => {
+  // Every day a school day, so "today" always has a slot whatever day the
+  // suite runs. Lesson 3 was marked done today (a catch-up Yes stamps
+  // completed_at now), which uses up today's one lesson: Today's projector
+  // puts lesson 4 tomorrow, and the cache must say the same.
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const now = new Date()
+  const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+  const run = async (doneTodayAt: string | null) => {
+    const { goal, lessons } = staleGoal()
+    const everyDay = { ...goal, school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], user_id: 'u1' }
+    for (const r of lessons) {
+      r.user_id = 'u1'
+      r.completed_at = r.completed ? '2026-01-02T15:00:00.000Z' : null
+    }
+    if (doneTodayAt) lessons.find((r) => r.id === 'L3')!.completed_at = doneTodayAt
+    const { client, tables } = makeMemorySupabase({ curriculum_goals: [everyDay], vacation_blocks: [], lessons })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await resyncGoalsForParent(client as any, 'u1', [goal.id], PARENT_RESPREAD_SOURCE.catchUp)
+    assert.equal(res.ok, true)
+    return tables.lessons.find((r) => r.id === 'L4')!.scheduled_date
+  }
+  assert.equal(await run(now.toISOString()), ymd(tomorrow), 'done today: the next lesson starts tomorrow')
+  assert.equal(await run(null), ymd(now), 'nothing done today: the next lesson is today')
+})
+
 test('Unskip and Today catch-up date lessons themselves instead of waiting for the reconciler', () => {
   const plan = stripComments(read('app/components/PlanV2/index.tsx'))
   const unskip = plan.slice(plan.indexOf('const unskipLesson = useCallback'), plan.indexOf('const handleSubmitAddLesson'))
