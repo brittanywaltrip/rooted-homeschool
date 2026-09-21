@@ -2259,9 +2259,8 @@ export default function TodayPage() {
   // this page projects. The server switch decides whether anything is written.
   // A co-teacher's session is not the curriculum's owner, so it leaves this to
   // the family's own tabs.
-  useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
+  const { failureNote: reconcileFailureNote } = useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
     onRedated: () => { void loadDataRef.current(); },
-    onFailure: (message) => showCaptureToast(message, null),
   });
 
   // Move to the new day when the clock crosses midnight, or when a tab that
@@ -4903,12 +4902,17 @@ export default function TodayPage() {
           back to the catch-up flow, and hiding it too left the family with
           no path to log the day they actually worked.
          ═══════════════════════════════════════════════════════════ */}
+      {reconcileFailureNote && (
+        <p role="status" className="text-[12px] text-[#7a4a1a] bg-[#fdf6e8] border border-[#e8d9a8] rounded-xl px-3.5 py-2.5">
+          {reconcileFailureNote}
+        </p>
+      )}
+
       {!loading && overdueLessonCount > 0 && missedEntriesByGoal.size > 0 && (
         // Opens Today's own catch-up sheet, with the same lessons it counts.
-        // It used to link to Plan, whose missed-lessons banner is usually
-        // empty by then: on this same load Today already moved those lessons
-        // forward. The sheet still opens by itself once per tab; this lets the
-        // family reopen it any time after that.
+        // Plan's missed banner lists the same lessons and opens the same
+        // sheet (app/lib/missed-work.ts). The sheet still opens by itself once
+        // per tab; this lets the family reopen it any time after that.
         <button
           type="button"
           onClick={() => {

@@ -341,9 +341,11 @@ test('interrupted write: nothing commits, the day is not marked, the next trigge
   w.server.state.failNext = true
   let clock = at(TUE)
   const failures: unknown[] = []
+  let note: string | null = null
   const runner = createDailyReconcileRunner({
     run: (now) => run(w.client, now), now: () => clock, dayOf: ymd, retryAfterMs: 5 * 60_000,
-    onFailure: (x) => failures.push(x),
+    onFailure: (x) => { failures.push(x); note = 'failed' },
+    onSettled: () => { note = null },
   })
   const first = await runner.trigger()
   assert.equal(first!.results[0].status, 'error')
@@ -351,6 +353,7 @@ test('interrupted write: nothing commits, the day is not marked, the next trigge
   assert.equal(w.server.state.log.size, 0)
   assert.equal(runner.settledDay, null)
   assert.equal(failures.length, 1)
+  assert.equal(note, 'failed', 'the family is told, and it stays up')
   clock = new Date(clock.getTime() + 60_000)
   assert.equal(await runner.trigger(), null, 'backs off instead of hammering')
   clock = new Date(clock.getTime() + 5 * 60_000)
@@ -358,6 +361,7 @@ test('interrupted write: nothing commits, the day is not marked, the next trigge
   assert.equal(retry!.results[0].status, 'applied')
   assert.equal(runner.settledDay, ymd(at(TUE)))
   assert.equal(failures.length, 1, 'one notice per day')
+  assert.equal(note, null, 'the note clears once a later run settles')
   assert.deepEqual(disagreements(w.tables, clock), [])
 })
 

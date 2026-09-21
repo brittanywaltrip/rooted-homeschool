@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createDailyReconcileRunner,
@@ -25,8 +25,11 @@ import { ymdInTz } from "@/app/lib/timezone";
 export function useDailyReconcile(
   supabase: SupabaseClient,
   userId: string | null | undefined,
-  handlers: { onRedated?: (run: DailyReconcileRun) => void; onFailure?: (message: string) => void },
-) {
+  handlers: { onRedated?: (run: DailyReconcileRun) => void },
+): { failureNote: string | null } {
+  // Kept up until a later run settles, not flashed: the first run fires while
+  // the page is still loading, and a toast there was never seen.
+  const [failureNote, setFailureNote] = useState<string | null>(null);
   const handlersRef = useRef(handlers);
   useEffect(() => {
     handlersRef.current = handlers;
@@ -40,7 +43,8 @@ export function useDailyReconcile(
       now: () => new Date(),
       dayOf: (d) => ymdInTz(d, tz),
       onRedated: (run) => handlersRef.current.onRedated?.(run),
-      onFailure: () => handlersRef.current.onFailure?.(DAILY_RECONCILE_FAILED_NOTE),
+      onFailure: () => setFailureNote(DAILY_RECONCILE_FAILED_NOTE),
+      onSettled: () => setFailureNote(null),
     });
     const kick = () => {
       if (document.visibilityState === "visible") void runner.trigger();
@@ -55,4 +59,6 @@ export function useDailyReconcile(
       document.removeEventListener("visibilitychange", kick);
     };
   }, [supabase, userId]);
+
+  return { failureNote };
 }

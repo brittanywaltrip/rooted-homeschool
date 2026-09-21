@@ -832,9 +832,8 @@ export default function PlanV2() {
 
   // Once a day, bring stored lesson dates in step with Today's projection
   // (app/lib/daily-reconcile.ts), then reload so this calendar shows them.
-  useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
+  const { failureNote: reconcileFailureNote } = useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
     onRedated: () => { reload(); reloadPins(); },
-    onFailure: (message) => flashNotice(message),
   });
 
   // Post-save landing from the Schedule Builder. The builder commits the new
@@ -5821,6 +5820,12 @@ export default function PlanV2() {
         {/* Missed-lessons banner, above the calendar card: the same lessons
             Today asks about, and Review opens the same prompt, so the question
             is answered once whichever screen the family is on. */}
+        {reconcileFailureNote ? (
+          <p role="status" className="text-[12px] text-[#7a4a1a] bg-[#fdf6e8] border border-[#e8d9a8] rounded-xl px-3.5 py-2.5">
+            {reconcileFailureNote}
+          </p>
+        ) : null}
+
         {!loading ? (
           <MissedLessonsBanner
             groups={missedBannerGroups}

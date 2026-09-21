@@ -158,7 +158,8 @@ export async function reconcileForDay(
  * failed or stayed stale is not settled: the next trigger retries it, but no
  * sooner than `retryAfterMs` after the failure (a new day retries at once).
  * Never two runs at once in the same tab. `onFailure` fires at most once per
- * local day, so a family sees one notice, not one a minute.
+ * local day; `onSettled` fires when a later run finishes, so a page can keep a
+ * failure note up until then rather than flash it while it is still loading.
  *
  * A run that found the switch off counts as settled for that day: the tab
  * stops calling until the next day or the next page load.
@@ -170,6 +171,7 @@ export function createDailyReconcileRunner(deps: {
   retryAfterMs?: number;
   onRedated?: (run: DailyReconcileRun) => void;
   onFailure?: (run: DailyReconcileRun | null, err?: unknown) => void;
+  onSettled?: (run: DailyReconcileRun) => void;
 }) {
   const retryAfterMs = deps.retryAfterMs ?? 5 * 60_000;
   let settledDay: string | null = null;
@@ -198,7 +200,10 @@ export function createDailyReconcileRunner(deps: {
         .then((r) => {
           if (r.written > 0) deps.onRedated?.(r);
           if (r.retry) fail(r.day, r);
-          else settledDay = r.day;
+          else {
+            settledDay = r.day;
+            deps.onSettled?.(r);
+          }
           return r;
         })
         .catch((err) => {
@@ -216,6 +221,6 @@ export function createDailyReconcileRunner(deps: {
   };
 }
 
-/** Said once per day per tab when a run could not finish. */
+/** Shown on Today and Plan while a run could not finish, until one does. */
 export const DAILY_RECONCILE_FAILED_NOTE =
   "Couldn't bring your plan's dates up to today. Rooted will try again.";
