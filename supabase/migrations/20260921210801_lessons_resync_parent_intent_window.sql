@@ -1,6 +1,12 @@
+-- ALREADY APPLIED. DO NOT RE-RUN.
+--   production gvkbegvvmhcrmxdorctk: 20260921210801 lessons_resync_parent_intent_window (2026-09-21)
+--   staging    cvgqovweybggrqakhdtd: 20260921174221 lessons_resync_parent_intent_window (2026-09-21)
+-- The filename carries the PRODUCTION version. The staging ledger recorded
+-- 20260921174221; see docs/MIGRATION-LEDGER-CONTAINMENT.md.
+--
 -- lessons_resync_parent_intent_window: let an OLD tab's parent action finish.
 --
--- Amends lessons_block_stale_resync (20260921172242). Staging first.
+-- Amends lessons_block_stale_resync (20260921210738). Staging first.
 --
 -- WHY
 -- A tab running a bundle built before fix/scheduler-containment sends the

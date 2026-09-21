@@ -1216,7 +1216,7 @@ Auto-scheduling never bunches; only the user can.
   session (or another tab of the same browser, which shares the session) also
   lands. Nothing on the server can tell the two apart; the exception closes
   when those old tabs are gone. See
-  `supabase/migrations/20260921183953_lessons_resync_intent_session_scope.sql`.
+  `supabase/migrations/20260921210815_lessons_resync_intent_session_scope.sql`.
 
   **Parent re-spreads (September 2026).** Until then these three unpinned the
   tail and called `reconcileGoalScheduleCache`, the AUTOMATIC reconciler. Two

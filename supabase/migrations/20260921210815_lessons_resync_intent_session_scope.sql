@@ -1,7 +1,13 @@
+-- ALREADY APPLIED. DO NOT RE-RUN.
+--   production gvkbegvvmhcrmxdorctk: 20260921210815 lessons_resync_intent_session_scope (2026-09-21)
+--   staging    cvgqovweybggrqakhdtd: 20260921183953 lessons_resync_intent_session_scope (2026-09-21)
+-- The filename carries the PRODUCTION version. The staging ledger recorded
+-- 20260921183953; see docs/MIGRATION-LEDGER-CONTAINMENT.md.
+--
 -- lessons_resync_intent_session_scope: narrow the parent-intent exception to
 -- the login session that made it.
 --
--- Amends 20260921174221_lessons_resync_parent_intent_window. Staging first.
+-- Amends 20260921210801_lessons_resync_parent_intent_window. Staging first.
 --
 -- WHAT THIS IS, HONESTLY
 -- A HEURISTIC EXCEPTION, not identification of parent intent. An old

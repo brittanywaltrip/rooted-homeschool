@@ -389,6 +389,11 @@ migration from 2026-09-18 onward:
 That makes new files match the ledger by construction.
 `profiles_cancel_at` is the first one to follow this rule.
 
+The five scheduler-containment migrations (2026-09-21) were applied to
+rooted-staging first and production second, so they have two ledger versions.
+Their filenames carry the production version; the staging versions are in
+`docs/MIGRATION-LEDGER-CONTAINMENT.md`. All five are ALREADY APPLIED on both.
+
 ## Database key tables
 - profiles: user settings, plan_type, school_days (text[] of weekday labels:
   "monday".."sunday"), family_photo_url, last_catchup_dismissed_at

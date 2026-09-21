@@ -1,5 +1,5 @@
 -- Assertion tests for the legacy queue_resync block and its parent-intent
--- heuristic (20260921172242, 20260921174221, 20260921183953).
+-- heuristic (20260921210738, 20260921210801, 20260921210815).
 --
 -- Run against rooted-staging ONLY (the fixture user and goal are staging
 -- synthetic data). Everything runs in one transaction that always ends in an

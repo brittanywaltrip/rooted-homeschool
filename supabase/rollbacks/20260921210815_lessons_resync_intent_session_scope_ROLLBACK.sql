@@ -1,10 +1,10 @@
--- Rollback for 20260921183953_lessons_resync_intent_session_scope.
+-- Rollback for 20260921210815_lessons_resync_intent_session_scope.
 --
--- Returns intent to per-user, per-goal scope (20260921174221): any session of
+-- Returns intent to per-user, per-goal scope (20260921210801): any session of
 -- the same family, on any device, inside the window, gets the exception
 -- again. That widens the heuristic; use only if session scoping misbehaves
 -- (for example, a client whose JWT lacks session_id). To remove intent
--- tracking entirely, use the 20260921174221 rollback instead.
+-- tracking entirely, use the 20260921210801 rollback instead.
 
 begin;
 delete from rooted_private.schedule_intent;

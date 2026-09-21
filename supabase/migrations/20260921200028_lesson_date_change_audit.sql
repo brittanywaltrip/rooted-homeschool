@@ -1,3 +1,9 @@
+-- ALREADY APPLIED. DO NOT RE-RUN.
+--   production gvkbegvvmhcrmxdorctk: 20260921200028 lesson_date_change_audit (2026-09-21)
+--   staging    cvgqovweybggrqakhdtd: 20260921174245 lesson_date_change_audit (2026-09-21)
+-- The filename carries the PRODUCTION version. The staging ledger recorded
+-- 20260921174245; see docs/MIGRATION-LEDGER-CONTAINMENT.md.
+--
 -- lesson_date_change_audit: a bounded record of every lesson date change that
 -- actually LANDS. Staging first; production only with separate approval.
 --

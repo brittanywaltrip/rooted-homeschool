@@ -1,5 +1,5 @@
--- Rollback for 20260921174221_lessons_resync_parent_intent_window
--- (and 20260921183953_lessons_resync_intent_session_scope, which amends it).
+-- Rollback for 20260921210801_lessons_resync_parent_intent_window
+-- (and 20260921210815_lessons_resync_intent_session_scope, which amends it).
 --
 -- FAST PATH, if intent tracking itself is failing writes. Its two triggers sit
 -- in the write path of every bare unpin and every curriculum_goals
@@ -9,20 +9,20 @@
 --   ALTER TABLE public.lessons          DISABLE TRIGGER lessons_note_schedule_intent;
 --   ALTER TABLE public.curriculum_goals DISABLE TRIGGER curriculum_goals_note_schedule_intent;
 -- With the signals off, no new intent is recorded, so an OLD tab's parent
--- re-spread is blocked again as in 20260921172242. If has_recent_schedule_intent
+-- re-spread is blocked again as in 20260921210738. If has_recent_schedule_intent
 -- itself is what fails, the containment rollback (disable
 -- lessons_block_stale_resync) is the fast path, because that trigger calls it.
 --
 -- FULL REMOVAL below.
 --
--- Returns the block to its 20260921172242 behaviour: EVERY legacy
+-- Returns the block to its 20260921210738 behaviour: EVERY legacy
 -- queue_resync write from a browser is refused again, including an old tab's
 -- parent re-spread, its undo and Recalibrate Phase 5 (pins released, dates not
 -- moved, old toast still reporting success). Use only if the intent window
 -- itself misbehaves. To stop blocking altogether, use the rollback of
--- 20260921172242 instead.
+-- 20260921210738 instead.
 --
--- Apply AFTER 20260921174245's rollback if both are being removed: the date
+-- Apply AFTER 20260921200028's rollback if both are being removed: the date
 -- change audit reads the transaction-local list this migration writes, and
 -- tolerates its absence.
 

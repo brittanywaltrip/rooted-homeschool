@@ -1,4 +1,4 @@
--- Rollback for 20260921194104_rooted_private_schema_prerequisite.
+-- Rollback for 20260921200005_rooted_private_schema_prerequisite.
 --
 -- Only after every containment rollback (block, intent, session scope,
 -- audit) has run AND their kept tables have been exported and dropped. It is
