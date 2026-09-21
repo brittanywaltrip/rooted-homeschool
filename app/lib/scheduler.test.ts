@@ -7590,7 +7590,11 @@ test('big families: a second tap on a lesson still in flight is ignored, not que
   // audit history have to keep agreeing.
   const plan = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
   const withLog = extractFunctionBody(plan, /const toggleLessonWithLog = useCallback\(/)
-  assert.match(withLog, /const wrote = await toggleLesson\(id, current\)/)
+  // Through toggleLessonReported, which only adds a failure notice: it
+  // returns toggleLesson's own answer, so a dropped tap is still `false`.
+  assert.match(withLog, /const wrote = await toggleLessonReported\(id, current\)/)
+  const reported = extractFunctionBody(plan, /const toggleLessonReported = useCallback\(/)
+  assert.match(reported, /return await toggleLesson\(id, current\);/)
   assert.ok(withLog.indexOf('if (willAsk || !wrote) return;') < withLog.indexOf('recordEvent('), 'no audit event for a dropped tap')
   const chooser = plan.slice(plan.indexOf('onChoose={async (dateStr, choice) => {'))
   assert.ok(chooser.indexOf('if (!wrote) return;') !== -1 && chooser.indexOf('if (!wrote) return;') < chooser.indexOf('recordEvent("lesson.completed"'), 'the chooser skips the event when nothing was written')

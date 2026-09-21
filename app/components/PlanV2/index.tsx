@@ -98,6 +98,7 @@ import {
   sourceForUndoRestore,
   isProjectorPlacedSource,
   PARENT_RESPREAD_SOURCE,
+  COMPLETION_RESPREAD_FAILED_NOTE,
   type ParentRespreadSource,
   toGoalConfig,
   GOAL_CONFIG_COLUMNS,
@@ -1009,7 +1010,29 @@ export default function PlanV2() {
     onLessonCompleted: (event) => {
       posthog.capture("lesson_completed", event);
     },
+    // A completion or un-completion re-dated the rest of that curriculum.
+    onScheduleRedated: () => {
+      reload();
+      reloadPins();
+    },
+    onRedateFailed: (message) => flashNotice(message),
   });
+
+  // Every single check and uncheck on Plan goes through here, so a failed
+  // write is said, the optimistic tick is already rolled back by the hook,
+  // and the calendar reloads to what is really stored.
+  const toggleLessonReported = useCallback(
+    async (id: string, current: boolean): Promise<boolean> => {
+      try {
+        return await toggleLesson(id, current);
+      } catch {
+        flashNotice(current ? "Couldn't unmark that lesson, try again." : "Couldn't save that lesson, try again.");
+        reload();
+        return false;
+      }
+    },
+    [toggleLesson, reload],
+  );
 
   // After lesson toggle / bulk completion, recomputeCurrentLesson may have
   // stamped completed_at on a goal for the first time. This detects that
@@ -1049,7 +1072,7 @@ export default function PlanV2() {
       // onChoose records the audit event and the toast once the family answers.
       const plannedDate = snap?.scheduled_date ?? snap?.date ?? null;
       const willAsk = !current && !!snap && plannedDate !== null && plannedDate !== todayStr;
-      const wrote = await toggleLesson(id, current);
+      const wrote = await toggleLessonReported(id, current);
       // A tap dropped because the first one is still writing is not an event,
       // a toast or a completion: the row and the history must keep agreeing.
       if (willAsk || !wrote) return;
@@ -1078,7 +1101,7 @@ export default function PlanV2() {
         await fireConfettiIfNewlyCompleted(snap.curriculum_goal_id);
       }
     },
-    [lessons, toggleLesson, recordEvent, fireConfettiIfNewlyCompleted, todayStr],
+    [lessons, toggleLessonReported, recordEvent, fireConfettiIfNewlyCompleted, todayStr],
   );
 
   const deleteLessonWithLog = useCallback(
@@ -1426,6 +1449,10 @@ export default function PlanV2() {
     // current_lesson so the queue pointer reflects the highest completed slot.
     if (isExtraCompletion && goalIdForInsert) {
       await recomputeCurrentLesson(supabase, goalIdForInsert);
+      // And re-date the rest of that curriculum from the new pointer, as the
+      // family's own action, so Plan matches Today.
+      const redate = await resyncGoalsForParent(supabase, effectiveUserId, [goalIdForInsert], PARENT_RESPREAD_SOURCE.completion);
+      if (!redate.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
     }
 
     // Optimistic state: patch in-place if we updated a pre-existing row
@@ -1462,6 +1489,13 @@ export default function PlanV2() {
             await supabase.from("lessons").delete().eq("id", row.id);
           } catch {
             /* best-effort; next reload reconciles */
+          }
+          // Removing a logged completion can move the pointer back (the lessons
+          // trigger recomputes it on delete): re-date the curriculum again.
+          if (isExtraCompletion && goalIdForInsert && effectiveUserId) {
+            await recomputeCurrentLesson(supabase, goalIdForInsert);
+            const back = await resyncGoalsForParent(supabase, effectiveUserId, [goalIdForInsert], PARENT_RESPREAD_SOURCE.uncompletion);
+            if (!back.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
           }
           reload();
         },
@@ -2827,6 +2861,11 @@ export default function PlanV2() {
     for (const e of selected.slice(0, okCount)) {
       recordEvent("lesson.completed", { goal_id: e.goal_id, date: e.date });
     }
+    // logPastDayLessons recomputed each pointer; re-date the rest of those
+    // curricula from it, as the family's own action, so Plan matches Today.
+    const redate = await resyncGoalsForParent(
+      supabase, effectiveUserId, Array.from(new Set(selected.map((e) => e.goal_id))), PARENT_RESPREAD_SOURCE.completion,
+    );
     reload();
     reloadPins();
     if (typeof window !== "undefined") {
@@ -2834,6 +2873,8 @@ export default function PlanV2() {
     }
     if (failedCount > 0) {
       flashNotice(`Logged ${okCount}, but ${failedCount} didn't save. Try those again.`);
+    } else if (!redate.ok) {
+      flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
     }
   }, [effectiveUserId, recordEvent, reload, reloadPins, flashNotice]);
 
@@ -3971,6 +4012,12 @@ export default function PlanV2() {
         await fireConfettiIfNewlyCompleted(gid);
       }
     }
+    // The pointer moved: re-date the rest of each curriculum as the family's
+    // own action, so Plan matches what Today now projects.
+    const redate = affectedGoalIds.size > 0 && effectiveUserId
+      ? await resyncGoalsForParent(supabase, effectiveUserId, Array.from(affectedGoalIds), PARENT_RESPREAD_SOURCE.completion)
+      : { ok: true, written: 0, failedGoals: [] as string[] };
+    if (!redate.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
 
     if (succeededIds.length > 0) {
       setUndoAction({
@@ -4036,10 +4083,17 @@ export default function PlanV2() {
               Array.from(affectedGoalIds).map((gid) => recomputeCurrentLesson(supabase, gid)),
             );
           }
+          // The completion re-dated the lessons after these; with them back in
+          // the queue, re-date again so Plan matches Today.
+          const back = affectedGoalIds.size > 0 && effectiveUserId
+            ? await resyncGoalsForParent(supabase, effectiveUserId, Array.from(affectedGoalIds), PARENT_RESPREAD_SOURCE.uncompletion)
+            : { ok: true, written: 0, failedGoals: [] as string[] };
           // The local patch above is optimistic; reload() replaces it with
           // what the database holds, and the notice says why they differ.
           if (undoFailed > 0) flashNotice(UNDO_INCOMPLETE_NOTICE);
+          else if (!back.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
           reload();
+          reloadPins();
         },
       });
     } else {
@@ -4065,7 +4119,7 @@ export default function PlanV2() {
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode, recordEvent, fireConfettiIfNewlyCompleted, todayStr]);
+  }, [lessons, setLessons, reload, reloadPins, exitSelectMode, recordEvent, fireConfettiIfNewlyCompleted, todayStr, effectiveUserId]);
 
   // ── Bulk: skip (mark skipped, clear scheduled_date) ───────────────────────
   // Same write as the single Skip in usePlanLessonActions. It used to send
@@ -4850,9 +4904,14 @@ export default function PlanV2() {
     await performMove(p.lessonId, p.fromDateStr, p.toDateStr);
     if (!markCompleted) return;
     const payload = buildPastDateCompletionPayload(`${p.toDateStr}T12:00:00Z`);
-    const { error } = await supabase.from("lessons").update(payload).eq("id", p.lessonId);
-    if (error) {
+    const { data: done, error } = await supabase
+      .from("lessons")
+      .update(payload)
+      .eq("id", p.lessonId)
+      .select("id, curriculum_goal_id");
+    if (error || (done ?? []).length !== 1) {
       flashNotice("Lesson moved, but couldn't mark complete.");
+      reload();
       return;
     }
     setLessons((prev) =>
@@ -4862,8 +4921,18 @@ export default function PlanV2() {
           : l,
       ),
     );
+    // This path used to leave the pointer to the lessons trigger alone and
+    // re-date nothing. Recompute it here like every other completion, then
+    // re-date the rest of the curriculum as the family's own action.
+    const goalId = (done?.[0] as { curriculum_goal_id: string | null } | undefined)?.curriculum_goal_id;
+    if (goalId && effectiveUserId) {
+      await recomputeCurrentLesson(supabase, goalId);
+      const redate = await resyncGoalsForParent(supabase, effectiveUserId, [goalId], PARENT_RESPREAD_SOURCE.completion);
+      if (!redate.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
+    }
     reload();
-  }, [performMove, setLessons, reload, flashNotice]);
+    reloadPins();
+  }, [performMove, setLessons, reload, reloadPins, flashNotice, effectiveUserId]);
 
   // ── Vacation block modal handlers ────────────────────────────────────────
 
@@ -5907,7 +5976,7 @@ export default function PlanV2() {
                       if (fromDate) setRescheduleTarget({ lessonId: l.id, fromDateStr: fromDate });
                     }}
                     onEditLesson={(l) => setEditLessonTarget(l)}
-                    onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
+                    onToggleLessonDone={(l) => { void toggleLessonReported(l.id, l.completed); }}
                     onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                     onMarkBreakForDay={(date) => handleMenuMarkBreak(date)}
                     onDayAdd={(date) => openUnifiedAdd(date)}
@@ -6009,7 +6078,7 @@ export default function PlanV2() {
                         if (fromDate) setRescheduleTarget({ lessonId: l.id, fromDateStr: fromDate });
                       }}
                       onEditLesson={(l) => setEditLessonTarget(l)}
-                      onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
+                      onToggleLessonDone={(l) => { void toggleLessonReported(l.id, l.completed); }}
                       onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                       onMarkBreakForDay={(date) => handleMenuMarkBreak(date)}
                       onDayAdd={(date) => openUnifiedAdd(date)}

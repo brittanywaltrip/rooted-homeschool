@@ -503,9 +503,27 @@ export const PARENT_RESPREAD_SOURCE = {
   unskip: "skip_undo",
   /** Skip: the skipped slot is stepped over, so the lessons after it move up. */
   skip: "skip_respread",
+  /**
+   * A parent marked lessons done (on time, early, late or on a chosen past
+   * day). The pointer moved, so the rest of the curriculum is re-dated from
+   * it, the way Today already projects it.
+   */
+  completion: "completion_respread",
+  /** A parent un-marked a lesson (or undid a completion): the queue is re-dated. */
+  uncompletion: "uncomplete_respread",
 } as const;
 export type ParentRespreadSource =
   (typeof PARENT_RESPREAD_SOURCE)[keyof typeof PARENT_RESPREAD_SOURCE];
+
+/**
+ * What a surface says when a completion (or un-completion) saved but the
+ * follow-up re-date of the rest of the curriculum did not fully land. The
+ * completion itself is never rolled back for this: the lesson really was
+ * done, and Today projects from the pointer regardless. Only Plan's stored
+ * dates are behind until the next parent action re-dates them.
+ */
+export const COMPLETION_RESPREAD_FAILED_NOTE =
+  "Saved, but your upcoming lessons couldn't be moved to match. Try again, or check your connection.";
 
 /**
  * Written by an undo that puts a row back where the automatic projector had

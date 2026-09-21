@@ -13,7 +13,7 @@ import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/
 import { useSessionUser } from "@/lib/session-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, resyncGoalsForParent, PARENT_RESPREAD_SOURCE, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import {
   completeLessonOnDate,
   buildCompletionPayload,
@@ -2859,6 +2859,7 @@ export default function TodayPage() {
     // max(queue_position) of completed rows (Bug 3).
     if (lesson.curriculum_goal_id) {
       await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+      await redateAfterCompletionChange([lesson.curriculum_goal_id], "completion");
     }
     await refreshLeafCounts();
     checkAndAwardBadges(effectiveUserId);
@@ -3077,7 +3078,9 @@ export default function TodayPage() {
     // would otherwise outlive the completion that justified them, freezing the
     // row where the reconciler can no longer move it.
     setLessons(lessons.map((l) => (l.id === id ? { ...l, completed: false } : l)));
-    await supabase
+    // Confirmed: an error, or a row the database left alone, is said and the
+    // tick comes back from a reload rather than staying falsely cleared.
+    const { data: undone, error: undoErr } = await supabase
       .from("lessons")
       .update({
         completed: false,
@@ -3086,12 +3089,33 @@ export default function TodayPage() {
         queue_pinned: false,
         scheduled_source: "manual_uncomplete",
       })
-      .eq("id", id);
+      .eq("id", id)
+      .select("id");
+    if (undoErr || (undone ?? []).length !== 1) {
+      showCaptureToast("Couldn't unmark that lesson, try again.", null);
+      await loadData();
+      return;
+    }
     setAllDoneBanner(false);
     if (lesson.curriculum_goal_id) {
       await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+      await redateAfterCompletionChange([lesson.curriculum_goal_id], "uncompletion");
     }
     await refreshLeafCounts();
+  }
+
+  /**
+   * After a completion or un-completion moved a queue pointer: re-date the
+   * rest of each curriculum as the family's own action, so Plan's stored dates
+   * match what Today projects. The automatic page-load reconciler is off
+   * (NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED=false), so without this Plan kept the
+   * old dates. Today itself projects from the pointer and needs no reload for
+   * it. A failure is said; the completion is never undone for it.
+   */
+  async function redateAfterCompletionChange(goalIds: string[], kind: "completion" | "uncompletion") {
+    if (!effectiveUserId || goalIds.length === 0) return;
+    const res = await resyncGoalsForParent(supabase, effectiveUserId, goalIds, PARENT_RESPREAD_SOURCE[kind]);
+    if (!res.ok) showCaptureToast(COMPLETION_RESPREAD_FAILED_NOTE, null);
   }
 
   // ── Extra lessons (log ahead) ──────────────────────────────────────────────
@@ -3334,6 +3358,7 @@ export default function TodayPage() {
     for (const goalId of affectedGoalIds) {
       await recomputeCurrentLesson(supabase, goalId);
     }
+    await redateAfterCompletionChange(Array.from(affectedGoalIds), "completion");
 
     setSavingExtra(false);
     setExtraChecked(new Set());
@@ -3756,6 +3781,9 @@ export default function TodayPage() {
       await recomputeCurrentLesson(supabase, g.goal_id, {
         neverBelow: g.current_lesson,
       });
+      // A "Yes, today" answer counts against today like any completion today,
+      // which moves Today's projection; re-date so Plan follows it.
+      await redateAfterCompletionChange([g.goal_id], "completion");
 
       // Hide the prompt locally before the reload lands so the card
       // disappears immediately.
