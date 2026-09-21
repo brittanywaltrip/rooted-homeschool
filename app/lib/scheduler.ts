@@ -501,6 +501,8 @@ export const PARENT_RESPREAD_SOURCE = {
   recalibrate: "recalibrate_respread",
   /** Unskip: the lesson is back in the queue, so the queue is re-dated. */
   unskip: "skip_undo",
+  /** Skip: the skipped slot is stepped over, so the lessons after it move up. */
+  skip: "skip_respread",
 } as const;
 export type ParentRespreadSource =
   (typeof PARENT_RESPREAD_SOURCE)[keyof typeof PARENT_RESPREAD_SOURCE];

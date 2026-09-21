@@ -1120,6 +1120,17 @@ export default function PlanV2() {
         flashNotice("Couldn't skip, try again.");
         return;
       }
+      // The projector steps over the skipped slot, so the lessons after it move
+      // up a day. That re-dating is the family's own action (source
+      // 'skip_respread'), not the automatic reconciler, which does nothing
+      // while NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED is "false": Plan kept a hole
+      // where the skipped lesson was while Today (which projects) moved on.
+      // Pins, completions, queue order and today's used-up lessons are kept
+      // (resyncGoalsForParent).
+      const goalId = lesson.curriculum_goal_id;
+      const moved = goalId && effectiveUserId
+        ? await resyncGoalsForParent(supabase, effectiveUserId, [goalId], PARENT_RESPREAD_SOURCE.skip)
+        : { ok: true, written: 0, failedGoals: [] as string[] };
       const title = lesson.title && lesson.title.trim().length > 0
         ? lesson.title
         : lesson.lesson_number ? `Lesson ${lesson.lesson_number}` : "lesson";
@@ -1129,7 +1140,13 @@ export default function PlanV2() {
         from_date: from,
         actor: "user",
       });
-      flashNotice("Lesson skipped");
+      flashNotice(
+        moved.ok
+          ? "Lesson skipped"
+          : "Lesson skipped, but the lessons after it couldn't be moved up. Try again, or check your connection.",
+      );
+      reload();
+      reloadPins();
       // Cross-route notification — Today page + InlineScheduleTabs listen
       // for this event and reload so the skipped lesson disappears from
       // their views without a manual page refresh.
@@ -1137,7 +1154,7 @@ export default function PlanV2() {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [skipLesson, recordEvent],
+    [skipLesson, recordEvent, effectiveUserId, reload, reloadPins],
   );
 
   // Unskip puts the lesson back in the queue, and this action dates it: the
@@ -4073,29 +4090,32 @@ export default function PlanV2() {
     }
 
     setBulkBusy(true);
-    // Each row's pin, so undo puts a dragged lesson back as a pin.
-    const { data: pinRows } = await supabase
+    // Each row's pin, source and goal: undo puts a dragged lesson back as a pin
+    // with its own source, and the skips re-date the goals they landed in.
+    const { data: priorRows } = await supabase
       .from("lessons")
-      .select("id, queue_pinned")
+      .select("id, queue_pinned, scheduled_source, curriculum_goal_id")
       .in("id", snap.map((s) => s.id));
-    const pinnedIds = new Set(
-      ((pinRows ?? []) as { id: string; queue_pinned: boolean | null }[])
-        .filter((r) => r.queue_pinned)
-        .map((r) => r.id),
-    );
+    type PriorRow = { id: string; queue_pinned: boolean | null; scheduled_source: string | null; curriculum_goal_id: string | null };
+    const priorById = new Map(((priorRows ?? []) as PriorRow[]).map((r) => [r.id, r]));
     const snapIds = new Set(snap.map((s) => s.id));
     setLessons((prev) =>
       prev.map((l) => (snapIds.has(l.id) ? { ...l, scheduled_date: null } : l)),
     );
     hapticTap(20);
 
+    // Confirmed per row: a row the database leaves alone comes back missing
+    // from the representation with no error, and counts as a failure.
     const results = await Promise.allSettled(
       snap.map((s) =>
         supabase
           .from("lessons")
           .update({ skipped: true, scheduled_date: null, queue_pinned: false })
           .eq("id", s.id)
-          .then(({ error }) => (error ? Promise.reject(error) : true)),
+          .select("id")
+          .then(({ data, error }) =>
+            error || (data ?? []).length !== 1 ? Promise.reject(error ?? new Error("not skipped")) : true,
+          ),
       ),
     );
 
@@ -4117,33 +4137,71 @@ export default function PlanV2() {
       );
     }
 
+    // The lessons after each skipped slot move up, as the family's own action
+    // (source 'skip_respread'), the same as a single Skip.
+    const skippedGoalIds = Array.from(new Set(
+      succeeded
+        .map((s) => priorById.get(s.id)?.curriculum_goal_id)
+        .filter((g): g is string => !!g),
+    ));
+    const moved = skippedGoalIds.length > 0 && effectiveUserId
+      ? await resyncGoalsForParent(supabase, effectiveUserId, skippedGoalIds, PARENT_RESPREAD_SOURCE.skip)
+      : { ok: true, written: 0, failedGoals: [] as string[] };
+    const notMovedNote = moved.ok ? "" : ". The lessons after them couldn't be moved up, try again";
+
     if (succeeded.length > 0) {
       setUndoAction({
         message:
-          failedIds.length > 0
+          (failedIds.length > 0
             ? `Skipped ${succeeded.length} of ${snap.length}, ${failedIds.length} couldn't be skipped`
-            : `Skipped ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"}`,
+            : `Skipped ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"}`) + notMovedNote,
         key: `bulk-skip:${Date.now()}`,
         onUndo: async () => {
-          const sMap = new Map(succeeded.map((s) => [s.id, s.from]));
-          setLessons((prev) =>
-            prev.map((l) => {
-              const from = sMap.get(l.id);
-              return from ? { ...l, scheduled_date: from, date: from } : l;
+          hapticTap(20);
+          // Undo is an unskip. Each row goes back into the queue; one that was
+          // pinned gets its day, pin and source back. Then the goals are
+          // re-dated as the family's own action ('skip_undo'), exactly as a
+          // single Unskip does. Restoring the old dates alone would put the
+          // skipped lessons back on days the moved-up lessons now hold.
+          const restored = await Promise.all(
+            succeeded.map(async (s) => {
+              const prior = priorById.get(s.id);
+              const payload = prior?.queue_pinned
+                ? {
+                    skipped: false,
+                    scheduled_date: s.from,
+                    date: s.from,
+                    queue_pinned: true,
+                    scheduled_source: sourceForUndoRestore(prior.scheduled_source) ?? "plan_move",
+                  }
+                : { skipped: false };
+              const { data, error } = await supabase
+                .from("lessons")
+                .update(payload)
+                .eq("id", s.id)
+                .select("id");
+              return !error && (data ?? []).length === 1;
             }),
           );
-          hapticTap(20);
-          // Reappearing pills get the "just-landed" ring so the eye finds
-          // where the skipped lessons reattach on the calendar.
-          succeeded.forEach((s) => flagLanded(s.id));
-          await Promise.allSettled(
-            succeeded.map((s) =>
-              supabase
-                .from("lessons")
-                .update({ skipped: false, scheduled_date: s.from, date: s.from, queue_pinned: pinnedIds.has(s.id) })
-                .eq("id", s.id),
-            ),
-          );
+          const notRestored = restored.filter((ok) => !ok).length;
+          const back = skippedGoalIds.length > 0 && effectiveUserId
+            ? await resyncGoalsForParent(supabase, effectiveUserId, skippedGoalIds, PARENT_RESPREAD_SOURCE.unskip)
+            : { ok: true, written: 0, failedGoals: [] as string[] };
+          const { data: dated, error: datedErr } = await supabase
+            .from("lessons")
+            .select("id, scheduled_date")
+            .in("id", succeeded.map((s) => s.id));
+          const undated = ((dated ?? []) as { scheduled_date: string | null }[])
+            .filter((r) => !r.scheduled_date).length;
+          if (notRestored > 0) {
+            flashNotice(`${notRestored} lesson${notRestored === 1 ? "" : "s"} couldn't be put back. Try again.`);
+          } else if (!back.ok || datedErr || undated > 0) {
+            flashNotice("They're back in the queue, but some couldn't be given a day. Try again, or check your connection.");
+          } else {
+            // Reappearing pills get the "just-landed" ring so the eye finds
+            // where the skipped lessons reattach on the calendar.
+            succeeded.forEach((s) => flagLanded(s.id));
+          }
           reload();
           reloadPins();
         },
@@ -4166,7 +4224,7 @@ export default function PlanV2() {
     if (succeeded.length > 0) reloadPins();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, reloadPins, exitSelectMode, flagLanded, recordEvent]);
+  }, [lessons, setLessons, reload, reloadPins, exitSelectMode, flagLanded, recordEvent, effectiveUserId]);
 
   // ── Bulk: delete (deferred DB write to undo window) ──────────────────────
 

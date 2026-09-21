@@ -23,6 +23,7 @@ import {
   reprojectGoalForParent,
   resyncGoalForParent,
   resyncGoalsForParent,
+  reconcileGoalScheduleCache,
   confirmedLessonsUpdate,
   sourceForUndoRestore,
   isProjectorPlacedSource,
@@ -520,6 +521,109 @@ test('resyncGoalsForParent counts lessons completed today the way Today does', a
   }
   assert.equal(await run(now.toISOString()), ymd(tomorrow), 'done today: the next lesson starts tomorrow')
   assert.equal(await run(null), ymd(now), 'nothing done today: the next lesson is today')
+})
+
+/** Every day a school day, lesson 3 done TODAY, lesson 5 just skipped, lesson
+ *  9 pinned three weeks out. The rest sit on stale dates. */
+function skippedGoal() {
+  const { goal, lessons } = staleGoal({ pinned: ['L9'] })
+  const everyDay = { ...goal, school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], user_id: 'u1' }
+  const now = new Date()
+  const pinDay = ymd(plusDays(now, 21))
+  for (const r of lessons) {
+    r.user_id = 'u1'
+    r.completed_at = r.completed ? '2026-01-02T15:00:00.000Z' : null
+  }
+  Object.assign(lessons.find((r) => r.id === 'L3')!, { completed_at: now.toISOString(), scheduled_date: ymd(now), date: ymd(now), scheduled_source: 'completion_today' })
+  Object.assign(lessons.find((r) => r.id === 'L5')!, { skipped: true, scheduled_date: null })
+  Object.assign(lessons.find((r) => r.id === 'L9')!, { scheduled_date: pinDay, date: pinDay, scheduled_source: 'plan_move' })
+  return { goal: everyDay, lessons, now, pinDay }
+}
+
+test('Skip moves the later lessons up as the family\'s action, with the automatic switch OFF', async () => {
+  const { goal, lessons, now, pinDay } = skippedGoal()
+  const before = new Map(lessons.map((r) => [r.id, { ...r }]))
+  const { client, tables } = makeMemorySupabase({ curriculum_goals: [goal], vacation_blocks: [], lessons })
+
+  // The automatic path cannot write with the switch off, skip or no skip.
+  await withSwitch('false', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await reconcileGoalScheduleCache(client as any, goal, [], 1)
+  })
+  assert.deepEqual(tables.lessons, lessons.map((r) => ({ ...r })), 'the reconciler wrote nothing')
+
+  const res = await withSwitch('false', () =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resyncGoalsForParent(client as any, 'u1', [goal.id], PARENT_RESPREAD_SOURCE.skip),
+  )
+  assert.equal(res.ok, true)
+  const by = (id: string) => tables.lessons.find((r) => r.id === id)!
+  const today = ymd(now)
+  // Today's one lesson is already done (L3), so nothing new lands on today.
+  assert.ok(!tables.lessons.some((r) => !r.completed && r.scheduled_date === today), 'today\'s used-up lesson is kept')
+  assert.equal(by('L4').scheduled_date, ymd(plusDays(now, 1)))
+  // The skipped slot is stepped over: L6 takes the day after L4, not a hole.
+  assert.equal(by('L6').scheduled_date, ymd(plusDays(now, 2)), 'the next lesson takes the skipped one\'s day')
+  assert.equal(by('L7').scheduled_date, ymd(plusDays(now, 3)))
+  // The skipped row stays skipped and off the calendar.
+  assert.equal(by('L5').skipped, true)
+  assert.equal(by('L5').scheduled_date, null)
+  // The pin holds its day, its pin and its source.
+  assert.equal(by('L9').scheduled_date, pinDay)
+  assert.equal(by('L9').queue_pinned, true)
+  assert.equal(by('L9').scheduled_source, 'plan_move')
+  // Completions are untouched.
+  for (const id of ['L1', 'L2', 'L3']) assert.deepEqual(by(id), before.get(id))
+  // Queue order: no slot changes, and unpinned dates rise with the slot.
+  for (const r of tables.lessons) assert.equal(r.queue_position, before.get(r.id as string)!.queue_position)
+  const dated = tables.lessons
+    .filter((r) => !r.completed && !r.queue_pinned && r.scheduled_date)
+    .sort((a, b) => (a.queue_position as number) - (b.queue_position as number))
+  for (let i = 1; i < dated.length; i++) {
+    assert.ok((dated[i].scheduled_date as string) > (dated[i - 1].scheduled_date as string), 'lessons stay in queue order')
+  }
+  // Written under the parent's own source, never the automatic one.
+  const written = tables.lessons.filter((r) => r.scheduled_source !== before.get(r.id as string)!.scheduled_source)
+  assert.ok(written.length > 0)
+  for (const r of written) assert.equal(r.scheduled_source, 'skip_respread')
+  assert.ok(!tables.lessons.some((r) => r.scheduled_source === 'queue_resync' && before.get(r.id as string)!.scheduled_source !== 'queue_resync'))
+  assert.notEqual(PARENT_RESPREAD_SOURCE.skip, 'queue_resync')
+})
+
+test('Skip reports a later lesson the database silently refused to move', async () => {
+  const { goal, lessons } = skippedGoal()
+  const { client } = makeMemorySupabase(
+    { curriculum_goals: [goal], vacation_blocks: [], lessons },
+    { refuseUpdate: (_t, r) => r.id === 'L6' },
+  )
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await resyncGoalsForParent(client as any, 'u1', [goal.id], PARENT_RESPREAD_SOURCE.skip)
+  assert.equal(res.ok, false)
+  assert.deepEqual(res.failedGoals, [goal.id])
+})
+
+test('Plan Skip, bulk Skip and bulk Skip undo re-date lessons themselves and say when they could not', () => {
+  const plan = stripComments(read('app/components/PlanV2/index.tsx'))
+  const single = plan.slice(plan.indexOf('const skipLessonWithLog = useCallback'), plan.indexOf('const unskipLesson = useCallback'))
+  const skipAt = single.indexOf('await skipLesson(lesson)')
+  const resyncAt = single.search(/resyncGoalsForParent\([^)]*PARENT_RESPREAD_SOURCE\.skip/)
+  assert.ok(skipAt !== -1 && resyncAt > skipAt, 'the re-date follows a skip that landed')
+  assert.ok(/couldn't be moved up/.test(single), 'a failed re-date is said, not swallowed')
+
+  const bulk = plan.slice(plan.indexOf('const performBulkSkip = useCallback'), plan.indexOf('const performBulkDelete = useCallback'))
+  const undoAt = bulk.indexOf('onUndo:')
+  const head = bulk.slice(0, undoAt)
+  const undo = bulk.slice(undoAt)
+  assert.ok(/resyncGoalsForParent\([^)]*PARENT_RESPREAD_SOURCE\.skip/.test(head))
+  assert.ok(/\.select\("id"\)/.test(head), 'each skip is confirmed')
+  assert.ok(/resyncGoalsForParent\([^)]*PARENT_RESPREAD_SOURCE\.unskip/.test(undo), 'undo re-dates like Unskip')
+  assert.ok(/\.select\("id"\)/.test(undo), 'each undo write is confirmed')
+  assert.ok(/couldn't be put back|couldn't be given a day/.test(undo), 'an undo failure is said')
+  assert.ok(!/Promise\.allSettled/.test(undo), 'no unchecked restore')
+
+  const hook = stripComments(read('app/components/PlanV2/usePlanLessonActions.ts'))
+  const skip = hook.slice(hook.indexOf('const skipLesson = useCallback'))
+  assert.ok(/\.update\(\{ skipped: true[^}]*\}\)\s*\.eq\("id", lesson\.id\)\s*\.select\("id"\)/.test(skip), 'the skip itself is confirmed')
 })
 
 test('Unskip and Today catch-up date lessons themselves instead of waiting for the reconciler', () => {
