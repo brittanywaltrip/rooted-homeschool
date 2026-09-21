@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { stripeClient } from '@/lib/api-clients'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
 import { affiliateCodeForStripeCoupon } from '@/lib/referrals'
@@ -46,11 +46,6 @@ import {
   type SendOutcome,
 } from '@/lib/email/email-claim'
 import { transactionalSuppressionFor } from '@/lib/email/resend-suppression'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 const ADMIN_EMAIL = 'garfieldbrittany@gmail.com'
 const FOUNDING_PRICE_ID = process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID

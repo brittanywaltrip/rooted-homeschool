@@ -3,15 +3,59 @@ import path from 'node:path';
 
 // Tests run against a deployed environment (staging by default).
 // Override with PLAYWRIGHT_BASE_URL=http://localhost:3000 for local runs.
+// ONE source of truth for the target. global-setup resolves the base URL as
+// TEST_BASE_URL first, so a config that ignored TEST_BASE_URL meant global-setup
+// authenticated against one deployment while every spec ran against another.
+//
+// That happened on 2026-09-20: global-setup signed in to the rooted-staging
+// custom environment and wrote storageState with cookies scoped to THAT host,
+// while the specs loaded a hardcoded git-staging URL, where those cookies do
+// not apply. 24 specs failed as "element not found" because they were never
+// signed in, and the deployment they were hitting is backed by the PRODUCTION
+// Supabase project. Nothing was written there -- the session never applied and
+// service-role writes use their own key -- but the suite was pointed somewhere
+// nobody intended.
+//
+// The default is the rooted-staging CUSTOM ENVIRONMENT host, not the
+// `-git-staging-` branch alias. The branch alias is a Preview deployment: it
+// is built with the Preview environment's variables, and it only moves when
+// something is pushed to the `staging` branch, so it can serve a build that is
+// weeks old while looking current. The custom-environment host is the one that
+// is rebuilt for this work and is backed by the rooted-staging Supabase
+// project. Both are behind Vercel Authentication; global-setup installs the
+// bypass cookie for whichever host it is given.
 const BASE_URL =
+  process.env.TEST_BASE_URL ||
   process.env.PLAYWRIGHT_BASE_URL ||
-  'https://rooted-homeschool-git-staging-brittanywaltrips-projects.vercel.app';
+  'https://rooted-homeschool-env-rooted-staging-brittanywaltrips-projects.vercel.app';
+
+// Fail closed if the two are set and disagree, rather than silently preferring
+// one. A disagreement means somebody believes the suite is testing something it
+// is not.
+if (
+  process.env.TEST_BASE_URL &&
+  process.env.PLAYWRIGHT_BASE_URL &&
+  process.env.TEST_BASE_URL !== process.env.PLAYWRIGHT_BASE_URL
+) {
+  throw new Error(
+    `[playwright.config] TEST_BASE_URL (${process.env.TEST_BASE_URL}) and ` +
+      `PLAYWRIGHT_BASE_URL (${process.env.PLAYWRIGHT_BASE_URL}) disagree. ` +
+      'Refusing to run: global-setup and the specs would target different deployments.',
+  );
+}
 
 // Auth state captured by global-setup. Tests that need a signed-in user
 // reference this via test.use({ storageState: STORAGE_STATE }) — see
 // e2e/smoke/*.spec.ts. Auth tests run with no storageState so they
 // observe the unauthenticated experience.
 const STORAGE_STATE = path.resolve(__dirname, 'e2e/.auth/user.json');
+
+// The Vercel protection bypass WITHOUT any Rooted session. Logged-out specs use
+// this instead of an empty state: an empty state also drops the bypass, so the
+// browser gets Vercel's protection page (status 200) instead of the app, and a
+// spec asserting a 404 fails for a reason unrelated to the app. Written by
+// global-setup before it signs in, so it cannot contain a session.
+const BYPASS_STATE = path.resolve(__dirname, 'e2e/.auth/bypass.json');
 
 // The phone-screenshot project is OPT IN. A bare `npx playwright test` runs
 // every configured project, and these specs load /dashboard on the shared e2e
@@ -22,6 +66,14 @@ const WANT_SCREENSHOTS = process.env.MOBILE_SCREENSHOTS === '1';
 
 export default defineConfig({
   testDir: './e2e',
+  // Playwright specs are *.spec.ts. The *.test.ts files beside them are
+  // node --test files (they `import { test } from 'node:test'`), and Playwright
+  // throws on loading one: "Playwright Test did not expect test() to be called
+  // here". Without this, `npx playwright test` collects 0 tests in 0 files and
+  // exits 1 before running anything. Pre-existing since e2e/staging-guard.test.ts
+  // landed; it made the whole suite unrunnable, which is easy to misread as
+  // "no tests to run".
+  testMatch: /.*\.spec\.ts$/,
   timeout: 30_000,
   retries: 1,
   // Global setup signs in once via @supabase/ssr (no bypass route),
@@ -30,7 +82,30 @@ export default defineConfig({
   globalSetup: require.resolve('./e2e/global-setup.ts'),
   use: {
     baseURL: BASE_URL,
-    trace: 'on-first-retry',
+    // NOTHING RECORDED IN CI.
+    //
+    // A trace records every request with its headers and cookies, so a run
+    // that carries the Vercel protection-bypass cookie writes that secret into
+    // the trace. The trace is stored as playwright-report/data/<sha1>.zip --
+    // NOT "trace.zip" -- so excluding it by filename does not work, verified by
+    // generating a real report. Attachments in data/ also include a plain-text
+    // error-context .md that can embed a code frame.
+    //
+    // The rule is NOT "off in CI". It is "off whenever a bypass secret exists",
+    // because that is what determines whether a trace can contain one.
+    //
+    // The old comment here said local runs are safe since "there is no bypass
+    // cookie against localhost". That stopped being true the moment a local run
+    // pointed at a protected rooted-staging deployment: retries is 1, so a
+    // single flaky test writes the _vercel_jwt cookie into
+    // playwright-report/data/<sha1>.zip. Keep the trace only when there is no
+    // secret in the environment to leak.
+    trace:
+      process.env.CI || process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+        ? 'off'
+        : 'on-first-retry',
+    video: 'off',
+    screenshot: 'off',
     // A click that lands under an overlay is RETRIED until it times out, and an
     // action with no timeout of its own inherits the test's whole budget: one
     // helper sat for 240s that way and then reported "Target page, context or
@@ -98,4 +173,4 @@ export default defineConfig({
   ],
 });
 
-export { STORAGE_STATE, BASE_URL };
+export { STORAGE_STATE, BYPASS_STATE, BASE_URL };

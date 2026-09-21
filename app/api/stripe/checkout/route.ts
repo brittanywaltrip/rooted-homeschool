@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripeClient } from '@/lib/api-clients'
 import { createClient } from '@supabase/supabase-js'
+import { isBillingDisabled, billingDisabledReason, billingDisabledPayload } from "@/lib/billing-guard";
 
 
 const PRICE_IDS: Record<string, string | undefined> = {
@@ -19,6 +20,11 @@ const PLAN_ENV_VAR: Record<string, string> = {
 }
 
 export async function POST(req: NextRequest) {
+  // FIRST statement, before any Stripe construction or provider call.
+  if (isBillingDisabled()) {
+    console.warn(`[billing] refused: ${billingDisabledReason()}`);
+    return NextResponse.json(billingDisabledPayload(), { status: 503 });
+  }
   // Verify user via Bearer token
   const token = req.headers.get('authorization')?.replace('Bearer ', '')
   if (!token) {

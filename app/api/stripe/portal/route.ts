@@ -3,9 +3,15 @@ import { stripeClient } from '@/lib/api-clients'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { supabaseAdmin } from '@/lib/supabase-admin'
+import { isBillingDisabled, billingDisabledReason, billingDisabledPayload } from "@/lib/billing-guard";
 
 
 export async function POST() {
+  // FIRST statement, before any Stripe construction or provider call.
+  if (isBillingDisabled()) {
+    console.warn(`[billing] refused: ${billingDisabledReason()}`);
+    return NextResponse.json(billingDisabledPayload(), { status: 503 });
+  }
   const cookieStore = await cookies()
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -47,7 +53,7 @@ export async function POST() {
     return NextResponse.json({ url: session.url })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'unknown error'
-    console.error('stripe.billingPortal.sessions.create failed:', message)
+    console.error('stripeClient().billingPortal.sessions.create failed:', message)
     return NextResponse.json(
       { error: 'stripe_error', message },
       { status: 500 },

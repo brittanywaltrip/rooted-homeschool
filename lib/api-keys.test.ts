@@ -77,6 +77,9 @@ function moduleScopeConstructions(src: string): string[] {
         found.push(`line ${line}: new ${sdk}(`);
       }
     }
+    if (depth === 0 && src.startsWith("createClient(", i)) {
+      found.push(`line ${line}: createClient(`);
+    }
     i++;
   }
   return found;
@@ -92,7 +95,7 @@ function routeFiles(dir: string): string[] {
   return out;
 }
 
-test("no API route builds a Stripe or Resend client at module scope", () => {
+test("no API route builds an external API client at module scope", () => {
   const apiRoot = resolve(import.meta.dirname, "..", "app", "api");
   const offenders: string[] = [];
 
@@ -107,7 +110,7 @@ test("no API route builds a Stripe or Resend client at module scope", () => {
     [],
     "A client built at module scope throws while the route is imported, which " +
       "fails `next build` in any environment without that credential. Use " +
-      "stripeClient() / resendClient() from lib/api-clients.ts instead.",
+      "the lazy client helpers from lib/api-clients.ts or lib/supabase-admin.ts instead.",
   );
 });
 
@@ -126,6 +129,14 @@ test("the scanner tells module scope from inside a handler", () => {
   );
   assert.deepEqual(
     moduleScopeConstructions(`const note = "new Stripe(";`),
+    [],
+  );
+  assert.deepEqual(
+    moduleScopeConstructions(`const db = createClient(url, key);`),
+    ["line 1: createClient("],
+  );
+  assert.deepEqual(
+    moduleScopeConstructions(`export function h() {\n  const db = createClient(url, key);\n}`),
     [],
   );
 });

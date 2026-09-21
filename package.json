@@ -19,7 +19,8 @@
     "clean:orphan-photos": "node --env-file=.env.local scripts/clean-orphan-photos.ts",
     "cap:sync": "npx cap sync",
     "cap:ios": "npx cap open ios",
-    "cap:android": "npx cap open android"
+    "cap:android": "npx cap open android",
+    "prebuild": "node scripts/verify-preview-env.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.1",

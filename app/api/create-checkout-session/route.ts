@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripeClient } from '@/lib/api-clients'
+import { isBillingDisabled, billingDisabledReason, billingDisabledPayload } from "@/lib/billing-guard";
 
 export async function POST(req: NextRequest) {
+  // FIRST statement, before any Stripe construction or provider call.
+  if (isBillingDisabled()) {
+    console.warn(`[billing] refused: ${billingDisabledReason()}`);
+    return NextResponse.json(billingDisabledPayload(), { status: 503 });
+  }
   try {
     const { priceId, userId, email } = await req.json()
 

@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripeClient } from "@/lib/api-clients";
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { isBillingDisabled, billingDisabledReason, billingDisabledPayload } from "@/lib/billing-guard";
 
 
 // POST: Create a gift checkout session ($59 one-time)
 export async function POST(req: NextRequest) {
+  // FIRST statement, before any Stripe construction or provider call.
+  if (isBillingDisabled()) {
+    console.warn(`[billing] refused: ${billingDisabledReason()}`);
+    return NextResponse.json(billingDisabledPayload(), { status: 503 });
+  }
   try {
     const { token, viewer_name } = await req.json();
 

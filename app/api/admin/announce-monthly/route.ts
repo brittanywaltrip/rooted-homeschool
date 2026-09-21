@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { emailFooterHtml } from '@/lib/email-footer'
 import { canSendMarketingEmail } from '@/lib/email/can-send'
 import { buildUserListUnsubscribeHeaders, ensureUnsubscribeToken } from '@/lib/email/list-unsubscribe'
@@ -10,11 +10,6 @@ export const dynamic = 'force-dynamic'
 // The real send walks the full onboarded-free audience. Give it room; the
 // idempotency guard makes a re-run after a timeout safe (never double-sends).
 export const maxDuration = 300
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
 
 // FROM matches the shared resend-template default so the sender stays pinned to
 // Brittany's address regardless of any helper-default changes.

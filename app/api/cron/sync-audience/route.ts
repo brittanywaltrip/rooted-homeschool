@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { loadSuppressedEmails } from '@/lib/email/resend-suppression'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { isNonFamilyEmail } from '@/lib/queue-slot-health'
 import { createResendContactsClient } from '@/lib/resend-contacts'
 import {
@@ -21,11 +21,6 @@ export const maxDuration = 300
 // why opting out only ever goes one way, are in lib/audience-sync.ts.
 // `?dry=1` (still behind the cron secret) reads everything and writes nothing.
 // Sends no email of its own, except the failure alert to Brittany.
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 const ALERT_TO = 'garfieldbrittany@gmail.com'

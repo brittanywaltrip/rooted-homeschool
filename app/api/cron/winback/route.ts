@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { canSendMarketingEmail } from '@/lib/email/can-send'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { buildUserListUnsubscribeHeaders, ensureUnsubscribeToken } from '@/lib/email/list-unsubscribe'
 import { loadSuppressedEmails } from '@/lib/email/resend-suppression'
 import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
@@ -17,11 +17,6 @@ export const dynamic = 'force-dynamic'
 // Daily at 15:00 UTC (vercel.json), an hour after the reengagement drip. Who
 // gets it and why lives in lib/winback.ts. `?dry=1` (still behind the cron
 // secret) counts and logs would-be sends by user id and sends nothing.
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 const ALERT_TO = 'garfieldbrittany@gmail.com'

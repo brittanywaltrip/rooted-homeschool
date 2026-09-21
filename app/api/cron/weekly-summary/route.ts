@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { sendResendTemplate, TEMPLATES } from '@/lib/resend-template'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { canSendMarketingEmail } from '@/lib/email/can-send'
 import { buildUserListUnsubscribeHeaders, ensureUnsubscribeToken } from '@/lib/email/list-unsubscribe'
 import { loadSuppressedEmails } from '@/lib/email/resend-suppression'
@@ -31,11 +31,6 @@ export const dynamic = 'force-dynamic'
 // Every recipient needs their own garden read (school year + leaf sources), so
 // a Monday with the whole 30-day audience in it is minutes of work, not seconds.
 export const maxDuration = 300
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 const ALERT_TO = 'garfieldbrittany@gmail.com'
