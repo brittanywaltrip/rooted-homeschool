@@ -4,7 +4,7 @@ import { deploymentOrigin, eligibleDeployment, successfulOrigin, verifyIdentity,
 
 const sha = 'cf60aea1be604679cc4eb696afbbd58a4de0b6e2';
 const origin = 'https://rooted-homeschool-66luefo8n-brittanywaltrips-projects.vercel.app';
-const deployment = { id: 6571500973, sha, environment: 'Preview', production_environment: false, creator: { login: 'vercel[bot]' } };
+const deployment = { id: 6571500973, sha, environment: 'rooted-staging', production_environment: false, creator: { login: 'vercel[bot]' } };
 const success = { state: 'success', environment_url: origin, creator: { login: 'vercel[bot]' } };
 
 test('only this project immutable deployment origins can receive the bypass', () => {
@@ -21,7 +21,8 @@ test('only this project immutable deployment origins can receive the bypass', ()
 test('production, unrelated commits and untrusted creators are rejected before health', () => {
   assert.equal(eligibleDeployment(deployment, sha), true);
   for (const patch of [{ production_environment: true }, { production_environment: undefined },
-    { sha: 'a'.repeat(40) }, { environment: 'Production' }, { creator: { login: 'someone' } }]) {
+    { sha: 'a'.repeat(40) }, { environment: 'Production' }, { environment: 'Preview' },
+    { environment: 'staging' }, { environment: undefined }, { creator: { login: 'someone' } }]) {
     assert.equal(eligibleDeployment({ ...deployment, ...patch }, sha), false);
   }
 });
@@ -54,4 +55,30 @@ test('discovery uses commit-filtered metadata and ignores supplied API URLs', as
   assert.equal(calls.length, 2);
   assert.match(calls[0], new RegExp(`deployments\\?sha=${sha}&per_page=100$`));
   assert.equal(calls[1], `https://api.github.com/repos/brittanywaltrip/rooted-homeschool/deployments/${deployment.id}/statuses?per_page=1`);
+});
+
+test('a newer Preview of the same commit is skipped for the rooted-staging deployment', async () => {
+  // The shape seen on PR #80: GitHub lists the newest deployment first, and a
+  // push creates the Preview before rooted-staging exists.
+  const preview = { ...deployment, id: 6572608411, environment: 'Preview' };
+  const staging = { ...deployment, id: 6573757669 };
+  const calls: string[] = [];
+  const request: typeof fetch = async (url) => {
+    calls.push(String(url));
+    return Response.json(calls.length === 1 ? [preview, staging] : [success]);
+  };
+  assert.equal(await discoverDeployment({ sha, token: 'test-only', request }), origin);
+  assert.ok(!calls.some((c) => c.includes(`/deployments/${preview.id}/`)), 'the Preview is never even queried');
+  assert.ok(calls.some((c) => c.includes(`/deployments/${staging.id}/statuses`)));
+});
+
+test('only a Preview exists: discovery returns nothing and keeps waiting', async () => {
+  const request: typeof fetch = async () => Response.json([{ ...deployment, environment: 'Preview' }]);
+  assert.equal(await discoverDeployment({ sha, token: 'test-only', request }), null);
+});
+
+test('an identity failure names the failing field, not just that one failed', () => {
+  const health = { env: 'staging', identityOk: false, error: 'missing_expected_ref', projectRef: 'cvgqovweybggrqakhdtd', commit: sha };
+  assert.throws(() => verifyIdentity(health, sha), /identityOk=false \(error="missing_expected_ref"\)/);
+  assert.throws(() => verifyIdentity({ ...health, identityOk: true, commit: 'b'.repeat(40) }, sha), /commit="b{40}"/);
 });

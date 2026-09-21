@@ -19,9 +19,15 @@ export function deploymentOrigin(value) {
   } catch { return null; }
 }
 
+// Only the rooted-staging custom environment carries the staging identity
+// (ROOTED_EXPECTED_SUPABASE_REF and a staging service-role key). A Preview
+// build of the same commit never can: Preview deliberately holds no
+// service-role key, so its /api/health reports identityOk=false. A push makes
+// the Preview first, so accepting it made discovery pick the wrong build and
+// fail before the staging deployment existed.
 export function eligibleDeployment(deployment, sha) {
   return deployment.sha === sha && deployment.production_environment === false &&
-    ['preview', 'rooted-staging', 'staging'].includes(deployment.environment?.toLowerCase()) &&
+    deployment.environment?.toLowerCase() === 'rooted-staging' &&
     deployment.creator?.login === 'vercel[bot]' && Number.isSafeInteger(deployment.id);
 }
 
@@ -32,10 +38,19 @@ export function successfulOrigin(statuses) {
   return deploymentOrigin(latest.environment_url || latest.target_url);
 }
 
+// All four must hold; none is optional. The error names each field that
+// failed with its value: env, projectRef, commit and the identity error code
+// are public identifiers, never keys.
 export function verifyIdentity(health, sha) {
-  if (health?.env !== 'staging' || health.identityOk !== true ||
-      health.projectRef !== STAGING_REF || health.commit !== sha) {
-    throw new Error('Selected deployment does not prove the expected staging database and commit. No tests started.');
+  const failed = [];
+  if (health?.env !== 'staging') failed.push(`env=${JSON.stringify(health?.env ?? null)}`);
+  if (health?.identityOk !== true) {
+    failed.push(`identityOk=${JSON.stringify(health?.identityOk ?? null)} (error=${JSON.stringify(health?.error ?? null)})`);
+  }
+  if (health?.projectRef !== STAGING_REF) failed.push(`projectRef=${JSON.stringify(health?.projectRef ?? null)}`);
+  if (health?.commit !== sha) failed.push(`commit=${JSON.stringify(health?.commit ?? null)}`);
+  if (failed.length > 0) {
+    throw new Error(`Selected deployment does not prove the expected staging database and commit (${failed.join(', ')}). No tests started.`);
   }
 }
 
