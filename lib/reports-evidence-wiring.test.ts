@@ -5,13 +5,21 @@ import test from "node:test";
 
 const page = readFileSync(resolve(import.meta.dirname, "..", "app", "dashboard", "reports", "page.tsx"), "utf8");
 
-test("the report reads and prints parent-written lesson and activity details", () => {
+test("the report reads, prints, and manages parent-owned lesson and activity records", () => {
   assert.match(page, /completed, minutes_spent, notes/);
   assert.match(page, /id, activity_id, date, minutes_spent, completed, notes/);
   assert.match(page, /lesson\.notes/);
   assert.match(page, /s\.notes/);
-  assert.match(page, /from\("lessons"\)\.update\(\{ notes \}\)/);
-  assert.match(page, /from\("activity_logs"\)\.update\(\{ notes \}\)/);
+  for (const rpc of [
+    "update_report_lesson_record",
+    "delete_report_lesson_record",
+    "update_report_activity_record",
+    "delete_report_activity_record",
+  ]) assert.ok(page.includes(rpc), `${rpc} must be wired into the report`);
+  assert.match(page, />\s*Edit record/);
+  assert.match(page, />\s*Delete record/);
+  assert.match(page, /type="date"/);
+  assert.match(page, /type="number"/);
 });
 
 test("photo evidence is fetched without book covers and rendered with captions", () => {
