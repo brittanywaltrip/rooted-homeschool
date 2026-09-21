@@ -29,6 +29,12 @@ jobs:
           PLAYWRIGHT_BASE_URL: https://rooted-homeschool-env-rooted-staging-brittanywaltrips-projects.vercel.app
           BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           EXPECTED_REF: cvgqovweybggrqakhdtd
+          # The commit Vercel actually builds is the branch head. On a
+          # pull_request run GITHUB_SHA is the MERGE commit instead, which no
+          # deployment ever serves, so a gate comparing against it waits the
+          # full 12 minutes and then fails on every PR. On a push run the two
+          # are the same and this expression changes nothing.
+          EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           for i in $(seq 1 48); do
@@ -37,7 +43,7 @@ jobs:
               "${PLAYWRIGHT_BASE_URL}/api/health" || echo '')
             if [ -n "${body}" ] && echo "${body}" | jq -e '.commit' >/dev/null 2>&1; then
               commit=$(echo "${body}" | jq -r '.commit // empty')
-              if [ "${commit}" = "${GITHUB_SHA}" ]; then
+              if [ "${commit}" = "${EXPECTED_COMMIT}" ]; then
                 echo "${body}" | jq .
                 echo "${body}" | jq -e --arg ref "${EXPECTED_REF}" '
                   if .env        != "staging" then error("env is \(.env), not staging")
@@ -47,13 +53,13 @@ jobs:
                 echo "verified: staging @ ${commit}"
                 exit 0
               fi
-              echo "deployment serves ${commit:-unknown}, waiting for ${GITHUB_SHA} ($i/48)…"
+              echo "deployment serves ${commit:-unknown}, waiting for ${EXPECTED_COMMIT} ($i/48)…"
             else
               echo "no health response yet ($i/48)…"
             fi
             sleep 15
           done
-          echo "::error::no staging deployment serving ${GITHUB_SHA} after 12 minutes"
+          echo "::error::no staging deployment serving ${EXPECTED_COMMIT} after 12 minutes"
           exit 1
 
       - name: Run smoke tests
@@ -69,6 +75,9 @@ jobs:
           # Both required by lib/env-identity; a missing one is itself a refusal.
           ROOTED_ENV: staging
           ROOTED_EXPECTED_SUPABASE_REF: cvgqovweybggrqakhdtd
+          # Same reason as the gate step: global-setup falls back to GITHUB_SHA,
+          # which is the merge commit here.
+          EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
           # Consumed ONLY by global-setup, which installs it as an origin-scoped
           # cookie. It is never placed in Playwright's extraHTTPHeaders, which
           # would send it to Supabase, PostHog and Sentry on every request.

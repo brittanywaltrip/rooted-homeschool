@@ -115,6 +115,23 @@ test('the target is the custom environment, never the git-staging alias', () => 
   }
 })
 
+test('the gate pins the branch head, not the merge commit', () => {
+  // Vercel builds the branch head. On a pull_request run GITHUB_SHA is the
+  // merge commit (refs/pull/N/merge), which no deployment ever serves, so a
+  // gate keyed on it waits its full 12 minutes and fails on every PR while
+  // reporting nothing useful. On a push run the two are identical.
+  const y = yamlCode(workflow)
+  assert.ok(
+    /EXPECTED_COMMIT: \$\{\{ github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/.test(y),
+    'EXPECTED_COMMIT must resolve to the pull request head sha',
+  )
+  assert.ok(!/\$\{GITHUB_SHA\}/.test(y), 'nothing may compare against GITHUB_SHA')
+  assert.ok(
+    (y.match(/EXPECTED_COMMIT:/g) ?? []).length >= 2,
+    "the smoke step needs it too, or global-setup's own gate falls back to GITHUB_SHA",
+  )
+})
+
 test('the identity guard still runs before the browser launches', () => {
   const guardAt = setup.indexOf('assertSafeForTestWrites')
   const launchAt = setup.indexOf('chromium.launch')
