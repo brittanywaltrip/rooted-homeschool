@@ -314,6 +314,110 @@ export function isSchedulerSyncEnabled(): boolean {
  * error. Completed and backfill rows are never re-dated (the inner helper
  * skips them).
  */
+/** What planGoalResync hands back: the rows to consider and where the
+ *  projector puts each slot, or why there is nothing to write. */
+type GoalResyncPlan =
+  | {
+      ok: true;
+      rows: Array<QueueResyncRow & { queue_position: number | null; queue_pinned: boolean | null }>;
+      projDateByKey: Map<string, string>;
+      rowKey: (r: { queue_position: number | null }) => string | null;
+    }
+  | { ok: false; reason: "read_failed" | "nothing_projected" | "over_cap" };
+
+/**
+ * Load a goal's incomplete tail and project it, honoring pins and skips.
+ *
+ * The one definition of "where does the cache think each lesson goes",
+ * shared by the automatic reconciler and by parent actions that need the same
+ * answer written on their behalf (Unskip, Today's "No, reschedule them").
+ * Never writes.
+ */
+async function planGoalResync(
+  supabase: SupabaseClient,
+  goal: CurriculumGoalConfig,
+  vacationBlocks: VacationBlock[],
+  completedTodayCount: number,
+  today: Date,
+  caller: string,
+): Promise<GoalResyncPlan> {
+  // Load the tail FIRST so the projection can be pin-aware. The pinned rows
+  // are both an input to the projection (they hold their dates and consume
+  // capacity) and excluded from the write set (planProjectedDateWrites skips
+  // them).
+  const { data, error } = await supabase
+    .from("lessons")
+    .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned, skipped")
+    .eq("curriculum_goal_id", goal.id)
+    .eq("completed", false);
+  if (error || !data) {
+    if (error) {
+      captureSupabaseError(`${caller}: incomplete-tail read failed`, error, {
+        extra: { goalId: goal.id },
+      });
+    }
+    return { ok: false, reason: "read_failed" };
+  }
+  const rows = data as Array<
+    QueueResyncRow & { queue_position: number | null; queue_pinned: boolean | null }
+  >;
+
+  // Skips are loaded alongside pins and travel in the same array, so the
+  // projection steps over a skipped slot here exactly as every read surface
+  // does (see SkippedSlot).
+  const pins: QueueHold[] = skippedSlotsFromRows(rows);
+  for (const r of rows) {
+    if (!r.queue_pinned || r.skipped) continue;
+    if (r.queue_position == null || !r.scheduled_date) continue;
+    pins.push({ slot: r.queue_position, date: r.scheduled_date });
+  }
+
+  const projected = computeNextLessonsForGoal(
+    goal,
+    today,
+    3650,
+    vacationBlocks,
+    completedTodayCount,
+    pins,
+  );
+  if (projected.length === 0) return { ok: false, reason: "nothing_projected" };
+
+  // Projector regression guard: the SCHEDULER assigns at most lessons_per_day
+  // (or the per-DOW override) lessons to any date. If a date ever exceeds
+  // that ceiling the projector has regressed — skip this goal rather than
+  // write a bunched cache, and surface it loudly.
+  //
+  // Pinned slots are exempt, and the exemption is the whole point. A pin is
+  // the family saying "this lesson goes on this day", and stacking is
+  // supported: bulk-move-to-one-day puts N lessons on one date on purpose
+  // (see the "Invariant 2 carve-out for manual moves" section of
+  // docs/CURRICULUM-SCHEDULING.md — auto-scheduling never bunches, only the
+  // user can). Counting pins here read that choice as a projector regression
+  // and returned early, which meant the goal's scheduled_date cache was never
+  // reconciled again: stale dates on Today and Plan forever, and a Sentry
+  // event on every single page load. Goal 503610a9 has lessons 8 and 18 both
+  // pinned to 2026-09-02 on a 1/day goal and fired exactly that way.
+  //
+  // Not reported from here. This runs on every page load, so a warning would
+  // reproduce the noise the guard was creating; the Schedule Builder reports
+  // stacked pins once, at the save that is actually changing something.
+  const overCap = projectionOverCap(projected, goal, pins);
+  if (overCap) {
+    Sentry.captureMessage(
+      `Projection exceeds per-day cap for goal ${goal.id}: ${overCap.date} has ${overCap.count} (max ${overCap.max})`,
+      "error",
+    );
+    return { ok: false, reason: "over_cap" };
+  }
+
+  return {
+    ok: true,
+    rows,
+    projDateByKey: new Map(projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date])),
+    rowKey: (r) => (r.queue_position != null ? `${goal.id}|${r.queue_position}` : null),
+  };
+}
+
 export async function reconcileGoalScheduleCache(
   supabase: SupabaseClient,
   goal: CurriculumGoalConfig,
@@ -324,88 +428,14 @@ export async function reconcileGoalScheduleCache(
   // Redundant with the gate inside syncProjectedScheduledDates by design: it
   // saves the tail SELECT when the switch is off, and keeping both means
   // removing one never silently re-opens the path. Parent actions do not come
-  // through here; they use reprojectGoalForParent.
+  // through here; they use reprojectGoalForParent or resyncGoalForParent.
   if (!isSchedulerSyncEnabled()) return;
   try {
-    // Load the tail FIRST so the projection can be pin-aware. The pinned rows
-    // are both an input to the projection (they hold their dates and consume
-    // capacity) and excluded from the write set (syncProjectedScheduledDates
-    // skips them).
-    const { data, error } = await supabase
-      .from("lessons")
-      .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned, skipped")
-      .eq("curriculum_goal_id", goal.id)
-      .eq("completed", false);
-    if (error || !data) {
-      if (error) {
-        captureSupabaseError("reconcileGoalScheduleCache: incomplete-tail read failed", error, {
-          extra: { goalId: goal.id },
-        });
-      }
-      return;
-    }
-    const rows = data as Array<
-      QueueResyncRow & { queue_position: number | null; queue_pinned: boolean | null }
-    >;
-
-    // Skips are loaded alongside pins and travel in the same array, so the
-    // projection steps over a skipped slot here exactly as every read surface
-    // does (see SkippedSlot).
-    const pins: QueueHold[] = skippedSlotsFromRows(rows);
-    for (const r of rows) {
-      if (!r.queue_pinned || r.skipped) continue;
-      if (r.queue_position == null || !r.scheduled_date) continue;
-      pins.push({ slot: r.queue_position, date: r.scheduled_date });
-    }
-
-    const projected = computeNextLessonsForGoal(
-      goal,
-      today,
-      3650,
-      vacationBlocks,
-      completedTodayCount,
-      pins,
+    const plan = await planGoalResync(
+      supabase, goal, vacationBlocks, completedTodayCount, today, "reconcileGoalScheduleCache",
     );
-    if (projected.length === 0) return;
-
-    // Projector regression guard: the SCHEDULER assigns at most lessons_per_day
-    // (or the per-DOW override) lessons to any date. If a date ever exceeds
-    // that ceiling the projector has regressed — skip this goal rather than
-    // write a bunched cache, and surface it loudly.
-    //
-    // Pinned slots are exempt, and the exemption is the whole point. A pin is
-    // the family saying "this lesson goes on this day", and stacking is
-    // supported: bulk-move-to-one-day puts N lessons on one date on purpose
-    // (see the "Invariant 2 carve-out for manual moves" section of
-    // docs/CURRICULUM-SCHEDULING.md — auto-scheduling never bunches, only the
-    // user can). Counting pins here read that choice as a projector regression
-    // and returned early, which meant the goal's scheduled_date cache was never
-    // reconciled again: stale dates on Today and Plan forever, and a Sentry
-    // event on every single page load. Goal 503610a9 has lessons 8 and 18 both
-    // pinned to 2026-09-02 on a 1/day goal and fired exactly that way.
-    //
-    // Not reported from here. This runs on every page load, so a warning would
-    // reproduce the noise the guard was creating; the Schedule Builder reports
-    // stacked pins once, at the save that is actually changing something.
-    const overCap = projectionOverCap(projected, goal, pins);
-    if (overCap) {
-      Sentry.captureMessage(
-        `Projection exceeds per-day cap for goal ${goal.id}: ${overCap.date} has ${overCap.count} (max ${overCap.max})`,
-        "error",
-      );
-      return;
-    }
-
-    const projDateByKey = new Map(
-      projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),
-    );
-
-    await syncProjectedScheduledDates(
-      supabase,
-      rows,
-      projDateByKey,
-      (r) => (r.queue_position != null ? `${goal.id}|${r.queue_position}` : null),
-    );
+    if (!plan.ok) return;
+    await syncProjectedScheduledDates(supabase, plan.rows, plan.projDateByKey, plan.rowKey);
   } catch (err) {
     captureSupabaseError("reconcileGoalScheduleCache failed", err, {
       extra: { goalId: goal.id },
@@ -469,6 +499,8 @@ export const PARENT_RESPREAD_SOURCE = {
   cascade: "plan_cascade_shift",
   /** "I'm actually on lesson X": re-date the upcoming queue after the pivot. */
   recalibrate: "recalibrate_respread",
+  /** Unskip: the lesson is back in the queue, so the queue is re-dated. */
+  unskip: "skip_undo",
 } as const;
 export type ParentRespreadSource =
   (typeof PARENT_RESPREAD_SOURCE)[keyof typeof PARENT_RESPREAD_SOURCE];
@@ -591,6 +623,66 @@ export async function writeParentProjectedDates<T extends QueueResyncRow>(
     ),
   );
   return mergeOutcomes(outcomes);
+}
+
+/**
+ * Re-date one goal's unpinned tail the way the automatic reconciler would,
+ * because a parent's action requires it: Unskip puts a lesson back in the
+ * queue, Today's "No, reschedule them" moves missed lessons ahead. Both used
+ * to rely on the next Today load's automatic reconciler, which does nothing
+ * while NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED is "false", so Plan kept the old
+ * dates while Today (which projects) moved on.
+ *
+ * Pins and skips are honored, exactly as in the reconciler (it is the same
+ * planGoalResync). Not gated by the automatic switch; confirmed; the parent's
+ * source is written, never 'queue_resync'.
+ */
+export async function resyncGoalForParent(
+  supabase: SupabaseClient,
+  goal: CurriculumGoalConfig,
+  vacationBlocks: VacationBlock[],
+  opts: { source: ParentRespreadSource; today?: Date; completedTodayCount?: number },
+): Promise<ParentReprojectResult> {
+  const plan = await planGoalResync(
+    supabase, goal, vacationBlocks, opts.completedTodayCount ?? 0, opts.today ?? new Date(), "resyncGoalForParent",
+  );
+  if (!plan.ok) {
+    // Nothing left to project is success with nothing to write; the other two
+    // wrote nothing because they could not decide safely.
+    if (plan.reason === "nothing_projected") return { ok: true, ...NO_WRITES };
+    return { ok: false, reason: plan.reason === "read_failed" ? "read_failed" : "over_cap", ...NO_WRITES };
+  }
+  const outcome = await writeParentProjectedDates(supabase, plan.rows, plan.projDateByKey, plan.rowKey, opts.source);
+  return { ok: outcome.failedIds.length === 0, ...outcome };
+}
+
+/**
+ * resyncGoalForParent for a list of goals, loading their configs and the
+ * family's breaks itself so a page handler needs no scheduler state.
+ * `ok` is false when any goal could not be loaded or fully written.
+ */
+export async function resyncGoalsForParent(
+  supabase: SupabaseClient,
+  userId: string,
+  goalIds: string[],
+  source: ParentRespreadSource,
+): Promise<{ ok: boolean; written: number; failedGoals: string[] }> {
+  if (goalIds.length === 0) return { ok: true, written: 0, failedGoals: [] };
+  const [{ data: goalRows, error: goalErr }, { data: vacRows, error: vacErr }] = await Promise.all([
+    supabase.from("curriculum_goals").select(GOAL_CONFIG_COLUMNS).in("id", goalIds),
+    supabase.from("vacation_blocks").select("start_date, end_date").eq("user_id", userId),
+  ]);
+  if (goalErr || vacErr || !goalRows) return { ok: false, written: 0, failedGoals: [...goalIds] };
+  const vacations = ((vacRows ?? []) as VacationBlock[]).map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
+  const configs = (goalRows as unknown as GoalConfigRow[]).map(toGoalConfig);
+  const failedGoals = goalIds.filter((id) => !configs.some((c) => c.id === id));
+  let written = 0;
+  for (const config of configs) {
+    const r = await resyncGoalForParent(supabase, config, vacations, { source });
+    written += r.written;
+    if (!r.ok) failedGoals.push(config.id);
+  }
+  return { ok: failedGoals.length === 0, written, failedGoals };
 }
 
 export type ParentReprojectResult = ConfirmedWriteOutcome & {

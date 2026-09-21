@@ -94,6 +94,7 @@ import {
   computeNextLessonsForGoal,
   computeGapLessonsForGoal,
   reprojectGoalForParent,
+  resyncGoalsForParent,
   sourceForUndoRestore,
   isProjectorPlacedSource,
   PARENT_RESPREAD_SOURCE,
@@ -266,6 +267,8 @@ type ReprojectSnapshotRow = {
   date: string | null;
   queue_pinned: boolean | null;
   scheduled_source: string | null;
+  /** Read by the cascade shift only, to prove its undo restored the order. */
+  queue_position?: number | null;
 };
 
 /** One goal's parent re-spread, as reprojectGoalTail reports it. */
@@ -1137,8 +1140,12 @@ export default function PlanV2() {
     [skipLesson, recordEvent],
   );
 
-  // Unskip puts the lesson back in the queue. It gets no date here: the next
-  // Today load's reconciler dates it like any other unfinished lesson.
+  // Unskip puts the lesson back in the queue, and this action dates it: the
+  // goal's unpinned tail is re-dated as the family's own action
+  // (resyncGoalsForParent, source 'skip_undo'), pins honored. It used to rely
+  // on the next Today load's automatic reconciler, which does nothing while
+  // NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED is "false": the lesson sat with no day,
+  // absent from Plan while Today (which projects) already showed it.
   //
   // Unless the queue has already moved past it. Skip 12, finish 13, and
   // current_lesson is 13: the projector starts at 14, so a plain unskip would
@@ -1169,18 +1176,32 @@ export default function PlanV2() {
         return;
       }
       setSkippedLessons((prev) => prev.filter((l) => l.id !== lesson.id));
-      flashNotice(
-        passed
-          ? "You've already moved past this one, so it's on today's plan."
-          : "Back in the queue. It gets a day the next time Today opens.",
-      );
+      if (passed) {
+        flashNotice("You've already moved past this one, so it's on today's plan.");
+      } else {
+        const goalId = lesson.curriculum_goal_id;
+        const resync = goalId && effectiveUserId
+          ? await resyncGoalsForParent(supabase, effectiveUserId, [goalId], PARENT_RESPREAD_SOURCE.unskip)
+          : { ok: false, written: 0, failedGoals: [] as string[] };
+        const { data: dated } = await supabase
+          .from("lessons")
+          .select("scheduled_date")
+          .eq("id", lesson.id)
+          .maybeSingle();
+        const day = (dated as { scheduled_date: string | null } | null)?.scheduled_date;
+        flashNotice(
+          resync.ok && day
+            ? `Back in the queue, on ${new Date(`${day}T12:00:00`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}.`
+            : "Back in the queue, but it couldn't be given a day. Try again, or check your connection.",
+        );
+      }
       reloadPins();
       reload();
       if (typeof window !== "undefined") {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [reload, reloadPins, todayStr],
+    [reload, reloadPins, todayStr, effectiveUserId],
   );
 
   // ── Submit handlers for Add / Edit lesson modals ─────────────────────────
@@ -4622,10 +4643,11 @@ export default function PlanV2() {
     const config = toGoalConfig(goalRow as unknown as GoalConfigRow);
 
     // Snapshot first: it covers the moved lesson too (it is incomplete), so
-    // Undo restores its date and pin state along with the rest of the tail.
+    // Undo restores its date and pin state along with the rest of the tail,
+    // and queue_position so Undo can prove the queue order came back.
     const { data: snapRows, error: snapErr } = await supabase
       .from("lessons")
-      .select("id, scheduled_date, date, queue_pinned, scheduled_source")
+      .select("id, scheduled_date, date, queue_pinned, scheduled_source, queue_position")
       .eq("curriculum_goal_id", c.goalId)
       .eq("completed", false);
     if (snapErr || !snapRows) {
@@ -4655,10 +4677,8 @@ export default function PlanV2() {
       source: PARENT_RESPREAD_SOURCE.cascade,
     });
     const ok = tail.ok;
-    // Undo puts back the moved lesson (the RPC changed it) plus exactly the
-    // tail rows the re-spread changed.
-    const movedPrior = snapshot.filter((s) => s.id === c.lessonId);
-    const undoRows = [...movedPrior, ...tail.undoRows.filter((s) => s.id !== c.lessonId)];
+    const movedPrior = snapshot.find((s) => s.id === c.lessonId) ?? null;
+    const tailUndoRows = tail.undoRows.filter((s) => s.id !== c.lessonId);
 
     setLessons((prev) =>
       prev.map((l) =>
@@ -4692,8 +4712,54 @@ export default function PlanV2() {
       key: `shift-forward-cascade:${Date.now()}`,
       onUndo: async () => {
         hapticTap(20);
-        const undone = await restoreLessonSnapshot(undoRows);
-        if (!undone.ok) flashNotice(UNDO_INCOMPLETE_NOTICE);
+        // The RPC moved the lesson into a new queue slot and shifted its
+        // siblings. Restoring dates alone left the slots shifted: Today (which
+        // projects by slot) then showed the next lesson where Plan (which reads
+        // the date) showed the moved one. Found on staging 2026-09-21.
+        //
+        // So: put the tail's dates back first, then move the lesson back with
+        // the same RPC, which recomputes its slot from what now sits on that
+        // day and shifts the siblings back; then its prior pin and source.
+        const undone = await restoreLessonSnapshot(tailUndoRows);
+        let ok = undone.ok;
+        if (movedPrior?.scheduled_date) {
+          const { error: moveBackErr } = await supabase.rpc("move_lesson_to_date", {
+            p_lesson_id: c.lessonId,
+            p_target_date: movedPrior.scheduled_date,
+          });
+          if (moveBackErr) ok = false;
+          const { data: back, error: pinErr } = await supabase
+            .from("lessons")
+            .update({
+              queue_pinned: movedPrior.queue_pinned ?? false,
+              scheduled_source: sourceForUndoRestore(movedPrior.scheduled_source),
+            })
+            .eq("id", c.lessonId)
+            .select("id");
+          if (pinErr || (back?.length ?? 0) !== 1) ok = false;
+        }
+        // Prove the order came back rather than assume it. The RPC places a
+        // lesson after anything already on its day, so a day holding several
+        // lessons of one goal can come back in a different order.
+        const { data: slotsNow } = await supabase
+          .from("lessons")
+          .select("id, queue_position")
+          .in("id", snapshot.map((s) => s.id));
+        const slotById = new Map(((slotsNow ?? []) as { id: string; queue_position: number | null }[]).map((r) => [r.id, r.queue_position]));
+        const orderRestored = snapshot.every((s) => slotById.get(s.id) === (s.queue_position ?? null));
+        if (!ok) flashNotice(UNDO_INCOMPLETE_NOTICE);
+        else if (!orderRestored) {
+          flashNotice("Dates are back, but the lesson order changed. Check this curriculum on Plan.");
+          recordEvent("lesson.bulk_action", {
+            action: "shift_forward_cascade_undo",
+            count: snapshot.length,
+            goal_ids: [c.goalId],
+            succeeded: 0,
+            failed: 1,
+            trigger_lesson_id: c.lessonId,
+            goal_id: c.goalId,
+          });
+        }
         reloadPins();
         reload();
       },

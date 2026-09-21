@@ -21,6 +21,8 @@ import { join } from 'node:path'
 import {
   syncProjectedScheduledDates,
   reprojectGoalForParent,
+  resyncGoalForParent,
+  resyncGoalsForParent,
   confirmedLessonsUpdate,
   sourceForUndoRestore,
   isProjectorPlacedSource,
@@ -420,4 +422,101 @@ test('bulk mark-done undo un-completes one row at a time, highest queue slot fir
   assert.ok(/for \(const id of undoOrder\)\s*\{/.test(block), 'sequential loop')
   assert.ok(!/Promise\.allSettled\(\s*succeededIds\.map/.test(src), 'no parallel un-completion')
   assert.ok(/queue_pinned, queue_position"\)/.test(src), 'the snapshot reads the slot it sorts by')
+})
+
+// ── Pin-honoring parent resync (Unskip, Today "No, reschedule them") ───────
+
+test('resyncGoalForParent re-dates the unpinned tail with the switch OFF, keeping pins', async () => {
+  const { goal, lessons } = staleGoal({ pinned: ['L6'] })
+  const pinned = lessons.find((r) => r.id === 'L6')!
+  Object.assign(pinned, { scheduled_date: '2026-10-08', date: '2026-10-08', scheduled_source: 'plan_move' })
+  const { client, tables } = makeMemorySupabase({ lessons })
+  const res = await withSwitch('false', () =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    resyncGoalForParent(client as any, goal, [], {
+      source: PARENT_RESPREAD_SOURCE.catchUp,
+      today: new Date('2026-10-05T00:00:00'),
+    }),
+  )
+  assert.equal(res.ok, true)
+  const l6 = tables.lessons.find((r) => r.id === 'L6')!
+  assert.equal(l6.queue_pinned, true, 'a pin survives')
+  assert.equal(l6.scheduled_date, '2026-10-08')
+  assert.equal(l6.scheduled_source, 'plan_move')
+  const moved = tables.lessons.filter((r) => !r.completed && r.id !== 'L6')
+  for (const r of moved) {
+    assert.equal(r.scheduled_source, 'catchup_spread')
+    assert.equal(r.queue_pinned, false)
+  }
+  assert.ok(!moved.some((r) => r.scheduled_date === '2026-10-08'), 'nothing stacks on the pinned day')
+})
+
+test('resyncGoalForParent reports a row the database silently skipped', async () => {
+  const { goal, lessons } = staleGoal()
+  const { client } = makeMemorySupabase({ lessons }, { refuseUpdate: (_t, r) => r.id === 'L5' })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await resyncGoalForParent(client as any, goal, [], {
+    source: PARENT_RESPREAD_SOURCE.unskip, today: new Date('2026-10-05T00:00:00'),
+  })
+  assert.equal(res.ok, false)
+  assert.deepEqual(res.failedIds, ['L5'])
+})
+
+test('an unskipped lesson gets a day and the tail shifts one day later', async () => {
+  const { goal, lessons } = staleGoal()
+  // Lessons 4-12 already on consecutive school days from Mon 2026-10-05,
+  // except 5, which was skipped: the projector stepped over it.
+  const days = ['2026-10-05', '2026-10-06', '2026-10-07', '2026-10-08', '2026-10-09', '2026-10-12', '2026-10-13', '2026-10-14']
+  const tail = lessons.filter((r) => !r.completed && r.id !== 'L5')
+  tail.forEach((r, i) => Object.assign(r, { scheduled_date: days[i], date: days[i] }))
+  Object.assign(lessons.find((r) => r.id === 'L5')!, { skipped: false, scheduled_date: null }) // just unskipped
+  const { client, tables } = makeMemorySupabase({ lessons })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await resyncGoalForParent(client as any, goal, [], { source: PARENT_RESPREAD_SOURCE.unskip, today: new Date('2026-10-05T00:00:00') })
+  const by = (id: string) => tables.lessons.find((r) => r.id === id)!
+  assert.equal(by('L4').scheduled_date, '2026-10-05')
+  assert.equal(by('L5').scheduled_date, '2026-10-06', 'lesson 5 is back on the calendar in order')
+  assert.equal(by('L6').scheduled_date, '2026-10-07', 'and the rest moved one school day')
+  assert.equal(by('L5').scheduled_source, 'skip_undo')
+})
+
+test('resyncGoalsForParent loads configs itself and fails closed on a missing goal', async () => {
+  const { goal, lessons } = staleGoal()
+  const { client } = makeMemorySupabase({
+    curriculum_goals: [{ ...goal, user_id: 'u1' }],
+    vacation_blocks: [],
+    lessons,
+  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ok = await resyncGoalsForParent(client as any, 'u1', [goal.id], PARENT_RESPREAD_SOURCE.catchUp)
+  assert.equal(ok.ok, true)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const missing = await resyncGoalsForParent(client as any, 'u1', [goal.id, 'no-such-goal'], PARENT_RESPREAD_SOURCE.catchUp)
+  assert.equal(missing.ok, false)
+  assert.deepEqual(missing.failedGoals, ['no-such-goal'])
+})
+
+test('Unskip and Today catch-up date lessons themselves instead of waiting for the reconciler', () => {
+  const plan = stripComments(read('app/components/PlanV2/index.tsx'))
+  const unskip = plan.slice(plan.indexOf('const unskipLesson = useCallback'), plan.indexOf('const handleSubmitAddLesson'))
+  assert.ok(/resyncGoalsForParent\([^)]*PARENT_RESPREAD_SOURCE\.unskip/.test(unskip))
+  assert.ok(!/next time Today opens/.test(unskip), 'no promise the automatic reconciler will do it')
+  const today = stripComments(read('app/dashboard/page.tsx'))
+  const no = today.slice(today.indexOf('async function handleMissedRecoveryNo'), today.indexOf('function handleMissedRecoveryDismiss'))
+  assert.ok(no.indexOf('resyncGoalsForParent(') !== -1 && no.indexOf('resyncGoalsForParent(') < no.indexOf('markCatchupAnswered('),
+    'lessons move before the answer is recorded, so a failure can ask again')
+  assert.ok(/throw new Error/.test(no), 'a failure reaches the modal')
+  const yes = today.slice(today.indexOf('async function handleMissedRecoveryYes'), today.indexOf('async function markCatchupAnswered'))
+  assert.ok(yes.indexOf('resyncGoalsForParent(') > yes.indexOf('recomputeCurrentLesson('), 'after the completions move the pointer')
+})
+
+test('cascade undo moves the lesson back through the RPC after the tail, and checks the order', () => {
+  const src = stripComments(read('app/components/PlanV2/index.tsx'))
+  const fn = src.slice(src.indexOf('const handleShiftAllForward'), src.indexOf('const handlePastDateMove'))
+  const undo = fn.slice(fn.indexOf('onUndo:'))
+  const restoreAt = undo.indexOf('restoreLessonSnapshot(tailUndoRows)')
+  const rpcAt = undo.indexOf('"move_lesson_to_date"')
+  assert.ok(restoreAt !== -1 && rpcAt > restoreAt, 'tail dates first, then the RPC move-back')
+  assert.ok(/queue_position/.test(fn.slice(0, fn.indexOf('onUndo:'))), 'the snapshot carries the slot')
+  assert.ok(/orderRestored/.test(undo), 'the undo proves the order came back')
 })
