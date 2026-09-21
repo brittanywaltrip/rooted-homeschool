@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 import { buildPartnerAppRow } from '@/lib/partner-apply'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 async function sendEmail(to: string, subject: string, text: string, html?: string, from = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>') {
   const { Resend } = await import('resend')

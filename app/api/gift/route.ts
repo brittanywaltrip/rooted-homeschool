@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { stripeClient } from "@/lib/api-clients";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseAdmin as supabase } from "@/lib/supabase-admin";
 import { isBillingDisabled, billingDisabledReason, billingDisabledPayload } from "@/lib/billing-guard";
-
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // POST: Create a gift checkout by recipient email (public — no auth required)
 export async function POST(req: NextRequest) {

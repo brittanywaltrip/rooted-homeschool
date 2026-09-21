@@ -1,12 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 
 import { COMMISSION_RATE, LEGACY_COMMISSION_PER_PAYING, displayCommission } from '@/lib/commission'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 // Each referral row's commission now comes from the webhook at conversion
 // time (stored in referrals.commission_amount). Pre-migration rows fall

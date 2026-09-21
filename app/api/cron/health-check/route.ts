@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { Resend } from 'resend'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 
 export const dynamic = 'force-dynamic'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 const TEST_USER_ID = 'f30ede7e-ad40-42a9-a134-8fd70932ba0f'
 const ALERT_TO = 'garfieldbrittany@gmail.com'

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
 import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
+import { supabaseAdmin } from '@/lib/supabase-admin'
 
 // As of the May 1 2026 affiliate-program relaunch, partner approval no
 // longer comps the partner's Rooted+ subscription. New affiliates pay
@@ -11,11 +11,6 @@ import { emailFooterHtml, emailFooterText } from '@/lib/email-footer'
 // from the approval flow.
 
 const ADMIN_EMAILS = ['garfieldbrittany@gmail.com', 'christopherwaltrip@gmail.com', 'hello@rootedhomeschoolapp.com']
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 async function verifyAdmin(req: Request) {
   const token = req.headers.get('authorization')?.replace('Bearer ', '')

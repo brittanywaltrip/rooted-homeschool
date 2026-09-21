@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { canSendMarketingEmail } from '@/lib/email/can-send'
 import { buildUserListUnsubscribeHeaders, ensureUnsubscribeToken } from '@/lib/email/list-unsubscribe'
 import { loadSuppressedEmails } from '@/lib/email/resend-suppression'
@@ -13,11 +13,6 @@ export const dynamic = 'force-dynamic'
 // Daily at 16:00 UTC (vercel.json), an hour after the win-back cron. Who gets it
 // and why lives in lib/trial-ending.ts. `?dry=1` (still behind the cron secret)
 // counts, logs by user id, and sends nothing.
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 const FROM = 'Brittany from Rooted <hello@rootedhomeschoolapp.com>'
 const ALERT_TO = 'garfieldbrittany@gmail.com'

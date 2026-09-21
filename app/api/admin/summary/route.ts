@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { buildExclusions, isTestEmail } from "@/lib/admin/excluded-user-ids";
+import { supabaseAdmin } from "@/lib/supabase-admin";
 
 // Manual SQL fix 2026-03-21: amannda86@yahoo.com + dward67@yahoo.com
 // updated to founding_family via Supabase SQL.
@@ -10,11 +10,6 @@ import { buildExclusions, isTestEmail } from "@/lib/admin/excluded-user-ids";
 // Webhook handles all future paying members automatically.
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
