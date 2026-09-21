@@ -739,6 +739,56 @@ export async function resyncGoalsForParent(
   return { ok: failedGoals.length === 0, written, failedGoals };
 }
 
+/** One row the daily reconciliation would move, with the date it saw. */
+export interface DailyReconcileMove {
+  id: string;
+  from: string | null;
+  to: string;
+}
+
+export type DailyReconcilePlan =
+  | { ok: true; moves: DailyReconcileMove[]; pins: Array<[number, string]>; skipped: number[] }
+  | { ok: false; reason: "read_failed" | "over_cap" };
+
+/**
+ * What the once-a-day reconciliation would change for one curriculum, and the
+ * pins and skips it projected around. Never writes: the write goes through the
+ * apply_daily_reconcile RPC, which re-checks every one of these values (and the
+ * curriculum's settings, breaks and today's completions) under row locks.
+ *
+ * The same projection the parent re-dates use (planGoalResync): pins hold their
+ * day, skips are stepped over, and completed, backfill, pinned and skipped rows
+ * are never moved.
+ */
+export async function planDailyReconcile(
+  supabase: SupabaseClient,
+  goal: CurriculumGoalConfig,
+  vacationBlocks: VacationBlock[],
+  completedTodayCount: number,
+  today: Date,
+): Promise<DailyReconcilePlan> {
+  const plan = await planGoalResync(supabase, goal, vacationBlocks, completedTodayCount, today, "planDailyReconcile");
+  if (!plan.ok) {
+    if (plan.reason === "nothing_projected") return { ok: true, moves: [], pins: [], skipped: [] };
+    return { ok: false, reason: plan.reason };
+  }
+  const byDate = planProjectedDateWrites(plan.rows, plan.projDateByKey, plan.rowKey);
+  const rowById = new Map(plan.rows.map((r) => [r.id, r]));
+  const moves: DailyReconcileMove[] = [];
+  for (const [to, ids] of byDate) {
+    for (const id of ids) moves.push({ id, from: rowById.get(id)?.scheduled_date ?? null, to });
+  }
+  const pins: Array<[number, string]> = plan.rows
+    .filter((r) => !r.completed && r.queue_pinned && !r.skipped && r.queue_position != null && r.scheduled_date)
+    .map((r) => [r.queue_position as number, r.scheduled_date as string] as [number, string])
+    .sort((a, b) => a[0] - b[0]);
+  const skipped = plan.rows
+    .filter((r) => !r.completed && r.skipped && r.queue_position != null)
+    .map((r) => r.queue_position as number)
+    .sort((a, b) => a - b);
+  return { ok: true, moves, pins, skipped };
+}
+
 export type ParentReprojectResult = ConfirmedWriteOutcome & {
   ok: boolean;
   /** Why nothing was written, when the answer is "nothing". */

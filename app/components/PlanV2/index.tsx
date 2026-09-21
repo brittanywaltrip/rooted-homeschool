@@ -16,6 +16,10 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
+import { useDailyReconcile } from "@/app/hooks/useDailyReconcile";
+import { loadMissedWork, type MissedWorkGoalRow } from "@/app/lib/missed-work";
+import { answerMissedYes, answerMissedNo, type MissedAnswerDeps } from "@/app/lib/missed-work-answers";
+import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type RecoveryRow } from "@/app/components/MissedLessonRecoveryModal";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import PageHero from "@/app/components/PageHero";
@@ -825,6 +829,13 @@ export default function PlanV2() {
 
   const { kids, lessons, appointments, vacationBlocks, activities: calendarActivities, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
+
+  // Once a day, bring stored lesson dates in step with Today's projection
+  // (app/lib/daily-reconcile.ts), then reload so this calendar shows them.
+  useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
+    onRedated: () => { reload(); reloadPins(); },
+    onFailure: (message) => flashNotice(message),
+  });
 
   // Post-save landing from the Schedule Builder. The builder commits the new
   // curriculum_goals + lessons (awaited) then soft-navigates here with
@@ -2878,19 +2889,118 @@ export default function PlanV2() {
     }
   }, [effectiveUserId, recordEvent, reload, reloadPins, flashNotice]);
 
-  // Missed = scheduled_date before today AND not completed. Uses filteredLessons
-  // so the banner respects the active child filter chips (Amanda grades one
-  // child at a time and doesn't want bulk actions to leak across kids).
-  const missedLessonsInView = useMemo<PlanV2Lesson[]>(() => {
-    return filteredLessons
-      .filter((l) => {
-        const d = l.scheduled_date ?? l.date;
-        return !!d && d < todayStr && !l.completed;
-      })
-      .sort((a, b) =>
-        ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""),
-      );
-  }, [filteredLessons, todayStr]);
+  // Missed work: the SAME lessons Today asks about (app/lib/missed-work.ts),
+  // projected from each curriculum's last completion and last catch-up answer.
+  // Not "stored date before today": re-dating (a parent action or the daily
+  // reconciliation) moves stored dates without answering anything, and Plan
+  // used to empty its list while Today still asked. Reloaded with the calendar
+  // so a completion here is reflected at once. Respects the child filter chips
+  // (Amanda grades one child at a time and doesn't want bulk answers to leak
+  // across kids).
+  const [missedWork, setMissedWork] = useState<{ goals: MissedWorkGoalRow[]; entriesByGoal: Map<string, MissedEntry[]> } | null>(null);
+  const [missedReviewOpen, setMissedReviewOpen] = useState(false);
+  useEffect(() => {
+    if (!effectiveUserId || isPartner) return;
+    let cancelled = false;
+    void (async () => {
+      const res = await loadMissedWork(supabase, effectiveUserId);
+      // A failed read keeps what was shown rather than claim nothing is missed.
+      if (!cancelled && res) setMissedWork(res);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, isPartner, todayStr, lessons]);
+
+  const missedInView = useMemo(() => {
+    const entriesByGoal = new Map<string, MissedEntry[]>();
+    const goals: MissedGoal[] = [];
+    if (!missedWork) return { entriesByGoal, goals, total: 0, dates: 0 };
+    const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
+    const kidName = new Map(kids.map((k) => [k.id, k.name]));
+    let total = 0;
+    const dates = new Set<string>();
+    for (const g of missedWork.goals) {
+      const entries = missedWork.entriesByGoal.get(g.id);
+      if (!entries || entries.length === 0) continue;
+      if (!allKidsSelected && g.child_id && !childFilter.has(g.child_id)) continue;
+      entriesByGoal.set(g.id, entries);
+      goals.push({
+        id: g.id,
+        curriculum_name: g.curriculum_name,
+        subject_label: g.subject_label,
+        child_id: g.child_id,
+        child_name: g.child_id ? (kidName.get(g.child_id) ?? null) : null,
+      });
+      total += entries.length;
+      for (const e of entries) dates.add(e.date);
+    }
+    return { entriesByGoal, goals, total, dates: dates.size };
+  }, [missedWork, childFilter, kids]);
+
+  const missedBannerGroups = useMemo(
+    () =>
+      missedInView.goals.map((g) => {
+        const subject = g.subject_label ?? g.curriculum_name;
+        return {
+          goalId: g.id,
+          label: g.child_name ? `${g.child_name} · ${subject}` : subject,
+          entries: missedInView.entriesByGoal.get(g.id) ?? [],
+        };
+      }),
+    [missedInView],
+  );
+
+  const refreshMissedWork = useCallback(async () => {
+    if (!effectiveUserId) return;
+    const res = await loadMissedWork(supabase, effectiveUserId);
+    if (res) setMissedWork(res);
+  }, [effectiveUserId]);
+
+  // The same answers Today gives (app/lib/missed-work-answers.ts). Each throws
+  // on failure so the prompt can say why and hand the button back.
+  const missedAnswerDeps = useCallback(async (): Promise<MissedAnswerDeps> => {
+    const { data: subjectRows } = await supabase
+      .from("subjects")
+      .select("id, name")
+      .eq("user_id", effectiveUserId);
+    return {
+      supabase,
+      userId: effectiveUserId,
+      todayStr,
+      entriesByGoal: missedInView.entriesByGoal,
+      goals: missedInView.goals,
+      subjects: (subjectRows ?? []) as Array<{ id: string; name: string }>,
+      track: (event, props) => posthog.capture(event, props),
+    };
+  }, [effectiveUserId, todayStr, missedInView]);
+
+  const handleMissedYes = useCallback(async (rows: RecoveryRow[]) => {
+    if (rows.length === 0) { setMissedReviewOpen(false); return; }
+    try {
+      await answerMissedYes(await missedAnswerDeps(), rows);
+    } catch (err) {
+      reload();
+      reloadPins();
+      await refreshMissedWork();
+      throw err;
+    }
+    setMissedReviewOpen(false);
+    reload();
+    reloadPins();
+    await refreshMissedWork();
+    flashNotice(`Marked ${rows.length} lesson${rows.length === 1 ? "" : "s"} done.`);
+    window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+  }, [missedAnswerDeps, reload, reloadPins, refreshMissedWork]);
+
+  const handleMissedNo = useCallback(async () => {
+    try {
+      await answerMissedNo(await missedAnswerDeps());
+    } finally {
+      reload();
+      reloadPins();
+      await refreshMissedWork();
+    }
+    setMissedReviewOpen(false);
+  }, [missedAnswerDeps, reload, reloadPins, refreshMissedWork]);
 
   // NOTE: there is deliberately no `futureLessonsInView` memo here any more.
   // Push-back was the only consumer, and deriving it from `lessons` was the
@@ -3102,43 +3212,14 @@ export default function PlanV2() {
     setShiftForwardUnlinked(0);
   }, []);
 
-  // True backlog size, all months. The catch-up banner headline used the
-  // month-windowed count, so a mom several months behind was told she was
-  // "12 lessons behind" while the modal she opened from it moved far more.
-  // Cheap: one count-only query, refreshed with the calendar.
-  const [missedTotal, setMissedTotal] = useState<number | null>(null);
-  useEffect(() => {
-    if (!effectiveUserId) return;
-    let cancelled = false;
-    (async () => {
-      const { count, error } = await supabase
-        .from("lessons")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", effectiveUserId)
-        .eq("completed", false)
-        .not("scheduled_date", "is", null)
-        .lt("scheduled_date", todayStr);
-      if (cancelled || error) return;
-      setMissedTotal(count ?? 0);
-    })();
-    return () => { cancelled = true; };
-  }, [effectiveUserId, todayStr, pinsNonce]);
-
-  // Catch-up threshold: 5+ past incomplete spanning 2+ distinct days AND
-  // the 7-day dismissal window has elapsed. Dismissal count doesn't scope
+  // Catch-up threshold: 5+ missed lessons (the shared missed-work list)
+  // spanning 2+ distinct days AND the 7-day dismissal window has elapsed. Dismissal count doesn't scope
   // to child filter — if the user is behind with ANY child filter off, we
   // still respect the pause.
   const showCatchUpBanner = useMemo(() => {
     if (Date.now() < catchUpSuppressedUntil) return false;
-    if (missedLessonsInView.length < 5) return false;
-    const distinctDates = new Set<string>();
-    for (const l of missedLessonsInView) {
-      const d = l.scheduled_date ?? l.date;
-      if (d) distinctDates.add(d);
-      if (distinctDates.size >= 2) break;
-    }
-    return distinctDates.size >= 2;
-  }, [missedLessonsInView, catchUpSuppressedUntil]);
+    return missedInView.total >= 5 && missedInView.dates >= 2;
+  }, [missedInView, catchUpSuppressedUntil]);
 
   function prevMonth() {
     if (viewMode === "week") {
@@ -5724,51 +5805,38 @@ export default function PlanV2() {
           </Link>
         )}
 
-        {/* Catch-up banner — above MissedLessonsBanner when the user has a
-            meaningful backlog (5+ across 2+ days) and hasn't dismissed it
-            within the last 7 days. Handles bulk "shift everything" flows;
-            MissedLessonsBanner handles per-row and select-all flows. */}
+        {/* Catch-up banner, above MissedLessonsBanner when the missed list is
+            meaningful (5+ across 2+ days) and hasn't been dismissed within the
+            last 7 days. Its actions move the schedule; they do not answer the
+            missed-lessons question, which stays on the banner below. */}
         {!loading && showCatchUpBanner ? (
           <CatchUpBanner
-            count={missedTotal ?? missedLessonsInView.length}
+            count={missedInView.total}
             onShiftForward={() => void openShiftForward()}
             onPushBack={() => void openPushBack()}
             onDismiss={dismissCatchUp}
           />
         ) : null}
 
-        {/* Missed-lessons banner — above the calendar card so partners who
-            grade after the fact can bulk-close the backlog in two clicks.
-            Per-row Reschedule opens the same RescheduleDialog used by the day
-            panel; "Mark all done" calls performBulkMarkDone which fires the
-            universal undo bar; "Select all" enters the existing multi-select
-            mode with the banner items pre-selected. */}
+        {/* Missed-lessons banner, above the calendar card: the same lessons
+            Today asks about, and Review opens the same prompt, so the question
+            is answered once whichever screen the family is on. */}
         {!loading ? (
           <MissedLessonsBanner
-            missedLessons={missedLessonsInView}
+            groups={missedBannerGroups}
             busy={bulkBusy}
-            curriculumNameByGoal={Object.fromEntries(curriculumGoals.map((g) => [g.id, g.curriculum_name]))}
-            onMarkAllDone={() => {
-              const ids = missedLessonsInView.map((l) => l.id);
-              if (ids.length === 0) return;
-              performBulkMarkDone(ids);
-            }}
-            onSelectAll={() => {
-              const ids = missedLessonsInView.map((l) => l.id);
-              if (ids.length === 0) return;
-              setSelectMode(true);
-              setSelectedIds(new Set(ids));
-              setMoveTargetMode(false);
-              hapticTap(20);
-            }}
-            onReschedule={(lesson) => {
-              const fromDateStr = lesson.scheduled_date ?? lesson.date ?? null;
-              if (!fromDateStr) {
-                flashNotice("This lesson isn't on the calendar yet, edit it from the Plan page.");
-                return;
-              }
-              setRescheduleTarget({ lessonId: lesson.id, fromDateStr });
-            }}
+            onReview={() => setMissedReviewOpen(true)}
+          />
+        ) : null}
+
+        {missedReviewOpen ? (
+          <MissedLessonRecoveryModal
+            goals={missedInView.goals}
+            entriesByGoal={missedInView.entriesByGoal}
+            onYes={handleMissedYes}
+            onNo={handleMissedNo}
+            onDismiss={() => setMissedReviewOpen(false)}
+            today={todayStr}
           />
         ) : null}
 

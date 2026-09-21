@@ -1826,8 +1826,9 @@ test('Invariant 3 — backfilled lessons unchanged after Missed Lesson Recovery 
   // by (curriculum_goal_id, queue_position), one per row the family left
   // checked. It must NOT bulk-update forward-dated lessons or scan by
   // is_backfill, so backfilled rows are safe by construction.
-  const src = loadRepoFile('app/dashboard/page.tsx')
-  const body = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  // The writes live in the shared answer module Today and Plan both call.
+  const src = loadRepoFile('app/lib/missed-work-answers.ts')
+  const body = extractFunctionBody(src, /export async function answerMissedYes\s*\(/)
   assert.ok(body.includes('for (const row of rows)'), 'YES iterates the chosen rows, one write each')
   assert.ok(
     !/\.update\([\s\S]*?\)\.eq\("curriculum_goal_id"/.test(body),
@@ -2279,10 +2280,10 @@ test("Invariant 10 — Missed Lesson Recovery YES names its source through the s
   // (the helper writes by id and a missing row has none yet). Either way the
   // source is never absent, which is all Invariant 10 asks — and it now
   // reflects whose date it was rather than a fixed label.
-  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
-  const body = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  const src = stripComments(loadRepoFile('app/lib/missed-work-answers.ts'))
+  const body = extractFunctionBody(src, /export async function answerMissedYes\s*\(/)
   assert.ok(
-    /completeLessonOnDate\(supabase, \{/.test(body),
+    /completeLessonOnDate\(d\.supabase, \{/.test(body),
     'the update branch goes through the shared writer',
   )
   assert.ok(
@@ -6058,7 +6059,7 @@ test('recovery modal: it never writes to the database itself', () => {
 
 test('recovery modal: the page writes only the rows it is handed', () => {
   const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
-  const body = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  const page = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
   assert.ok(
     /rows: RecoveryRow\[\]/.test(
       src.slice(src.indexOf('async function handleMissedRecoveryYes'), src.indexOf('async function handleMissedRecoveryYes') + 120),
@@ -6066,15 +6067,22 @@ test('recovery modal: the page writes only the rows it is handed', () => {
     'the handler receives the chosen rows rather than re-flattening every entry',
   )
   assert.ok(
-    !/missedEntriesByGoal\.values\(\)/.test(body),
+    /if \(rows\.length === 0\) return/.test(page),
+    'nothing checked writes nothing',
+  )
+  assert.ok(/answerMissedYes\(missedAnswerDeps\(\), rows\)/.test(page), 'the page hands exactly those rows to the shared writer')
+  // Plan answers through the same writer, with the same rule.
+  const plan = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const planYes = plan.slice(plan.indexOf('const handleMissedYes = useCallback'), plan.indexOf('const handleMissedNo = useCallback'))
+  assert.ok(/if \(rows\.length === 0\)/.test(planYes), 'Plan: nothing checked writes nothing')
+  assert.ok(/answerMissedYes\(await missedAnswerDeps\(\), rows\)/.test(planYes), 'Plan: the same writer')
+  const body = extractFunctionBody(stripComments(loadRepoFile('app/lib/missed-work-answers.ts')), /export async function answerMissedYes\s*\(/)
+  assert.ok(
+    !/entriesByGoal\.values\(\)/.test(body),
     'it must not fall back to writing every entry it knows about',
   )
   assert.ok(
-    /if \(rows\.length === 0\) return/.test(body),
-    'nothing checked writes nothing',
-  )
-  assert.ok(
-    /completeLessonOnDate\(supabase, \{/.test(body),
+    /completeLessonOnDate\(d\.supabase, \{/.test(body),
     'the update branch goes through the shared writer',
   )
   assert.ok(
@@ -6381,29 +6389,33 @@ test('unchecked: tomorrow asks only about the day genuinely missed', () => {
 
 
 test('unchecked: Yes and No settle through the SAME helper', () => {
-  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
-  const yes = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
-  const no = extractFunctionBody(src, /async function handleMissedRecoveryNo\s*\(/)
+  const src = stripComments(loadRepoFile('app/lib/missed-work-answers.ts'))
+  const yes = extractFunctionBody(src, /export async function answerMissedYes\s*\(/)
+  const no = extractFunctionBody(src, /export async function answerMissedNo\s*\(/)
   assert.ok(/await markCatchupAnswered\(/.test(yes), 'the Yes path settles its unchecked goals')
   assert.ok(/await markCatchupAnswered\(/.test(no), 'the No path settles every offered goal')
-  // Awaited, both of them: loadData re-reads catchup_answered_on immediately
+  // Awaited, both of them: the pages re-read catchup_answered_on immediately
   // after, so a fire-and-forget write would race its own refresh and the
   // prompt could reopen on the very next render.
   //
-  // One implementation, not two. Neither handler may write the column itself.
+  // One implementation, not two. Neither answer may write the column itself,
+  // and neither page may either.
   for (const [name, body] of [['Yes', yes], ['No', no]] as const) {
     assert.ok(
       !/catchup_answered_on/.test(body),
       `the ${name} path must not write the column itself`,
     )
   }
-  const helper = extractFunctionBody(src, /async function markCatchupAnswered\s*\(/)
+  for (const f of ['app/dashboard/page.tsx', 'app/components/PlanV2/index.tsx']) {
+    assert.ok(!/update\(\{[^}]*catchup_answered_on/.test(stripComments(loadRepoFile(f))), `${f} does not write the answer itself`)
+  }
+  const helper = extractFunctionBody(src, /export async function markCatchupAnswered\s*\(/)
   assert.ok(
-    /\.update\(\{ catchup_answered_on: today \}\)/.test(helper),
+    /\.update\(\{ catchup_answered_on: d\.todayStr \}\)/.test(helper),
     'the one implementation records the answer on the goal row',
   )
   assert.ok(
-    /\.eq\("user_id", effectiveUserId\)/.test(helper),
+    /\.eq\("user_id", d\.userId\)/.test(helper),
     'and is scoped to the family, not just to the goal ids',
   )
   assert.ok(
@@ -6413,8 +6425,8 @@ test('unchecked: Yes and No settle through the SAME helper', () => {
 })
 
 test('unchecked: the confirmation reports both halves', () => {
-  const src = stripComments(loadRepoFile('app/dashboard/page.tsx'))
-  const yes = extractFunctionBody(src, /async function handleMissedRecoveryYes\s*\(/)
+  const src = stripComments(loadRepoFile('app/lib/missed-work-answers.ts'))
+  const yes = extractFunctionBody(src, /export async function answerMissedYes\s*\(/)
   assert.ok(/catchup_prompt_confirmed/.test(yes), 'confirm is reported once')
   for (const field of ['checked:', 'unchecked:', 'goals_rescheduled:']) {
     assert.ok(yes.includes(field), `the event carries ${field}`)
@@ -6430,10 +6442,12 @@ test('unchecked: the answer is fetched with the goal rows the gap is computed fr
     /select\("id, icon_emoji[^"]*catchup_answered_on[^"]*"\)/.test(src),
     "loadData's goal select must include catchup_answered_on",
   )
-  assert.ok(
-    /gapStartForGoal\(goal\.id, goal\.start_date \?\? null, goal\.catchup_answered_on \?\? null\)/.test(src),
-    'and the gap must be computed from it',
-  )
+  // The shared rule reads it off the goal row (app/lib/missed-work.ts), and
+  // Plan's loader selects it too.
+  const shared = stripComments(loadRepoFile('app/lib/missed-work.ts'))
+  assert.ok(/answeredOn: goal\.catchup_answered_on/.test(shared), 'and the gap must be computed from it')
+  assert.ok(/GOAL_CONFIG_COLUMNS\}, catchup_answered_on/.test(shared), "Plan's loader selects it as well")
+  assert.ok(/computeMissedWork\(\{/.test(src), 'Today computes the gap through the shared rule')
 })
 
 test('unchecked: a migration exists for the column and adds it nullable', () => {
@@ -10151,9 +10165,12 @@ test('Invariant 16 — Plan bulk Mark all done and the missed banner go through 
   assert.match(open, /setBulkDoneIds\(toComplete\)/, 'the tap opens the chooser; nothing is written until it is answered')
   assert.doesNotMatch(open, /\.update\(/)
   assert.match(src, /<BulkCompletionChooser/)
+  // The missed banner no longer writes anything itself: Review opens the same
+  // prompt Today uses, whose Yes files each lesson through completeLessonOnDate.
   const banner = stripComments(loadRepoFile('app/components/PlanV2/MissedLessonsBanner.tsx'))
-  assert.match(banner, /onClick=\{onMarkAllDone\}/)
-  assert.ok(!banner.includes('confirming'), 'the banner no longer asks twice')
+  assert.match(banner, /onClick=\{onReview\}/)
+  assert.ok(!/supabase|completeLessonOnDate|\.update\(/.test(banner), 'the banner holds no writer')
+  assert.match(src, /<MissedLessonRecoveryModal/)
 })
 
 // ── The builder preview never names a skipped lesson as next (Invariant 22) ──

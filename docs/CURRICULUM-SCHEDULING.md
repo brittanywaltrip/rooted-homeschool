@@ -171,6 +171,7 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'catchup_spread'`, `'catchup_pushback'`, `'plan_cascade_shift'`, `'recalibrate_respread'`: a PARENT asked for the projector's answer: Plan catch-up re-spread, push back N school days, the tail of a cascade shift, and "I'm actually on lesson X". Written by `reprojectGoalForParent` / `writeParentProjectedDates`, never gated by the automatic switch.
 - `'skip_respread'`, `'skip_undo'`: a PARENT skipped a lesson (the lessons after it move up) or unskipped one, or undid a bulk skip (the queue is re-dated around it). Also `'catchup_spread'` from Today's recovery Yes and No. Written by `resyncGoalsForParent`, which projects exactly as the automatic reconciler does (pins held, skips stepped over, the per-day cap, lessons completed today counted against today) but is never gated by the switch and never writes `'queue_resync'`. Distinct sources on purpose: renaming the automatic writer's source would walk straight past the containment trigger.
 - `'completion_respread'`, `'uncomplete_respread'`: a PARENT marked lessons done (on time, early, late, on a chosen past day, in bulk, from the Today extra-lessons sheet or prior-lesson card, from "Log a lesson you did", the Plan past-day checklist, or a past-date move) or un-marked one (single uncheck, bulk-done undo, removing a logged lesson, deleting a completed record on Reports). The pointer moved, so the rest of that curriculum is re-dated from it by `resyncGoalsForParent`, counting lessons completed today exactly as Today does. Only incomplete rows are written; completed history, pins, skips, school days, breaks and the per-day cap are kept. Without it, with the automatic reconciler off, Plan kept the old dates while Today moved on. A failed re-date is said (`COMPLETION_RESPREAD_FAILED_NOTE`) and never rolls the completion back.
+- `'daily_reconcile'`: the once-a-day reconciliation (`app/lib/daily-reconcile.ts`, SQL `public.apply_daily_reconcile`). When a school day passes with a family behind or ahead of plan, it re-dates each curriculum's unfinished, unpinned, unskipped, non-backfill lessons to what Today projects, at most once per curriculum per local day. The browser proposes; the function writes, only while the server switch `rooted_private.app_switches.daily_reconcile` is on (read at the moment of the call, so switching it off stops open tabs too), only if nothing it was computed from changed (pointer, pace, school days, overrides, start, breaks, pins, skips, today's completions, each row's date; otherwise `stale`), and never into the past. The day is logged in `rooted_private.daily_reconcile_log` in the same transaction as the writes, so a failure leaves it unmarked and retried.
 - `'undo_restore'`: an undo put a row back where the automatic projector had it. Written instead of restoring `'queue_resync'` (`sourceForUndoRestore`); every other snapshotted source is restored as it was.
 - `'recalibrate_estimate'` — synthesized completion date written by the "I'm actually on lesson X" recalibration gap-fill. Lessons stamped with this source have completed_at + scheduled_date evenly distributed across the window between the goal's last real completion (or start_date / created_at) and yesterday. The Plan calendar lesson card surfaces an "Estimated date · tap to move." hint for these rows; moving the lesson via `move_lesson_to_date` overwrites the source with `'plan_move'`.
 - `'manual_uncomplete'` — the user unchecked a completed lesson (`toggleLesson` in `app/components/PlanV2/usePlanLessonActions.ts`). This write does NOT move either date column; it exists to mark that the row went back into the queue, and it clears `is_backfill` alongside. Without that clear, a lesson logged on a past day (`catchup_resched` + `is_backfill`) and then unchecked kept its past date permanently: `syncProjectedScheduledDates` skips `is_backfill` rows, so the reconciler could never roll it forward and every load counted it as missed.
@@ -608,6 +609,27 @@ if the event and the row agree on the date.
 path reaches `completeLessonOnDate` and nothing else writes `completed = true`
 for a tapped lesson; each choice writes its documented columns; a kept future
 day never stamps a future `completed_at`; Cancel writes nothing.
+
+### Missed work has one definition (September 2026)
+
+Today's catch-up prompt and Plan's missed-lessons banner list the same lessons,
+computed by `computeMissedWork` in `app/lib/missed-work.ts`: the lessons that
+would have been due on past school days since each curriculum's last completion
+(or its start date), at most 14 days back, and never on or before the day the
+family last answered for it (`catchup_answered_on`). It projects from the
+curriculum's settings and reads no lesson dates.
+
+- Re-dating never answers it. A parent re-date or the daily reconciliation
+  moves stored dates; only a completion or a recorded "not done" answer
+  (`app/lib/missed-work-answers.ts`, used by both screens) changes the list.
+  Plan used to call a lesson missed when its stored date was before today, and
+  one lesson marked on its planned past day emptied Plan's list while Today
+  still asked.
+- An overdue lesson nobody has marked is still next in the queue, so it is
+  usually also on today's list. Each entry carries `also_today`, and both
+  screens say so.
+
+**Test case:** `app/lib/missed-work.test.ts`.
 
 ---
 
