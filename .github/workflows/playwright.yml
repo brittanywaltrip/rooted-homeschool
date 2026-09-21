@@ -6,8 +6,17 @@ on:
   pull_request:
     branches: [staging, main]
 
+permissions:
+  contents: read
+  deployments: read
+
 jobs:
   smoke:
+    # Fork PRs never receive staging credentials or the protection bypass.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    concurrency:
+      group: rooted-staging-smoke
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     # 12 min waiting for the deployment + ~10 min of tests, with headroom.
     timeout-minutes: 30
@@ -20,51 +29,19 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
 
-      # ONE gate, parsed as JSON. Waits for the deployment of THIS COMMIT and
-      # asserts every field: a healthy response from an older build is not
-      # sufficient. curl is never given --location, so the bypass header cannot
-      # follow a redirect to another origin.
-      - name: Wait for, and verify, the staging deployment of this commit
+      # Discover the immutable deployment for this exact commit. Never move a
+      # shared staging alias or accept an older build just to make CI green.
+      - name: Discover and verify this commit's staging deployment
+        id: deployment
         env:
-          PLAYWRIGHT_BASE_URL: https://rooted-homeschool-env-rooted-staging-brittanywaltrips-projects.vercel.app
-          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          EXPECTED_REF: cvgqovweybggrqakhdtd
-          # The commit Vercel actually builds is the branch head. On a
-          # pull_request run GITHUB_SHA is the MERGE commit instead, which no
-          # deployment ever serves, so a gate comparing against it waits the
-          # full 12 minutes and then fails on every PR. On a push run the two
-          # are the same and this expression changes nothing.
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           EXPECTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          for i in $(seq 1 48); do
-            body=$(curl -sS --max-time 10 \
-              -H "x-vercel-protection-bypass: ${BYPASS}" \
-              "${PLAYWRIGHT_BASE_URL}/api/health" || echo '')
-            if [ -n "${body}" ] && echo "${body}" | jq -e '.commit' >/dev/null 2>&1; then
-              commit=$(echo "${body}" | jq -r '.commit // empty')
-              if [ "${commit}" = "${EXPECTED_COMMIT}" ]; then
-                echo "${body}" | jq .
-                echo "${body}" | jq -e --arg ref "${EXPECTED_REF}" '
-                  if .env        != "staging" then error("env is \(.env), not staging")
-                  elif .identityOk != true    then error("identityOk is false: \(.error)")
-                  elif .projectRef != $ref    then error("projectRef is \(.projectRef), not \($ref)")
-                  else true end' >/dev/null
-                echo "verified: staging @ ${commit}"
-                exit 0
-              fi
-              echo "deployment serves ${commit:-unknown}, waiting for ${EXPECTED_COMMIT} ($i/48)…"
-            else
-              echo "no health response yet ($i/48)…"
-            fi
-            sleep 15
-          done
-          echo "::error::no staging deployment serving ${EXPECTED_COMMIT} after 12 minutes"
-          exit 1
+        run: node scripts/smoke-deployment.mjs
 
       - name: Run smoke tests
         env:
-          PLAYWRIGHT_BASE_URL: https://rooted-homeschool-env-rooted-staging-brittanywaltrips-projects.vercel.app
+          PLAYWRIGHT_BASE_URL: ${{ steps.deployment.outputs.base_url }}
           # Staging-only secrets. The production-named secrets are deliberately
           # NOT referenced, so re-adding them cannot silently re-point this job.
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
