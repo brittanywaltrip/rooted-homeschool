@@ -1,8 +1,8 @@
 #!/bin/bash
 # Rehearses the containment migrations in their proposed production order on a
 # THROWAWAY local cluster (loopback only; it creates and deletes $REHEARSAL_DIR/data):
-#   20260921194104 prerequisite, 20260921174245 audit, then 20260921172242 block,
-#   20260921174221 intent, 20260921183953 session scope; then every rollback.
+#   20260921200005 prerequisite, 20260921200028 audit, then 20260921210738 block,
+#   20260921210801 intent, 20260921210815 session scope; then every rollback.
 # Proves: the audit's schema dependency, the write-path failure of each piece,
 # that each fast-path DISABLE TRIGGER takes it out of the write path, that an
 # intent-CHECK failure needs the containment trigger disabled (intent tracking
@@ -27,12 +27,12 @@ try(){ # label, db, sql
 
 echo "== D0 dependency: audit alone on a clean database (no prerequisite)"
 q -c "create database dep" postgres; q -d dep -f $S/stub.sql >/dev/null
-psql -X -q -At -d dep -v ON_ERROR_STOP=1 -f $M/migrations/20260921174245_lesson_date_change_audit.sql >/dev/null 2>$R/dep.err; echo "  apply rc=$? $(grep -m1 ERROR $R/dep.err)"
+psql -X -q -At -d dep -v ON_ERROR_STOP=1 -f $M/migrations/20260921200028_lesson_date_change_audit.sql >/dev/null 2>$R/dep.err; echo "  apply rc=$? $(grep -m1 ERROR $R/dep.err)"
 
 echo "== D1 proposed order on a clean database: prerequisite, audit"
 q -c "create database reh" postgres; q -d reh -f $S/stub.sql >/dev/null
-q -d reh -f $M/migrations/20260921194104_rooted_private_schema_prerequisite.sql && echo "  prerequisite applied"
-q -d reh -f $M/migrations/20260921174245_lesson_date_change_audit.sql >/dev/null && echo "  audit applied"
+q -d reh -f $M/migrations/20260921200005_rooted_private_schema_prerequisite.sql && echo "  prerequisite applied"
+q -d reh -f $M/migrations/20260921200028_lesson_date_change_audit.sql >/dev/null && echo "  audit applied"
 try "A1 browser date write" reh "$AUTH update public.lessons set scheduled_date='2026-10-01', date='2026-10-01', scheduled_source='skip_respread' where id='$(L 4)'"
 try "A2 service_role date write" reh "set role service_role; update public.lessons set scheduled_date='2026-10-02', date='2026-10-02' where id='$(L 5)'"
 try "A3 notes-only write" reh "$AUTH update public.lessons set notes='x' where id='$(L 6)'"
@@ -51,7 +51,7 @@ try "A5 same write after DISABLE TRIGGER" reh "$AUTH update public.lessons set s
 q -d reh -c "alter table public.lessons enable trigger lessons_audit_date_change; grant usage on schema rooted_private to authenticated"
 
 echo "== D2 block, then intent, then session scope"
-for f in 20260921172242_lessons_block_stale_resync 20260921174221_lessons_resync_parent_intent_window 20260921183953_lessons_resync_intent_session_scope; do
+for f in 20260921210738_lessons_block_stale_resync 20260921210801_lessons_resync_parent_intent_window 20260921210815_lessons_resync_intent_session_scope; do
   q -d reh -f $M/migrations/$f.sql >/dev/null && echo "  applied $f"; done
 q -d reh -c "update public.lessons set scheduled_source='queue_resync', queue_pinned=false"
 try "B1 legacy payload, no intent" reh "$AUTH update public.lessons set scheduled_date='2026-11-01', date='2026-11-01', scheduled_source='queue_resync' where id='$(L 7)'"
@@ -74,7 +74,7 @@ try "C3 legacy payload after disabling INTENT TRACKING only" reh "$AUTH update p
 q -d reh -c "alter table public.lessons disable trigger lessons_block_stale_resync"
 try "C3 legacy payload after DISABLE TRIGGER lessons_block_stale_resync" reh "$AUTH update public.lessons set scheduled_date='2026-11-09', date='2026-11-09', scheduled_source='queue_resync' where id='$(L 4)'"
 q -d reh -c "alter table public.lessons enable trigger lessons_block_stale_resync; alter table public.lessons enable trigger lessons_note_schedule_intent; alter table public.curriculum_goals enable trigger curriculum_goals_note_schedule_intent"
-q -d reh -f $M/migrations/20260921183953_lessons_resync_intent_session_scope.sql >/dev/null && echo "  intent check restored by re-applying 183953"
+q -d reh -f $M/migrations/20260921210815_lessons_resync_intent_session_scope.sql >/dev/null && echo "  intent check restored by re-applying 183953"
 
 echo "-- C4 injected failure in INTENT SIGNALS (note_schedule_intent)"
 q -d reh -c "create or replace function rooted_private.note_schedule_intent(p_goal uuid, p_kind text) returns void language plpgsql security definer set search_path=pg_catalog,pg_temp as \$f\$ begin raise exception 'injected signal failure'; end \$f\$"
@@ -85,12 +85,12 @@ q -d reh -c "alter table public.lessons disable trigger lessons_note_schedule_in
 try "C4 bare unpin after disabling intent triggers" reh "$AUTH update public.lessons set queue_pinned=false where id='$(L 6)'"
 try "C4 start_at_lesson after disabling intent triggers" reh "$AUTH update public.curriculum_goals set start_at_lesson=2"
 q -d reh -c "alter table public.lessons enable trigger lessons_note_schedule_intent; alter table public.curriculum_goals enable trigger curriculum_goals_note_schedule_intent"
-q -d reh -f $M/migrations/20260921183953_lessons_resync_intent_session_scope.sql >/dev/null && echo "  signals restored by re-applying 183953"
+q -d reh -f $M/migrations/20260921210815_lessons_resync_intent_session_scope.sql >/dev/null && echo "  signals restored by re-applying 183953"
 
 echo "== D3 full rollbacks, reverse order"
-for f in 20260921183953_lessons_resync_intent_session_scope 20260921174245_lesson_date_change_audit 20260921174221_lessons_resync_parent_intent_window 20260921172242_lessons_block_stale_resync; do
+for f in 20260921210815_lessons_resync_intent_session_scope 20260921200028_lesson_date_change_audit 20260921210801_lessons_resync_parent_intent_window 20260921210738_lessons_block_stale_resync; do
   psql -X -q -At -d reh -v ON_ERROR_STOP=1 -f $M/rollbacks/${f}_ROLLBACK.sql >/dev/null 2>$R/rb.err && echo "  rolled back $f" || echo "  ROLLBACK FAILED $f: $(grep -m1 ERROR $R/rb.err)"; done
-psql -X -q -At -d reh -v ON_ERROR_STOP=1 -f $M/rollbacks/20260921194104_rooted_private_schema_prerequisite_ROLLBACK.sql >/dev/null 2>$R/rb.err && echo "  rolled back the prerequisite (schema empty)" || echo "  prerequisite rollback refused: $(grep -m1 ERROR $R/rb.err)"
+psql -X -q -At -d reh -v ON_ERROR_STOP=1 -f $M/rollbacks/20260921200005_rooted_private_schema_prerequisite_ROLLBACK.sql >/dev/null 2>$R/rb.err && echo "  rolled back the prerequisite (schema empty)" || echo "  prerequisite rollback refused: $(grep -m1 ERROR $R/rb.err)"
 echo "  our triggers left: $(q -d reh -c "select coalesce(string_agg(tgname,','),'none') from pg_trigger where not tgisinternal and tgname in ('lessons_block_stale_resync','lessons_note_schedule_intent','curriculum_goals_note_schedule_intent','lessons_audit_date_change')")"
 try "D3 legacy payload after full rollback" reh "$AUTH update public.lessons set scheduled_date='2026-12-01', date='2026-12-01', scheduled_source='queue_resync' where id='$(L 4)'"
 try "D3 unpin + start_at_lesson after full rollback" reh "$AUTH update public.lessons set queue_pinned=false where id='$(L 6)'; update public.curriculum_goals set start_at_lesson=3"

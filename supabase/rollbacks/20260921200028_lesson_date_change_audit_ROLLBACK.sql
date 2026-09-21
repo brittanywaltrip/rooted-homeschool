@@ -1,4 +1,4 @@
--- Rollback for 20260921174245_lesson_date_change_audit.
+-- Rollback for 20260921200028_lesson_date_change_audit.
 --
 -- Stops recording landed date changes. Blocking is unaffected. The table is
 -- KEPT: export it first, then drop it by hand once the export is confirmed:

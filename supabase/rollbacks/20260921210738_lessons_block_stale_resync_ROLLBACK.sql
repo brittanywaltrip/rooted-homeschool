@@ -1,4 +1,4 @@
--- Rollback for 20260921172242_lessons_block_stale_resync.
+-- Rollback for 20260921210738_lessons_block_stale_resync.
 --
 -- READ FIRST: removing this re-permits the unwanted writes IMMEDIATELY. Any
 -- browser tab still running a bundle built before fix/scheduler-containment,

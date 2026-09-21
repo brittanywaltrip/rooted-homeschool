@@ -1,3 +1,9 @@
+-- ALREADY APPLIED. DO NOT RE-RUN.
+--   production gvkbegvvmhcrmxdorctk: 20260921210738 lessons_block_stale_resync (2026-09-21)
+--   staging    cvgqovweybggrqakhdtd: 20260921172242 lessons_block_stale_resync (2026-09-21)
+-- The filename carries the PRODUCTION version. The staging ledger recorded
+-- 20260921172242; see docs/MIGRATION-LEDGER-CONTAINMENT.md.
+--
 -- lessons_block_stale_resync: containment for the retired automatic date writer.
 --
 -- WHAT IT BLOCKS
