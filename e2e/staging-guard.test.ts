@@ -94,18 +94,17 @@ test('the specs and global-setup target the SAME deployment', () => {
   assert.ok(/disagree/.test(c), 'a disagreement between the two must be a refusal')
 })
 
-test('the target is the custom environment, never the git-staging alias', () => {
+test('CI discovers this commit while the local default never uses git-staging', () => {
   // `-git-staging-` is a PREVIEW alias. Two things are wrong with it as a
   // target: it is built with the Preview environment's variables, and it only
   // moves when something is pushed to the `staging` branch. On 2026-09-20 it
   // had been frozen on a 2026-09-19 build for a day and a half while still
   // answering 200, so a green suite would have proved nothing about the commit
   // under test. The custom-environment host is rebuilt for this work.
+  assert.ok(workflow.includes('node scripts/smoke-deployment.mjs'))
+  assert.ok(workflow.includes('PLAYWRIGHT_BASE_URL: ${{ steps.deployment.outputs.base_url }}'))
+  assert.ok(!yamlCode(workflow).includes('https://rooted-homeschool-env-'), 'CI must not freeze on a shared alias')
   for (const [name, src] of [['playwright.config', config], ['workflow', workflow]] as const) {
-    assert.ok(
-      /rooted-homeschool-env-rooted-staging-brittanywaltrips-projects\.vercel\.app/.test(src),
-      `${name} must target the rooted-staging custom environment`,
-    )
     assert.ok(
       !/rooted-homeschool-git-staging-brittanywaltrips-projects\.vercel\.app/.test(
         name === 'workflow' ? yamlCode(src) : code(src),
@@ -140,7 +139,8 @@ test('the identity guard still runs before the browser launches', () => {
 })
 
 test('the workflow parses JSON and never references a production secret', () => {
-  assert.ok(/jq -e/.test(workflow), 'the gate must parse JSON, not grep it')
+  const discovery = readFileSync(new URL('../scripts/smoke-deployment.mjs', import.meta.url), 'utf8')
+  assert.ok(/response\.json\(\)/.test(discovery), 'the gate must parse JSON, not grep it')
   for (const prod of [
     'secrets.NEXT_PUBLIC_SUPABASE_URL',
     'secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY',
