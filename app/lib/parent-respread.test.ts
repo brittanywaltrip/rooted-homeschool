@@ -407,3 +407,17 @@ test('the edit-date undo no longer swallows its write result', () => {
   assert.ok(!/await supabase\.from\("lessons"\)\.update\(undoUpdate\)\.eq\("id", lessonId\);\s*\}\s*catch/.test(src))
   assert.ok(/\.update\(undoUpdate\)\s*\.eq\("id", lessonId\)\s*\.select\("id"\)/.test(src))
 })
+
+test('bulk mark-done undo un-completes one row at a time, highest queue slot first', () => {
+  // Parallel un-completions let a transaction that still saw a higher slot as
+  // completed raise current_lesson again, which fires the orphan cleanup and
+  // unschedules the rows the undo had just restored (staging, 2026-09-21).
+  const src = stripComments(read('app/components/PlanV2/index.tsx'))
+  const at = src.indexOf('const undoOrder')
+  assert.ok(at !== -1, 'the bulk undo orders its writes')
+  const block = src.slice(at, at + 1500)
+  assert.ok(/\.sort\(\s*\(a, b\) => \(snapById\.get\(b\)\?\.queue_position/.test(block), 'descending by queue_position')
+  assert.ok(/for \(const id of undoOrder\)\s*\{/.test(block), 'sequential loop')
+  assert.ok(!/Promise\.allSettled\(\s*succeededIds\.map/.test(src), 'no parallel un-completion')
+  assert.ok(/queue_pinned, queue_position"\)/.test(src), 'the snapshot reads the slot it sorts by')
+})

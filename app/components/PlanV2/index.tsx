@@ -3855,12 +3855,12 @@ export default function PlanV2() {
     // a few hundred ids from "Select all" can overrun the URL), and nothing is
     // written without it: an undo with no snapshot would leave lessons moved to
     // today, or pinned as history while no longer done.
-    type Snap = { id: string; completed_at: string | null; date: string; scheduled_date: string | null; scheduled_source: string | null; is_backfill: boolean | null; queue_pinned: boolean | null };
+    type Snap = { id: string; completed_at: string | null; date: string; scheduled_date: string | null; scheduled_source: string | null; is_backfill: boolean | null; queue_pinned: boolean | null; queue_position: number | null };
     const snapById = new Map<string, Snap>();
     for (let i = 0; i < toComplete.length; i += 100) {
       const { data: snapRows, error: snapErr } = await supabase
         .from("lessons")
-        .select("id, completed_at, date, scheduled_date, scheduled_source, is_backfill, queue_pinned")
+        .select("id, completed_at, date, scheduled_date, scheduled_source, is_backfill, queue_pinned, queue_position")
         .in("id", toComplete.slice(i, i + 100));
       if (snapErr) {
         flashNotice("Couldn't mark those done, nothing changed. Try again?");
@@ -3951,9 +3951,23 @@ export default function PlanV2() {
             }),
           );
           hapticTap(20);
-          const undoResults = await Promise.allSettled(
-            succeededIds.map(async (id) => {
-              const snap = snapById.get(id);
+          // One at a time, highest queue slot first. Each un-completion makes
+          // the lessons trigger recompute current_lesson = MAX(completed slot).
+          // Run in parallel, a transaction that still sees a higher slot as
+          // completed can raise the pointer again, and a raised pointer fires
+          // trg_curriculum_goals_cleanup_orphans, which unschedules
+          // (scheduled_date = NULL) every incomplete row at or below it: the
+          // rows this undo had just put back. Found on staging 2026-09-21: four
+          // of eight lessons lost their dates after a bulk undo. Highest slot
+          // first means the pointer only ever falls, and the cleanup only runs
+          // when it rises.
+          const undoOrder = [...succeededIds].sort(
+            (a, b) => (snapById.get(b)?.queue_position ?? -1) - (snapById.get(a)?.queue_position ?? -1),
+          );
+          let undoFailed = 0;
+          for (const id of undoOrder) {
+            const snap = snapById.get(id);
+            try {
               const { data, error } = await supabase
                 .from("lessons")
                 .update(
@@ -3971,10 +3985,11 @@ export default function PlanV2() {
                 )
                 .eq("id", id)
                 .select("id");
-              return !error && (data?.length ?? 0) === 1;
-            }),
-          );
-          const undoFailed = undoResults.filter((r) => r.status !== "fulfilled" || !r.value).length;
+              if (error || (data?.length ?? 0) !== 1) undoFailed++;
+            } catch {
+              undoFailed++;
+            }
+          }
           // Recompute after undo so current_lesson reflects the rolled-back
           // state. completed_at on the goal is intentionally never cleared
           // (historical record of first completion).
