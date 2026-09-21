@@ -14,7 +14,9 @@ import type { MissedEntry } from "@/app/lib/recoverySelection";
  *
  * Review opens the same prompt Today uses, so the question has one set of
  * answers: mark each lesson done on its day, or keep them in the plan. Moving
- * dates never answers it.
+ * dates never answers it. A family taking time off adds a break instead: the
+ * old "Push schedule back" wrote dates the daily reconciliation undid by the
+ * next morning, while a break holds on Today and Plan alike.
  * ========================================================================== */
 
 export interface MissedLessonsBannerGroup {
@@ -27,6 +29,8 @@ export interface MissedLessonsBannerGroup {
 export interface MissedLessonsBannerProps {
   groups: MissedLessonsBannerGroup[];
   onReview: () => void;
+  /** Opens the break sheet, starting today. */
+  onAddBreak?: () => void;
   busy?: boolean;
 }
 
@@ -39,7 +43,7 @@ function dayLabel(ymd: string): string {
 }
 
 export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
-  const { groups, onReview, busy } = props;
+  const { groups, onReview, onAddBreak, busy } = props;
   const n = groups.reduce((sum, g) => sum + g.entries.length, 0);
   if (n === 0) return null;
   const anyAlsoToday = groups.some((g) => g.entries.some((e) => e.also_today));
@@ -116,6 +120,21 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
       {anyAlsoToday ? (
         <p style={{ fontSize: 11, color: "#8a5a2a", margin: "8px 0 0" }}>
           A lesson that hasn&apos;t been marked yet is still next up, so it also shows today.
+        </p>
+      ) : null}
+
+      {onAddBreak ? (
+        <p style={{ fontSize: 11, color: "#8a5a2a", margin: "6px 0 0" }}>
+          Taking some time off?{" "}
+          <button
+            type="button"
+            onClick={onAddBreak}
+            className="underline underline-offset-2"
+            style={{ color: "#7a4a1a", fontWeight: 500, background: "transparent" }}
+          >
+            Add a break
+          </button>{" "}
+          and your lessons will wait until you&apos;re back.
         </p>
       ) : null}
     </div>

@@ -21,6 +21,8 @@ import { isDeepStrictEqual } from 'node:util'
 import {
   computeNextLessonsForGoal,
   recomputeCurrentLesson,
+  reprojectGoalForParent,
+  PARENT_RESPREAD_SOURCE,
   type CurriculumGoalConfig,
   type VacationBlock,
 } from './scheduler.ts'
@@ -404,4 +406,40 @@ test('the runner never overlaps itself within a tab', async () => {
   release()
   await Promise.all([a, b])
   assert.equal(calls, 1)
+})
+
+test('push schedule back does not survive the next reconciliation; a break does', async () => {
+  // "Push schedule back" re-projects the tail from a resume date N school days
+  // out, as unpinned dates, and records no break. Today never showed it (it
+  // projects from the pointer), and the next morning's reconciliation puts the
+  // lessons back where Today has them. A break is what both honour.
+  const pushed = world()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const r = await reprojectGoalForParent(pushed.client as any, pushed.tables.curriculum_goals[0] as unknown as CurriculumGoalConfig, [], {
+    from: at(3, 0), source: PARENT_RESPREAD_SOURCE.pushBack,
+  })
+  assert.equal(r.ok, true)
+  assert.equal(pushed.tables.lessons.find((x) => x.id === 'L3')!.scheduled_date, ymd(at(3)), 'pushed to Thursday')
+  const next = await run(pushed.client, at(TUE))
+  assert.equal(next.results[0].status, 'applied')
+  assert.equal(pushed.tables.lessons.find((x) => x.id === 'L3')!.scheduled_date, ymd(at(TUE)), 'back on Tuesday: the push is gone')
+
+  const vac = [{ start_date: ymd(at(TUE)), end_date: ymd(at(WED)) }]
+  const paused = world({ vac: [] })
+  paused.tables.vacation_blocks.push({ user_id: USER, ...vac[0] })
+  await run(paused.client, at(TUE))
+  assert.equal(paused.tables.lessons.find((x) => x.id === 'L3')!.scheduled_date, ymd(at(3)), 'a break keeps the pause')
+  assert.deepEqual(disagreements(paused.tables, at(TUE), vac), [])
+})
+
+test('app deployed before the migration: a missing function reads as switched off, not as a failure', async () => {
+  const w = world()
+  const client = { ...w.client, rpc: async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.apply_daily_reconcile' } }) }
+  const failures: unknown[] = []
+  const runner = createDailyReconcileRunner({ run: (now) => run(client, now), now: () => at(TUE), dayOf: ymd, onFailure: (x) => failures.push(x) })
+  const r = await runner.trigger()
+  assert.equal(r!.disabled, true)
+  assert.equal(r!.results[0].reason, 'function_missing')
+  assert.equal(failures.length, 0, 'no failure note')
+  assert.equal(w.tables.lessons.find((x) => x.id === 'L3')!.scheduled_date, ymd(at(MON)), 'nothing written')
 })

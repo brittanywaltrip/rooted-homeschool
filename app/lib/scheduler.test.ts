@@ -7370,44 +7370,21 @@ test('resync: an incomplete row ahead of the pointer is never left unqueued', ()
 })
 
 // ===========================================================================
-// The catch-up flows read the whole schedule, and the confirm button answers
-// the tap (September 2026).
+// Plan's catch-up banner was consolidated into the shared missed-work prompt
+// (September 2026). Its two actions acted on stored past dates: "Re-spread
+// from today" is what the daily reconciliation now does, and "Push schedule
+// back" wrote unpinned dates with no break, which Today never showed and the
+// next reconciliation undoes (daily-reconcile.test.ts). A pause is a break.
 // ===========================================================================
 
-test('catch-up: loadCatchUpLessons reads lessons only through the paged loader', () => {
-  // The old single unranged read stopped at PostgREST's 1,000-row cap without
-  // saying so. 45 families are past it; one holds 1,950 uncompleted scheduled
-  // rows, and for her the affected-goal set missed every late-year curriculum.
+test('catch-up: Plan has one missed-work surface, and a pause goes through Breaks', () => {
   const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
-  // The signature spans a Promise<{ missed; future } | null> type literal, so
-  // the brace scan has to start after the arrow, not at the type's own brace.
-  const body = extractFunctionBody(src, /const loadCatchUpLessons = useCallback\(async \(\): Promise<[\s\S]*?> => \{/)
-  assert.ok(!body.includes('from("lessons")'), 'no direct lessons read inside loadCatchUpLessons')
-  assert.ok(body.includes('loadCatchUpRows('), 'it goes through loadCatchUpRows')
-})
-
-test('catch-up: every lessons read in the loader is ranged, and a failure is a null', () => {
-  const src = stripComments(loadRepoFile('app/components/PlanV2/loadCatchUpLessons.ts'))
-  // Both halves build on one base query that is only ever awaited through
-  // selectAllRowsResult's (from, to) callback, so every read carries .range().
-  const reads = (src.match(/from\("lessons"\)/g) ?? []).length
-  const ranged = (src.match(/\.range\(from, to\)/g) ?? []).length
-  const paged = (src.match(/selectAllRowsResult</g) ?? []).length
-  assert.equal(reads, 1, 'one base lessons query')
-  assert.equal(ranged, 2, 'both halves end in .range(from, to)')
-  assert.equal(paged, 2, 'both halves go through selectAllRowsResult')
-  // Page order has to be stable and scheduled_date is not unique, so each
-  // half breaks ties on id. Without it a row can sit on both pages or on
-  // neither, and "neither" is the missing goal.
-  const tieBreaks = (src.match(/\.order\("id", \{ ascending: true \}\)/g) ?? []).length
-  assert.equal(tieBreaks, 2, 'both halves order by id after scheduled_date')
-  assert.ok(/if \(missedRes\.error \|\| !missedRes\.data\) return null/.test(src), 'a missed-half failure is a null')
-  assert.ok(/if \(futureRes\.error \|\| !futureRes\.data\) return null/.test(src), 'a future-half failure is a null')
-  // The upcoming half is not bounded to a window: a goal whose next open row
-  // is in May must still count as affected.
-  const future = src.slice(src.indexOf('FUTURE_COLUMNS)'), src.indexOf('FUTURE_COLUMNS)') + 300)
-  assert.ok(/\.gte\("scheduled_date", todayStr\)/.test(future), 'future starts at today')
-  assert.ok(!/\.lte\("scheduled_date"/.test(future) && !/\.lt\("scheduled_date"/.test(future), 'and has no upper bound')
+  for (const gone of ['CatchUpBanner', 'ShiftForwardModal', 'PushBackModal', 'loadCatchUpLessons', 'handlePushBackConfirm']) {
+    assert.ok(!src.includes(gone), `${gone} is gone`)
+  }
+  assert.match(src, /<MissedLessonsBanner/)
+  assert.match(src, /<MissedLessonRecoveryModal/)
+  assert.match(src, /onAddBreak=\{\(\) => openVacationModalCreate\(todayStr\)\}/)
 })
 
 test('catch-up: "Yes, mark them done" answers the tap', () => {

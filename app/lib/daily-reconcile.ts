@@ -131,6 +131,13 @@ export async function reconcileForDay(
         },
         p_writes: plan.moves,
       });
+      // The function not existing yet (app deployed before the migration)
+      // means the job is not available, exactly like the switch being off:
+      // nothing is written and the family is not told something failed.
+      if (error && (error as { code?: string }).code === "PGRST202") {
+        outcome = { goalId: goal.id, status: "disabled", written: 0, reason: "function_missing" };
+        break;
+      }
       if (error || !data) { outcome = { goalId: goal.id, status: "error", written: 0, reason: error?.message }; break; }
       const res = data as { status: ReconcileStatus; written?: number; reason?: string };
       outcome = { goalId: goal.id, status: res.status, written: res.written ?? 0, reason: res.reason };

@@ -629,7 +629,13 @@ curriculum's settings and reads no lesson dates.
   usually also on today's list. Each entry carries `also_today`, and both
   screens say so.
 
-**Test case:** `app/lib/missed-work.test.ts`.
+- Plan's old catch-up banner is gone. "Re-spread from today" is what the
+  daily reconciliation does, and "Push schedule back" wrote unpinned dates with
+  no break: Today never showed it and the next reconciliation undid it. A
+  family pausing adds a break, which both honour; the missed banner links to it.
+
+**Test case:** `app/lib/missed-work.test.ts`; push-back vs break in
+`app/lib/daily-reconcile.test.ts`.
 
 ---
 
