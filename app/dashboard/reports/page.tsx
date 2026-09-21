@@ -51,6 +51,7 @@ type ReportAppointment = {
   child_ids: string[];
   is_school_activity: boolean;
 };
+type ReportRecordPatch = { date: string; minutes: number | null; notes: string | null };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -199,7 +200,8 @@ function formatLogDate(d: string | null): string {
 
 function PrintReport({
   child, allChildren: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
-  activityLogs, activityDefs, photos, canEdit, onSaveLessonNote, onSaveActivityNote,
+  activityLogs, activityDefs, photos, canEdit,
+  onUpdateLesson, onDeleteLesson, onUpdateActivity, onDeleteActivity,
 }: {
   child: Child | null;
   allChildren: Child[];
@@ -215,14 +217,19 @@ function PrintReport({
   activityDefs: ActivityDefinition[];
   photos: ReportPhoto[];
   canEdit: boolean;
-  onSaveLessonNote: (lessonId: string, notes: string | null) => Promise<boolean>;
-  onSaveActivityNote: (logId: string, notes: string | null) => Promise<boolean>;
+  onUpdateLesson: (lessonId: string, patch: ReportRecordPatch) => Promise<boolean>;
+  onDeleteLesson: (lessonId: string) => Promise<boolean>;
+  onUpdateActivity: (logId: string, patch: ReportRecordPatch) => Promise<boolean>;
+  onDeleteActivity: (logId: string) => Promise<boolean>;
 }) {
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [detailText, setDetailText] = useState("");
+  const [recordDate, setRecordDate] = useState("");
+  const [recordMinutes, setRecordMinutes] = useState("");
   const [detailSaving, setDetailSaving] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const filteredLessons = lessons.filter((l) => {
     const d = l.date ?? l.scheduled_date;
     if (!d) return false;
@@ -265,20 +272,49 @@ function PrintReport({
 
   const filteredPhotos = selectReportPhotos(photos, child?.id ?? null, dateFrom, dateTo);
 
+  function patchFromEditor(): ReportRecordPatch | null {
+    const minutes = recordMinutes.trim() === "" ? null : Number(recordMinutes);
+    if (!recordDate || (minutes !== null && (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440))) {
+      setDetailError("Choose a date and enter minutes from 0 to 1440.");
+      return null;
+    }
+    return { date: recordDate, minutes, notes: detailText.trim() || null };
+  }
+
   async function saveLessonDetail(lessonId: string) {
+    const patch = patchFromEditor();
+    if (!patch) return;
     setDetailSaving(true);
-    const ok = await onSaveLessonNote(lessonId, detailText.trim() || null);
+    const ok = await onUpdateLesson(lessonId, patch);
     setDetailSaving(false);
-    if (ok) { setEditingLessonId(null); setDetailText(""); setDetailError(null); }
+    if (ok) { setEditingLessonId(null); setDetailText(""); setDeleteConfirm(null); setDetailError(null); }
     else setDetailError("That didn't save. Please try again.");
   }
 
   async function saveActivityDetail(logId: string) {
+    const patch = patchFromEditor();
+    if (!patch) return;
     setDetailSaving(true);
-    const ok = await onSaveActivityNote(logId, detailText.trim() || null);
+    const ok = await onUpdateActivity(logId, patch);
     setDetailSaving(false);
-    if (ok) { setEditingActivityId(null); setDetailText(""); setDetailError(null); }
+    if (ok) { setEditingActivityId(null); setDetailText(""); setDeleteConfirm(null); setDetailError(null); }
     else setDetailError("That didn't save. Please try again.");
+  }
+
+  async function deleteLesson(lessonId: string) {
+    setDetailSaving(true);
+    const ok = await onDeleteLesson(lessonId);
+    setDetailSaving(false);
+    if (ok) { setEditingLessonId(null); setDeleteConfirm(null); setDetailError(null); }
+    else setDetailError("That didn't delete. Please try again.");
+  }
+
+  async function deleteActivity(logId: string) {
+    setDetailSaving(true);
+    const ok = await onDeleteActivity(logId);
+    setDetailSaving(false);
+    if (ok) { setEditingActivityId(null); setDeleteConfirm(null); setDetailError(null); }
+    else setDetailError("That didn't delete. Please try again.");
   }
 
   const totalHours = lessonHours + memoryHours + activitySummary.hours;
@@ -424,6 +460,16 @@ function PrintReport({
                       {lesson.notes && <span className="block mt-0.5 text-[#6b6560] whitespace-pre-wrap">{lesson.notes}</span>}
                       {canEdit && editingLessonId === lesson.id ? (
                         <div className="no-print mt-2 space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="text-[11px] text-[#7a6f65]">Date
+                              <input type="date" value={recordDate} onChange={(e) => setRecordDate(e.target.value)}
+                                className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                            </label>
+                            <label className="text-[11px] text-[#7a6f65]">Minutes
+                              <input type="number" min="0" max="1440" value={recordMinutes} onChange={(e) => setRecordMinutes(e.target.value)}
+                                className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                            </label>
+                          </div>
                           <textarea value={detailText} onChange={(e) => setDetailText(e.target.value)}
                             placeholder="What was covered? Add the details you want in the report."
                             className="w-full min-h-20 rounded-xl border border-[#d8d0c6] bg-white p-2.5 text-sm text-[#2d2926]" />
@@ -435,12 +481,20 @@ function PrintReport({
                             </button>
                             <button type="button" onClick={() => { setEditingLessonId(null); setDetailText(""); }}
                               className="px-2 py-1.5 text-xs font-medium text-[#7a6f65]">Cancel</button>
+                            {deleteConfirm === lesson.id ? (
+                              <button type="button" disabled={detailSaving} onClick={() => deleteLesson(lesson.id)}
+                                className="ml-auto rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Confirm delete</button>
+                            ) : (
+                              <button type="button" onClick={() => setDeleteConfirm(lesson.id)}
+                                className="ml-auto px-2 py-1.5 text-xs font-medium text-red-600">Delete record</button>
+                            )}
                           </div>
+                          {deleteConfirm === lesson.id && <p className="text-[11px] text-red-700">This removes the completed record and its attached photos. Later curriculum lesson numbers will close the gap.</p>}
                         </div>
                       ) : canEdit ? (
                         <button type="button" className="no-print block mt-1 text-xs font-medium text-[#5c7f63]"
-                          onClick={() => { setEditingActivityId(null); setEditingLessonId(lesson.id); setDetailText(lesson.notes ?? ""); setDetailError(null); }}>
-                          {lesson.notes ? "Edit details" : "+ Add details"}
+                          onClick={() => { setEditingActivityId(null); setEditingLessonId(lesson.id); setRecordDate(date ?? ""); setRecordMinutes(String(lesson.minutes_spent ?? 30)); setDetailText(lesson.notes ?? ""); setDeleteConfirm(null); setDetailError(null); }}>
+                          Edit record
                         </button>
                       ) : null}
                     </td>
@@ -572,6 +626,16 @@ function PrintReport({
                       {s.notes && <span className="block mt-0.5 text-[#6b6560] whitespace-pre-wrap">{s.notes}</span>}
                       {canEdit && s.logId && (editingActivityId === s.logId ? (
                         <div className="no-print mt-2 space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="text-[11px] text-[#7a6f65]">Date
+                              <input type="date" value={recordDate} onChange={(e) => setRecordDate(e.target.value)}
+                                className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                            </label>
+                            <label className="text-[11px] text-[#7a6f65]">Minutes
+                              <input type="number" min="0" max="1440" value={recordMinutes} onChange={(e) => setRecordMinutes(e.target.value)}
+                                className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                            </label>
+                          </div>
                           <textarea value={detailText} onChange={(e) => setDetailText(e.target.value)}
                             placeholder="What did you work on during this activity?"
                             className="w-full min-h-20 rounded-xl border border-[#d8d0c6] bg-white p-2.5 text-sm text-[#2d2926]" />
@@ -583,12 +647,19 @@ function PrintReport({
                             </button>
                             <button type="button" onClick={() => { setEditingActivityId(null); setDetailText(""); }}
                               className="px-2 py-1.5 text-xs font-medium text-[#7a6f65]">Cancel</button>
+                            {deleteConfirm === s.logId ? (
+                              <button type="button" disabled={detailSaving} onClick={() => deleteActivity(s.logId!)}
+                                className="ml-auto rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">Confirm delete</button>
+                            ) : (
+                              <button type="button" onClick={() => setDeleteConfirm(s.logId!)}
+                                className="ml-auto px-2 py-1.5 text-xs font-medium text-red-600">Delete record</button>
+                            )}
                           </div>
                         </div>
                       ) : (
                         <button type="button" className="no-print block mt-1 text-xs font-medium text-[#5c7f63]"
-                          onClick={() => { setEditingLessonId(null); setEditingActivityId(s.logId); setDetailText(s.notes ?? ""); setDetailError(null); }}>
-                          {s.notes ? "Edit details" : "+ Add details"}
+                          onClick={() => { setEditingLessonId(null); setEditingActivityId(s.logId); setRecordDate(s.date); setRecordMinutes(String(s.minutes)); setDetailText(s.notes ?? ""); setDeleteConfirm(null); setDetailError(null); }}>
+                          Edit record
                         </button>
                       ))}
                     </td>
@@ -1192,27 +1263,64 @@ export default function ReportsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  async function saveLessonNote(lessonId: string, notes: string | null): Promise<boolean> {
+  async function updateLessonRecord(lessonId: string, patch: ReportRecordPatch): Promise<boolean> {
     if (!effectiveUserId || isPartner) return false;
-    const { error } = await supabase.from("lessons").update({ notes })
-      .eq("id", lessonId).eq("user_id", effectiveUserId);
-    if (error) {
-      console.error("[hours-report] lesson details save failed", error);
+    const { data, error } = await supabase.rpc("update_report_lesson_record", {
+      p_lesson_id: lessonId,
+      p_date: patch.date,
+      p_minutes_spent: patch.minutes,
+      p_notes: patch.notes,
+    });
+    if (error || data !== true) {
+      console.error("[hours-report] lesson record save failed", error);
       return false;
     }
-    setLessons((rows) => rows.map((row) => row.id === lessonId ? { ...row, notes } : row));
+    setLessons((rows) => rows.map((row) => row.id === lessonId ? {
+      ...row, date: patch.date, scheduled_date: patch.date,
+      minutes_spent: patch.minutes, notes: patch.notes,
+    } : row));
     return true;
   }
 
-  async function saveActivityNote(logId: string, notes: string | null): Promise<boolean> {
+  async function deleteLessonRecord(lessonId: string): Promise<boolean> {
     if (!effectiveUserId || isPartner) return false;
-    const { error } = await supabase.from("activity_logs").update({ notes })
-      .eq("id", logId).eq("user_id", effectiveUserId);
-    if (error) {
-      console.error("[hours-report] activity details save failed", error);
+    const { data, error } = await supabase.rpc("delete_report_lesson_record", { p_lesson_id: lessonId });
+    if (error || data !== true) {
+      console.error("[hours-report] lesson record delete failed", error);
       return false;
     }
-    setActivityLogs((rows) => rows.map((row) => row.id === logId ? { ...row, notes } : row));
+    // Deleting a curriculum completion compacts every later visible Lesson N.
+    // Reload rather than guessing those server-owned sequence changes locally.
+    await load();
+    return true;
+  }
+
+  async function updateActivityRecord(logId: string, patch: ReportRecordPatch): Promise<boolean> {
+    if (!effectiveUserId || isPartner) return false;
+    const { data, error } = await supabase.rpc("update_report_activity_record", {
+      p_log_id: logId,
+      p_date: patch.date,
+      p_minutes_spent: patch.minutes,
+      p_notes: patch.notes,
+    });
+    if (error || data !== true) {
+      console.error("[hours-report] activity record save failed", error);
+      return false;
+    }
+    setActivityLogs((rows) => rows.map((row) => row.id === logId ? {
+      ...row, date: patch.date, minutes_spent: patch.minutes, notes: patch.notes,
+    } : row));
+    return true;
+  }
+
+  async function deleteActivityRecord(logId: string): Promise<boolean> {
+    if (!effectiveUserId || isPartner) return false;
+    const { data, error } = await supabase.rpc("delete_report_activity_record", { p_log_id: logId });
+    if (error || data !== true) {
+      console.error("[hours-report] activity record delete failed", error);
+      return false;
+    }
+    setActivityLogs((rows) => rows.filter((row) => row.id !== logId));
     return true;
   }
 
@@ -1529,8 +1637,10 @@ export default function ReportsPage() {
           photos={photos}
           appointments={appointments}
           canEdit={!isPartner}
-          onSaveLessonNote={saveLessonNote}
-          onSaveActivityNote={saveActivityNote}
+          onUpdateLesson={updateLessonRecord}
+          onDeleteLesson={deleteLessonRecord}
+          onUpdateActivity={updateActivityRecord}
+          onDeleteActivity={deleteActivityRecord}
         />
       )}
 

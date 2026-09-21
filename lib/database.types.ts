@@ -2598,6 +2598,14 @@ export type Database = {
         }[]
       }
       get_user_id_by_email: { Args: { lookup_email: string }; Returns: string }
+      delete_report_activity_record: {
+        Args: { p_log_id: string }
+        Returns: boolean
+      }
+      delete_report_lesson_record: {
+        Args: { p_lesson_id: string }
+        Returns: boolean
+      }
       increment_photo_count: { Args: { p_user_id: string }; Returns: undefined }
       move_lesson_to_date: {
         Args: { p_lesson_id: string; p_target_date: string }
@@ -2617,6 +2625,24 @@ export type Database = {
         Returns: Json
       }
       seed_default_list: { Args: { p_user_id: string }; Returns: undefined }
+      update_report_activity_record: {
+        Args: {
+          p_date: string
+          p_log_id: string
+          p_minutes_spent: number | null
+          p_notes: string | null
+        }
+        Returns: boolean
+      }
+      update_report_lesson_record: {
+        Args: {
+          p_date: string
+          p_lesson_id: string
+          p_minutes_spent: number | null
+          p_notes: string | null
+        }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never
