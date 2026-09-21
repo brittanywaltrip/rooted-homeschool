@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import Stripe from "stripe";
-import { Resend } from "resend";
+import { resendClient, stripeClient } from "@/lib/api-clients";
 import { emailFooterHtml } from "@/lib/email-footer";
 import { captureSupabaseError } from "@/lib/sentry-error";
 import {
@@ -9,11 +8,6 @@ import {
   summarize,
   unremovedCount,
 } from "@/lib/storage-cleanup";
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2026-02-25.clover",
-});
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function DELETE(req: NextRequest) {
   const token = req.headers.get("authorization")?.replace("Bearer ", "");
@@ -216,12 +210,12 @@ export async function DELETE(req: NextRequest) {
     // ── 9. Cancel Stripe subscription ───────────────────────────
     if (profile?.stripe_customer_id) {
       try {
-        const subscriptions = await stripe.subscriptions.list({
+        const subscriptions = await stripeClient().subscriptions.list({
           customer: profile.stripe_customer_id,
           status: "active",
         });
         for (const sub of subscriptions.data) {
-          await stripe.subscriptions.cancel(sub.id);
+          await stripeClient().subscriptions.cancel(sub.id);
         }
       } catch {
         // Non-critical — subscription may already be cancelled
@@ -257,7 +251,7 @@ export async function DELETE(req: NextRequest) {
     // Skipped on a repeat run: the first one already sent this.
     if (userEmail && !alreadyLogged) {
       try {
-        await resend.emails.send({
+        await resendClient().emails.send({
           from: "Brittany from Rooted <hello@rootedhomeschoolapp.com>",
           to: userEmail,
           subject: "Your Rooted account has been deleted",

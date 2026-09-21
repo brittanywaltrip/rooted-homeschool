@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
+import { stripeClient } from "@/lib/api-clients";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2026-02-25.clover",
-});
 
 // POST: Create a gift checkout session ($59 one-time)
 export async function POST(req: NextRequest) {
@@ -37,7 +34,7 @@ export async function POST(req: NextRequest) {
     const familyName = profile?.display_name ?? profile?.first_name ?? "A Rooted family";
     const gifterName = viewer_name || invite.viewer_name || "A family member";
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripeClient().checkout.sessions.create({
       mode: "payment",
       line_items: [
         {

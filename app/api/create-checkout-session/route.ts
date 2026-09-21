@@ -1,9 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-02-25.clover',
-})
+import { stripeClient } from '@/lib/api-clients'
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,7 +8,7 @@ export async function POST(req: NextRequest) {
     // Idempotency key: same user + plan + day = same session
     const idempotencyKey = `checkout-${userId}-${priceId}-${new Date().toDateString()}`
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await stripeClient().checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'subscription',
       line_items: [{ price: priceId, quantity: 1 }],
