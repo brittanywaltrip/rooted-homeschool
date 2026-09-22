@@ -16,6 +16,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
+import { buildRemovalContext, removedCurriculumName, type RemovalContext } from "@/lib/progress-report-rows";
 import { useDailyReconcile } from "@/app/hooks/useDailyReconcile";
 import { useLocalDay } from "@/app/hooks/useLocalDay";
 import { loadMissedWork, type MissedWorkGoalRow } from "@/app/lib/missed-work";
@@ -171,6 +172,7 @@ function formatShortDate(iso: string | null): string {
 function toTodayLessons(
   ls: PlanV2Lesson[],
   goals: readonly { id: string; curriculum_name: string | null; subject_label: string | null }[] = [],
+  removal: RemovalContext | null = null,
 ): TodayLessonCardLesson[] {
   const goalById = new Map(goals.map((g) => [g.id, g]));
   return ls.map((l) => ({
@@ -189,6 +191,7 @@ function toTodayLessons(
     // (lessonTitle.ts), so it needs the goal's two names.
     subject_label: l.curriculum_goals?.subject_label ?? (l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.subject_label ?? null : null),
     curriculum_name: l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.curriculum_name ?? null : null,
+    removed_curriculum_name: removedCurriculumName(l, removal),
   }));
 }
 
@@ -558,6 +561,29 @@ export default function PlanV2() {
   };
   const [curriculumGoals, setCurriculumGoals] = useState<GoalFull[]>([]);
   const [goalsReloadNonce, setGoalsReloadNonce] = useState(0);
+
+  // What the family's own records establish about curricula they removed:
+  // their curriculum_goal.deleted events and every curriculum they still have,
+  // archived included (curriculumGoals above is active-only). Only a lesson
+  // whose removal this establishes is labelled "(removed curriculum)";
+  // reloaded when the active list changes so a just-deleted curriculum counts.
+  const [removal, setRemoval] = useState<RemovalContext | null>(null);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const [{ data: events }, { data: names }] = await Promise.all([
+        supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "curriculum_goal.deleted"),
+        supabase.from("curriculum_goals").select("curriculum_name").eq("user_id", effectiveUserId),
+      ]);
+      if (cancelled) return;
+      setRemoval(buildRemovalContext(
+        ((events ?? []) as { payload: { curriculum_name?: string | null } | null }[]).map((e) => e.payload?.curriculum_name ?? null),
+        ((names ?? []) as { curriculum_name: string | null }[]).map((g) => g.curriculum_name),
+      ));
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, curriculumGoals]);
 
   const reloadGoals = useCallback(() => setGoalsReloadNonce((n) => n + 1), []);
 
@@ -5517,6 +5543,7 @@ export default function PlanV2() {
                     activities={filteredActivities}
                     vacationBlocks={vacationBlocks}
                     curriculumGoals={curriculumGoals}
+                    removal={removal}
                     loading={loading}
                     onMoveLesson={moveLessonToDate}
                     isPartner={isPartner}
@@ -5619,6 +5646,7 @@ export default function PlanV2() {
                       activities={filteredActivities}
                       vacationBlocks={vacationBlocks}
                       curriculumGoals={curriculumGoals}
+                      removal={removal}
                       loading={loading}
                         onMoveLesson={moveLessonToDate}
                       isPartner={isPartner}
@@ -5850,6 +5878,7 @@ export default function PlanV2() {
           const panelLessons = toTodayLessons(
             filteredLessons.filter((l) => (l.scheduled_date ?? l.date) === openDayStr),
             curriculumGoals,
+            removal,
           );
           // Appointments DO carry child scoping (child_ids), and
           // filteredAppointments already applies the rule the rest of the page

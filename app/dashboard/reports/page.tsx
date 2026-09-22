@@ -12,7 +12,7 @@ import { schoolNameFor } from "@/lib/school-name";
 import { mergeBookRecords, bookBelongsToChild, bookCover, bookHowLabel, ratingLeaves, isFinishedBook, isReadingBook, BOOK_HOW_LABELS, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
-import { attendancePresentDates, lessonReportSubject } from "@/lib/progress-report-rows";
+import { attendancePresentDates, buildRemovalContext, lessonReportSubject, type RemovalContext } from "@/lib/progress-report-rows";
 import {
   selectActivitySessions, summarizeActivitySessions, groupActivitySessions,
   activityChildLabel, formatSessionDuration,
@@ -32,6 +32,8 @@ type Lesson   = {
   id: string; child_id: string;
   curriculum_goal_id: string | null;
   curriculum_goals: { subject_label: string | null } | null;
+  /** The family's own subject. Kept on a lesson whose curriculum was deleted. */
+  subjects: { name: string | null } | null;
   title: string; date: string | null; scheduled_date: string | null;
   completed: boolean;
   minutes_spent: number | null;
@@ -70,7 +72,7 @@ function fallbackYearStart() {
 
 /** Every column this page reads off a lesson row. Shared by both reads. */
 const LESSON_COLUMNS =
-  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, minutes_spent, notes";
+  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), subjects(name), title, date, scheduled_date, completed, minutes_spent, notes";
 
 /**
  * The window the UNCOMPLETED half of the lesson read covers.
@@ -203,7 +205,7 @@ function formatLogDate(d: string | null): string {
 
 function PrintReport({
   child, allChildren: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
-  activityLogs, activityDefs, photos, includePhotos, breaks, absences, canEdit,
+  activityLogs, activityDefs, photos, includePhotos, breaks, absences, removal, canEdit,
   onUpdateLesson, onDeleteLesson, onUpdateActivity, onDeleteActivity, onAddAbsence, onDeleteAbsence,
 }: {
   child: Child | null;
@@ -225,6 +227,8 @@ function PrintReport({
   breaks: ReportBreak[];
   /** One child's days off (child_absences), added from this report. */
   absences: ReportAbsence[];
+  /** What the family's own records establish about removed curricula. */
+  removal: RemovalContext | null;
   canEdit: boolean;
   onUpdateLesson: (lessonId: string, patch: ReportRecordPatch) => Promise<boolean>;
   onDeleteLesson: (lessonId: string) => Promise<boolean>;
@@ -343,7 +347,7 @@ function PrintReport({
     // Same resolution the Progress Report uses, so the two documents cannot
     // disagree about what a lesson's subject is. "Unassigned" is this page's
     // wording for the same last resort.
-    const name = lessonReportSubject(l, "Unassigned");
+    const name = lessonReportSubject(l, "Unassigned", removal);
     // Standalone logs used to collapse into ONE "uncat" bucket, so a family
     // whose extra logs span Music, Math and Writing saw a single "Unassigned"
     // line. With a real subject per row they group by that instead, which is
@@ -490,7 +494,7 @@ function PrintReport({
                 return (
                   <tr key={lesson.id} className="border-t border-[#f2ede6]">
                     <td className="py-2 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(date)}</td>
-                    <td className="py-2 pr-3 align-top text-[#7a6f65]">{lessonReportSubject(lesson, "Unassigned")}</td>
+                    <td className="py-2 pr-3 align-top text-[#7a6f65]">{lessonReportSubject(lesson, "Unassigned", removal)}</td>
                     <td className="py-2 pr-3 align-top text-[#2d2926]">
                       <span className="font-medium">{lesson.title}</span>
                       {lesson.notes && <span className="block mt-0.5 text-[#6b6560] whitespace-pre-wrap">{lesson.notes}</span>}
@@ -1092,6 +1096,7 @@ export default function ReportsPage() {
   const [includePhotos, setIncludePhotos] = useState(true);
   const [breaks, setBreaks] = useState<ReportBreak[]>([]);
   const [absences, setAbsences] = useState<ReportAbsence[]>([]);
+  const [removal, setRemoval] = useState<RemovalContext | null>(null);
 
   // ── Book sheet ─────────────────────────────────────────────────────────────
   // One bottom sheet serves both variants. An in-progress book leads with
@@ -1256,6 +1261,8 @@ export default function ReportsPage() {
         { data: exceptionAppts },
         { data: breakRows },
         { data: absenceRows },
+        { data: deletedGoalEvents },
+        { data: currentGoalNames },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
         // PostgREST caps a response at 1,000 rows and says nothing about the
@@ -1329,6 +1336,11 @@ export default function ReportsPage() {
         supabase.from("vacation_blocks").select("id, name, start_date, end_date").eq("user_id", effectiveUserId),
         // One child's days off, printed only on that child's report.
         supabase.from("child_absences").select("id, child_id, reason, start_date, end_date").eq("user_id", effectiveUserId),
+        // What establishes a removed curriculum (lib/progress-report-rows.ts):
+        // the family's own deletion records, and every curriculum they still
+        // have, archived included.
+        supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "curriculum_goal.deleted"),
+        supabase.from("curriculum_goals").select("curriculum_name").eq("user_id", effectiveUserId),
       ]);
 
       setChildren(capitalizeChildNames(kids ?? []));
@@ -1340,6 +1352,10 @@ export default function ReportsPage() {
       setActivityDefs(actDefRows ?? []);
       setBreaks((breakRows as ReportBreak[] | null) ?? []);
       setAbsences((absenceRows as ReportAbsence[] | null) ?? []);
+      setRemoval(buildRemovalContext(
+        ((deletedGoalEvents ?? []) as { payload: { curriculum_name?: string | null } | null }[]).map((e) => e.payload?.curriculum_name ?? null),
+        ((currentGoalNames ?? []) as { curriculum_name: string | null }[]).map((g) => g.curriculum_name),
+      ));
 
       type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null; is_school_activity: boolean };
       type ExceptionRow = {
@@ -1821,6 +1837,7 @@ export default function ReportsPage() {
           includePhotos={includePhotos}
           breaks={breaks}
           absences={absences}
+          removal={removal}
           appointments={appointments}
           canEdit={!isPartner}
           onUpdateLesson={updateLessonRecord}

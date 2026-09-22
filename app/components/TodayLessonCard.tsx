@@ -38,6 +38,8 @@ export type TodayLessonCardLesson = {
   /** The goal's subject label and curriculum name, for the title helper. */
   subject_label?: string | null;
   curriculum_name?: string | null;
+  /** Only when the removal of its curriculum is established. See lessonRowTitle. */
+  removed_curriculum_name?: string | null;
 };
 
 export type TodayLessonCardChild = {
@@ -150,6 +152,8 @@ export default function TodayLessonCard({
     title: lesson.title,
     subject: subjectForTitle,
     curriculumName: lesson.curriculum_name ?? null,
+    removedCurriculum: lesson.removed_curriculum_name ?? null,
+    completed: lesson.completed,
   };
   const lessonLabel = (lesson.title?.trim() || lesson.lesson_number != null)
     ? lessonRowTitle(titleArgs)
