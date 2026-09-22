@@ -1,0 +1,200 @@
+// Invariant 23 un-tick: one transaction, then the re-date, in that order.
+//
+//   node --test app/lib/reopen-lesson.test.ts
+//
+// PR #84 re-dates the rest of a curriculum after every completion change
+// (resyncGoalsForParent -> planGoalResync). That re-date reads the goal's
+// unfinished rows and treats every pinned one as a hold, so it projects around
+// a make-up ONLY if the make-up pin already exists when it runs. These tests
+// pin down both halves: untickLessonThen runs the follow-up only after
+// reopen_lesson succeeded, and a re-date run in that order keeps the next
+// lesson off the make-up's day while one run first does not.
+
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+
+import { computeNextLessonsForGoal, pinsFromRows, resyncGoalsForParent, PARENT_RESPREAD_SOURCE, toDateStr, type QueueHold } from './scheduler.ts'
+import { makeMemorySupabase } from './test-helpers/memory-supabase.ts'
+import { planReopenMakeUp, untickLesson, untickLessonThen } from './reopen-lesson.ts'
+
+type Call = { op: string; name?: string }
+
+function fakeClient(answer: { data?: unknown; error?: { code?: string; message?: string } | null }, log: Call[]) {
+  return {
+    rpc: (name: string) => {
+      log.push({ op: 'rpc', name })
+      return Promise.resolve({ data: answer.data ?? null, error: answer.error ?? null })
+    },
+    from: () => {
+      log.push({ op: 'from' })
+      throw new Error('the un-tick must not write lessons outside reopen_lesson')
+    },
+  } as never
+}
+
+const ARGS = { lessonId: 'lesson-10', localDay: '2026-09-21' }
+
+test('a successful un-tick runs the follow-up once, after the transaction', async () => {
+  const log: Call[] = []
+  const res = await untickLessonThen(fakeClient({ data: { status: 'made_up', date: '2026-09-21' } }, log), ARGS, async (r) => {
+    log.push({ op: `after:${r.status}:${r.date}` })
+  })
+  assert.deepEqual(res, { ok: true, status: 'made_up', date: '2026-09-21' })
+  assert.deepEqual(log.map((c) => c.op + (c.name ? `:${c.name}` : '')), ['rpc:reopen_lesson', 'after:made_up:2026-09-21'])
+})
+
+test('a lesson back in the live queue also runs the follow-up', async () => {
+  const log: Call[] = []
+  const res = await untickLessonThen(fakeClient({ data: { status: 'requeued' } }, log), ARGS, async () => { log.push({ op: 'after' }) })
+  assert.equal(res.ok, true)
+  assert.deepEqual(log.map((c) => c.op), ['rpc', 'after'])
+})
+
+test('the make-up write fails: nothing follows, and the caller is told', async () => {
+  const log: Call[] = []
+  const res = await untickLessonThen(
+    fakeClient({ data: { status: 'failed', reason: 'injected make-up failure' } }, log),
+    ARGS,
+    async () => { log.push({ op: 'after' }) },
+  )
+  assert.deepEqual(res, { ok: false, status: 'failed', reason: 'injected make-up failure' })
+  assert.deepEqual(log.map((c) => c.op), ['rpc'], 'no re-date for a change that never happened')
+})
+
+test('reopen_lesson missing: retryable "unavailable", no fallback write, nothing follows', async () => {
+  const log: Call[] = []
+  const res = await untickLessonThen(
+    fakeClient({ error: { code: 'PGRST202', message: 'Could not find the function' } }, log),
+    ARGS,
+    async () => { log.push({ op: 'after' }) },
+  )
+  assert.equal(res.ok, false)
+  assert.equal(res.ok === false && res.status, 'unavailable')
+  assert.deepEqual(log.map((c) => c.op), ['rpc'])
+})
+
+test('an RPC error is a failure, not a fallback', async () => {
+  const log: Call[] = []
+  const res = await untickLesson(fakeClient({ error: { code: '57014', message: 'canceling statement' } }, log), ARGS)
+  assert.deepEqual(res, { ok: false, status: 'failed', reason: 'canceling statement' })
+  assert.deepEqual(log.map((c) => c.op), ['rpc'])
+})
+
+test('already unticked in another tab: no follow-up', async () => {
+  const log: Call[] = []
+  const res = await untickLessonThen(fakeClient({ data: { status: 'not_completed' } }, log), ARGS, async () => { log.push({ op: 'after' }) })
+  assert.equal(res.ok === false && res.status, 'not_completed')
+  assert.deepEqual(log.map((c) => c.op), ['rpc'])
+})
+
+// ── Why the order matters: PR #84's re-date, run before and after the pin ──
+
+const GOAL = {
+  id: 'goal', school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'], lessons_per_day: 1, lessons_per_day_overrides: null,
+  current_lesson: 10, total_lessons: 40, start_date: '2026-09-08',
+}
+const TODAY = new Date(2026, 8, 21)
+
+type Row = { id: string; queue_position: number; scheduled_date: string; completed: boolean; queue_pinned: boolean; skipped: boolean }
+
+/** Lesson 10 unticked today; 11..40 ahead from tomorrow. */
+function rowsAfterUncomplete(): Row[] {
+  const rows: Row[] = [{ id: 'l10', queue_position: 10, scheduled_date: '2026-09-21', completed: false, queue_pinned: false, skipped: false }]
+  const d = new Date(2026, 8, 22)
+  for (let n = 11; n <= 40; n++) {
+    while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1)
+    rows.push({ id: `l${n}`, queue_position: n, scheduled_date: toDateStr(d), completed: false, queue_pinned: false, skipped: false })
+    d.setDate(d.getDate() + 1)
+  }
+  return rows
+}
+
+/** planGoalResync's projection (PR #84): every pinned unfinished row is a hold. */
+function redate(rows: Row[]): Map<string, string> {
+  const holds: QueueHold[] = rows.filter((r) => !r.completed && r.queue_pinned && !r.skipped).map((r) => ({ slot: r.queue_position, date: r.scheduled_date }))
+  const projected = computeNextLessonsForGoal(GOAL, TODAY, 3650, [], 0, holds)
+  const bySlot = new Map(projected.map((p) => [p.lesson_number, p.date]))
+  const out = new Map<string, string>()
+  for (const r of rows) {
+    if (r.completed || r.queue_pinned || r.skipped) continue // planProjectedDateWrites never moves these
+    out.set(r.id, bySlot.get(r.queue_position) ?? r.scheduled_date)
+  }
+  return out
+}
+
+function pin(rows: Row[]): Row[] {
+  const l10 = rows.find((r) => r.id === 'l10')!
+  const decision = planReopenMakeUp({ row: l10, currentLesson: GOAL.current_lesson, todayYmd: '2026-09-21' })
+  assert.deepEqual(decision, { date: '2026-09-21' })
+  return rows.map((r) => (r.id === 'l10' ? { ...r, queue_pinned: true, scheduled_date: decision!.date } : r))
+}
+
+test('pin, THEN re-date: the next lesson stays off the make-up\'s day', () => {
+  const pinned = pin(rowsAfterUncomplete())
+  const dates = redate(pinned)
+  assert.equal(dates.get('l11'), '2026-09-22')
+  assert.ok(![...dates.values()].includes('2026-09-21'), 'nothing re-dated onto the make-up\'s day')
+})
+
+test('re-date BEFORE the pin puts the next lesson on the make-up\'s day', () => {
+  // The unpinned reopened row is invisible to the projection, so today looks
+  // free and lesson 11 is re-dated onto it. Pinning afterwards leaves two
+  // lessons stored on today: the 1Q shape, in Plan's dates.
+  const dates = redate(rowsAfterUncomplete())
+  assert.equal(dates.get('l11'), '2026-09-21')
+})
+
+// ── The same, through the real parent re-date (resyncGoalsForParent) ───────
+
+
+function localYmd(offset: number): string {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + offset)
+  return toDateStr(d)
+}
+
+/** Every day a school day, 12 lessons, starting lesson 11, lessons 1..9 done, 10 just unticked on today. */
+function afterUntick(pinned: boolean) {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const goalRow = {
+    id: 'g1', user_id: 'u1', total_lessons: 12, lessons_per_day: 1, school_days: days,
+    current_lesson: 10, start_date: null, start_at_lesson: 11, lessons_per_day_overrides: null,
+  }
+  const lessons: Record<string, unknown>[] = []
+  for (let n = 1; n <= 12; n++) {
+    const done = n <= 9
+    const day = localYmd(n - 10)
+    lessons.push({
+      id: `L${n}`, user_id: 'u1', curriculum_goal_id: 'g1', lesson_number: n, queue_position: n,
+      completed: done, completed_at: done ? new Date(`${day}T12:00:00`).toISOString() : null,
+      scheduled_date: day, date: day, scheduled_source: 'wizard_create',
+      is_backfill: done, queue_pinned: n === 10 && pinned, skipped: false,
+    })
+  }
+  return makeMemorySupabase({ curriculum_goals: [goalRow], vacation_blocks: [], lessons })
+}
+
+test('real re-date AFTER the make-up pin: Plan and Today agree, lesson 11 is tomorrow', async () => {
+  const { client, tables } = afterUntick(true)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await resyncGoalsForParent(client as any, 'u1', ['g1'], PARENT_RESPREAD_SOURCE.catchUp)
+  assert.equal(res.ok, true)
+  const date = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!.scheduled_date
+  assert.equal(date(10), localYmd(0), 'the make-up keeps its day')
+  assert.equal(date(11), localYmd(1))
+  assert.equal(date(12), localYmd(2))
+  // Today projects one day from the pointer with the loaded pins: the make-up alone.
+  const pins = pinsFromRows(tables.lessons as never)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const onToday = computeNextLessonsForGoal({ ...GOAL, id: 'g1', total_lessons: 12, school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], start_date: null }, today, 1, [], 0, pins)
+  assert.deepEqual(onToday.map((p) => p.lesson_number), [10])
+})
+
+test('real re-date BEFORE the pin: lesson 11 is stored on the make-up\'s day', async () => {
+  const { client, tables } = afterUntick(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await resyncGoalsForParent(client as any, 'u1', ['g1'], PARENT_RESPREAD_SOURCE.catchUp)
+  assert.equal(res.ok, true)
+  assert.equal(tables.lessons.find((r) => r.lesson_number === 11)!.scheduled_date, localYmd(0), 'two lessons now stored on today')
+})

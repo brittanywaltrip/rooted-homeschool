@@ -169,10 +169,11 @@ test("finishing ahead on a school day: today's done lessons keep their days, exa
   const res = await resyncGoalsForParent(client as any, USER, [GOAL], PARENT_RESPREAD_SOURCE.completion)
   assert.equal(res.ok, true)
   assert.deepEqual(disagreements(tables, []), [])
-  // Two done today on a one-a-day curriculum: Today counts both, so lesson 5
-  // stays two days out today. (It moves up on tomorrow's projection; see the
-  // day-rollover note in the PR.)
-  assert.equal(tables.lessons.find((r) => r.lesson_number === 5)!.scheduled_date, ymd(plus(2)))
+  // Two done today on a one-a-day curriculum: both done cards stay on today
+  // (PR #87: a lesson done today never spills onto tomorrow's capacity), so
+  // lesson 5 is tomorrow, which is exactly what Today shows tomorrow. The old
+  // projector put the second done card on tomorrow and lesson 5 two days out.
+  assert.equal(tables.lessons.find((r) => r.lesson_number === 5)!.scheduled_date, ymd(plus(1)))
 })
 
 test('completing overdue work re-dates the rest from today', async () => {
@@ -218,10 +219,10 @@ test('several completions including a backdated one count today exactly like Tod
   const res = await resyncGoalsForParent(client as any, USER, [GOAL], PARENT_RESPREAD_SOURCE.completion)
   assert.equal(res.ok, true)
   assert.deepEqual(disagreements(tables, []), [])
-  // Two completions today (4 and 5), the backdated one is not counted: Today
-  // lays 4 and 5 on today and tomorrow, so 6 is the day after. Counting the
+  // Two completions today (4 and 5), the backdated one is not counted: both
+  // done cards stay on today (PR #87), so 6 is tomorrow. Counting the
   // backdated one as well would push 6 a day further.
-  assert.equal(tables.lessons.find((r) => r.lesson_number === 6)!.scheduled_date, ymd(plus(2)))
+  assert.equal(tables.lessons.find((r) => r.lesson_number === 6)!.scheduled_date, ymd(plus(1)))
   assert.ok(noDayOverCap(tables))
 })
 
@@ -302,6 +303,15 @@ function redatesAfterRecompute(body: string, redate: RegExp, label: string) {
   if (r !== -1) assert.ok(m > r, `${label}: re-dates after the pointer moved`)
 }
 
+function assertRedateAfterUntick(body: string, redate: RegExp, label: string) {
+  const call = body.indexOf('untickLessonThen(')
+  assert.ok(call !== -1, `${label}: unticks through the one transaction`)
+  const after = body.slice(call)
+  const m = after.search(redate)
+  assert.ok(m !== -1, `${label}: re-dates the curriculum inside the follow-up`)
+  assert.ok(!/\.from\("lessons"\)\s*\.update\(\{\s*completed: false/.test(body), `${label}: no separate un-complete write`)
+}
+
 test('Plan: single check, uncheck, bulk done and its undo, logged lessons, past-day and past-date completions re-date', () => {
   const hook = src('app/components/PlanV2/usePlanLessonActions.ts')
   const helper = between(hook, 'const redateAfter = useCallback', 'const completeWithChoice')
@@ -309,8 +319,10 @@ test('Plan: single check, uncheck, bulk done and its undo, logged lessons, past-
   assert.ok(/COMPLETION_RESPREAD_FAILED_NOTE/.test(helper), 'a failed re-date is said')
   redatesAfterRecompute(between(hook, 'const completeWithChoice', 'const toggleLesson'), /redateAfter\([^)]*"completion"\)/, 'Plan check')
   const uncheck = between(hook, 'const patch = (l: T): T => (l.id !== id ? l : { ...l, completed: false });', 'const deleteLesson')
-  redatesAfterRecompute(uncheck, /redateAfter\([^)]*"uncompletion"\)/, 'Plan uncheck')
-  assert.ok(/\.select\("id"\)/.test(uncheck), 'the uncheck itself is confirmed')
+  // PR #87: the uncheck is reopen_lesson (one transaction, confirmed by its
+  // status), and the re-date runs in untickLessonThen's `after` step, only
+  // once the un-tick and any make-up pin exist.
+  assertRedateAfterUntick(uncheck, /redateAfter\([^)]*"uncompletion"\)/, 'Plan uncheck')
 
   const plan = src('app/components/PlanV2/index.tsx')
   const bulk = between(plan, 'const completeBulk = useCallback', '// ── Bulk: skip')
@@ -333,8 +345,7 @@ test('Today: check-off, uncheck, extra lessons and the prior-lesson card re-date
   assert.ok(/COMPLETION_RESPREAD_FAILED_NOTE/.test(helper))
   redatesAfterRecompute(between(today, 'async function runCompletion', 'async function beginCompletion'), /redateAfterCompletionChange\([^;]*"completion"\)/, 'Today check-off')
   const uncheck = between(today, 'setLessons(lessons.map((l) => (l.id === id ? { ...l, completed: false } : l)));', 'async function redateAfterCompletionChange')
-  redatesAfterRecompute(uncheck, /redateAfterCompletionChange\([^;]*"uncompletion"\)/, 'Today uncheck')
-  assert.ok(/\.select\("id"\)/.test(uncheck), 'the uncheck itself is confirmed')
+  assertRedateAfterUntick(uncheck, /redateAfterCompletionChange\([^;]*"uncompletion"\)/, 'Today uncheck')
   redatesAfterRecompute(between(today, 'async function confirmExtraLessons', 'onLogAction({ userId: effectiveUserId, actionType: "lesson" });'), /redateAfterCompletionChange\([^;]*"completion"\)/, 'extra lessons')
   redatesAfterRecompute(between(today, 'async function confirmPriorLessonComplete', 'await loadData();'), /redateAfterCompletionChange\([^;]*"completion"\)/, 'prior-lesson card')
 })

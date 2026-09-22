@@ -60,6 +60,7 @@ import { currentKeyLast, getCurrentSchoolYear, resolveYearbookKey, yearbookConte
 import { countLeaves, loadLeafCounts, loadLeafSources } from "@/app/lib/garden-leaves";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { captureSupabaseError } from "@/lib/sentry-error";
+import { untickLessonThen } from "@/app/lib/reopen-lesson";
 import { MAX_PREFILL_TITLE } from "@/lib/mail-adventures";
 import { useIsNativeApp } from "@/lib/platform";
 import WhenPicker from "@/app/components/WhenPicker";
@@ -2850,30 +2851,29 @@ export default function TodayPage() {
     // chosen-day completion set them (see buildCompletionPayload) and both
     // would otherwise outlive the completion that justified them, freezing the
     // row where the reconciler can no longer move it.
+    //
+    // Invariant 23: the un-complete, the pointer recompute and, for a lesson
+    // left behind the pointer, the make-up pin are ONE transaction
+    // (reopen_lesson). Anything that re-dates the rest of the curriculum runs
+    // in the `after` step, once the make-up pin exists. A failure changes
+    // nothing, so the tick comes back from a reload and the family is told.
     setLessons(lessons.map((l) => (l.id === id ? { ...l, completed: false } : l)));
-    // Confirmed: an error, or a row the database left alone, is said and the
-    // tick comes back from a reload rather than staying falsely cleared.
-    const { data: undone, error: undoErr } = await supabase
-      .from("lessons")
-      .update({
-        completed: false,
-        completed_at: null,
-        is_backfill: false,
-        queue_pinned: false,
-        scheduled_source: "manual_uncomplete",
-      })
-      .eq("id", id)
-      .select("id");
-    if (undoErr || (undone ?? []).length !== 1) {
+    const untick = await untickLessonThen(supabase, { lessonId: id, localDay: today }, async () => {
+      // PR #84's re-date, AFTER the make-up pin exists (Invariant 23).
+      if (lesson.curriculum_goal_id) await redateAfterCompletionChange([lesson.curriculum_goal_id], "uncompletion");
+    });
+    if (!untick.ok && untick.status !== "not_completed") {
+      captureSupabaseError("Un-tick did not apply", new Error(`${untick.status}: ${untick.reason}`), {
+        level: untick.status === "unavailable" ? "error" : "warning",
+        tags: { fn: "toggleLesson", surface: "today", status: untick.status },
+        extra: { lessonId: id },
+      });
       showCaptureToast("Couldn't unmark that lesson, try again.", null);
       await loadData();
       return;
     }
     setAllDoneBanner(false);
-    if (lesson.curriculum_goal_id) {
-      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
-      await redateAfterCompletionChange([lesson.curriculum_goal_id], "uncompletion");
-    }
+    if (lesson.curriculum_goal_id) await loadData();
     await refreshLeafCounts();
   }
 

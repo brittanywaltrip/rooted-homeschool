@@ -16,6 +16,7 @@ import {
   type LessonCompletedEvent,
 } from "@/app/lib/completeLessonOnDate";
 import { onLogAction } from "@/app/lib/onLogAction";
+import { untickLessonThen } from "@/app/lib/reopen-lesson";
 
 /* ============================================================================
  * usePlanLessonActions — shared lesson handlers for the Plan page.
@@ -210,30 +211,34 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     // would freeze the row where the projector can no longer move it. The date
     // columns are still left untouched here; moving them is the reconciler's
     // job, not this write's.
+    //
+    // Invariant 23: the un-complete, the pointer recompute and, for a lesson
+    // left behind the pointer, the make-up pin are ONE transaction
+    // (reopen_lesson). Anything that re-dates the rest of the curriculum runs
+    // in the `after` step, once the make-up pin exists, so it projects around
+    // it. A failure changes nothing: the check comes back and the caller is
+    // told, like a failed completion.
     inFlightRef.current.add(id);
     try {
-      // Confirmed: an error, or a row the database left alone, puts the check
-      // back and is reported to the caller like a failed completion.
-      const { data: undone, error } = await supabase
-        .from("lessons")
-        .update({
-          completed: false,
-          completed_at: null,
-          is_backfill: false,
-          queue_pinned: false,
-          scheduled_source: "manual_uncomplete",
-        })
-        .eq("id", id)
-        .select("id");
-      if (error || (undone ?? []).length !== 1) {
+      const result = await untickLessonThen(
+        supabase,
+        { lessonId: id, localDay: toDateStr(new Date()) },
+        async (done) => {
+          if (done.status === "made_up" && done.date) {
+            const day = done.date;
+            const moved = (l: T): T => (l.id !== id ? l : { ...l, scheduled_date: day, date: day, queue_pinned: true });
+            setLessons(prev => prev.map(moved));
+            setMonthLessons(prev => prev.map(moved));
+          }
+          // PR #84's re-date, AFTER the make-up pin exists (Invariant 23).
+          await redateAfter(lesson?.curriculum_goal_id, "uncompletion");
+        },
+      );
+      if (!result.ok && result.status !== "not_completed") {
         const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: true });
         setLessons(prev => prev.map(revert));
         setMonthLessons(prev => prev.map(revert));
-        throw new Error(error?.message ?? "The lesson could not be unmarked");
-      }
-      if (lesson?.curriculum_goal_id) {
-        await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
-        await redateAfter(lesson.curriculum_goal_id, "uncompletion");
+        throw new Error(`The lesson could not be unmarked (${result.status}: ${result.reason})`);
       }
       return true;
     } finally {
