@@ -1,56 +1,123 @@
 # Release handoff: PR #87 (builder rebuild in one transaction, make-ups)
 
-Status on 2026-09-22: **production on hold.** #87 is a draft at 503810c, and
-nothing from it is applied, merged or deployed to production. Production runs
-978d7c6 (`dpl_9ZuwGDP9HSZoTggh6gt38H3UR8LQ`). Its ledger ends at
-20260921210815 (115 rows).
+Status at the end of 2026-09-22: **production on hold. Paused for the night.**
+Nothing from #87 is applied, merged or deployed to production. #87 is a draft.
+Production runs 978d7c6 (`dpl_9ZuwGDP9HSZoTggh6gt38H3UR8LQ`); its ledger ends
+at 20260921210815 (115 rows).
 
-## 1. The 9 skipped smoke tests
+**Verified code commit: acfa76573079fe5b94b2d3f8076ace93fbf875f1 (acfa765).**
+This is the commit every check below ran against. Any later commit on the
+branch that changes only this document leaves the code identical to acfa765,
+so `git diff acfa765 -- . ':!docs/RELEASE-HANDOFF-PR87.md'` must be empty. If it
+is not, the evidence below no longer applies and the checks must be re-run.
 
-The smoke run on 503810c (the rooted-staging deployment of that SHA) had
-24 passed, 9 skipped and 0 failed. The dot reporter does not name skipped
-tests, and a green run keeps no artifact, so these were worked out from the
-skip conditions in `e2e/` against the staging e2e account (`1954d827`).
+Evidence on acfa765:
 
-That account has 1 goal, no completed goals, 0 resources, 0 school years,
-no Guitar activity, 5 lessons this week and 7 next week.
+- **CI:** scheduler invariant tests, the Vercel build and smoke all pass.
+- **Smoke:** GitHub run 35687826500 against the rooted-staging deployment
+  `dpl_8LMBCig1KraVGzNVSPMhGKouifoK`. 26 passed, 0 failed, 9 skipped, no retries.
+- **The two browser regressions** (section 1b) both passed in that run.
+- **Afterwards:** the test goals were deleted (0 left), and staging was restored
+  to #84 (section 2).
 
-Seven skips are certain:
+The smoke job needs a rooted-staging deployment of the exact PR head. So a
+docs-only head shows smoke pending or failed until one is deployed. That says
+nothing about the code.
 
-| # | Test | Why it skips |
-|---|------|--------------|
-| 1 | critical-paths: curriculum edit | unconditional `test.skip` |
-| 2 | critical-paths: curriculum delete | unconditional `test.skip` |
-| 3 | close-year spec | `CLOSE_YEAR_SPEC` is unset (opt-in by design) |
-| 4 | FLOW 7, Guitar Lessons | no Guitar activity on the account |
-| 5 | FLOW 8, completed curriculum | no completed goal |
-| 6 | shared resource `/r/<id>` | 0 resources |
-| 7 | Plan "Download Progress Report" paywall | no school year |
+Standalone #87 verification is COMPLETE. What is left:
 
-The other two cannot be named from this run. The candidates are FLOW 4 move
-("Move here" count 0), FLOW 5 Win tile, critical-paths school-year creation,
-and onboarding. Running the suite with `--reporter=list` against the same
-deployment would name them. Nothing is lost by leaving them unnamed, because
-none of the four touches the changed paths.
+- **Before final review:** Brittany's code review. The two doc corrections from
+  the 2026-09-22 session are made in this document: the named skip list
+  (section 1) and the function-body comparison (section 4, step 3).
+- **Before release (on hold):** both migrations to production before the app.
+  The app has no fallback.
+- **Waits for #84 to merge** (section 3a): the combined release-candidate checks.
+- **First thing next session:** report #84's remaining release blockers, for
+  the merge decision. Do not merge #84 or any PR without that review.
+
+## 1. The 9 skipped smoke tests (named)
+
+Smoke now runs with the list and JSON reporters. `scripts/smoke-skips.mjs`
+writes every skipped test and its reason to the log and to the job summary.
+From run 35687826500 on acfa765, all 9 are named, with the reason each test
+gave:
+
+| # | Project | Test | Reason it gave |
+|---|---------|------|----------------|
+| 1 | curriculum-writes | critical-paths: curriculum edit | static skip (edit selectors) |
+| 2 | curriculum-writes | critical-paths: curriculum delete | static skip (delete trigger) |
+| 3 | chromium | Lesson completion (V2) | no lessons in the current week for the test account |
+| 4 | chromium | Close year flow | opt-in, `CLOSE_YEAR_SPEC` unset |
+| 5 | chromium | FLOW 3, next-week Plan | no lessons in the next-week view |
+| 6 | chromium | FLOW 7, Guitar Lessons | no "Guitar Lessons" recurring appointment |
+| 7 | chromium | FLOW 8, completed curriculum | none on the account |
+| 8 | chromium | Plan progress-report paywall | no school year |
+| 9 | chromium | shared resource `/r/<id>` | no active resource |
+
+Correction: the earlier version of this section, written from skip conditions
+alone, guessed FLOW 4 and FLOW 5 as possibilities for the last two. The named
+run shows they are #3 and #5 above.
+
+None of the 9 covers a path #87 changes.
 
 What smoke covers of the changed paths:
 
-- **Builder save through `apply_builder_rebuild`:** covered for create, the
-  backfill save (`previewAndSave`) and the links-active-year save.
-- **Un-tick through `reopen_lesson`:** covered only for a lesson ahead of the
-  pointer (FLOW 2 ticks and then unticks). That un-tick returns `requeued`,
-  not a make-up, and FLOW 2's restore is best effort.
-- **Not covered by smoke:** re-saving an existing goal (the 1Q path; skips 1
-  and 2 are exactly the edit/delete specs), and a make-up un-tick. Both are
-  covered by the unit tests (`phase2-commit.test.ts`, `reopen-lesson.test.ts`),
-  the SQL rehearsal (T1 to T22), and the rooted-staging walkthroughs on
-  503810c and on the integration build 17fa5f6.
+- **Builder save through `apply_builder_rebuild`:** the create save, the
+  backfill save and the links-active-year save, plus the 1Q re-save regression
+  (1b).
+- **Un-tick through `reopen_lesson`:**
+  - FLOW 2 unticks a lesson ahead of the pointer, which is `requeued`, not a
+    make-up.
+  - The Today un-tick regression (1b) unticks one behind the pointer, which is
+    `made_up`.
+- **Plan's un-tick:** there is no browser test. Unit tests cover it, and so do
+  the manual staging walkthroughs on 503810c and the integration build 17fa5f6.
+
+## 1b. Browser regressions (e2e/smoke/critical-paths.spec.ts)
+
+These are tagged `@curriculum-writes`, so they run in the teardown project,
+after every Today load.
+
+The seed is the rows the builder writes for a family that started at lesson 11,
+nine days ago, one lesson a day, every day. It is inserted as service_role and
+scoped to the test account.
+
+- **1Q re-save:**
+  - Lesson 10 is left as the old app's un-tick left it: incomplete, unpinned,
+    behind the pointer, on today, with a note and 45 minutes.
+  - The untouched curriculum is re-saved through the builder.
+- **Today un-tick:** lesson 10 is recorded as done today and is unticked on Today.
+
+Both then assert:
+
+- lesson 10 is a `reopened` make-up pinned on today, not completed, with its
+  note and minutes kept;
+- lesson 11 is tomorrow, and 11 to 30 run one a day;
+- no day holds more than one lesson;
+- `start_at_lesson` stays 11 and the pointer stays 10;
+- after fresh loads, Today shows lesson 10 to do (and not lesson 11) and Plan's
+  today row shows it to do.
+
+Not proven: that these fail against 978d7c6. They were never run against the
+old app.
+
+Side effect on the shared account: a builder save re-saves every curriculum on
+the account. The chromium project leaves the "E2E Seeded Curriculum" with
+lessons 4 to 6 incomplete behind the pointer (FLOW 4 moves completed lesson 1
+to queue 6). The re-save made those three rows make-ups on their own days
+(Sep 23 to 25). That is the designed rule. There was no stacking, and the seed
+rewrites that goal at the start of every run.
 
 ## 2. Staging is back on #84
 
-rooted-staging runs `dpl_snzNXWYkuTQDTywCAKnViGGRmTms` (#84 at 4615e3e,
-READY), and nothing has been deployed there since. The alias's `/api/health`
-reports:
+rooted-staging runs `dpl_38ak5VnGATspSFjk7t3rELpQuwdS`, a fresh build of #84
+at 4615e3e made when the acfa765 run finished (`dpl_snzNXWYkuTQDTywCAKnViGGRmTms`
+is an older build of the same commit).
+
+The report session then used a slot for #85 (faa12a2, its own smoke run) and
+restored the alias to that same build.
+
+Checked independently at the end of the session, `/api/health` reports:
 
 `{"env":"staging","projectRef":"cvgqovweybggrqakhdtd","identityOk":true,"commit":"4615e3e1a6dc71a511ac556e7206876af246ad9d"}`
 
@@ -142,6 +209,32 @@ Either way, the #87 app must not reach production before both migrations are
 live there. The app has no fallback. Without the functions, every builder
 save and every un-tick fails: nothing is written, but the family sees an error.
 
+## 3a. Combined release-candidate checks (wait for #84 to merge)
+
+#84 was still an open draft at 4615e3e when the session ended. Nothing below
+can run until #84 has merged and #87 has been updated from main.
+
+`integration/pr84-pr87` is at 8e38552. It includes acfa765, merged cleanly,
+and the full unit suite passes there (1791 pass, 0 fail, 8 skipped).
+
+1. Update #87 from main using the section 3 resolution. If #84's head moved
+   past 4615e3e, redo the merge by those rules. Recheck the two #84 expectations
+   that move a day earlier.
+2. Run the full unit suite, `tsc --noEmit`, and CI on that exact commit.
+3. Coordinate a rooted-staging slot. The report session uses it for #85/#86.
+   Deploy that exact commit to the rooted-staging custom environment.
+4. Run smoke there. It must include the two 1b regressions and the named skip
+   list. Record the commit, the deployment id, the run id and the results.
+5. Walk through the un-tick order on the real merged code, with daily
+   reconciliation OFF:
+   - the pointer recomputes, then the make-up pin is written, then #84's re-date
+     runs;
+   - Today and Plan agree after reload;
+   - a forced failure of the make-up write changes nothing.
+6. Restore rooted-staging to the agreed build, and confirm the `/api/health`
+   commit.
+7. Mark #87 ready only after Brittany's final review.
+
 ## 4. Migration compatibility with the deployed app (978d7c6)
 
 Checked read-only against production on 2026-09-22:
@@ -197,7 +290,23 @@ Checked read-only against production on 2026-09-22:
 2. Read back both versions:
    `select version, name from supabase_migrations.schema_migrations where name like 'apply_builder_rebuild%';`
 3. Verify, all expected values from staging:
-   - The md5 of each function's `prosrc` matches the staging md5 and the file.
+   - The function bodies match. Careful: this is NOT a plain md5 of the file.
+     The copies applied to rooted-staging were issued WITHOUT the whole-line
+     `--` comments that the file's function bodies contain. So on staging:
+     - `lesson_carries_work` matches the file exactly
+       (md5 `df8372242d67b3020f3777ac5e8e9c45`);
+     - `apply_builder_rebuild` (`0866e412d76dd6a4c469bc0049e44e2e`) and
+       `reopen_lesson` (`e05d09fd5bcd02db83090df996e98429`) match the file only
+       once comment lines are removed.
+
+     Verified 2026-09-22 by stripping lines that start with `--` from each body
+     taken from the LAST `create or replace` in the work-guard file, then
+     comparing hashes. The only difference is comments; the code is identical.
+     For production:
+     - apply the file as-is, and compare production's `prosrc` md5 with the
+       file's body verbatim;
+     - compare with staging only after stripping comment lines from both.
+
      `lesson_carries_work` uses `chr()`; see the file header for why.
    - The ACLs are as listed above.
    - `select has_function_privilege('anon', 'public.reopen_lesson(uuid,date)', 'execute');`
