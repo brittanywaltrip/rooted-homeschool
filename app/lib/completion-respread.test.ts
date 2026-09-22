@@ -64,7 +64,7 @@ function goalFixture(opts: { firstDay?: number; schoolDays?: string[]; vac?: Vac
       : opts.firstDay !== undefined ? ymd(plus(opts.firstDay + (n - 3))) : (initial.get(n) as string)
     lessons.push({
       id: `L${n}`, user_id: USER, curriculum_goal_id: GOAL, lesson_number: n, queue_position: n,
-      completed: done, completed_at: done ? `${day}T12:00:00.000Z` : null,
+      completed: done, completed_at: done ? new Date(`${day}T12:00:00`).toISOString() : null,
       scheduled_date: day, date: day, scheduled_source: done ? 'completion_today' : 'queue_resync',
       is_backfill: false, queue_pinned: false, skipped: false,
     })
@@ -83,7 +83,9 @@ function goalFixture(opts: { firstDay?: number; schoolDays?: string[]; vac?: Vac
 function todayView(tables: Record<string, Row[]>, vac: VacationBlock[]) {
   const g = tables.curriculum_goals[0] as unknown as CurriculumGoalConfig
   const rows = tables.lessons.filter((r) => r.curriculum_goal_id === GOAL)
-  const doneToday = rows.filter((r) => r.completed && String(r.completed_at ?? '').slice(0, 10) === TODAY).length
+  // By the LOCAL date of completed_at, as Today counts it. Slicing the ISO
+  // string took the UTC date and broke every evening west of Greenwich.
+  const doneToday = rows.filter((r) => r.completed && r.completed_at && ymd(new Date(r.completed_at as string)) === TODAY).length
   const holds = rows
     .filter((r) => !r.completed && (r.queue_pinned || r.skipped))
     .map((r) => (r.skipped ? { slot: r.queue_position as number, skipped: true as const } : { slot: r.queue_position as number, date: r.scheduled_date as string }))
