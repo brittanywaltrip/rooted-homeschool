@@ -608,6 +608,22 @@ async function attemptUpload(
 const unconfirmedUploads = new WeakMap<File, { path: string; prepared: PreparedPhoto }>();
 
 /**
+ * The part of a new photo's path that makes it unique. A millisecond timestamp
+ * plus the file name is not: two different photos both called "image.jpg"
+ * (what several pickers name every photo) can start in the same millisecond,
+ * and now that a path is kept and REUSED until confirmed, a shared path would
+ * let one photo's 409 verify against the other photo's object. Size alone
+ * cannot tell them apart. 122 random bits can.
+ */
+function uniquePathToken(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  const bytes = new Uint8Array(16);
+  c.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
  * Prepare a picked file and put it in the memory-photos bucket, returning the
  * signed URL and the natural dimensions the memories row records.
  *
@@ -633,7 +649,7 @@ export async function uploadMemoryPhoto(
   if (!pending) {
     const prepared = await preparePhoto(file, MEMORY_MAX_DIMENSION, onStage);
     const safeName = prepared.file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
-    pending = { path: `${userId}/${Date.now()}-${safeName}`, prepared };
+    pending = { path: `${userId}/${Date.now()}-${uniquePathToken()}-${safeName}`, prepared };
     unconfirmedUploads.set(file, pending);
   }
   const { path, prepared } = pending;

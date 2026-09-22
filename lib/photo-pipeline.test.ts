@@ -302,6 +302,7 @@ type InfoScript = 'store' | 'noanswer' | 'mismatch' | Record<string, unknown>
 
 function stubStorage(uploads: UploadScript[], infos: InfoScript[] = []) {
   const store = new Map<string, number>()
+  const contents = new Map<string, string>()
   const paths: string[] = []
   const infoCalls: string[] = []
   const client = {
@@ -314,7 +315,10 @@ function stubStorage(uploads: UploadScript[], infos: InfoScript[] = []) {
               return { data: null, error: { name: 'StorageApiError', status: 409, statusCode: '409', message: 'The resource already exists' } }
             }
             const step = uploads[paths.length - 1] ?? 'ok'
-            if (step === 'ok' || step === 'lost') store.set(path, file.size)
+            if (step === 'ok' || step === 'lost') {
+              store.set(path, file.size)
+              contents.set(path, await file.text())
+            }
             if (step === 'ok') return { data: { path }, error: null }
             if (step === 'lost' || step === 'drop') {
               return { data: null, error: { name: 'StorageUnknownError', message: 'Failed to fetch' } }
@@ -336,7 +340,7 @@ function stubStorage(uploads: UploadScript[], infos: InfoScript[] = []) {
       },
     },
   }
-  return { client, paths, infoCalls, store }
+  return { client, paths, infoCalls, store, contents }
 }
 
 const photo = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/jpeg' })
@@ -456,6 +460,91 @@ test('uploadMemoryPhoto: once confirmed, the same File saved again gets its own 
     assert.equal(store.size, 2)
     assert.equal(paths.length, 2)
   } finally {
+    restore()
+  }
+})
+
+/**
+ * A decode/encode stand-in that carries each photo's bytes through to the
+ * JPEG it "writes", so a test can tell which photo ended up in which object.
+ * The default stub encodes every photo to the same single byte.
+ */
+function stubContentCarryingPipeline(): () => void {
+  const g = globalThis as Record<string, unknown>
+  const priorBitmap = g.createImageBitmap
+  const priorDocument = g.document
+  g.createImageBitmap = async (blob: Blob) => ({ width: 1200, height: 900, tag: await blob.text(), close: () => {} })
+  g.document = {
+    createElement: () => {
+      let drawn = ''
+      return {
+        width: 0,
+        height: 0,
+        getContext: () => ({ drawImage: (src: { tag: string }) => { drawn = src.tag } }),
+        toBlob: (cb: (blob: Blob) => void) => cb(new Blob([drawn], { type: 'image/jpeg' })),
+      }
+    },
+  }
+  return () => {
+    g.createImageBitmap = priorBitmap
+    g.document = priorDocument
+  }
+}
+
+test('uploadMemoryPhoto: two different photos with the same name and size, started in the same millisecond, each keep their own object', { timeout: 20000 }, async () => {
+  const restore = stubContentCarryingPipeline()
+  const realNow = Date.now
+  Date.now = () => 1790053396101
+  try {
+    // Several pickers call every photo "image.jpg". Same name, same byte size,
+    // different pictures.
+    const first = new File(['PHOTO-A'], 'image.jpg', { type: 'image/jpeg' })
+    const second = new File(['PHOTO-B'], 'image.jpg', { type: 'image/jpeg' })
+    assert.equal(first.size, second.size)
+    const { client, paths, contents } = stubStorage(['ok', 'ok'])
+
+    const [a, b] = await Promise.all([
+      uploadMemoryPhoto(client as never, 'user-1', first),
+      uploadMemoryPhoto(client as never, 'user-1', second),
+    ])
+
+    assert.equal(new Set(paths).size, 2, 'two photos, two paths, even in one millisecond')
+    assert.notEqual(a.photoUrl, b.photoUrl)
+    // What the callers insert: one memories row per photo, photo_url = photoUrl.
+    const memories = [
+      { picked: 'PHOTO-A', photo_url: a.photoUrl },
+      { picked: 'PHOTO-B', photo_url: b.photoUrl },
+    ]
+    for (const m of memories) {
+      assert.equal(contents.get(m.photo_url), m.picked, 'each memory points at its own photo')
+    }
+  } finally {
+    Date.now = realNow
+    restore()
+  }
+})
+
+test('uploadMemoryPhoto: a retry of the SAME photo still reuses its path when names and clocks collide', { timeout: 20000 }, async () => {
+  const restore = stubContentCarryingPipeline()
+  const realNow = Date.now
+  Date.now = () => 1790053396101
+  try {
+    const picked = new File(['PHOTO-C'], 'image.jpg', { type: 'image/jpeg' })
+    const other = new File(['PHOTO-D'], 'image.jpg', { type: 'image/jpeg' })
+    const { client, paths, contents, store } = stubStorage(['drop', 'drop', 'ok', 'ok'])
+
+    await rejection(uploadMemoryPhoto(client as never, 'user-1', picked))
+    const otherResult = await uploadMemoryPhoto(client as never, 'user-1', other)
+    const retried = await uploadMemoryPhoto(client as never, 'user-1', picked)
+
+    assert.equal(paths[0], paths[1], 'both attempts of the first save shared one path')
+    assert.equal(retried.photoUrl, paths[0], 'Try again went back to that same path')
+    assert.notEqual(otherResult.photoUrl, retried.photoUrl, 'the other photo never took it')
+    assert.equal(contents.get(retried.photoUrl), 'PHOTO-C')
+    assert.equal(contents.get(otherResult.photoUrl), 'PHOTO-D')
+    assert.equal(store.size, 2)
+  } finally {
+    Date.now = realNow
     restore()
   }
 })
