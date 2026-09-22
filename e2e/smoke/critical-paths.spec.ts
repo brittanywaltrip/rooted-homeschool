@@ -817,10 +817,19 @@ function expectMakeUpOnToday(state: Awaited<ReturnType<typeof readGoalState>>) {
  * Today's card for a lesson, found by its title and then through its own check
  * toggle. The title is the row's own ("Subject Lesson 10") or the composed one
  * ("Subject · Lesson 10"), so both are accepted.
+ *
+ * Rooted in the Today schedule (data-testid="today-schedule"), NOT the page.
+ * The Upcoming tab underneath renders tomorrow's lesson with the very same
+ * heading, and the `ancestor::` step walks UP from whatever text it finds: from
+ * an Upcoming row it climbs past that tab to <main>, which does contain Today's
+ * check toggles, so an unrooted lookup reported tomorrow's lesson as due today
+ * whenever that tab had finished loading. Rooting it here is what makes
+ * "not due today" mean today.
  */
 function todayCard(page: import('@playwright/test').Page, subject: string, lesson: number) {
   const esc = subject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return page
+    .getByTestId('today-schedule')
     .getByText(new RegExp(`^${esc}( ·)? Lesson ${lesson}$`))
     .locator('xpath=ancestor::*[.//button[starts-with(@aria-label, "Mark lesson")]][1]');
 }
