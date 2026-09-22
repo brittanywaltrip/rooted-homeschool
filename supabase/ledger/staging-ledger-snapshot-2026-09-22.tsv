@@ -1,6 +1,6 @@
-# rooted-staging (cvgqovweybggrqakhdtd) supabase_migrations.schema_migrations, read 2026-09-21 ~22:00 UTC.
-# 122 rows. Columns: version, name, number of statements, md5(array_to_string(statements, E'\n')) or '-' when empty.
-# Fingerprint md5(string_agg(version||name||md5(statements) or '-', ',' order by version)) = ea16b90f7542304c36d36dc8e9ed2b58
+# rooted-staging (cvgqovweybggrqakhdtd) supabase_migrations.schema_migrations, refreshed 2026-09-22 ~00:30 UTC.
+# 123 rows (the 2026-09-21 snapshot's 122 plus 20260921230610 daily_reconcile, applied to staging only for PR #84). Columns: version, name, number of statements, md5(array_to_string(statements, E'\n')) or '-' when empty.
+# Fingerprint md5(string_agg(version||name||md5(statements) or '-', ',' order by version)) = b2f32591310f4ff5ed38246d28081896 (without the daily_reconcile row it is still the 2026-09-21 value ea16b90f7542304c36d36dc8e9ed2b58)
 20260412173929	fix_daily_reflections_schema_and_policies	0	-
 20260413012040	add_start_date_to_curriculum_goals	0	-
 20260415220212	lists_and_list_items	0	-
@@ -123,3 +123,4 @@
 20260921174245	lesson_date_change_audit	1	7a84e94075618ca19bce1c8ee8fd3031
 20260921183953	lessons_resync_intent_session_scope	1	76d747e333e6c5b2e87e2db34b55706f
 20260921194104	rooted_private_schema_prerequisite	1	1c32c53f0f2c89eabbca59ee97c5ced6
+20260921230610	daily_reconcile	1	4024e75ee0901b1792c0d340fbae3d3e
