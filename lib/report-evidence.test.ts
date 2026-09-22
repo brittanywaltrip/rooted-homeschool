@@ -30,3 +30,12 @@ test("a row without a usable photo never becomes visual evidence", () => {
     photo("missing", "2026-09-01", null, null),
   ], null, "2026-09-01", "2026-09-30"), []);
 });
+
+test("turning Include photos off leaves every photo out of the report without touching the input", () => {
+  const rows = [photo("a", "2026-09-01", null), photo("b", "2026-09-02", "ada")];
+  const before = JSON.stringify(rows);
+  assert.deepEqual(selectReportPhotos(rows, null, "2026-09-01", "2026-09-30", false), []);
+  assert.equal(JSON.stringify(rows), before);
+  assert.deepEqual(selectReportPhotos(rows, null, "2026-09-01", "2026-09-30", true).map((r) => r.id), ["a", "b"]);
+  assert.deepEqual(selectReportPhotos(rows, null, "2026-09-01", "2026-09-30").map((r) => r.id), ["a", "b"]);
+});

@@ -41,3 +41,13 @@ test("Hours printing owns a scoped visible sheet and clears competing print mode
   assert.match(page, /image\.complete/);
   assert.match(page, /onClick=\{printHoursReport\}/);
 });
+
+test("Include photos is a report-only choice: default on, wired to the selection, no delete path", () => {
+  assert.match(page, /const \[includePhotos, setIncludePhotos\] = useState\(true\)/);
+  assert.match(page, /selectReportPhotos\(photos, child\?\.id \?\? null, dateFrom, dateTo, includePhotos\)/);
+  assert.match(page, /includePhotos=\{includePhotos\}/);
+  assert.match(page, />\s*Include photos\s*</);
+  // The toggle's handler only flips state; it must never reach storage or a row.
+  const handler = page.match(/onChange=\{\(e\) => setIncludePhotos\(e\.target\.checked\)\}/);
+  assert.ok(handler, "the checkbox only sets includePhotos");
+});
