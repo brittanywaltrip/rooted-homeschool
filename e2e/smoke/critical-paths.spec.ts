@@ -1435,6 +1435,106 @@ test.describe('Past start_date backfill via Schedule Builder', { tag: CURRICULUM
 // week navigation needed.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Starting at lesson N writes no history by default (September 22, 2026).
+//
+// "What lesson are you on next?" used to mean two things: where the family is,
+// and that Rooted should write every lesson before it down as done, with
+// minutes, which Reports bill as hours nobody logged. It means only the first
+// now. The spec above opts in; this one takes the default and asserts, in the
+// database where it is decided, that nothing completed was written.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Starting at lesson N records nothing by default', { tag: CURRICULUM_WRITES }, () => {
+  const createdCurriculumNames: string[] = [];
+
+  test.afterEach(async () => {
+    for (const name of createdCurriculumNames.splice(0)) {
+      await cleanupCurriculumByName(name);
+    }
+  });
+
+  test('a new curriculum on lesson 21 gets lessons 21 to 30 and no completed rows', async ({ page }) => {
+    test.setTimeout(180_000);
+    const sb = adminClient();
+    if (!sb) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY not set; cannot read the saved rows.');
+      return;
+    }
+
+    const curriculumName = `Test Start Default E2E ${STAMP()}`;
+    createdCurriculumNames.push(curriculumName);
+    await cleanupCurriculumByName(curriculumName);
+
+    await page.goto('/dashboard/plan/schedule');
+    await expect(page.getByRole('heading', { name: /Your Schedule/i }).first()).toBeVisible({ timeout: 15_000 });
+
+    // Same first-child scoping as the backfill spec above, for the same reason.
+    const addCurriculumBtn = page.getByRole('button', { name: /\+ Add curriculum/i }).first();
+    await expect(addCurriculumBtn).toBeVisible({ timeout: 10_000 });
+    const firstChildCard = addCurriculumBtn.locator(
+      'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " rounded-2xl ")][1]',
+    );
+    await addCurriculumBtn.click();
+    await firstChildCard.locator('input[placeholder="e.g. Math"]').last().fill('Math');
+    await firstChildCard.locator('input[placeholder^="Who makes it?"]').last().fill(curriculumName);
+    await firstChildCard.locator('input[placeholder="e.g. 120"]').last().fill('30');
+
+    await firstChildCard.getByRole('radio', { name: /Already into it/i }).last().check();
+    const nextLessonField = firstChildCard.getByLabel(/What lesson are you on next\?/i).last();
+    await nextLessonField.fill('21');
+    await nextLessonField.blur();
+
+    // The default is No, and the row says so before anything is saved.
+    await expect(
+      firstChildCard.getByRole('radio', { name: /No, just start me on lesson 21/i }).last(),
+      'No is the default answer',
+    ).toBeChecked();
+    await expect(
+      firstChildCard.getByText(/Lessons 1 to 20 won't be added to your records or your hours/i).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await previewAndSave(page);
+    await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({ timeout: 30_000 });
+
+    // Wait for the forward queue to land, then read what the save wrote.
+    let goalId = '';
+    await expect
+      .poll(
+        async () => {
+          const { data: g } = await sb.from('curriculum_goals').select('id').eq('curriculum_name', curriculumName);
+          goalId = ((g ?? [])[0]?.id as string | undefined) ?? '';
+          if (!goalId) return 0;
+          const { data: rows } = await sb.from('lessons').select('id').eq('curriculum_goal_id', goalId);
+          return (rows ?? []).length;
+        },
+        { timeout: 30_000, message: 'the save should generate the forward lessons' },
+      )
+      .toBe(10);
+
+    const { data: goal } = await sb
+      .from('curriculum_goals')
+      .select('current_lesson, start_at_lesson')
+      .eq('id', goalId)
+      .single();
+    expect(goal?.start_at_lesson, 'the family is placed at lesson 21').toBe(21);
+    expect(goal?.current_lesson, 'the pointer stands before lesson 21').toBe(20);
+
+    const { data: rows } = await sb
+      .from('lessons')
+      .select('lesson_number, completed, is_backfill, minutes_spent')
+      .eq('curriculum_goal_id', goalId)
+      .order('lesson_number');
+    const all = (rows ?? []) as { lesson_number: number; completed: boolean; is_backfill: boolean | null; minutes_spent: number | null }[];
+    expect(all.filter((r) => r.completed).length, 'no lesson is written as done').toBe(0);
+    expect(all.filter((r) => r.is_backfill).length, 'no history is backfilled').toBe(0);
+    expect(all.filter((r) => r.minutes_spent != null).length, 'no minutes, so no report hours').toBe(0);
+    expect(all.map((r) => r.lesson_number), 'exactly lessons 21 to 30').toEqual(
+      Array.from({ length: 10 }, (_, i) => 21 + i),
+    );
+  });
+});
+
 test.describe('Schedule Builder links goals to active year + shows them post-save', { tag: CURRICULUM_WRITES }, () => {
   const createdCurriculumNames: string[] = [];
   // Only the school year THIS test created (if any) is torn down; a
