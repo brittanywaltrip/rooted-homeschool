@@ -91,6 +91,7 @@ import {
   resolveCustomLessonGoalLink,
   planGoalReassign,
   planGoalDelete,
+  planBulkLessonDelete,
   computeGapLessonsForGoal,
   reprojectGoalForParent,
   resyncGoalsForParent,
@@ -366,6 +367,12 @@ export default function PlanV2() {
   // Deferred bulk delete — rows are removed from state immediately; DB DELETE
   // fires when the undo window expires. Snapshot lets Undo restore them.
   const pendingBulkDeleteRef = useRef<{ rows: PlanV2Lesson[]; timer: number } | null>(null);
+  // Set only when a bulk-delete selection contains rows somebody marked done.
+  // An unfinished-only selection never opens a dialog. See performBulkDelete.
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState<{
+    openRows: PlanV2Lesson[];
+    completedRows: PlanV2Lesson[];
+  } | null>(null);
 
   // Sensors split by input type so desktop and touch can have different
   // activation constraints. Mouse: 15px distance keeps taps as clicks while
@@ -4075,12 +4082,13 @@ export default function PlanV2() {
 
   // ── Bulk: delete (deferred DB write to undo window) ──────────────────────
 
-  const performBulkDelete = useCallback(async (ids: string[]) => {
+  // The write half, once the selection is settled. `rows` is exactly what will
+  // be deleted: the caller has already decided whether completed rows are in it.
+  const runBulkDelete = useCallback(async (rows: PlanV2Lesson[]) => {
     // Commit any prior pending delete before starting a new one — only one
     // undoable batch can sit open at a time (matches 93f9be6 semantics).
     await commitPendingBulkDelete();
 
-    const rows = lessons.filter((l) => ids.includes(l.id));
     if (rows.length === 0) {
       exitSelectMode();
       return;
@@ -4129,6 +4137,10 @@ export default function PlanV2() {
       action: "delete",
       count: rows.length,
       lesson_ids: rows.map((r) => r.id),
+      // Recorded so a later investigation can tell an ordinary tidy-up of
+      // unfinished rows from a deletion of somebody's completed work without
+      // having to reconstruct it from rows that no longer exist. 2026-09-22.
+      completed_count: rows.filter((r) => r.completed).length,
       from_dates: rows
         .map((r) => r.scheduled_date ?? r.date ?? null)
         .filter((d): d is string => !!d),
@@ -4137,7 +4149,38 @@ export default function PlanV2() {
     });
 
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode, commitPendingBulkDelete, recordEvent]);
+  }, [setLessons, reload, exitSelectMode, commitPendingBulkDelete, recordEvent]);
+
+  /* Bulk delete preserves completed work by default (2026-09-22).
+   *
+   * See the planBulkLessonDelete block in app/lib/scheduler.ts for why. In
+   * short: deleting a curriculum deliberately KEEPS its completed rows, those
+   * kept rows then render on the calendar with no subject name against them,
+   * and this control used to remove them on one tap with no question asked.
+   * A family lost thirty completed lessons that way in 37 seconds.
+   *
+   * Unfinished-only selections are untouched: same immediate delete, same 5s
+   * undo. Only a selection containing completed rows stops to ask, and the
+   * non-destructive answer is the default one. */
+  const performBulkDelete = useCallback(async (ids: string[]) => {
+    const rows = lessons.filter((l) => ids.includes(l.id));
+    if (rows.length === 0) {
+      exitSelectMode();
+      return;
+    }
+
+    const plan = planBulkLessonDelete(rows);
+    if (plan.completedIds.length === 0) {
+      await runBulkDelete(rows);
+      return;
+    }
+
+    const completedSet = new Set(plan.completedIds);
+    setBulkDeleteConfirm({
+      openRows: rows.filter((r) => !completedSet.has(r.id)),
+      completedRows: rows.filter((r) => completedSet.has(r.id)),
+    });
+  }, [lessons, exitSelectMode, runBulkDelete]);
 
   // ── Catch-up + push-back handlers ────────────────────────────────────────
   // Each of these owns: pre-mutation snapshot, batch UPDATE with
@@ -4917,6 +4960,7 @@ export default function PlanV2() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (printDialogOpen) { setPrintDialogOpen(false); return; }
+      if (bulkDeleteConfirm) { setBulkDeleteConfirm(null); return; }
       if (deleteGoalConfirm) { setDeleteGoalConfirm(null); return; }
       if (stopGoalConfirm) { setStopGoalConfirm(null); return; }
       if (markFinishedConfirm) { setMarkFinishedConfirm(null); return; }
@@ -4942,7 +4986,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, continueTarget, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [printDialogOpen, bulkDeleteConfirm, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, continueTarget, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -6530,6 +6574,51 @@ export default function PlanV2() {
           </div>
         ) : null}
 
+        {/* Bulk delete confirm. Opens ONLY when the selection contains rows
+            somebody marked done; an unfinished-only selection deletes straight
+            away with its 5 second undo, exactly as before. The primary button
+            is the non-destructive answer whenever there is one. */}
+        {bulkDeleteConfirm ? (() => {
+          const open = bulkDeleteConfirm.openRows;
+          const done = bulkDeleteConfirm.completedRows;
+          const total = open.length + done.length;
+          const doneWord = `${done.length} lesson${done.length === 1 ? "" : "s"}`;
+          const loss = "Their minutes and notes go with them, and that cannot be undone.";
+          const close = () => setBulkDeleteConfirm(null);
+          const deleteRows = (rows: PlanV2Lesson[]) => {
+            setBulkDeleteConfirm(null);
+            void runBulkDelete(rows);
+          };
+
+          // Nothing safe to offer: every row in the selection is completed.
+          if (open.length === 0) {
+            return (
+              <ConfirmDialog
+                title={`Delete ${doneWord} you marked done?`}
+                body={`You checked ${done.length === 1 ? "this lesson" : "these lessons"} off as done. ${loss}`}
+                confirmLabel={`Delete ${done.length === 1 ? "it" : "them"} anyway`}
+                cancelLabel="Keep them"
+                destructive
+                onCancel={close}
+                onConfirm={() => deleteRows(done)}
+              />
+            );
+          }
+
+          return (
+            <ConfirmDialog
+              title={`Delete ${total} lessons?`}
+              body={`${doneWord} in this selection ${done.length === 1 ? "is" : "are"} marked done. ${loss} The other ${open.length} ${open.length === 1 ? "is" : "are"} unfinished and can go safely.`}
+              confirmLabel={`Delete the ${open.length} unfinished`}
+              cancelLabel="Cancel"
+              altLabel={`Delete all ${total}, including the ${done.length} done`}
+              onAlt={() => deleteRows([...open, ...done])}
+              onCancel={close}
+              onConfirm={() => deleteRows(open)}
+            />
+          );
+        })() : null}
+
         {/* Curriculum delete confirm */}
         {deleteGoalConfirm ? (
           <ConfirmDialog
@@ -6889,10 +6978,18 @@ function ConfirmDialog(props: {
   confirmLabel: string;
   cancelLabel?: string;
   destructive?: boolean;
+  // An optional THIRD answer, below the main row and always destructive.
+  // It exists so a dialog can offer a safe default as its primary button and
+  // still let someone say the dangerous thing in its own words, rather than
+  // making the dangerous thing the only way forward. Used by the bulk-delete
+  // confirm: "delete the unfinished ones" is the primary, "delete all of them,
+  // including the done ones" is this.
+  altLabel?: string;
+  onAlt?: () => void | Promise<void>;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 }) {
-  const { title, body, confirmLabel, cancelLabel, destructive, onCancel, onConfirm } = props;
+  const { title, body, confirmLabel, cancelLabel, destructive, altLabel, onAlt, onCancel, onConfirm } = props;
   return (
     <>
       <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[70]" onClick={onCancel} aria-hidden />
@@ -6930,6 +7027,17 @@ function ConfirmDialog(props: {
               {confirmLabel}
             </button>
           </div>
+          {altLabel && onAlt ? (
+            <div className="px-5 pb-5 -mt-2">
+              <button
+                type="button"
+                onClick={() => void onAlt()}
+                className="w-full min-h-[44px] text-sm font-medium text-[#b91c1c] rounded-xl hover:bg-[#fdeaea] transition-colors"
+              >
+                {altLabel}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </>

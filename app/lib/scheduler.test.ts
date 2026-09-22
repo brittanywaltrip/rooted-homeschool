@@ -58,6 +58,7 @@ import {
   toGoalConfig,
   planGoalReassign,
   planGoalDelete,
+  planBulkLessonDelete,
   isTotalLessonsAboveProgress,
   type PinnedSlot,
   type QueueHold,
@@ -1668,6 +1669,30 @@ function loadRepoFile(relPath: string): string {
 // prose. A guard that passes because the identifier appears in a comment is
 // worthless — caught exactly that way while mutation-checking the
 // starting-position wiring below.
+// Helper: every repo source file under app/ and lib/ whose text matches. Used
+// by the lesson-delete sweep below, which pins WHICH files may delete a lesson
+// row rather than asserting a shape inside any one of them.
+function sweepRepoFiles(re: RegExp): string[] {
+  const out: string[] = []
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+      const full = `${dir}/${entry.name}`
+      if (entry.isDirectory()) { walk(full); continue }
+      if (!/\.tsx?$/.test(entry.name)) continue
+      if (/\.test\.tsx?$/.test(entry.name)) continue
+      if (re.test(stripComments(readFileSync(full, 'utf-8')))) {
+        out.push(full.slice(resolve(process.cwd()).length + 1))
+      }
+    }
+  }
+  for (const root of ['app', 'lib']) {
+    const full = resolve(process.cwd(), root)
+    if (existsSync(full)) walk(full)
+  }
+  return out.sort()
+}
+
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
 }
@@ -7276,6 +7301,119 @@ test('goal delete: the handler checks every error and carries the subject across
   assert.ok(carryAt < goalDeleteAt, 'the subject is carried before the goal is deleted')
   // Never clobber a subject the parent set by hand.
   assert.ok(/\.is\("subject_id", null\)/.test(body), 'only fills an empty subject')
+})
+
+/* ── Bulk delete preserves completed work (2026-09-22) ────────────────────
+ * A family deleted six curricula at 18:49, which correctly KEPT her completed
+ * rows. Seventy seconds later she selected those kept rows on the Plan
+ * calendar and bulk-deleted them: seven batches, 18:50:42 to 18:51:19, thirty
+ * completed lessons gone. Every other delete surface in the app protects
+ * completed rows; this one had no protection, no dialog and no test.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+test('bulk delete: completed rows are never in the ordinary delete set', () => {
+  const plan = planBulkLessonDelete([
+    { id: 'open-1', completed: false },
+    { id: 'done-1', completed: true },
+    { id: 'open-2', completed: false },
+    { id: 'done-2', completed: true },
+  ])
+  assert.deepEqual(plan.deleteIds, ['open-1', 'open-2'])
+  assert.deepEqual(plan.completedIds, ['done-1', 'done-2'])
+})
+
+test('bulk delete: every row lands in exactly one group', () => {
+  const rows = Array.from({ length: 30 }, (_, i) => ({ id: `r${i}`, completed: i % 3 === 0 }))
+  const plan = planBulkLessonDelete(rows)
+  assert.equal(plan.deleteIds.length + plan.completedIds.length, rows.length)
+  const seen = new Set([...plan.deleteIds, ...plan.completedIds])
+  assert.equal(seen.size, rows.length, 'no row is dropped and none is counted twice')
+})
+
+test('bulk delete: an unfinished-only selection asks nothing', () => {
+  const plan = planBulkLessonDelete([
+    { id: 'a', completed: false },
+    { id: 'b', completed: false },
+  ])
+  assert.equal(plan.completedIds.length, 0, 'nothing to warn about')
+  assert.deepEqual(plan.deleteIds, ['a', 'b'])
+})
+
+test('bulk delete: an empty selection is not a delete', () => {
+  const plan = planBulkLessonDelete([])
+  assert.deepEqual(plan.deleteIds, [])
+  assert.deepEqual(plan.completedIds, [])
+})
+
+test('bulk delete: the handler routes through the shared rule and stops to ask', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const handler = src.slice(src.indexOf('const performBulkDelete = useCallback'))
+  const body = handler.slice(0, handler.indexOf('// \u2500\u2500 Catch-up'))
+  assert.ok(/planBulkLessonDelete\(/.test(body), 'the handler must use the shared rule')
+  // The regression itself: the selection must not reach the delete untouched.
+  assert.ok(
+    !/await runBulkDelete\(rows\);[\s\S]*await runBulkDelete\(rows\)/.test(body),
+    'rows are only passed through whole on the unfinished-only path',
+  )
+  assert.ok(
+    /plan\.completedIds\.length === 0/.test(body),
+    'an unfinished-only selection keeps the old one-tap behaviour',
+  )
+  assert.ok(
+    /setBulkDeleteConfirm\(/.test(body),
+    'a selection holding completed rows opens the confirm instead of deleting',
+  )
+})
+
+test('bulk delete: the confirm offers the safe answer as its primary button', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const dialog = src.slice(src.indexOf('{bulkDeleteConfirm ? (() => {'))
+  const body = dialog.slice(0, dialog.indexOf('{/* Curriculum delete confirm */}'))
+  // Mixed selection: primary deletes the unfinished ones, the destructive
+  // "all of them" answer is the secondary and must be asked for by name.
+  assert.ok(/confirmLabel=\{`Delete the \$\{open\.length\} unfinished`\}/.test(body),
+    'the primary button is the non-destructive answer')
+  assert.ok(/onConfirm=\{\(\) => deleteRows\(open\)\}/.test(body),
+    'and it deletes ONLY the unfinished rows')
+  assert.ok(/altLabel=/.test(body) && /onAlt=\{\(\) => deleteRows\(\[\.\.\.open, \.\.\.done\]\)\}/.test(body),
+    'deleting completed work is a separate, named answer')
+  // All-completed selection has no safe subset, so it is destructive-only.
+  assert.ok(/open\.length === 0/.test(body), 'the all-completed case is handled on its own')
+  assert.ok(/cancelLabel="Keep them"/.test(body), 'and its default answer keeps the work')
+})
+
+test('bulk delete: the audit event records how many completed rows went', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const runner = src.slice(src.indexOf('const runBulkDelete = useCallback'))
+  const body = runner.slice(0, runner.indexOf('const performBulkDelete = useCallback'))
+  assert.ok(
+    /completed_count: rows\.filter\(\(r\) => r\.completed\)\.length/.test(body),
+    'so a later investigation can tell a tidy-up from a history deletion',
+  )
+})
+
+test('bulk delete: the set of files that can delete a lesson row is pinned', () => {
+  // A sweep, not a shape check. Deleting a lessons row is unrecoverable: there
+  // is no soft delete and no tombstone, the minutes leave Hours Logged, and
+  // memories.lesson_id is ON DELETE SET NULL so an attached photo is silently
+  // detached. Every site below has been looked at and protects completed work
+  // or is deliberately whole-account. A NEW file here fails this test on
+  // purpose: decide what it does with completed rows, then add it.
+  const allowed = new Map([
+    ['app/components/PlanV2/index.tsx', 'single-row + bulk; bulk routes through planBulkLessonDelete'],
+    ['app/components/PlanV2/usePlanLessonActions.ts', 'single row, 5s undo'],
+    ['app/dashboard/page.tsx', "Today's single-row delete and its undo replacement"],
+    ['app/dashboard/years/add/page.tsx', 'rollback of a half-created school year'],
+    ['app/lib/scheduler.ts', 'healGoalIntegrity: incomplete duplicates only, never a completed dupe'],
+    ['app/api/account/delete/route.ts', 'account deletion, whole account by design'],
+  ])
+  const found = sweepRepoFiles(/\.from\("lessons"\)\s*\.delete\(\)/)
+  for (const file of found) {
+    assert.ok(allowed.has(file), `${file} deletes lesson rows and is not on the reviewed list`)
+  }
+  for (const file of allowed.keys()) {
+    assert.ok(found.includes(file), `${file} no longer deletes lesson rows; drop it from the list`)
+  }
 })
 
 /* ── Item 6: a curriculum's numbers have to be possible ───────────────────

@@ -4285,6 +4285,66 @@ export function planGoalDelete(rows: GoalDeleteRow[]): GoalDeletePlan {
   return plan;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────
+ * Bulk delete on the Plan calendar (2026-09-22)
+ *
+ * THE DAMAGE. A family deleted six curricula on 2026-09-22 at 18:49. That went
+ * exactly as planGoalDelete above intends: her completed rows were kept, and
+ * the FK nulled their goal link. Seventy seconds later she selected those same
+ * kept rows on the Plan calendar and bulk-deleted them, in seven batches
+ * between 18:50:42 and 18:51:19. Thirty completed lessons, with their minutes
+ * and their dates, gone for good. It was the second time in five days that her
+ * completion history disappeared, and the first time we found out that the
+ * subject delete was not the thing destroying it.
+ *
+ * WHY SHE DID IT is the part worth keeping. A kept row is a row with no
+ * curriculum any more, and every calendar surface selects on scheduled_date
+ * without filtering `curriculum_goal_id is null`, so those rows keep rendering
+ * with no subject name against them. Preserved history looked like clutter,
+ * and the control next to it deleted without asking.
+ *
+ * THE RULE. The same one the rest of the app already follows everywhere else:
+ *
+ *   open      -> DELETED. Nothing a child did is recorded on them.
+ *   completed -> NOT deleted by the ordinary action. A person marked that
+ *                lesson done; the minutes are on the reports and there is no
+ *                soft delete, no tombstone and no undo past five seconds.
+ *                Removing it has to be asked for in its own words.
+ *
+ * Pure, so the rule is pinned by tests rather than by reading an async handler
+ * that also owns optimistic state, a deferred write and an undo timer.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface BulkDeleteRow {
+  id: string;
+  completed: boolean;
+}
+
+export interface BulkDeletePlan {
+  /** Unfinished rows. The ordinary action removes exactly these. */
+  deleteIds: string[];
+  /** Rows a person marked done. Never removed without being named first. */
+  completedIds: string[];
+}
+
+/**
+ * Split a bulk-delete selection into the part that is safe to remove and the
+ * part that is somebody's recorded work.
+ *
+ * The caller must treat a non-empty `completedIds` as a question to ask, not a
+ * list to act on. Deleting a completed lesson row takes its minutes out of
+ * Hours Logged, its notes with it, and detaches any photo attached to it
+ * (`memories.lesson_id` is ON DELETE SET NULL), none of which is recoverable.
+ */
+export function planBulkLessonDelete(rows: BulkDeleteRow[]): BulkDeletePlan {
+  const plan: BulkDeletePlan = { deleteIds: [], completedIds: [] };
+  for (const r of rows) {
+    if (r.completed) plan.completedIds.push(r.id);
+    else plan.deleteIds.push(r.id);
+  }
+  return plan;
+}
+
 /**
  * May `total_lessons` be set to this, given the progress already logged?
  *
