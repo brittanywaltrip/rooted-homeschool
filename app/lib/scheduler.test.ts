@@ -9396,7 +9396,7 @@ test('the builder anchors its pace at the next lesson date', () => {
   assert.match(calcPace, /vacations,/, 'and it honours the family\'s breaks')
   assert.match(
     src,
-    /calcPace\(row, today, projected\[0\]\?\.date, vacations(, skippedSlots)?\)/,
+    /calcPace\(row, today, nextQueued\?\.date, vacations(, skippedSlots)?\)/,
     'anchored at the next lesson, with breaks (and the goal\'s skips, Invariant 22)',
   )
   // One computation, read by both surfaces. Computing it again in the row card
@@ -10231,6 +10231,7 @@ test('builder preview: skips are loaded once and handed to every schedule line',
   assert.match(src, /\.eq\("queue_pinned", true\)\s*\.eq\("completed", false\)/)
   assert.match(src, /doneTodayHere,\s*\[\.\.\.skippedSlots\.map/)
   assert.match(src, /nextLesson: builderNextLesson\(branch === "fresh" \? 1 : nextLesson, skippedSlots, row\.total_lessons\)/)
-  assert.match(src, /calcPace\(row, today, projected\[0\]\?\.date, vacations, skippedSlots\)/)
+  assert.match(src, /const nextQueued = projected\.find\(\(p\) => p\.lesson_number > previewCurrent\);/)
+  assert.match(src, /calcPace\(row, today, nextQueued\?\.date, vacations, skippedSlots\)/)
   assert.equal((src.match(/nextLesson: sched\.nextLesson,/g) ?? []).length, 4, 'both stored-progress lines and both next-lesson lines read the stepped lesson')
 })

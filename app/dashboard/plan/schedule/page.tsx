@@ -831,13 +831,16 @@ function rowScheduleFor(
 
   // The pace anchor is the next lesson's own date, so the finish month counts
   // forward from where the family is rather than from a start date behind them.
-  const pace = calcPace(row, today, projected[0]?.date, vacations, skippedSlots);
+  // The next QUEUE lesson: a lesson already done today (shown back on today)
+  // and a make-up (Invariant 23) both sit at or below the pointer and are not it.
+  const nextQueued = projected.find((p) => p.lesson_number > previewCurrent);
+  const pace = calcPace(row, today, nextQueued?.date, vacations, skippedSlots);
   return {
     branch,
     history,
     // The lesson that will actually be dated: a skipped one is stepped over.
     nextLesson: builderNextLesson(branch === "fresh" ? 1 : nextLesson, skippedSlots, row.total_lessons),
-    nextLessonDate: projected[0]?.date,
+    nextLessonDate: nextQueued?.date,
     effectiveStartDate,
     overflow,
     finishLabel: pace?.finishLabel ?? null,
