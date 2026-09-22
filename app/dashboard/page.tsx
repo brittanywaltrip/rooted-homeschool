@@ -58,7 +58,7 @@ import { currentKeyLast, getCurrentSchoolYear, resolveYearbookKey, yearbookConte
 import { countLeaves, loadLeafCounts, loadLeafSources } from "@/app/lib/garden-leaves";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { captureSupabaseError } from "@/lib/sentry-error";
-import { reopenBehindPointer } from "@/app/lib/reopen-lesson";
+import { untickLessonThen } from "@/app/lib/reopen-lesson";
 import { MAX_PREFILL_TITLE } from "@/lib/mail-adventures";
 import { useIsNativeApp } from "@/lib/platform";
 import WhenPicker from "@/app/components/WhenPicker";
@@ -3077,37 +3077,26 @@ export default function TodayPage() {
     // chosen-day completion set them (see buildCompletionPayload) and both
     // would otherwise outlive the completion that justified them, freezing the
     // row where the reconciler can no longer move it.
+    //
+    // Invariant 23: the un-complete, the pointer recompute and, for a lesson
+    // left behind the pointer, the make-up pin are ONE transaction
+    // (reopen_lesson). Anything that re-dates the rest of the curriculum runs
+    // in the `after` step, once the make-up pin exists. A failure changes
+    // nothing, so the tick comes back from a reload and the family is told.
     setLessons(lessons.map((l) => (l.id === id ? { ...l, completed: false } : l)));
-    await supabase
-      .from("lessons")
-      .update({
-        completed: false,
-        completed_at: null,
-        is_backfill: false,
-        queue_pinned: false,
-        scheduled_source: "manual_uncomplete",
-      })
-      .eq("id", id);
-    setAllDoneBanner(false);
-    if (lesson.curriculum_goal_id) {
-      await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
-      // Invariant 23: a lesson reopened behind the pointer is a make-up,
-      // pinned to the day it is due, so it stays on Today and every projection
-      // leaves its day's capacity to it.
-      const reopened = await reopenBehindPointer(supabase, {
-        lessonId: id,
-        goalId: lesson.curriculum_goal_id,
-        todayYmd: today,
+    const untick = await untickLessonThen(supabase, { lessonId: id, localDay: today }, async () => {});
+    if (!untick.ok && untick.status !== "not_completed") {
+      captureSupabaseError("Un-tick did not apply", new Error(`${untick.status}: ${untick.reason}`), {
+        level: untick.status === "unavailable" ? "error" : "warning",
+        tags: { fn: "toggleLesson", surface: "today", status: untick.status },
+        extra: { lessonId: id },
       });
-      if (reopened.error) {
-        captureSupabaseError("Reopened lesson could not be made a make-up", new Error(reopened.error), {
-          level: "warning",
-          tags: { fn: "toggleLesson", surface: "today" },
-          extra: { lessonId: id },
-        });
-      }
+      showCaptureToast("Couldn't unmark that lesson, try again.", null);
       await loadData();
+      return;
     }
+    setAllDoneBanner(false);
+    if (lesson.curriculum_goal_id) await loadData();
     await refreshLeafCounts();
   }
 

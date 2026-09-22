@@ -173,7 +173,7 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'undo_restore'`: an undo put a row back where the automatic projector had it. Written instead of restoring `'queue_resync'` (`sourceForUndoRestore`); every other snapshotted source is restored as it was.
 - `'recalibrate_estimate'` — synthesized completion date written by the "I'm actually on lesson X" recalibration gap-fill. Lessons stamped with this source have completed_at + scheduled_date evenly distributed across the window between the goal's last real completion (or start_date / created_at) and yesterday. The Plan calendar lesson card surfaces an "Estimated date · tap to move." hint for these rows; moving the lesson via `move_lesson_to_date` overwrites the source with `'plan_move'`.
 - `'manual_uncomplete'` — the user unchecked a completed lesson (`toggleLesson` in `app/components/PlanV2/usePlanLessonActions.ts`). This write does NOT move either date column; it exists to mark that the row went back into the queue, and it clears `is_backfill` alongside. Without that clear, a lesson logged on a past day (`catchup_resched` + `is_backfill`) and then unchecked kept its past date permanently: `syncProjectedScheduledDates` skips `is_backfill` rows, so the reconciler could never roll it forward and every load counted it as missed.
-- `'reopened'`: Invariant 23. A lesson unticked behind the pointer is pinned to the day it is due (its own day or today, whichever is later) by `reopenBehindPointer` in `app/lib/reopen-lesson.ts`, called from both un-tick paths after `manual_uncomplete`. The Schedule Builder's phase 2 writes the same source when it pins a row reopened before make-ups existed.
+- `'reopened'`: Invariant 23. A lesson unticked behind the pointer is pinned to the day it is due (its own day or today, whichever is later) by `public.reopen_lesson`, the one transaction both un-tick paths call (through `untickLessonThen` in `app/lib/reopen-lesson.ts`): it writes `manual_uncomplete`, lets the pointer trigger recompute, then writes `reopened` if the lesson is behind the pointer. The Schedule Builder's phase 2 writes the same source when it pins a row reopened before make-ups existed.
 - `'completion_pin'` — a lesson was marked done, so its calendar date was pinned
   to the day the family tapped it (Today's `toggleLesson` / `confirmExtraLessons` /
   `markMissedComplete`, and the Plan page's `toggleLesson`). This is the same-row pin
@@ -1206,6 +1206,16 @@ lessons after. Such a lesson "needs to be done again" (founder decision,
   capacity). Behind-the-pointer pins that predate this rule are all in the
   past on 2026-09-22, so the rule moved no existing row.
 
+**One transaction, then the re-date.** Un-ticking is `public.reopen_lesson`:
+the un-complete, the pointer recompute (the lessons trigger, same
+transaction) and the make-up pin commit together or not at all. Anything that
+re-dates the rest of the curriculum (PR #84's completion re-date) runs only
+after it succeeded, through `untickLessonThen`, so it projects around the pin.
+Re-dating first puts the next lesson on the make-up's day; re-dating after a
+failed un-tick moves lessons for a change that never happened. A failure,
+including the function being absent, leaves the lesson ticked and tells the
+family.
+
 **The Schedule Builder** never deletes, re-dates or releases a row behind the
 pointer (`planPhase2Rows`), because the history backfill would otherwise
 re-create it as DONE, completing a lesson the family reopened (Invariant 15).
@@ -1225,8 +1235,11 @@ completed work included, and refuse it before any write if the lessons the
 plan places do not fit each day after the lessons done that day and every
 other unfinished lesson dated there. `public.apply_builder_rebuild` then
 re-reads the rows under lock, refuses a plan made against rows that changed
-(`stale`, retried), writes everything, and re-checks the same capacity rule
-before committing. The after-save read is monitoring only: a committed save is
+(`stale`, retried), including any row it would delete or retire that now
+carries notes or minutes (`rooted_private.lesson_carries_work`, the same rule
+as `holdsParentWork`), writes everything, and re-checks the same capacity rule
+before committing. There is no client-side fallback: if the function is
+missing or fails, nothing is written and the save is retryable. The after-save read is monitoring only: a committed save is
 never reported to the family as failed. Lessons completed today count against
 today's pace in the builder's projection, exactly as on Today.
 

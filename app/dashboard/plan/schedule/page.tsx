@@ -3343,7 +3343,6 @@ export default function ScheduleBuilderPage() {
         }
         const committed = await applyPhase2Commit(supabase, {
           goalId,
-          userId: effectiveUserId,
           localDay: ymd(todayMid),
           expected: phase2Expected({
             goal: snapshot,
@@ -3360,19 +3359,21 @@ export default function ScheduleBuilderPage() {
             `Lesson scheduling was refused before anything was written (${committed.reason}). The curriculum saved, but lessons were not generated. Please contact support.`,
           );
         }
+        if (committed.status === "unavailable") {
+          // The transaction is not on this database (the release order puts
+          // the migration first). Nothing was written, and there is no
+          // non-atomic fallback: the family is asked to save again.
+          captureSupabaseError(
+            "Curriculum save phase 2: apply_builder_rebuild is unavailable",
+            new Error(committed.reason),
+            { tags: { phase: "phase2_commit_unavailable", goal_id: goalId } },
+          );
+          throw new Error(`Phase 2 commit unavailable: ${committed.reason}`);
+        }
         if (committed.status !== "applied") {
           // 'stale' (a row changed since it was read) or a failed transaction:
           // nothing was written, and the retry re-reads and plans again.
           throw new Error(`Phase 2 commit ${committed.status}: ${committed.reason}`);
-        }
-        if (committed.via === "legacy") {
-          // The release order puts the migration first; this is the one path
-          // that is not a single transaction, so it is always reported.
-          captureSupabaseError(
-            "Curriculum save phase 2 committed without apply_builder_rebuild",
-            new Error("apply_builder_rebuild is not deployed on this database"),
-            { level: "warning", tags: { phase: "phase2_commit_legacy", goal_id: goalId } },
-          );
         }
 
         // ── Count what the DATABASE wrote, not what we planned to write ─────
@@ -3551,7 +3552,7 @@ export default function ScheduleBuilderPage() {
               ),
               {
                 tags: { phase: "curriculum_save_post_commit_monitor", goal_id: goalId },
-                extra: { overCapacity: seen.overCapacity, integrity: seen.integrity, via: committed.via },
+                extra: { overCapacity: seen.overCapacity, integrity: seen.integrity },
               },
             );
           }

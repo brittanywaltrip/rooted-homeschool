@@ -17,8 +17,10 @@
 //      written.
 //   3. COMMIT (applyPhase2Commit, here): public.apply_builder_rebuild, which
 //      re-reads the rows under lock, refuses a plan made against rows that
-//      have since changed, writes everything, and re-checks capacity inside
-//      the same transaction. A failure anywhere writes nothing.
+//      have since changed (including any row it would retire or delete that
+//      now carries notes or minutes), writes everything, and re-checks
+//      capacity inside the same transaction. A failure anywhere, or a missing
+//      function, writes nothing. There is no client-side fallback.
 //
 // Pure except applyPhase2Commit. No "@/" imports: node --test runs this file
 // directly (strip-only TypeScript).
@@ -305,30 +307,37 @@ export function validatePhase2End(a: {
 }
 
 export type Phase2CommitResult =
-  | { status: "applied"; via: "rpc" | "legacy"; inserted: number; redated: number }
-  | { status: "stale" | "refused" | "invalid" | "failed"; reason: string };
+  | { status: "applied"; inserted: number; redated: number }
+  | {
+      /**
+       * stale: rows changed since they were read (retry re-reads and re-plans).
+       * unavailable: apply_builder_rebuild is not on this database (retryable,
+       * and reported: the release order puts the migration first).
+       * failed: the transaction failed and wrote nothing (retryable).
+       * refused / invalid: the database rejected the plan; deterministic.
+       */
+      status: "stale" | "refused" | "invalid" | "failed" | "unavailable";
+      reason: string;
+    };
 
 /** PostgREST's "function not found": the migration is not on this database yet. */
 function isMissingFunction(err: { code?: string } | null | undefined): boolean {
   return err?.code === "PGRST202";
 }
 
-const INSERT_BATCH = 500;
-
 /**
- * Write one curriculum's plan. Through apply_builder_rebuild: one transaction,
+ * Write one curriculum's plan through apply_builder_rebuild: one transaction,
  * all of it or none of it, against rows re-checked under lock.
  *
- * Only if that function does not exist yet (the app shipped before the
- * migration, which the release order forbids) does it fall back to the ordered
- * client-side writes this replaced. The plan was already validated in full, so
- * the fallback cannot write a refused plan; it can only be interrupted.
+ * There is deliberately NO client-side fallback. If the function is missing
+ * or the call fails, nothing is written and the caller gets a retryable
+ * status. A rebuild written as separate browser requests is what left
+ * curricula half rebuilt before this (Sentry ROOTED-HOMESCHOOL-1Q).
  */
 export async function applyPhase2Commit(
   supabase: SupabaseClient,
   a: {
     goalId: string;
-    userId: string;
     localDay: string;
     expected: ReturnType<typeof phase2Expected>;
     plan: Phase2CommitPlan;
@@ -340,79 +349,18 @@ export async function applyPhase2Commit(
     p_expected: a.expected,
     p_plan: a.plan,
   });
-  if (!error) {
-    const res = (data ?? {}) as { status?: string; reason?: string; inserted?: number; redated?: number };
-    if (res.status === "applied") {
-      return { status: "applied", via: "rpc", inserted: res.inserted ?? 0, redated: res.redated ?? 0 };
+  if (error) {
+    if (isMissingFunction(error as { code?: string })) {
+      return { status: "unavailable", reason: "apply_builder_rebuild is not deployed on this database" };
     }
-    const status = res.status === "stale" || res.status === "refused" || res.status === "invalid" ? res.status : "failed";
-    return { status, reason: res.reason ?? "unknown" };
-  }
-  if (!isMissingFunction(error as { code?: string })) {
     return { status: "failed", reason: (error as { message?: string }).message ?? "rpc error" };
   }
-  return legacyPhase2Writes(supabase, a);
-}
-
-async function legacyPhase2Writes(
-  supabase: SupabaseClient,
-  a: { goalId: string; userId: string; plan: Phase2CommitPlan },
-): Promise<Phase2CommitResult> {
-  const { plan } = a;
-  const fail = (reason: string): Phase2CommitResult => ({ status: "failed", reason });
-  if (plan.unpin_ids.length > 0) {
-    const { error } = await supabase.from("lessons").update({ queue_pinned: false }).in("id", plan.unpin_ids);
-    if (error) return fail(error.message);
+  const res = (data ?? {}) as { status?: string; reason?: string; inserted?: number; redated?: number };
+  if (res.status === "applied") {
+    return { status: "applied", inserted: res.inserted ?? 0, redated: res.redated ?? 0 };
   }
-  for (let i = 0; i < plan.delete_ids.length; i += INSERT_BATCH) {
-    const { error } = await supabase.from("lessons").delete().in("id", plan.delete_ids.slice(i, i + INSERT_BATCH));
-    if (error) return fail(error.message);
-  }
-  let inserted = 0;
-  for (let i = 0; i < plan.inserts.length; i += INSERT_BATCH) {
-    const batch = plan.inserts.slice(i, i + INSERT_BATCH).map((r) => ({
-      ...r,
-      user_id: a.userId,
-      curriculum_goal_id: a.goalId,
-      date: r.scheduled_date,
-    }));
-    const { data, error } = await supabase.from("lessons").insert(batch).select("id");
-    if (error) return fail(error.message);
-    inserted += (data ?? []).length;
-  }
-  if (plan.retire_above != null) {
-    if (plan.retire_keep_ids.length > 0) {
-      const { error } = await supabase
-        .from("lessons")
-        .update({ scheduled_date: null, queue_position: null, queue_pinned: false })
-        .in("id", plan.retire_keep_ids);
-      if (error) return fail(error.message);
-    }
-    let q = supabase
-      .from("lessons")
-      .delete()
-      .eq("curriculum_goal_id", a.goalId)
-      .eq("completed", false)
-      .gt("lesson_number", plan.retire_above);
-    if (plan.retire_keep_ids.length > 0) q = q.not("id", "in", `(${plan.retire_keep_ids.join(",")})`);
-    const { error } = await q;
-    if (error) return fail(error.message);
-  }
-  for (const t of plan.redates) {
-    const { error } = await supabase
-      .from("lessons")
-      .update({ scheduled_date: t.to, date: t.to, scheduled_source: "wizard_create" })
-      .eq("id", t.id);
-    if (error) return fail(error.message);
-  }
-  if (plan.makeup_ids.length > 0) {
-    const { error } = await supabase
-      .from("lessons")
-      .update({ queue_pinned: true, scheduled_source: "reopened" })
-      .in("id", plan.makeup_ids);
-    if (error) return fail(error.message);
-  }
-  return { status: "applied", via: "legacy", inserted, redated: plan.redates.length };
+  const status = res.status === "stale" || res.status === "refused" || res.status === "invalid" ? res.status : "failed";
+  return { status, reason: res.reason ?? "unknown" };
 }
 
 /**

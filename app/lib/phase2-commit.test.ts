@@ -9,6 +9,7 @@
 // wiring is pinned by the source-shape tests in scheduler.test.ts.
 
 import { test } from 'node:test'
+import { readFileSync } from 'node:fs'
 import assert from 'node:assert/strict'
 
 import {
@@ -22,6 +23,7 @@ import {
 } from './scheduler.ts'
 import {
   applyPhase2Commit,
+  holdsParentWork,
   countDoneToday,
   phase2Expected,
   planPhase2Commit,
@@ -391,7 +393,7 @@ const SAMPLE = (() => {
   const rows = untick(created(), 'h015', { reopen: false })
   const r = resave(rows)
   return {
-    goalId: GOAL, userId: 'user', localDay: TODAY_YMD,
+    goalId: GOAL, localDay: TODAY_YMD,
     expected: phase2Expected({
       goal: { total_lessons: TOTAL, current_lesson: 15, start_at_lesson: START_AT, lessons_per_day: 1, lessons_per_day_overrides: null, school_days: SCHOOL_DAYS, start_date: START_DATE },
       rows, dayStartIso: DAY_START, dayEndIso: DAY_END,
@@ -438,14 +440,17 @@ test('the commit sends the whole plan and the snapshot it was made from', async 
   assert.deepEqual(rows.map((r) => r[0]), [...rows.map((r) => r[0] as string)].sort(), 'rows sorted by id, as the database builds them')
 })
 
-test('before the migration exists, the fallback writes in order and stops at the first failure', async () => {
-  const { client, calls } = fakeClient({ error: { code: 'PGRST202', message: 'not found' } }, 'insert')
+test('missing function: no fallback, a retryable "unavailable", and no lesson writes at all', async () => {
+  const { client, calls } = fakeClient({ error: { code: 'PGRST202', message: 'Could not find the function' } })
   const res = await applyPhase2Commit(client, SAMPLE)
-  assert.equal(res.status, 'failed')
-  const ops = calls.map((c) => c.op)
-  assert.equal(ops[0], 'rpc')
-  assert.ok(ops.includes('delete') && ops.indexOf('delete') < ops.indexOf('insert'))
-  assert.equal(ops[ops.length - 1], 'insert', 'nothing is written after the failure')
+  assert.equal(res.status, 'unavailable')
+  assert.deepEqual(calls.map((c) => c.op), ['rpc'], 'nothing but the one RPC call')
+})
+
+test('the commit module has no client-side write path left', () => {
+  const src = readFileSync(new URL('./phase2-commit.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(src, /\.from\("lessons"\)/)
+  assert.doesNotMatch(src, /legacy/i)
 })
 
 // ── reopen planner ─────────────────────────────────────────────────────────
@@ -458,4 +463,22 @@ test('planReopenMakeUp: which reopened rows become make-ups, and on which day', 
   assert.equal(planReopenMakeUp({ row: { ...base, completed: true, queue_position: 3, scheduled_date: null }, currentLesson: 15, todayYmd: TODAY_YMD }), null)
   assert.equal(planReopenMakeUp({ row: { ...base, skipped: true, queue_position: 3, scheduled_date: null }, currentLesson: 15, todayYmd: TODAY_YMD }), null)
   assert.deepEqual(planReopenMakeUp({ row: { ...base, queue_position: 3, scheduled_date: null }, currentLesson: 15, todayYmd: TODAY_YMD }), { date: TODAY_YMD })
+})
+
+// ── One definition of "carries the family's work", on both sides ───────────
+
+test('holdsParentWork and rooted_private.lesson_carries_work agree on every whitespace character', () => {
+  const sql = readFileSync(new URL('../../supabase/migrations/20260922025647_apply_builder_rebuild_work_guard.sql', import.meta.url), 'utf8')
+  const fn = sql.slice(sql.indexOf('function rooted_private.lesson_carries_work('), sql.indexOf('$w$;'))
+  const sqlSpaces = new Set([9, 10, 11, 12, 13, 32, ...[...fn.matchAll(/chr\((\d+)\)/g)].map((m) => Number(m[1]))])
+  // chr(8192) '-' chr(8202) is a range in the SQL class.
+  for (let c = 8192; c <= 8202; c++) sqlSpaces.add(c)
+  for (let c = 0; c <= 0xffff; c++) {
+    const ch = String.fromCharCode(c)
+    if (ch.trim() !== '') continue
+    assert.ok(sqlSpaces.has(c), `U+${c.toString(16).padStart(4, '0')} is whitespace to trim() but not to the SQL rule`)
+    assert.equal(holdsParentWork({ notes: `${ch}${ch}`, minutes_spent: null }), false)
+  }
+  assert.equal(holdsParentWork({ notes: ' a ', minutes_spent: null }), true)
+  assert.equal(holdsParentWork({ notes: null, minutes_spent: 0 }), true)
 })

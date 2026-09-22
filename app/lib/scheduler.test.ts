@@ -2841,46 +2841,33 @@ test('past-date completion: out-of-order backfill (complete lesson 5 with lesson
 // The uncomplete write has to clear the flag it did not set.
 
 test('uncomplete clears is_backfill so the reconciler can re-date the row', () => {
-  const src = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
-  const body = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
-  assert.ok(
-    /is_backfill:\s*false/.test(body),
-    'the uncomplete branch must set is_backfill = false',
-  )
-  assert.ok(
-    /scheduled_source:\s*"manual_uncomplete"/.test(body),
-    'Invariant 10: the uncomplete write tags its source',
-  )
-  // queue_pinned comes off with it. Under Invariant 16 a chosen-day completion
-  // pins the row (Invariant 12); the pin is only justified while the
-  // completion stands, and left behind it would freeze the row where the
-  // reconciler can no longer move it.
-  assert.ok(
-    /queue_pinned:\s*false/.test(body),
-    'the uncomplete branch must release the pin its completion set',
-  )
-  // The complete direction never writes either flag by hand: it delegates to
-  // buildCompletionPayload, which owns both.
-  assert.ok(
-    /completeWithChoice\(/.test(body),
-    'completing delegates to the shared writer rather than assembling a payload here',
-  )
+  // The uncomplete write lives in public.reopen_lesson now (Invariant 23): one
+  // transaction with the pointer recompute and, behind the pointer, the
+  // make-up pin. Both surfaces call it through untickLessonThen.
+  const hook = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
+  const body = extractFunctionBody(hook, /const toggleLesson = useCallback\(async \(/)
+  assert.match(body, /untickLessonThen\(/, 'Plan unticks through the one transaction')
+  assert.match(extractFunctionBody(stripComments(loadRepoFile('app/dashboard/page.tsx')), /async function toggleLesson\s*\(/), /untickLessonThen\(/, 'and so does Today')
+  const sql = loadRepoFile('supabase/migrations/20260922025647_apply_builder_rebuild_work_guard.sql')
+  const fn = sql.slice(sql.indexOf('create or replace function public.reopen_lesson('))
+  const uncomplete = fn.slice(fn.indexOf('update public.lessons'), fn.indexOf('where id = p_lesson_id'))
+  assert.match(uncomplete, /is_backfill = false/, 'the uncomplete must set is_backfill = false')
+  assert.match(uncomplete, /scheduled_source = 'manual_uncomplete'/, 'Invariant 10: the uncomplete write tags its source')
+  assert.match(uncomplete, /queue_pinned = false/, 'the uncomplete releases the pin its completion set')
+  assert.ok(/completeWithChoice\(/.test(body), 'completing delegates to the shared writer rather than assembling a payload here')
 })
 
-test('uncomplete still leaves both date columns alone', () => {
-  const src = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
-  const body = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
-  // Invariant 7 territory, unchanged by Invariant 16: the family may be
-  // undoing a misclick on a real future lesson, so its day is not ours to
-  // move. The uncomplete payload is asserted in full, which is what makes
-  // "and nothing else" true rather than implied.
-  const uncompleteWrite = body.match(/\.update\(\s*\{([\s\S]*?)\}\s*\)\s*\.eq\("id", id\)/)
-  assert.ok(uncompleteWrite, 'the uncomplete branch issues one scoped update')
-  const payload = uncompleteWrite[1]
-  assert.ok(!/\bdate:/.test(payload), 'uncomplete must not write date')
-  assert.ok(!/scheduled_date:/.test(payload), 'uncomplete must not write scheduled_date')
-  assert.ok(/completed:\s*false/.test(payload) && /completed_at:\s*null/.test(payload),
-    'it does clear the completion itself')
+test('uncomplete still leaves both date columns alone, except for a make-up (Invariant 23)', () => {
+  const sql = loadRepoFile('supabase/migrations/20260922025647_apply_builder_rebuild_work_guard.sql')
+  const fn = sql.slice(sql.indexOf('create or replace function public.reopen_lesson('))
+  const uncomplete = fn.slice(fn.indexOf('update public.lessons'), fn.indexOf('where id = p_lesson_id'))
+  assert.ok(!/\bdate\s*=/.test(uncomplete) && !/scheduled_date\s*=/.test(uncomplete), 'the uncomplete itself writes no date')
+  assert.match(uncomplete, /completed = false, completed_at = null/, 'it does clear the completion itself')
+  // The only date write is the make-up pin, and only behind the pointer.
+  const gate = fn.indexOf('v_row.queue_position <= coalesce(v_current, 0)')
+  const dateWrite = fn.indexOf("scheduled_source = 'reopened'")
+  assert.ok(gate !== -1 && dateWrite > gate, 'dates move only for a lesson behind the pointer')
+  assert.match(fn, /v_date := greatest\(coalesce\(v_row\.scheduled_date, p_local_day\), p_local_day\)/, 'its own day, or today if that has passed')
 })
 
 // ── Prior-lesson confirmation keeps the day the work happened (Sep 2026) ──
@@ -7147,14 +7134,14 @@ test('rebuild: shortening a curriculum unschedules notes rows instead of deletin
   const commit = stripComments(loadRepoFile('app/lib/phase2-commit.ts'))
   assert.ok(/retire_keep_ids: retireKeepIds/.test(commit) && /holdsParentWork\(r\)/.test(commit), 'the over-ceiling cleanup must except them')
   assert.ok(
-    /scheduled_date: null, queue_position: null, queue_pinned: false/.test(commit),
-    'a retired notes row leaves the calendar and the queue but keeps its text',
+    /row\.scheduled_date = null;\s*row\.queue_position = null;\s*row\.queue_pinned = false;/.test(commit),
+    'the simulated end state unschedules a retired notes row, keeping its text',
   )
-  assert.match(
-    loadRepoFile('supabase/migrations/20260922021607_apply_builder_rebuild.sql'),
-    /set scheduled_date = null, queue_position = null, queue_pinned = false/,
-    'and so does the transaction',
-  )
+  const guard = loadRepoFile('supabase/migrations/20260922025647_apply_builder_rebuild_work_guard.sql')
+  assert.match(guard, /set scheduled_date = null, queue_position = null, queue_pinned = false/, 'and so does the transaction')
+  // PR #87 review: work written in another tab after the plan is never retired.
+  assert.match(guard, /'reason', 'retire_rows'/, 'a retiring row that now carries work makes the plan stale')
+  assert.match(guard, /and not \(id = any\(v_keep_work\)\)\s*and not rooted_private\.lesson_carries_work\(notes, minutes_spent\);/, 'and the delete itself never takes one')
 })
 
 test('rebuild: kept rows are re-dated in place, and pins are never re-dated', () => {
@@ -7624,7 +7611,7 @@ test('big families: a second tap on a lesson still in flight is ignored, not que
   // audit history have to keep agreeing.
   const plan = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
   const withLog = extractFunctionBody(plan, /const toggleLessonWithLog = useCallback\(/)
-  assert.match(withLog, /const wrote = await toggleLesson\(id, current\)/)
+  assert.match(withLog, /const wrote = await toggleLessonReported\(id, current\)/)
   assert.ok(withLog.indexOf('if (willAsk || !wrote) return;') < withLog.indexOf('recordEvent('), 'no audit event for a dropped tap')
   const chooser = plan.slice(plan.indexOf('onChoose={async (dateStr, choice) => {'))
   assert.ok(chooser.indexOf('if (!wrote) return;') !== -1 && chooser.indexOf('if (!wrote) return;') < chooser.indexOf('recordEvent("lesson.completed"'), 'the chooser skips the event when nothing was written')
@@ -7633,11 +7620,12 @@ test('big families: a second tap on a lesson still in flight is ignored, not que
 test('big families: the builder inserts lessons through the shared batch helper, 500 at a time', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
-  // Phase 2 now writes every row in ONE apply_builder_rebuild call; the
-  // client-side fallback for a database without it batches at 500.
+  // Phase 2 now writes every row in ONE apply_builder_rebuild call, and there
+  // is no client-side write path left to batch.
   assert.match(body, /inserts: \[\.\.\.histToInsert, \.\.\.toInsert\]/)
   assert.ok(!/\.slice\(i, i \+ 100\)/.test(body), 'no hand-rolled 100-row chunks remain')
-  assert.match(stripComments(loadRepoFile('app/lib/phase2-commit.ts')), /const INSERT_BATCH = 500/)
+  const commit = stripComments(loadRepoFile('app/lib/phase2-commit.ts'))
+  assert.ok(!/\.from\("lessons"\)/.test(commit), 'the commit module never writes lessons itself')
   const helper = stripComments(loadRepoFile('app/lib/batches.ts'))
   assert.match(helper, /export const LESSON_INSERT_BATCH = 500/)
   assert.match(stripComments(loadRepoFile('app/dashboard/years/add/page.tsx')), /from "@\/app\/lib\/batches"/, 'the past-year flow uses the same helper')
@@ -9586,11 +9574,10 @@ test('the builder confirms what the database wrote and refuses a short batch', (
   // The insert returns its rows, so the count is the server's answer and not
   // ours. schedule.rebuilt logged toInsert.length, the PLANNED number, which is
   // why goal 69e9b6b8 is recorded as "inserted: 52" while holding 51 rows.
-  // The transaction reports the rows it inserted; the fallback path counts
-  // the rows each insert returned.
+  // The transaction reports the rows it inserted.
   assert.match(body, /const confirmedInsertCount = committed\.inserted/)
   assert.match(body, /if \(confirmedInsertCount !== plannedInsertCount\)/)
-  assert.match(stripComments(loadRepoFile('app/lib/phase2-commit.ts')), /\.insert\(batch\)\.select\("id"\)/)
+  assert.match(loadRepoFile('supabase/migrations/20260922025647_apply_builder_rebuild_work_guard.sql'), /returning id into v_new_id;/)
   assert.match(body, /inserted: confirmedInsertCount/, 'the event logs the confirmed count')
   assert.ok(
     !/inserted: toInsert\.length \+ histToInsert\.length/.test(body),

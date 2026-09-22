@@ -1041,6 +1041,19 @@ export default function PlanV2() {
   // awaited so the DB write lands before we record the event — if the hook
   // fails silently the audit entry still goes out, which is intentional:
   // the user's intent was recorded even if persistence hiccups.
+  const toggleLessonReported = useCallback(
+    async (id: string, current: boolean): Promise<boolean> => {
+      try {
+        return await toggleLesson(id, current);
+      } catch {
+        flashNotice(current ? "Couldn't unmark that lesson, try again." : "Couldn't save that lesson, try again.");
+        reload();
+        return false;
+      }
+    },
+    [toggleLesson, reload],
+  );
+
   const toggleLessonWithLog = useCallback(
     async (id: string, current: boolean) => {
       const snap = lessons.find((l) => l.id === id);
@@ -1049,7 +1062,7 @@ export default function PlanV2() {
       // onChoose records the audit event and the toast once the family answers.
       const plannedDate = snap?.scheduled_date ?? snap?.date ?? null;
       const willAsk = !current && !!snap && plannedDate !== null && plannedDate !== todayStr;
-      const wrote = await toggleLesson(id, current);
+      const wrote = await toggleLessonReported(id, current);
       // A tap dropped because the first one is still writing is not an event,
       // a toast or a completion: the row and the history must keep agreeing.
       if (willAsk || !wrote) return;
@@ -1078,7 +1091,7 @@ export default function PlanV2() {
         await fireConfettiIfNewlyCompleted(snap.curriculum_goal_id);
       }
     },
-    [lessons, toggleLesson, recordEvent, fireConfettiIfNewlyCompleted, todayStr],
+    [lessons, toggleLessonReported, recordEvent, fireConfettiIfNewlyCompleted, todayStr],
   );
 
   const deleteLessonWithLog = useCallback(
@@ -5907,7 +5920,7 @@ export default function PlanV2() {
                       if (fromDate) setRescheduleTarget({ lessonId: l.id, fromDateStr: fromDate });
                     }}
                     onEditLesson={(l) => setEditLessonTarget(l)}
-                    onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
+                    onToggleLessonDone={(l) => { void toggleLessonReported(l.id, l.completed); }}
                     onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                     onMarkBreakForDay={(date) => handleMenuMarkBreak(date)}
                     onDayAdd={(date) => openUnifiedAdd(date)}
@@ -6009,7 +6022,7 @@ export default function PlanV2() {
                         if (fromDate) setRescheduleTarget({ lessonId: l.id, fromDateStr: fromDate });
                       }}
                       onEditLesson={(l) => setEditLessonTarget(l)}
-                      onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
+                      onToggleLessonDone={(l) => { void toggleLessonReported(l.id, l.completed); }}
                       onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                       onMarkBreakForDay={(date) => handleMenuMarkBreak(date)}
                       onDayAdd={(date) => openUnifiedAdd(date)}

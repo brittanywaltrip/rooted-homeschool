@@ -45,44 +45,66 @@ export function planReopenMakeUp(a: {
   return { date: own && own > a.todayYmd ? own : a.todayYmd };
 }
 
+export type UntickResult =
+  | { ok: true; status: "made_up" | "requeued"; date: string | null }
+  | {
+      ok: false;
+      /**
+       * unavailable: reopen_lesson is not on this database (retryable).
+       * failed / invalid: nothing changed, the lesson is still ticked.
+       * not_completed: it was not ticked to begin with (another tab).
+       */
+      status: "unavailable" | "failed" | "invalid" | "not_completed";
+      reason: string;
+    };
+
 /**
- * Run after an un-complete and its pointer recompute. Pins the row to its day
- * when it is behind the pointer. Returns the day it now sits on, or null when
- * nothing was needed. Confirms the write: a row the database left alone is an
- * error, not a success.
+ * Untick a lesson as ONE transaction (public.reopen_lesson): un-complete it,
+ * let the pointer recompute, and, when the lesson is now behind the pointer,
+ * pin it as a make-up (planReopenMakeUp is this rule's JavaScript mirror).
+ * On any failure nothing changes and the lesson stays ticked. There is no
+ * client-side fallback: a separate un-complete and pin could leave the lesson
+ * unfinished and unpinned behind the pointer, invisible to Today.
  */
-export async function reopenBehindPointer(
+export async function untickLesson(
   supabase: SupabaseClient,
-  a: { lessonId: string; goalId: string; todayYmd: string },
-): Promise<{ date: string | null; error: string | null }> {
-  const [{ data: row, error: rowErr }, { data: goal, error: goalErr }] = await Promise.all([
-    supabase
-      .from("lessons")
-      .select("queue_position, scheduled_date, completed, skipped")
-      .eq("id", a.lessonId)
-      .maybeSingle(),
-    supabase.from("curriculum_goals").select("current_lesson").eq("id", a.goalId).maybeSingle(),
-  ]);
-  if (rowErr || goalErr) return { date: null, error: (rowErr ?? goalErr)?.message ?? "read failed" };
-  if (!row || !goal) return { date: null, error: null };
-  const decision = planReopenMakeUp({
-    row: row as ReopenRow,
-    currentLesson: (goal as { current_lesson: number | null }).current_lesson ?? 0,
-    todayYmd: a.todayYmd,
+  a: { lessonId: string; localDay: string },
+): Promise<UntickResult> {
+  const { data, error } = await supabase.rpc("reopen_lesson", {
+    p_lesson_id: a.lessonId,
+    p_local_day: a.localDay,
   });
-  if (!decision) return { date: null, error: null };
-  const { data: wrote, error } = await supabase
-    .from("lessons")
-    .update({
-      queue_pinned: true,
-      scheduled_date: decision.date,
-      date: decision.date,
-      scheduled_source: "reopened",
-    })
-    .eq("id", a.lessonId)
-    .eq("completed", false)
-    .select("id");
-  if (error) return { date: null, error: error.message };
-  if ((wrote ?? []).length !== 1) return { date: null, error: "the lesson was not updated" };
-  return { date: decision.date, error: null };
+  if (error) {
+    const missing = (error as { code?: string }).code === "PGRST202";
+    return {
+      ok: false,
+      status: missing ? "unavailable" : "failed",
+      reason: missing ? "reopen_lesson is not deployed on this database" : (error as { message?: string }).message ?? "rpc error",
+    };
+  }
+  const res = (data ?? {}) as { status?: string; reason?: string; date?: string };
+  if (res.status === "made_up" || res.status === "requeued") {
+    return { ok: true, status: res.status, date: res.date ?? null };
+  }
+  const status = res.status === "invalid" || res.status === "not_completed" ? res.status : "failed";
+  return { ok: false, status, reason: res.reason ?? res.status ?? "unknown" };
+}
+
+/**
+ * The ORDER an un-tick must run in, and the one place it is written down:
+ *   1. untickLesson: un-complete, pointer recomputed, make-up pinned (one
+ *      transaction);
+ *   2. only if that succeeded, `after` (the re-date of the rest of the
+ *      curriculum), which then projects around the make-up pin.
+ * Re-dating first would put the next lesson on the make-up's day; re-dating
+ * after a failed un-tick would move lessons for a change that never happened.
+ */
+export async function untickLessonThen(
+  supabase: SupabaseClient,
+  a: { lessonId: string; localDay: string },
+  after: (result: Extract<UntickResult, { ok: true }>) => Promise<void>,
+): Promise<UntickResult> {
+  const result = await untickLesson(supabase, a);
+  if (result.ok) await after(result);
+  return result;
 }

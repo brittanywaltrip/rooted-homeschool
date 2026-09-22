@@ -10,8 +10,7 @@ import {
   type LessonCompletedEvent,
 } from "@/app/lib/completeLessonOnDate";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { reopenBehindPointer } from "@/app/lib/reopen-lesson";
-import { captureSupabaseError } from "@/lib/sentry-error";
+import { untickLessonThen } from "@/app/lib/reopen-lesson";
 
 /* ============================================================================
  * usePlanLessonActions — shared lesson handlers for the Plan page.
@@ -183,39 +182,32 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     // would freeze the row where the projector can no longer move it. The date
     // columns are still left untouched here; moving them is the reconciler's
     // job, not this write's.
+    //
+    // Invariant 23: the un-complete, the pointer recompute and, for a lesson
+    // left behind the pointer, the make-up pin are ONE transaction
+    // (reopen_lesson). Anything that re-dates the rest of the curriculum runs
+    // in the `after` step, once the make-up pin exists, so it projects around
+    // it. A failure changes nothing: the check comes back and the caller is
+    // told, like a failed completion.
     inFlightRef.current.add(id);
     try {
-      await supabase
-        .from("lessons")
-        .update({
-          completed: false,
-          completed_at: null,
-          is_backfill: false,
-          queue_pinned: false,
-          scheduled_source: "manual_uncomplete",
-        })
-        .eq("id", id);
-      if (lesson?.curriculum_goal_id) {
-        await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
-        // Invariant 23: a lesson reopened behind the pointer is a make-up,
-        // pinned to the day it is due, so Today and every projection see it.
-        const reopened = await reopenBehindPointer(supabase, {
-          lessonId: id,
-          goalId: lesson.curriculum_goal_id,
-          todayYmd: toDateStr(new Date()),
-        });
-        if (reopened.error) {
-          captureSupabaseError("Reopened lesson could not be made a make-up", new Error(reopened.error), {
-            level: "warning",
-            tags: { fn: "toggleLesson", surface: "plan" },
-            extra: { lessonId: id },
-          });
-        } else if (reopened.date) {
-          const moved = (l: T): T =>
-            l.id !== id ? l : { ...l, scheduled_date: reopened.date, date: reopened.date, queue_pinned: true };
-          setLessons(prev => prev.map(moved));
-          setMonthLessons(prev => prev.map(moved));
-        }
+      const result = await untickLessonThen(
+        supabase,
+        { lessonId: id, localDay: toDateStr(new Date()) },
+        async (done) => {
+          if (done.status === "made_up" && done.date) {
+            const day = done.date;
+            const moved = (l: T): T => (l.id !== id ? l : { ...l, scheduled_date: day, date: day, queue_pinned: true });
+            setLessons(prev => prev.map(moved));
+            setMonthLessons(prev => prev.map(moved));
+          }
+        },
+      );
+      if (!result.ok && result.status !== "not_completed") {
+        const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: true });
+        setLessons(prev => prev.map(revert));
+        setMonthLessons(prev => prev.map(revert));
+        throw new Error(`The lesson could not be unmarked (${result.status}: ${result.reason})`);
       }
       return true;
     } finally {
