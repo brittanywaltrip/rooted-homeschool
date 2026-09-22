@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 
 import { adminClient, cachedTestUserId, requireTestUserId } from '../admin';
+import { gotoAppPage } from '../helpers/overlays';
 
 /* Critical-path Playwright smoke tests. Run before every staging -> main
  * merge to catch regressions on the four user-facing flows that hurt the
@@ -625,6 +626,310 @@ test.describe('Orphan cleanup on starting-position advance', { tag: CURRICULUM_W
       timeout: 15_000,
     });
     expect(consoleErrors, `Plan page should not throw: ${consoleErrors.join(' | ')}`).toEqual([]);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Invariant 23: a lesson reopened behind the pointer is a make-up.
+//
+// Sentry ROOTED-HOMESCHOOL-1Q (2026-09-21). A family started tracking at lesson
+// 11, so the builder recorded lessons 1..10 as done, lesson 10 on today. They
+// unticked lesson 10. The pointer cannot drop below start_at_lesson - 1, so
+// the row sat unfinished behind it where Today could not see it, and the next
+// builder save put lesson 11 on today beside it and failed after committing.
+//
+// Both specs seed the exact rows the builder writes for "started at lesson 11,
+// nine days ago, one a day, every day", as service_role on the test account,
+// then drive the family's own path in the browser:
+//
+//   1. the 1Q state itself (lesson 10 unticked by the OLD app: incomplete,
+//      unpinned, on today) and a re-save of the untouched curriculum;
+//   2. the new un-tick, on Today, of lesson 10 recorded as done today.
+//
+// Either way lesson 10 must end as a make-up pinned on today, keeping its note
+// and minutes, and lesson 11 must be tomorrow: no day holds two lessons.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type MakeUpRow = {
+  id: string;
+  lesson_number: number;
+  queue_position: number | null;
+  completed: boolean;
+  completed_at: string | null;
+  is_backfill: boolean | null;
+  queue_pinned: boolean | null;
+  skipped: boolean | null;
+  scheduled_date: string | null;
+  scheduled_source: string | null;
+  notes: string | null;
+  minutes_spent: number | null;
+};
+
+const MAKE_UP_NOTE = 'E2E note: worked through the fractions page twice';
+const MAKE_UP_MINUTES = 45;
+
+function localYmd(offsetDays = 0): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * A 30-lesson goal that started nine days ago at lesson 11, every day, one a
+ * day: lessons 1..9 are backfilled history, 11..30 run from tomorrow. Lesson 10
+ * is either recorded as done today (what the builder writes) or already
+ * unticked by the old app (the 1Q state).
+ */
+async function seedPreTrackingGoal(
+  sb: NonNullable<ReturnType<typeof adminClient>>,
+  ctx: { userId: string; childId: string },
+  subject: string,
+  lesson10: 'done_today' | 'stranded',
+): Promise<string> {
+  const { data: goalRow, error: goalErr } = await sb
+    .from('curriculum_goals')
+    .insert({
+      user_id: ctx.userId,
+      child_id: ctx.childId,
+      curriculum_name: subject,
+      subject_label: subject,
+      total_lessons: 30,
+      current_lesson: 10,
+      start_at_lesson: 11,
+      start_date: localYmd(-9),
+      lessons_per_day: 1,
+      school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      default_minutes: 30,
+      archived: false,
+    })
+    .select('id')
+    .single();
+  if (goalErr || !goalRow) throw new Error(`seed goal failed: ${goalErr?.message}`);
+  const goalId = (goalRow as { id: string }).id;
+
+  const rows = Array.from({ length: 30 }, (_, i) => {
+    const n = i + 1;
+    const base = {
+      user_id: ctx.userId,
+      child_id: ctx.childId,
+      curriculum_goal_id: goalId,
+      title: `${subject} Lesson ${n}`,
+      lesson_number: n,
+      queue_position: n,
+      scheduled_source: 'wizard_create',
+      queue_pinned: false,
+    };
+    if (n <= 10) {
+      const day = localYmd(n - 10);
+      const history = {
+        ...base,
+        scheduled_date: day,
+        date: day,
+        completed: true,
+        completed_at: `${day}T12:00:00Z`,
+        is_backfill: true,
+        minutes_spent: 30,
+        hours: 0.5,
+      };
+      if (n < 10) return history;
+      const withWork = { ...history, notes: MAKE_UP_NOTE, minutes_spent: MAKE_UP_MINUTES, hours: MAKE_UP_MINUTES / 60 };
+      if (lesson10 === 'done_today') return withWork;
+      // Exactly what the pre-#87 un-tick wrote (usePlanLessonActions / Today).
+      return {
+        ...withWork,
+        completed: false,
+        completed_at: null,
+        is_backfill: false,
+        queue_pinned: false,
+        scheduled_source: 'manual_uncomplete',
+      };
+    }
+    const day = localYmd(n - 10);
+    return { ...base, scheduled_date: day, date: day, completed: false, hours: 0 };
+  });
+  const { error: lessonErr } = await sb.from('lessons').insert(rows);
+  if (lessonErr) throw new Error(`seed lessons failed: ${lessonErr.message}`);
+  return goalId;
+}
+
+async function readGoalState(sb: NonNullable<ReturnType<typeof adminClient>>, goalId: string) {
+  const { data: goal, error: gErr } = await sb
+    .from('curriculum_goals')
+    .select('current_lesson, start_at_lesson, total_lessons')
+    .eq('id', goalId)
+    .single();
+  if (gErr || !goal) throw new Error(`goal read failed: ${gErr?.message}`);
+  const { data, error } = await sb
+    .from('lessons')
+    .select('id, lesson_number, queue_position, completed, completed_at, is_backfill, queue_pinned, skipped, scheduled_date, scheduled_source, notes, minutes_spent')
+    .eq('curriculum_goal_id', goalId)
+    .order('lesson_number');
+  if (error) throw new Error(`lesson read failed: ${error.message}`);
+  return { goal: goal as { current_lesson: number; start_at_lesson: number; total_lessons: number }, rows: (data ?? []) as MakeUpRow[] };
+}
+
+/** The end state both paths must reach. */
+function expectMakeUpOnToday(state: Awaited<ReturnType<typeof readGoalState>>) {
+  const today = localYmd(0);
+  const { goal, rows } = state;
+  expect(goal.start_at_lesson, 'the starting lesson is never changed').toBe(11);
+  expect(goal.current_lesson, 'the pointer stays at start_at_lesson - 1').toBe(10);
+
+  const numbers = rows.map((r) => r.lesson_number);
+  expect(numbers, 'every lesson 1..30 exactly once').toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+
+  for (const r of rows.filter((x) => x.lesson_number < 10)) {
+    expect(r.completed, `lesson ${r.lesson_number}: history stays completed`).toBe(true);
+  }
+
+  const l10 = rows.find((r) => r.lesson_number === 10)!;
+  expect(l10.completed, 'lesson 10 is not counted as done').toBe(false);
+  expect(l10.completed_at).toBeNull();
+  expect(l10.is_backfill, 'a make-up is not history').toBe(false);
+  expect(l10.queue_pinned, 'lesson 10 is pinned as a make-up').toBe(true);
+  expect(l10.scheduled_source).toBe('reopened');
+  expect(l10.scheduled_date, 'the make-up is due today').toBe(today);
+  expect(l10.queue_position).toBe(10);
+  expect(l10.notes, 'the note survives').toBe(MAKE_UP_NOTE);
+  expect(l10.minutes_spent, 'the minutes survive').toBe(MAKE_UP_MINUTES);
+
+  const l11 = rows.find((r) => r.lesson_number === 11)!;
+  expect(l11.completed).toBe(false);
+  expect(l11.scheduled_date, 'lesson 11 moves off the make-up\'s day').toBe(localYmd(1));
+
+  // No day holds more than the pace (one a day), make-up included.
+  const perDay = new Map<string, number[]>();
+  for (const r of rows) {
+    if (r.completed || r.skipped || !r.scheduled_date || r.scheduled_date < today) continue;
+    perDay.set(r.scheduled_date, [...(perDay.get(r.scheduled_date) ?? []), r.lesson_number]);
+  }
+  const stacked = [...perDay].filter(([, ns]) => ns.length > 1);
+  expect(stacked, `days holding more than one lesson: ${JSON.stringify(stacked)}`).toEqual([]);
+  expect(perDay.get(today), 'today holds the make-up alone').toEqual([10]);
+  // Lessons 11..30 run one a day from tomorrow, in order.
+  for (const r of rows.filter((x) => x.lesson_number > 10)) {
+    expect(r.scheduled_date, `lesson ${r.lesson_number}`).toBe(localYmd(r.lesson_number - 10));
+  }
+}
+
+/**
+ * Today's card for a lesson, found by its title and then through its own check
+ * toggle. The title is the row's own ("Subject Lesson 10") or the composed one
+ * ("Subject · Lesson 10"), so both are accepted.
+ */
+function todayCard(page: import('@playwright/test').Page, subject: string, lesson: number) {
+  const esc = subject.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return page
+    .getByText(new RegExp(`^${esc}( ·)? Lesson ${lesson}$`))
+    .locator('xpath=ancestor::*[.//button[starts-with(@aria-label, "Mark lesson")]][1]');
+}
+
+/** After a fresh load: Today shows the make-up to do, and not lesson 11. */
+async function expectTodayShowsMakeUp(page: import('@playwright/test').Page, subject: string) {
+  await gotoAppPage(page, '/dashboard');
+  const card = todayCard(page, subject, 10);
+  await expect(card, 'lesson 10 is on Today').toHaveCount(1, { timeout: 20_000 });
+  await expect(card.getByRole('button', { name: /^Mark lesson complete$/ })).toBeVisible();
+  await expect(card.getByText(MAKE_UP_NOTE), 'its note shows on the card').toBeVisible();
+  await expect(todayCard(page, subject, 11), 'lesson 11 is not due today').toHaveCount(0);
+}
+
+/** After a fresh load: Plan's today row carries the make-up, still to do. */
+async function expectPlanShowsMakeUp(page: import('@playwright/test').Page, subject: string) {
+  await gotoAppPage(page, '/dashboard/plan');
+  await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByRole('button', { name: `Mark ${subject} · Lesson 10 complete` }),
+    'lesson 10 is on today in Plan, to do',
+  ).toHaveCount(1, { timeout: 20_000 });
+  await expect(page.getByRole('button', { name: `Mark ${subject} · Lesson 11 complete` })).toHaveCount(0);
+}
+
+test.describe('Make-ups behind the pointer (Invariant 23, Sentry 1Q)', { tag: CURRICULUM_WRITES }, () => {
+  const createdGoalIds: string[] = [];
+
+  test.afterEach(async () => {
+    const sb = adminClient();
+    if (!sb) return;
+    const ids = createdGoalIds.splice(0);
+    if (ids.length === 0) return;
+    const testUserId = await requireTestUserId('make-up specs teardown');
+    await sb.from('lessons').delete().in('curriculum_goal_id', ids).eq('user_id', testUserId);
+    await sb.from('curriculum_goals').delete().in('id', ids).eq('user_id', testUserId);
+  });
+
+  test('re-saving a curriculum with a lesson unticked behind the pointer makes it a make-up (1Q)', async ({ page }) => {
+    test.setTimeout(210_000);
+    const sb = adminClient();
+    const ctx = await resolveTestUserAndFirstChild();
+    if (!sb || !ctx) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY + PLAYWRIGHT_EMAIL test account with a child required');
+      return;
+    }
+    const subject = `Makeup Resave ${STAMP()}`;
+    const goalId = await seedPreTrackingGoal(sb, ctx, subject, 'stranded');
+    createdGoalIds.push(goalId);
+
+    // The seeded 1Q state: lesson 10 unfinished, unpinned, on today, and
+    // lesson 11 tomorrow. The old save put lesson 11 on today beside it.
+    const before = await readGoalState(sb, goalId);
+    const stranded = before.rows.find((r) => r.lesson_number === 10)!;
+    expect(stranded.completed).toBe(false);
+    expect(stranded.queue_pinned).toBe(false);
+    expect(before.goal.current_lesson).toBe(10);
+
+    // Re-save the untouched curriculum, the family's own path.
+    await page.goto('/dashboard/plan/schedule', { waitUntil: 'domcontentloaded' });
+    await expect
+      .poll(
+        () => page.locator('input').evaluateAll((els, s) => els.some((e) => (e as HTMLInputElement).value === s), subject),
+        { message: 'the builder loads the seeded curriculum', timeout: 30_000 },
+      )
+      .toBe(true);
+    await previewAndSave(page);
+
+    expectMakeUpOnToday(await readGoalState(sb, goalId));
+    await expectTodayShowsMakeUp(page, subject);
+    await expectPlanShowsMakeUp(page, subject);
+    // Neither load moved anything: Today's and Plan's reconcilers agree.
+    expectMakeUpOnToday(await readGoalState(sb, goalId));
+  });
+
+  test('unticking a pre-tracking lesson on Today makes it a make-up, and reloads agree', async ({ page }) => {
+    test.setTimeout(150_000);
+    const sb = adminClient();
+    const ctx = await resolveTestUserAndFirstChild();
+    if (!sb || !ctx) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY + PLAYWRIGHT_EMAIL test account with a child required');
+      return;
+    }
+    const subject = `Makeup Untick ${STAMP()}`;
+    const goalId = await seedPreTrackingGoal(sb, ctx, subject, 'done_today');
+    createdGoalIds.push(goalId);
+
+    await gotoAppPage(page, '/dashboard');
+    const card = todayCard(page, subject, 10);
+    await expect(card, 'lesson 10, done today, is on Today').toHaveCount(1, { timeout: 20_000 });
+    const toggle = card.getByRole('button', { name: /^Mark lesson incomplete$/ });
+    await expect(toggle).toBeVisible();
+    await toggle.click();
+    await expect(card.getByRole('button', { name: /^Mark lesson complete$/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText(/Couldn't unmark that lesson/i)).toHaveCount(0);
+
+    await expect
+      .poll(async () => (await readGoalState(sb, goalId)).rows.find((r) => r.lesson_number === 10)?.queue_pinned, {
+        message: 'reopen_lesson pins lesson 10',
+        timeout: 15_000,
+      })
+      .toBe(true);
+    expectMakeUpOnToday(await readGoalState(sb, goalId));
+
+    await expectTodayShowsMakeUp(page, subject);
+    await expectPlanShowsMakeUp(page, subject);
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await expectPlanShowsMakeUp(page, subject);
+    expectMakeUpOnToday(await readGoalState(sb, goalId));
   });
 });
 
