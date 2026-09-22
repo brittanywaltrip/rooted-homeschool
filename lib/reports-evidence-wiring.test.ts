@@ -65,6 +65,8 @@ test("breaks print as Days Off and never feed Days Present", () => {
   assert.match(page, /data-report-days-off/);
   assert.match(page, /Days Off \(\{daysOff\.length\}\)/);
   assert.match(page, /breaks=\{breaks\}/);
+  // Breaks are family-wide (vacation_blocks has no child), so each entry says so.
+  assert.match(page, /\{" · Whole family"\}/);
   // Days Present stays lessons plus completed school appointments only.
   assert.match(page, /const presentDates = attendancePresentDates\(completedLessons, filteredAppointments\.map\(\(a\) => a\.date\)\);/);
   const presentLine = page.split("\n").find((l) => l.includes("attendancePresentDates(completedLessons")) ?? "";

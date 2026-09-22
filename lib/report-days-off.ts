@@ -7,8 +7,10 @@
 //
 // It is a record of days off only. It does not change Days Present, which
 // stays the days with completed lessons or completed school appointments
-// (lib/progress-report-rows.ts, attendancePresentDates). A break has no child,
-// so it prints on every child's report as well as the family report.
+// (lib/progress-report-rows.ts, attendancePresentDates). A break has no child
+// (vacation_blocks is family-wide), so it prints on every child's report as
+// well as the family report, labelled "Whole family" so a sick day recorded
+// for one child never reads as another child's absence.
 //
 // No "@/" import and no side effects: node --test strips types, it does not
 // resolve path aliases.

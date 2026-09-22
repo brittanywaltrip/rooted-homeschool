@@ -732,7 +732,8 @@ function PrintReport({
       )}
 
       {/* Days off: breaks recorded in Plan, such as a sick day. A record only;
-          they do not add to or remove from Days Present. */}
+          they do not add to or remove from Days Present. A break has no child,
+          so every entry says "Whole family" rather than implying one child. */}
       {daysOff.length > 0 && (
         <div data-report-days-off>
           <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
@@ -748,6 +749,7 @@ function PrintReport({
                     {" · "}
                     {d.start === d.end ? formatLogDate(d.start) : `${formatLogDate(d.start)} to ${formatLogDate(d.end)}`}
                     {days > 1 ? ` (${days} days)` : ""}
+                    {" · Whole family"}
                   </span>
                 </li>
               );
