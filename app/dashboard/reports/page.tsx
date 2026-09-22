@@ -21,6 +21,7 @@ import {
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { fallbackSchoolYear, getCurrentSchoolYear, todayLocalYmd } from "@/app/lib/school-year";
 import { selectReportPhotos, type ReportPhoto } from "@/lib/report-evidence";
+import { buildActivityLog, selectReportAppointments } from "@/lib/report-activity-log";
 import { resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE } from "@/app/lib/scheduler";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -343,10 +344,13 @@ function PrintReport({
   // For a single-child report, whole-family appointments (empty child_ids)
   // are counted toward that child; appointments explicitly tagged to other
   // kids are excluded. "All Children" includes everything.
-  const filteredAppointments: ReportAppointment[] = appointments.filter((a) => {
-    if (child && a.child_ids.length > 0 && !a.child_ids.includes(child.id)) return false;
-    return a.date >= dateFrom && a.date <= dateTo;
-  });
+  const filteredAppointments: ReportAppointment[] = selectReportAppointments(appointments, child?.id ?? null, dateFrom, dateTo);
+
+  // Sessions and appointments printed as ONE dated list. A plain union of two
+  // tables that never write to each other: every record appears once. Only
+  // session minutes count toward Hours Logged, as before; appointment time is
+  // shown on its row and has never been part of that total.
+  const activityLog = buildActivityLog(activitySessions, filteredAppointments);
 
   // Days Present unions completed-lesson dates with completed-appointment
   // dates so co-op or activity days without a curriculum lesson still count.
@@ -510,46 +514,6 @@ function PrintReport({
         </div>
       )}
 
-      {/* Activities and appointments */}
-      {filteredAppointments.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
-            Activities and Appointments
-          </h3>
-          <div className="space-y-2">
-            {filteredAppointments
-              .slice()
-              .sort((a, b) => b.date.localeCompare(a.date))
-              .map((a) => {
-                const dateLabel = new Date(a.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                const dur = a.duration_minutes;
-                const durLabel = dur && dur > 0
-                  ? (dur >= 60 ? `${(dur / 60).toFixed(1)}h` : `${dur}m`)
-                  : null;
-                const kidLabel = a.child_ids.length === 0
-                  ? "All children"
-                  : a.child_ids
-                      .map((id) => allKids.find((c) => c.id === id)?.name)
-                      .filter((n): n is string => !!n)
-                      .join(", ");
-                return (
-                  <div key={`${a.id}-${a.date}`} className="flex items-center gap-3">
-                    <span aria-hidden className="shrink-0">{a.emoji || "📍"}</span>
-                    <span className="text-sm text-[#2d2926] flex-1 min-w-0 truncate">{a.title}</span>
-                    <span className="text-xs text-[#7a6f65] shrink-0">{dateLabel}</span>
-                    {durLabel ? (
-                      <span className="text-xs text-[#b5aca4] shrink-0">{durLabel}</span>
-                    ) : null}
-                    {kidLabel ? (
-                      <span className="text-xs text-[#b5aca4] shrink-0">{kidLabel}</span>
-                    ) : null}
-                  </div>
-                );
-              })}
-          </div>
-        </div>
-      )}
-
       {/* Books read */}
       {filteredBooks.length > 0 && (
         <div>
@@ -567,15 +531,22 @@ function PrintReport({
         </div>
       )}
 
-      {/* Recurring activity sessions — a SEPARATE source from timed memories
-           above and from appointments below. Each line is a definition; the
-           count beside it is completed sessions, not definitions. */}
-      {activitySessions.length > 0 && (
+      {/* One Activities section: completed recurring-activity sessions and
+           completed school appointments, which used to print as two sections.
+           Each rollup line is a definition; the count beside it is completed
+           sessions, not definitions. Appointments are listed in the dated
+           table below and, as before, do not add to Hours Logged. */}
+      {activityLog.rows.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
-            Activities ({activitySummary.activityTypes} {activitySummary.activityTypes === 1 ? "activity" : "activities"},{" "}
-            {activitySummary.sessions} {activitySummary.sessions === 1 ? "session" : "sessions"},{" "}
-            {activitySummary.hours.toFixed(1)}h)
+            Activities ({[
+              activityLog.sessions > 0
+                ? `${activityLog.sessions} ${activityLog.sessions === 1 ? "session" : "sessions"}, ${activitySummary.hours.toFixed(1)}h`
+                : null,
+              activityLog.appointments > 0
+                ? `${activityLog.appointments} ${activityLog.appointments === 1 ? "appointment" : "appointments"}`
+                : null,
+            ].filter(Boolean).join(", ")})
           </h3>
           <div className="space-y-1">
             {activityGroups.map((g) => (
@@ -596,10 +567,11 @@ function PrintReport({
             ))}
           </div>
 
-          {/* One row per completed session, in date order. The grouped totals
-              above answer "how much"; this answers "when", which is what a
-              family is asked for when she has to show her work. Same source,
-              same filters: no row here is absent from the totals above. */}
+          {/* One row per completed session or appointment, in date order. The
+              grouped totals above answer "how much"; this answers "when", which
+              is what a family is asked for when she has to show her work. Same
+              filters as the totals: every session here is in them, and each
+              record appears once (lib/report-activity-log.ts). */}
           <table className="w-full mt-4 text-sm border-t border-[#e8e2d9]">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-widest text-[#b5aca4]">
@@ -610,10 +582,34 @@ function PrintReport({
               </tr>
             </thead>
             <tbody>
-              {activitySessions.map((s, i) => {
+              {activityLog.rows.map((row) => {
+                if (row.kind === "appointment") {
+                  const a = row.appointment;
+                  const kidLabel = a.child_ids.length === 0
+                    ? "Whole family"
+                    : a.child_ids
+                        .map((id) => allKids.find((c) => c.id === id)?.name)
+                        .filter((n): n is string => !!n)
+                        .join(", ");
+                  return (
+                    <tr key={row.key} className="border-t border-[#f2ede6]">
+                      <td className="py-1.5 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(row.date)}</td>
+                      <td className="py-1.5 pr-3 align-top text-[#2d2926]">
+                        <span className="mr-1">{a.emoji || "\u{1F4CD}"}</span>
+                        {a.title}
+                        <span className="block text-[10px] uppercase tracking-wide text-[#b5aca4]">appointment</span>
+                      </td>
+                      <td className="py-1.5 pr-3 align-top text-[#7a6f65]">{kidLabel || "\u2014"}</td>
+                      <td className="py-1.5 align-top text-[#7a6f65] text-right whitespace-nowrap">
+                        {formatSessionDuration(row.minutes)}
+                      </td>
+                    </tr>
+                  );
+                }
+                const s = row.session;
                 const who = activityChildLabel(s, (id) => allKids.find((k) => k.id === id)?.name);
                 return (
-                  <tr key={`${s.activityId}-${s.date}-${i}`} className="border-t border-[#f2ede6]">
+                  <tr key={row.key} className="border-t border-[#f2ede6]">
                     <td className="py-1.5 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(s.date)}</td>
                     <td className="py-1.5 pr-3 align-top text-[#2d2926]">
                       <span className="mr-1">{s.emoji ?? "\u2728"}</span>

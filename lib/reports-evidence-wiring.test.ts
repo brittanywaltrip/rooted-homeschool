@@ -51,3 +51,10 @@ test("Include photos is a report-only choice: default on, wired to the selection
   const handler = page.match(/onChange=\{\(e\) => setIncludePhotos\(e\.target\.checked\)\}/);
   assert.ok(handler, "the checkbox only sets includePhotos");
 });
+
+test("sessions and appointments print as one Activities section and Hours Logged is unchanged", () => {
+  assert.doesNotMatch(page, /Activities and Appointments/);
+  assert.match(page, /buildActivityLog\(activitySessions, filteredAppointments\)/);
+  assert.match(page, /const totalHours = lessonHours \+ memoryHours \+ activitySummary\.hours;/);
+  assert.match(page, /attendancePresentDates\(completedLessons, filteredAppointments\.map\(\(a\) => a\.date\)\)/);
+});
