@@ -9778,7 +9778,7 @@ test('the builder writes history only when the family asked for it', () => {
   // 2. The backfill is the function that writes `completed: true`. It returns
   //    empty before it reads anything else.
   const backfill = extractFunctionBody(src, /const planHistoricalBackfill = \(\) =>/)
-  const guard = backfill.indexOf('!row.record_history')
+  const guard = backfill.indexOf('!historyRequested(row)')
   assert.ok(guard !== -1, 'the backfill checks the choice')
   assert.ok(
     guard < backfill.indexOf('row.start_date'),
@@ -9787,14 +9787,85 @@ test('the builder writes history only when the family asked for it', () => {
 
   // 3. No history means no derived past start date. Deriving one anyway would
   //    hand the same date to the backfill and to the forward projection.
-  assert.match(src, /const willRecordHistory = branch === "already" && row\.record_history/)
+  assert.match(src, /const willRecordHistory = branch === "already" && historyRequested\(row\)/)
   assert.match(src, /willRecordHistory\s*\?\s*derivedStart/)
 
   // 4. Invariant 21 asks whether everything the family says is done can be
   //    recorded. A row recording nothing is not saying anything is done, so it
-  //    is not judged — and the pre-flight and the phase 2 backstop must agree
+  //    is not judged, and the pre-flight and the phase 2 backstop must agree
   //    about that, or the looser one lets a save through the other refuses.
-  assert.match(src, /r\.record_history &&\s*\n\s*!!r\.start_date/)
+  assert.match(src, /historyRequested\(r\) &&\s*\n\s*!!r\.start_date/)
+})
+
+test('only a curriculum that is not saved yet can ask for its history, and every reader asks the same predicate', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+
+  // A saved goal cannot honour a yes: the rows between its old position and
+  // the new one are held behind the pointer (Invariant 23) and the backfill
+  // skips any lesson number that already has a row. So yes is new-rows-only,
+  // and a new row reloads as saved after its first save, which is what makes
+  // the history land at most once.
+  const pred = extractFunctionBody(src, /function historyRequested\(row: Row\): boolean/)
+  assert.match(pred, /row\.record_history && row\.dbId == null && row\.start_at_lesson > 1/)
+
+  // Five readers, one predicate: the preview, the derived start date, the
+  // Invariant 21 pre-flight, the backfill and the sentence.
+  const uses = src.match(/historyRequested\((row|r)\)/g) ?? []
+  assert.ok(uses.length >= 6, `expected every reader to go through historyRequested, found ${uses.length}`)
+
+  // Outside the predicate, the raw flag is only ever read by the control that
+  // sets it. Anything else reading it directly would bypass the new-rows rule.
+  const rawReads = (src.match(/\brow\.record_history\b|\br\.record_history\b/g) ?? []).length
+  const controlReads = (src.match(/checked=\{!?row\.record_history\}/g) ?? []).length
+  const hintRead = (src.match(/\{row\.record_history \? \(/g) ?? []).length
+  assert.equal(rawReads, 1 + controlReads + hintRead, 'no reader bypasses historyRequested')
+
+  // The question is only drawn for a row that can honour it.
+  assert.match(src, /\{row\.dbId == null && row\.start_at_lesson > 1 \? \(/)
+})
+
+test('a saved goal moving forward is told only about the lessons in between', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 46,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  // Ten real lessons are already done. Saying "Lessons 1 to 45" would tell the
+  // family their real work is being left out.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 46,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+      alreadyRecorded: 10,
+    }),
+    "Lessons 11 to 45 won't be added to your records or your hours. " +
+      'You start on lesson 46, up Monday, Sep 14.',
+  )
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 46,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+      alreadyRecorded: 44,
+    }),
+    "Lesson 45 won't be added to your records or your hours. " +
+      'You start on lesson 46, up Monday, Sep 14.',
+  )
+  // Nothing in between: say nothing about history at all.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 46,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+      alreadyRecorded: 45,
+    }),
+    'You start on lesson 46, up Monday, Sep 14.',
+  )
 })
 
 test('the builder routes unclaimed rows to the stored line and skips the walk for them', () => {

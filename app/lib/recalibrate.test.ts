@@ -12,6 +12,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import { recalibrateCurriculumGoal, estimateKeepsSlot } from './recalibrate.ts'
 import { recomputeCurrentLesson } from './scheduler.ts'
@@ -240,6 +241,7 @@ test('recalibrateCurriculumGoal: even distribution — 3 lessons across 10 days 
     goalId: 'g1',
     newCurrentLesson: 4,
     vacationBlocks: [],
+    recordHistory: true,
   })
   assert.equal(result.gapCount, 3)
 
@@ -288,6 +290,7 @@ test('recalibrateCurriculumGoal: even distribution — 10 lessons across 3 days 
     goalId: 'g1',
     newCurrentLesson: 11,
     vacationBlocks: [],
+    recordHistory: true,
   })
 
   const dist = distributionWrites(writes)
@@ -347,6 +350,7 @@ test('recalibrateCurriculumGoal: even distribution — 5 lessons across 5 days l
     goalId: 'g1',
     newCurrentLesson: 6,
     vacationBlocks: [],
+    recordHistory: true,
   })
 
   const dist = distributionWrites(writes)
@@ -393,6 +397,7 @@ test('recalibrateCurriculumGoal: anchor on yesterday collapses every gap lesson 
     goalId: 'g1',
     newCurrentLesson: 5,
     vacationBlocks: [],
+    recordHistory: true,
   })
 
   const dist = distributionWrites(writes)
@@ -429,6 +434,7 @@ test('recalibrateCurriculumGoal: completed lessons are not part of the gap snaps
     goalId: 'g1',
     newCurrentLesson: 6,
     vacationBlocks: [],
+    recordHistory: true,
   })
 
   const dist = distributionWrites(writes)
@@ -459,6 +465,7 @@ test('recalibrateCurriculumGoal: no gap lessons → no distribution writes', asy
     goalId: 'g1',
     newCurrentLesson: 1,
     vacationBlocks: [],
+    recordHistory: true,
   })
   assert.equal(result.gapCount, 0)
 
@@ -494,6 +501,7 @@ test('recalibrateCurriculumGoal: every distribution write stamps scheduled_sourc
     goalId: 'g1',
     newCurrentLesson: 5,
     vacationBlocks: [],
+    recordHistory: true,
   })
 
   const dist = distributionWrites(writes)
@@ -543,6 +551,7 @@ test('recalibrateCurriculumGoal: forward lessons (lesson_number >= clamped) are 
     goalId: 'g1',
     newCurrentLesson: 3,
     vacationBlocks: [],
+    recordHistory: true,
   })
 
   const dist = distributionWrites(writes)
@@ -608,7 +617,7 @@ test('recalibrate to 19, then recompute: 18, and still 18 after a builder save r
   const { goalId, client, tables } = phonicsGoal()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
   assert.equal(res.newCountDone, 18)
 
   const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate')
@@ -654,7 +663,7 @@ test('the old null slot is what broke it: the same builder save with slotless es
   // here instead of in a family's progress count.
   const { goalId, client, tables } = phonicsGoal()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
   for (const r of tables.lessons) if (r.scheduled_source === 'recalibrate_estimate') r.queue_position = null
   tables.curriculum_goals[0].start_at_lesson = 10
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -686,7 +695,7 @@ test('a moved lesson in a slot above the new pointer gives the slot up, so the p
     lessons,
   })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [] })
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true })
 
   const byNum = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!
   assert.equal(byNum(5).completed, true)
@@ -707,4 +716,113 @@ test('estimateKeepsSlot: a slot at or below the new pointer is kept, anything el
   assert.equal(estimateKeepsSlot(11, 18), true)
   assert.equal(estimateKeepsSlot(19, 18), false)
   assert.equal(estimateKeepsSlot(null, 18), false)
+})
+
+// ── "I'm actually on lesson X" does not invent completed history ─────────
+//
+// Saying "I'm on lesson 19" places a family in the book. It never said Rooted
+// holds lessons 11 to 18, and reading it as though it did wrote them as DONE
+// estimates, which Reports bill at 30 minutes each: hours nobody logged. The
+// Schedule Builder's "Already into it" question got the same default in the
+// same change, so the two ways of saying "we're here" cannot disagree.
+//
+// The memory client does not run the orphan-cleanup trigger (it only
+// unschedules rows, never completes them), so what these assert is exactly what
+// app code writes.
+
+function completedSnapshot(rows: Record<string, unknown>[]) {
+  return rows
+    .filter((r) => r.completed)
+    .map((r) => `${r.lesson_number}|${r.completed_at}|${r.scheduled_source}|${r.minutes_spent ?? ''}`)
+    .sort()
+}
+
+test('by default, recalibrating forward completes nothing and the pointer still moves', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  const before = completedSnapshot(tables.lessons)
+  const rowCount = tables.lessons.length
+
+  // No recordHistory argument: what a caller that has not thought about it gets.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+
+  assert.equal(res.recordedHistory, false)
+  assert.equal(res.gapCount, 8, 'the gap is still reported, so the caller can say what it left alone')
+  assert.equal(res.estimates.expected, 0, 'and not one estimate write was even asked for')
+  assert.deepEqual(completedSnapshot(tables.lessons), before, 'the completed set is exactly what it was')
+  assert.equal(tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate').length, 0)
+  assert.equal(tables.lessons.length, rowCount, 'no row created, none deleted')
+  for (let n = 11; n <= 18; n++) {
+    const r = tables.lessons.find((l) => l.lesson_number === n)!
+    assert.equal(r.completed, false, `lesson ${n} stays unfinished`)
+    assert.equal(r.queue_position, n, `lesson ${n} keeps its slot`)
+  }
+
+  // The pointer holds through start_at_lesson, not through invented rows.
+  assert.equal(tables.curriculum_goals[0].start_at_lesson, 19)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 18)
+})
+
+test('by default, moving back down after a forward move also completes nothing', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  const before = completedSnapshot(tables.lessons)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [] })
+  assert.equal(res.newCountDone, 11)
+  assert.deepEqual(completedSnapshot(tables.lessons), before)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 11)
+})
+
+test('asking for the history twice writes it once, and never touches real completions', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  const realBefore = completedSnapshot(tables.lessons)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const first = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  assert.equal(first.recordedHistory, true)
+  assert.equal(first.estimates.written, 8)
+  const afterFirst = completedSnapshot(tables.lessons)
+
+  // The family saves the same answer again, still saying yes.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const second = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  assert.equal(second.gapCount, 0, 'nothing below 19 is unfinished any more')
+  assert.equal(second.estimates.expected, 0, 'so nothing is written a second time')
+  assert.deepEqual(completedSnapshot(tables.lessons), afterFirst, 'not duplicated, not re-dated')
+  assert.equal(tables.lessons.length, 30, 'still one row per lesson')
+
+  // Lessons 1 to 10 were real completions. They are exactly as they were.
+  for (const line of realBefore) assert.ok(afterFirst.includes(line), `real completion kept: ${line}`)
+
+  // Estimates carry no minutes: they are estimated dates, not logged time, and
+  // Reports must be able to tell the difference.
+  for (const r of tables.lessons.filter((l) => l.scheduled_source === 'recalibrate_estimate')) {
+    assert.equal(r.minutes_spent ?? null, null, `lesson ${r.lesson_number} records no minutes`)
+  }
+})
+
+test('saying no first and yes later records the gap once', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate')
+  assert.deepEqual(estimates.map((r) => r.lesson_number).sort((a, b) => (a as number) - (b as number)), [11, 12, 13, 14, 15, 16, 17, 18])
+  assert.equal(tables.lessons.length, 30)
+})
+
+test('every recalibrate caller states the history choice, and none hardcodes yes', () => {
+  const callers = ['app/components/PlanV2/index.tsx', 'app/dashboard/plan/schedule/page.tsx']
+  for (const f of callers) {
+    const src = readFileSync(new URL(`../../${f}`, import.meta.url), 'utf8')
+    const call = src.slice(src.indexOf('await recalibrateCurriculumGoal({'))
+    const body = call.slice(0, call.indexOf('});'))
+    assert.match(body, /recordHistory,?\s/, `${f} passes the family's answer through`)
+    assert.doesNotMatch(body, /recordHistory:\s*true/, `${f} must not decide for the family`)
+  }
 })

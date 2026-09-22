@@ -1177,6 +1177,18 @@ test.describe('Past start_date backfill via Schedule Builder', { tag: CURRICULUM
     await nextLessonField.fill(String(NEXT_LESSON));
     await nextLessonField.blur();
 
+    // ── 6b. The lesson number no longer implies history. The default is to
+    //       start at lesson 21 and record nothing before it, so the row says
+    //       that first. This spec is about the backfill, so it opts in
+    //       explicitly; before September 22, 2026 it got the backfill without
+    //       asking, and that silent default is what put unlogged hours on
+    //       families' reports.
+    await expect(
+      firstChildCard.getByText(/Lessons 1 to 20 won't be added to your records or your hours/i).first(),
+      'the default should promise to record nothing',
+    ).toBeVisible({ timeout: 10_000 });
+    await firstChildCard.getByRole('radio', { name: /Yes, add them to our records/i }).last().check();
+
     // ── 7. The sentence is the confirmation, so assert it says something true
     //      before saving anything. It names the range, the span and the date.
     await expect(

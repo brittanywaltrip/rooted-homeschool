@@ -27,9 +27,19 @@ import {
  *      (latest real completion's completed_at) — in two trips so the gap
  *      filter can use the clamped value.
  *   Phase 3. UPDATE curriculum_goals.current_lesson / start_at_lesson. The orphan-
- *      cleanup trigger fires here, marking notes-less gap rows complete with
- *      completed_at = NOW() - 1 day.
- *   Phase 4. Evenly distribute gap lessons across [anchor + 1 day, yesterday] in
+ *      cleanup trigger fires here and UNSCHEDULES notes-less, unpinned gap rows
+ *      (scheduled_date = NULL). It completes nothing: see
+ *      supabase/migrations/20260907000000_no_server_side_lesson_completion.sql.
+ *      start_at_lesson is what holds the pointer when Phase 4 does not run:
+ *      recompute_curriculum_current_lesson is GREATEST(start_at_lesson - 1,
+ *      MAX(queue_position) over completed rows).
+ *   Phase 4. ONLY when the family asked for it (`recordHistory`). Saying "I'm
+ *      on lesson 12" places them in the book; it does not say Rooted holds
+ *      lessons 1 to 11, and writing those as done put hours on reports nobody
+ *      logged. Without the opt-in the gap rows stay unfinished, which is the
+ *      state the Schedule Builder leaves when a family raises an existing goal's
+ *      lesson number (Invariant 23 holds them behind the pointer, undeleted).
+ *      With it: evenly distribute gap lessons across [anchor + 1 day, yesterday] in
  *      lesson_number order, stamping each with scheduled_source =
  *      'recalibrate_estimate' so the Plan lesson card surfaces them as
  *      estimates and a later move_lesson_to_date clears the flag. Each row
@@ -74,8 +84,10 @@ export interface RecalibrateResult {
   clamped: number;
   /** current_lesson value written to DB (= clamped - 1). */
   newCountDone: number;
-  /** Gap rows that were re-stamped with estimated dates. */
+  /** Unfinished rows below the new position. Re-stamped as estimates only when `recordedHistory`. */
   gapCount: number;
+  /** Did Phase 4 run, i.e. did the family ask for the gap to be written as done? */
+  recordedHistory: boolean;
   /** Phase 4: gap rows asked to become estimates vs rows that did. */
   estimates: ConfirmedWriteOutcome;
   /** Phase 5: upcoming rows asked to move vs rows that did. */
@@ -98,8 +110,16 @@ export async function recalibrateCurriculumGoal(opts: {
   goalId: string;
   newCurrentLesson: number;
   vacationBlocks: VacationBlock[];
+  /**
+   * Write the unfinished lessons below the new position as DONE estimates?
+   * Default NO: the answer that adds nothing to a family's records is the one
+   * they get by not deciding, the same default as the Schedule Builder's
+   * "Already into it" question.
+   */
+  recordHistory?: boolean;
 }): Promise<RecalibrateResult> {
   const { supabase, goalId, newCurrentLesson, vacationBlocks } = opts;
+  const recordHistory = opts.recordHistory === true;
 
   // ── Phase 1: fetch the goal so we can clamp. ────────────────────────────
   const { data: goalRow, error: goalErr } = await supabase
@@ -170,7 +190,7 @@ export async function recalibrateCurriculumGoal(opts: {
 
   // ── Phase 4: distribute gap lessons across the calendar window. ─────────
   let estimates: ConfirmedWriteOutcome = NO_WRITES;
-  if (gapLessons.length > 0) {
+  if (recordHistory && gapLessons.length > 0) {
     const todayMid = new Date();
     todayMid.setHours(0, 0, 0, 0);
     const yesterdayMid = new Date(todayMid);
@@ -330,6 +350,7 @@ export async function recalibrateCurriculumGoal(opts: {
     clamped,
     newCountDone,
     gapCount: gapLessons.length,
+    recordedHistory: recordHistory,
     estimates,
     respread,
     respreadReadFailed: !!rowsErr,

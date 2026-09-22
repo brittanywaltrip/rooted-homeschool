@@ -3102,6 +3102,13 @@ export interface NextLessonSentenceArgs {
    * same either way.
    */
   recordHistory?: boolean;
+  /**
+   * Lessons the goal already holds as done (a saved goal's current_lesson).
+   * Only the ones between this and the starting lesson are being left out, so
+   * a family on lesson 11 of a book moving to 46 reads "Lessons 11 to 45", not
+   * "Lessons 1 to 45", which would say their real work is being dropped.
+   */
+  alreadyRecorded?: number;
 }
 
 /**
@@ -3123,9 +3130,10 @@ export function nextLessonSentence(a: NextLessonSentenceArgs): string {
   // they named is still where they start. Said in their terms ("your reports"),
   // because hours appearing from nowhere is how this is noticed.
   if (!a.recordHistory) {
-    if (nextLesson > 1) {
-      const earlier =
-        nextLesson === 2 ? "Lesson 1" : `Lessons 1 to ${nextLesson - 1}`;
+    const from = Math.max(0, a.alreadyRecorded ?? 0) + 1;
+    const to = nextLesson - 1;
+    if (to >= from) {
+      const earlier = from === to ? `Lesson ${from}` : `Lessons ${from} to ${to}`;
       parts.push(`${earlier} won't be added to your records or your hours.`);
     }
     if (a.nextLessonDate) {

@@ -2371,11 +2371,12 @@ export default function PlanV2() {
   }, [effectiveUserId, curriculumGoals, recordEvent, reload]);
 
   // "I'm actually on lesson X" recalibration. Bumps the queue pointer so
-  // Today/Plan project lesson X as the next slot, without touching the
-  // lessons table from app code. trg_curriculum_goals_cleanup_orphans
-  // (migration 20260519180000) auto-completes any incomplete rows that
-  // fall before the new position; completed history is preserved and
-  // notes-bearing rows are skipped.
+  // Today/Plan project lesson X as the next slot. The unfinished lessons below
+  // the new position are written as done estimates ONLY when the family says
+  // yes to that in the form (`recordHistory`, default no); otherwise they are
+  // left unfinished and trg_curriculum_goals_cleanup_orphans unschedules them.
+  // That trigger completes nothing (20260907000000). Completed history is
+  // never touched either way.
   //
   // Off-by-one note: in mom's UI the field is "Which lesson are you
   // actually on?" (the lesson currently in progress). The scheduler
@@ -2390,13 +2391,14 @@ export default function PlanV2() {
   // RecalibrateForm mirrors this by defaulting to current_lesson + 1, so
   // re-opening the form shows mom's last entered value.
   const handleRecalibrateGoal = useCallback(
-    async (goal: PanelGoal, newCurrentLesson: number) => {
+    async (goal: PanelGoal, newCurrentLesson: number, recordHistory: boolean) => {
       if (!effectiveUserId) throw new Error("Not signed in");
       const result = await recalibrateCurriculumGoal({
         supabase,
         goalId: goal.id,
         newCurrentLesson,
         vacationBlocks: vacationBlocks as unknown as SchedVacationBlock[],
+        recordHistory,
       });
       recordEvent("curriculum_goal.updated", {
         goal_id: goal.id,
@@ -2404,6 +2406,7 @@ export default function PlanV2() {
         action: "recalibrate",
         new_current_lesson: result.clamped,
         gap_count: result.gapCount,
+        record_history: result.recordedHistory,
       });
       // Say what actually landed. The pointer is committed before the lesson
       // writes, so a partial failure is not rolled back and must not read as

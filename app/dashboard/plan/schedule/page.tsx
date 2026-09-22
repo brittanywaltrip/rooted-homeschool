@@ -568,6 +568,26 @@ function invariant21ClaimChanged(row: Row): boolean {
   return row.start_at_lesson_initial != null && row.start_at_lesson !== row.start_at_lesson_initial;
 }
 
+/**
+ * Is this save going to write the lessons before the starting lesson as DONE?
+ *
+ * Only when the family said yes, and only for a curriculum that is not on disk
+ * yet. On a saved goal a "yes" could not do what it says: the unfinished rows
+ * between the old position and the new one are held behind the pointer and
+ * never deleted (Invariant 23), and the backfill skips every lesson number that
+ * already has a row, so the confirmation would promise history the save never
+ * writes. Existing goals record a gap through "I'm actually on..." instead,
+ * which completes those rows in place.
+ *
+ * Every reader goes through this: the derived start date, the Invariant 21
+ * pre-flight, the backfill that writes `completed: true`, the sentence, and the
+ * control itself. A new row writes its history at most once by construction:
+ * after the save it reloads as a saved goal, where this is false.
+ */
+function historyRequested(row: Row): boolean {
+  return row.record_history && row.dbId == null && row.start_at_lesson > 1;
+}
+
 function activeDayIndices(row: Row): number[] {
   const out: number[] = [];
   for (let i = 0; i < 7; i++) {
@@ -734,7 +754,7 @@ function rowScheduleFor(
   // Rooted should write the lessons before it down as done. The number alone
   // used to mean both, so a family placing their starting point was given
   // completed lessons and report hours they never logged.
-  const willRecordHistory = branch === "already" && row.record_history;
+  const willRecordHistory = branch === "already" && historyRequested(row);
   const stated = willRecordHistory ? nextLesson - 1 : 0;
   const typedStart = row.start_date_is_manual ? row.start_date : null;
   const history: DerivedHistory =
@@ -1833,7 +1853,7 @@ export default function ScheduleBuilderPage() {
       // point keeps whatever start date the goal already had (usually none,
       // which is what sends the forward queue past today per Invariant 1).
       const derived =
-        sched.branch === "already" && r.record_history
+        sched.branch === "already" && historyRequested(r)
           ? (sched.history.startDate ?? null)
           : r.start_date;
       if (derived !== r.start_date) patches.set(r.localId, derived);
@@ -2100,9 +2120,9 @@ export default function ScheduleBuilderPage() {
         // done, so there is nothing to fit and nothing to lose: the refusal
         // has no subject. This is also the escape for a family whose progress
         // genuinely cannot fit between any start date and today (on lesson 182
-        // after one school day) — they can now place themselves there instead
+        // after one school day): they can now place themselves there instead
         // of being refused with no way forward.
-        r.record_history &&
+        historyRequested(r) &&
         !!r.start_date &&
         r.start_date < saveTodayStr &&
         !!r.total_lessons &&
@@ -2891,7 +2911,7 @@ export default function ScheduleBuilderPage() {
           // here as well as at the derivation, because this is the function
           // that actually writes `completed: true` and Invariant 15 says that
           // claim belongs to a person.
-          if (!row.record_history) return [];
+          if (!historyRequested(row)) return [];
           if (!row.start_date || row.start_date >= ymdToday || currentLesson <= 0) return [];
           const startMid = new Date(`${row.start_date}T00:00:00`);
           // Project from start_date with current_lesson=0 +
@@ -3884,10 +3904,11 @@ export default function ScheduleBuilderPage() {
   // ── Immediate row actions (recalibrate + mark finished) ─────────────────
   // Both bypass the pending-delete Save flow because they're destructive
   // edits the user expects to apply right now: "I'm actually on lesson X"
-  // re-anchors the queue + backfills gap dates, and "Mark as finished"
+  // re-anchors the queue (and writes the gap as done only when the family
+  // says yes to that in the form), and "Mark as finished"
   // archives the goal so it drops off Today + Plan. Local row state syncs
   // afterward so the page reflects the new DB truth without a reload.
-  async function handleRowRecalibrate(localId: string, newCurrentLesson: number) {
+  async function handleRowRecalibrate(localId: string, newCurrentLesson: number, recordHistory: boolean) {
     setRowActionError(null);
     try {
       if (!effectiveUserId) throw new Error("Not signed in");
@@ -3906,6 +3927,7 @@ export default function ScheduleBuilderPage() {
         goalId: row.dbId,
         newCurrentLesson,
         vacationBlocks: vacations,
+        recordHistory,
       });
       void logPlanEvent({
         userId: effectiveUserId,
@@ -3916,6 +3938,7 @@ export default function ScheduleBuilderPage() {
           action: "recalibrate",
           new_current_lesson: result.clamped,
           gap_count: result.gapCount,
+          record_history: result.recordedHistory,
         },
       });
       // Sync local row to match the DB truth without marking dirty — the
@@ -4335,7 +4358,7 @@ function BuilderView(props: {
   setMenuOpenLocalId: (id: string | null) => void;
   recalibratingLocalId: string | null;
   setRecalibratingLocalId: (id: string | null) => void;
-  onRecalibrateRow: (localId: string, newCurrentLesson: number) => Promise<void>;
+  onRecalibrateRow: (localId: string, newCurrentLesson: number, recordHistory: boolean) => Promise<void>;
   onMarkFinishedRow: (localId: string) => Promise<void>;
   rowActionError: string | null;
   onDismissRowActionError: () => void;
@@ -4447,7 +4470,7 @@ function BuilderView(props: {
                   recalibrating={props.recalibratingLocalId === row.localId}
                   onOpenRecalibrate={() => props.setRecalibratingLocalId(row.localId)}
                   onCloseRecalibrate={() => props.setRecalibratingLocalId(null)}
-                  onRecalibrate={(newValue) => props.onRecalibrateRow(row.localId, newValue)}
+                  onRecalibrate={(newValue, recordHistory) => props.onRecalibrateRow(row.localId, newValue, recordHistory)}
                   onMarkFinished={() => props.onMarkFinishedRow(row.localId)}
                 />
               ))}
@@ -4553,7 +4576,7 @@ function RowCard(props: {
   recalibrating: boolean;
   onOpenRecalibrate: () => void;
   onCloseRecalibrate: () => void;
-  onRecalibrate: (newCurrentLesson: number) => Promise<void>;
+  onRecalibrate: (newCurrentLesson: number, recordHistory: boolean) => Promise<void>;
   onMarkFinished: () => Promise<void>;
 }) {
   const { row } = props;
@@ -4672,7 +4695,10 @@ function RowCard(props: {
           todayYmd: props.todayStr,
           // The sentence describes the save that is actually queued up, so it
           // reads the same choice the save reads.
-          recordHistory: row.record_history,
+          recordHistory: historyRequested(row),
+          // A saved goal already holds its completed lessons. Only the ones
+          // between that and the new position are being left out.
+          alreadyRecorded: row._dbCurrentLesson ?? 0,
         })
       : "";
 
@@ -5187,7 +5213,7 @@ function RowCard(props: {
                   what Rooted holds, and reading it as both is what put hours
                   on reports nobody logged. Default no, so the answer that adds
                   nothing is the answer they get by not deciding. */}
-              {row.start_at_lesson > 1 ? (
+              {row.dbId == null && row.start_at_lesson > 1 ? (
                 <div className="mt-2 rounded-lg border border-[#e8e2d9] bg-[#faf8f4] px-2.5 py-2">
                   <p className="text-[12px] text-[#7a6f65] mb-1.5">
                     {row.start_at_lesson === 2
@@ -5226,6 +5252,20 @@ function RowCard(props: {
                       reports, from the minutes above.
                     </p>
                   ) : null}
+
+              {/* A saved goal has no yes/no here (see historyRequested), so it
+                  says where the yes lives instead: "I'm actually on..."
+                  completes the rows in between in place, which is the only
+                  way a saved goal's gap can be written without duplicating
+                  or skipping anything. */}
+              {row.dbId != null &&
+              sched.claimed &&
+              row.start_at_lesson - 1 > (row._dbCurrentLesson ?? 0) ? (
+                <p className="mt-1.5 text-[12px] text-[#7a6f65] leading-relaxed">
+                  To add {row.start_at_lesson - 1 - (row._dbCurrentLesson ?? 0) === 1 ? "it" : "them"} as
+                  done, use &ldquo;I&apos;m actually on...&rdquo; in this curriculum&apos;s menu instead.
+                </p>
+              ) : null}
                 </div>
               ) : null}
 
@@ -5248,7 +5288,7 @@ function RowCard(props: {
                   starts after today either way (Invariant 1), and offering a
                   control that changes nothing is how the old screen came to
                   ask the same fact three ways. */}
-              {row.record_history && row.start_date_is_manual ? (
+              {historyRequested(row) && row.start_date_is_manual ? (
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <span className="text-[12px] text-[#7a6f65]">Start date</span>
                   <input

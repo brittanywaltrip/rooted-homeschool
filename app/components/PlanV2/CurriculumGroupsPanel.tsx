@@ -183,7 +183,7 @@ export interface CurriculumGroupsPanelProps {
   recalibratingGoalId: string | null;
   /** Receives the new value mom typed. Parent runs the curriculum_goals
    *  UPDATE (current_lesson + start_at_lesson) and reloads. */
-  onRecalibrate: (goal: CurriculumGoal, newCurrentLesson: number) => Promise<void>;
+  onRecalibrate: (goal: CurriculumGoal, newCurrentLesson: number, recordHistory: boolean) => Promise<void>;
   /** Cancels an in-progress recalibration without saving. */
   onCloseRecalibrate: () => void;
 }
@@ -446,7 +446,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                   <div className="px-4 pb-3 bg-[#f0f7f1] border-t border-[#c5dbc9]">
                     <RecalibrateForm
                       goal={goal}
-                      onSubmit={(newValue) => onRecalibrate(goal, newValue)}
+                      onSubmit={(newValue, recordHistory) => onRecalibrate(goal, newValue, recordHistory)}
                       onClose={onCloseRecalibrate}
                     />
                   </div>
@@ -553,7 +553,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
 
 export function RecalibrateForm(props: {
   goal: CurriculumGoal;
-  onSubmit: (newCurrentLesson: number) => Promise<void>;
+  onSubmit: (newCurrentLesson: number, recordHistory: boolean) => Promise<void>;
   onClose: () => void;
 }) {
   const { goal, onSubmit, onClose } = props;
@@ -566,6 +566,18 @@ export function RecalibrateForm(props: {
   const cap = goal.total_lessons > 0 ? goal.total_lessons : undefined;
   const clampedDefault = cap != null ? Math.min(cap, defaultDisplayValue) : defaultDisplayValue;
   const [value, setValue] = useState<string>(String(clampedDefault));
+  // Should the unfinished lessons below the new position be written down as
+  // done? Moving the pointer says where the family is; it does not say Rooted
+  // holds the lessons in between, and writing them as done put hours on
+  // reports nobody logged. Default NO, the same default as the Schedule
+  // Builder's "Already into it" question.
+  const [recordHistory, setRecordHistory] = useState(false);
+  const typed = Number(value);
+  const gapFrom = (goal.current_lesson ?? 0) + 1;
+  const gapTo = Number.isInteger(typed) ? typed - 1 : 0;
+  // Only asked when the move skips lessons that are not done yet. Moving back,
+  // or onto the very next lesson, leaves nothing to decide.
+  const asksAboutHistory = gapTo >= gapFrom;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -587,7 +599,7 @@ export function RecalibrateForm(props: {
     setSubmitting(true);
     setError(null);
     try {
-      await onSubmit(n);
+      await onSubmit(n, asksAboutHistory && recordHistory);
       onClose();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't update the schedule.");
@@ -626,6 +638,40 @@ export function RecalibrateForm(props: {
       <p className="text-[11px] text-[#5c7f63] leading-relaxed">
         This resets your position in the queue. Lessons you&apos;ve already logged stay in your history.
       </p>
+      {asksAboutHistory ? (
+        <div className="rounded-md border border-[#c5dbc9] bg-white px-2.5 py-2">
+          <p className="text-[11px] font-semibold text-[#2d4a36] mb-1">
+            {gapFrom === gapTo
+              ? `Should Rooted mark lesson ${gapFrom} as done?`
+              : `Should Rooted mark lessons ${gapFrom} to ${gapTo} as done?`}
+          </p>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name={`recalibrate-history-${goal.id}`}
+              checked={!recordHistory}
+              onChange={() => setRecordHistory(false)}
+              className="mt-[2px] accent-[#2D5A3D]"
+            />
+            <span className="text-[12px] text-[#2D2A26]">No, just move me to lesson {typed}</span>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer mt-1">
+            <input
+              type="radio"
+              name={`recalibrate-history-${goal.id}`}
+              checked={recordHistory}
+              onChange={() => setRecordHistory(true)}
+              className="mt-[2px] accent-[#2D5A3D]"
+            />
+            <span className="text-[12px] text-[#2D2A26]">Yes, add them to our records</span>
+          </label>
+          <p className="mt-1 text-[11px] text-[#5c7f63] leading-relaxed">
+            {recordHistory
+              ? "They get estimated dates between your last logged lesson and yesterday, and count toward your hours."
+              : "Nothing is added to your records or your hours."}
+          </p>
+        </div>
+      ) : null}
       {error ? <p className="text-[11px] text-[#b91c1c]">{error}</p> : null}
       <div className="flex items-center gap-2 pt-1">
         <button
