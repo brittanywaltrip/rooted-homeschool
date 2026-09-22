@@ -2,7 +2,13 @@
 
 import { useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { recomputeCurrentLesson, toDateStr } from "@/app/lib/scheduler";
+import {
+  recomputeCurrentLesson,
+  resyncGoalsForParent,
+  toDateStr,
+  PARENT_RESPREAD_SOURCE,
+  COMPLETION_RESPREAD_FAILED_NOTE,
+} from "@/app/lib/scheduler";
 import {
   completeLessonOnDate,
   needsDateChoice,
@@ -54,6 +60,13 @@ export type UsePlanLessonActionsOpts<T extends MinimalLesson> = {
   onNeedsDateChoice?: (lesson: T, plannedDate: string, todayStr: string) => void;
   /** Fires once per completion, after the write lands. */
   onLessonCompleted?: (event: LessonCompletedEvent, lesson: T) => void;
+  /**
+   * A completion or un-completion moved the queue pointer and the rest of the
+   * curriculum was re-dated. The host reloads so Plan shows the new dates.
+   */
+  onScheduleRedated?: () => void;
+  /** The re-date after a completion did not fully land. The host says so. */
+  onRedateFailed?: (message: string) => void;
 };
 
 export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLessonActionsOpts<T>) {
@@ -61,6 +74,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     lessons, monthLessons,
     setLessons, setMonthLessons, setAllLessons,
     effectiveUserId, onSkipUndo, onNeedsDateChoice, onLessonCompleted,
+    onScheduleRedated, onRedateFailed,
   } = opts;
 
   // Lessons with a write in flight. A second tap on the same circle while the
@@ -75,6 +89,20 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       lessons.find(l => l.id === id) ?? monthLessons.find(l => l.id === id),
     [lessons, monthLessons],
   );
+
+  /**
+   * After a completion or un-completion moved the pointer: re-date the rest
+   * of that curriculum as the family's own action, so Plan's stored dates
+   * match what Today projects. The automatic page-load reconciler is off
+   * (NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED=false), so without this Plan kept the
+   * old dates. The completion itself is never undone for a failed re-date.
+   */
+  const redateAfter = useCallback(async (goalId: string | null | undefined, kind: "completion" | "uncompletion") => {
+    if (!goalId || !effectiveUserId) return;
+    const res = await resyncGoalsForParent(supabase, effectiveUserId, [goalId], PARENT_RESPREAD_SOURCE[kind]);
+    if (!res.ok) onRedateFailed?.(COMPLETION_RESPREAD_FAILED_NOTE);
+    if (res.written > 0 || !res.ok) onScheduleRedated?.();
+  }, [effectiveUserId, onRedateFailed, onScheduleRedated]);
 
   /**
    * Write one completion on one day. Every completing path in this hook ends
@@ -124,6 +152,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
 
       if (lesson?.curriculum_goal_id) {
         await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+        await redateAfter(lesson.curriculum_goal_id, "completion");
       }
       if (effectiveUserId) {
         try {
@@ -140,7 +169,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     } finally {
       inFlightRef.current.delete(id);
     }
-  }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted]);
+  }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted, redateAfter]);
 
   const toggleLesson = useCallback(async (id: string, current: boolean): Promise<boolean> => {
     if (inFlightRef.current.has(id)) return false;
@@ -183,7 +212,9 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     // job, not this write's.
     inFlightRef.current.add(id);
     try {
-      await supabase
+      // Confirmed: an error, or a row the database left alone, puts the check
+      // back and is reported to the caller like a failed completion.
+      const { data: undone, error } = await supabase
         .from("lessons")
         .update({
           completed: false,
@@ -192,15 +223,23 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
           queue_pinned: false,
           scheduled_source: "manual_uncomplete",
         })
-        .eq("id", id);
+        .eq("id", id)
+        .select("id");
+      if (error || (undone ?? []).length !== 1) {
+        const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: true });
+        setLessons(prev => prev.map(revert));
+        setMonthLessons(prev => prev.map(revert));
+        throw new Error(error?.message ?? "The lesson could not be unmarked");
+      }
       if (lesson?.curriculum_goal_id) {
         await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+        await redateAfter(lesson.curriculum_goal_id, "uncompletion");
       }
       return true;
     } finally {
       inFlightRef.current.delete(id);
     }
-  }, [findLesson, setLessons, setMonthLessons, onNeedsDateChoice, completeWithChoice]);
+  }, [findLesson, setLessons, setMonthLessons, onNeedsDateChoice, completeWithChoice, redateAfter]);
 
   const deleteLesson = useCallback(async (id: string) => {
     setLessons(prev => prev.filter(l => l.id !== id));

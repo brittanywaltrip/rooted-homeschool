@@ -22,6 +22,7 @@ import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { fallbackSchoolYear, getCurrentSchoolYear, todayLocalYmd } from "@/app/lib/school-year";
 import { selectReportPhotos, type ReportPhoto } from "@/lib/report-evidence";
 import { buildActivityLog, selectReportAppointments } from "@/lib/report-activity-log";
+import { resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE } from "@/app/lib/scheduler";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1276,24 +1277,39 @@ export default function ReportsPage() {
       console.error("[hours-report] lesson record save failed", error);
       return false;
     }
+    const goalId = lessons.find((row) => row.id === lessonId)?.curriculum_goal_id ?? null;
     setLessons((rows) => rows.map((row) => row.id === lessonId ? {
       ...row, date: patch.date, scheduled_date: patch.date,
       minutes_spent: patch.minutes, notes: patch.notes,
     } : row));
+    // Moving a completion onto or off today changes how many lessons Today
+    // counts as done today, which moves its projection. Re-date that
+    // curriculum so Plan follows. The record edit itself already saved.
+    await redateAfterRecordChange(goalId, "completion");
     return true;
   }
 
   async function deleteLessonRecord(lessonId: string): Promise<boolean> {
     if (!effectiveUserId || isPartner) return false;
+    const goalId = lessons.find((row) => row.id === lessonId)?.curriculum_goal_id ?? null;
     const { data, error } = await supabase.rpc("delete_report_lesson_record", { p_lesson_id: lessonId });
     if (error || data !== true) {
       console.error("[hours-report] lesson record delete failed", error);
       return false;
     }
+    // Removing a completion moves the pointer back (the RPC recomputes it and
+    // compacts later queue slots): re-date that curriculum so Plan matches Today.
+    await redateAfterRecordChange(goalId, "uncompletion");
     // Deleting a curriculum completion compacts every later visible Lesson N.
     // Reload rather than guessing those server-owned sequence changes locally.
     await load();
     return true;
+  }
+
+  async function redateAfterRecordChange(goalId: string | null, kind: "completion" | "uncompletion") {
+    if (!goalId || !effectiveUserId) return;
+    const res = await resyncGoalsForParent(supabase, effectiveUserId, [goalId], PARENT_RESPREAD_SOURCE[kind]);
+    if (!res.ok) showBookToast(COMPLETION_RESPREAD_FAILED_NOTE);
   }
 
   async function updateActivityRecord(logId: string, patch: ReportRecordPatch): Promise<boolean> {
