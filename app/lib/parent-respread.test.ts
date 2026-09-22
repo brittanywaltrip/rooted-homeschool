@@ -631,12 +631,13 @@ test('Unskip and Today catch-up date lessons themselves instead of waiting for t
   const unskip = plan.slice(plan.indexOf('const unskipLesson = useCallback'), plan.indexOf('const handleSubmitAddLesson'))
   assert.ok(/resyncGoalsForParent\([^)]*PARENT_RESPREAD_SOURCE\.unskip/.test(unskip))
   assert.ok(!/next time Today opens/.test(unskip), 'no promise the automatic reconciler will do it')
-  const today = stripComments(read('app/dashboard/page.tsx'))
-  const no = today.slice(today.indexOf('async function handleMissedRecoveryNo'), today.indexOf('function handleMissedRecoveryDismiss'))
+  // Today and Plan both answer through app/lib/missed-work-answers.ts.
+  const answers = stripComments(read('app/lib/missed-work-answers.ts'))
+  const no = answers.slice(answers.indexOf('export async function answerMissedNo'))
   assert.ok(no.indexOf('resyncGoalsForParent(') !== -1 && no.indexOf('resyncGoalsForParent(') < no.indexOf('markCatchupAnswered('),
     'lessons move before the answer is recorded, so a failure can ask again')
   assert.ok(/throw new Error/.test(no), 'a failure reaches the modal')
-  const yes = today.slice(today.indexOf('async function handleMissedRecoveryYes'), today.indexOf('async function markCatchupAnswered'))
+  const yes = answers.slice(answers.indexOf('export async function answerMissedYes'), answers.indexOf('export async function answerMissedNo'))
   assert.ok(yes.indexOf('resyncGoalsForParent(') > yes.indexOf('recomputeCurrentLesson('), 'after the completions move the pointer')
 })
 

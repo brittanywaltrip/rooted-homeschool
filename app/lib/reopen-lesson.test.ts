@@ -13,7 +13,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { computeNextLessonsForGoal, toDateStr, type QueueHold } from './scheduler.ts'
+import { computeNextLessonsForGoal, pinsFromRows, resyncGoalsForParent, PARENT_RESPREAD_SOURCE, toDateStr, type QueueHold } from './scheduler.ts'
+import { makeMemorySupabase } from './test-helpers/memory-supabase.ts'
 import { planReopenMakeUp, untickLesson, untickLessonThen } from './reopen-lesson.ts'
 
 type Call = { op: string; name?: string }
@@ -141,4 +142,59 @@ test('re-date BEFORE the pin puts the next lesson on the make-up\'s day', () => 
   // lessons stored on today: the 1Q shape, in Plan's dates.
   const dates = redate(rowsAfterUncomplete())
   assert.equal(dates.get('l11'), '2026-09-21')
+})
+
+// ── The same, through the real parent re-date (resyncGoalsForParent) ───────
+
+
+function localYmd(offset: number): string {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + offset)
+  return toDateStr(d)
+}
+
+/** Every day a school day, 12 lessons, starting lesson 11, lessons 1..9 done, 10 just unticked on today. */
+function afterUntick(pinned: boolean) {
+  const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+  const goalRow = {
+    id: 'g1', user_id: 'u1', total_lessons: 12, lessons_per_day: 1, school_days: days,
+    current_lesson: 10, start_date: null, start_at_lesson: 11, lessons_per_day_overrides: null,
+  }
+  const lessons: Record<string, unknown>[] = []
+  for (let n = 1; n <= 12; n++) {
+    const done = n <= 9
+    const day = localYmd(n - 10)
+    lessons.push({
+      id: `L${n}`, user_id: 'u1', curriculum_goal_id: 'g1', lesson_number: n, queue_position: n,
+      completed: done, completed_at: done ? new Date(`${day}T12:00:00`).toISOString() : null,
+      scheduled_date: day, date: day, scheduled_source: 'wizard_create',
+      is_backfill: done, queue_pinned: n === 10 && pinned, skipped: false,
+    })
+  }
+  return makeMemorySupabase({ curriculum_goals: [goalRow], vacation_blocks: [], lessons })
+}
+
+test('real re-date AFTER the make-up pin: Plan and Today agree, lesson 11 is tomorrow', async () => {
+  const { client, tables } = afterUntick(true)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await resyncGoalsForParent(client as any, 'u1', ['g1'], PARENT_RESPREAD_SOURCE.catchUp)
+  assert.equal(res.ok, true)
+  const date = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!.scheduled_date
+  assert.equal(date(10), localYmd(0), 'the make-up keeps its day')
+  assert.equal(date(11), localYmd(1))
+  assert.equal(date(12), localYmd(2))
+  // Today projects one day from the pointer with the loaded pins: the make-up alone.
+  const pins = pinsFromRows(tables.lessons as never)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const onToday = computeNextLessonsForGoal({ ...GOAL, id: 'g1', total_lessons: 12, school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], start_date: null }, today, 1, [], 0, pins)
+  assert.deepEqual(onToday.map((p) => p.lesson_number), [10])
+})
+
+test('real re-date BEFORE the pin: lesson 11 is stored on the make-up\'s day', async () => {
+  const { client, tables } = afterUntick(false)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await resyncGoalsForParent(client as any, 'u1', ['g1'], PARENT_RESPREAD_SOURCE.catchUp)
+  assert.equal(res.ok, true)
+  assert.equal(tables.lessons.find((r) => r.lesson_number === 11)!.scheduled_date, localYmd(0), 'two lessons now stored on today')
 })
