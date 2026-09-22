@@ -10,6 +10,8 @@ import {
   type LessonCompletedEvent,
 } from "@/app/lib/completeLessonOnDate";
 import { onLogAction } from "@/app/lib/onLogAction";
+import { reopenBehindPointer } from "@/app/lib/reopen-lesson";
+import { captureSupabaseError } from "@/lib/sentry-error";
 
 /* ============================================================================
  * usePlanLessonActions — shared lesson handlers for the Plan page.
@@ -195,6 +197,25 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
         .eq("id", id);
       if (lesson?.curriculum_goal_id) {
         await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+        // Invariant 23: a lesson reopened behind the pointer is a make-up,
+        // pinned to the day it is due, so Today and every projection see it.
+        const reopened = await reopenBehindPointer(supabase, {
+          lessonId: id,
+          goalId: lesson.curriculum_goal_id,
+          todayYmd: toDateStr(new Date()),
+        });
+        if (reopened.error) {
+          captureSupabaseError("Reopened lesson could not be made a make-up", new Error(reopened.error), {
+            level: "warning",
+            tags: { fn: "toggleLesson", surface: "plan" },
+            extra: { lessonId: id },
+          });
+        } else if (reopened.date) {
+          const moved = (l: T): T =>
+            l.id !== id ? l : { ...l, scheduled_date: reopened.date, date: reopened.date, queue_pinned: true };
+          setLessons(prev => prev.map(moved));
+          setMonthLessons(prev => prev.map(moved));
+        }
       }
       return true;
     } finally {

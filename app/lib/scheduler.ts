@@ -467,6 +467,9 @@ export function projectionOverCap(
   const perDate = new Map<string, number>();
   for (const p of projected) {
     if (pinnedSlots.has(p.lesson_number)) continue;
+    // A make-up (Invariant 23) is a pinned row behind the pointer, placed on
+    // its own day: a family's placement, exempt like any pin.
+    if (p.lesson_number <= goal.current_lesson) continue;
     const count = (perDate.get(p.date) ?? 0) + 1;
     perDate.set(p.date, count);
     if (count > maxPerDay) return { date: p.date, count, max: maxPerDay };
@@ -1581,6 +1584,41 @@ export function isPinProjectable(
   return true;
 }
 
+/**
+ * Invariant 23: is this pin a MAKE-UP the projector places on its own day?
+ *
+ * A make-up is an unfinished lesson a family reopened behind the pointer, the
+ * usual case being a lesson recorded as done before they started tracking that
+ * they untick because it needs doing again. The pointer cannot follow it back
+ * (it never drops below start_at_lesson - 1, and never below a later
+ * completion), so it is not a queue slot. The row is pinned to the day it is
+ * due. From that day on it is emitted there and spends that day's capacity;
+ * before it, a make-up is history the family can see on Plan and is left alone.
+ *
+ * `fromYmd` is the first day of the projection window.
+ */
+export function isMakeUpPin(
+  pin: { slot: number; date: string },
+  goal: PinProjectabilityConfig,
+  fromYmd: string,
+): boolean {
+  if (pin.slot < 1 || pin.slot > goal.current_lesson) return false;
+  return pin.date >= fromYmd;
+}
+
+/**
+ * Does this pin hold its day in a projection starting on `fromYmd`? A live
+ * queue pin always does (isPinProjectable); a make-up does from its day on
+ * (isMakeUpPin). Every capacity check that exempts or counts pins reads this.
+ */
+export function pinHoldsDay(
+  pin: { slot: number; date: string },
+  goal: PinProjectabilityConfig,
+  fromYmd: string,
+): boolean {
+  return isPinProjectable(pin, goal) || isMakeUpPin(pin, goal, fromYmd);
+}
+
 /** The lesson columns needed to derive a pin. */
 export interface PinnableRow {
   queue_position?: number | null;
@@ -2090,7 +2128,6 @@ export function computeNextLessonsForGoal(
   pins: readonly QueueHold[] = [],
 ): ProjectedLesson[] {
   if (daysAhead <= 0) return [];
-  if (goal.current_lesson >= goal.total_lessons) return [];
 
   const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
   const out: ProjectedLesson[] = [];
@@ -2136,6 +2173,23 @@ export function computeNextLessonsForGoal(
     pinDateBySlot.set(p.slot, p.date);
     used.set(p.date, (used.get(p.date) ?? 0) + 1);
   }
+
+  // Make-ups (Invariant 23): a lesson a family reopened behind the pointer is
+  // not a queue slot, but it is work due on its day. It is emitted on that day
+  // and the day's capacity is spent on it, so the queue never stacks a fresh
+  // lesson on top. A make-up dated before the window is left where it is.
+  const makeUps: ProjectedLesson[] = [];
+  const makeUpSlots = new Set<number>();
+  for (const p of pins) {
+    if (isSkippedSlot(p) || skippedSlots.has(p.slot)) continue;
+    if (!isMakeUpPin(p, goal, fromDateStr)) continue;
+    if (p.date >= endDateStr || makeUpSlots.has(p.slot)) continue;
+    makeUpSlots.add(p.slot);
+    makeUps.push({ goal_id: goal.id, lesson_number: p.slot, date: p.date });
+    used.set(p.date, (used.get(p.date) ?? 0) + 1);
+  }
+  makeUps.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.lesson_number - b.lesson_number));
+  if (goal.current_lesson >= goal.total_lessons) return makeUps;
 
   // The "next" lesson_number is current_lesson + 1 (current_lesson is the
   // count of completed lessons; lesson_number is 1-indexed in the row).
@@ -2220,12 +2274,14 @@ export function computeNextLessonsForGoal(
             // that are not skipped: a skip between two of today's completions
             // is not one of them. With no skips this is exactly
             // max(1, current_lesson - completedTodayCount + 1).
+            // A make-up is emitted on its own day, so the rewind steps over
+            // it exactly as it steps over a skip.
             let rewound = goal.current_lesson + 1;
             for (let back = completedTodayCount; back > 0 && rewound > 1; ) {
               rewound--;
-              if (!skippedSlots.has(rewound)) back--;
+              if (!skippedSlots.has(rewound) && !makeUpSlots.has(rewound)) back--;
             }
-            while (skippedSlots.has(rewound)) rewound++;
+            while (skippedSlots.has(rewound) || makeUpSlots.has(rewound)) rewound++;
             nextLesson = rewound;
             firstDayApplied = true;
             if (nextLesson > goal.total_lessons) break;
@@ -2233,7 +2289,12 @@ export function computeNextLessonsForGoal(
             if (pinDateBySlot.has(nextLesson)) break;
           }
           const u = used.get(dateStr) ?? 0;
-          if (u < perDayHere) {
+          // A rewound slot is a lesson already DONE today, shown as a checked
+          // card. It belongs on today whatever else is there (a make-up, a
+          // pin), and still spends today's capacity, so it can never spill
+          // onto tomorrow and push the queue out.
+          const doneTodayCard = firstDayApplied && dateStr === fromDateStr && nextLesson <= goal.current_lesson;
+          if (u < perDayHere || doneTodayCard) {
             out.push({ goal_id: goal.id, lesson_number: nextLesson, date: dateStr });
             emitted.add(nextLesson);
             used.set(dateStr, u + 1);
@@ -2252,7 +2313,9 @@ export function computeNextLessonsForGoal(
     }
   }
 
-  return out;
+  // After the queue, so `out[0]` is still the next queue lesson for every
+  // caller that reads it that way.
+  return makeUps.length > 0 ? [...out, ...makeUps] : out;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -2417,15 +2480,44 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
   clearPins: boolean;
   currentLesson: number;
   totalLessons: number;
+  /**
+   * The family's today. When given, an unpinned row behind the pointer dated
+   * today or later is turned into a make-up (Invariant 23): see `makeUpIds`.
+   */
+  todayYmd?: string;
 }) {
   const { beforeRows, goalId, clearPins } = args;
+  // Behind the pointer (Invariant 23): unfinished, not skipped, in a slot the
+  // queue has already passed. Nothing about such a row is the rebuild's to
+  // decide. It is never deleted (the history backfill would then re-create it
+  // as DONE, completing a lesson the family reopened), never released by a
+  // schedule change, and never re-dated.
+  const isBehind = (r: T) =>
+    !r.completed && !r.skipped && r.queue_position != null && r.queue_position <= args.currentLesson;
+  const behindRows = beforeRows.filter(isBehind);
   // (Spread, not a literal: this is an in-memory view of rows already read,
   // not a payload, and Invariant 10's source sweep reads any literal carrying
   // scheduled_date as a write.)
+  // `pinnedRows` is the pins a schedule change releases: the live queue's only.
   const pinnedRows = beforeRows
-    .filter((r) => !r.completed && r.queue_pinned && !r.skipped)
+    .filter((r) => !r.completed && r.queue_pinned && !r.skipped && !isBehind(r))
     .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
-  const survivingPins = clearPins ? [] : pinnedRows;
+  const makeUpRows = behindRows
+    .filter((r) => r.queue_pinned)
+    .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
+  // A row reopened before make-ups existed was left unpinned, so no surface
+  // could see it (Sentry ROOTED-HOMESCHOOL-1Q). The rebuild pins it where it
+  // is, the same thing reopening it does now, so Today, Plan and every
+  // projection agree it holds that day. Past-dated ones are left as they are.
+  const makeUpConversions = args.todayYmd
+    ? behindRows.filter((r) => !r.queue_pinned && r.scheduled_date != null && r.scheduled_date >= args.todayYmd!)
+    : [];
+  const makeUpIds = new Set(makeUpConversions.map((r) => r.id));
+  const survivingPins = [
+    ...(clearPins ? [] : pinnedRows),
+    ...makeUpRows,
+    ...makeUpConversions.map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId })),
+  ];
   // Keyed by queue_position, which is what the projector's slots mean.
   const pins: PinnedSlot[] = pinsFromRows(survivingPins, goalId);
 
@@ -2456,6 +2548,7 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
     ...survivingPins.map((r) => r.id),
     ...skippedRows.map((r) => r.id),
     ...workRowIds,
+    ...behindRows.map((r) => r.id),
   ]);
   // Mirrors the COMMIT delete exactly: incomplete, lesson_number strictly above
   // the floor, minus the held-back rows. PostgREST's `gt` never matches a NULL,
@@ -2475,6 +2568,8 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
 
   return {
     pinnedRows,
+    makeUpIds,
+    behindIds: new Set(behindRows.map((r) => r.id)),
     pins,
     holds,
     projectableSkippedSlots,

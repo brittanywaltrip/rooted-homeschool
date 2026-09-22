@@ -20,10 +20,10 @@ import {
   withSameCountEveryDay,
   type PerDayShape,
 } from "@/app/lib/builder-pace";
-import { isPhase2NoOp, planPhase2Rows, phase2RedateTargets, builderNextLesson, skippedSlotsFromRows, type PinnableRow, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, type PinnableRow, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
-import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
+import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
@@ -2587,7 +2587,7 @@ export default function ScheduleBuilderPage() {
           count: beforeRowsCount,
         } = await supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned, skipped, scheduled_date, date, title", { count: "exact" })
+          .select("id, lesson_number, queue_position, completed, completed_at, notes, minutes_spent, queue_pinned, skipped, scheduled_date, date, title", { count: "exact" })
           .eq("curriculum_goal_id", goalId);
         if (beforeRowsErr) throw beforeRowsErr;
         const beforeRows = (beforeRowsData ?? []) as {
@@ -2595,6 +2595,7 @@ export default function ScheduleBuilderPage() {
           lesson_number: number | null;
           queue_position: number | null;
           completed: boolean;
+          completed_at: string | null;
           notes: string | null;
           minutes_spent: number | null;
           queue_pinned: boolean | null;
@@ -2627,15 +2628,21 @@ export default function ScheduleBuilderPage() {
         // deleted, never re-dated, never recreated, and their slot is never
         // given to an insert. Before this a builder save deleted a note-free
         // skipped lesson and re-created it as an ordinary dated one.
+        //
+        // Rows behind the pointer (Invariant 23) are held back too, always: a
+        // lesson the family reopened is theirs to finish, not the rebuild's to
+        // delete (the history backfill would re-create it as done). An unpinned
+        // one dated today or later is made a make-up (makeUpIds), pinned where
+        // it is, so it holds its day here and on every other surface.
         const {
           pinnedRows,
+          makeUpIds,
+          behindIds,
           pins,
           holds,
           projectableSkippedSlots,
-          completedFloor,
           holdsParentWork,
           workRowIds,
-          heldBackIds,
           deletedIds,
           survivors,
         } = planPhase2Rows({
@@ -2644,6 +2651,7 @@ export default function ScheduleBuilderPage() {
           clearPins,
           currentLesson,
           totalLessons: row.total_lessons,
+          todayYmd: ymd(todayMid),
         });
 
         const goalConfig = {
@@ -2695,7 +2703,23 @@ export default function ScheduleBuilderPage() {
           !(row.previouslySavedAs === "curriculum_goals" && row.dbId) || beforeRows.length === 0;
         const startPick = row.start_date ? new Date(`${row.start_date}T00:00:00`) : todayMid;
         const forwardAnchor = isNewGoal ? forwardScheduleStart(startPick, todayMid) : todayMid;
-        const upcoming = computeNextLessonsForGoal(goalConfig, forwardAnchor, 3650, vacations, 0, holds);
+        // Lessons already done today count against today's pace, exactly as
+        // Today counts them (completed_at inside the family's local day), so an
+        // existing goal re-saved on a day it already has a finished lesson does
+        // not get a second one dated today. A new goal is anchored past today
+        // (Invariant 1), where the count does not apply.
+        const dayStart = new Date(todayMid);
+        const dayEnd = new Date(todayMid);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const doneToday = countDoneToday(beforeRows, dayStart.toISOString(), dayEnd.toISOString());
+        const upcoming = computeNextLessonsForGoal(
+          goalConfig,
+          forwardAnchor,
+          3650,
+          vacations,
+          isNewGoal ? 0 : doneToday,
+          holds,
+        );
         if (upcoming.length === 0) return;
 
         /* ── PLAN ─────────────────────────────────────────────────────────────
@@ -3039,71 +3063,78 @@ export default function ScheduleBuilderPage() {
           return map && typeof map[dayLabel] === "number" ? map[dayLabel] : lessons_per_day;
         };
 
-        // PRE-WRITE capacity assertion. Refuses to commit a batch where the
-        // projector put more than the day's ceiling on a single date. The May
-        // 2026 t.ferrebee bug ("lesson 1 + lesson 2 both on 5/30 for lpd=1")
-        // shipped because the equivalent post-write check threw inside
-        // phase="post_save" and the catch swallowed it softly, leaving the bad
-        // rows in the database.
+        // ProjectedLesson.lesson_number IS the queue slot (see its doc
+        // comment): the slot-to-date map the kept rows are re-dated from.
+        const projDateBySlot = new Map<number, string>();
+        for (const u of upcoming) {
+          if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date);
+        }
+
+        // Everything this goal's rebuild writes, and the COMPLETE result it
+        // leaves, decided and checked before the first write (planPhase2Commit
+        // in app/lib/phase2-commit.ts). Kept rows in the live queue take the
+        // projector's date for their slot; pins, skips and make-ups keep
+        // theirs.
         //
-        // The ceiling applies to PROJECTED, UNPINNED lessons only. A pinned row
-        // is the family's own placement, and stacking is a supported feature:
-        // bulk-move-to-one-day puts N lessons on one date on purpose, and
-        // `move_lesson_to_date` stacks queue positions to match (see the
-        // "Invariant 2 carve-out for manual moves" section of
-        // docs/CURRICULUM-SCHEDULING.md — auto-scheduling never bunches, only
-        // the user can). Seeding this count from the surviving pins read a
-        // supported feature as corruption and refused the save: goal 503610a9
-        // has lessons 8 and 18 both pinned to 2026-09-02 on a 1/day goal, so
-        // the guard saw "2 > 1" and threw. The projector already reserves each
-        // pinned date's capacity before it places anything unpinned, so an
-        // unpinned row can never land on a pinned day that is full.
-        const unpinnedByDate: Record<string, number> = {};
-        for (const r of toInsert) {
-          if (!r.scheduled_date) continue;
-          unpinnedByDate[r.scheduled_date] = (unpinnedByDate[r.scheduled_date] ?? 0) + 1;
-        }
-        const preInsertViolations: string[] = [];
-        for (const [dateStr, count] of Object.entries(unpinnedByDate)) {
-          const allowed = perDayAllowed(dateStr);
-          if (count > allowed) {
-            preInsertViolations.push(`${dateStr} (${count} > ${allowed})`);
-          }
-        }
-        if (preInsertViolations.length > 0) {
-          console.error(
-            "[handleSave] Projector emitted overcapacity batch, refusing INSERT",
-            { goalId, violations: preInsertViolations },
-          );
+        // ── PRE-WRITE validation of the COMPLETE result ─────────────────────
+        // Not just the rows about to be inserted: every row the curriculum will
+        // hold once this commits, kept rows and completed work included, day by
+        // day. The lessons this plan places must fit in what each day has left
+        // after the lessons already done today and every other unfinished
+        // lesson dated there (pins, make-ups, rows the rebuild keeps). The old
+        // pre-write check counted the inserts alone, so a kept row on the same
+        // day passed here and failed only after everything had committed
+        // (Sentry ROOTED-HOMESCHOOL-1Q). apply_builder_rebuild runs the same
+        // rule again inside its transaction.
+        const releasedIds = new Set(clearPins ? pinnedRows.map((r) => r.id) : []);
+        const { redates, plan: commitPlan, validation } = planPhase2Commit({
+          beforeRows,
+          survivors,
+          deletedIds,
+          releasedIds,
+          makeUpIds,
+          behindIds,
+          projDateBySlot,
+          inserts: [...histToInsert, ...toInsert].map((r) => ({
+            child_id: r.child_id,
+            lesson_number: r.lesson_number,
+            queue_position: r.queue_position,
+            title: r.title,
+            scheduled_date: r.scheduled_date,
+            scheduled_source: "wizard_create",
+            completed: r.completed,
+            completed_at: "completed_at" in r ? r.completed_at : null,
+            is_backfill: "is_backfill" in r ? r.is_backfill : false,
+            minutes_spent: "minutes_spent" in r ? r.minutes_spent : null,
+            hours: r.hours,
+          })),
+          totalLessons: row.total_lessons,
+          todayYmd: ymd(todayMid),
+          doneToday,
+          currentLesson,
+          perDayAllowed,
+        });
+        if (validation.overCapacity.length > 0 || validation.integrity.length > 0) {
+          const days = validation.overCapacity.map((v) => `${v.date} (${v.placed} > ${v.room})`);
+          console.error("[handleSave] phase 2 plan refused before any write", {
+            goalId,
+            overCapacity: validation.overCapacity,
+            integrity: validation.integrity,
+          });
           throw new ScheduleAssertionError(
-            `Lesson scheduling produced ${preInsertViolations.length} overcapacity date(s): ${preInsertViolations.join(", ")}. The curriculum saved, but lessons were not generated. Please try a different start date or contact support.`,
+            days.length > 0
+              ? `Lesson scheduling produced ${days.length} overcapacity date(s): ${days.join(", ")}. The curriculum saved, but lessons were not generated. Please try a different start date or contact support.`
+              : `Lesson scheduling was refused before anything was written: ${validation.integrity[0]}. The curriculum saved, but lessons were not generated. Please contact support.`,
           );
         }
 
-        // Pins are exempt from the ceiling, not from observability. A date
+        // Pins are exempt from the ceiling, not from observability. A day
         // holding more hand-placed lessons than the goal plans per day is worth
         // knowing about, so it goes to Sentry as a WARNING with the dates
-        // attached — never as a throw, because the family chose it.
-        //
-        // Counted the way the PROJECTOR counts pins: isPinProjectable is the
-        // single definition of which pins hold a slot, and it lives next to the
-        // projector that reads it. A pin whose slot is at or below
-        // current_lesson, or past total_lessons, is stale — the projector emits
-        // nothing for it and reserves no capacity on its date, so counting it
-        // here would double-count a day the projector had legitimately filled
-        // with a fresh lesson. That mismatch is what produced 49 "overcapacity"
-        // dates on a single goal, and 45 goals across 12 families still hold a
-        // pin in that shape.
-        const pinnedByDate: Record<string, number> = {};
-        for (const p of pins) {
-          if (!isPinProjectable(p, { current_lesson: currentLesson, total_lessons: row.total_lessons })) {
-            continue;
-          }
-          pinnedByDate[p.date] = (pinnedByDate[p.date] ?? 0) + 1;
-        }
-        const stackedPinDates = Object.entries(pinnedByDate)
-          .filter(([dateStr, count]) => count > perDayAllowed(dateStr))
-          .map(([dateStr, count]) => `${dateStr} (${count} > ${perDayAllowed(dateStr)})`);
+        // attached, never as a throw, because the family chose it (Sentry
+        // ROOTED-HOMESCHOOL-1J). Counted on the end state, so a make-up
+        // (Invariant 23) is a hand-placed lesson here like any other pin.
+        const stackedPinDates = validation.pinStacks.map((p) => `${p.date} (${p.pinned} > ${p.allowed})`);
         if (stackedPinDates.length > 0) {
           captureSupabaseError(
             "Curriculum save phase 2: hand-placed lessons stacked past the per-day cap",
@@ -3199,22 +3230,15 @@ export default function ScheduleBuilderPage() {
         }
 
         /* ── COMMIT ───────────────────────────────────────────────────────────
-         * Every assertion above passed against the computed batch, so the
-         * writes below are the first destructive calls this goal makes. Keep it
-         * that way: anything that can refuse the batch belongs in PLAN, above.
+         * Every check above ran against the complete computed result. The
+         * writes below are the first this goal makes, and they are ONE
+         * transaction (apply_builder_rebuild): it re-reads the rows under lock,
+         * refuses a plan made against rows that changed since `beforeRows`,
+         * writes everything, and re-checks capacity before it commits. A
+         * failure anywhere writes nothing, so a curriculum is never left half
+         * rebuilt. Keep it that way: anything that can refuse the batch
+         * belongs in PLAN, above.
          * ─────────────────────────────────────────────────────────────────── */
-
-        // When the user re-spread THIS goal, release the pins explicitly rather
-        // than just ignoring them: leaving queue_pinned=true on rows we are
-        // about to re-date would freeze them at their new projector dates and
-        // make the next sibling save unable to move them either.
-        // ProjectedLesson.lesson_number IS the queue slot (see its doc
-        // comment); this is the slot-to-date map the held-back rows and the
-        // no-op check below both read.
-        const projDateBySlot = new Map<number, string>();
-        for (const u of upcoming) {
-          if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date);
-        }
 
         // ── An unchanged sibling writes nothing ──────────────────────────────
         // See isPhase2NoOp in scheduler.ts for the rule and the reasons. The
@@ -3232,7 +3256,8 @@ export default function ScheduleBuilderPage() {
           todayYmd: ymd(todayMid),
           perDayAllowed,
         });
-        if (verdict.noop) {
+        const keptRowMoves = redates.some((t) => t.to !== t.from);
+        if (verdict.noop && makeUpIds.size === 0 && !keptRowMoves) {
           console.debug(`[handleSave] goal ${goalId}: ${verdict.reason}, no rows written`);
           void logPlanEvent({
             userId: effectiveUserId,
@@ -3249,160 +3274,74 @@ export default function ScheduleBuilderPage() {
           return;
         }
 
-
-        if (clearPins && pinnedRows.length > 0) {
-          const { error: unpinErr } = await supabase
-            .from("lessons")
-            .update({ queue_pinned: false })
-            .in("id", pinnedRows.map((r) => r.id));
-          if (unpinErr) throw unpinErr;
+        // The goal as the database holds it now, sent back as the snapshot the
+        // transaction compares under lock. Read, not reconstructed from the
+        // builder row, so a difference can only mean something really changed.
+        const { data: goalNow, error: goalNowErr } = await supabase
+          .from("curriculum_goals")
+          .select("total_lessons, current_lesson, start_at_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date")
+          .eq("id", goalId)
+          .single();
+        if (goalNowErr || !goalNow) throw goalNowErr ?? new Error(`Phase 2 could not re-read goal ${goalId}`);
+        const snapshot = goalNow as Phase2GoalSnapshot;
+        if (snapshot.current_lesson !== currentLesson || snapshot.total_lessons !== row.total_lessons) {
+          // The plan was made from a different pointer or length: plan again.
+          throw new Error(`Phase 2 plan for goal ${goalId} is stale (pointer or total moved)`);
+        }
+        const committed = await applyPhase2Commit(supabase, {
+          goalId,
+          userId: effectiveUserId,
+          localDay: ymd(todayMid),
+          expected: phase2Expected({
+            goal: snapshot,
+            rows: beforeRows,
+            dayStartIso: dayStart.toISOString(),
+            dayEndIso: dayEnd.toISOString(),
+          }),
+          plan: commitPlan,
+        });
+        if (committed.status === "refused" || committed.status === "invalid") {
+          // Nothing was written. The database disagreed with a plan the page
+          // had already validated, which reproduces on every attempt.
+          throw new ScheduleAssertionError(
+            `Lesson scheduling was refused before anything was written (${committed.reason}). The curriculum saved, but lessons were not generated. Please contact support.`,
+          );
+        }
+        if (committed.status !== "applied") {
+          // 'stale' (a row changed since it was read) or a failed transaction:
+          // nothing was written, and the retry re-reads and plans again.
+          throw new Error(`Phase 2 commit ${committed.status}: ${committed.reason}`);
+        }
+        if (committed.via === "legacy") {
+          // The release order puts the migration first; this is the one path
+          // that is not a single transaction, so it is always reported.
+          captureSupabaseError(
+            "Curriculum save phase 2 committed without apply_builder_rebuild",
+            new Error("apply_builder_rebuild is not deployed on this database"),
+            { level: "warning", tags: { phase: "phase2_commit_legacy", goal_id: goalId } },
+          );
         }
 
-        let floorDelete = supabase
-          .from("lessons")
-          .delete()
-          .eq("curriculum_goal_id", goalId)
-          .eq("completed", false)
-          .gt("lesson_number", completedFloor);
-        // Manual placements survive the re-spread (unless this goal's own
-        // schedule changed, in which case no pin is held back and they were
-        // already released above). Without this exclusion the delete wiped them
-        // and the reinsert brought them back unpinned at projector dates.
-        if (heldBackIds.size > 0) {
-          floorDelete = floorDelete.not("id", "in", `(${[...heldBackIds].join(",")})`);
-        }
-        const { error: incompleteDeleteErr } = await floorDelete;
-        if (incompleteDeleteErr) throw incompleteDeleteErr;
-
-        // One request per batch of 500 (app/lib/batches.ts), the same helper
-        // "Add a past year" writes with. 100 per request cost a 180-lesson
-        // goal two round trips where one does.
         // ── Count what the DATABASE wrote, not what we planned to write ─────
-        //
-        // These two loops threw on error and counted nothing, and the
-        // schedule.rebuilt event below logged `toInsert.length`: the PLANNED
-        // number. So an insert that landed short reported success in the audit
-        // trail. Goal 69e9b6b8 is logged as "inserted: 52, skipped: 0" and
-        // holds 51 rows, numbered 2 to 52, every one created in that save. The
-        // log asserting 52 is why nobody looked for a week.
-        //
-        // `.select("id")` makes the insert return its rows, so the count is the
-        // server's answer. A short batch now fails the save loudly instead of
-        // being written down as a success.
-        let histInserted = 0;
-        for (const batch of batches(histToInsert, LESSON_INSERT_BATCH)) {
-          const { data: wrote, error: histErr } = await supabase
-            .from("lessons")
-            .insert(batch)
-            .select("id");
-          if (histErr) throw histErr;
-          histInserted += (wrote ?? []).length;
-        }
-        let forwardInserted = 0;
-        for (const batch of batches(toInsert, LESSON_INSERT_BATCH)) {
-          const { data: wrote, error: lessonErr } = await supabase
-            .from("lessons")
-            .insert(batch)
-            .select("id");
-          if (lessonErr) throw lessonErr;
-          forwardInserted += (wrote ?? []).length;
-        }
-        const plannedInsertCount = histToInsert.length + toInsert.length;
-        const confirmedInsertCount = histInserted + forwardInserted;
+        // Goal 69e9b6b8 is logged as "inserted: 52, skipped: 0" and holds 51
+        // rows; the log asserting 52 is why nobody looked for a week. The
+        // commit reports the rows it inserted; a short count is reported, never
+        // shown to the family, because the save itself committed.
+        const plannedInsertCount = commitPlan.inserts.length;
+        const confirmedInsertCount = committed.inserted;
         if (confirmedInsertCount !== plannedInsertCount) {
-          // Deterministic by construction: the same batch rebuilds identically,
-          // so a retry reproduces it. ScheduleAssertionError skips the retry and
-          // routes to the notice, and the goal is named for support.
           console.error("[handleSave] insert landed short", {
             goalId,
             planned: plannedInsertCount,
             confirmed: confirmedInsertCount,
           });
-          // The delete and the inserts have committed by the time we get here,
-          // and throwing skips everything below: the over-ceiling cleanup, the
-          // pin release and the pointer recompute. Recompute at least, so the
-          // goal is not left rebuilt with a pointer describing the old row set.
-          // The rest is re-applied by the next save.
-          await recomputeCurrentLesson(supabase, goalId);
-          throw new ScheduleAssertionError(
-            `Lesson scheduling wrote ${confirmedInsertCount} of ${plannedInsertCount} planned rows. ` +
-              "The curriculum saved, but its lessons are incomplete. We've been notified.",
+          captureSupabaseError(
+            "Curriculum save phase 2 inserted fewer rows than planned",
+            new Error(`Goal ${goalId}: ${confirmedInsertCount} of ${plannedInsertCount} planned rows`),
+            { tags: { phase: "phase2_insert_short", goal_id: goalId } },
           );
         }
-
-        // Cleanup: if the user reduced total_lessons on an edit, any rows
-        // previously inserted past the new ceiling become stale. Delete
-        // only INCOMPLETE rows so historical completions are preserved
-        // (Invariant 3: backfilled / completed lessons stay put).
-        //
-        // Pinned rows are deliberately NOT excluded here. A pin says "this
-        // lesson belongs on this day"; it cannot say "this lesson exists" once
-        // the user has shortened the curriculum past it. Reducing total_lessons
-        // to 100 retires lesson 120 whether or not it was hand-placed. Note
-        // that shortening total_lessons is itself a schedule-field change, so
-        // scheduleFieldsChangedForRow already released this goal's pins above.
-        let overCeilingDelete = supabase
-          .from("lessons")
-          .delete()
-          .eq("curriculum_goal_id", goalId)
-          .gt("lesson_number", row.total_lessons)
-          .eq("completed", false);
-        // Item 4 again. Shortening a curriculum retires the lessons past the
-        // new end, but it does not entitle the app to shred what the parent
-        // wrote on one of them. A retired row carrying notes or logged minutes
-        // is UNSCHEDULED instead of deleted: it leaves every calendar surface
-        // (they all select on scheduled_date) and it stops holding a queue
-        // slot, so it can blank nothing, and the text survives.
-        const overCeilingWorkIds = beforeRows
-          .filter(
-            (r) =>
-              !r.completed &&
-              r.lesson_number != null &&
-              // Unknown ceiling retires nothing, matching how PostgREST's `gt`
-              // treats the NULL in the delete above.
-              row.total_lessons != null &&
-              r.lesson_number > row.total_lessons &&
-              holdsParentWork(r),
-          )
-          .map((r) => r.id);
-        if (overCeilingWorkIds.length > 0) {
-          overCeilingDelete = overCeilingDelete.not("id", "in", `(${overCeilingWorkIds.join(",")})`);
-          const { error: unscheduleErr } = await supabase
-            .from("lessons")
-            .update({ scheduled_date: null, queue_position: null, queue_pinned: false })
-            .in("id", overCeilingWorkIds);
-          if (unscheduleErr) throw unscheduleErr;
-        }
-        const { error: cleanupErr } = await overCeilingDelete;
-        if (cleanupErr) throw cleanupErr;
-
-        // Item 4: the held-back rows are UPDATED rather than deleted and
-        // recreated. They keep their id, their notes and their lesson_number;
-        // what the rebuild is entitled to change is where they sit. The
-        // projector's date for a slot is read out of `upcoming`, the same
-        // output the fresh inserts were built from, so a kept row lands on the
-        // same day the row that replaced it would have.
-        //
-        // Pinned rows are excluded: a pin is the parent saying "this lesson
-        // belongs on this day" and Invariant 12 is that the system never
-        // re-dates a manual placement. They were already surviving the delete
-        // before this change and they keep surviving it untouched.
-        // ProjectedLesson.lesson_number IS the queue slot, not the lesson
-        // number — see its doc comment. That is the column a kept row is
-        // matched on, the same way the fresh inserts take their date from the
-        // slot they land in.
-        // Skipped rows are excluded for the same reason (Invariant 22): a skip
-        // has no day. phase2RedateTargets is the one rule, shared with the
-        // no-op check.
-        let rebuiltUpdated = 0;
-        for (const t of phase2RedateTargets({ beforeRows, workRowIds, projDateBySlot })) {
-          const { error: redateErr } = await supabase
-            .from("lessons")
-            .update({ scheduled_date: t.date, date: t.date, scheduled_source: "wizard_create" })
-            .eq("id", t.id);
-          if (redateErr) throw redateErr;
-          rebuiltUpdated += 1;
-        }
+        const rebuiltUpdated = committed.redated;
 
         void logPlanEvent({
           userId: effectiveUserId,
@@ -3512,63 +3451,57 @@ export default function ScheduleBuilderPage() {
           }
         }
 
-        // Post-INSERT overcapacity assertion. The May 20 audit surfaced
-        // pre-existing goals where two disjoint lesson_number ranges
-        // collided onto the same future scheduled_date (e.g. lessons
-        // 94-95 AND 155-156 both on the same day) — a silent corruption
-        // pattern the floor-anchored delete + lesson_number dedup is
-        // supposed to prevent. This read-only check verifies no future
-        // school day exceeds lessons_per_day for THIS goal after the
-        // INSERT batch settled. On violation: throw so handleSave's
-        // catch surfaces the error and the user can re-try, instead of
-        // silently shipping the bad rows.
+        // Post-save capacity MONITOR. The save above is one committed
+        // transaction that was validated in full before it was sent and again
+        // inside it, so a violation here means the rows changed underneath it
+        // (another tab, another device) or a rule disagrees with itself. Either
+        // way the family's save DID commit, so this reports and never throws:
+        // telling a parent a committed save failed is what sent the family in
+        // ROOTED-HOMESCHOOL-1Q to "email hello@" for a schedule already written.
         const todayYmd = ymd(todayMid);
-        const { data: overCheck, error: overCheckErr } = await supabase
+        const { data: afterCheck, error: afterCheckErr } = await supabase
           .from("lessons")
-          .select("scheduled_date, queue_pinned, skipped")
-          .eq("curriculum_goal_id", goalId)
-          .eq("completed", false)
-          .gte("scheduled_date", todayYmd);
-        if (overCheckErr) throw overCheckErr;
-        // Same rule as the pre-write assertion: the ceiling is for lessons the
-        // SCHEDULER placed. Pinned rows are the family's own placements and are
-        // skipped entirely — not just the projectable ones. A stale pin (slot
-        // at or below current_lesson) is invisible to the projector, so the
-        // projector legitimately puts a fresh lesson on that same date; if the
-        // stale pinned row were counted here the day would read as doubly
-        // booked and the save would end on "email hello@" for a schedule that
-        // is in fact correct.
-        const dateMap: Record<string, number> = {};
-        for (const r of (overCheck ?? []) as {
-          scheduled_date: string | null;
-          queue_pinned: boolean | null;
-          skipped: boolean | null;
-        }[]) {
-          if (!r.scheduled_date) continue;
-          if (r.queue_pinned) continue;
-          // A skipped row holds no day; one an older save re-dated is not a
-          // lesson the scheduler placed.
-          if (r.skipped) continue;
-          dateMap[r.scheduled_date] = (dateMap[r.scheduled_date] ?? 0) + 1;
-        }
-        // The per-day ceiling MUST honor lessons_per_day_overrides, which is
-        // why both checks now read the one `perDayAllowed` closure. Pre-fix,
-        // this compared every date against the flat lessons_per_day (the
-        // override AVERAGE for uneven goals), so any goal with e.g. Mon=2/Tue=1
-        // legitimately projected 2 Monday lessons, passed the pre-check,
-        // INSERTed, then THREW here on every save attempt. The thrown error
-        // killed the phase-2 loop, so every goal after it in the same save
-        // silently got zero lessons (the July 2026 Lepior bug: all of one
-        // child's new curricula dead because her first goal had uneven per-day
-        // counts).
-        const violated = Object.entries(dateMap).filter(
-          ([dateStr, count]) => count > perDayAllowed(dateStr),
-        );
-        if (violated.length > 0) {
-          console.error("[handleSave] Overcapacity after INSERT", violated);
-          throw new ScheduleAssertionError(
-            `Overcapacity detected on ${violated.length} date(s) after save. Lesson rows may need another save to resolve.`,
-          );
+          .select("id, lesson_number, queue_position, completed, completed_at, queue_pinned, skipped, scheduled_date")
+          .eq("curriculum_goal_id", goalId);
+        if (!afterCheckErr && afterCheck) {
+          const actual = afterCheck as Phase2CommitRow[];
+          const monitorRows = actual.map((r) => ({
+            id: r.id,
+            lesson_number: r.lesson_number,
+            queue_position: r.queue_position,
+            completed: r.completed,
+            queue_pinned: r.queue_pinned ?? false,
+            skipped: r.skipped ?? false,
+            scheduled_date: r.scheduled_date,
+            notes: null,
+            minutes_spent: null,
+            // Every unpinned unfinished row counts as scheduler-placed here:
+            // the strictest reading of Invariant 2 on what is actually stored.
+            placed: !(r.queue_pinned ?? false),
+            inserted: false,
+          }));
+          const seen = validatePhase2End({
+            beforeRows: actual,
+            plan: { unpin_ids: [], makeup_ids: [], delete_ids: [], inserts: [], retire_above: null, retire_keep_ids: [], redates: [] },
+            endRows: monitorRows,
+            todayYmd,
+            doneToday: countDoneToday(actual, dayStart.toISOString(), dayEnd.toISOString()),
+            currentLesson,
+            perDayAllowed,
+          });
+          if (seen.overCapacity.length > 0 || seen.integrity.length > 0) {
+            console.error("[handleSave] committed schedule is over the daily pace", seen);
+            captureSupabaseError(
+              "Curriculum save: committed schedule is over the daily pace",
+              new Error(
+                `Goal ${goalId}: ${seen.overCapacity.map((v) => `${v.date} (${v.placed} > ${v.room})`).join(", ") || seen.integrity.join("; ")}`,
+              ),
+              {
+                tags: { phase: "curriculum_save_post_commit_monitor", goal_id: goalId },
+                extra: { overCapacity: seen.overCapacity, integrity: seen.integrity, via: committed.via },
+              },
+            );
+          }
         }
       };
 

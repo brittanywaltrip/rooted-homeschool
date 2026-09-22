@@ -58,6 +58,7 @@ import { currentKeyLast, getCurrentSchoolYear, resolveYearbookKey, yearbookConte
 import { countLeaves, loadLeafCounts, loadLeafSources } from "@/app/lib/garden-leaves";
 import { getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { captureSupabaseError } from "@/lib/sentry-error";
+import { reopenBehindPointer } from "@/app/lib/reopen-lesson";
 import { MAX_PREFILL_TITLE } from "@/lib/mail-adventures";
 import { useIsNativeApp } from "@/lib/platform";
 import WhenPicker from "@/app/components/WhenPicker";
@@ -3090,6 +3091,22 @@ export default function TodayPage() {
     setAllDoneBanner(false);
     if (lesson.curriculum_goal_id) {
       await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+      // Invariant 23: a lesson reopened behind the pointer is a make-up,
+      // pinned to the day it is due, so it stays on Today and every projection
+      // leaves its day's capacity to it.
+      const reopened = await reopenBehindPointer(supabase, {
+        lessonId: id,
+        goalId: lesson.curriculum_goal_id,
+        todayYmd: today,
+      });
+      if (reopened.error) {
+        captureSupabaseError("Reopened lesson could not be made a make-up", new Error(reopened.error), {
+          level: "warning",
+          tags: { fn: "toggleLesson", surface: "today" },
+          extra: { lessonId: id },
+        });
+      }
+      await loadData();
     }
     await refreshLeafCounts();
   }
