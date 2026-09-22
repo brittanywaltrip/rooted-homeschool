@@ -3109,6 +3109,12 @@ export interface NextLessonSentenceArgs {
    * "Lessons 1 to 45", which would say their real work is being dropped.
    */
   alreadyRecorded?: number;
+  /**
+   * Is this a curriculum that is already saved? Its lessons in between exist
+   * as unfinished rows, so the true statement is that they won't be marked
+   * done, not that nothing is added: they stay in the book, unfinished.
+   */
+  savedGoal?: boolean;
 }
 
 /**
@@ -3134,7 +3140,11 @@ export function nextLessonSentence(a: NextLessonSentenceArgs): string {
     const to = nextLesson - 1;
     if (to >= from) {
       const earlier = from === to ? `Lesson ${from}` : `Lessons ${from} to ${to}`;
-      parts.push(`${earlier} won't be added to your records or your hours.`);
+      parts.push(
+        a.savedGoal
+          ? `${earlier} won't be marked done.`
+          : `${earlier} won't be added to your records or your hours.`,
+      );
     }
     if (a.nextLessonDate) {
       const when =

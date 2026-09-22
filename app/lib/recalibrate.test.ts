@@ -107,6 +107,7 @@ function makeRecalibrateSupabase(opts: {
       eq: () => chain,
       not: () => chain,
       lt: () => chain,
+      gt: () => chain,
       or: () => chain,
       order: () => chain,
       limit: () => chain,
@@ -123,7 +124,7 @@ function makeRecalibrateSupabase(opts: {
         onRejected?: (e: unknown) => unknown,
       ) => {
         let data: unknown
-        if (projection === 'id, lesson_number, queue_position') {
+        if (projection === 'id, lesson_number, queue_position, queue_pinned, scheduled_date') {
           // A gap row with no slot given holds the healthy one, lesson_number.
           data = opts.gapLessons.map((g) => ({ queue_position: g.lesson_number, ...g }))
         } else if (
@@ -805,14 +806,23 @@ test('asking for the history twice writes it once, and never touches real comple
   }
 })
 
-test('saying no first and yes later records the gap once', async () => {
+test('after a No, a later move never sweeps up the lessons it left behind', async () => {
+  // No leaves 11 to 18 unfinished behind the pointer, where they cannot be
+  // told apart from lessons the family reopened (Invariant 23). The form only
+  // asks about lessons AFTER the saved position, so no later answer names
+  // them, and no later Yes may complete them. A family who wants them done
+  // ticks them on Plan, which dates each one as they say.
   const { goalId, client, tables } = phonicsGoal()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
-  const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate')
-  assert.deepEqual(estimates.map((r) => r.lesson_number).sort((a, b) => (a as number) - (b as number)), [11, 12, 13, 14, 15, 16, 17, 18])
+  const later = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 22, vacationBlocks: [], recordHistory: true })
+  const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate').map((r) => r.lesson_number)
+  assert.deepEqual(estimates.sort((a, b) => (a as number) - (b as number)), [19, 20, 21], 'only the lessons this Yes named')
+  assert.equal(later.gapCount, 3)
+  for (let n = 11; n <= 18; n++) {
+    assert.equal(tables.lessons.find((l) => l.lesson_number === n)!.completed, false, `lesson ${n} stays unfinished`)
+  }
   assert.equal(tables.lessons.length, 30)
 })
 
@@ -825,4 +835,103 @@ test('every recalibrate caller states the history choice, and none hardcodes yes
     assert.match(body, /recordHistory,?\s/, `${f} passes the family's answer through`)
     assert.doesNotMatch(body, /recordHistory:\s*true/, `${f} must not decide for the family`)
   }
+})
+
+// ── A reopened make-up is the family's, not part of the gap ───────────────
+//
+// The form asks "Should Rooted mark lessons 11 to 18 as done?", counting from
+// current_lesson + 1. The gap query used to take every unfinished row below
+// the new lesson, so a lesson the family had REOPENED behind the pointer (a
+// make-up, Invariant 23) was stamped done on Yes as well, though the question
+// never named it. Yes now completes exactly the lessons it names.
+
+function phonicsWithMakeUp() {
+  const g = phonicsGoal()
+  const five = g.tables.lessons.find((r) => r.lesson_number === 5)!
+  // Reopened: unfinished, pinned on a day from today, slot kept.
+  five.completed = false
+  five.completed_at = null
+  five.queue_pinned = true
+  five.scheduled_date = ymd(daysAgo(-1))
+  five.date = ymd(daysAgo(-1))
+  return g
+}
+
+test('Yes completes only the lessons the question named, never a reopened make-up', async () => {
+  const { goalId, client, tables } = phonicsWithMakeUp()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate').map((r) => r.lesson_number)
+  assert.deepEqual(estimates.sort((a, b) => (a as number) - (b as number)), [11, 12, 13, 14, 15, 16, 17, 18])
+  assert.equal(res.gapCount, 8)
+  const five = tables.lessons.find((r) => r.lesson_number === 5)!
+  assert.equal(five.completed, false, 'the make-up stays unfinished')
+  assert.equal(five.queue_pinned, true, 'and stays on its day')
+})
+
+test('No leaves a reopened make-up exactly as it was', async () => {
+  const { goalId, client, tables } = phonicsWithMakeUp()
+  const before = JSON.stringify(tables.lessons.find((r) => r.lesson_number === 5))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+  assert.equal(JSON.stringify(tables.lessons.find((r) => r.lesson_number === 5)), before)
+})
+
+test('No unschedules the passed-over lessons that still hold a date, keeps their notes, and leaves pinned ones alone', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  // Lesson plans typed ahead: the orphan cleanup never unschedules these.
+  for (const n of [12, 15]) tables.lessons.find((r) => r.lesson_number === n)!.notes = `plan for ${n}`
+  // A lesson the family moved by hand.
+  const sixteen = tables.lessons.find((r) => r.lesson_number === 16)!
+  sixteen.queue_pinned = true
+  const pinnedDate = sixteen.scheduled_date
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+
+  for (const n of [11, 12, 13, 14, 15, 17, 18]) {
+    const r = tables.lessons.find((l) => l.lesson_number === n)!
+    assert.equal(r.scheduled_date, null, `lesson ${n} holds no date, so no later save can pin it to Today`)
+    assert.equal(r.completed, false, `lesson ${n} is not completed`)
+    assert.equal(r.scheduled_source, 'recalibrate_respread')
+  }
+  assert.equal(tables.lessons.find((l) => l.lesson_number === 12)!.notes, 'plan for 12', 'notes survive')
+  assert.equal(sixteen.scheduled_date, pinnedDate, 'a pinned lesson keeps the day the family chose')
+  assert.equal(res.unscheduled.written, 7)
+  assert.equal(res.estimates.expected, 0)
+})
+
+test('Yes writes no unschedules: it completes the gap instead', async () => {
+  const { goalId, client } = phonicsGoal()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  assert.equal(res.unscheduled.expected, 0)
+})
+
+test('after a No, the pointer survives a later save that leaves start_at_lesson alone, and falls if one writes the old value back', async () => {
+  // The contract the Schedule Builder's startAtLessonTouched guard exists for.
+  const { goalId, client, tables } = phonicsGoal()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
+  // A builder save that sends no start_at_lesson (the guarded UPDATE):
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 18)
+  // What an unguarded stale tab would have done:
+  tables.curriculum_goals[0].start_at_lesson = 11
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 10, 'nothing else holds it, which is why the write is guarded')
+})
+
+test('an unfinished lesson below the old position with no slot is not part of the gap either', async () => {
+  // A reopened row whose slot was stripped long ago: only its number says it is
+  // behind the pointer, so only the query's lower bound keeps Yes off it.
+  const { goalId, client, tables } = phonicsGoal()
+  const seven = tables.lessons.find((r) => r.lesson_number === 7)!
+  seven.completed = false
+  seven.completed_at = null
+  seven.queue_position = null
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  assert.equal(seven.completed, false)
+  assert.notEqual(seven.scheduled_source, 'recalibrate_estimate')
 })

@@ -1033,6 +1033,11 @@ function rowIsValid(row: Row): boolean {
  * `start_at_lesson_initial` is the DB's `current_lesson + 1` at load time; a
  * never-saved row has no progress to protect.
  */
+function startAtLessonTouched(row: Row): boolean {
+  // A never-saved row has no baseline, so its number is always the family's.
+  return row.start_at_lesson_initial == null || row.start_at_lesson !== row.start_at_lesson_initial;
+}
+
 function completedThrough(row: Row): number {
   return row.start_at_lesson_initial != null ? row.start_at_lesson_initial - 1 : 0;
 }
@@ -1100,6 +1105,14 @@ function carryDbFieldsOntoDraftRow(draftRow: Row, freshRow: Row): Row {
   if (freshRow.readOnly) return freshRow;
   return {
     ...draftRow,
+    // The starting lesson is the draft's only if the draft CHANGED it. A draft
+    // that left it alone carries whatever it was when the draft was written,
+    // and restoring that next to the fresh start_at_lesson_initial below would
+    // read as the family typing the old number: "I'm actually on 19" made in
+    // the meantime would be written back to 11 by the next save.
+    start_at_lesson: startAtLessonTouched(draftRow)
+      ? draftRow.start_at_lesson
+      : freshRow.start_at_lesson,
     previouslySavedAs: freshRow.previouslySavedAs,
     readOnly: freshRow.readOnly,
     readOnlyReason: freshRow.readOnlyReason,
@@ -2452,9 +2465,20 @@ export default function ScheduleBuilderPage() {
 
           if (row.previouslySavedAs === "curriculum_goals" && row.dbId) {
             // In-place UPDATE, preserving legacy fields the builder doesn't expose.
+            //
+            // start_at_lesson is written only when the family changed it in
+            // THIS session. It is what holds the pointer after "I'm actually on
+            // lesson 19" with No (recompute_curriculum_current_lesson floors on
+            // it), and every save writes every curriculum row, so a tab opened
+            // before that move, saving anything at all, would write the old 11
+            // back: the pointer falls to 10 and phase 2 deletes and regenerates
+            // lessons 11 to 18. The move silently undone. An untouched number
+            // is left as the database has it.
+            const updatePayload: Partial<typeof payload> = { ...payload };
+            if (!startAtLessonTouched(row)) delete updatePayload.start_at_lesson;
             const { error } = await supabase
               .from("curriculum_goals")
-              .update(payload)
+              .update(updatePayload)
               .eq("id", row.dbId);
             if (error) throw error;
             localCurriculumIds.add(row.dbId);
@@ -4698,7 +4722,8 @@ function RowCard(props: {
           recordHistory: historyRequested(row),
           // A saved goal already holds its completed lessons. Only the ones
           // between that and the new position are being left out.
-          alreadyRecorded: row._dbCurrentLesson ?? 0,
+          alreadyRecorded: completedThrough(row),
+          savedGoal: row.dbId != null,
         })
       : "";
 
@@ -5260,10 +5285,11 @@ function RowCard(props: {
                   or skipping anything. */}
               {row.dbId != null &&
               sched.claimed &&
-              row.start_at_lesson - 1 > (row._dbCurrentLesson ?? 0) ? (
+              row.start_at_lesson - 1 > completedThrough(row) ? (
                 <p className="mt-1.5 text-[12px] text-[#7a6f65] leading-relaxed">
-                  To add {row.start_at_lesson - 1 - (row._dbCurrentLesson ?? 0) === 1 ? "it" : "them"} as
-                  done, use &ldquo;I&apos;m actually on...&rdquo; in this curriculum&apos;s menu instead.
+                  To mark {row.start_at_lesson - 1 - completedThrough(row) === 1 ? "it" : "them"} done,
+                  use &ldquo;I&apos;m actually on...&rdquo; in this curriculum&apos;s menu instead of
+                  saving this number.
                 </p>
               ) : null}
                 </div>
@@ -5398,10 +5424,16 @@ function RowCard(props: {
  * Builds a PanelGoal-shaped object from a Row so RecalibrateForm — which
  * was written against the Plan curriculum panel's CurriculumGoal type — can
  * be reused verbatim. Only the fields the form actually reads are filled
- * (id, total_lessons, current_lesson). The form derives its default value
- * from current_lesson + 1, so passing start_at_lesson - 1 keeps the
- * round-trip idempotent: re-opening the form after a save shows mom's
- * last entered value.
+ * (id, total_lessons, current_lesson).
+ *
+ * current_lesson is the SAVED position (completedThrough), not the number the
+ * family may have typed into the row and not saved. The form asks "Should
+ * Rooted mark lessons {current + 1} to {X - 1} as done?" and the recalibration
+ * completes exactly the lessons after the saved position, so feeding it an
+ * unsaved number would hide the question from the family the builder just sent
+ * here to answer it. handleRowRecalibrate moves start_at_lesson_initial to the
+ * new lesson, so re-opening the form after a save still shows the value just
+ * entered.
  */
 function rowToPanelGoal(row: Row): PanelGoal {
   return {
@@ -5410,7 +5442,7 @@ function rowToPanelGoal(row: Row): PanelGoal {
     curriculum_name: row.name,
     subject_label: row.subject || null,
     total_lessons: row.total_lessons ?? 0,
-    current_lesson: Math.max(0, row.start_at_lesson - 1),
+    current_lesson: row.dbId ? completedThrough(row) : Math.max(0, row.start_at_lesson - 1),
     lessons_per_day: 1,
     target_date: null,
     school_days: null,

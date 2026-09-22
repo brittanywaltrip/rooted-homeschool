@@ -90,6 +90,8 @@ export interface RecalibrateResult {
   recordedHistory: boolean;
   /** Phase 4: gap rows asked to become estimates vs rows that did. */
   estimates: ConfirmedWriteOutcome;
+  /** Phase 4 on No: dated, unpinned gap rows asked to be unscheduled vs rows that were. */
+  unscheduled: ConfirmedWriteOutcome;
   /** Phase 5: upcoming rows asked to move vs rows that did. */
   respread: ConfirmedWriteOutcome;
   /** Phase 5 could not read the upcoming lessons, so it moved nothing. */
@@ -100,6 +102,7 @@ export interface RecalibrateResult {
 export function recalibrateFullyApplied(r: RecalibrateResult): boolean {
   return (
     r.estimates.failedIds.length === 0 &&
+    r.unscheduled.failedIds.length === 0 &&
     r.respread.failedIds.length === 0 &&
     !r.respreadReadFailed
   );
@@ -125,7 +128,7 @@ export async function recalibrateCurriculumGoal(opts: {
   const { data: goalRow, error: goalErr } = await supabase
     .from("curriculum_goals")
     .select(
-      "total_lessons, lessons_per_day, school_days, start_date, lessons_per_day_overrides, created_at",
+      "total_lessons, lessons_per_day, school_days, start_date, lessons_per_day_overrides, created_at, current_lesson",
     )
     .eq("id", goalId)
     .maybeSingle();
@@ -138,6 +141,7 @@ export async function recalibrateCurriculumGoal(opts: {
     start_date: string | null;
     lessons_per_day_overrides: Record<string, number> | null;
     created_at: string | null;
+    current_lesson?: number | null;
   };
   const total = goal.total_lessons ?? 0;
   const clamped = Math.max(
@@ -145,6 +149,12 @@ export async function recalibrateCurriculumGoal(opts: {
     total > 0 ? Math.min(total, newCurrentLesson) : newCurrentLesson,
   );
   const newCountDone = Math.max(0, clamped - 1);
+  // Where the queue stood before this move. The gap is the lessons AFTER it:
+  // the form asks "Should Rooted mark lessons {current + 1} to {X - 1} as
+  // done?", so that is exactly what Phase 4 may complete. An unfinished row at
+  // or below the old position is a lesson the family reopened (a make-up,
+  // Invariant 23). It is theirs, it was never named, and it is never swept up.
+  const oldCountDone = Math.max(0, goal.current_lesson ?? 0);
 
   // ── Phase 2: snapshot the pre-UPDATE state (gap rows + anchor). ─────────
   // The orphan-cleanup trigger fires on the curriculum_goals UPDATE below
@@ -153,11 +163,12 @@ export async function recalibrateCurriculumGoal(opts: {
   const [gapRowsRes, anchorRowRes] = await Promise.all([
     supabase
       .from("lessons")
-      .select("id, lesson_number, queue_position")
+      .select("id, lesson_number, queue_position, queue_pinned, scheduled_date")
       .eq("curriculum_goal_id", goalId)
       .eq("completed", false)
       .not("lesson_number", "is", null)
       .lt("lesson_number", clamped)
+      .gt("lesson_number", oldCountDone)
       .order("lesson_number", { ascending: true }),
     supabase
       .from("lessons")
@@ -170,11 +181,18 @@ export async function recalibrateCurriculumGoal(opts: {
       .limit(1)
       .maybeSingle(),
   ]);
-  const gapLessons = (gapRowsRes.data ?? []) as Array<{
+  const gapLessons = ((gapRowsRes.data ?? []) as Array<{
     id: string;
     lesson_number: number;
     queue_position: number | null;
-  }>;
+    queue_pinned?: boolean | null;
+    scheduled_date?: string | null;
+  }>).filter(
+    // A lesson moved on Plan can carry a slot that no longer matches its
+    // number. One sitting in a slot at or below the old position is behind the
+    // pointer whatever its number says, so it is left alone too.
+    (l) => l.queue_position == null || l.queue_position > oldCountDone,
+  );
   const anchorCompletedAt =
     (anchorRowRes.data as { completed_at: string | null } | null)?.completed_at ?? null;
 
@@ -291,6 +309,34 @@ export async function recalibrateCurriculumGoal(opts: {
     estimates = mergeOutcomes(outcomes);
   }
 
+  // ── Phase 4, on No: the lessons passed over keep no date. ───────────────
+  // The orphan cleanup (Phase 3's trigger) unschedules the gap rows that carry
+  // nothing, and deliberately leaves a row with notes alone. Families plan
+  // ahead in those notes: 2,030 unfinished future lessons in 66 curricula held
+  // notes on 2026-09-22. Left dated behind the pointer, the next Schedule
+  // Builder save reads each one as a reopened lesson and pins it to Today as a
+  // make-up (Invariant 23), eight surprise lessons for a family who only said
+  // "we're on 19". The family has just said they are past these lessons, so
+  // they are unscheduled the same way the trigger unschedules the others:
+  // scheduled_date only, notes and minutes kept, never completed, never
+  // re-dated. A row the family PINNED is their own placement and is left alone.
+  let unscheduled: ConfirmedWriteOutcome = NO_WRITES;
+  if (!recordHistory) {
+    const stillDated = gapLessons
+      .filter((l) => !l.queue_pinned && l.scheduled_date != null)
+      .map((l) => l.id);
+    if (stillDated.length > 0) {
+      // Tagged with recalibrate's own source, as Phase 5's writes are: a row
+      // still carrying 'queue_resync' would otherwise be refused by
+      // lessons_block_stale_resync unless it happened to see this
+      // recalibration's intent.
+      unscheduled = await confirmedLessonsUpdate(supabase, stillDated, {
+        scheduled_date: null,
+        scheduled_source: PARENT_RESPREAD_SOURCE.recalibrate,
+      });
+    }
+  }
+
   // ── Phase 5: re-align cached scheduled_date on the upcoming queue. ──────
   // syncProjectedScheduledDates skips completed + is_backfill rows, so the
   // estimate-stamped gap rows stay put.
@@ -352,6 +398,7 @@ export async function recalibrateCurriculumGoal(opts: {
     gapCount: gapLessons.length,
     recordedHistory: recordHistory,
     estimates,
+    unscheduled,
     respread,
     respreadReadFailed: !!rowsErr,
   };

@@ -9822,6 +9822,37 @@ test('only a curriculum that is not saved yet can ask for its history, and every
 
   // The question is only drawn for a row that can honour it.
   assert.match(src, /\{row\.dbId == null && row\.start_at_lesson > 1 \? \(/)
+  // A saved goal's sentence says its lessons won't be marked done: they stay
+  // in the book as unfinished rows, so "won't be added" would not be true.
+  assert.match(src, /savedGoal: row\.dbId != null,/)
+  // The builder sends a saved goal to "I'm actually on..." to mark the gap
+  // done, so the form must count from the SAVED position. Counting from an
+  // unsaved typed number would hide the very question it was sent to answer.
+  const panel = extractFunctionBody(src, /function rowToPanelGoal\(row: Row\): PanelGoal/)
+  assert.match(panel, /current_lesson: row\.dbId \? completedThrough\(row\)/)
+  assert.match(src, /alreadyRecorded: completedThrough\(row\),/)
+})
+
+test('a stale Schedule Builder tab or draft cannot write an old starting lesson back', () => {
+  // After "I'm actually on 19" with No, start_at_lesson is the only thing
+  // holding the pointer. Every builder save writes every curriculum row, so a
+  // tab opened before the move (or a draft written before it) that wrote its
+  // old 11 back would drop the pointer to 10, and phase 2 would regenerate
+  // lessons 11 to 18: the move undone by a save about something else.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+
+  const touched = extractFunctionBody(src, /function startAtLessonTouched\(row: Row\): boolean/)
+  assert.match(touched, /row\.start_at_lesson_initial == null \|\| row\.start_at_lesson !== row\.start_at_lesson_initial/)
+
+  // The UPDATE sends start_at_lesson only when this session changed it.
+  const save = extractFunctionBody(src, /async function handleSave\s*\(/)
+  assert.match(save, /const updatePayload: Partial<typeof payload> = \{ \.\.\.payload \};\s*if \(!startAtLessonTouched\(row\)\) delete updatePayload\.start_at_lesson;/)
+  assert.match(save, /\.from\("curriculum_goals"\)\s*\.update\(updatePayload\)/)
+  assert.doesNotMatch(save, /\.from\("curriculum_goals"\)\s*\.update\(payload\)/, 'no UPDATE sends the unguarded payload')
+
+  // A restored draft keeps its own number only if the draft changed it.
+  const carry = extractFunctionBody(src, /function carryDbFieldsOntoDraftRow\(draftRow: Row, freshRow: Row\): Row/)
+  assert.match(carry, /start_at_lesson: startAtLessonTouched\(draftRow\)\s*\?\s*draftRow\.start_at_lesson\s*:\s*freshRow\.start_at_lesson,/)
 })
 
 test('a saved goal moving forward is told only about the lessons in between', () => {
@@ -9840,8 +9871,9 @@ test('a saved goal moving forward is told only about the lessons in between', ()
       nextLessonDate: '2026-09-14',
       todayYmd: '2026-09-11',
       alreadyRecorded: 10,
+      savedGoal: true,
     }),
-    "Lessons 11 to 45 won't be added to your records or your hours. " +
+    "Lessons 11 to 45 won't be marked done. " +
       'You start on lesson 46, up Monday, Sep 14.',
   )
   assert.equal(
@@ -9851,8 +9883,9 @@ test('a saved goal moving forward is told only about the lessons in between', ()
       nextLessonDate: '2026-09-14',
       todayYmd: '2026-09-11',
       alreadyRecorded: 44,
+      savedGoal: true,
     }),
-    "Lesson 45 won't be added to your records or your hours. " +
+    "Lesson 45 won't be marked done. " +
       'You start on lesson 46, up Monday, Sep 14.',
   )
   // Nothing in between: say nothing about history at all.
@@ -9863,6 +9896,7 @@ test('a saved goal moving forward is told only about the lessons in between', ()
       nextLessonDate: '2026-09-14',
       todayYmd: '2026-09-11',
       alreadyRecorded: 45,
+      savedGoal: true,
     }),
     'You start on lesson 46, up Monday, Sep 14.',
   )
