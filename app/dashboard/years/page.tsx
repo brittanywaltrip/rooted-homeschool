@@ -10,6 +10,7 @@ import { schoolDaysBetween } from "@/app/lib/scheduler";
 import { DEFAULT_SCHOOL_DAYS, PAST_YEAR_SOURCE, daysAttendedProblem, schoolDaysInRangeHint } from "@/app/lib/past-year-dates";
 import { RespreadRefused, RespreadUndoFailed, respreadPastYear } from "@/app/lib/past-year-respread";
 import { captureSupabaseError } from "@/lib/sentry-error";
+import { sumLessonMinutes } from "@/lib/lesson-minutes";
 
 type SchoolYear = {
   id: string;
@@ -56,14 +57,14 @@ async function loadFiledYears(
       if (filedRes.error || otherRes.error) return;
       if ((filedRes.count ?? 0) === 0 || (otherRes.count ?? 0) > 0) return;
       const [rows, { data: goal }] = await Promise.all([
-        selectAllRows<{ date: string | null; minutes_spent: number | null }>((from, to) =>
-          supabase.from("lessons").select("date, minutes_spent").eq("user_id", userId).eq("school_year_id", y.id).order("id").range(from, to)),
+        selectAllRows<{ date: string | null; minutes_spent: number | null; hours: number | null }>((from, to) =>
+          supabase.from("lessons").select("date, minutes_spent, hours").eq("user_id", userId).eq("school_year_id", y.id).order("id").range(from, to)),
         supabase.from("curriculum_goals").select("school_days").eq("user_id", userId).eq("school_year_id", y.id).limit(1).maybeSingle(),
       ]);
       const schoolDays = ((goal as { school_days: string[] | null } | null)?.school_days ?? null) || DEFAULT_SCHOOL_DAYS;
-      // A lesson with no minutes logged counts 30, the default Reports uses
-      // for hours, so this card and Reports agree about the same year.
-      const minutes = rows.reduce((m, r) => m + (r.minutes_spent ?? 30), 0);
+      // The same rule as Reports (lib/lesson-minutes.ts), so this card and
+      // Reports agree about the same year.
+      const minutes = sumLessonMinutes(rows).minutes;
       out[y.id] = {
         lessons: rows.length,
         hours: Math.round((minutes / 60) * 10) / 10,

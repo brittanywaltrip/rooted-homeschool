@@ -111,6 +111,7 @@ import {
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
+import { lessonMinutes } from "@/lib/lesson-minutes";
 import {
   buildOptimisticEventRow,
   filterEventsForDay,
@@ -5118,7 +5119,7 @@ export default function PlanV2() {
     const m = new Map<string, number>();
     for (const l of lessons) {
       if (!l.curriculum_goal_id || !l.completed) continue;
-      const mins = l.minutes_spent ?? 0;
+      const mins = lessonMinutes(l).minutes;
       m.set(l.curriculum_goal_id, (m.get(l.curriculum_goal_id) ?? 0) + mins);
     }
     return m;

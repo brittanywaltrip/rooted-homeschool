@@ -10364,10 +10364,11 @@ test('small copy and UX fixes: extra-lessons window, photo warning, derived titl
   assert.match(edit, /const titleIsDerived = !!goalId;/)
   assert.match(edit, /\{titleIsDerived \? null : \(/)
   assert.match(edit, /const nextTitle = titleIsDerived \? \(lesson\.title \?\? ""\) : mergeTitle\(subject, title\);/)
-  // (d) The Years page counts an unlogged lesson as 30 minutes, like Reports.
+  // (d) The Years page counts an unlogged lesson the way Reports does: both go
+  //     through the one shared rule (lib/lesson-minutes.ts, tested there).
   const years = stripComments(loadRepoFile('app/dashboard/years/page.tsx'))
-  assert.match(years, /m \+ \(r\.minutes_spent \?\? 30\)/)
-  assert.match(stripComments(loadRepoFile('app/dashboard/reports/page.tsx')), /l\.minutes_spent \?\? 30\) \/ 60/)
+  assert.match(years, /const minutes = sumLessonMinutes\(rows\)\.minutes;/)
+  assert.match(stripComments(loadRepoFile('app/dashboard/reports/page.tsx')), /sumLessonMinutes\(completedLessons\)\.minutes \/ 60/)
 })
 
 // ── Invariant 16 for a batch: bulk Mark all done asks once ───────────────────

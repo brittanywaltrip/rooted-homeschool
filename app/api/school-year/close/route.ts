@@ -3,6 +3,7 @@ import { captureSupabaseError } from "@/lib/sentry-error";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { deriveEndYear, rolloverYearName } from "@/lib/school-year-name";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
+import { sumLessonMinutes } from "@/lib/lesson-minutes";
 
 export const dynamic = "force-dynamic";
 
@@ -195,8 +196,8 @@ export async function POST(req: NextRequest) {
     // returns { data, error } and never throws, so this stays a NON-FATAL
     // step: an error warns and the hours degrade to 0, exactly as before.
     // See lib/supabase-all-rows.ts.
-    selectAllRowsResult<{ minutes_spent: number | null }>((from, to) =>
-      supabaseAdmin.from("lessons").select("minutes_spent")
+    selectAllRowsResult<{ minutes_spent: number | null; hours: number | null }>((from, to) =>
+      supabaseAdmin.from("lessons").select("minutes_spent, hours")
         .eq("school_year_id", yearId).eq("completed", true)
         .order("id").range(from, to)),
   ]);
@@ -213,9 +214,9 @@ export async function POST(req: NextRequest) {
   if (badgesCountRes.error) warn("stats: badges_count", badgesCountRes.error);
   if (hoursRowsRes.error) warn("stats: hours_logged", hoursRowsRes.error);
 
-  const totalMinutes = (hoursRowsRes.data ?? []).reduce((sum: number, row: { minutes_spent?: number | null }) => {
-    return sum + (typeof row.minutes_spent === "number" ? row.minutes_spent : 0);
-  }, 0);
+  // lib/lesson-minutes.ts, the rule Reports uses. The keepsake used to count a
+  // lesson with no minutes as 0.
+  const totalMinutes = sumLessonMinutes(hoursRowsRes.data ?? []).minutes;
   const hoursLogged = Math.round((totalMinutes / 60) * 10) / 10;
 
   const stats = {
