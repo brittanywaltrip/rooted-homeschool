@@ -58,3 +58,15 @@ test("sessions and appointments print as one Activities section and Hours Logged
   assert.match(page, /const totalHours = lessonHours \+ memoryHours \+ activitySummary\.hours;/);
   assert.match(page, /attendancePresentDates\(completedLessons, filteredAppointments\.map\(\(a\) => a\.date\)\)/);
 });
+
+test("breaks print as Days Off and never feed Days Present", () => {
+  assert.match(page, /from\("vacation_blocks"\)\.select\("id, name, start_date, end_date"\)\.eq\("user_id", effectiveUserId\)/);
+  assert.match(page, /const daysOff = selectReportDaysOff\(breaks, dateFrom, dateTo\);/);
+  assert.match(page, /data-report-days-off/);
+  assert.match(page, /Days Off \(\{daysOff\.length\}\)/);
+  assert.match(page, /breaks=\{breaks\}/);
+  // Days Present stays lessons plus completed school appointments only.
+  assert.match(page, /const presentDates = attendancePresentDates\(completedLessons, filteredAppointments\.map\(\(a\) => a\.date\)\);/);
+  const presentLine = page.split("\n").find((l) => l.includes("attendancePresentDates(completedLessons")) ?? "";
+  assert.doesNotMatch(presentLine, /daysOff|breaks/);
+});

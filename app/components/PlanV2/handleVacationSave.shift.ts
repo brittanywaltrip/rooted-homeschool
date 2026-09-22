@@ -62,3 +62,15 @@ export function mapLessonDateAcrossVacation(
   // vacStart guarantees we never see pre-break rows here). Standard shift.
   return nthSchoolDay(origDate, schoolDays, shiftDays, blocksIncludingNew);
 }
+
+/**
+ * Whether a NEW break may shift lessons forward. A break that ended before
+ * today (a sick day logged afterwards) covers days that are already over:
+ * shifting would push every unfinished lesson from its start date onward,
+ * future ones included, back by the number of school days in it. So only a
+ * break that reaches today or later can shift. Both dates are YYYY-MM-DD in
+ * the family's local time.
+ */
+export function breakCanShift(endDate: string, today: string): boolean {
+  return !!endDate && endDate >= today;
+}

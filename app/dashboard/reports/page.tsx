@@ -22,6 +22,7 @@ import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { fallbackSchoolYear, getCurrentSchoolYear, todayLocalYmd } from "@/app/lib/school-year";
 import { selectReportPhotos, type ReportPhoto } from "@/lib/report-evidence";
 import { buildActivityLog, selectReportAppointments } from "@/lib/report-activity-log";
+import { dayOffLength, selectReportDaysOff, type ReportBreak } from "@/lib/report-days-off";
 import { resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE } from "@/app/lib/scheduler";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -202,7 +203,7 @@ function formatLogDate(d: string | null): string {
 
 function PrintReport({
   child, allChildren: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
-  activityLogs, activityDefs, photos, includePhotos, canEdit,
+  activityLogs, activityDefs, photos, includePhotos, breaks, canEdit,
   onUpdateLesson, onDeleteLesson, onUpdateActivity, onDeleteActivity,
 }: {
   child: Child | null;
@@ -220,6 +221,8 @@ function PrintReport({
   photos: ReportPhoto[];
   /** The "Include photos" choice. Off leaves photos out of this document only. */
   includePhotos: boolean;
+  /** Breaks from Plan (vacation_blocks). Listed as Days Off; never change Days Present. */
+  breaks: ReportBreak[];
   canEdit: boolean;
   onUpdateLesson: (lessonId: string, patch: ReportRecordPatch) => Promise<boolean>;
   onDeleteLesson: (lessonId: string) => Promise<boolean>;
@@ -357,6 +360,7 @@ function PrintReport({
   // Dates appearing in both contribute once. The rule, and why it reads the
   // lesson's own day, lives in attendancePresentDates.
   const presentDates = attendancePresentDates(completedLessons, filteredAppointments.map((a) => a.date));
+  const daysOff = selectReportDaysOff(breaks, dateFrom, dateTo);
 
   const fromLabel = new Date(dateFrom + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const toLabel   = new Date(dateTo   + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -727,6 +731,31 @@ function PrintReport({
         </div>
       )}
 
+      {/* Days off: breaks recorded in Plan, such as a sick day. A record only;
+          they do not add to or remove from Days Present. */}
+      {daysOff.length > 0 && (
+        <div data-report-days-off>
+          <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
+            Days Off ({daysOff.length})
+          </h3>
+          <ul className="space-y-1">
+            {daysOff.map((d) => {
+              const days = dayOffLength(d);
+              return (
+                <li key={d.id} className="text-sm text-[#2d2926] break-inside-avoid">
+                  <span className="font-medium">{d.name}</span>
+                  <span className="text-[#8a8078]">
+                    {" · "}
+                    {d.start === d.end ? formatLogDate(d.start) : `${formatLogDate(d.start)} to ${formatLogDate(d.end)}`}
+                    {days > 1 ? ` (${days} days)` : ""}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="border-t border-[#e8e2d9] pt-4 text-center">
         <p className="text-xs text-[#b5aca4]">
@@ -969,6 +998,7 @@ export default function ReportsPage() {
   // On by default, which is what the report did before this choice existed.
   // Off only changes this document: photos stay in Memories, untouched.
   const [includePhotos, setIncludePhotos] = useState(true);
+  const [breaks, setBreaks] = useState<ReportBreak[]>([]);
 
   // ── Book sheet ─────────────────────────────────────────────────────────────
   // One bottom sheet serves both variants. An in-progress book leads with
@@ -1131,6 +1161,7 @@ export default function ReportsPage() {
         { data: profile },
         { data: oneTimeAppts },
         { data: exceptionAppts },
+        { data: breakRows },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
         // PostgREST caps a response at 1,000 rows and says nothing about the
@@ -1200,6 +1231,8 @@ export default function ReportsPage() {
           .eq("completed", true)
           .eq("appointments.user_id", effectiveUserId)
           .eq("appointments.is_school_activity", true),
+        // Breaks from Plan, printed as Days Off (a sick day, a holiday).
+        supabase.from("vacation_blocks").select("id, name, start_date, end_date").eq("user_id", effectiveUserId),
       ]);
 
       setChildren(capitalizeChildNames(kids ?? []));
@@ -1209,6 +1242,7 @@ export default function ReportsPage() {
       setPhotos(photoRows ?? []);
       setActivityLogs(actLogRows ?? []);
       setActivityDefs(actDefRows ?? []);
+      setBreaks((breakRows as ReportBreak[] | null) ?? []);
 
       type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null; is_school_activity: boolean };
       type ExceptionRow = {
@@ -1664,6 +1698,7 @@ export default function ReportsPage() {
           activityDefs={activityDefs}
           photos={photos}
           includePhotos={includePhotos}
+          breaks={breaks}
           appointments={appointments}
           canEdit={!isPartner}
           onUpdateLesson={updateLessonRecord}
