@@ -2285,7 +2285,16 @@ export function computeNextLessonsForGoal(
   // overcapacity guard in reconcileGoalScheduleCache saw "2026-08-10 has 2
   // (max 1)" and correctly refused to write the cache. The guard was right;
   // the projection was wrong.
-  const emitted = new Set<number>();
+  // Seeded with the make-up slots (Invariant 23), which were emitted above and
+  // are behind the pointer by definition. The first-day rewind below walks back
+  // over `completedTodayCount` slots to keep today's finished cards on screen,
+  // and that walk can land on a make-up: a completion today does not always
+  // move the pointer (an extra lesson logged against the curriculum carries no
+  // queue slot at all, and a second make-up finished today sits behind
+  // start_at_lesson - 1, which the pointer never drops below). Reached that
+  // way, the slot was emitted once as a make-up and once by the queue walk, so
+  // Today rendered one lesson as two identical cards.
+  const emitted = new Set<number>(makeUpSlots);
 
   let safety = 0;
   while (nextLesson <= goal.total_lessons && safety < 10_000) {

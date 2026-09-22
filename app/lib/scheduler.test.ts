@@ -5084,6 +5084,51 @@ test('a make-up on today is emitted and the completed-today rewind steps over it
   assert.equal(withDone.find((p) => p.lesson_number === 8)?.date, '2026-08-19', 'lesson 8 moves past the full day')
 })
 
+test('a completion today that rewinds ONTO the make-up still emits it once', () => {
+  // The case the test above cannot reach: there the make-up (slot 3) sits far
+  // behind the rewind, which lands on slot 7. Here the make-up IS the slot the
+  // rewind lands on, and the slot was emitted twice — once as the make-up and
+  // once by the queue walk — so Today rendered one lesson as two cards.
+  //
+  // Reachable without anything unusual. The rewind walks back
+  // `completedTodayCount` slots to keep today's finished cards on screen, but a
+  // completion today does not always move the pointer:
+  //   - an extra lesson logged against the curriculum has no queue slot at all
+  //     (scheduled_source 'continuation'), and Today counts it, and
+  //   - a family that started at lesson 11 keeps current_lesson at 10 however
+  //     much pre-tracking work they finish, because the pointer never drops
+  //     below start_at_lesson - 1.
+  // Either way the walk steps back onto a slot behind the pointer, which is
+  // exactly where make-ups live.
+  const trackingStartedAt11: CurriculumGoalConfig = {
+    id: 'g-1q', total_lessons: 30, current_lesson: 10, lessons_per_day: 1,
+    school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], start_date: null,
+  }
+  const today = new Date('2026-08-18T00:00:00')
+  const makeUp: PinnedSlot[] = [{ slot: 10, date: '2026-08-18' }]
+
+  for (const doneToday of [1, 2]) {
+    const out = computeNextLessonsForGoal(trackingStartedAt11, today, 1, [], doneToday, makeUp)
+    const slots = out.map((p) => p.lesson_number)
+    assert.equal(
+      slots.filter((s) => s === 10).length, 1,
+      `doneToday=${doneToday}: the make-up is emitted once, not once per path`,
+    )
+    assert.equal(new Set(slots).size, slots.length, `doneToday=${doneToday}: no slot is emitted twice`)
+  }
+
+  // Today carries the make-up and the card the rewind keeps on screen (slot 9,
+  // already finished), and NO fresh queue lesson: the day's capacity went to
+  // the make-up. That rewound card is the existing "what you finished today
+  // stays visible" behaviour, which 22ac5c8 does too; it is the repeat of slot
+  // 10 that was new here.
+  const full = computeNextLessonsForGoal(trackingStartedAt11, today, 3650, [], 1, makeUp)
+  const onToday = full.filter((p) => p.date === '2026-08-18').map((p) => p.lesson_number)
+  assert.deepEqual(onToday, [9, 10], 'the rewound card and the make-up, each once')
+  assert.equal(full.find((p) => p.lesson_number === 11)?.date, '2026-08-19', 'no fresh lesson stacks on the make-up')
+  assert.equal(projectionOverCap(full, trackingStartedAt11, makeUp), null)
+})
+
 test('a finished curriculum still shows a reopened make-up', () => {
   const done: CurriculumGoalConfig = { ...FOREIGN_LANGUAGE_503610A9, current_lesson: 30 }
   const out = computeNextLessonsForGoal(done, new Date('2026-08-18T00:00:00'), 3650, [], 0, [{ slot: 12, date: '2026-08-20' }])
