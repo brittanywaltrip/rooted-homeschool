@@ -16,6 +16,18 @@ filenames as unapplied and run them again.
 | 4 | `lessons_resync_parent_intent_window` | `20260921210801` | `20260921174221` | `supabase/rollbacks/20260921210801_lessons_resync_parent_intent_window_ROLLBACK.sql` |
 | 5 | `lessons_resync_intent_session_scope` | `20260921210815` | `20260921183953` | `supabase/rollbacks/20260921210815_lessons_resync_intent_session_scope_ROLLBACK.sql` |
 
+## Later migrations applied the same way
+
+| Name (ledger `name`) | Production `gvkbegvvmhcrmxdorctk` | Staging `cvgqovweybggrqakhdtd` | Repo file |
+|---|---|---|---|
+| `daily_reconcile` | `20260922165945` | `20260921230610` | `supabase/migrations/20260921230610_daily_reconcile.sql` |
+
+`daily_reconcile` (PR #84) went to production on 2026-09-22, before the app was
+merged, and the `daily_reconcile` switch in `rooted_private.app_switches` was
+created OFF and left OFF. The production body is the repo file without its
+comment lines and blank lines; compared against staging after the apply, the
+two function bodies are identical once whitespace is normalized.
+
 Staging applied them in the order 3, 4, 2, 5, 1 (1 was a no-op there).
 Production applied them in the order 1 to 5 above, which is the only order
 that works on a database without the `rooted_private` schema; rehearsed by
