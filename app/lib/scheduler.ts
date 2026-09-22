@@ -506,9 +506,27 @@ export const PARENT_RESPREAD_SOURCE = {
   unskip: "skip_undo",
   /** Skip: the skipped slot is stepped over, so the lessons after it move up. */
   skip: "skip_respread",
+  /**
+   * A parent marked lessons done (on time, early, late or on a chosen past
+   * day). The pointer moved, so the rest of the curriculum is re-dated from
+   * it, the way Today already projects it.
+   */
+  completion: "completion_respread",
+  /** A parent un-marked a lesson (or undid a completion): the queue is re-dated. */
+  uncompletion: "uncomplete_respread",
 } as const;
 export type ParentRespreadSource =
   (typeof PARENT_RESPREAD_SOURCE)[keyof typeof PARENT_RESPREAD_SOURCE];
+
+/**
+ * What a surface says when a completion (or un-completion) saved but the
+ * follow-up re-date of the rest of the curriculum did not fully land. The
+ * completion itself is never rolled back for this: the lesson really was
+ * done, and Today projects from the pointer regardless. Only Plan's stored
+ * dates are behind until the next parent action re-dates them.
+ */
+export const COMPLETION_RESPREAD_FAILED_NOTE =
+  "Saved, but your upcoming lessons couldn't be moved to match. Try again, or check your connection.";
 
 /**
  * Written by an undo that puts a row back where the automatic projector had
@@ -722,6 +740,56 @@ export async function resyncGoalsForParent(
     if (!r.ok) failedGoals.push(config.id);
   }
   return { ok: failedGoals.length === 0, written, failedGoals };
+}
+
+/** One row the daily reconciliation would move, with the date it saw. */
+export interface DailyReconcileMove {
+  id: string;
+  from: string | null;
+  to: string;
+}
+
+export type DailyReconcilePlan =
+  | { ok: true; moves: DailyReconcileMove[]; pins: Array<[number, string]>; skipped: number[] }
+  | { ok: false; reason: "read_failed" | "over_cap" };
+
+/**
+ * What the once-a-day reconciliation would change for one curriculum, and the
+ * pins and skips it projected around. Never writes: the write goes through the
+ * apply_daily_reconcile RPC, which re-checks every one of these values (and the
+ * curriculum's settings, breaks and today's completions) under row locks.
+ *
+ * The same projection the parent re-dates use (planGoalResync): pins hold their
+ * day, skips are stepped over, and completed, backfill, pinned and skipped rows
+ * are never moved.
+ */
+export async function planDailyReconcile(
+  supabase: SupabaseClient,
+  goal: CurriculumGoalConfig,
+  vacationBlocks: VacationBlock[],
+  completedTodayCount: number,
+  today: Date,
+): Promise<DailyReconcilePlan> {
+  const plan = await planGoalResync(supabase, goal, vacationBlocks, completedTodayCount, today, "planDailyReconcile");
+  if (!plan.ok) {
+    if (plan.reason === "nothing_projected") return { ok: true, moves: [], pins: [], skipped: [] };
+    return { ok: false, reason: plan.reason };
+  }
+  const byDate = planProjectedDateWrites(plan.rows, plan.projDateByKey, plan.rowKey);
+  const rowById = new Map(plan.rows.map((r) => [r.id, r]));
+  const moves: DailyReconcileMove[] = [];
+  for (const [to, ids] of byDate) {
+    for (const id of ids) moves.push({ id, from: rowById.get(id)?.scheduled_date ?? null, to });
+  }
+  const pins: Array<[number, string]> = plan.rows
+    .filter((r) => !r.completed && r.queue_pinned && !r.skipped && r.queue_position != null && r.scheduled_date)
+    .map((r) => [r.queue_position as number, r.scheduled_date as string] as [number, string])
+    .sort((a, b) => a[0] - b[0]);
+  const skipped = plan.rows
+    .filter((r) => !r.completed && r.skipped && r.queue_position != null)
+    .map((r) => r.queue_position as number)
+    .sort((a, b) => a - b);
+  return { ok: true, moves, pins, skipped };
 }
 
 export type ParentReprojectResult = ConfirmedWriteOutcome & {

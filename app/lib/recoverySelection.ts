@@ -17,6 +17,12 @@ export type MissedEntry = {
   lesson_number: number;
   /** YYYY-MM-DD, the gap school day this lesson would have been due. */
   date: string;
+  /**
+   * The same lesson is also on today's list. A lesson nobody has marked stays
+   * next in the queue, so an overdue lesson is usually ALSO what Today offers
+   * now; the prompt says so rather than show it twice without explanation.
+   */
+  also_today?: boolean;
 };
 
 /** One row the family left checked, with the date they agreed to. */
