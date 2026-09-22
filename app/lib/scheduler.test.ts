@@ -7412,7 +7412,8 @@ test('bulk delete copy: singular and plural read correctly and name what is lost
   const mixedMany = bulkDeleteConfirmCopy(1, 2)
   assert.equal(mixedMany.altLabel, 'Delete all 3, including the 2 done and their report hours')
   assert.match(mixedMany.body, /^2 lessons in this selection are marked done\. The other 1 is unfinished/)
-  assert.match(mixedMany.body, /their time comes off your reports\. This can't be undone\.$/)
+  assert.match(mixedMany.body, /can go safely\. Deleting the done ones too permanently removes the days they were done, their minutes and notes, and their time comes off your reports\. This can't be undone\.$/)
+  assert.match(mixedOne.body, /Deleting the done one too permanently removes the day it was done, its minutes and notes/)
 
   // No em dashes in family-facing copy.
   for (const c of [one, many, mixedOne, mixedMany]) {

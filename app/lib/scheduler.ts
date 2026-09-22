@@ -4363,14 +4363,15 @@ export interface BulkDeleteConfirmCopy {
  */
 export function bulkDeleteConfirmCopy(openCount: number, doneCount: number): BulkDeleteConfirmCopy {
   const one = doneCount === 1;
-  const loss = one
-    ? "Deleting it permanently removes the day it was done, its minutes and notes, and its time comes off your reports. This can't be undone."
-    : "Deleting them permanently removes the days they were done, their minutes and notes, and their time comes off your reports. This can't be undone.";
+  // `who` is the grammatical subject: "Deleting it", "Deleting the done ones too".
+  const loss = (who: string) => one
+    ? `${who} permanently removes the day it was done, its minutes and notes, and its time comes off your reports. This can't be undone.`
+    : `${who} permanently removes the days they were done, their minutes and notes, and their time comes off your reports. This can't be undone.`;
 
   if (openCount === 0) {
     return {
       title: one ? "Delete 1 lesson you marked done?" : `Delete ${doneCount} lessons you marked done?`,
-      body: `You checked ${one ? "this lesson" : "these lessons"} off as done. ${loss}`,
+      body: `You checked ${one ? "this lesson" : "these lessons"} off as done. ${loss(one ? "Deleting it" : "Deleting them")}`,
       confirmLabel: one ? "Delete it anyway" : "Delete them anyway",
       cancelLabel: one ? "Keep it" : "Keep them",
       altLabel: null,
@@ -4384,7 +4385,7 @@ export function bulkDeleteConfirmCopy(openCount: number, doneCount: number): Bul
     body:
       `${doneCount} ${one ? "lesson" : "lessons"} in this selection ${one ? "is" : "are"} marked done. ` +
       `${openPart} and can go safely. ` +
-      `If you also delete the done ${one ? "one" : "ones"}: ${loss}`,
+      loss(one ? "Deleting the done one too" : "Deleting the done ones too"),
     confirmLabel: `Delete the ${openCount} unfinished`,
     cancelLabel: "Cancel",
     altLabel: `Delete all ${total}, including the ${doneCount} done and ${one ? "its" : "their"} report hours`,
