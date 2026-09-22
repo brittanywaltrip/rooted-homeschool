@@ -22,7 +22,7 @@ import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { fallbackSchoolYear, getCurrentSchoolYear, todayLocalYmd } from "@/app/lib/school-year";
 import { selectReportPhotos, type ReportPhoto } from "@/lib/report-evidence";
 import { buildActivityLog, selectReportAppointments } from "@/lib/report-activity-log";
-import { dayOffLength, selectReportDaysOff, type ReportBreak } from "@/lib/report-days-off";
+import { dayOffInputError, dayOffLength, selectReportDaysOff, type ReportAbsence, type ReportBreak } from "@/lib/report-days-off";
 import { resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE } from "@/app/lib/scheduler";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -203,8 +203,8 @@ function formatLogDate(d: string | null): string {
 
 function PrintReport({
   child, allChildren: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
-  activityLogs, activityDefs, photos, includePhotos, breaks, canEdit,
-  onUpdateLesson, onDeleteLesson, onUpdateActivity, onDeleteActivity,
+  activityLogs, activityDefs, photos, includePhotos, breaks, absences, canEdit,
+  onUpdateLesson, onDeleteLesson, onUpdateActivity, onDeleteActivity, onAddAbsence, onDeleteAbsence,
 }: {
   child: Child | null;
   allChildren: Child[];
@@ -223,12 +223,24 @@ function PrintReport({
   includePhotos: boolean;
   /** Breaks from Plan (vacation_blocks). Listed as Days Off; never change Days Present. */
   breaks: ReportBreak[];
+  /** One child's days off (child_absences), added from this report. */
+  absences: ReportAbsence[];
   canEdit: boolean;
   onUpdateLesson: (lessonId: string, patch: ReportRecordPatch) => Promise<boolean>;
   onDeleteLesson: (lessonId: string) => Promise<boolean>;
   onUpdateActivity: (logId: string, patch: ReportRecordPatch) => Promise<boolean>;
   onDeleteActivity: (logId: string) => Promise<boolean>;
+  onAddAbsence: (row: { child_id: string; start_date: string; end_date: string; reason: string }) => Promise<boolean>;
+  onDeleteAbsence: (id: string) => Promise<boolean>;
 }) {
+  const [addingDayOff, setAddingDayOff] = useState(false);
+  const [dayOffChild, setDayOffChild] = useState("");
+  const [dayOffStart, setDayOffStart] = useState("");
+  const [dayOffEnd, setDayOffEnd] = useState("");
+  const [dayOffReason, setDayOffReason] = useState("Sick day");
+  const [dayOffError, setDayOffError] = useState<string | null>(null);
+  const [dayOffSaving, setDayOffSaving] = useState(false);
+  const [removeDayOffId, setRemoveDayOffId] = useState<string | null>(null);
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [detailText, setDetailText] = useState("");
@@ -360,7 +372,20 @@ function PrintReport({
   // Dates appearing in both contribute once. The rule, and why it reads the
   // lesson's own day, lives in attendancePresentDates.
   const presentDates = attendancePresentDates(completedLessons, filteredAppointments.map((a) => a.date));
-  const daysOff = selectReportDaysOff(breaks, dateFrom, dateTo);
+  const daysOff = selectReportDaysOff({ breaks, absences, childId: child?.id ?? null, from: dateFrom, to: dateTo });
+  const dayOffOwner = (childId: string | null) =>
+    childId === null ? "Whole family" : (allKids.find((kid) => kid.id === childId)?.name ?? "Child");
+
+  async function saveDayOff() {
+    const err = dayOffInputError(dayOffChild, dayOffStart, dayOffEnd, dayOffReason);
+    if (err) { setDayOffError(err); return; }
+    setDayOffSaving(true);
+    const ok = await onAddAbsence({ child_id: dayOffChild, start_date: dayOffStart, end_date: dayOffEnd, reason: dayOffReason.trim() });
+    setDayOffSaving(false);
+    if (!ok) { setDayOffError("Couldn't save the day off. Please try again."); return; }
+    setAddingDayOff(false);
+    setDayOffError(null);
+  }
 
   const fromLabel = new Date(dateFrom + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const toLabel   = new Date(dateTo   + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -731,30 +756,95 @@ function PrintReport({
         </div>
       )}
 
-      {/* Days off: breaks recorded in Plan, such as a sick day. A record only;
-          they do not add to or remove from Days Present. A break has no child,
-          so every entry says "Whole family" rather than implying one child. */}
-      {daysOff.length > 0 && (
+      {/* Days off. Two kinds: a break from Plan belongs to the whole family and
+          prints on every report; a child's day off (child_absences, added
+          here) prints only on that child's report and the family report.
+          A record only: neither adds to or removes from Days Present. */}
+      {(daysOff.length > 0 || canEdit) && (
         <div data-report-days-off>
-          <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
-            Days Off ({daysOff.length})
-          </h3>
-          <ul className="space-y-1">
-            {daysOff.map((d) => {
-              const days = dayOffLength(d);
-              return (
-                <li key={d.id} className="text-sm text-[#2d2926] break-inside-avoid">
-                  <span className="font-medium">{d.name}</span>
-                  <span className="text-[#8a8078]">
-                    {" · "}
-                    {d.start === d.end ? formatLogDate(d.start) : `${formatLogDate(d.start)} to ${formatLogDate(d.end)}`}
-                    {days > 1 ? ` (${days} days)` : ""}
-                    {" · Whole family"}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
+          {daysOff.length > 0 && (
+            <>
+              <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
+                Days Off ({daysOff.length})
+              </h3>
+              <ul className="space-y-1">
+                {daysOff.map((d) => {
+                  const days = dayOffLength(d);
+                  return (
+                    <li key={d.kind + d.id} data-day-off-kind={d.kind} className="text-sm text-[#2d2926] break-inside-avoid">
+                      <span className="font-medium">{d.name}</span>
+                      <span className="text-[#8a8078]">
+                        {" · "}
+                        {d.start === d.end ? formatLogDate(d.start) : `${formatLogDate(d.start)} to ${formatLogDate(d.end)}`}
+                        {days > 1 ? ` (${days} days)` : ""}
+                        {" · "}{dayOffOwner(d.childId)}
+                      </span>
+                      {canEdit && d.kind === "absence" && (
+                        removeDayOffId === d.id ? (
+                          <span className="no-print ml-2 text-xs">
+                            <button type="button" className="font-semibold text-red-600"
+                              onClick={async () => { if (await onDeleteAbsence(d.id)) setRemoveDayOffId(null); }}>Confirm remove</button>
+                            <button type="button" className="ml-2 text-[#7a6f65]" onClick={() => setRemoveDayOffId(null)}>Cancel</button>
+                          </span>
+                        ) : (
+                          <button type="button" className="no-print ml-2 text-xs font-medium text-red-600"
+                            onClick={() => setRemoveDayOffId(d.id)}>Remove</button>
+                        )
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+          {canEdit && (
+            addingDayOff ? (
+              <div className="no-print mt-3 space-y-2 rounded-xl border border-[#e8e2d9] p-3">
+                <label className="block text-[11px] text-[#7a6f65]">Who was out?
+                  <select value={dayOffChild} onChange={(e) => setDayOffChild(e.target.value)}
+                    className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]">
+                    {allKids.map((kid) => <option key={kid.id} value={kid.id}>{kid.name}</option>)}
+                  </select>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[11px] text-[#7a6f65]">First day
+                    <input type="date" value={dayOffStart} onChange={(e) => setDayOffStart(e.target.value)}
+                      className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                  </label>
+                  <label className="text-[11px] text-[#7a6f65]">Last day
+                    <input type="date" value={dayOffEnd} min={dayOffStart || undefined} onChange={(e) => setDayOffEnd(e.target.value)}
+                      className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                  </label>
+                </div>
+                <label className="block text-[11px] text-[#7a6f65]">Reason
+                  <input type="text" value={dayOffReason} maxLength={80} onChange={(e) => setDayOffReason(e.target.value)}
+                    className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                </label>
+                <p className="text-[11px] text-[#7a6f65]">This shows only on this child&apos;s report and the family report. It doesn&apos;t change their lessons or Days Present.</p>
+                {dayOffError && <p className="text-xs text-red-600">{dayOffError}</p>}
+                <div className="flex gap-2">
+                  <button type="button" disabled={dayOffSaving} onClick={saveDayOff}
+                    className="rounded-lg bg-[#5c7f63] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                    {dayOffSaving ? "Saving..." : "Save day off"}
+                  </button>
+                  <button type="button" onClick={() => { setAddingDayOff(false); setDayOffError(null); }}
+                    className="px-2 py-1.5 text-xs font-medium text-[#7a6f65]">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="no-print mt-2 text-xs font-medium text-[#5c7f63]"
+                onClick={() => {
+                  setDayOffChild(child?.id ?? allKids[0]?.id ?? "");
+                  setDayOffStart("");
+                  setDayOffEnd("");
+                  setDayOffReason("Sick day");
+                  setDayOffError(null);
+                  setAddingDayOff(true);
+                }}>
+                + Add a day off
+              </button>
+            )
+          )}
         </div>
       )}
 
@@ -1001,6 +1091,7 @@ export default function ReportsPage() {
   // Off only changes this document: photos stay in Memories, untouched.
   const [includePhotos, setIncludePhotos] = useState(true);
   const [breaks, setBreaks] = useState<ReportBreak[]>([]);
+  const [absences, setAbsences] = useState<ReportAbsence[]>([]);
 
   // ── Book sheet ─────────────────────────────────────────────────────────────
   // One bottom sheet serves both variants. An in-progress book leads with
@@ -1164,6 +1255,7 @@ export default function ReportsPage() {
         { data: oneTimeAppts },
         { data: exceptionAppts },
         { data: breakRows },
+        { data: absenceRows },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
         // PostgREST caps a response at 1,000 rows and says nothing about the
@@ -1235,6 +1327,8 @@ export default function ReportsPage() {
           .eq("appointments.is_school_activity", true),
         // Breaks from Plan, printed as Days Off (a sick day, a holiday).
         supabase.from("vacation_blocks").select("id, name, start_date, end_date").eq("user_id", effectiveUserId),
+        // One child's days off, printed only on that child's report.
+        supabase.from("child_absences").select("id, child_id, reason, start_date, end_date").eq("user_id", effectiveUserId),
       ]);
 
       setChildren(capitalizeChildNames(kids ?? []));
@@ -1245,6 +1339,7 @@ export default function ReportsPage() {
       setActivityLogs(actLogRows ?? []);
       setActivityDefs(actDefRows ?? []);
       setBreaks((breakRows as ReportBreak[] | null) ?? []);
+      setAbsences((absenceRows as ReportAbsence[] | null) ?? []);
 
       type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null; is_school_activity: boolean };
       type ExceptionRow = {
@@ -1374,6 +1469,30 @@ export default function ReportsPage() {
       return false;
     }
     setActivityLogs((rows) => rows.filter((row) => row.id !== logId));
+    return true;
+  }
+
+  async function addAbsence(row: { child_id: string; start_date: string; end_date: string; reason: string }): Promise<boolean> {
+    if (!effectiveUserId || isPartner) return false;
+    const { data, error } = await supabase.from("child_absences")
+      .insert({ ...row, user_id: effectiveUserId })
+      .select("id, child_id, reason, start_date, end_date").single();
+    if (error || !data) {
+      console.error("[hours-report] day off save failed", error);
+      return false;
+    }
+    setAbsences((rows) => [...rows, data as ReportAbsence]);
+    return true;
+  }
+
+  async function deleteAbsence(id: string): Promise<boolean> {
+    if (!effectiveUserId || isPartner) return false;
+    const { error } = await supabase.from("child_absences").delete().eq("id", id).eq("user_id", effectiveUserId);
+    if (error) {
+      console.error("[hours-report] day off delete failed", error);
+      return false;
+    }
+    setAbsences((rows) => rows.filter((row) => row.id !== id));
     return true;
   }
 
@@ -1701,12 +1820,15 @@ export default function ReportsPage() {
           photos={photos}
           includePhotos={includePhotos}
           breaks={breaks}
+          absences={absences}
           appointments={appointments}
           canEdit={!isPartner}
           onUpdateLesson={updateLessonRecord}
           onDeleteLesson={deleteLessonRecord}
           onUpdateActivity={updateActivityRecord}
           onDeleteActivity={deleteActivityRecord}
+          onAddAbsence={addAbsence}
+          onDeleteAbsence={deleteAbsence}
         />
       )}
 

@@ -1,16 +1,17 @@
 // "Days Off" for the Hours & Attendance report.
 //
-// A family records a sick day, a holiday or a vacation as a break in Plan
-// (vacation_blocks). The report never showed them, so a parent who wanted a
-// sick day on the record had nowhere to put it. This lists the breaks that
-// overlap the report's date range, clipped to that range.
+// Two kinds of record land here, and they differ in who they belong to:
 //
-// It is a record of days off only. It does not change Days Present, which
-// stays the days with completed lessons or completed school appointments
-// (lib/progress-report-rows.ts, attendancePresentDates). A break has no child
-// (vacation_blocks is family-wide), so it prints on every child's report as
-// well as the family report, labelled "Whole family" so a sick day recorded
-// for one child never reads as another child's absence.
+// - A BREAK from Plan (vacation_blocks). It has no child and pauses the whole
+//   family's lessons, so it prints on every report, labelled "Whole family".
+// - A CHILD'S DAY OFF (child_absences), such as one child's sick day, added
+//   from the report itself. It belongs to one child: it prints on that child's
+//   report and on the family report with the child's name, and never on a
+//   sibling's report. Nothing that schedules lessons reads it.
+//
+// Neither kind changes Days Present, which stays the days with completed
+// lessons or completed school appointments (lib/progress-report-rows.ts,
+// attendancePresentDates). Both are clipped to the report's date range.
 //
 // No "@/" import and no side effects: node --test strips types, it does not
 // resolve path aliases.
@@ -22,12 +23,32 @@ export interface ReportBreak {
   end_date: string | null;
 }
 
+export interface ReportAbsence {
+  id: string;
+  child_id: string;
+  reason: string | null;
+  start_date: string | null;
+  end_date: string | null;
+}
+
 export interface ReportDayOff {
   id: string;
+  kind: "break" | "absence";
   name: string;
+  /** The absent child, or null for a whole-family break. */
+  childId: string | null;
   /** Clipped to the report range. YYYY-MM-DD. */
   start: string;
   end: string;
+}
+
+export interface DaysOffInput {
+  breaks: ReportBreak[];
+  absences: ReportAbsence[];
+  /** The child whose report this is, or null for the family report. */
+  childId: string | null;
+  from: string;
+  to: string;
 }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
@@ -38,30 +59,39 @@ function ymd(value: string | null | undefined): string | null {
 }
 
 /**
- * Breaks that overlap [from, to], clipped to it, oldest first. An empty
+ * Days off that overlap [from, to], clipped to it, oldest first. An empty
  * `from` or `to` leaves that side open. Rows with a missing or reversed range
- * are dropped rather than guessed at.
+ * are dropped rather than guessed at. A child's day off appears only on that
+ * child's report and the family report.
  */
-export function selectReportDaysOff(blocks: ReportBreak[], from: string, to: string): ReportDayOff[] {
+export function selectReportDaysOff({ breaks, absences, childId, from, to }: DaysOffInput): ReportDayOff[] {
   const lo = ymd(from);
   const hi = ymd(to);
   const out: ReportDayOff[] = [];
   const seen = new Set<string>();
-  for (const b of blocks) {
-    const start = ymd(b.start_date);
-    const end = ymd(b.end_date);
-    if (!start || !end || start > end) continue;
-    if (lo && end < lo) continue;
-    if (hi && start > hi) continue;
-    if (seen.has(b.id)) continue;
-    seen.add(b.id);
+
+  const add = (id: string, kind: ReportDayOff["kind"], name: string, owner: string | null, rawStart: string | null, rawEnd: string | null) => {
+    const start = ymd(rawStart);
+    const end = ymd(rawEnd);
+    if (!start || !end || start > end) return;
+    if (lo && end < lo) return;
+    if (hi && start > hi) return;
+    const key = kind + ":" + id;
+    if (seen.has(key)) return;
+    seen.add(key);
     out.push({
-      id: b.id,
-      name: b.name?.trim() || "Break",
+      id, kind, name, childId: owner,
       start: lo && start < lo ? lo : start,
       end: hi && end > hi ? hi : end,
     });
+  };
+
+  for (const b of breaks) add(b.id, "break", b.name?.trim() || "Break", null, b.start_date, b.end_date);
+  for (const a of absences) {
+    if (childId !== null && a.child_id !== childId) continue;
+    add(a.id, "absence", a.reason?.trim() || "Day off", a.child_id, a.start_date, a.end_date);
   }
+
   return out.sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end) || a.name.localeCompare(b.name));
 }
 
@@ -69,4 +99,15 @@ export function selectReportDaysOff(blocks: ReportBreak[], from: string, to: str
 export function dayOffLength(d: ReportDayOff): number {
   const ms = Date.parse(d.end + "T12:00:00Z") - Date.parse(d.start + "T12:00:00Z");
   return Math.round(ms / 86_400_000) + 1;
+}
+
+/** Why a new day off cannot be saved, or null when it can. */
+export function dayOffInputError(childId: string, start: string, end: string, reason: string): string | null {
+  if (!childId) return "Choose which child was out.";
+  if (!ymd(start) || !ymd(end)) return "Choose the first and last day.";
+  if (start > end) return "The last day can't be before the first day.";
+  const r = reason.trim();
+  if (!r) return "Add a reason, such as Sick day.";
+  if (r.length > 80) return "Keep the reason under 80 characters.";
+  return null;
 }

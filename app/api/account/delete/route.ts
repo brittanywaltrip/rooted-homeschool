@@ -203,6 +203,9 @@ export async function DELETE(req: NextRequest) {
     // CASCADE. Do not remove it on the grounds that the FK now
     // handles it.
     await supabaseAdmin.from("vacation_blocks").delete().eq("user_id", userId);
+    // child_absences cascades from auth.users and children too; deleted here
+    // for the same belt-and-braces reason as vacation_blocks above.
+    await supabaseAdmin.from("child_absences").delete().eq("user_id", userId);
 
     // ── 8. Delete profile ───────────────────────────────────────
     await supabaseAdmin.from("profiles").delete().eq("id", userId);

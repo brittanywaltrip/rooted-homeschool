@@ -396,6 +396,7 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
                 {mode === "create" && !canShift && end ? (
                   <p className="text-[12px] text-[#7a6f65] rounded-lg px-3 py-2 bg-[#faf7f2]">
                     This break is already over, so your lessons stay where they are.
+                    A break counts for the whole family. For one child&apos;s sick day, use &quot;Add a day off&quot; on the Hours &amp; Attendance report instead.
                   </p>
                 ) : null}
                 {mode === "create" && canShift ? (
