@@ -26,6 +26,10 @@ import {
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
 import { formatRelativeDate, formatRelativeFromTimestamp } from "./relativeDate";
+import { useLocalDay } from "@/app/hooks/useLocalDay";
+
+const localYmd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 type Child = { id: string; name: string; color: string | null };
 
@@ -409,10 +413,13 @@ export default function InlineScheduleTabs({
       setLoaded(true);
   }, []);
 
-  // Initial fetch on mount.
+  // Initial fetch on mount, and again when the local day changes: Upcoming is
+  // projected from "today", so a tab left open overnight otherwise labelled
+  // yesterday's "tomorrow" as today.
+  const localDay = useLocalDay(localYmd);
   useEffect(() => {
     void loadTabsData();
-  }, [loadTabsData]);
+  }, [loadTabsData, localDay]);
 
   // Re-fetch when lessons change elsewhere (Log Extra save, Plan reschedule,
   // etc.) so the Upcoming + Past tabs reflect the new queue state without a

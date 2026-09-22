@@ -137,6 +137,10 @@ export default function MissedLessonRecoveryModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const anyAlsoToday = useMemo(
+    () => Array.from(entriesByGoal.values()).some((list) => list.some((e) => e.also_today)),
+    [entriesByGoal],
+  );
   if (goalsWithEntries.length === 0) return null;
 
   const dateFor = (e: MissedEntry) => editedDates[rowKey(e)] ?? e.date;
@@ -224,6 +228,12 @@ export default function MissedLessonRecoveryModal({
             These are the days Rooted thinks each lesson was due. Uncheck anything you
             did not do and it will move ahead in your plan. Tap a date to change it.
           </p>
+          {anyAlsoToday && (
+            <p className="text-[12px] text-[#7a6f65] leading-snug -mt-1.5 mb-3">
+              A lesson that hasn&apos;t been marked yet is still next up, so it also shows
+              on today&apos;s list. Marking it here takes it off today.
+            </p>
+          )}
 
           <div className="space-y-2 mb-4">
             {goalsWithEntries.map((g) => {
@@ -295,6 +305,11 @@ export default function MissedLessonRecoveryModal({
                               <span className="text-[13px] text-[#2d2926] shrink-0">
                                 Lesson {e.lesson_number}
                               </span>
+                              {e.also_today && (
+                                <span className="text-[11px] text-[#7a6f65] bg-[#f6f3ee] rounded-full px-2 py-0.5 truncate">
+                                  Also on today&apos;s list
+                                </span>
+                              )}
                             </label>
                             <button
                               type="button"
