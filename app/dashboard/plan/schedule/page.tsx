@@ -20,7 +20,7 @@ import {
   withSameCountEveryDay,
   type PerDayShape,
 } from "@/app/lib/builder-pace";
-import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, type PinnableRow, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, type PinnableRow, type PinnedSlot, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
@@ -675,6 +675,16 @@ function rowScheduleFor(
    * preview steps over them exactly as the save and every projector do.
    */
   skippedByGoal: ReadonlyMap<string, readonly number[]> = new Map(),
+  /**
+   * The family's pins per saved goal (make-ups included, Invariant 23) and how
+   * many of each goal's lessons were completed today, so the preview names the
+   * same next day the save will write: a make-up or a lesson already done
+   * today spends today's capacity in the save, and so it does here.
+   */
+  live: {
+    pinsByGoal: ReadonlyMap<string, readonly PinnedSlot[]>;
+    doneTodayByGoal: ReadonlyMap<string, number>;
+  } = { pinsByGoal: new Map(), doneTodayByGoal: new Map() },
 ): RowSchedule | null {
   if (row.type !== "curriculum") return null;
   // Ask the ROW, not compactCurriculumPerDay: that helper falls back to Mon-Fri
@@ -797,6 +807,11 @@ function rowScheduleFor(
     ? new Date(`${effectiveStartDate}T00:00:00`)
     : today;
   const anchor = isNew ? forwardScheduleStart(startPick, today) : today;
+  const previewCurrent = branch === "fresh" ? 0 : nextLesson - 1;
+  // A schedule change releases the live queue's pins but never a make-up.
+  const goalPins = row.dbId ? (live.pinsByGoal.get(row.dbId) ?? []) : [];
+  const keptPins = scheduleFieldsChangedForRow(row) ? goalPins.filter((p) => p.slot <= previewCurrent) : goalPins;
+  const doneTodayHere = !isNew && row.dbId ? (live.doneTodayByGoal.get(row.dbId) ?? 0) : 0;
   const projected = computeNextLessonsForGoal(
     {
       id: row.dbId ?? row.localId,
@@ -810,8 +825,8 @@ function rowScheduleFor(
     anchor,
     3650,
     vacations,
-    0,
-    skippedSlots.map((slot) => ({ slot, skipped: true as const })),
+    doneTodayHere,
+    [...skippedSlots.map((slot) => ({ slot, skipped: true as const })), ...keptPins],
   );
 
   // The pace anchor is the next lesson's own date, so the finish month counts
@@ -1237,6 +1252,10 @@ export default function ScheduleBuilderPage() {
   const [vacations, setVacations] = useState<SchedVacationBlock[]>([]);
   // Skipped queue slots per saved goal, for the preview (Invariant 22).
   const [skippedByGoal, setSkippedByGoal] = useState<ReadonlyMap<string, readonly number[]>>(new Map());
+  const [previewLive, setPreviewLive] = useState<{
+    pinsByGoal: ReadonlyMap<string, readonly PinnedSlot[]>;
+    doneTodayByGoal: ReadonlyMap<string, number>;
+  }>({ pinsByGoal: new Map(), doneTodayByGoal: new Map() });
   // What this family has typed before, newest first, for the two suggestion
   // lists. Read once with the rest of the builder; no new table.
   const [ownCurriculumNames, setOwnCurriculumNames] = useState<string[]>([]);
@@ -1279,7 +1298,7 @@ export default function ScheduleBuilderPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [kidsResp, goalsResp, activitiesResp, vacationsResp, pastNamesResp, skippedResp] = await Promise.all([
+        const [kidsResp, goalsResp, activitiesResp, vacationsResp, pastNamesResp, skippedResp, pinnedResp, doneTodayResp] = await Promise.all([
           supabase
             .from("children")
             .select("id, name, color, sort_order")
@@ -1321,6 +1340,21 @@ export default function ScheduleBuilderPage() {
             .eq("user_id", effectiveUserId)
             .eq("skipped", true)
             .eq("completed", false),
+          // Pins (make-ups included) and today's completions, for the preview
+          // only: the save reads both from the goal's own rows.
+          supabase
+            .from("lessons")
+            .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned, skipped")
+            .eq("user_id", effectiveUserId)
+            .eq("queue_pinned", true)
+            .eq("completed", false),
+          supabase
+            .from("lessons")
+            .select("curriculum_goal_id")
+            .eq("user_id", effectiveUserId)
+            .eq("completed", true)
+            .gte("completed_at", today.toISOString())
+            .lt("completed_at", new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString()),
         ]);
         if (cancelled) return;
 
@@ -1349,6 +1383,21 @@ export default function ScheduleBuilderPage() {
             byGoal.set(goalId, list);
           }
           setSkippedByGoal(byGoal);
+        }
+        if (!pinnedResp.error && !doneTodayResp.error) {
+          const pinsByGoal = new Map<string, PinnedSlot[]>();
+          for (const r of (pinnedResp.data ?? []) as PinnableRow[]) {
+            const goalId = r.curriculum_goal_id;
+            if (!goalId) continue;
+            const list = pinsByGoal.get(goalId) ?? [];
+            list.push(...pinsFromRows([r], goalId));
+            pinsByGoal.set(goalId, list);
+          }
+          const doneTodayByGoal = new Map<string, number>();
+          for (const r of (doneTodayResp.data ?? []) as { curriculum_goal_id: string | null }[]) {
+            if (r.curriculum_goal_id) doneTodayByGoal.set(r.curriculum_goal_id, (doneTodayByGoal.get(r.curriculum_goal_id) ?? 0) + 1);
+          }
+          setPreviewLive({ pinsByGoal, doneTodayByGoal });
         }
         // Non-fatal for the same reason: without it the shared list still
         // suggests, it just does not know this family yet.
@@ -1421,7 +1470,8 @@ export default function ScheduleBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveUserId]);
+    // `today` is fixed for the page's life (useMemo with no deps).
+  }, [effectiveUserId, today]);
 
   // ── Unsaved changes guard ────────────────────────────────────────────────
   // Kept for desktop browsers. It does NOT fire on iOS Safari, which is why
@@ -1709,11 +1759,11 @@ export default function ScheduleBuilderPage() {
     const out = new Map<string, RowSchedule>();
     for (const r of rows) {
       if (r.type !== "curriculum" || r.pendingDelete) continue;
-      const sched = rowScheduleFor(r, today, todayStr, vacations, skippedByGoal);
+      const sched = rowScheduleFor(r, today, todayStr, vacations, skippedByGoal, previewLive);
       if (sched) out.set(r.localId, sched);
     }
     return out;
-  }, [rows, today, todayStr, vacations, skippedByGoal]);
+  }, [rows, today, todayStr, vacations, skippedByGoal, previewLive]);
 
   // ── The derived start date is written back onto the row ──────────────────
   //
@@ -3637,7 +3687,7 @@ export default function ScheduleBuilderPage() {
         }
         // The earliest forward-scheduled lesson across everything just saved.
         const firstDates = createdRows
-          .map((r) => rowScheduleFor(r, today, todayStr, vacations, skippedByGoal)?.nextLessonDate)
+          .map((r) => rowScheduleFor(r, today, todayStr, vacations, skippedByGoal, previewLive)?.nextLessonDate)
           .filter((d): d is string => !!d)
           .sort();
         // The screen has to be full-bleed, and everything under app/dashboard

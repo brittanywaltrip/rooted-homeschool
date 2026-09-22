@@ -10226,7 +10226,10 @@ test('builder preview: skips are loaded once and handed to every schedule line',
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   assert.match(src, /\.from\("lessons"\)\s*\.select\("curriculum_goal_id, queue_position, completed, skipped"\)\s*\.eq\("user_id", effectiveUserId\)\s*\.eq\("skipped", true\)/)
   assert.match(src, /skippedSlotsFromRows\(\[r\], goalId\)/, 'the derivation planPhase2Rows uses')
-  assert.match(src, /rowScheduleFor\(r, today, todayStr, vacations, skippedByGoal\)/)
+  assert.match(src, /rowScheduleFor\(r, today, todayStr, vacations, skippedByGoal, previewLive\)/)
+  // Invariant 23: pins (make-ups included) and today's completions reach the preview too.
+  assert.match(src, /\.eq\("queue_pinned", true\)\s*\.eq\("completed", false\)/)
+  assert.match(src, /doneTodayHere,\s*\[\.\.\.skippedSlots\.map/)
   assert.match(src, /nextLesson: builderNextLesson\(branch === "fresh" \? 1 : nextLesson, skippedSlots, row\.total_lessons\)/)
   assert.match(src, /calcPace\(row, today, projected\[0\]\?\.date, vacations, skippedSlots\)/)
   assert.equal((src.match(/nextLesson: sched\.nextLesson,/g) ?? []).length, 4, 'both stored-progress lines and both next-lesson lines read the stepped lesson')
