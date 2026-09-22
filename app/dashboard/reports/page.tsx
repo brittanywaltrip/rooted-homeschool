@@ -201,7 +201,7 @@ function formatLogDate(d: string | null): string {
 
 function PrintReport({
   child, allChildren: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
-  activityLogs, activityDefs, photos, canEdit,
+  activityLogs, activityDefs, photos, includePhotos, canEdit,
   onUpdateLesson, onDeleteLesson, onUpdateActivity, onDeleteActivity,
 }: {
   child: Child | null;
@@ -217,6 +217,8 @@ function PrintReport({
   /** Their definitions, INCLUDING retired ones. */
   activityDefs: ActivityDefinition[];
   photos: ReportPhoto[];
+  /** The "Include photos" choice. Off leaves photos out of this document only. */
+  includePhotos: boolean;
   canEdit: boolean;
   onUpdateLesson: (lessonId: string, patch: ReportRecordPatch) => Promise<boolean>;
   onDeleteLesson: (lessonId: string) => Promise<boolean>;
@@ -271,7 +273,7 @@ function PrintReport({
   const activitySummary = summarizeActivitySessions(activitySessions);
   const activityGroups = groupActivitySessions(activitySessions);
 
-  const filteredPhotos = selectReportPhotos(photos, child?.id ?? null, dateFrom, dateTo);
+  const filteredPhotos = selectReportPhotos(photos, child?.id ?? null, dateFrom, dateTo, includePhotos);
 
   function patchFromEditor(): ReportRecordPatch | null {
     const minutes = recordMinutes.trim() === "" ? null : Number(recordMinutes);
@@ -968,6 +970,9 @@ export default function ReportsPage() {
   // Simple is the default because it is what portfolio law actually asks for:
   // dates and titles. Detailed is for families who want the fuller record.
   const [printMode, setPrintMode] = useState<"simple" | "detailed">("simple");
+  // On by default, which is what the report did before this choice existed.
+  // Off only changes this document: photos stay in Memories, untouched.
+  const [includePhotos, setIncludePhotos] = useState(true);
 
   // ── Book sheet ─────────────────────────────────────────────────────────────
   // One bottom sheet serves both variants. An in-progress book leads with
@@ -1598,8 +1603,19 @@ export default function ReportsPage() {
         <div className="rounded-xl border border-[#dfe9e1] bg-[#f4f8f4] px-3.5 py-3">
           <p className="text-xs font-semibold text-[#2D5A3D]">Complete documentation is included</p>
           <p className="mt-0.5 text-xs leading-relaxed text-[#6b756d]">
-            Your report includes each completed lesson, saved lesson and activity details, and dated photos with their captions.
+            {includePhotos
+              ? "Your report includes each completed lesson, saved lesson and activity details, and dated photos with their captions."
+              : "Your report includes each completed lesson and saved lesson and activity details. Photos are left out of this report and stay safe in Memories."}
           </p>
+          <label className="mt-2.5 flex items-center gap-2 text-sm text-[#2d2926]">
+            <input
+              type="checkbox"
+              checked={includePhotos}
+              onChange={(e) => setIncludePhotos(e.target.checked)}
+              className="h-4 w-4 accent-[#5c7f63]"
+            />
+            Include photos
+          </label>
         </div>
 
         {/* Quick stats preview */}
@@ -1651,6 +1667,7 @@ export default function ReportsPage() {
           activityLogs={activityLogs}
           activityDefs={activityDefs}
           photos={photos}
+          includePhotos={includePhotos}
           appointments={appointments}
           canEdit={!isPartner}
           onUpdateLesson={updateLessonRecord}
