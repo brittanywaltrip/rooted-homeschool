@@ -58,3 +58,34 @@ test("sessions and appointments print as one Activities section and Hours Logged
   assert.match(page, /const totalHours = lessonHours \+ memoryHours \+ activitySummary\.hours;/);
   assert.match(page, /attendancePresentDates\(completedLessons, filteredAppointments\.map\(\(a\) => a\.date\)\)/);
 });
+
+test("days off: family breaks and one child's absences, never feeding Days Present", () => {
+  assert.match(page, /from\("vacation_blocks"\)\.select\("id, name, start_date, end_date"\)\.eq\("user_id", effectiveUserId\)/);
+  assert.match(page, /from\("child_absences"\)\.select\("id, child_id, reason, start_date, end_date"\)\.eq\("user_id", effectiveUserId\)/);
+  // The report's own child scopes absences, so a sibling's sick day never prints here.
+  assert.match(page, /selectReportDaysOff\(\{ breaks, absences, childId: child\?\.id \?\? null, from: dateFrom, to: dateTo \}\)/);
+  assert.match(page, /data-report-days-off/);
+  assert.match(page, /Days Off \(\{daysOff\.length\}\)/);
+  assert.match(page, /breaks=\{breaks\}/);
+  assert.match(page, /absences=\{absences\}/);
+  // A break has no child and says "Whole family"; an absence names its child.
+  assert.match(page, /childId === null \? "Whole family"/);
+  // Adding and removing a day off are owner-only writes, hidden from the printout.
+  assert.match(page, /\+ Add a day off/);
+  assert.match(page, /from\("child_absences"\)\s*\.insert\(\{ \.\.\.row, user_id: effectiveUserId \}\)/);
+  assert.match(page, /from\("child_absences"\)\.delete\(\)\.eq\("id", id\)\.eq\("user_id", effectiveUserId\)/);
+  // Days Present stays lessons plus completed school appointments only.
+  assert.match(page, /const presentDates = attendancePresentDates\(completedLessons, filteredAppointments\.map\(\(a\) => a\.date\)\);/);
+  const presentLine = page.split("\n").find((l) => l.includes("attendancePresentDates(completedLessons")) ?? "";
+  assert.doesNotMatch(presentLine, /daysOff|breaks|absences/);
+});
+
+test("nothing that schedules lessons reads child_absences", () => {
+  // A child's day off is a report record only. If a scheduler path ever reads
+  // it, a sick day starts moving or hiding lessons, which it must not do.
+  for (const rel of ["app/lib/scheduler.ts", "app/lib/missed-work.ts", "app/lib/daily-reconcile.ts",
+    "app/components/PlanV2/index.tsx", "app/components/PlanV2/usePlanV2Data.ts", "app/dashboard/page.tsx"]) {
+    const src = readFileSync(resolve(import.meta.dirname, "..", rel), "utf8");
+    assert.ok(!src.includes("child_absences"), `${rel} must not read child_absences`);
+  }
+});

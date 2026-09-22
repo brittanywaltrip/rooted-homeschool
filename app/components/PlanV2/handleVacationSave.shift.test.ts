@@ -159,3 +159,28 @@ test('two lessons with the same orig date inside the break both map to the same 
   assert.equal(a, b)
   assert.equal(a, '2026-07-22')
 })
+
+// A break recorded after the fact (a past sick day) must not shift the
+// schedule: the shift query takes every unfinished lesson on or after the
+// break's start, so a past break would push the whole future plan back.
+import { readFileSync } from 'node:fs'
+import { breakCanShift } from './handleVacationSave.shift.ts'
+
+test('breakCanShift: a break that ended before today cannot shift', () => {
+  assert.equal(breakCanShift('2026-09-15', '2026-09-22'), false)
+  assert.equal(breakCanShift('2026-09-21', '2026-09-22'), false)
+})
+
+test('breakCanShift: a break reaching today or later can shift', () => {
+  assert.equal(breakCanShift('2026-09-22', '2026-09-22'), true)
+  assert.equal(breakCanShift('2026-12-31', '2026-09-22'), true)
+  assert.equal(breakCanShift('', '2026-09-22'), false)
+})
+
+test('VacationBlockModal never sends apply_shift for a break that is already over', () => {
+  const src = readFileSync(new URL('./VacationBlockModal.tsx', import.meta.url), 'utf-8')
+  assert.match(src, /const canShift = mode === "create" && breakCanShift\(end, isoToday\(\)\);/)
+  assert.match(src, /apply_shift: canShift \? applyShift : false,/)
+  // The radios are only rendered when shifting is possible.
+  assert.match(src, /\{mode === "create" && canShift \? \(/)
+})
