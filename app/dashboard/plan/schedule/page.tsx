@@ -106,6 +106,22 @@ type Row = {
   // straight back to "Already into it" and moved the family off the branch
   // they had just chosen.
   where_branch: WhereBranch | null;
+  // Under "Already into it": should Rooted write the earlier lessons as DONE?
+  //
+  // Answering "I am on lesson 46" says where the family is. It does not say
+  // that Rooted holds the first 45 lessons, and it used to be read as though
+  // it did: the save derived a past start date from the number and wrote 45
+  // completed, backfilled rows with minutes, which land on reports as hours
+  // nobody logged. A family setting the same book up twice while finding
+  // their way got two sets of them.
+  //
+  // So it is asked now, and the default is NO. Saying yes is how genuine prior
+  // work gets recorded, and only then is a past start date derived, only then
+  // does the backfill run, and only then does the Invariant 21 refusal have
+  // anything to weigh. Transient row state, never a column: an existing row
+  // loads as false, so re-saving an untouched curriculum can never invent a
+  // second copy of its history.
+  record_history: boolean;
   // curriculum_goals.current_lesson as loaded. Null for never-saved rows.
   // The Invariant 21 pre-flight needs to know where progress stands BEFORE
   // phase 1 writes, and start_at_lesson alone cannot say: the pre-fill seeds
@@ -243,6 +259,7 @@ function blankRow(child_id: string, type: RowType): Row {
     progress_confirmed: false,
     start_date_is_manual: false,
     where_branch: null,
+    record_history: false,
     _dbCurrentLesson: null,
     emoji: type === "curriculum" ? "" : type === "coop" ? COOP_DEFAULT_EMOJI : ACTIVITY_DEFAULT_EMOJI,
     readOnly: false,
@@ -321,6 +338,7 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     // theirs until they switch branches.
     start_date_is_manual: g.start_date != null,
     where_branch: null,
+    record_history: false,
     _dbCurrentLesson: g.current_lesson ?? 0,
     emoji: "",
     readOnly: false,
@@ -395,6 +413,7 @@ function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
     progress_confirmed: false,
     start_date_is_manual: false,
     where_branch: null,
+    record_history: false,
     _dbCurrentLesson: null,
     emoji: fallbackEmoji,
     readOnly,
@@ -711,12 +730,18 @@ function rowScheduleFor(
   // that is what the save writes: reading the walk here said "Sep 7 through
   // today" while the save dated the same lessons from the typed Aug 1, so the
   // confirmation contradicted the thing it was confirming.
-  const stated = branch === "fresh" ? 0 : nextLesson - 1;
+  // "Already into it" says WHERE the family is. Only `record_history` says
+  // Rooted should write the lessons before it down as done. The number alone
+  // used to mean both, so a family placing their starting point was given
+  // completed lessons and report hours they never logged.
+  const willRecordHistory = branch === "already" && row.record_history;
+  const stated = willRecordHistory ? nextLesson - 1 : 0;
   const typedStart = row.start_date_is_manual ? row.start_date : null;
   const history: DerivedHistory =
-    !claimed
-      ? // Nothing derived, and nothing claimed. The caller reads
-        // `storedProgressLine` for this row instead.
+    !claimed || !willRecordHistory
+      ? // Nothing to lay down: either nothing is claimed (the caller reads
+        // `storedProgressLine` for this row instead), or the family is
+        // starting at their lesson without filling in what came before.
         { dates: [], schoolDayCount: 0, lastLesson: 0, truncated: false }
       : typedStart && stated > 0
       ? (() => {
@@ -742,7 +767,10 @@ function rowScheduleFor(
           };
         })()
       : deriveHistoryFromNextLesson({
-          nextLesson: branch === "fresh" ? 1 : nextLesson,
+          // Only reachable while willRecordHistory holds, which already means
+          // the "already into it" branch, so there is no "fresh" case left to
+          // fold in here.
+          nextLesson,
           schoolDays: school_days,
           lessonsPerDay: lessons_per_day,
           lessonsPerDayOverrides: lessons_per_day_overrides,
@@ -764,12 +792,15 @@ function rowScheduleFor(
     vacations,
   }).startDate;
 
-  // A typed date is the family's; a derived one follows the walk.
+  // A typed date is the family's; a derived one follows the walk. The walk is
+  // only consulted when history is actually being written: deriving a past
+  // start date for a family who declined it would date the forward queue from
+  // a day they never asked for, and the backfill reads the same field.
   const effectiveStartDate = !claimed
     ? (row.start_date ?? undefined)
     : row.start_date_is_manual && row.start_date
       ? row.start_date
-      : branch === "already"
+      : willRecordHistory
         ? derivedStart
         : (row.start_date ?? undefined);
 
@@ -1796,7 +1827,15 @@ export default function ScheduleBuilderPage() {
       if (!invariant21ClaimChanged(r)) continue;
       const sched = schedByLocalId.get(r.localId);
       if (!sched) continue;
-      const derived = sched.branch === "already" ? (sched.history.startDate ?? null) : r.start_date;
+      // Only a row that is actually writing history gets a derived date. The
+      // walk exists to say "your first lesson was N school days ago", which is
+      // a statement about history; a family who is only placing their starting
+      // point keeps whatever start date the goal already had (usually none,
+      // which is what sends the forward queue past today per Invariant 1).
+      const derived =
+        sched.branch === "already" && r.record_history
+          ? (sched.history.startDate ?? null)
+          : r.start_date;
       if (derived !== r.start_date) patches.set(r.localId, derived);
     }
     if (patches.size === 0) return;
@@ -2056,6 +2095,14 @@ export default function ScheduleBuilderPage() {
         r.type === "curriculum" &&
         !r.pendingDelete &&
         !r.readOnly &&
+        // Invariant 21 asks "can Rooted record everything this family says is
+        // done". A row that is not writing history is not saying anything is
+        // done, so there is nothing to fit and nothing to lose: the refusal
+        // has no subject. This is also the escape for a family whose progress
+        // genuinely cannot fit between any start date and today (on lesson 182
+        // after one school day) — they can now place themselves there instead
+        // of being refused with no way forward.
+        r.record_history &&
         !!r.start_date &&
         r.start_date < saveTodayStr &&
         !!r.total_lessons &&
@@ -2837,6 +2884,14 @@ export default function ScheduleBuilderPage() {
         // below the call for why returning is the only safe answer.
         let unclaimedShortfall: string | null = null;
         const planHistoricalBackfill = () => {
+          // The family has to ASK for their earlier lessons to be written down
+          // (Row.record_history). Answering "I am on lesson 46" places them in
+          // the book; it does not assert that Rooted holds the 45 before it,
+          // and writing those rows put hours on reports nobody logged. Guarded
+          // here as well as at the derivation, because this is the function
+          // that actually writes `completed: true` and Invariant 15 says that
+          // claim belongs to a person.
+          if (!row.record_history) return [];
           if (!row.start_date || row.start_date >= ymdToday || currentLesson <= 0) return [];
           const startMid = new Date(`${row.start_date}T00:00:00`);
           // Project from start_date with current_lesson=0 +
@@ -4615,6 +4670,9 @@ function RowCard(props: {
           nextLesson: sched.nextLesson,
           nextLessonDate: sched.nextLessonDate,
           todayYmd: props.todayStr,
+          // The sentence describes the save that is actually queued up, so it
+          // reads the same choice the save reads.
+          recordHistory: row.record_history,
         })
       : "";
 
@@ -5124,6 +5182,53 @@ function RowCard(props: {
                 />
               </div>
 
+              {/* Does Rooted write the lessons BEFORE that number down as
+                  done? The number says where the family is; it has never said
+                  what Rooted holds, and reading it as both is what put hours
+                  on reports nobody logged. Default no, so the answer that adds
+                  nothing is the answer they get by not deciding. */}
+              {row.start_at_lesson > 1 ? (
+                <div className="mt-2 rounded-lg border border-[#e8e2d9] bg-[#faf8f4] px-2.5 py-2">
+                  <p className="text-[12px] text-[#7a6f65] mb-1.5">
+                    {row.start_at_lesson === 2
+                      ? "Did you do lesson 1 in Rooted?"
+                      : `Should Rooted fill in lessons 1 to ${row.start_at_lesson - 1} as done?`}
+                  </p>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`history-${row.localId}`}
+                      checked={!row.record_history}
+                      disabled={isReadOnly}
+                      onChange={() => props.onPatchRow(row.localId, { record_history: false })}
+                      className="mt-[3px] accent-[#2D5A3D]"
+                    />
+                    <span className="text-[13px] text-[#2D2A26]">
+                      No, just start me on lesson {row.start_at_lesson}
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer mt-1">
+                    <input
+                      type="radio"
+                      name={`history-${row.localId}`}
+                      checked={row.record_history}
+                      disabled={isReadOnly}
+                      onChange={() => props.onPatchRow(row.localId, { record_history: true })}
+                      className="mt-[3px] accent-[#2D5A3D]"
+                    />
+                    <span className="text-[13px] text-[#2D2A26]">
+                      Yes, add them to our records
+                    </span>
+                  </label>
+                  {row.record_history ? (
+                    <p className="mt-1.5 ml-6 text-[12px] text-[#7a6f65] leading-relaxed">
+                      Each one counts as {row.minutes_per_lesson ?? 30} minutes on your
+                      reports, from the minutes above.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
               {sched.overflow ? (
                 <p className="mt-2 text-[12px] text-[#9a3a3a] leading-relaxed">
                   {sched.overflow}
@@ -5136,8 +5241,14 @@ function RowCard(props: {
 
               {/* The start date is derived, not typed, until the family asks
                   for it. Once they type one it is theirs and is never silently
-                  re-derived. */}
-              {row.start_date_is_manual ? (
+                  re-derived.
+
+                  Only shown while history is being written. Without history
+                  the date decides nothing a family can see: the forward queue
+                  starts after today either way (Invariant 1), and offering a
+                  control that changes nothing is how the old screen came to
+                  ask the same fact three ways. */}
+              {row.record_history && row.start_date_is_manual ? (
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <span className="text-[12px] text-[#7a6f65]">Start date</span>
                   <input

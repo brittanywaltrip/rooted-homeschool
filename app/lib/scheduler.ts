@@ -3093,6 +3093,15 @@ export interface NextLessonSentenceArgs {
   nextLessonDate?: string;
   /** Today, so the sentence can say "today" instead of repeating the date. */
   todayYmd: string;
+  /**
+   * Is the save going to write the earlier lessons down as done?
+   *
+   * Default NO, which is the default of the control it mirrors. The sentence
+   * has to say which of the two things is about to happen, because they differ
+   * in what ends up on a family's reports, and the number they typed looks the
+   * same either way.
+   */
+  recordHistory?: boolean;
 }
 
 /**
@@ -3108,6 +3117,24 @@ export interface NextLessonSentenceArgs {
 export function nextLessonSentence(a: NextLessonSentenceArgs): string {
   const { history, nextLesson, todayYmd } = a;
   const parts: string[] = [];
+
+  // Declining the history is the default, so it is the case the sentence has
+  // to state plainly: nothing is going on the family's reports, and the lesson
+  // they named is still where they start. Said in their terms ("your reports"),
+  // because hours appearing from nowhere is how this is noticed.
+  if (!a.recordHistory) {
+    if (nextLesson > 1) {
+      const earlier =
+        nextLesson === 2 ? "Lesson 1" : `Lessons 1 to ${nextLesson - 1}`;
+      parts.push(`${earlier} won't be added to your records or your hours.`);
+    }
+    if (a.nextLessonDate) {
+      const when =
+        a.nextLessonDate === todayYmd ? "today" : formatWeekdayLong(a.nextLessonDate);
+      parts.push(`You start on lesson ${nextLesson}, up ${when}.`);
+    }
+    return parts.join(" ");
+  }
 
   if (history.lastLesson > 0 && history.startDate && history.endDate) {
     const range =

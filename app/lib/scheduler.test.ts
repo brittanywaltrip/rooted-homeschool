@@ -9346,6 +9346,7 @@ test('the "Already into it" sentence reads exactly as designed', () => {
       nextLesson: 11,
       nextLessonDate: '2026-09-14',
       todayYmd: '2026-09-11',
+      recordHistory: true,
     }),
     'Lessons 1 to 10 will be marked done over your last 10 school days, Aug 31 through today. ' +
       'Lesson 11 is up Monday, Sep 14.',
@@ -9363,6 +9364,7 @@ test('the "Already into it" sentence reads exactly as designed', () => {
       nextLesson: 3,
       nextLessonDate: '2026-09-18',
       todayYmd: '2026-09-11',
+      recordHistory: true,
     }),
     'Lessons 1 to 2 will be marked done over your last 2 school days, Sep 4 through today. ' +
       'Lesson 3 is up Friday, Sep 18.',
@@ -9381,7 +9383,13 @@ test('the sentence says "today" when the next lesson somehow lands on today', ()
     throughYmd: '2026-09-10',
   })
   assert.match(
-    nextLessonSentence({ history: h, nextLesson: 3, nextLessonDate: '2026-09-11', todayYmd: '2026-09-11' }),
+    nextLessonSentence({
+      history: h,
+      nextLesson: 3,
+      nextLessonDate: '2026-09-11',
+      todayYmd: '2026-09-11',
+      recordHistory: true,
+    }),
     /Lesson 3 is up today\.$/,
   )
 })
@@ -9681,12 +9689,123 @@ test('storedProgressLine on a goal with no stored start date says only what it k
   )
 })
 
+// ── Starting at lesson N does not invent completed history ────────────────
+//
+// Saying "I am on lesson 46" places a family in their book. It never said
+// Rooted holds the 45 lessons before it, and reading it as though it did wrote
+// 45 completed, backfilled rows with minutes on them: hours on a report nobody
+// logged. A family who set the same book up three times while finding her way
+// got three sets of them, which is the support thread these tests come from.
+//
+// The number and the history are two questions now. The history one defaults
+// to NO, and these tests fail if it ever silently defaults back.
+
+test('the default sentence promises nothing will be recorded, and names the lesson they start on', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 46,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  // No recordHistory argument at all: the default is what a caller that has
+  // not thought about it gets, so the default is what this asserts.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 46,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+    }),
+    "Lessons 1 to 45 won't be added to your records or your hours. " +
+      'You start on lesson 46, up Monday, Sep 14.',
+  )
+  // Singular, because "Lessons 1 to 1" is how a sentence tells a family it was
+  // written by a machine.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 2,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+    }),
+    "Lesson 1 won't be added to your records or your hours. " +
+      'You start on lesson 2, up Monday, Sep 14.',
+  )
+  // Lesson 1 with nothing before it says nothing about history at all.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 1,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+    }),
+    'You start on lesson 1, up Monday, Sep 14.',
+  )
+})
+
+test('the opt-in sentence still describes the days it will write', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 11,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  const said = nextLessonSentence({
+    history: h,
+    nextLesson: 11,
+    nextLessonDate: '2026-09-14',
+    todayYmd: '2026-09-11',
+    recordHistory: true,
+  })
+  assert.match(said, /^Lessons 1 to 10 will be marked done/)
+  assert.doesNotMatch(said, /won't be added/)
+})
+
+test('the builder writes history only when the family asked for it', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+
+  // 1. The row carries the choice, and every constructor starts it at NO.
+  //    A row loaded from a saved goal starts at NO too, which is what stops a
+  //    re-save of an untouched curriculum from laying its history down twice.
+  assert.match(src, /record_history: boolean/)
+  assert.equal(
+    (src.match(/record_history: false,/g) ?? []).length,
+    3,
+    'blankRow, rowFromGoal and rowFromActivity all default the choice to no',
+  )
+  assert.doesNotMatch(src, /record_history: true,/, 'nothing defaults it to yes')
+
+  // 2. The backfill is the function that writes `completed: true`. It returns
+  //    empty before it reads anything else.
+  const backfill = extractFunctionBody(src, /const planHistoricalBackfill = \(\) =>/)
+  const guard = backfill.indexOf('!row.record_history')
+  assert.ok(guard !== -1, 'the backfill checks the choice')
+  assert.ok(
+    guard < backfill.indexOf('row.start_date'),
+    'it checks the choice before anything about dates: a guard that runs later is a guard that ran too late',
+  )
+
+  // 3. No history means no derived past start date. Deriving one anyway would
+  //    hand the same date to the backfill and to the forward projection.
+  assert.match(src, /const willRecordHistory = branch === "already" && row\.record_history/)
+  assert.match(src, /willRecordHistory\s*\?\s*derivedStart/)
+
+  // 4. Invariant 21 asks whether everything the family says is done can be
+  //    recorded. A row recording nothing is not saying anything is done, so it
+  //    is not judged — and the pre-flight and the phase 2 backstop must agree
+  //    about that, or the looser one lets a save through the other refuses.
+  assert.match(src, /r\.record_history &&\s*\n\s*!!r\.start_date/)
+})
+
 test('the builder routes unclaimed rows to the stored line and skips the walk for them', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   // Same predicate as the pre-flight and the derived-date sync.
   assert.match(src, /const claimed = invariant21ClaimChanged\(row\)/)
   // The walk is skipped entirely for an unclaimed row.
-  assert.match(src, /!claimed\s*\?\s*\{ dates: \[\], schoolDayCount: 0, lastLesson: 0, truncated: false \}/)
+  assert.match(
+    src,
+    /!claimed \|\| !willRecordHistory\s*\?[\s\S]{0,400}?\{ dates: \[\], schoolDayCount: 0, lastLesson: 0, truncated: false \}/,
+  )
   // And both surfaces read the stored line for it.
   assert.match(src, /sched\.claimed\s*\?\s*previewLessonLine\(\{/)
   assert.match(src, /storedProgressLine\(\{/)

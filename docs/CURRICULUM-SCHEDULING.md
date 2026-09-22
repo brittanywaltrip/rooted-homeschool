@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: September 22, 2026. Adds Invariant 23 (a lesson reopened behind the pointer is a make-up that holds its day) and moves the Schedule Builder's phase 2 onto one transaction, `apply_builder_rebuild`, validated on its complete result before any write (Sentry ROOTED-HOMESCHOOL-1Q). September 15, 2026: Notes how the Schedule Builder now asks for lessons_per_day_overrides (one stepper, plus an opt-in per-day list). Adds the counting rule under the invariants intro: a recalibration estimate row counts toward current_lesson like a real completion, a continuation row never does. Also September 15: Invariant 1 notes the save-time scope of the guarantee. September 14, 2026: adds Invariant 22 (a skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number). September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 22, 2026. The Schedule Builder no longer invents completed history from a starting lesson: "Already into it" asks whether to fill the earlier lessons in, defaulting to NO, and only a Yes derives a past start date, runs the backfill or gives Invariant 21 anything to weigh (see "Where are you with this?"). Also September 22: adds Invariant 23 (a lesson reopened behind the pointer is a make-up that holds its day) and moves the Schedule Builder's phase 2 onto one transaction, `apply_builder_rebuild`, validated on its complete result before any write (Sentry ROOTED-HOMESCHOOL-1Q). September 15, 2026: Notes how the Schedule Builder now asks for lessons_per_day_overrides (one stepper, plus an opt-in per-day list). Adds the counting rule under the invariants intro: a recalibration estimate row counts toward current_lesson like a real completion, a continuation row never does. Also September 15: Invariant 1 notes the save-time scope of the guarantee. September 14, 2026: adds Invariant 22 (a skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number). September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -722,6 +722,7 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 23 | Invariant 21 pre-flight | The refusal is decided before phase 1: no `curriculum_goals` row, no activity row and no lesson row is written for ANY row in the save when one is refused; a family merely ahead of their configured pace is not refused; a goal whose history fits issues no lesson read; `currentLessonFor` matches `recomputeCurrentLesson`; phase 2 keeps the check as a separately tagged backstop. |
 | 24 | Invariant 21 claim scoping | Only rows this save claims something about are judged: an untouched refused-shape goal does not block an unrelated save, editing its starting position or school-week shape brings it back, a rename does not; phase 2 throws its backstop only for a claimed row and leaves an untouched short goal entirely alone rather than rebuilding it, and reports the shortfall. |
 | 25 | Skipped lessons (Invariant 22) | The projector steps over a skipped slot (lesson 12 skipped, `current_lesson` 11 projects 13 then 14); a skip takes no capacity; the reconciler never re-dates a skipped row; `planNextRow` never chooses one; every skip call site writes `skipped`, clears `scheduled_date` and `queue_pinned`, and never sends `date: null`. |
+| 27 | Starting at lesson N invents no history | The default sentence promises nothing is recorded and names the lesson they start on (singular, plural and lesson-1 shapes); the opt-in sentence still describes the days it will write; every row constructor defaults the choice to no and nothing defaults it to yes; the backfill checks the choice BEFORE it reads any date; no history means no derived start date; the Invariant 21 pre-flight and the phase 2 backstop skip the same rows. |
 | 26 | Make-ups and the phase 2 commit (Invariant 23) | `app/lib/phase2-commit.test.ts`: a lesson unticked behind the pointer becomes a make-up on its day and Today shows it; the next lesson waits for tomorrow; repeated saves write nothing; notes and minutes survive; completed-today counts against today; stacked manual pins warn and never refuse; the 1Q plan is refused before any write; a failed transaction writes nothing. SQL: `supabase/tests/builder-rebuild/run.sh`. |
 
 ---
@@ -901,6 +902,24 @@ There is now one question with two branches:
   `planHistoricalBackfill` all see an ordinary start date and need to know
   nothing about this screen.
 
+  **The walk only runs when the family asks for the history** (`Row.record_history`,
+  September 2026, default NO). The number says WHERE THEY ARE. It has never
+  said what Rooted holds, and reading it as both wrote `start_at_lesson - 1`
+  completed backfill rows carrying `default_minutes` each — hours on a report
+  nobody logged. A family who set the same book up three times while finding
+  her way got three sets of them (support thread, 2026-09-22).
+
+  So it is asked: "Should Rooted fill in lessons 1 to N as done?", No by
+  default. On No nothing is derived, nothing is backfilled, and the forward
+  queue starts after today from whatever start date the goal already had
+  (Invariant 1). On Yes everything below applies unchanged. The guard is on
+  `planHistoricalBackfill` itself, before it reads anything about dates,
+  because that is the function that writes `completed: true` and Invariant 15
+  says that claim belongs to a person.
+
+  **A row loaded from a saved goal starts at No**, so re-saving an untouched
+  curriculum can never lay its history down a second time.
+
 **The walk INCLUDES today**, for the same reason the backfill's filter is `<=`.
 
 **One walk, two directions, and they must agree.** The screen derives the start
@@ -937,6 +956,21 @@ from `start_date` through today **inclusive**. If the count does not fit in the
 school days available, the save is refused and the family is told the real
 numbers. Rooted never records less progress than the family reported without
 saying so.
+
+**"Without saying so" is the whole of it, and asking is saying so.** Since
+September 2026 the history is a question with No as its default (see "Where are
+you with this?" below). A family who answers No is not reporting progress to
+record, so there is nothing for this invariant to reduce and nothing to refuse:
+the pre-flight skips the row and `planHistoricalBackfill` returns before it
+looks at a date. Both gates read the same `record_history` flag, so the
+pre-flight cannot be the looser of the two — the property the rest of this
+section depends on.
+
+That also gives the family on lesson 182 after one school day somewhere to go.
+Refusing them was right while the number implied a claim about history; it left
+them with no way to say "I am simply here". Now they answer No and place
+themselves, and the refusal is reserved for a family who really is asking
+Rooted to record work it cannot date.
 
 **Why, part one: the lesson lost at the seam.** The backfill filtered its
 projection with `date < today`. The projection is built with
