@@ -61,15 +61,37 @@ export function captureSupabaseError(
   // give the issue a title, it should not hide where the throw came from.
   if (error instanceof Error && error.stack) wrapped.stack = error.stack;
 
+  const upload = uploadDiagnosticsOf(error);
+
   if (typeof Sentry.captureException !== "function") return;
   Sentry.captureException(wrapped, {
-    tags: options.tags,
+    tags: upload ? { upload_outcome: upload.outcome, ...options.tags } : options.tags,
     ...(options.level ? { level: options.level } : {}),
     extra: {
       code: raw.code ?? null,
       details: raw.details ?? null,
       hint: raw.hint ?? null,
+      ...(upload ? { upload } : {}),
       ...options.extra,
     },
   });
+}
+
+/**
+ * The redacted diagnostics an UploadFailedError (lib/photo-pipeline) carries.
+ *
+ * The wrapper above builds a NEW Error, so the storage error the pipeline
+ * attached as `cause` never reached Sentry and every photo failure read as the
+ * bare "Upload failed. Check your connection" with nothing behind it. The
+ * pipeline already reduced its evidence to statuses, error names and redacted
+ * messages (no path, URL, token or photo bytes); this passes exactly that on
+ * and nothing else. Read structurally rather than by instanceof so this module
+ * does not import the pipeline.
+ */
+export function uploadDiagnosticsOf(error: unknown): { outcome: string; [key: string]: unknown } | null {
+  const diagnostics = (error as { diagnostics?: unknown } | null)?.diagnostics;
+  if (!diagnostics || typeof diagnostics !== "object") return null;
+  const outcome = (diagnostics as { outcome?: unknown }).outcome;
+  if (typeof outcome !== "string") return null;
+  return diagnostics as { outcome: string; [key: string]: unknown };
 }
