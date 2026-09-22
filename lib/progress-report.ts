@@ -11,7 +11,7 @@
 
 import { supabase } from "@/lib/supabase";
 import { generateProgressReport, fmtMins, type ReportData } from "@/lib/pdf";
-import { lessonDailyLogRow, subjectTableTotals } from "@/lib/progress-report-rows";
+import { buildRemovalContext, lessonDailyLogRow, subjectTableTotals } from "@/lib/progress-report-rows";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { augustYearOf, getCurrentSchoolYear, schoolYearQuarters, todayLocalYmd, type SchoolYearWindow } from "@/app/lib/school-year";
 
@@ -53,7 +53,7 @@ type MemoryRow = {
   date: string;
   duration_minutes: number | null;
 };
-type GoalRow = { id: string; default_minutes: number };
+type GoalRow = { id: string; default_minutes: number; curriculum_name?: string | null };
 type ActivityLogRow = {
   activity_id: string;
   date: string;
@@ -125,7 +125,7 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
   const fileYear = augustYearOf(todayLocalYmd());
   const dateGenerated = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-  const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
+  const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }, { data: delEvents }] = await Promise.all([
     // Paged. The report's own range filter runs below, in JS, so this read
     // has to bring back the family's whole history or the range can land
     // entirely past PostgREST's 1,000-row cap and print an empty report.
@@ -134,9 +134,12 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
       supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label, curriculum_name), is_backfill").eq("user_id", userId)
         .order("id").range(from, to)),
     supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", userId),
-    supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", userId),
+    supabase.from("curriculum_goals").select("id, default_minutes, curriculum_name").eq("user_id", userId),
     supabase.from("activity_logs").select("activity_id, date, minutes_spent, completed, is_backfill").eq("user_id", userId).eq("completed", true),
     supabase.from("activities").select("id, name, emoji, child_ids").eq("user_id", userId),
+    // The family's own deletion records: with the curriculum names above
+    // (archived included), what establishes a removed curriculum.
+    supabase.from("app_events").select("payload").eq("user_id", userId).eq("type", "curriculum_goal.deleted"),
   ]);
 
   let allLessons = (lr ?? []) as unknown as LessonRow[];
@@ -146,6 +149,10 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
   for (const a of ((acts ?? []) as unknown as ActivityRow[])) activityMap[a.id] = a;
   const goalDefaults: Record<string, number> = {};
   for (const g of ((gr ?? []) as unknown as GoalRow[])) goalDefaults[g.id] = g.default_minutes ?? 30;
+  const removal = buildRemovalContext(
+    ((delEvents ?? []) as { payload: { curriculum_name?: string | null } | null }[]).map((e) => e.payload?.curriculum_name ?? null),
+    ((gr ?? []) as unknown as GoalRow[]).map((g) => g.curriculum_name ?? null),
+  );
 
   const { start: rangeStart, end: rangeEnd, label: dateRangeLabel } = computeRange(opts, schoolYear);
   if (rangeStart && rangeEnd) {
@@ -208,7 +215,7 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
 
     // Same subject rule as the day-by-day log below (lessonReportSubject), so
     // a curriculum lesson prints under its subject in both, not "General".
-    const subjectTotals = subjectTableTotals(childLessons, (l) => lessonMinutes(l, goalDefaults));
+    const subjectTotals = subjectTableTotals(childLessons, (l) => lessonMinutes(l, goalDefaults), removal);
     const activityAgg: Record<string, { name: string; emoji: string; sessions: number; mins: number }> = {};
     for (const a of childActs) {
       const act = activityMap[a.activity_id];
@@ -259,6 +266,7 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
         childName: childNameMap[l.child_id] || "",
         minutes: r.m,
         estimated: r.e,
+        removal,
       }),
     );
   }
