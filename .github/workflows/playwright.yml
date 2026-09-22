@@ -59,7 +59,18 @@ jobs:
           # cookie. It is never placed in Playwright's extraHTTPHeaders, which
           # would send it to Supabase, PostHog and Sentry on every request.
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-        run: npx playwright test e2e/smoke/
+          # A named-test reporter: the default in CI is "dot", which reports
+          # "9 skipped" without saying which. The JSON report is read by the
+          # next step and is never uploaded (it sits outside playwright-report/).
+          PLAYWRIGHT_JSON_OUTPUT_NAME: smoke-results.json
+        run: npx playwright test e2e/smoke/ --reporter=list,json
+
+      # Every skipped test by name, with the reason it gave, in the log and the
+      # job summary. Titles and skip reasons only.
+      - name: List skipped smoke tests
+        if: always()
+        run: |
+          if [ -f smoke-results.json ]; then node scripts/smoke-skips.mjs smoke-results.json; else echo "no smoke-results.json (the run did not start)"; fi
 
       # Two independent layers, because one is not enough.
       #

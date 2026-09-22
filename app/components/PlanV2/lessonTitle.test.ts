@@ -21,11 +21,16 @@ test("a one-off lesson keeps its own title", () => {
   assert.equal(lessonRowTitle({ lessonNumber: null, title: " ", subject: "Science", curriculumName: null }), "Science");
 });
 
-test("the missed-lessons banner and the week rows use the same title", () => {
-  for (const f of ["app/components/PlanV2/MissedLessonsBanner.tsx", "app/components/PlanV2/WeekListView.tsx"]) {
-    const src = readFileSync(resolve(import.meta.dirname, "..", "..", "..", f), "utf8");
-    assert.match(src, /lessonRowTitle\(/, `${f} titles its rows through lessonRowTitle`);
-  }
+test("the week rows title through lessonRowTitle; the missed banner labels curricula as the prompt does", () => {
+  const read = (f: string) => readFileSync(resolve(import.meta.dirname, "..", "..", "..", f), "utf8");
+  assert.match(read("app/components/PlanV2/WeekListView.tsx"), /lessonRowTitle\(/);
+  // The banner lists the same lessons Today's prompt asks about, grouped the
+  // way the prompt groups them: "Maya · Math", then "Lesson 3".
+  const plan = read("app/components/PlanV2/index.tsx");
+  const modal = read("app/components/MissedLessonRecoveryModal.tsx");
+  assert.match(plan, /g\.child_name \? `\$\{g\.child_name\} · \$\{subject\}` : subject/);
+  assert.match(modal, /g\.child_name \? `\$\{g\.child_name\} · \$\{subject\}` : subject/);
+  assert.match(read("app/components/PlanV2/MissedLessonsBanner.tsx"), /Lesson \{e\.lesson_number\}/);
 });
 
 test("the muted line says what the title does not: the curriculum under a numbered lesson", () => {

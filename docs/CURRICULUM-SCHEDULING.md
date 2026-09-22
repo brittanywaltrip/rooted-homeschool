@@ -2,7 +2,7 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: September 15, 2026. Notes how the Schedule Builder now asks for lessons_per_day_overrides (one stepper, plus an opt-in per-day list). Adds the counting rule under the invariants intro: a recalibration estimate row counts toward current_lesson like a real completion, a continuation row never does. Also September 15: Invariant 1 notes the save-time scope of the guarantee. September 14, 2026: adds Invariant 22 (a skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number). September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 22, 2026. Adds Invariant 23 (a lesson reopened behind the pointer is a make-up that holds its day) and moves the Schedule Builder's phase 2 onto one transaction, `apply_builder_rebuild`, validated on its complete result before any write (Sentry ROOTED-HOMESCHOOL-1Q). September 15, 2026: Notes how the Schedule Builder now asks for lessons_per_day_overrides (one stepper, plus an opt-in per-day list). Adds the counting rule under the invariants intro: a recalibration estimate row counts toward current_lesson like a real completion, a continuation row never does. Also September 15: Invariant 1 notes the save-time scope of the guarantee. September 14, 2026: adds Invariant 22 (a skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number). September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
@@ -170,9 +170,12 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'queue_resync'` — Plan / Today data loader aligned the cached scheduled_date with the queue projector's output (no user-visible change, just keeps the cache honest after current_lesson advances or a `plan_move` shifts siblings without re-dating them). AUTOMATIC ONLY: `syncProjectedScheduledDates` is its one writer, it is gated by `NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED` inside the helper, and no action a parent takes may write it (September 2026, see "Parent re-spreads" below).
 - `'catchup_spread'`, `'catchup_pushback'`, `'plan_cascade_shift'`, `'recalibrate_respread'`: a PARENT asked for the projector's answer: Plan catch-up re-spread, push back N school days, the tail of a cascade shift, and "I'm actually on lesson X". Written by `reprojectGoalForParent` / `writeParentProjectedDates`, never gated by the automatic switch.
 - `'skip_respread'`, `'skip_undo'`: a PARENT skipped a lesson (the lessons after it move up) or unskipped one, or undid a bulk skip (the queue is re-dated around it). Also `'catchup_spread'` from Today's recovery Yes and No. Written by `resyncGoalsForParent`, which projects exactly as the automatic reconciler does (pins held, skips stepped over, the per-day cap, lessons completed today counted against today) but is never gated by the switch and never writes `'queue_resync'`. Distinct sources on purpose: renaming the automatic writer's source would walk straight past the containment trigger.
+- `'completion_respread'`, `'uncomplete_respread'`: a PARENT marked lessons done (on time, early, late, on a chosen past day, in bulk, from the Today extra-lessons sheet or prior-lesson card, from "Log a lesson you did", the Plan past-day checklist, or a past-date move) or un-marked one (single uncheck, bulk-done undo, removing a logged lesson, deleting a completed record on Reports). The pointer moved, so the rest of that curriculum is re-dated from it by `resyncGoalsForParent`, counting lessons completed today exactly as Today does. Only incomplete rows are written; completed history, pins, skips, school days, breaks and the per-day cap are kept. Without it, with the automatic reconciler off, Plan kept the old dates while Today moved on. A failed re-date is said (`COMPLETION_RESPREAD_FAILED_NOTE`) and never rolls the completion back.
+- `'daily_reconcile'`: the once-a-day reconciliation (`app/lib/daily-reconcile.ts`, SQL `public.apply_daily_reconcile`). When a school day passes with a family behind or ahead of plan, it re-dates each curriculum's unfinished, unpinned, unskipped, non-backfill lessons to what Today projects, at most once per curriculum per local day. The browser proposes; the function writes, only while the server switch `rooted_private.app_switches.daily_reconcile` is on (read at the moment of the call, so switching it off stops open tabs too), only if nothing it was computed from changed (pointer, pace, school days, overrides, start, breaks, pins, skips, today's completions, each row's date; otherwise `stale`), and never into the past. The day is logged in `rooted_private.daily_reconcile_log` in the same transaction as the writes, so a failure leaves it unmarked and retried.
 - `'undo_restore'`: an undo put a row back where the automatic projector had it. Written instead of restoring `'queue_resync'` (`sourceForUndoRestore`); every other snapshotted source is restored as it was.
 - `'recalibrate_estimate'` — synthesized completion date written by the "I'm actually on lesson X" recalibration gap-fill. Lessons stamped with this source have completed_at + scheduled_date evenly distributed across the window between the goal's last real completion (or start_date / created_at) and yesterday. The Plan calendar lesson card surfaces an "Estimated date · tap to move." hint for these rows; moving the lesson via `move_lesson_to_date` overwrites the source with `'plan_move'`.
 - `'manual_uncomplete'` — the user unchecked a completed lesson (`toggleLesson` in `app/components/PlanV2/usePlanLessonActions.ts`). This write does NOT move either date column; it exists to mark that the row went back into the queue, and it clears `is_backfill` alongside. Without that clear, a lesson logged on a past day (`catchup_resched` + `is_backfill`) and then unchecked kept its past date permanently: `syncProjectedScheduledDates` skips `is_backfill` rows, so the reconciler could never roll it forward and every load counted it as missed.
+- `'reopened'`: Invariant 23. A lesson unticked behind the pointer is pinned to the day it is due (its own day or today, whichever is later) by `public.reopen_lesson`, the one transaction both un-tick paths call (through `untickLessonThen` in `app/lib/reopen-lesson.ts`): it writes `manual_uncomplete`, lets the pointer trigger recompute, then writes `reopened` if the lesson is behind the pointer. The Schedule Builder's phase 2 writes the same source when it pins a row reopened before make-ups existed.
 - `'completion_pin'` — a lesson was marked done, so its calendar date was pinned
   to the day the family tapped it (Today's `toggleLesson` / `confirmExtraLessons` /
   `markMissedComplete`, and the Plan page's `toggleLesson`). This is the same-row pin
@@ -608,6 +611,33 @@ path reaches `completeLessonOnDate` and nothing else writes `completed = true`
 for a tapped lesson; each choice writes its documented columns; a kept future
 day never stamps a future `completed_at`; Cancel writes nothing.
 
+### Missed work has one definition (September 2026)
+
+Today's catch-up prompt and Plan's missed-lessons banner list the same lessons,
+computed by `computeMissedWork` in `app/lib/missed-work.ts`: the lessons that
+would have been due on past school days since each curriculum's last completion
+(or its start date), at most 14 days back, and never on or before the day the
+family last answered for it (`catchup_answered_on`). It projects from the
+curriculum's settings and reads no lesson dates.
+
+- Re-dating never answers it. A parent re-date or the daily reconciliation
+  moves stored dates; only a completion or a recorded "not done" answer
+  (`app/lib/missed-work-answers.ts`, used by both screens) changes the list.
+  Plan used to call a lesson missed when its stored date was before today, and
+  one lesson marked on its planned past day emptied Plan's list while Today
+  still asked.
+- An overdue lesson nobody has marked is still next in the queue, so it is
+  usually also on today's list. Each entry carries `also_today`, and both
+  screens say so.
+
+- Plan's old catch-up banner is gone. "Re-spread from today" is what the
+  daily reconciliation does, and "Push schedule back" wrote unpinned dates with
+  no break: Today never showed it and the next reconciliation undid it. A
+  family pausing adds a break, which both honour; the missed banner links to it.
+
+**Test case:** `app/lib/missed-work.test.ts`; push-back vs break in
+`app/lib/daily-reconcile.test.ts`.
+
 ---
 
 ## Bug patterns to NEVER reintroduce
@@ -692,6 +722,7 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 23 | Invariant 21 pre-flight | The refusal is decided before phase 1: no `curriculum_goals` row, no activity row and no lesson row is written for ANY row in the save when one is refused; a family merely ahead of their configured pace is not refused; a goal whose history fits issues no lesson read; `currentLessonFor` matches `recomputeCurrentLesson`; phase 2 keeps the check as a separately tagged backstop. |
 | 24 | Invariant 21 claim scoping | Only rows this save claims something about are judged: an untouched refused-shape goal does not block an unrelated save, editing its starting position or school-week shape brings it back, a rename does not; phase 2 throws its backstop only for a claimed row and leaves an untouched short goal entirely alone rather than rebuilding it, and reports the shortfall. |
 | 25 | Skipped lessons (Invariant 22) | The projector steps over a skipped slot (lesson 12 skipped, `current_lesson` 11 projects 13 then 14); a skip takes no capacity; the reconciler never re-dates a skipped row; `planNextRow` never chooses one; every skip call site writes `skipped`, clears `scheduled_date` and `queue_pinned`, and never sends `date: null`. |
+| 26 | Make-ups and the phase 2 commit (Invariant 23) | `app/lib/phase2-commit.test.ts`: a lesson unticked behind the pointer becomes a make-up on its day and Today shows it; the next lesson waits for tomorrow; repeated saves write nothing; notes and minutes survive; completed-today counts against today; stacked manual pins warn and never refuse; the 1Q plan is refused before any write; a failed transaction writes nothing. SQL: `supabase/tests/builder-rebuild/run.sh`. |
 
 ---
 
@@ -1181,6 +1212,67 @@ never `date: null`. The "builder rebuild:" block runs phase 2's pure half over a
 goal with lesson 12 skipped: 12 keeps `skipped` and no date, 13 holds the first
 slot, a notes-bearing skip is not re-dated, a schedule change does not release
 it, and a drifted skipped slot still leaves every lesson number written once.
+
+### Invariant 23: A lesson reopened behind the pointer is a make-up, and it holds its day
+
+**The rule.** Unticking a lesson normally hands it back to the queue: the
+pointer drops and the lesson is next again. The pointer cannot drop for a
+lesson recorded as done before the family started tracking (`current_lesson`
+never goes below `start_at_lesson - 1`), nor for one they have since finished
+lessons after. Such a lesson "needs to be done again" (founder decision,
+2026-09-21). It becomes a MAKE-UP:
+
+- It is pinned (`queue_pinned = true`, `scheduled_source = 'reopened'`) to the
+  day it is due: its own day, or today if that day has passed.
+- Every projector emits it on that day and spends that day's capacity on it
+  (`isMakeUpPin`, `pinHoldsDay` in `scheduler.ts`), so Today shows it, Plan
+  shows it, and no fresh lesson is stacked beside it. It is listed after the
+  queue, so `projected[0]` is still the next queue lesson.
+- It keeps its notes and minutes. It is not completed work: reports count
+  completed rows only. Ticking it completes it the ordinary way.
+- The family's starting lesson is not changed, and the pointer does not move.
+- A make-up dated before a projection's window is left alone (not emitted, no
+  capacity). Behind-the-pointer pins that predate this rule are all in the
+  past on 2026-09-22, so the rule moved no existing row.
+
+**One transaction, then the re-date.** Un-ticking is `public.reopen_lesson`:
+the un-complete, the pointer recompute (the lessons trigger, same
+transaction) and the make-up pin commit together or not at all. Anything that
+re-dates the rest of the curriculum (PR #84's completion re-date) runs only
+after it succeeded, through `untickLessonThen`, so it projects around the pin.
+Re-dating first puts the next lesson on the make-up's day; re-dating after a
+failed un-tick moves lessons for a change that never happened. A failure,
+including the function being absent, leaves the lesson ticked and tells the
+family.
+
+**The Schedule Builder** never deletes, re-dates or releases a row behind the
+pointer (`planPhase2Rows`), because the history backfill would otherwise
+re-create it as DONE, completing a lesson the family reopened (Invariant 15).
+An unpinned one dated today or later, left by the un-tick before this rule, is
+pinned in place by the next save.
+
+**Why.** Sentry ROOTED-HOMESCHOOL-1Q, 2026-09-21: a family unticked the last
+history lesson, which history had dated today. The row sat unfinished behind
+the pointer, invisible to Today. The next save anchored the existing goal at
+today and put the next lesson on the same day; the pre-write check counted the
+inserts only and passed, and the post-write check threw after the delete and
+81 inserts had committed as separate requests. The family fixed it by hand.
+
+**Phase 2 is now one transaction.** `planPhase2Commit` and `validatePhase2End`
+(`app/lib/phase2-commit.ts`) decide the complete result, kept rows and
+completed work included, and refuse it before any write if the lessons the
+plan places do not fit each day after the lessons done that day and every
+other unfinished lesson dated there. `public.apply_builder_rebuild` then
+re-reads the rows under lock, refuses a plan made against rows that changed
+(`stale`, retried), including any row it would delete or retire that now
+carries notes or minutes (`rooted_private.lesson_carries_work`, the same rule
+as `holdsParentWork`), writes everything, and re-checks the same capacity rule
+before committing. There is no client-side fallback: if the function is
+missing or fails, nothing is written and the save is retryable. The after-save read is monitoring only: a committed save is
+never reported to the family as failed. Lessons completed today count against
+today's pace in the builder's projection, exactly as on Today.
+
+**Test case:** row 26 of the table above.
 
 ### Invariant 2 carve-out for manual moves
 
