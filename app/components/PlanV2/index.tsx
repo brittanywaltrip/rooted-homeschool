@@ -92,6 +92,8 @@ import {
   planGoalReassign,
   planGoalDelete,
   planBulkLessonDelete,
+  bulkDeleteConfirmCopy,
+  bulkDeleteFailureNotice,
   computeGapLessonsForGoal,
   reprojectGoalForParent,
   resyncGoalsForParent,
@@ -3480,12 +3482,17 @@ export default function PlanV2() {
     window.clearTimeout(pending.timer);
     pendingBulkDeleteRef.current = null;
     const ids = pending.rows.map((r) => r.id);
-    try {
-      await supabase.from("lessons").delete().in("id", ids);
-    } catch {
-      /* best-effort on unmount; next loadData will reconcile */
+    // supabase-js RESOLVES with { error } rather than throwing, so a failed
+    // delete used to vanish here. Ask for the deleted ids back and say so when
+    // fewer came back than were asked for.
+    const { data, error } = await supabase.from("lessons").delete().in("id", ids).select("id");
+    const notice = bulkDeleteFailureNotice(ids.length, data?.length ?? 0, !!error);
+    if (notice) {
+      console.error("[plan] bulk delete incomplete", error);
+      flashNotice(notice);
+      reload();
     }
-  }, []);
+  }, [reload]);
 
   useEffect(() => {
     return () => {
@@ -4102,10 +4109,16 @@ export default function PlanV2() {
     // taps Undo first, the timer is cleared and the rows are restored.
     const timer = window.setTimeout(async () => {
       pendingBulkDeleteRef.current = null;
-      try {
-        await supabase.from("lessons").delete().in("id", Array.from(rowIdSet));
-      } catch {
-        /* silent — next reload reconciles */
+      // A failed or partial delete is SAID, never swallowed: the rows would
+      // otherwise reappear on the next reload with no explanation, or worse,
+      // look deleted when they are not. supabase-js resolves with { error }
+      // rather than throwing, so the old try/catch never saw a failure.
+      const { data, error } = await supabase
+        .from("lessons").delete().in("id", Array.from(rowIdSet)).select("id");
+      const notice = bulkDeleteFailureNotice(rowIdSet.size, data?.length ?? 0, !!error);
+      if (notice) {
+        console.error("[plan] bulk delete incomplete", error);
+        flashNotice(notice);
       }
       reload();
     }, 5_000);
@@ -6581,9 +6594,9 @@ export default function PlanV2() {
         {bulkDeleteConfirm ? (() => {
           const open = bulkDeleteConfirm.openRows;
           const done = bulkDeleteConfirm.completedRows;
-          const total = open.length + done.length;
-          const doneWord = `${done.length} lesson${done.length === 1 ? "" : "s"}`;
-          const loss = "Their minutes and notes go with them, and that cannot be undone.";
+          const copy = bulkDeleteConfirmCopy(open.length, done.length);
+          // Cancelling only closes the dialog: nothing is deleted and the
+          // selection stays as it was.
           const close = () => setBulkDeleteConfirm(null);
           const deleteRows = (rows: PlanV2Lesson[]) => {
             setBulkDeleteConfirm(null);
@@ -6594,10 +6607,10 @@ export default function PlanV2() {
           if (open.length === 0) {
             return (
               <ConfirmDialog
-                title={`Delete ${doneWord} you marked done?`}
-                body={`You checked ${done.length === 1 ? "this lesson" : "these lessons"} off as done. ${loss}`}
-                confirmLabel={`Delete ${done.length === 1 ? "it" : "them"} anyway`}
-                cancelLabel="Keep them"
+                title={copy.title}
+                body={copy.body}
+                confirmLabel={copy.confirmLabel}
+                cancelLabel={copy.cancelLabel}
                 destructive
                 onCancel={close}
                 onConfirm={() => deleteRows(done)}
@@ -6607,11 +6620,11 @@ export default function PlanV2() {
 
           return (
             <ConfirmDialog
-              title={`Delete ${total} lessons?`}
-              body={`${doneWord} in this selection ${done.length === 1 ? "is" : "are"} marked done. ${loss} The other ${open.length} ${open.length === 1 ? "is" : "are"} unfinished and can go safely.`}
-              confirmLabel={`Delete the ${open.length} unfinished`}
-              cancelLabel="Cancel"
-              altLabel={`Delete all ${total}, including the ${done.length} done`}
+              title={copy.title}
+              body={copy.body}
+              confirmLabel={copy.confirmLabel}
+              cancelLabel={copy.cancelLabel}
+              altLabel={copy.altLabel ?? undefined}
               onAlt={() => deleteRows([...open, ...done])}
               onCancel={close}
               onConfirm={() => deleteRows(open)}

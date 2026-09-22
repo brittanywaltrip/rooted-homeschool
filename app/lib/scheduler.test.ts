@@ -59,6 +59,8 @@ import {
   planGoalReassign,
   planGoalDelete,
   planBulkLessonDelete,
+  bulkDeleteConfirmCopy,
+  bulkDeleteFailureNotice,
   isTotalLessonsAboveProgress,
   type PinnedSlot,
   type QueueHold,
@@ -7369,17 +7371,76 @@ test('bulk delete: the confirm offers the safe answer as its primary button', ()
   const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
   const dialog = src.slice(src.indexOf('{bulkDeleteConfirm ? (() => {'))
   const body = dialog.slice(0, dialog.indexOf('{/* Curriculum delete confirm */}'))
+  // Every word comes from the pure, tested copy function.
+  assert.ok(/const copy = bulkDeleteConfirmCopy\(open\.length, done\.length\)/.test(body),
+    'the dialog takes its words from bulkDeleteConfirmCopy')
   // Mixed selection: primary deletes the unfinished ones, the destructive
   // "all of them" answer is the secondary and must be asked for by name.
-  assert.ok(/confirmLabel=\{`Delete the \$\{open\.length\} unfinished`\}/.test(body),
-    'the primary button is the non-destructive answer')
   assert.ok(/onConfirm=\{\(\) => deleteRows\(open\)\}/.test(body),
-    'and it deletes ONLY the unfinished rows')
-  assert.ok(/altLabel=/.test(body) && /onAlt=\{\(\) => deleteRows\(\[\.\.\.open, \.\.\.done\]\)\}/.test(body),
+    'the primary button deletes ONLY the unfinished rows')
+  assert.ok(/altLabel=\{copy\.altLabel/.test(body) && /onAlt=\{\(\) => deleteRows\(\[\.\.\.open, \.\.\.done\]\)\}/.test(body),
     'deleting completed work is a separate, named answer')
   // All-completed selection has no safe subset, so it is destructive-only.
   assert.ok(/open\.length === 0/.test(body), 'the all-completed case is handled on its own')
-  assert.ok(/cancelLabel="Keep them"/.test(body), 'and its default answer keeps the work')
+  // Cancelling (button, X or backdrop all call onCancel) only closes the dialog.
+  assert.ok(/const close = \(\) => setBulkDeleteConfirm\(null\);/.test(body),
+    'cancel closes the dialog and deletes nothing')
+  assert.equal((body.match(/onCancel=\{close\}/g) ?? []).length, 2, 'both dialogs cancel through close')
+})
+
+test('bulk delete copy: singular and plural read correctly and name what is lost', () => {
+  const one = bulkDeleteConfirmCopy(0, 1)
+  assert.equal(one.title, 'Delete 1 lesson you marked done?')
+  assert.equal(one.confirmLabel, 'Delete it anyway')
+  assert.equal(one.cancelLabel, 'Keep it')
+  assert.match(one.body, /^You checked this lesson off as done\. Deleting it permanently removes the day it was done, its minutes and notes, and its time comes off your reports\./)
+  assert.doesNotMatch(one.body, /\b(their|them|these)\b/i, 'no plural words for one lesson')
+  assert.equal(one.altLabel, null)
+
+  const many = bulkDeleteConfirmCopy(0, 3)
+  assert.equal(many.title, 'Delete 3 lessons you marked done?')
+  assert.equal(many.confirmLabel, 'Delete them anyway')
+  assert.equal(many.cancelLabel, 'Keep them')
+  assert.match(many.body, /these lessons.*their minutes and notes.*their time comes off your reports/)
+
+  const mixedOne = bulkDeleteConfirmCopy(2, 1)
+  assert.equal(mixedOne.title, 'Delete 3 lessons?')
+  assert.equal(mixedOne.confirmLabel, 'Delete the 2 unfinished')
+  assert.equal(mixedOne.altLabel, 'Delete all 3, including the 1 done and its report hours')
+  assert.match(mixedOne.body, /^1 lesson in this selection is marked done\. The other 2 are unfinished/)
+
+  const mixedMany = bulkDeleteConfirmCopy(1, 2)
+  assert.equal(mixedMany.altLabel, 'Delete all 3, including the 2 done and their report hours')
+  assert.match(mixedMany.body, /^2 lessons in this selection are marked done\. The other 1 is unfinished/)
+  assert.match(mixedMany.body, /their time comes off your reports\. This can't be undone\.$/)
+
+  // No em dashes in family-facing copy.
+  for (const c of [one, many, mixedOne, mixedMany]) {
+    for (const s of [c.title, c.body, c.confirmLabel, c.cancelLabel, c.altLabel ?? '']) assert.ok(!s.includes('—'), s)
+  }
+})
+
+test('bulk delete: a failed or partial delete is reported, a full one is silent', () => {
+  assert.equal(bulkDeleteFailureNotice(3, 3, false), null)
+  assert.match(bulkDeleteFailureNotice(1, 0, true) ?? '', /^Couldn't delete that lesson\. Nothing was removed\./)
+  assert.match(bulkDeleteFailureNotice(3, 0, true) ?? '', /^Couldn't delete those 3 lessons\. Nothing was removed\./)
+  // RLS can refuse rows without an error: fewer rows back than asked for.
+  assert.match(bulkDeleteFailureNotice(3, 0, false) ?? '', /Nothing was removed/)
+  assert.match(bulkDeleteFailureNotice(3, 2, false) ?? '', /^Only 2 of 3 lessons were deleted\./)
+})
+
+test('bulk delete: both delete paths check the result instead of swallowing it', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const runner = src.slice(src.indexOf('const runBulkDelete = useCallback'))
+  const runBody = runner.slice(0, runner.indexOf('const performBulkDelete = useCallback'))
+  const commit = src.slice(src.indexOf('const commitPendingBulkDelete = useCallback'))
+  const commitBody = commit.slice(0, commit.indexOf('useEffect('))
+  for (const [name, body] of [['runBulkDelete', runBody], ['commitPendingBulkDelete', commitBody]] as const) {
+    assert.ok(/\.delete\(\)\.in\("id", [\s\S]*?\)\.select\("id"\)/.test(body), `${name} asks for the deleted ids back`)
+    assert.ok(/bulkDeleteFailureNotice\(/.test(body), `${name} turns the result into a notice`)
+    assert.ok(/flashNotice\(notice\)/.test(body), `${name} shows the notice`)
+    assert.ok(!/catch \{\s*\}/.test(body), `${name} has no empty catch`)
+  }
 })
 
 test('bulk delete: the audit event records how many completed rows went', () => {

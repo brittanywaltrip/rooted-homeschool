@@ -4345,6 +4345,63 @@ export function planBulkLessonDelete(rows: BulkDeleteRow[]): BulkDeletePlan {
   return plan;
 }
 
+export interface BulkDeleteConfirmCopy {
+  title: string;
+  body: string;
+  /** The primary button. The safe answer whenever one exists. */
+  confirmLabel: string;
+  cancelLabel: string;
+  /** Mixed selections only: the separate red answer that also deletes completed rows. */
+  altLabel: string | null;
+}
+
+/**
+ * Words for the bulk-delete confirm, singular and plural both. Pure so every
+ * count combination is pinned by a test. Any answer that removes a completed
+ * lesson says in plain words what goes with it: the day it was done, its
+ * minutes and notes, and its time on the reports.
+ */
+export function bulkDeleteConfirmCopy(openCount: number, doneCount: number): BulkDeleteConfirmCopy {
+  const one = doneCount === 1;
+  const loss = one
+    ? "Deleting it permanently removes the day it was done, its minutes and notes, and its time comes off your reports. This can't be undone."
+    : "Deleting them permanently removes the days they were done, their minutes and notes, and their time comes off your reports. This can't be undone.";
+
+  if (openCount === 0) {
+    return {
+      title: one ? "Delete 1 lesson you marked done?" : `Delete ${doneCount} lessons you marked done?`,
+      body: `You checked ${one ? "this lesson" : "these lessons"} off as done. ${loss}`,
+      confirmLabel: one ? "Delete it anyway" : "Delete them anyway",
+      cancelLabel: one ? "Keep it" : "Keep them",
+      altLabel: null,
+    };
+  }
+
+  const total = openCount + doneCount;
+  const openPart = openCount === 1 ? "The other 1 is unfinished" : `The other ${openCount} are unfinished`;
+  return {
+    title: `Delete ${total} lessons?`,
+    body:
+      `${doneCount} ${one ? "lesson" : "lessons"} in this selection ${one ? "is" : "are"} marked done. ` +
+      `${openPart} and can go safely. ` +
+      `If you also delete the done ${one ? "one" : "ones"}: ${loss}`,
+    confirmLabel: `Delete the ${openCount} unfinished`,
+    cancelLabel: "Cancel",
+    altLabel: `Delete all ${total}, including the ${doneCount} done and ${one ? "its" : "their"} report hours`,
+  };
+}
+
+/** What to tell the parent when a bulk delete did not fully happen, or null. */
+export function bulkDeleteFailureNotice(requested: number, deleted: number, failed: boolean): string | null {
+  if (!failed && deleted >= requested) return null;
+  if (deleted <= 0) {
+    return requested === 1
+      ? "Couldn't delete that lesson. Nothing was removed. Please try again."
+      : `Couldn't delete those ${requested} lessons. Nothing was removed. Please try again.`;
+  }
+  return `Only ${deleted} of ${requested} lessons were deleted. The rest are still on your plan. Please try again.`;
+}
+
 /**
  * May `total_lessons` be set to this, given the progress already logged?
  *
