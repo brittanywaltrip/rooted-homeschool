@@ -22,6 +22,7 @@ filenames as unapplied and run them again.
 |---|---|---|---|
 | `daily_reconcile` | `20260922165945` | `20260921230610` | `supabase/migrations/20260921230610_daily_reconcile.sql` |
 | `child_absences` | `20260922193058` | `20260922190305` + `20260922190511` (`child_absences_tighten_grants`) | `supabase/migrations/20260922190305_child_absences.sql` |
+| `transcript_courses_hours_source` | not applied | `20260923035636` | `supabase/migrations/20260923035636_transcript_courses_hours_source.sql` |
 
 `child_absences` (PR #88) went to production on 2026-09-22 as ONE migration,
 before the app was merged. Staging took it as two: the table, then a second
