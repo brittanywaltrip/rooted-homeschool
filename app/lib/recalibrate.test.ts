@@ -14,7 +14,14 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-import { recalibrateCurriculumGoal, estimateKeepsSlot } from './recalibrate.ts'
+import {
+  recalibrateCurriculumGoal,
+  estimateKeepsSlot,
+  planRecalibrateGap,
+  formatLessonList,
+  formatAddedTime,
+  ESTIMATE_REPORT_MINUTES,
+} from './recalibrate.ts'
 import { recomputeCurrentLesson } from './scheduler.ts'
 import { makeMemorySupabase } from './test-helpers/memory-supabase.ts'
 
@@ -124,7 +131,7 @@ function makeRecalibrateSupabase(opts: {
         onRejected?: (e: unknown) => unknown,
       ) => {
         let data: unknown
-        if (projection === 'id, lesson_number, queue_position, queue_pinned, scheduled_date') {
+        if (projection === 'id, lesson_number, queue_position, queue_pinned, skipped, scheduled_date') {
           // A gap row with no slot given holds the healthy one, lesson_number.
           data = opts.gapLessons.map((g) => ({ queue_position: g.lesson_number, ...g }))
         } else if (
@@ -671,11 +678,9 @@ test('the old null slot is what broke it: the same builder save with slotless es
   assert.equal(await recomputeCurrentLesson(client as any, goalId), 10)
 })
 
-test('a moved lesson in a slot above the new pointer gives the slot up, so the pointer never overshoots', async () => {
-  // Found by the local code review. Lesson 5 moved three weeks out on Plan:
-  // move_lesson_to_date put it in slot 20 and shifted lessons 6 to 20 down to
-  // slots 5 to 19. "I'm actually on lesson 12" selects lesson 5 by number, and
-  // a completed row holding slot 20 would drive both recomputes to 20.
+function driftedGoal(lesson5Pinned: boolean) {
+  // Lesson 5 sits in slot 20 and lessons 6 to 20 in slots 5 to 19: what
+  // move_lesson_to_date leaves when lesson 5 is moved three weeks out.
   const goalId = 'drifted'
   const lessons: Record<string, unknown>[] = []
   const slotFor = (n: number) => (n === 5 ? 20 : n >= 6 && n <= 20 ? n - 1 : n)
@@ -684,25 +689,43 @@ test('a moved lesson in a slot above the new pointer gives the slot up, so the p
       id: `L${n}`, curriculum_goal_id: goalId, lesson_number: n, queue_position: slotFor(n),
       completed: n <= 4, completed_at: n <= 4 ? `${ymd(daysAgo(30 - n))}T15:00:00Z` : null,
       scheduled_date: null, date: null, scheduled_source: 'wizard_create',
-      is_backfill: false, queue_pinned: n === 5, skipped: false,
+      is_backfill: false, queue_pinned: n === 5 && lesson5Pinned, skipped: false,
     })
   }
-  const { client, tables } = makeMemorySupabase({
+  return { goalId, ...makeMemorySupabase({
     curriculum_goals: [{
       id: goalId, total_lessons: 30, lessons_per_day: 1, school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'],
       start_date: ymd(daysAgo(40)), lessons_per_day_overrides: null, created_at: '2026-08-01T00:00:00Z',
       current_lesson: 4, start_at_lesson: 1,
     }],
     lessons,
-  })
+  }) }
+}
+
+test('a moved (pinned) lesson keeps its placement on Yes, and the pointer never overshoots', async () => {
+  const { goalId, client, tables } = driftedGoal(true)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true })
+  const byNum = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!
+  assert.equal(byNum(5).completed, false, 'the family moved it; Yes does not turn that into a completion')
+  assert.equal(byNum(5).queue_pinned, true)
+  assert.equal(byNum(5).queue_position, 20)
+  assert.deepEqual(res.keptPinned, [5])
+  for (let n = 6; n <= 11; n++) assert.equal(byNum(n).queue_position, n - 1, `lesson ${n} keeps slot ${n - 1}`)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 11, 'never past the lesson the family typed')
+})
+
+test('an unpinned lesson in a slot above the new pointer gives the slot up, so the pointer never overshoots', async () => {
+  // Found by the local code review: a completed row holding slot 20 would drive
+  // both recomputes to 20.
+  const { goalId, client, tables } = driftedGoal(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true })
-
   const byNum = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!
   assert.equal(byNum(5).completed, true)
   assert.equal(byNum(5).queue_position, null, 'slot 20 is above the pointer and is given up')
   for (let n = 6; n <= 11; n++) assert.equal(byNum(n).queue_position, n - 1, `lesson ${n} keeps slot ${n - 1}`)
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pointer = await recomputeCurrentLesson(client as any, goalId)
   assert.equal(pointer, 11, 'never past the lesson the family typed')
@@ -934,4 +957,68 @@ test('an unfinished lesson below the old position with no slot is not part of th
   await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
   assert.equal(seven.completed, false)
   assert.notEqual(seven.scheduled_source, 'recalibrate_estimate')
+})
+
+// ── Yes marks done exactly what the question names ───────────────────────
+
+test('Yes leaves a lesson the family pinned on its day, and never completes a skipped one', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  const fifteen = tables.lessons.find((r) => r.lesson_number === 15)!
+  fifteen.queue_pinned = true
+  fifteen.scheduled_date = ymd(daysAgo(-40))
+  fifteen.date = fifteen.scheduled_date
+  const twelve = tables.lessons.find((r) => r.lesson_number === 12)!
+  twelve.skipped = true
+  twelve.scheduled_date = null
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate').map((r) => r.lesson_number as number)
+  assert.deepEqual(estimates.sort((a, b) => a - b), [11, 13, 14, 16, 17, 18])
+  assert.equal(res.estimates.written, 6)
+  assert.deepEqual(res.keptPinned, [15])
+  assert.equal(fifteen.completed, false, 'the pinned lesson is not turned into a past completion')
+  assert.equal(fifteen.queue_pinned, true)
+  assert.equal(fifteen.scheduled_date, ymd(daysAgo(-40)), 'it keeps the day the family moved it to')
+  assert.equal(twelve.completed, false, 'a skipped lesson is never counted done (Invariant 22)')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 18)
+})
+
+test('planRecalibrateGap is the one rule the form and the write share', () => {
+  const row = (n: number, extra: Record<string, unknown> = {}) => ({ id: `L${n}`, lesson_number: n, queue_position: n, ...extra })
+  const rows = [
+    row(5, { queue_pinned: true }),          // reopened make-up, behind the old position
+    row(9, { queue_position: 25 }),         // behind by number, drifted slot: still behind
+    row(11), row(12, { skipped: true }), row(13),
+    row(14, { completed: true }),           // already done
+    row(15, { queue_pinned: true }),        // placed by hand
+    row(16, { queue_position: 8 }),         // behind by slot
+    row(18), row(19),                       // 19 is the lesson they are on: not in the gap
+  ]
+  const { gap, toComplete, keptPinned } = planRecalibrateGap(rows, 10, 19)
+  assert.deepEqual(gap.map((r) => r.lesson_number), [11, 12, 13, 15, 18])
+  assert.deepEqual(toComplete.map((r) => r.lesson_number), [11, 13, 18])
+  assert.deepEqual(keptPinned.map((r) => r.lesson_number), [15])
+})
+
+test('the question and the hours read as a family would say them', () => {
+  assert.equal(formatLessonList([11, 12, 13, 14, 15, 16, 17, 18]), 'lessons 11 to 18')
+  assert.equal(formatLessonList([11, 12, 13, 14, 16, 17, 18]), 'lessons 11 to 14 and 16 to 18')
+  assert.equal(formatLessonList([11, 13, 14, 16, 17, 18]), 'lessons 11, 13, 14 and 16 to 18')
+  assert.equal(formatLessonList([11, 12]), 'lessons 11 and 12')
+  assert.equal(formatLessonList([15], true), 'Lesson 15')
+  assert.equal(formatLessonList([]), '')
+  assert.equal(formatAddedTime(7 * ESTIMATE_REPORT_MINUTES), '3 hours 30 minutes')
+  assert.equal(formatAddedTime(60), '1 hour')
+  assert.equal(formatAddedTime(30), '30 minutes')
+})
+
+test('the form words its question from the same rule the write uses', () => {
+  const src = readFileSync(new URL('../components/PlanV2/CurriculumGroupsPanel.tsx', import.meta.url), 'utf8')
+  const form = src.slice(src.indexOf('export function RecalibrateForm('))
+  assert.match(form, /planRecalibrateGap\(gapRows, oldCountDone, typed\)/)
+  assert.match(form, /Should Rooted mark \$\{formatLessonList\(toMarkDone\)\} as done\?/)
+  assert.match(form, /formatAddedTime\(toMarkDone\.length \* ESTIMATE_REPORT_MINUTES\)/)
+  assert.doesNotMatch(form, /gapFrom|gapTo/, 'no second, hand-rolled range that could disagree with the write')
 })

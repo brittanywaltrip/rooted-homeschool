@@ -1698,9 +1698,11 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
 //     to 18 stay unfinished and hold no date (so no later save can pin them
 //     to Today), the notes survive, the make-up and the pinned lesson keep
 //     their days, and the report's lesson log is unchanged.
-//   Yes: lessons 11 to 18, and only those, become estimates with no minutes;
-//     the make-up is untouched; the report's log gains exactly those eight at
-//     the 30-minute estimate.
+//   Yes: the lessons the question names, 11 to 14 and 16 to 18, and only those,
+//     become estimates with no minutes. Lesson 15, which the family placed by
+//     hand, keeps its day and stays unfinished, and the form says so. The
+//     make-up is untouched. The report's log gains exactly those seven at the
+//     30-minute estimate, the hours the form stated.
 //
 // The report is read from Reports' own lesson log, not recomputed here.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1799,14 +1801,18 @@ async function answerRecalibrate(page: import('@playwright/test').Page, answer: 
   await expect(form).toBeVisible({ timeout: 15_000 });
   const input = form.getByLabel('Current lesson');
   await input.fill('19');
-  // The question names exactly the lessons after the saved position.
-  await expect(form.getByText('Should Rooted mark lessons 11 to 18 as done?')).toBeVisible();
+  // The question names exactly the lessons a Yes marks done: after the saved
+  // position, minus lesson 15, which the family pinned and which keeps its day.
+  await expect(form.getByText('Should Rooted mark lessons 11 to 14 and 16 to 18 as done?')).toBeVisible({ timeout: 15_000 });
+  await expect(form.getByText('Lesson 15 keeps the day you moved it to.')).toBeVisible();
   const no = form.getByRole('radio', { name: /No, just move me to lesson 19/ });
   const yes = form.getByRole('radio', { name: /Yes, add them to our records/ });
   await expect(no, 'No is the default').toBeChecked();
   await expect(yes).not.toBeChecked();
   if (answer === 'Yes') await yes.check();
-  await expect(form.getByText(answer === 'Yes' ? /count toward your hours/ : /Nothing is added to your records or your hours/)).toBeVisible();
+  await expect(
+    form.getByText(answer === 'Yes' ? /add 3 hours 30 minutes to your hours \(30 minutes each\)/ : /Nothing is added to your records or your hours/),
+  ).toBeVisible();
   await form.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(form).toHaveCount(0, { timeout: 30_000 });
 }
@@ -1846,8 +1852,13 @@ function expectRecalibrated(state: Awaited<ReturnType<typeof readRecalState>>, a
     expect(by(15).queue_pinned, 'the hand-placed lesson stays pinned').toBe(true);
     expect(by(15).scheduled_date, 'the hand-placed lesson keeps its day').toBe(localYmd(40));
   } else {
-    expect(rows.filter((r) => r.completed).length, 'nine real plus eight estimates').toBe(17);
-    for (const n of gap) {
+    expect(rows.filter((r) => r.completed).length, 'nine real plus the seven named').toBe(16);
+    // The lesson the family placed by hand is not turned into a past completion.
+    expect(by(15).completed, 'lesson 15 is not marked done').toBe(false);
+    expect(by(15).scheduled_source, 'lesson 15 is not an estimate').not.toBe('recalibrate_estimate');
+    expect(by(15).queue_pinned, 'lesson 15 stays pinned').toBe(true);
+    expect(by(15).scheduled_date, 'lesson 15 keeps the day the family chose').toBe(localYmd(40));
+    for (const n of gap.filter((x) => x !== 15)) {
       expect(by(n).completed, `lesson ${n} is marked done`).toBe(true);
       expect(by(n).scheduled_source).toBe('recalibrate_estimate');
       expect(by(n).minutes_spent, `lesson ${n} carries no minutes: its time is an estimate`).toBeNull();
@@ -1929,8 +1940,8 @@ test.describe('"I\'m actually on lesson X" asks before it writes history', { tag
         expectRecalibrated(await readRecalState(sb, goalId), answer, seeded.rows);
 
         const reportAfter = await reportLogMinutes(page, name);
-        expect(reportAfter, answer === 'No' ? 'No leaves the report exactly as it was' : 'Yes adds the eight named lessons at the 30-minute estimate')
-          .toEqual(answer === 'No' ? { count: 9, minutes: 270 } : { count: 17, minutes: 510 });
+        expect(reportAfter, answer === 'No' ? 'No leaves the report exactly as it was' : 'Yes adds the seven named lessons at the 30-minute estimate: 3h 30m, as the form said')
+          .toEqual(answer === 'No' ? { count: 9, minutes: 270 } : { count: 16, minutes: 480 });
 
         // A later load of the builder must not undo it or turn the passed
         // lessons into make-ups. Opening it and reading back is the stale-tab
