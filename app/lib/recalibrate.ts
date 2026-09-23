@@ -27,9 +27,19 @@ import {
  *      (latest real completion's completed_at) — in two trips so the gap
  *      filter can use the clamped value.
  *   Phase 3. UPDATE curriculum_goals.current_lesson / start_at_lesson. The orphan-
- *      cleanup trigger fires here, marking notes-less gap rows complete with
- *      completed_at = NOW() - 1 day.
- *   Phase 4. Evenly distribute gap lessons across [anchor + 1 day, yesterday] in
+ *      cleanup trigger fires here and UNSCHEDULES notes-less, unpinned gap rows
+ *      (scheduled_date = NULL). It completes nothing: see
+ *      supabase/migrations/20260907000000_no_server_side_lesson_completion.sql.
+ *      start_at_lesson is what holds the pointer when Phase 4 does not run:
+ *      recompute_curriculum_current_lesson is GREATEST(start_at_lesson - 1,
+ *      MAX(queue_position) over completed rows).
+ *   Phase 4. ONLY when the family asked for it (`recordHistory`). Saying "I'm
+ *      on lesson 12" places them in the book; it does not say Rooted holds
+ *      lessons 1 to 11, and writing those as done put hours on reports nobody
+ *      logged. Without the opt-in the gap rows stay unfinished, which is the
+ *      state the Schedule Builder leaves when a family raises an existing goal's
+ *      lesson number (Invariant 23 holds them behind the pointer, undeleted).
+ *      With it: evenly distribute gap lessons across [anchor + 1 day, yesterday] in
  *      lesson_number order, stamping each with scheduled_source =
  *      'recalibrate_estimate' so the Plan lesson card surfaces them as
  *      estimates and a later move_lesson_to_date clears the flag. Each row
@@ -69,15 +79,131 @@ export function estimateKeepsSlot(queuePosition: number | null, newCountDone: nu
   return queuePosition != null && queuePosition <= newCountDone;
 }
 
+/** The fields the gap rule reads. The form and the recalibration read the same ones. */
+export interface RecalibrateGapRow {
+  id: string;
+  lesson_number: number | null;
+  queue_position: number | null;
+  queue_pinned?: boolean | null;
+  skipped?: boolean | null;
+  completed?: boolean | null;
+  scheduled_date?: string | null;
+}
+
+/**
+ * Which lessons "I'm actually on lesson X" is about, and which of them a Yes
+ * would mark done. ONE rule, read by the form (to word the question and the
+ * hours) and by the recalibration (to write), so the question can never name a
+ * lesson the write leaves alone, or the other way round.
+ *
+ *   gap: unfinished lessons after the saved position and before X. A row at or
+ *     below the old position, by number or by slot, is a reopened make-up
+ *     (Invariant 23) and is never part of it.
+ *   toComplete: the gap minus what the family has already decided about:
+ *     - a lesson they PINNED keeps the day they moved it to. Marking it done
+ *       would turn a placement into a past completion nobody logged.
+ *     - a SKIPPED lesson is never counted done (Invariant 22).
+ *   keptPinned: the pinned ones, so the form can say they keep their day.
+ */
+export function planRecalibrateGap<T extends RecalibrateGapRow>(
+  rows: readonly T[],
+  oldCountDone: number,
+  clamped: number,
+): { gap: T[]; toComplete: T[]; keptPinned: T[] } {
+  const gap = rows.filter(
+    (r) =>
+      !r.completed &&
+      r.lesson_number != null &&
+      r.lesson_number > oldCountDone &&
+      r.lesson_number < clamped &&
+      (r.queue_position == null || r.queue_position > oldCountDone),
+  );
+  return {
+    gap,
+    toComplete: gap.filter((r) => !r.queue_pinned && !r.skipped),
+    keptPinned: gap.filter((r) => !!r.queue_pinned && !r.skipped),
+  };
+}
+
+/**
+ * "lesson 12", "lessons 11 and 12", "lessons 11 to 14 and 16 to 18". Runs of
+ * three or more read as a range; shorter runs are listed. `capital` for the
+ * start of a sentence.
+ */
+export function formatLessonList(numbers: readonly number[], capital = false): string {
+  const ns = [...new Set(numbers)].sort((a, b) => a - b);
+  if (ns.length === 0) return "";
+  const items: string[] = [];
+  let i = 0;
+  while (i < ns.length) {
+    let j = i;
+    while (j + 1 < ns.length && ns[j + 1] === ns[j] + 1) j++;
+    if (j - i >= 2) items.push(`${ns[i]} to ${ns[j]}`);
+    else for (let k = i; k <= j; k++) items.push(String(ns[k]));
+    i = j + 1;
+  }
+  const list =
+    items.length === 1
+      ? items[0]
+      : `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+  const word = ns.length === 1 ? "lesson" : "lessons";
+  return `${capital ? word[0].toUpperCase() + word.slice(1) : word} ${list}`;
+}
+
+/**
+ * What an estimate adds to Reports. Estimates carry no minutes, and Reports
+ * counts a completed lesson with none as 30 (app/dashboard/reports/page.tsx).
+ * If the shared lesson-minutes rule lands (PR #96), read its constant instead.
+ */
+export const ESTIMATE_REPORT_MINUTES = 30;
+
+/** "30 minutes", "1 hour", "3 hours 30 minutes". */
+export function formatAddedTime(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  const hours = h === 0 ? "" : `${h} ${h === 1 ? "hour" : "hours"}`;
+  const mins = m === 0 ? "" : `${m} ${m === 1 ? "minute" : "minutes"}`;
+  return [hours, mins].filter(Boolean).join(" ") || "0 minutes";
+}
+
+/**
+ * A Yes was refused before anything was written, because the lessons it would
+ * mark done are not the ones the family was shown and agreed to. The form
+ * lists them (and the hours they add) when it opens; if another tab completed,
+ * pinned, skipped or moved one in the meantime, writing now would complete a
+ * different set, or add different hours, from the ones she said yes to.
+ */
+export class RecalibrateListChangedError extends Error {
+  constructor() {
+    super(
+      "Your lessons changed since you opened this. Close it and choose \u201cI\u2019m actually on\u2026\u201d again to see the current list.",
+    );
+    this.name = "RecalibrateListChangedError";
+  }
+}
+
+/** Same set, order ignored. */
+export function sameLessonIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return set.size === a.length && b.every((id) => set.has(id));
+}
+
 export interface RecalibrateResult {
   /** Lesson the user said they're on, clamped to [1, total_lessons]. */
   clamped: number;
   /** current_lesson value written to DB (= clamped - 1). */
   newCountDone: number;
-  /** Gap rows that were re-stamped with estimated dates. */
+  /** Unfinished rows below the new position. Re-stamped as estimates only when `recordedHistory`. */
   gapCount: number;
+  /** Did Phase 4 run, i.e. did the family ask for the gap to be written as done? */
+  recordedHistory: boolean;
+  /** Pinned lessons in the gap. Yes leaves them unfinished, on their day. */
+  keptPinned: number[];
   /** Phase 4: gap rows asked to become estimates vs rows that did. */
   estimates: ConfirmedWriteOutcome;
+  /** Phase 4 on No: dated, unpinned gap rows asked to be unscheduled vs rows that were. */
+  unscheduled: ConfirmedWriteOutcome;
   /** Phase 5: upcoming rows asked to move vs rows that did. */
   respread: ConfirmedWriteOutcome;
   /** Phase 5 could not read the upcoming lessons, so it moved nothing. */
@@ -88,6 +214,7 @@ export interface RecalibrateResult {
 export function recalibrateFullyApplied(r: RecalibrateResult): boolean {
   return (
     r.estimates.failedIds.length === 0 &&
+    r.unscheduled.failedIds.length === 0 &&
     r.respread.failedIds.length === 0 &&
     !r.respreadReadFailed
   );
@@ -98,14 +225,30 @@ export async function recalibrateCurriculumGoal(opts: {
   goalId: string;
   newCurrentLesson: number;
   vacationBlocks: VacationBlock[];
+  /**
+   * Write the unfinished lessons below the new position as DONE estimates?
+   * Default NO: the answer that adds nothing to a family's records is the one
+   * they get by not deciding, the same default as the Schedule Builder's
+   * "Already into it" question.
+   */
+  recordHistory?: boolean;
+  /**
+   * Required with recordHistory: the ids of the lessons the family was shown
+   * and agreed to mark done (planRecalibrateGap's toComplete, as the form read
+   * it). The write recomputes the list and refuses, before writing anything,
+   * unless it is exactly this set. A Yes without it is refused too: history is
+   * only ever written for a list a person has seen.
+   */
+  confirmedLessonIds?: readonly string[];
 }): Promise<RecalibrateResult> {
   const { supabase, goalId, newCurrentLesson, vacationBlocks } = opts;
+  const recordHistory = opts.recordHistory === true;
 
   // ── Phase 1: fetch the goal so we can clamp. ────────────────────────────
   const { data: goalRow, error: goalErr } = await supabase
     .from("curriculum_goals")
     .select(
-      "total_lessons, lessons_per_day, school_days, start_date, lessons_per_day_overrides, created_at",
+      "total_lessons, lessons_per_day, school_days, start_date, lessons_per_day_overrides, created_at, current_lesson",
     )
     .eq("id", goalId)
     .maybeSingle();
@@ -118,6 +261,7 @@ export async function recalibrateCurriculumGoal(opts: {
     start_date: string | null;
     lessons_per_day_overrides: Record<string, number> | null;
     created_at: string | null;
+    current_lesson?: number | null;
   };
   const total = goal.total_lessons ?? 0;
   const clamped = Math.max(
@@ -125,6 +269,12 @@ export async function recalibrateCurriculumGoal(opts: {
     total > 0 ? Math.min(total, newCurrentLesson) : newCurrentLesson,
   );
   const newCountDone = Math.max(0, clamped - 1);
+  // Where the queue stood before this move. The gap is the lessons AFTER it:
+  // the form asks "Should Rooted mark lessons {current + 1} to {X - 1} as
+  // done?", so that is exactly what Phase 4 may complete. An unfinished row at
+  // or below the old position is a lesson the family reopened (a make-up,
+  // Invariant 23). It is theirs, it was never named, and it is never swept up.
+  const oldCountDone = Math.max(0, goal.current_lesson ?? 0);
 
   // ── Phase 2: snapshot the pre-UPDATE state (gap rows + anchor). ─────────
   // The orphan-cleanup trigger fires on the curriculum_goals UPDATE below
@@ -133,11 +283,12 @@ export async function recalibrateCurriculumGoal(opts: {
   const [gapRowsRes, anchorRowRes] = await Promise.all([
     supabase
       .from("lessons")
-      .select("id, lesson_number, queue_position")
+      .select("id, lesson_number, queue_position, queue_pinned, skipped, scheduled_date")
       .eq("curriculum_goal_id", goalId)
       .eq("completed", false)
       .not("lesson_number", "is", null)
       .lt("lesson_number", clamped)
+      .gt("lesson_number", oldCountDone)
       .order("lesson_number", { ascending: true }),
     supabase
       .from("lessons")
@@ -150,13 +301,24 @@ export async function recalibrateCurriculumGoal(opts: {
       .limit(1)
       .maybeSingle(),
   ]);
-  const gapLessons = (gapRowsRes.data ?? []) as Array<{
-    id: string;
-    lesson_number: number;
-    queue_position: number | null;
-  }>;
+  // planRecalibrateGap is the one rule for which rows this is about; the form
+  // words its question from the same call.
+  const { gap: gapLessons, toComplete, keptPinned } = planRecalibrateGap(
+    (gapRowsRes.data ?? []) as RecalibrateGapRow[],
+    oldCountDone,
+    clamped,
+  );
   const anchorCompletedAt =
     (anchorRowRes.data as { completed_at: string | null } | null)?.completed_at ?? null;
+
+  // ── The Yes must be for the list the family saw. Nothing is written yet. ──
+  if (recordHistory) {
+    if (gapRowsRes.error) throw new Error(gapRowsRes.error.message);
+    const agreed = opts.confirmedLessonIds;
+    if (!agreed || !sameLessonIds(agreed, toComplete.map((r) => r.id))) {
+      throw new RecalibrateListChangedError();
+    }
+  }
 
   // ── Phase 3: pivot the goal pointer. ────────────────────────────────────
   const { error: updErr } = await supabase
@@ -170,7 +332,7 @@ export async function recalibrateCurriculumGoal(opts: {
 
   // ── Phase 4: distribute gap lessons across the calendar window. ─────────
   let estimates: ConfirmedWriteOutcome = NO_WRITES;
-  if (gapLessons.length > 0) {
+  if (recordHistory && toComplete.length > 0) {
     const todayMid = new Date();
     todayMid.setHours(0, 0, 0, 0);
     const yesterdayMid = new Date(todayMid);
@@ -212,12 +374,12 @@ export async function recalibrateCurriculumGoal(opts: {
     // Even spread: lesson i of N → date index floor(i * (D-1) / (N-1)).
     // For N=1 the formula divides by zero, so anchor to dates[0]. For N > D
     // this clusters in lesson-number order; for D > N it spreads with gaps.
-    const N = gapLessons.length;
+    const N = toComplete.length;
     const D = dates.length;
     // Per date, two id lists: rows that keep their slot and rows that give it
     // up (see the comment above the writes).
     const updatesByDate = new Map<string, { keepSlot: string[]; dropSlot: string[] }>();
-    gapLessons.forEach((l, i) => {
+    toComplete.forEach((l, i) => {
       const idx = N === 1 ? 0 : Math.floor((i * (D - 1)) / (N - 1));
       const d = dates[idx];
       const entry = updatesByDate.get(d) ?? { keepSlot: [], dropSlot: [] };
@@ -269,6 +431,34 @@ export async function recalibrateCurriculumGoal(opts: {
       ]),
     );
     estimates = mergeOutcomes(outcomes);
+  }
+
+  // ── Phase 4, on No: the lessons passed over keep no date. ───────────────
+  // The orphan cleanup (Phase 3's trigger) unschedules the gap rows that carry
+  // nothing, and deliberately leaves a row with notes alone. Families plan
+  // ahead in those notes: 2,030 unfinished future lessons in 66 curricula held
+  // notes on 2026-09-22. Left dated behind the pointer, the next Schedule
+  // Builder save reads each one as a reopened lesson and pins it to Today as a
+  // make-up (Invariant 23), eight surprise lessons for a family who only said
+  // "we're on 19". The family has just said they are past these lessons, so
+  // they are unscheduled the same way the trigger unschedules the others:
+  // scheduled_date only, notes and minutes kept, never completed, never
+  // re-dated. A row the family PINNED is their own placement and is left alone.
+  let unscheduled: ConfirmedWriteOutcome = NO_WRITES;
+  if (!recordHistory) {
+    const stillDated = gapLessons
+      .filter((l) => !l.queue_pinned && l.scheduled_date != null)
+      .map((l) => l.id);
+    if (stillDated.length > 0) {
+      // Tagged with recalibrate's own source, as Phase 5's writes are: a row
+      // still carrying 'queue_resync' would otherwise be refused by
+      // lessons_block_stale_resync unless it happened to see this
+      // recalibration's intent.
+      unscheduled = await confirmedLessonsUpdate(supabase, stillDated, {
+        scheduled_date: null,
+        scheduled_source: PARENT_RESPREAD_SOURCE.recalibrate,
+      });
+    }
   }
 
   // ── Phase 5: re-align cached scheduled_date on the upcoming queue. ──────
@@ -330,7 +520,10 @@ export async function recalibrateCurriculumGoal(opts: {
     clamped,
     newCountDone,
     gapCount: gapLessons.length,
+    recordedHistory: recordHistory,
+    keptPinned: keptPinned.map((r) => r.lesson_number!).filter((n) => n != null),
     estimates,
+    unscheduled,
     respread,
     respreadReadFailed: !!rowsErr,
   };
