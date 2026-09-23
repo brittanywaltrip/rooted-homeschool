@@ -1930,8 +1930,11 @@ test.describe('"I\'m actually on lesson X" asks before it writes history', { tag
     await expect(form.getByRole('button', { name: 'Save', exact: true }), 'Save stays closed on a stale list').toBeDisabled();
 
     const after = await readRecalState(sb, goalId);
-    expect(after.goal, 'the pointer did not move').toEqual(before.goal);
-    expect(after.goal.current_lesson).toBe(10);
+    expect(after.goal, 'the refused Save did not move the pointer').toEqual(before.goal);
+    // 12, not 10: the other tab's tick is itself a completion, and the lessons
+    // trigger moves current_lesson to the highest completed slot. That move
+    // happened BEFORE Save (it is in `before`); the refused Save added none.
+    expect(after.goal.current_lesson, 'where the other tab left it, not where a Yes would have (18)').toBe(12);
     expect(after.rows, 'no lesson was written').toEqual(before.rows);
     expect(after.rows.filter((r) => r.scheduled_source === 'recalibrate_estimate')).toEqual([]);
   });
