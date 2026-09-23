@@ -44,27 +44,45 @@ type RefreshableCourse = {
  * What the page-open refresh may write for one linked course, or null for
  * "leave it alone".
  *
- * Only a 'calculated' row is ever written. 'family' and null are both left
- * exactly as stored, which is the whole safeguard.
+ * Only a 'calculated' row is ever written, and only its HOURS. 'family' and
+ * null rows are left exactly as stored, which is #97's safeguard.
  *
- * For a calculated row the rules are the ones the page always used: hours
- * follow the lessons, and credits follow the hours unless the course is graded
- * and its credits already differ from what its stored hours would give (the
- * old "credits set by hand" heuristic, kept so this change can only protect
- * more, never less).
+ * Credits are never written here. The refresh used to recalculate credits
+ * from hours whenever it rewrote the hours, which silently replaced whatever
+ * the course held: the 1.0 an import gives a course whose curriculum had no
+ * completed lessons yet, a curriculum's own credits_value, or credits a family
+ * typed. On production that was about to turn 117 ungraded courses in 28
+ * families from 1 credit into 0.5 (2026-09-23). A course's credits now change
+ * only when a family changes them: by typing, or with "Use hours from lessons",
+ * which recalculates hours and credits together on purpose.
  */
 export function planLinkedCourseRefresh(
   course: RefreshableCourse,
   totalMinutes: number,
-): { hours_logged: number | null; credits_earned?: number } | null {
+): { hours_logged: number | null } | null {
   if (course.hours_source !== "calculated") return null;
   const newHours = hoursFromMinutes(totalMinutes);
   if (newHours === (course.hours_logged || 0)) return null;
-  const creditsSetByHand =
-    !!course.grade_letter && course.credits_earned !== calculateCreditsFromHours(course.hours_logged || 0);
-  return creditsSetByHand
-    ? { hours_logged: newHours || null }
-    : { hours_logged: newHours || null, credits_earned: calculateCreditsFromHours(newHours) };
+  return { hours_logged: newHours || null };
+}
+
+/**
+ * Hours and credits for a course imported from Plan, unchanged from before:
+ * the curriculum's own credits_value when it has one; otherwise credits from
+ * the hours of its completed lessons; otherwise, with no completed lessons yet,
+ * 1.0. From then on the refresh keeps the hours in step and leaves the credits.
+ */
+export function importedCourseNumbers(args: {
+  creditsValue: number | null | undefined;
+  completedLessons: number;
+  totalMinutes: number;
+}): { hours_logged: number | null; credits_earned: number } {
+  const hours = args.completedLessons > 0 ? hoursFromMinutes(args.totalMinutes) : 0;
+  const credits = args.completedLessons > 0 ? calculateCreditsFromHours(hours) : 1.0;
+  return {
+    hours_logged: hours || null,
+    credits_earned: args.creditsValue != null ? args.creditsValue : credits,
+  };
 }
 
 type FormNumbers = { hours_logged: number | null; credits_earned: number };
@@ -148,9 +166,9 @@ export function useCalculatedFromRead(
 export function planRefreshWrites<C extends RefreshableCourse & { id: string; curriculum_goal_id: string | null }>(
   courses: readonly C[],
   read: LessonMinutesRead,
-): { id: string; update: { hours_logged: number | null; credits_earned?: number } }[] {
+): { id: string; update: { hours_logged: number | null } }[] {
   if (!read.ok) return [];
-  const out: { id: string; update: { hours_logged: number | null; credits_earned?: number } }[] = [];
+  const out: { id: string; update: { hours_logged: number | null } }[] = [];
   for (const c of courses) {
     if (!c.curriculum_goal_id) continue;
     const update = planLinkedCourseRefresh(c, read.byGoal[c.curriculum_goal_id] ?? 0);
