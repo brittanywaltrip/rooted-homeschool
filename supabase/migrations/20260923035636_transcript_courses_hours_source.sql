@@ -1,8 +1,11 @@
 -- transcript_courses.hours_source: who owns hours_logged and credits_earned.
 --
--- NOT APPLIED TO PRODUCTION. Per CLAUDE.md, apply it with apply_migration,
--- read back the version the ledger recorded, and rename this file to
--- `<that version>_transcript_courses_hours_source.sql` (and the rollback).
+-- rooted-staging (cvgqovweybggrqakhdtd): APPLIED 2026-09-23, ledger version
+-- 20260923035636, name transcript_courses_hours_source.
+-- Production (gvkbegvvmhcrmxdorctk): NOT APPLIED. When it is, apply it with
+-- apply_migration under the same name and record the production version in
+-- docs/MIGRATION-LEDGER-CONTAINMENT.md. The filename carries the staging
+-- version, like daily_reconcile's.
 --
 -- Additive and inert on its own: a new nullable column with no default, so
 -- every existing row reads NULL ("unclassified") and no value changes. The app

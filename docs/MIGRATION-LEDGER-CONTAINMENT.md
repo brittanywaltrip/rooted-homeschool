@@ -21,6 +21,7 @@ filenames as unapplied and run them again.
 | Name (ledger `name`) | Production `gvkbegvvmhcrmxdorctk` | Staging `cvgqovweybggrqakhdtd` | Repo file |
 |---|---|---|---|
 | `daily_reconcile` | `20260922165945` | `20260921230610` | `supabase/migrations/20260921230610_daily_reconcile.sql` |
+| `transcript_courses_hours_source` | not applied | `20260923035636` | `supabase/migrations/20260923035636_transcript_courses_hours_source.sql` |
 
 `daily_reconcile` (PR #84) went to production on 2026-09-22, before the app was
 merged, and the `daily_reconcile` switch in `rooted_private.app_switches` was

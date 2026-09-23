@@ -1,4 +1,4 @@
--- Rollback for 20260923000000_transcript_courses_hours_source.sql.
+-- Rollback for 20260923035636_transcript_courses_hours_source.sql.
 --
 -- Roll the APP back first. The app writes hours_source on every course insert
 -- and save, so dropping the column under it breaks saving a course.
