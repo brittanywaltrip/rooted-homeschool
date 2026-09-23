@@ -2391,7 +2391,7 @@ export default function PlanV2() {
   // RecalibrateForm mirrors this by defaulting to current_lesson + 1, so
   // re-opening the form shows mom's last entered value.
   const handleRecalibrateGoal = useCallback(
-    async (goal: PanelGoal, newCurrentLesson: number, recordHistory: boolean) => {
+    async (goal: PanelGoal, newCurrentLesson: number, recordHistory: boolean, confirmedLessonIds: readonly string[]) => {
       if (!effectiveUserId) throw new Error("Not signed in");
       const result = await recalibrateCurriculumGoal({
         supabase,
@@ -2399,6 +2399,7 @@ export default function PlanV2() {
         newCurrentLesson,
         vacationBlocks: vacationBlocks as unknown as SchedVacationBlock[],
         recordHistory,
+        confirmedLessonIds,
       });
       recordEvent("curriculum_goal.updated", {
         goal_id: goal.id,

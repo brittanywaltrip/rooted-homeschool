@@ -21,6 +21,8 @@ import {
   formatLessonList,
   formatAddedTime,
   ESTIMATE_REPORT_MINUTES,
+  RecalibrateListChangedError,
+  sameLessonIds,
 } from './recalibrate.ts'
 import { recomputeCurrentLesson } from './scheduler.ts'
 import { makeMemorySupabase } from './test-helpers/memory-supabase.ts'
@@ -224,6 +226,22 @@ function lessonNumbersIn(write: CapturedWrite, gap: GapLessonRow[]): number[] {
   return (write.ids ?? []).map((id) => byId.get(id)!).filter((n): n is number => n != null)
 }
 
+
+/**
+ * What the form shows before a Yes: planRecalibrateGap over a fresh read of the
+ * goal's unfinished lessons. A Yes must carry exactly this list.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function confirmedFor(client: any, goalId: string, lesson: number): Promise<string[]> {
+  const { data: goal } = await client.from('curriculum_goals').select('current_lesson').eq('id', goalId).maybeSingle()
+  const { data: rows } = await client
+    .from('lessons')
+    .select('id, lesson_number, queue_position, queue_pinned, skipped, completed')
+    .eq('curriculum_goal_id', goalId)
+    .eq('completed', false)
+  return planRecalibrateGap(rows ?? [], goal?.current_lesson ?? 0, lesson).toComplete.map((r: { id: string }) => r.id)
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 test('recalibrateCurriculumGoal: even distribution — 3 lessons across 10 days spreads with gaps', async () => {
@@ -250,6 +268,7 @@ test('recalibrateCurriculumGoal: even distribution — 3 lessons across 10 days 
     newCurrentLesson: 4,
     vacationBlocks: [],
     recordHistory: true,
+    confirmedLessonIds: gap.map((g) => g.id),
   })
   assert.equal(result.gapCount, 3)
 
@@ -299,6 +318,7 @@ test('recalibrateCurriculumGoal: even distribution — 10 lessons across 3 days 
     newCurrentLesson: 11,
     vacationBlocks: [],
     recordHistory: true,
+    confirmedLessonIds: gap.map((g) => g.id),
   })
 
   const dist = distributionWrites(writes)
@@ -359,6 +379,7 @@ test('recalibrateCurriculumGoal: even distribution — 5 lessons across 5 days l
     newCurrentLesson: 6,
     vacationBlocks: [],
     recordHistory: true,
+    confirmedLessonIds: gap.map((g) => g.id),
   })
 
   const dist = distributionWrites(writes)
@@ -406,6 +427,7 @@ test('recalibrateCurriculumGoal: anchor on yesterday collapses every gap lesson 
     newCurrentLesson: 5,
     vacationBlocks: [],
     recordHistory: true,
+    confirmedLessonIds: gap.map((g) => g.id),
   })
 
   const dist = distributionWrites(writes)
@@ -443,6 +465,7 @@ test('recalibrateCurriculumGoal: completed lessons are not part of the gap snaps
     newCurrentLesson: 6,
     vacationBlocks: [],
     recordHistory: true,
+    confirmedLessonIds: gap.map((g) => g.id),
   })
 
   const dist = distributionWrites(writes)
@@ -474,6 +497,7 @@ test('recalibrateCurriculumGoal: no gap lessons → no distribution writes', asy
     newCurrentLesson: 1,
     vacationBlocks: [],
     recordHistory: true,
+    confirmedLessonIds: [],
   })
   assert.equal(result.gapCount, 0)
 
@@ -510,6 +534,7 @@ test('recalibrateCurriculumGoal: every distribution write stamps scheduled_sourc
     newCurrentLesson: 5,
     vacationBlocks: [],
     recordHistory: true,
+    confirmedLessonIds: gap.map((g) => g.id),
   })
 
   const dist = distributionWrites(writes)
@@ -560,6 +585,7 @@ test('recalibrateCurriculumGoal: forward lessons (lesson_number >= clamped) are 
     newCurrentLesson: 3,
     vacationBlocks: [],
     recordHistory: true,
+    confirmedLessonIds: gap.map((g) => g.id),
   })
 
   const dist = distributionWrites(writes)
@@ -625,7 +651,7 @@ test('recalibrate to 19, then recompute: 18, and still 18 after a builder save r
   const { goalId, client, tables } = phonicsGoal()
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 19) })
   assert.equal(res.newCountDone, 18)
 
   const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate')
@@ -671,7 +697,7 @@ test('the old null slot is what broke it: the same builder save with slotless es
   // here instead of in a family's progress count.
   const { goalId, client, tables } = phonicsGoal()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 19) })
   for (const r of tables.lessons) if (r.scheduled_source === 'recalibrate_estimate') r.queue_position = null
   tables.curriculum_goals[0].start_at_lesson = 10
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -705,7 +731,7 @@ function driftedGoal(lesson5Pinned: boolean) {
 test('a moved (pinned) lesson keeps its placement on Yes, and the pointer never overshoots', async () => {
   const { goalId, client, tables } = driftedGoal(true)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true })
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 12) })
   const byNum = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!
   assert.equal(byNum(5).completed, false, 'the family moved it; Yes does not turn that into a completion')
   assert.equal(byNum(5).queue_pinned, true)
@@ -721,7 +747,7 @@ test('an unpinned lesson in a slot above the new pointer gives the slot up, so t
   // both recomputes to 20.
   const { goalId, client, tables } = driftedGoal(false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true })
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 12) })
   const byNum = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!
   assert.equal(byNum(5).completed, true)
   assert.equal(byNum(5).queue_position, null, 'slot 20 is above the pointer and is given up')
@@ -806,14 +832,14 @@ test('asking for the history twice writes it once, and never touches real comple
   const realBefore = completedSnapshot(tables.lessons)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const first = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  const first = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 19) })
   assert.equal(first.recordedHistory, true)
   assert.equal(first.estimates.written, 8)
   const afterFirst = completedSnapshot(tables.lessons)
 
   // The family saves the same answer again, still saying yes.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const second = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  const second = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 19) })
   assert.equal(second.gapCount, 0, 'nothing below 19 is unfinished any more')
   assert.equal(second.estimates.expected, 0, 'so nothing is written a second time')
   assert.deepEqual(completedSnapshot(tables.lessons), afterFirst, 'not duplicated, not re-dated')
@@ -839,7 +865,7 @@ test('after a No, a later move never sweeps up the lessons it left behind', asyn
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [] })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const later = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 22, vacationBlocks: [], recordHistory: true })
+  const later = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 22, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 22) })
   const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate').map((r) => r.lesson_number)
   assert.deepEqual(estimates.sort((a, b) => (a as number) - (b as number)), [19, 20, 21], 'only the lessons this Yes named')
   assert.equal(later.gapCount, 3)
@@ -856,6 +882,7 @@ test('every recalibrate caller states the history choice, and none hardcodes yes
     const call = src.slice(src.indexOf('await recalibrateCurriculumGoal({'))
     const body = call.slice(0, call.indexOf('});'))
     assert.match(body, /recordHistory,?\s/, `${f} passes the family's answer through`)
+    assert.match(body, /confirmedLessonIds,?\s/, `${f} passes the list the family was shown`)
     assert.doesNotMatch(body, /recordHistory:\s*true/, `${f} must not decide for the family`)
   }
 })
@@ -883,7 +910,7 @@ function phonicsWithMakeUp() {
 test('Yes completes only the lessons the question named, never a reopened make-up', async () => {
   const { goalId, client, tables } = phonicsWithMakeUp()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 19) })
   const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate').map((r) => r.lesson_number)
   assert.deepEqual(estimates.sort((a, b) => (a as number) - (b as number)), [11, 12, 13, 14, 15, 16, 17, 18])
   assert.equal(res.gapCount, 8)
@@ -927,7 +954,7 @@ test('No unschedules the passed-over lessons that still hold a date, keeps their
 test('Yes writes no unschedules: it completes the gap instead', async () => {
   const { goalId, client } = phonicsGoal()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 19) })
   assert.equal(res.unscheduled.expected, 0)
 })
 
@@ -954,7 +981,7 @@ test('an unfinished lesson below the old position with no slot is not part of th
   seven.completed_at = null
   seven.queue_position = null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 19) })
   assert.equal(seven.completed, false)
   assert.notEqual(seven.scheduled_source, 'recalibrate_estimate')
 })
@@ -972,7 +999,7 @@ test('Yes leaves a lesson the family pinned on its day, and never completes a sk
   twelve.scheduled_date = null
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true })
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 19) })
   const estimates = tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate').map((r) => r.lesson_number as number)
   assert.deepEqual(estimates.sort((a, b) => a - b), [11, 13, 14, 16, 17, 18])
   assert.equal(res.estimates.written, 6)
@@ -1021,4 +1048,102 @@ test('the form words its question from the same rule the write uses', () => {
   assert.match(form, /Should Rooted mark \$\{formatLessonList\(toMarkDone\)\} as done\?/)
   assert.match(form, /formatAddedTime\(toMarkDone\.length \* ESTIMATE_REPORT_MINUTES\)/)
   assert.doesNotMatch(form, /gapFrom|gapTo/, 'no second, hand-rolled range that could disagree with the write')
+  // A Yes carries exactly the list on screen; No carries none.
+  assert.match(form, /await onSubmit\(n, yes, yes \? \(plan\?\.toComplete \?\? \[\]\)\.map\(\(r\) => r\.id\) : \[\]\)/)
+  // Save is closed while reading, when the read failed, and after a refusal.
+  assert.match(form, /const saveBlocked = checking \|\| gapReadFailed \|\| listChanged;/)
+  assert.match(form, /disabled=\{submitting \|\| saveBlocked\}/)
+  assert.match(form, /if \(saveBlocked\) return;/)
+  assert.match(form, /We couldn&apos;t check this curriculum&apos;s lessons, so this can&apos;t be saved right now\./)
+  assert.match(form, /e\.name === "RecalibrateListChangedError"\) setListChanged\(true\)/)
+  // The builder hands the refusal back to the form instead of closing it.
+  const builder = readFileSync(new URL('../dashboard/plan/schedule/page.tsx', import.meta.url), 'utf8')
+  assert.match(builder, /if \(err instanceof RecalibrateListChangedError\) throw err;/)
+})
+
+// ── A Yes is for the list the family saw, or nothing is written ─────────
+//
+// The form lists the lessons a Yes marks done, and the hours they add, when it
+// opens. The save reads the lessons again. If another tab changed one in
+// between, writing would complete a different set, or add different hours,
+// from the ones she agreed to. The write compares and refuses before its first
+// write: no pointer move, no estimate, no unschedule.
+
+type Tables = Record<string, Record<string, unknown>[]>
+
+function snapshot(tables: Tables) {
+  return JSON.stringify({ goals: tables.curriculum_goals, lessons: tables.lessons })
+}
+
+async function expectRefusedWithNoWrites(
+  run: () => Promise<unknown>,
+  tables: Tables,
+  before: string,
+) {
+  await assert.rejects(run, (e: unknown) => e instanceof RecalibrateListChangedError)
+  assert.equal(snapshot(tables), before, 'nothing was written: pointer, lessons and dates exactly as they were')
+}
+
+test('Yes is refused, writing nothing, when another tab completed a listed lesson after the form opened', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  const shown = await confirmedFor(client, goalId, 19) // lessons 11 to 18, as the form lists them
+  assert.equal(shown.length, 8)
+  // Another tab ticks lesson 12 while the form is open.
+  Object.assign(tables.lessons.find((r) => r.lesson_number === 12)!, { completed: true, completed_at: `${ymd(daysAgo(0))}T15:00:00Z` })
+  const before = snapshot(tables)
+  await expectRefusedWithNoWrites(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    () => recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: shown }),
+    tables,
+    before,
+  )
+})
+
+test('Yes is refused when a lesson became eligible after the form opened (it would add hours she never saw)', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  const fifteen = tables.lessons.find((r) => r.lesson_number === 15)!
+  fifteen.queue_pinned = true
+  const shown = await confirmedFor(client, goalId, 19) // 11 to 14 and 16 to 18: seven lessons, 3h 30m
+  assert.equal(shown.length, 7)
+  fifteen.queue_pinned = false // unpinned in another tab: now an eighth lesson, another 30 minutes
+  const before = snapshot(tables)
+  await expectRefusedWithNoWrites(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    () => recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: shown }),
+    tables,
+    before,
+  )
+})
+
+test('Yes without the list the family saw is refused, writing nothing', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  const before = snapshot(tables)
+  await expectRefusedWithNoWrites(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    () => recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true }),
+    tables,
+    before,
+  )
+})
+
+test('the same list in a different order is the same agreement, and No never needs one', async () => {
+  const { goalId, client, tables } = phonicsGoal()
+  const shown = (await confirmedFor(client, goalId, 19)).reverse()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 19, vacationBlocks: [], recordHistory: true, confirmedLessonIds: shown })
+  assert.equal(res.estimates.written, 8)
+
+  const other = phonicsGoal()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const no = await recalibrateCurriculumGoal({ supabase: other.client as any, goalId: other.goalId, newCurrentLesson: 19, vacationBlocks: [] })
+  assert.equal(no.newCountDone, 18)
+  assert.equal(tables.lessons.filter((r) => r.scheduled_source === 'recalibrate_estimate').length, 8)
+})
+
+test('sameLessonIds compares sets', () => {
+  assert.equal(sameLessonIds(['a', 'b'], ['b', 'a']), true)
+  assert.equal(sameLessonIds(['a', 'b'], ['a']), false)
+  assert.equal(sameLessonIds(['a', 'b'], ['a', 'c']), false)
+  assert.equal(sameLessonIds(['a', 'a'], ['a', 'b']), false)
+  assert.equal(sameLessonIds([], []), true)
 })

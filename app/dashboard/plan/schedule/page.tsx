@@ -21,7 +21,7 @@ import {
   type PerDayShape,
 } from "@/app/lib/builder-pace";
 import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, type PinnableRow, type PinnedSlot, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
-import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
+import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
@@ -3932,7 +3932,12 @@ export default function ScheduleBuilderPage() {
   // says yes to that in the form), and "Mark as finished"
   // archives the goal so it drops off Today + Plan. Local row state syncs
   // afterward so the page reflects the new DB truth without a reload.
-  async function handleRowRecalibrate(localId: string, newCurrentLesson: number, recordHistory: boolean) {
+  async function handleRowRecalibrate(
+    localId: string,
+    newCurrentLesson: number,
+    recordHistory: boolean,
+    confirmedLessonIds: readonly string[],
+  ) {
     setRowActionError(null);
     try {
       if (!effectiveUserId) throw new Error("Not signed in");
@@ -3952,6 +3957,7 @@ export default function ScheduleBuilderPage() {
         newCurrentLesson,
         vacationBlocks: vacations,
         recordHistory,
+        confirmedLessonIds,
       });
       void logPlanEvent({
         userId: effectiveUserId,
@@ -3989,6 +3995,10 @@ export default function ScheduleBuilderPage() {
         );
       }
     } catch (err) {
+      // The list the family agreed to changed before the write. Nothing was
+      // written; the form says so and keeps Save closed until it is reopened,
+      // so hand the refusal back to it rather than closing it here.
+      if (err instanceof RecalibrateListChangedError) throw err;
       const msg = (err as { message?: string })?.message ?? "Couldn't recalibrate.";
       setRowActionError(msg);
     }
@@ -4382,7 +4392,12 @@ function BuilderView(props: {
   setMenuOpenLocalId: (id: string | null) => void;
   recalibratingLocalId: string | null;
   setRecalibratingLocalId: (id: string | null) => void;
-  onRecalibrateRow: (localId: string, newCurrentLesson: number, recordHistory: boolean) => Promise<void>;
+  onRecalibrateRow: (
+    localId: string,
+    newCurrentLesson: number,
+    recordHistory: boolean,
+    confirmedLessonIds: readonly string[],
+  ) => Promise<void>;
   onMarkFinishedRow: (localId: string) => Promise<void>;
   rowActionError: string | null;
   onDismissRowActionError: () => void;
@@ -4494,7 +4509,8 @@ function BuilderView(props: {
                   recalibrating={props.recalibratingLocalId === row.localId}
                   onOpenRecalibrate={() => props.setRecalibratingLocalId(row.localId)}
                   onCloseRecalibrate={() => props.setRecalibratingLocalId(null)}
-                  onRecalibrate={(newValue, recordHistory) => props.onRecalibrateRow(row.localId, newValue, recordHistory)}
+                  onRecalibrate={(newValue, recordHistory, confirmedLessonIds) =>
+                    props.onRecalibrateRow(row.localId, newValue, recordHistory, confirmedLessonIds)}
                   onMarkFinished={() => props.onMarkFinishedRow(row.localId)}
                 />
               ))}
@@ -4600,7 +4616,7 @@ function RowCard(props: {
   recalibrating: boolean;
   onOpenRecalibrate: () => void;
   onCloseRecalibrate: () => void;
-  onRecalibrate: (newCurrentLesson: number, recordHistory: boolean) => Promise<void>;
+  onRecalibrate: (newCurrentLesson: number, recordHistory: boolean, confirmedLessonIds: readonly string[]) => Promise<void>;
   onMarkFinished: () => Promise<void>;
 }) {
   const { row } = props;

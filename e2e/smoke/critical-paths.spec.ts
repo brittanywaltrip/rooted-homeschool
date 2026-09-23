@@ -1884,6 +1884,89 @@ test.describe('"I\'m actually on lesson X" asks before it writes history', { tag
     await sb.from('app_events').delete().eq('user_id', testUserId).in('payload->>goal_id', ids);
   });
 
+  /** Open Plan's "I'm actually on..." form for a seeded curriculum. */
+  async function openPlanRecalibrate(page: import('@playwright/test').Page, name: string) {
+    await gotoAppPage(page, '/dashboard/plan');
+    await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({ timeout: 15_000 });
+    const kebab = page.getByRole('button', { name: `More actions for ${name}`, exact: true });
+    await kebab.scrollIntoViewIfNeeded();
+    await kebab.click();
+    await page.getByRole('menuitem', { name: /actually on/ }).click();
+    return page
+      .getByText('Which lesson are you actually on?')
+      .locator('xpath=ancestor::div[.//input[@aria-label="Current lesson"]][1]');
+  }
+
+  test('Yes is refused, and nothing written, if a listed lesson changes in another tab before Save', async ({ page }) => {
+    test.setTimeout(150_000);
+    const sb = adminClient();
+    const ctx = await resolveTestUserAndFirstChild();
+    if (!sb || !ctx) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY + PLAYWRIGHT_EMAIL test account with a child required');
+      return;
+    }
+    const name = `Recal Stale ${STAMP()}`;
+    const goalId = await seedRecalibrateGoal(sb, ctx, name);
+    createdGoalIds.push(goalId);
+
+    const form = await openPlanRecalibrate(page, name);
+    await form.getByLabel('Current lesson').fill('19');
+    await expect(form.getByText('Should Rooted mark lessons 11 to 14 and 16 to 18 as done?')).toBeVisible({ timeout: 15_000 });
+    await form.getByRole('radio', { name: /Yes, add them to our records/ }).check();
+    await expect(form.getByText(/add 3 hours 30 minutes to your hours/)).toBeVisible();
+
+    // Another tab ticks lesson 12 while the question is on screen.
+    const twelve = localYmd(0);
+    const { error: tickErr } = await sb
+      .from('lessons')
+      .update({ completed: true, completed_at: `${twelve}T15:00:00Z`, minutes_spent: 30, hours: 0.5 })
+      .eq('curriculum_goal_id', goalId)
+      .eq('lesson_number', 12);
+    if (tickErr) throw new Error(`other-tab tick failed: ${tickErr.message}`);
+    const before = await readRecalState(sb, goalId);
+
+    await form.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(form.getByText(/Your lessons changed since you opened this/), 'the family is told to reopen').toBeVisible({ timeout: 15_000 });
+    await expect(form.getByRole('button', { name: 'Save', exact: true }), 'Save stays closed on a stale list').toBeDisabled();
+
+    const after = await readRecalState(sb, goalId);
+    expect(after.goal, 'the pointer did not move').toEqual(before.goal);
+    expect(after.goal.current_lesson).toBe(10);
+    expect(after.rows, 'no lesson was written').toEqual(before.rows);
+    expect(after.rows.filter((r) => r.scheduled_source === 'recalibrate_estimate')).toEqual([]);
+  });
+
+  test('if the form cannot read the lessons, it says so and Save stays closed', async ({ page }) => {
+    test.setTimeout(150_000);
+    const sb = adminClient();
+    const ctx = await resolveTestUserAndFirstChild();
+    if (!sb || !ctx) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY + PLAYWRIGHT_EMAIL test account with a child required');
+      return;
+    }
+    const name = `Recal ReadFail ${STAMP()}`;
+    const goalId = await seedRecalibrateGoal(sb, ctx, name);
+    createdGoalIds.push(goalId);
+    const before = await readRecalState(sb, goalId);
+
+    // Fail exactly the form's own read, nothing else on the page.
+    await page.route(
+      (url) =>
+        url.pathname.endsWith('/rest/v1/lessons') &&
+        decodeURIComponent(url.search).includes('select=id,lesson_number,queue_position,queue_pinned,skipped,completed') &&
+        url.search.includes(goalId),
+      (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'e2e: simulated read failure' }) }),
+    );
+    const form = await openPlanRecalibrate(page, name);
+    await form.getByLabel('Current lesson').fill('19');
+    await expect(form.getByText(/We couldn't check this curriculum's lessons, so this can't be saved right now/)).toBeVisible({ timeout: 15_000 });
+    await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await expect(form.getByText(/Should Rooted mark/), 'no question is shown without the list').toHaveCount(0);
+
+    const after = await readRecalState(sb, goalId);
+    expect(after, 'nothing was written').toEqual(before);
+  });
+
   for (const surface of ['Plan', 'Builder'] as const) {
     for (const answer of ['No', 'Yes'] as const) {
       test(`${surface}, ${answer}: lessons, pointer and report hours`, async ({ page }) => {

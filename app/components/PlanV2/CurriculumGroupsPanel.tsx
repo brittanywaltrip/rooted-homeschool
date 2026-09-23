@@ -191,7 +191,12 @@ export interface CurriculumGroupsPanelProps {
   recalibratingGoalId: string | null;
   /** Receives the new value mom typed. Parent runs the curriculum_goals
    *  UPDATE (current_lesson + start_at_lesson) and reloads. */
-  onRecalibrate: (goal: CurriculumGoal, newCurrentLesson: number, recordHistory: boolean) => Promise<void>;
+  onRecalibrate: (
+    goal: CurriculumGoal,
+    newCurrentLesson: number,
+    recordHistory: boolean,
+    confirmedLessonIds: readonly string[],
+  ) => Promise<void>;
   /** Cancels an in-progress recalibration without saving. */
   onCloseRecalibrate: () => void;
 }
@@ -454,7 +459,8 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                   <div className="px-4 pb-3 bg-[#f0f7f1] border-t border-[#c5dbc9]">
                     <RecalibrateForm
                       goal={goal}
-                      onSubmit={(newValue, recordHistory) => onRecalibrate(goal, newValue, recordHistory)}
+                      onSubmit={(newValue, recordHistory, confirmedLessonIds) =>
+                        onRecalibrate(goal, newValue, recordHistory, confirmedLessonIds)}
                       onClose={onCloseRecalibrate}
                     />
                   </div>
@@ -561,7 +567,12 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
 
 export function RecalibrateForm(props: {
   goal: CurriculumGoal;
-  onSubmit: (newCurrentLesson: number, recordHistory: boolean) => Promise<void>;
+  /**
+   * `confirmedLessonIds` is the list the family was shown for a Yes, and the
+   * write refuses unless its own fresh read produces exactly that list. Empty
+   * on No.
+   */
+  onSubmit: (newCurrentLesson: number, recordHistory: boolean, confirmedLessonIds: readonly string[]) => Promise<void>;
   onClose: () => void;
 }) {
   const { goal, onSubmit, onClose } = props;
@@ -616,10 +627,14 @@ export function RecalibrateForm(props: {
   const toMarkDone = (plan?.toComplete ?? []).map((r) => r.lesson_number!).filter((n) => n != null);
   const keptPinned = (plan?.keptPinned ?? []).map((r) => r.lesson_number!).filter((n) => n != null);
   const checking = gapRows === null && !gapReadFailed;
-  // Only asked when a Yes would mark something done. If the lessons could not
-  // be read, it is not asked at all and the save records nothing, which is the
-  // default anyway.
+  // Only asked when a Yes would mark something done.
   const asksAboutHistory = toMarkDone.length > 0;
+  // Save is closed while the lessons are being read, when they could not be
+  // read (the family would be answering a question they were never shown), and
+  // after the write refused because the list changed underneath the form: the
+  // list on screen is stale, and only reopening shows the current one.
+  const [listChanged, setListChanged] = useState(false);
+  const saveBlocked = checking || gapReadFailed || listChanged;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -638,13 +653,15 @@ export function RecalibrateForm(props: {
       setError(`Lesson must be at most ${goal.total_lessons}.`);
       return;
     }
-    if (checking) return;
+    if (saveBlocked) return;
     setSubmitting(true);
     setError(null);
+    const yes = asksAboutHistory && recordHistory;
     try {
-      await onSubmit(n, asksAboutHistory && recordHistory);
+      await onSubmit(n, yes, yes ? (plan?.toComplete ?? []).map((r) => r.id) : []);
       onClose();
     } catch (e) {
+      if (e instanceof Error && e.name === "RecalibrateListChangedError") setListChanged(true);
       setError(e instanceof Error ? e.message : "Couldn't update the schedule.");
     } finally {
       setSubmitting(false);
@@ -721,6 +738,12 @@ export function RecalibrateForm(props: {
       {checking ? (
         <p className="text-[11px] text-[#5c7f63]">Checking your lessons...</p>
       ) : null}
+      {gapReadFailed ? (
+        <p className="text-[11px] text-[#b91c1c]">
+          We couldn&apos;t check this curriculum&apos;s lessons, so this can&apos;t be saved right now.
+          Close it and try again.
+        </p>
+      ) : null}
       {error ? <p className="text-[11px] text-[#b91c1c]">{error}</p> : null}
       <div className="flex items-center gap-2 pt-1">
         <button
@@ -734,7 +757,7 @@ export function RecalibrateForm(props: {
         <button
           type="button"
           onClick={handleSave}
-          disabled={submitting || checking}
+          disabled={submitting || saveBlocked}
           className="text-[11px] font-bold text-white bg-[#2D5A3D] hover:bg-[var(--g-deep)] rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
         >
           {submitting ? "Saving…" : "Save"}

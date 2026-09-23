@@ -166,6 +166,29 @@ export function formatAddedTime(minutes: number): string {
   return [hours, mins].filter(Boolean).join(" ") || "0 minutes";
 }
 
+/**
+ * A Yes was refused before anything was written, because the lessons it would
+ * mark done are not the ones the family was shown and agreed to. The form
+ * lists them (and the hours they add) when it opens; if another tab completed,
+ * pinned, skipped or moved one in the meantime, writing now would complete a
+ * different set, or add different hours, from the ones she said yes to.
+ */
+export class RecalibrateListChangedError extends Error {
+  constructor() {
+    super(
+      "Your lessons changed since you opened this. Close it and choose \u201cI\u2019m actually on\u2026\u201d again to see the current list.",
+    );
+    this.name = "RecalibrateListChangedError";
+  }
+}
+
+/** Same set, order ignored. */
+export function sameLessonIds(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return set.size === a.length && b.every((id) => set.has(id));
+}
+
 export interface RecalibrateResult {
   /** Lesson the user said they're on, clamped to [1, total_lessons]. */
   clamped: number;
@@ -209,6 +232,14 @@ export async function recalibrateCurriculumGoal(opts: {
    * "Already into it" question.
    */
   recordHistory?: boolean;
+  /**
+   * Required with recordHistory: the ids of the lessons the family was shown
+   * and agreed to mark done (planRecalibrateGap's toComplete, as the form read
+   * it). The write recomputes the list and refuses, before writing anything,
+   * unless it is exactly this set. A Yes without it is refused too: history is
+   * only ever written for a list a person has seen.
+   */
+  confirmedLessonIds?: readonly string[];
 }): Promise<RecalibrateResult> {
   const { supabase, goalId, newCurrentLesson, vacationBlocks } = opts;
   const recordHistory = opts.recordHistory === true;
@@ -279,6 +310,15 @@ export async function recalibrateCurriculumGoal(opts: {
   );
   const anchorCompletedAt =
     (anchorRowRes.data as { completed_at: string | null } | null)?.completed_at ?? null;
+
+  // ── The Yes must be for the list the family saw. Nothing is written yet. ──
+  if (recordHistory) {
+    if (gapRowsRes.error) throw new Error(gapRowsRes.error.message);
+    const agreed = opts.confirmedLessonIds;
+    if (!agreed || !sameLessonIds(agreed, toComplete.map((r) => r.id))) {
+      throw new RecalibrateListChangedError();
+    }
+  }
 
   // ── Phase 3: pivot the goal pointer. ────────────────────────────────────
   const { error: updErr } = await supabase
