@@ -2,9 +2,9 @@
 --
 -- rooted-staging (cvgqovweybggrqakhdtd): APPLIED 2026-09-23, ledger version
 -- 20260923035636, name transcript_courses_hours_source.
--- Production (gvkbegvvmhcrmxdorctk): NOT APPLIED. When it is, apply it with
--- apply_migration under the same name and record the production version in
--- docs/MIGRATION-LEDGER-CONTAINMENT.md. The filename carries the staging
+-- Production (gvkbegvvmhcrmxdorctk): APPLIED 2026-09-23 with apply_migration,
+-- ledger version 20260923051306, same name, before #97's app was merged.
+-- ALREADY APPLIED on both: do not re-run. The filename carries the staging
 -- version, like daily_reconcile's.
 --
 -- Additive and inert on its own: a new nullable column with no default, so
