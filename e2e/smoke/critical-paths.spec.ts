@@ -1177,6 +1177,18 @@ test.describe('Past start_date backfill via Schedule Builder', { tag: CURRICULUM
     await nextLessonField.fill(String(NEXT_LESSON));
     await nextLessonField.blur();
 
+    // ── 6b. The lesson number no longer implies history. The default is to
+    //       start at lesson 21 and record nothing before it, so the row says
+    //       that first. This spec is about the backfill, so it opts in
+    //       explicitly; before September 22, 2026 it got the backfill without
+    //       asking, and that silent default is what put unlogged hours on
+    //       families' reports.
+    await expect(
+      firstChildCard.getByText(/Lessons 1 to 20 won't be added to your records or your hours/i).first(),
+      'the default should promise to record nothing',
+    ).toBeVisible({ timeout: 10_000 });
+    await firstChildCard.getByRole('radio', { name: /Yes, add them to our records/i }).last().check();
+
     // ── 7. The sentence is the confirmation, so assert it says something true
     //      before saving anything. It names the range, the span and the date.
     await expect(
@@ -1423,6 +1435,106 @@ test.describe('Past start_date backfill via Schedule Builder', { tag: CURRICULUM
 // week navigation needed.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Starting at lesson N writes no history by default (September 22, 2026).
+//
+// "What lesson are you on next?" used to mean two things: where the family is,
+// and that Rooted should write every lesson before it down as done, with
+// minutes, which Reports bill as hours nobody logged. It means only the first
+// now. The spec above opts in; this one takes the default and asserts, in the
+// database where it is decided, that nothing completed was written.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test.describe('Starting at lesson N records nothing by default', { tag: CURRICULUM_WRITES }, () => {
+  const createdCurriculumNames: string[] = [];
+
+  test.afterEach(async () => {
+    for (const name of createdCurriculumNames.splice(0)) {
+      await cleanupCurriculumByName(name);
+    }
+  });
+
+  test('a new curriculum on lesson 21 gets lessons 21 to 30 and no completed rows', async ({ page }) => {
+    test.setTimeout(180_000);
+    const sb = adminClient();
+    if (!sb) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY not set; cannot read the saved rows.');
+      return;
+    }
+
+    const curriculumName = `Test Start Default E2E ${STAMP()}`;
+    createdCurriculumNames.push(curriculumName);
+    await cleanupCurriculumByName(curriculumName);
+
+    await page.goto('/dashboard/plan/schedule');
+    await expect(page.getByRole('heading', { name: /Your Schedule/i }).first()).toBeVisible({ timeout: 15_000 });
+
+    // Same first-child scoping as the backfill spec above, for the same reason.
+    const addCurriculumBtn = page.getByRole('button', { name: /\+ Add curriculum/i }).first();
+    await expect(addCurriculumBtn).toBeVisible({ timeout: 10_000 });
+    const firstChildCard = addCurriculumBtn.locator(
+      'xpath=ancestor::div[contains(concat(" ", normalize-space(@class), " "), " rounded-2xl ")][1]',
+    );
+    await addCurriculumBtn.click();
+    await firstChildCard.locator('input[placeholder="e.g. Math"]').last().fill('Math');
+    await firstChildCard.locator('input[placeholder^="Who makes it?"]').last().fill(curriculumName);
+    await firstChildCard.locator('input[placeholder="e.g. 120"]').last().fill('30');
+
+    await firstChildCard.getByRole('radio', { name: /Already into it/i }).last().check();
+    const nextLessonField = firstChildCard.getByLabel(/What lesson are you on next\?/i).last();
+    await nextLessonField.fill('21');
+    await nextLessonField.blur();
+
+    // The default is No, and the row says so before anything is saved.
+    await expect(
+      firstChildCard.getByRole('radio', { name: /No, just start me on lesson 21/i }).last(),
+      'No is the default answer',
+    ).toBeChecked();
+    await expect(
+      firstChildCard.getByText(/Lessons 1 to 20 won't be added to your records or your hours/i).first(),
+    ).toBeVisible({ timeout: 10_000 });
+
+    await previewAndSave(page);
+    await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({ timeout: 30_000 });
+
+    // Wait for the forward queue to land, then read what the save wrote.
+    let goalId = '';
+    await expect
+      .poll(
+        async () => {
+          const { data: g } = await sb.from('curriculum_goals').select('id').eq('curriculum_name', curriculumName);
+          goalId = ((g ?? [])[0]?.id as string | undefined) ?? '';
+          if (!goalId) return 0;
+          const { data: rows } = await sb.from('lessons').select('id').eq('curriculum_goal_id', goalId);
+          return (rows ?? []).length;
+        },
+        { timeout: 30_000, message: 'the save should generate the forward lessons' },
+      )
+      .toBe(10);
+
+    const { data: goal } = await sb
+      .from('curriculum_goals')
+      .select('current_lesson, start_at_lesson')
+      .eq('id', goalId)
+      .single();
+    expect(goal?.start_at_lesson, 'the family is placed at lesson 21').toBe(21);
+    expect(goal?.current_lesson, 'the pointer stands before lesson 21').toBe(20);
+
+    const { data: rows } = await sb
+      .from('lessons')
+      .select('lesson_number, completed, is_backfill, minutes_spent')
+      .eq('curriculum_goal_id', goalId)
+      .order('lesson_number');
+    const all = (rows ?? []) as { lesson_number: number; completed: boolean; is_backfill: boolean | null; minutes_spent: number | null }[];
+    expect(all.filter((r) => r.completed).length, 'no lesson is written as done').toBe(0);
+    expect(all.filter((r) => r.is_backfill).length, 'no history is backfilled').toBe(0);
+    expect(all.filter((r) => r.minutes_spent != null).length, 'no minutes, so no report hours').toBe(0);
+    expect(all.map((r) => r.lesson_number), 'exactly lessons 21 to 30').toEqual(
+      Array.from({ length: 10 }, (_, i) => 21 + i),
+    );
+  });
+});
+
 test.describe('Schedule Builder links goals to active year + shows them post-save', { tag: CURRICULUM_WRITES }, () => {
   const createdCurriculumNames: string[] = [];
   // Only the school year THIS test created (if any) is torn down; a
@@ -1571,4 +1683,364 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
       ).toBe(activeYearId);
     }
   });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// "I'm actually on lesson X" asks before it writes history (PR #94).
+//
+// One saved curriculum per case, 30 lessons, one a day: lessons 1 to 10 were
+// done (30 minutes each) except lesson 5, which the family REOPENED (a pinned
+// make-up on tomorrow). Lesson 13 carries the family's lesson-plan notes, and
+// lesson 15 was moved by hand (pinned, 40 days out). The family says "I'm
+// actually on lesson 19" from Plan or from the Schedule Builder's row menu.
+//
+//   No (the default): nothing completed, the pointer moves to 18, lessons 11
+//     to 18 stay unfinished and hold no date (so no later save can pin them
+//     to Today), the notes survive, the make-up and the pinned lesson keep
+//     their days, and the report's lesson log is unchanged.
+//   Yes: the lessons the question names, 11 to 14 and 16 to 18, and only those,
+//     become estimates with no minutes. Lesson 15, which the family placed by
+//     hand, keeps its day and stays unfinished, and the form says so. The
+//     make-up is untouched. The report's log gains exactly those seven at the
+//     30-minute estimate, the hours the form stated.
+//
+// The report is read from Reports' own lesson log, not recomputed here.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RECAL_NOTE = 'E2E lesson plan: chapter 4 review';
+
+async function seedRecalibrateGoal(
+  sb: NonNullable<ReturnType<typeof adminClient>>,
+  ctx: { userId: string; childId: string },
+  name: string,
+): Promise<string> {
+  const { data: goalRow, error: goalErr } = await sb
+    .from('curriculum_goals')
+    .insert({
+      user_id: ctx.userId,
+      child_id: ctx.childId,
+      curriculum_name: name,
+      subject_label: 'Recal Math',
+      total_lessons: 30,
+      current_lesson: 0,
+      start_at_lesson: 1,
+      start_date: localYmd(-14),
+      lessons_per_day: 1,
+      school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      default_minutes: 30,
+      archived: false,
+    })
+    .select('id')
+    .single();
+  if (goalErr || !goalRow) throw new Error(`seed goal failed: ${goalErr?.message}`);
+  const goalId = (goalRow as { id: string }).id;
+  const rows = Array.from({ length: 30 }, (_, i) => {
+    const n = i + 1;
+    const done = n <= 10 && n !== 5;
+    const day = n === 5 ? localYmd(1) : n === 15 ? localYmd(40) : n <= 10 ? localYmd(n - 15) : localYmd(n - 9);
+    return {
+      user_id: ctx.userId,
+      child_id: ctx.childId,
+      curriculum_goal_id: goalId,
+      title: `${name} Lesson ${n}`,
+      lesson_number: n,
+      queue_position: n,
+      scheduled_date: day,
+      date: day,
+      completed: done,
+      completed_at: done ? `${day}T12:00:00Z` : null,
+      minutes_spent: done ? 30 : null,
+      hours: done ? 0.5 : 0,
+      scheduled_source: done ? 'completion_today' : n === 5 ? 'reopened' : 'wizard_create',
+      is_backfill: false,
+      queue_pinned: n === 5 || n === 15,
+      notes: n === 13 ? RECAL_NOTE : null,
+    };
+  });
+  const { error: lessonErr } = await sb.from('lessons').insert(rows);
+  if (lessonErr) throw new Error(`seed lessons failed: ${lessonErr.message}`);
+  return goalId;
+}
+
+type RecalRow = MakeUpRow & { hours: number | null };
+
+async function readRecalState(sb: NonNullable<ReturnType<typeof adminClient>>, goalId: string) {
+  const { data: goal } = await sb.from('curriculum_goals').select('current_lesson, start_at_lesson').eq('id', goalId).single();
+  const { data } = await sb
+    .from('lessons')
+    .select('id, lesson_number, queue_position, completed, completed_at, is_backfill, queue_pinned, skipped, scheduled_date, scheduled_source, notes, minutes_spent, hours')
+    .eq('curriculum_goal_id', goalId)
+    .order('lesson_number');
+  return {
+    goal: goal as { current_lesson: number; start_at_lesson: number },
+    rows: (data ?? []) as RecalRow[],
+  };
+}
+
+/** The Time column of Reports' lesson log for this curriculum, last 30 days, in minutes. */
+async function reportLogMinutes(page: import('@playwright/test').Page, name: string) {
+  await gotoAppPage(page, '/dashboard/reports');
+  await page.getByRole('button', { name: 'Last 30 days' }).click();
+  await page.getByRole('button', { name: /Preview Log/ }).click();
+  const rows = page.locator('tr').filter({ hasText: name });
+  await expect(rows.first(), 'the synthetic curriculum appears in the lesson log').toBeVisible({ timeout: 20_000 });
+  const cells = await rows.evaluateAll((trs) => trs.map((tr) => (tr.lastElementChild?.textContent ?? '').trim()));
+  const toMin = (t: string) => {
+    const h = /(\d+)h/.exec(t);
+    const m = /(\d+)m/.exec(t);
+    return (h ? Number(h[1]) * 60 : 0) + (m ? Number(m[1]) : 0);
+  };
+  return { count: cells.length, minutes: cells.reduce((s, c) => s + toMin(c), 0) };
+}
+
+/** Fill the recalibration form that is open on the page and save it. */
+async function answerRecalibrate(page: import('@playwright/test').Page, answer: 'No' | 'Yes') {
+  const form = page
+    .getByText('Which lesson are you actually on?')
+    .locator('xpath=ancestor::div[.//input[@aria-label="Current lesson"]][1]');
+  await expect(form).toBeVisible({ timeout: 15_000 });
+  const input = form.getByLabel('Current lesson');
+  await input.fill('19');
+  // The question names exactly the lessons a Yes marks done: after the saved
+  // position, minus lesson 15, which the family pinned and which keeps its day.
+  await expect(form.getByText('Should Rooted mark lessons 11 to 14 and 16 to 18 as done?')).toBeVisible({ timeout: 15_000 });
+  await expect(form.getByText('Lesson 15 keeps the day you moved it to.')).toBeVisible();
+  const no = form.getByRole('radio', { name: /No, just move me to lesson 19/ });
+  const yes = form.getByRole('radio', { name: /Yes, add them to our records/ });
+  await expect(no, 'No is the default').toBeChecked();
+  await expect(yes).not.toBeChecked();
+  if (answer === 'Yes') await yes.check();
+  await expect(
+    form.getByText(answer === 'Yes' ? /add 3 hours 30 minutes to your hours \(30 minutes each\)/ : /Nothing is added to your records or your hours/),
+  ).toBeVisible();
+  await form.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(form).toHaveCount(0, { timeout: 30_000 });
+}
+
+function expectRecalibrated(state: Awaited<ReturnType<typeof readRecalState>>, answer: 'No' | 'Yes', seeded: RecalRow[]) {
+  const { goal, rows } = state;
+  expect(goal.current_lesson, 'the pointer moves to 18 either way').toBe(18);
+  expect(goal.start_at_lesson).toBe(19);
+  expect(rows.map((r) => r.lesson_number), 'one row per lesson, none created or deleted').toEqual(
+    Array.from({ length: 30 }, (_, i) => i + 1),
+  );
+  const by = (n: number) => rows.find((r) => r.lesson_number === n)!;
+  const seededBy = (n: number) => seeded.find((r) => r.lesson_number === n)!;
+
+  // Real completions are exactly as they were.
+  for (const n of [1, 2, 3, 4, 6, 7, 8, 9, 10]) {
+    expect(by(n).completed, `lesson ${n} stays done`).toBe(true);
+    expect(by(n).completed_at).toBe(seededBy(n).completed_at);
+    expect(by(n).minutes_spent).toBe(30);
+  }
+  // The reopened make-up is the family's, whatever the answer.
+  const five = by(5);
+  expect(five.completed, 'the make-up is never swept up').toBe(false);
+  expect(five.queue_pinned, 'the make-up stays pinned').toBe(true);
+  expect(five.scheduled_date, 'the make-up keeps its day').toBe(localYmd(1));
+
+  const gap = [11, 12, 13, 14, 15, 16, 17, 18];
+  if (answer === 'No') {
+    expect(rows.filter((r) => r.completed).length, 'nothing new is completed').toBe(9);
+    expect(rows.filter((r) => r.scheduled_source === 'recalibrate_estimate').length).toBe(0);
+    for (const n of gap) {
+      expect(by(n).completed, `lesson ${n} stays unfinished`).toBe(false);
+      expect(by(n).minutes_spent, `lesson ${n} records no minutes`).toBeNull();
+      if (n === 15) continue;
+      expect(by(n).scheduled_date, `lesson ${n} holds no date, so no later save can pin it to Today`).toBeNull();
+    }
+    expect(by(15).queue_pinned, 'the hand-placed lesson stays pinned').toBe(true);
+    expect(by(15).scheduled_date, 'the hand-placed lesson keeps its day').toBe(localYmd(40));
+  } else {
+    expect(rows.filter((r) => r.completed).length, 'nine real plus the seven named').toBe(16);
+    // The lesson the family placed by hand is not turned into a past completion.
+    expect(by(15).completed, 'lesson 15 is not marked done').toBe(false);
+    expect(by(15).scheduled_source, 'lesson 15 is not an estimate').not.toBe('recalibrate_estimate');
+    expect(by(15).queue_pinned, 'lesson 15 stays pinned').toBe(true);
+    expect(by(15).scheduled_date, 'lesson 15 keeps the day the family chose').toBe(localYmd(40));
+    for (const n of gap.filter((x) => x !== 15)) {
+      expect(by(n).completed, `lesson ${n} is marked done`).toBe(true);
+      expect(by(n).scheduled_source).toBe('recalibrate_estimate');
+      expect(by(n).minutes_spent, `lesson ${n} carries no minutes: its time is an estimate`).toBeNull();
+      expect(by(n).scheduled_date! < localYmd(0), `lesson ${n} is dated in the past`).toBe(true);
+    }
+  }
+  expect(by(13).notes, 'the family\'s notes survive').toBe(RECAL_NOTE);
+  // The queue after the gap is untouched in number.
+  for (const n of [19, 20, 30]) expect(by(n).completed).toBe(false);
+}
+
+test.describe('"I\'m actually on lesson X" asks before it writes history', { tag: CURRICULUM_WRITES }, () => {
+  const createdGoalIds: string[] = [];
+
+  test.afterEach(async () => {
+    const sb = adminClient();
+    if (!sb) return;
+    const ids = createdGoalIds.splice(0);
+    if (ids.length === 0) return;
+    const testUserId = await requireTestUserId('recalibrate specs teardown');
+    await sb.from('lessons').delete().in('curriculum_goal_id', ids).eq('user_id', testUserId);
+    await sb.from('curriculum_goals').delete().in('id', ids).eq('user_id', testUserId);
+    await sb.from('app_events').delete().eq('user_id', testUserId).in('payload->>goal_id', ids);
+  });
+
+  /** Open Plan's "I'm actually on..." form for a seeded curriculum. */
+  async function openPlanRecalibrate(page: import('@playwright/test').Page, name: string) {
+    await gotoAppPage(page, '/dashboard/plan');
+    await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({ timeout: 15_000 });
+    const kebab = page.getByRole('button', { name: `More actions for ${name}`, exact: true });
+    await kebab.scrollIntoViewIfNeeded();
+    await kebab.click();
+    await page.getByRole('menuitem', { name: /actually on/ }).click();
+    return page
+      .getByText('Which lesson are you actually on?')
+      .locator('xpath=ancestor::div[.//input[@aria-label="Current lesson"]][1]');
+  }
+
+  test('Yes is refused, and nothing written, if a listed lesson changes in another tab before Save', async ({ page }) => {
+    test.setTimeout(150_000);
+    const sb = adminClient();
+    const ctx = await resolveTestUserAndFirstChild();
+    if (!sb || !ctx) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY + PLAYWRIGHT_EMAIL test account with a child required');
+      return;
+    }
+    const name = `Recal Stale ${STAMP()}`;
+    const goalId = await seedRecalibrateGoal(sb, ctx, name);
+    createdGoalIds.push(goalId);
+
+    const form = await openPlanRecalibrate(page, name);
+    await form.getByLabel('Current lesson').fill('19');
+    await expect(form.getByText('Should Rooted mark lessons 11 to 14 and 16 to 18 as done?')).toBeVisible({ timeout: 15_000 });
+    await form.getByRole('radio', { name: /Yes, add them to our records/ }).check();
+    await expect(form.getByText(/add 3 hours 30 minutes to your hours/)).toBeVisible();
+
+    // Another tab ticks lesson 12 while the question is on screen.
+    const twelve = localYmd(0);
+    const { error: tickErr } = await sb
+      .from('lessons')
+      .update({ completed: true, completed_at: `${twelve}T15:00:00Z`, minutes_spent: 30, hours: 0.5 })
+      .eq('curriculum_goal_id', goalId)
+      .eq('lesson_number', 12);
+    if (tickErr) throw new Error(`other-tab tick failed: ${tickErr.message}`);
+    const before = await readRecalState(sb, goalId);
+
+    await form.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(form.getByText(/Your lessons changed since you opened this/), 'the family is told to reopen').toBeVisible({ timeout: 15_000 });
+    await expect(form.getByRole('button', { name: 'Save', exact: true }), 'Save stays closed on a stale list').toBeDisabled();
+
+    const after = await readRecalState(sb, goalId);
+    expect(after.goal, 'the refused Save did not move the pointer').toEqual(before.goal);
+    // 12, not 10: the other tab's tick is itself a completion, and the lessons
+    // trigger moves current_lesson to the highest completed slot. That move
+    // happened BEFORE Save (it is in `before`); the refused Save added none.
+    expect(after.goal.current_lesson, 'where the other tab left it, not where a Yes would have (18)').toBe(12);
+    expect(after.rows, 'no lesson was written').toEqual(before.rows);
+    expect(after.rows.filter((r) => r.scheduled_source === 'recalibrate_estimate')).toEqual([]);
+  });
+
+  test('if the form cannot read the lessons, it says so and Save stays closed', async ({ page }) => {
+    test.setTimeout(150_000);
+    const sb = adminClient();
+    const ctx = await resolveTestUserAndFirstChild();
+    if (!sb || !ctx) {
+      test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY + PLAYWRIGHT_EMAIL test account with a child required');
+      return;
+    }
+    const name = `Recal ReadFail ${STAMP()}`;
+    const goalId = await seedRecalibrateGoal(sb, ctx, name);
+    createdGoalIds.push(goalId);
+    const before = await readRecalState(sb, goalId);
+
+    // Fail exactly the form's own read, nothing else on the page.
+    await page.route(
+      (url) =>
+        url.pathname.endsWith('/rest/v1/lessons') &&
+        decodeURIComponent(url.search).includes('select=id,lesson_number,queue_position,queue_pinned,skipped,completed') &&
+        url.search.includes(goalId),
+      (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'e2e: simulated read failure' }) }),
+    );
+    const form = await openPlanRecalibrate(page, name);
+    await form.getByLabel('Current lesson').fill('19');
+    await expect(form.getByText(/We couldn't check this curriculum's lessons, so this can't be saved right now/)).toBeVisible({ timeout: 15_000 });
+    await expect(form.getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+    await expect(form.getByText(/Should Rooted mark/), 'no question is shown without the list').toHaveCount(0);
+
+    const after = await readRecalState(sb, goalId);
+    expect(after, 'nothing was written').toEqual(before);
+  });
+
+  for (const surface of ['Plan', 'Builder'] as const) {
+    for (const answer of ['No', 'Yes'] as const) {
+      test(`${surface}, ${answer}: lessons, pointer and report hours`, async ({ page }) => {
+        test.setTimeout(180_000);
+        const sb = adminClient();
+        const ctx = await resolveTestUserAndFirstChild();
+        if (!sb || !ctx) {
+          test.skip(true, 'SUPABASE_SERVICE_ROLE_KEY + PLAYWRIGHT_EMAIL test account with a child required');
+          return;
+        }
+        const name = `Recal ${surface} ${answer} ${STAMP()}`;
+        const goalId = await seedRecalibrateGoal(sb, ctx, name);
+        createdGoalIds.push(goalId);
+
+        const seeded = await readRecalState(sb, goalId);
+        expect(seeded.goal.current_lesson, 'seeded pointer').toBe(10);
+        const reportBefore = await reportLogMinutes(page, name);
+        expect(reportBefore, 'seeded report: nine lessons, 30 minutes each').toEqual({ count: 9, minutes: 270 });
+
+        if (surface === 'Plan') {
+          await gotoAppPage(page, '/dashboard/plan');
+          await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({ timeout: 15_000 });
+          const kebab = page.getByRole('button', { name: `More actions for ${name}`, exact: true });
+          await kebab.scrollIntoViewIfNeeded();
+          await kebab.click();
+          await page.getByRole('menuitem', { name: /actually on/ }).click();
+        } else {
+          await page.goto('/dashboard/plan/schedule', { waitUntil: 'domcontentloaded' });
+          await expect
+            .poll(
+              () => page.locator('input').evaluateAll((els, s) => els.some((e) => (e as HTMLInputElement).value === s), name),
+              { message: 'the builder loads the seeded curriculum', timeout: 30_000 },
+            )
+            .toBe(true);
+          // Tag this curriculum's row card: the nearest ancestor of its name
+          // input that holds a row menu. Every row's menu is "More actions".
+          await page.locator('input').evaluateAll((els, s) => {
+            const input = els.find((e) => (e as HTMLInputElement).value === s);
+            let n = input?.parentElement ?? null;
+            while (n && !n.querySelector('button[aria-label="More actions"]')) n = n.parentElement;
+            n?.setAttribute('data-e2e-row', s as string);
+          }, name);
+          const row = page.locator(`[data-e2e-row="${name}"]`);
+          await row.getByRole('button', { name: 'More actions', exact: true }).first().click();
+          await page.getByRole('menuitem', { name: /actually on/ }).click();
+        }
+
+        await answerRecalibrate(page, answer);
+        await expect
+          .poll(async () => (await readRecalState(sb, goalId)).goal.current_lesson, {
+            message: 'the recalibration lands', timeout: 20_000,
+          })
+          .toBe(18);
+        expectRecalibrated(await readRecalState(sb, goalId), answer, seeded.rows);
+
+        const reportAfter = await reportLogMinutes(page, name);
+        expect(reportAfter, answer === 'No' ? 'No leaves the report exactly as it was' : 'Yes adds the seven named lessons at the 30-minute estimate: 3h 30m, as the form said')
+          .toEqual(answer === 'No' ? { count: 9, minutes: 270 } : { count: 16, minutes: 480 });
+
+        // A later load of the builder must not undo it or turn the passed
+        // lessons into make-ups. Opening it and reading back is the stale-tab
+        // shape without a stale tab: the reload seeds from the database.
+        await page.goto('/dashboard/plan/schedule', { waitUntil: 'domcontentloaded' });
+        await expect
+          .poll(
+            () => page.locator('input').evaluateAll((els, s) => els.some((e) => (e as HTMLInputElement).value === s), name),
+            { timeout: 30_000 },
+          )
+          .toBe(true);
+        expectRecalibrated(await readRecalState(sb, goalId), answer, seeded.rows);
+      });
+    }
+  }
 });
