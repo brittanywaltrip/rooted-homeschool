@@ -13,6 +13,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { ESTIMATED_MINUTES_PER_LESSON, sumLessonMinutes } from '../../lib/lesson-minutes.ts'
 
 import {
   recalibrateCurriculumGoal,
@@ -20,7 +21,7 @@ import {
   planRecalibrateGap,
   formatLessonList,
   formatAddedTime,
-  ESTIMATE_REPORT_MINUTES,
+  addedReportMinutes,
   RecalibrateListChangedError,
   sameLessonIds,
 } from './recalibrate.ts'
@@ -1036,7 +1037,7 @@ test('the question and the hours read as a family would say them', () => {
   assert.equal(formatLessonList([11, 12]), 'lessons 11 and 12')
   assert.equal(formatLessonList([15], true), 'Lesson 15')
   assert.equal(formatLessonList([]), '')
-  assert.equal(formatAddedTime(7 * ESTIMATE_REPORT_MINUTES), '3 hours 30 minutes')
+  assert.equal(formatAddedTime(7 * ESTIMATED_MINUTES_PER_LESSON), '3 hours 30 minutes')
   assert.equal(formatAddedTime(60), '1 hour')
   assert.equal(formatAddedTime(30), '30 minutes')
 })
@@ -1046,7 +1047,10 @@ test('the form words its question from the same rule the write uses', () => {
   const form = src.slice(src.indexOf('export function RecalibrateForm('))
   assert.match(form, /planRecalibrateGap\(gapRows, oldCountDone, typed\)/)
   assert.match(form, /Should Rooted mark \$\{formatLessonList\(toMarkDone\)\} as done\?/)
-  assert.match(form, /formatAddedTime\(toMarkDone\.length \* ESTIMATE_REPORT_MINUTES\)/)
+  // The hours promised are the hours Reports will count: the shared rule.
+  assert.match(form, /const added = addedReportMinutes\(plan\?\.toComplete \?\? \[\]\);/)
+  assert.match(form, /formatAddedTime\(added\.minutes\)/)
+  assert.doesNotMatch(form, /\b30\b/, 'no minutes figure of its own; it reads ESTIMATED_MINUTES_PER_LESSON')
   assert.doesNotMatch(form, /gapFrom|gapTo/, 'no second, hand-rolled range that could disagree with the write')
   // A Yes carries exactly the list on screen; No carries none.
   assert.match(form, /await onSubmit\(n, yes, yes \? \(plan\?\.toComplete \?\? \[\]\)\.map\(\(r\) => r\.id\) : \[\]\)/)
@@ -1146,4 +1150,31 @@ test('sameLessonIds compares sets', () => {
   assert.equal(sameLessonIds(['a', 'b'], ['a', 'c']), false)
   assert.equal(sameLessonIds(['a', 'a'], ['a', 'b']), false)
   assert.equal(sameLessonIds([], []), true)
+})
+
+// ── The hours a Yes promises are the hours Reports counts ─────────────────
+//
+// The form states what a Yes adds; Reports then counts those lessons through
+// lib/lesson-minutes.ts. Both go through the same rule, so a lesson that
+// already carries recorded minutes (11 upcoming lessons do on production) or a
+// saved hours value is promised at that, not at a flat estimate.
+
+test('addedReportMinutes is the shared lesson-minutes rule, lesson by lesson', () => {
+  const row = (n: number, extra: Record<string, unknown> = {}) => ({ id: `L${n}`, lesson_number: n, queue_position: n, minutes_spent: null, hours: 0, ...extra })
+  const allEstimated = [11, 12, 13, 14, 16, 17, 18].map((n) => row(n))
+  assert.deepEqual(addedReportMinutes(allEstimated), {
+    minutes: 7 * ESTIMATED_MINUTES_PER_LESSON, recordedMinutes: 0, estimatedMinutes: 7 * ESTIMATED_MINUTES_PER_LESSON, estimatedCount: 7,
+  })
+  const mixed = [row(11, { minutes_spent: 45 }), row(12, { minutes_spent: null, hours: 0.25 }), row(13, { minutes_spent: 0 }), row(14)]
+  const got = addedReportMinutes(mixed)
+  assert.equal(got.minutes, 45 + 15 + 0 + ESTIMATED_MINUTES_PER_LESSON, 'recorded 45, saved 15, a recorded 0, one estimate')
+  assert.equal(got.estimatedCount, 1)
+  // Reports counts the same rows, once completed, with the very same rule.
+  assert.deepEqual(got, sumLessonMinutes(mixed.map((r) => ({ ...r, completed: true }))))
+})
+
+test('recalibrate holds no minutes figure of its own', () => {
+  const src = readFileSync(new URL('./recalibrate.ts', import.meta.url), 'utf8')
+  assert.doesNotMatch(src, /ESTIMATE_REPORT_MINUTES|=\s*30;/, 'the estimate lives in lib/lesson-minutes.ts only')
+  assert.match(src, /from "\.\.\/\.\.\/lib\/lesson-minutes\.ts"/)
 })
