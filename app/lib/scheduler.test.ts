@@ -58,6 +58,9 @@ import {
   toGoalConfig,
   planGoalReassign,
   planGoalDelete,
+  planBulkLessonDelete,
+  bulkDeleteConfirmCopy,
+  bulkDeleteFailureNotice,
   isTotalLessonsAboveProgress,
   type PinnedSlot,
   type QueueHold,
@@ -1668,6 +1671,30 @@ function loadRepoFile(relPath: string): string {
 // prose. A guard that passes because the identifier appears in a comment is
 // worthless — caught exactly that way while mutation-checking the
 // starting-position wiring below.
+// Helper: every repo source file under app/ and lib/ whose text matches. Used
+// by the lesson-delete sweep below, which pins WHICH files may delete a lesson
+// row rather than asserting a shape inside any one of them.
+function sweepRepoFiles(re: RegExp): string[] {
+  const out: string[] = []
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue
+      const full = `${dir}/${entry.name}`
+      if (entry.isDirectory()) { walk(full); continue }
+      if (!/\.tsx?$/.test(entry.name)) continue
+      if (/\.test\.tsx?$/.test(entry.name)) continue
+      if (re.test(stripComments(readFileSync(full, 'utf-8')))) {
+        out.push(full.slice(resolve(process.cwd()).length + 1))
+      }
+    }
+  }
+  for (const root of ['app', 'lib']) {
+    const full = resolve(process.cwd(), root)
+    if (existsSync(full)) walk(full)
+  }
+  return out.sort()
+}
+
 function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ')
 }
@@ -7278,6 +7305,179 @@ test('goal delete: the handler checks every error and carries the subject across
   assert.ok(/\.is\("subject_id", null\)/.test(body), 'only fills an empty subject')
 })
 
+/* ── Bulk delete preserves completed work (2026-09-22) ────────────────────
+ * A family deleted six curricula at 18:49, which correctly KEPT her completed
+ * rows. Seventy seconds later she selected those kept rows on the Plan
+ * calendar and bulk-deleted them: seven batches, 18:50:42 to 18:51:19, thirty
+ * completed lessons gone. Every other delete surface in the app protects
+ * completed rows; this one had no protection, no dialog and no test.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+test('bulk delete: completed rows are never in the ordinary delete set', () => {
+  const plan = planBulkLessonDelete([
+    { id: 'open-1', completed: false },
+    { id: 'done-1', completed: true },
+    { id: 'open-2', completed: false },
+    { id: 'done-2', completed: true },
+  ])
+  assert.deepEqual(plan.deleteIds, ['open-1', 'open-2'])
+  assert.deepEqual(plan.completedIds, ['done-1', 'done-2'])
+})
+
+test('bulk delete: every row lands in exactly one group', () => {
+  const rows = Array.from({ length: 30 }, (_, i) => ({ id: `r${i}`, completed: i % 3 === 0 }))
+  const plan = planBulkLessonDelete(rows)
+  assert.equal(plan.deleteIds.length + plan.completedIds.length, rows.length)
+  const seen = new Set([...plan.deleteIds, ...plan.completedIds])
+  assert.equal(seen.size, rows.length, 'no row is dropped and none is counted twice')
+})
+
+test('bulk delete: an unfinished-only selection asks nothing', () => {
+  const plan = planBulkLessonDelete([
+    { id: 'a', completed: false },
+    { id: 'b', completed: false },
+  ])
+  assert.equal(plan.completedIds.length, 0, 'nothing to warn about')
+  assert.deepEqual(plan.deleteIds, ['a', 'b'])
+})
+
+test('bulk delete: an empty selection is not a delete', () => {
+  const plan = planBulkLessonDelete([])
+  assert.deepEqual(plan.deleteIds, [])
+  assert.deepEqual(plan.completedIds, [])
+})
+
+test('bulk delete: the handler routes through the shared rule and stops to ask', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const handler = src.slice(src.indexOf('const performBulkDelete = useCallback'))
+  const body = handler.slice(0, handler.indexOf('// \u2500\u2500 Catch-up'))
+  assert.ok(/planBulkLessonDelete\(/.test(body), 'the handler must use the shared rule')
+  // The regression itself: the selection must not reach the delete untouched.
+  assert.ok(
+    !/await runBulkDelete\(rows\);[\s\S]*await runBulkDelete\(rows\)/.test(body),
+    'rows are only passed through whole on the unfinished-only path',
+  )
+  assert.ok(
+    /plan\.completedIds\.length === 0/.test(body),
+    'an unfinished-only selection keeps the old one-tap behaviour',
+  )
+  assert.ok(
+    /setBulkDeleteConfirm\(/.test(body),
+    'a selection holding completed rows opens the confirm instead of deleting',
+  )
+})
+
+test('bulk delete: the confirm offers the safe answer as its primary button', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const dialog = src.slice(src.indexOf('{bulkDeleteConfirm ? (() => {'))
+  const body = dialog.slice(0, dialog.indexOf('{/* Curriculum delete confirm */}'))
+  // Every word comes from the pure, tested copy function.
+  assert.ok(/const copy = bulkDeleteConfirmCopy\(open\.length, done\.length\)/.test(body),
+    'the dialog takes its words from bulkDeleteConfirmCopy')
+  // Mixed selection: primary deletes the unfinished ones, the destructive
+  // "all of them" answer is the secondary and must be asked for by name.
+  assert.ok(/onConfirm=\{\(\) => deleteRows\(open\)\}/.test(body),
+    'the primary button deletes ONLY the unfinished rows')
+  assert.ok(/altLabel=\{copy\.altLabel/.test(body) && /onAlt=\{\(\) => deleteRows\(\[\.\.\.open, \.\.\.done\]\)\}/.test(body),
+    'deleting completed work is a separate, named answer')
+  // All-completed selection has no safe subset, so it is destructive-only.
+  assert.ok(/open\.length === 0/.test(body), 'the all-completed case is handled on its own')
+  // Cancelling (button, X or backdrop all call onCancel) only closes the dialog.
+  assert.ok(/const close = \(\) => setBulkDeleteConfirm\(null\);/.test(body),
+    'cancel closes the dialog and deletes nothing')
+  assert.equal((body.match(/onCancel=\{close\}/g) ?? []).length, 2, 'both dialogs cancel through close')
+})
+
+test('bulk delete copy: singular and plural read correctly and name what is lost', () => {
+  const one = bulkDeleteConfirmCopy(0, 1)
+  assert.equal(one.title, 'Delete 1 lesson you marked done?')
+  assert.equal(one.confirmLabel, 'Delete it anyway')
+  assert.equal(one.cancelLabel, 'Keep it')
+  assert.match(one.body, /^You checked this lesson off as done\. Deleting it permanently removes the day it was done, its minutes and notes, and its time comes off your reports\./)
+  assert.doesNotMatch(one.body, /\b(their|them|these)\b/i, 'no plural words for one lesson')
+  assert.equal(one.altLabel, null)
+
+  const many = bulkDeleteConfirmCopy(0, 3)
+  assert.equal(many.title, 'Delete 3 lessons you marked done?')
+  assert.equal(many.confirmLabel, 'Delete them anyway')
+  assert.equal(many.cancelLabel, 'Keep them')
+  assert.match(many.body, /these lessons.*their minutes and notes.*their time comes off your reports/)
+
+  const mixedOne = bulkDeleteConfirmCopy(2, 1)
+  assert.equal(mixedOne.title, 'Delete 3 lessons?')
+  assert.equal(mixedOne.confirmLabel, 'Delete the 2 unfinished')
+  assert.equal(mixedOne.altLabel, 'Delete all 3, including the 1 done and its report hours')
+  assert.match(mixedOne.body, /^1 lesson in this selection is marked done\. The other 2 are unfinished/)
+
+  const mixedMany = bulkDeleteConfirmCopy(1, 2)
+  assert.equal(mixedMany.altLabel, 'Delete all 3, including the 2 done and their report hours')
+  assert.match(mixedMany.body, /^2 lessons in this selection are marked done\. The other 1 is unfinished/)
+  assert.match(mixedMany.body, /can go safely\. Deleting the done ones too permanently removes the days they were done, their minutes and notes, and their time comes off your reports\. This can't be undone\.$/)
+  assert.match(mixedOne.body, /Deleting the done one too permanently removes the day it was done, its minutes and notes/)
+
+  // No em dashes in family-facing copy.
+  for (const c of [one, many, mixedOne, mixedMany]) {
+    for (const s of [c.title, c.body, c.confirmLabel, c.cancelLabel, c.altLabel ?? '']) assert.ok(!s.includes('—'), s)
+  }
+})
+
+test('bulk delete: a failed or partial delete is reported, a full one is silent', () => {
+  assert.equal(bulkDeleteFailureNotice(3, 3, false), null)
+  assert.match(bulkDeleteFailureNotice(1, 0, true) ?? '', /^Couldn't delete that lesson\. Nothing was removed\./)
+  assert.match(bulkDeleteFailureNotice(3, 0, true) ?? '', /^Couldn't delete those 3 lessons\. Nothing was removed\./)
+  // RLS can refuse rows without an error: fewer rows back than asked for.
+  assert.match(bulkDeleteFailureNotice(3, 0, false) ?? '', /Nothing was removed/)
+  assert.match(bulkDeleteFailureNotice(3, 2, false) ?? '', /^Only 2 of 3 lessons were deleted\./)
+})
+
+test('bulk delete: both delete paths check the result instead of swallowing it', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const runner = src.slice(src.indexOf('const runBulkDelete = useCallback'))
+  const runBody = runner.slice(0, runner.indexOf('const performBulkDelete = useCallback'))
+  const commit = src.slice(src.indexOf('const commitPendingBulkDelete = useCallback'))
+  const commitBody = commit.slice(0, commit.indexOf('useEffect('))
+  for (const [name, body] of [['runBulkDelete', runBody], ['commitPendingBulkDelete', commitBody]] as const) {
+    assert.ok(/\.delete\(\)\.in\("id", [\s\S]*?\)\.select\("id"\)/.test(body), `${name} asks for the deleted ids back`)
+    assert.ok(/bulkDeleteFailureNotice\(/.test(body), `${name} turns the result into a notice`)
+    assert.ok(/flashNotice\(notice\)/.test(body), `${name} shows the notice`)
+    assert.ok(!/catch \{\s*\}/.test(body), `${name} has no empty catch`)
+  }
+})
+
+test('bulk delete: the audit event records how many completed rows went', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const runner = src.slice(src.indexOf('const runBulkDelete = useCallback'))
+  const body = runner.slice(0, runner.indexOf('const performBulkDelete = useCallback'))
+  assert.ok(
+    /completed_count: rows\.filter\(\(r\) => r\.completed\)\.length/.test(body),
+    'so a later investigation can tell a tidy-up from a history deletion',
+  )
+})
+
+test('bulk delete: the set of files that can delete a lesson row is pinned', () => {
+  // A sweep, not a shape check. Deleting a lessons row is unrecoverable: there
+  // is no soft delete and no tombstone, the minutes leave Hours Logged, and
+  // memories.lesson_id is ON DELETE SET NULL so an attached photo is silently
+  // detached. Every site below has been looked at and protects completed work
+  // or is deliberately whole-account. A NEW file here fails this test on
+  // purpose: decide what it does with completed rows, then add it.
+  const allowed = new Map([
+    ['app/components/PlanV2/index.tsx', 'single-row + bulk; bulk routes through planBulkLessonDelete'],
+    ['app/components/PlanV2/usePlanLessonActions.ts', 'single row, 5s undo'],
+    ['app/dashboard/page.tsx', "Today's single-row delete and its undo replacement"],
+    ['app/dashboard/years/add/page.tsx', 'rollback of a half-created school year'],
+    ['app/lib/scheduler.ts', 'healGoalIntegrity: incomplete duplicates only, never a completed dupe'],
+    ['app/api/account/delete/route.ts', 'account deletion, whole account by design'],
+  ])
+  const found = sweepRepoFiles(/\.from\("lessons"\)\s*\.delete\(\)/)
+  for (const file of found) {
+    assert.ok(allowed.has(file), `${file} deletes lesson rows and is not on the reviewed list`)
+  }
+  for (const file of allowed.keys()) {
+    assert.ok(found.includes(file), `${file} no longer deletes lesson rows; drop it from the list`)
+  }
+})
+
 /* ── Item 6: a curriculum's numbers have to be possible ───────────────────
  * ksausten's "Weather" reads "22 of 13" on the goal card: 21 lessons completed,
  * total_lessons lowered to 13 underneath them. current_lesson past the end also
@@ -9146,6 +9346,7 @@ test('the "Already into it" sentence reads exactly as designed', () => {
       nextLesson: 11,
       nextLessonDate: '2026-09-14',
       todayYmd: '2026-09-11',
+      recordHistory: true,
     }),
     'Lessons 1 to 10 will be marked done over your last 10 school days, Aug 31 through today. ' +
       'Lesson 11 is up Monday, Sep 14.',
@@ -9163,6 +9364,7 @@ test('the "Already into it" sentence reads exactly as designed', () => {
       nextLesson: 3,
       nextLessonDate: '2026-09-18',
       todayYmd: '2026-09-11',
+      recordHistory: true,
     }),
     'Lessons 1 to 2 will be marked done over your last 2 school days, Sep 4 through today. ' +
       'Lesson 3 is up Friday, Sep 18.',
@@ -9181,7 +9383,13 @@ test('the sentence says "today" when the next lesson somehow lands on today', ()
     throughYmd: '2026-09-10',
   })
   assert.match(
-    nextLessonSentence({ history: h, nextLesson: 3, nextLessonDate: '2026-09-11', todayYmd: '2026-09-11' }),
+    nextLessonSentence({
+      history: h,
+      nextLesson: 3,
+      nextLessonDate: '2026-09-11',
+      todayYmd: '2026-09-11',
+      recordHistory: true,
+    }),
     /Lesson 3 is up today\.$/,
   )
 })
@@ -9481,12 +9689,228 @@ test('storedProgressLine on a goal with no stored start date says only what it k
   )
 })
 
+// ── Starting at lesson N does not invent completed history ────────────────
+//
+// Saying "I am on lesson 46" places a family in their book. It never said
+// Rooted holds the 45 lessons before it, and reading it as though it did wrote
+// 45 completed, backfilled rows with minutes on them: hours on a report nobody
+// logged. A family who set the same book up three times while finding her way
+// got three sets of them, which is the support thread these tests come from.
+//
+// The number and the history are two questions now. The history one defaults
+// to NO, and these tests fail if it ever silently defaults back.
+
+test('the default sentence promises nothing will be recorded, and names the lesson they start on', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 46,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  // No recordHistory argument at all: the default is what a caller that has
+  // not thought about it gets, so the default is what this asserts.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 46,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+    }),
+    "Lessons 1 to 45 won't be added to your records or your hours. " +
+      'You start on lesson 46, up Monday, Sep 14.',
+  )
+  // Singular, because "Lessons 1 to 1" is how a sentence tells a family it was
+  // written by a machine.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 2,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+    }),
+    "Lesson 1 won't be added to your records or your hours. " +
+      'You start on lesson 2, up Monday, Sep 14.',
+  )
+  // Lesson 1 with nothing before it says nothing about history at all.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 1,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+    }),
+    'You start on lesson 1, up Monday, Sep 14.',
+  )
+})
+
+test('the opt-in sentence still describes the days it will write', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 11,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  const said = nextLessonSentence({
+    history: h,
+    nextLesson: 11,
+    nextLessonDate: '2026-09-14',
+    todayYmd: '2026-09-11',
+    recordHistory: true,
+  })
+  assert.match(said, /^Lessons 1 to 10 will be marked done/)
+  assert.doesNotMatch(said, /won't be added/)
+})
+
+test('the builder writes history only when the family asked for it', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+
+  // 1. The row carries the choice, and every constructor starts it at NO.
+  //    A row loaded from a saved goal starts at NO too, which is what stops a
+  //    re-save of an untouched curriculum from laying its history down twice.
+  assert.match(src, /record_history: boolean/)
+  assert.equal(
+    (src.match(/record_history: false,/g) ?? []).length,
+    3,
+    'blankRow, rowFromGoal and rowFromActivity all default the choice to no',
+  )
+  assert.doesNotMatch(src, /record_history: true,/, 'nothing defaults it to yes')
+
+  // 2. The backfill is the function that writes `completed: true`. It returns
+  //    empty before it reads anything else.
+  const backfill = extractFunctionBody(src, /const planHistoricalBackfill = \(\) =>/)
+  const guard = backfill.indexOf('!historyRequested(row)')
+  assert.ok(guard !== -1, 'the backfill checks the choice')
+  assert.ok(
+    guard < backfill.indexOf('row.start_date'),
+    'it checks the choice before anything about dates: a guard that runs later is a guard that ran too late',
+  )
+
+  // 3. No history means no derived past start date. Deriving one anyway would
+  //    hand the same date to the backfill and to the forward projection.
+  assert.match(src, /const willRecordHistory = branch === "already" && historyRequested\(row\)/)
+  assert.match(src, /willRecordHistory\s*\?\s*derivedStart/)
+
+  // 4. Invariant 21 asks whether everything the family says is done can be
+  //    recorded. A row recording nothing is not saying anything is done, so it
+  //    is not judged, and the pre-flight and the phase 2 backstop must agree
+  //    about that, or the looser one lets a save through the other refuses.
+  assert.match(src, /historyRequested\(r\) &&\s*\n\s*!!r\.start_date/)
+})
+
+test('only a curriculum that is not saved yet can ask for its history, and every reader asks the same predicate', () => {
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+
+  // A saved goal cannot honour a yes: the rows between its old position and
+  // the new one are held behind the pointer (Invariant 23) and the backfill
+  // skips any lesson number that already has a row. So yes is new-rows-only,
+  // and a new row reloads as saved after its first save, which is what makes
+  // the history land at most once.
+  const pred = extractFunctionBody(src, /function historyRequested\(row: Row\): boolean/)
+  assert.match(pred, /row\.record_history && row\.dbId == null && row\.start_at_lesson > 1/)
+
+  // Five readers, one predicate: the preview, the derived start date, the
+  // Invariant 21 pre-flight, the backfill and the sentence.
+  const uses = src.match(/historyRequested\((row|r)\)/g) ?? []
+  assert.ok(uses.length >= 6, `expected every reader to go through historyRequested, found ${uses.length}`)
+
+  // Outside the predicate, the raw flag is only ever read by the control that
+  // sets it. Anything else reading it directly would bypass the new-rows rule.
+  const rawReads = (src.match(/\brow\.record_history\b|\br\.record_history\b/g) ?? []).length
+  const controlReads = (src.match(/checked=\{!?row\.record_history\}/g) ?? []).length
+  const hintRead = (src.match(/\{row\.record_history \? \(/g) ?? []).length
+  assert.equal(rawReads, 1 + controlReads + hintRead, 'no reader bypasses historyRequested')
+
+  // The question is only drawn for a row that can honour it.
+  assert.match(src, /\{row\.dbId == null && row\.start_at_lesson > 1 \? \(/)
+  // A saved goal's sentence says its lessons won't be marked done: they stay
+  // in the book as unfinished rows, so "won't be added" would not be true.
+  assert.match(src, /savedGoal: row\.dbId != null,/)
+  // The builder sends a saved goal to "I'm actually on..." to mark the gap
+  // done, so the form must count from the SAVED position. Counting from an
+  // unsaved typed number would hide the very question it was sent to answer.
+  const panel = extractFunctionBody(src, /function rowToPanelGoal\(row: Row\): PanelGoal/)
+  assert.match(panel, /current_lesson: row\.dbId \? completedThrough\(row\)/)
+  assert.match(src, /alreadyRecorded: completedThrough\(row\),/)
+})
+
+test('a stale Schedule Builder tab or draft cannot write an old starting lesson back', () => {
+  // After "I'm actually on 19" with No, start_at_lesson is the only thing
+  // holding the pointer. Every builder save writes every curriculum row, so a
+  // tab opened before the move (or a draft written before it) that wrote its
+  // old 11 back would drop the pointer to 10, and phase 2 would regenerate
+  // lessons 11 to 18: the move undone by a save about something else.
+  const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
+
+  const touched = extractFunctionBody(src, /function startAtLessonTouched\(row: Row\): boolean/)
+  assert.match(touched, /row\.start_at_lesson_initial == null \|\| row\.start_at_lesson !== row\.start_at_lesson_initial/)
+
+  // The UPDATE sends start_at_lesson only when this session changed it.
+  const save = extractFunctionBody(src, /async function handleSave\s*\(/)
+  assert.match(save, /const updatePayload: Partial<typeof payload> = \{ \.\.\.payload \};\s*if \(!startAtLessonTouched\(row\)\) delete updatePayload\.start_at_lesson;/)
+  assert.match(save, /\.from\("curriculum_goals"\)\s*\.update\(updatePayload\)/)
+  assert.doesNotMatch(save, /\.from\("curriculum_goals"\)\s*\.update\(payload\)/, 'no UPDATE sends the unguarded payload')
+
+  // A restored draft keeps its own number only if the draft changed it.
+  const carry = extractFunctionBody(src, /function carryDbFieldsOntoDraftRow\(draftRow: Row, freshRow: Row\): Row/)
+  assert.match(carry, /start_at_lesson: startAtLessonTouched\(draftRow\)\s*\?\s*draftRow\.start_at_lesson\s*:\s*freshRow\.start_at_lesson,/)
+})
+
+test('a saved goal moving forward is told only about the lessons in between', () => {
+  const h = deriveHistoryFromNextLesson({
+    nextLesson: 46,
+    schoolDays: MON_FRI,
+    lessonsPerDay: 1,
+    throughYmd: '2026-09-11',
+  })
+  // Ten real lessons are already done. Saying "Lessons 1 to 45" would tell the
+  // family their real work is being left out.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 46,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+      alreadyRecorded: 10,
+      savedGoal: true,
+    }),
+    "Lessons 11 to 45 won't be marked done. " +
+      'You start on lesson 46, up Monday, Sep 14.',
+  )
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 46,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+      alreadyRecorded: 44,
+      savedGoal: true,
+    }),
+    "Lesson 45 won't be marked done. " +
+      'You start on lesson 46, up Monday, Sep 14.',
+  )
+  // Nothing in between: say nothing about history at all.
+  assert.equal(
+    nextLessonSentence({
+      history: h,
+      nextLesson: 46,
+      nextLessonDate: '2026-09-14',
+      todayYmd: '2026-09-11',
+      alreadyRecorded: 45,
+      savedGoal: true,
+    }),
+    'You start on lesson 46, up Monday, Sep 14.',
+  )
+})
+
 test('the builder routes unclaimed rows to the stored line and skips the walk for them', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   // Same predicate as the pre-flight and the derived-date sync.
   assert.match(src, /const claimed = invariant21ClaimChanged\(row\)/)
   // The walk is skipped entirely for an unclaimed row.
-  assert.match(src, /!claimed\s*\?\s*\{ dates: \[\], schoolDayCount: 0, lastLesson: 0, truncated: false \}/)
+  assert.match(
+    src,
+    /!claimed \|\| !willRecordHistory\s*\?[\s\S]{0,400}?\{ dates: \[\], schoolDayCount: 0, lastLesson: 0, truncated: false \}/,
+  )
   // And both surfaces read the stored line for it.
   assert.match(src, /sched\.claimed\s*\?\s*previewLessonLine\(\{/)
   assert.match(src, /storedProgressLine\(\{/)

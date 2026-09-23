@@ -10,6 +10,7 @@ import { buildActivitiesByDate } from "./activityOccurrences";
 import { orderDayLessons, groupDayLessonsByChild, lessonStartTime, formatStartTime, goalsById } from "./dayOrder";
 import { useIsMobile } from "./useIsMobile";
 import { lessonRowTitle } from "./lessonTitle";
+import { removedCurriculumName, type RemovalContext } from "@/lib/progress-report-rows";
 
 /* WeekListView. Renders all 7 days of the current week (Mon..Sun) expanded
  * vertically. Card visual style matches V1 (light child-color tint, full
@@ -52,6 +53,8 @@ type Props = {
   activities: PlanV2Activity[];
   vacationBlocks: PlanV2Vacation[];
   curriculumGoals: Goal[];
+  /** What the family's records establish about removed curricula. */
+  removal?: RemovalContext | null;
   loading: boolean;
   isPartner: boolean;
   onMoveLesson: (lessonId: string, targetDate: string) => void | Promise<void>;
@@ -87,7 +90,7 @@ type Props = {
 export default function WeekListView(props: Props) {
   const {
     weekStart, todayStr, kids, lessons, appointments, activities, vacationBlocks,
-    curriculumGoals, loading, isPartner,
+    curriculumGoals, removal, loading, isPartner,
     onMoveLesson, onLessonClick, onAppointmentClick, onActivityClick,
     onSkipLesson, onRescheduleLesson, onEditLesson, onToggleLessonDone,
     onAddLessonForDay, onMarkBreakForDay, onDayAdd,
@@ -361,6 +364,8 @@ export default function WeekListView(props: Props) {
                       title: l.title,
                       subject: subjectRaw,
                       curriculumName: goal?.curriculum_name,
+                      removedCurriculum: removedCurriculumName(l, removal),
+                      completed: l.completed,
                     });
                     const startTime = formatStartTime(lessonStartTime(l, goalMap));
                     // The publisher moves to the second line, with the child

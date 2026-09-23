@@ -21,7 +21,7 @@ import {
   type PerDayShape,
 } from "@/app/lib/builder-pace";
 import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, type PinnableRow, type PinnedSlot, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
-import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
+import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
@@ -106,6 +106,22 @@ type Row = {
   // straight back to "Already into it" and moved the family off the branch
   // they had just chosen.
   where_branch: WhereBranch | null;
+  // Under "Already into it": should Rooted write the earlier lessons as DONE?
+  //
+  // Answering "I am on lesson 46" says where the family is. It does not say
+  // that Rooted holds the first 45 lessons, and it used to be read as though
+  // it did: the save derived a past start date from the number and wrote 45
+  // completed, backfilled rows with minutes, which land on reports as hours
+  // nobody logged. A family setting the same book up twice while finding
+  // their way got two sets of them.
+  //
+  // So it is asked now, and the default is NO. Saying yes is how genuine prior
+  // work gets recorded, and only then is a past start date derived, only then
+  // does the backfill run, and only then does the Invariant 21 refusal have
+  // anything to weigh. Transient row state, never a column: an existing row
+  // loads as false, so re-saving an untouched curriculum can never invent a
+  // second copy of its history.
+  record_history: boolean;
   // curriculum_goals.current_lesson as loaded. Null for never-saved rows.
   // The Invariant 21 pre-flight needs to know where progress stands BEFORE
   // phase 1 writes, and start_at_lesson alone cannot say: the pre-fill seeds
@@ -243,6 +259,7 @@ function blankRow(child_id: string, type: RowType): Row {
     progress_confirmed: false,
     start_date_is_manual: false,
     where_branch: null,
+    record_history: false,
     _dbCurrentLesson: null,
     emoji: type === "curriculum" ? "" : type === "coop" ? COOP_DEFAULT_EMOJI : ACTIVITY_DEFAULT_EMOJI,
     readOnly: false,
@@ -321,6 +338,7 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     // theirs until they switch branches.
     start_date_is_manual: g.start_date != null,
     where_branch: null,
+    record_history: false,
     _dbCurrentLesson: g.current_lesson ?? 0,
     emoji: "",
     readOnly: false,
@@ -395,6 +413,7 @@ function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
     progress_confirmed: false,
     start_date_is_manual: false,
     where_branch: null,
+    record_history: false,
     _dbCurrentLesson: null,
     emoji: fallbackEmoji,
     readOnly,
@@ -547,6 +566,26 @@ function invariant21ClaimChanged(row: Row): boolean {
   if (scheduleFieldsChangedForRow(row)) return true;
   // The starting position is the claim itself, and it is not a schedule field.
   return row.start_at_lesson_initial != null && row.start_at_lesson !== row.start_at_lesson_initial;
+}
+
+/**
+ * Is this save going to write the lessons before the starting lesson as DONE?
+ *
+ * Only when the family said yes, and only for a curriculum that is not on disk
+ * yet. On a saved goal a "yes" could not do what it says: the unfinished rows
+ * between the old position and the new one are held behind the pointer and
+ * never deleted (Invariant 23), and the backfill skips every lesson number that
+ * already has a row, so the confirmation would promise history the save never
+ * writes. Existing goals record a gap through "I'm actually on..." instead,
+ * which completes those rows in place.
+ *
+ * Every reader goes through this: the derived start date, the Invariant 21
+ * pre-flight, the backfill that writes `completed: true`, the sentence, and the
+ * control itself. A new row writes its history at most once by construction:
+ * after the save it reloads as a saved goal, where this is false.
+ */
+function historyRequested(row: Row): boolean {
+  return row.record_history && row.dbId == null && row.start_at_lesson > 1;
 }
 
 function activeDayIndices(row: Row): number[] {
@@ -711,12 +750,18 @@ function rowScheduleFor(
   // that is what the save writes: reading the walk here said "Sep 7 through
   // today" while the save dated the same lessons from the typed Aug 1, so the
   // confirmation contradicted the thing it was confirming.
-  const stated = branch === "fresh" ? 0 : nextLesson - 1;
+  // "Already into it" says WHERE the family is. Only `record_history` says
+  // Rooted should write the lessons before it down as done. The number alone
+  // used to mean both, so a family placing their starting point was given
+  // completed lessons and report hours they never logged.
+  const willRecordHistory = branch === "already" && historyRequested(row);
+  const stated = willRecordHistory ? nextLesson - 1 : 0;
   const typedStart = row.start_date_is_manual ? row.start_date : null;
   const history: DerivedHistory =
-    !claimed
-      ? // Nothing derived, and nothing claimed. The caller reads
-        // `storedProgressLine` for this row instead.
+    !claimed || !willRecordHistory
+      ? // Nothing to lay down: either nothing is claimed (the caller reads
+        // `storedProgressLine` for this row instead), or the family is
+        // starting at their lesson without filling in what came before.
         { dates: [], schoolDayCount: 0, lastLesson: 0, truncated: false }
       : typedStart && stated > 0
       ? (() => {
@@ -742,7 +787,10 @@ function rowScheduleFor(
           };
         })()
       : deriveHistoryFromNextLesson({
-          nextLesson: branch === "fresh" ? 1 : nextLesson,
+          // Only reachable while willRecordHistory holds, which already means
+          // the "already into it" branch, so there is no "fresh" case left to
+          // fold in here.
+          nextLesson,
           schoolDays: school_days,
           lessonsPerDay: lessons_per_day,
           lessonsPerDayOverrides: lessons_per_day_overrides,
@@ -764,12 +812,15 @@ function rowScheduleFor(
     vacations,
   }).startDate;
 
-  // A typed date is the family's; a derived one follows the walk.
+  // A typed date is the family's; a derived one follows the walk. The walk is
+  // only consulted when history is actually being written: deriving a past
+  // start date for a family who declined it would date the forward queue from
+  // a day they never asked for, and the backfill reads the same field.
   const effectiveStartDate = !claimed
     ? (row.start_date ?? undefined)
     : row.start_date_is_manual && row.start_date
       ? row.start_date
-      : branch === "already"
+      : willRecordHistory
         ? derivedStart
         : (row.start_date ?? undefined);
 
@@ -982,6 +1033,11 @@ function rowIsValid(row: Row): boolean {
  * `start_at_lesson_initial` is the DB's `current_lesson + 1` at load time; a
  * never-saved row has no progress to protect.
  */
+function startAtLessonTouched(row: Row): boolean {
+  // A never-saved row has no baseline, so its number is always the family's.
+  return row.start_at_lesson_initial == null || row.start_at_lesson !== row.start_at_lesson_initial;
+}
+
 function completedThrough(row: Row): number {
   return row.start_at_lesson_initial != null ? row.start_at_lesson_initial - 1 : 0;
 }
@@ -1049,6 +1105,14 @@ function carryDbFieldsOntoDraftRow(draftRow: Row, freshRow: Row): Row {
   if (freshRow.readOnly) return freshRow;
   return {
     ...draftRow,
+    // The starting lesson is the draft's only if the draft CHANGED it. A draft
+    // that left it alone carries whatever it was when the draft was written,
+    // and restoring that next to the fresh start_at_lesson_initial below would
+    // read as the family typing the old number: "I'm actually on 19" made in
+    // the meantime would be written back to 11 by the next save.
+    start_at_lesson: startAtLessonTouched(draftRow)
+      ? draftRow.start_at_lesson
+      : freshRow.start_at_lesson,
     previouslySavedAs: freshRow.previouslySavedAs,
     readOnly: freshRow.readOnly,
     readOnlyReason: freshRow.readOnlyReason,
@@ -1796,7 +1860,15 @@ export default function ScheduleBuilderPage() {
       if (!invariant21ClaimChanged(r)) continue;
       const sched = schedByLocalId.get(r.localId);
       if (!sched) continue;
-      const derived = sched.branch === "already" ? (sched.history.startDate ?? null) : r.start_date;
+      // Only a row that is actually writing history gets a derived date. The
+      // walk exists to say "your first lesson was N school days ago", which is
+      // a statement about history; a family who is only placing their starting
+      // point keeps whatever start date the goal already had (usually none,
+      // which is what sends the forward queue past today per Invariant 1).
+      const derived =
+        sched.branch === "already" && historyRequested(r)
+          ? (sched.history.startDate ?? null)
+          : r.start_date;
       if (derived !== r.start_date) patches.set(r.localId, derived);
     }
     if (patches.size === 0) return;
@@ -2056,6 +2128,14 @@ export default function ScheduleBuilderPage() {
         r.type === "curriculum" &&
         !r.pendingDelete &&
         !r.readOnly &&
+        // Invariant 21 asks "can Rooted record everything this family says is
+        // done". A row that is not writing history is not saying anything is
+        // done, so there is nothing to fit and nothing to lose: the refusal
+        // has no subject. This is also the escape for a family whose progress
+        // genuinely cannot fit between any start date and today (on lesson 182
+        // after one school day): they can now place themselves there instead
+        // of being refused with no way forward.
+        historyRequested(r) &&
         !!r.start_date &&
         r.start_date < saveTodayStr &&
         !!r.total_lessons &&
@@ -2385,9 +2465,20 @@ export default function ScheduleBuilderPage() {
 
           if (row.previouslySavedAs === "curriculum_goals" && row.dbId) {
             // In-place UPDATE, preserving legacy fields the builder doesn't expose.
+            //
+            // start_at_lesson is written only when the family changed it in
+            // THIS session. It is what holds the pointer after "I'm actually on
+            // lesson 19" with No (recompute_curriculum_current_lesson floors on
+            // it), and every save writes every curriculum row, so a tab opened
+            // before that move, saving anything at all, would write the old 11
+            // back: the pointer falls to 10 and phase 2 deletes and regenerates
+            // lessons 11 to 18. The move silently undone. An untouched number
+            // is left as the database has it.
+            const updatePayload: Partial<typeof payload> = { ...payload };
+            if (!startAtLessonTouched(row)) delete updatePayload.start_at_lesson;
             const { error } = await supabase
               .from("curriculum_goals")
-              .update(payload)
+              .update(updatePayload)
               .eq("id", row.dbId);
             if (error) throw error;
             localCurriculumIds.add(row.dbId);
@@ -2837,6 +2928,14 @@ export default function ScheduleBuilderPage() {
         // below the call for why returning is the only safe answer.
         let unclaimedShortfall: string | null = null;
         const planHistoricalBackfill = () => {
+          // The family has to ASK for their earlier lessons to be written down
+          // (Row.record_history). Answering "I am on lesson 46" places them in
+          // the book; it does not assert that Rooted holds the 45 before it,
+          // and writing those rows put hours on reports nobody logged. Guarded
+          // here as well as at the derivation, because this is the function
+          // that actually writes `completed: true` and Invariant 15 says that
+          // claim belongs to a person.
+          if (!historyRequested(row)) return [];
           if (!row.start_date || row.start_date >= ymdToday || currentLesson <= 0) return [];
           const startMid = new Date(`${row.start_date}T00:00:00`);
           // Project from start_date with current_lesson=0 +
@@ -3829,10 +3928,16 @@ export default function ScheduleBuilderPage() {
   // ── Immediate row actions (recalibrate + mark finished) ─────────────────
   // Both bypass the pending-delete Save flow because they're destructive
   // edits the user expects to apply right now: "I'm actually on lesson X"
-  // re-anchors the queue + backfills gap dates, and "Mark as finished"
+  // re-anchors the queue (and writes the gap as done only when the family
+  // says yes to that in the form), and "Mark as finished"
   // archives the goal so it drops off Today + Plan. Local row state syncs
   // afterward so the page reflects the new DB truth without a reload.
-  async function handleRowRecalibrate(localId: string, newCurrentLesson: number) {
+  async function handleRowRecalibrate(
+    localId: string,
+    newCurrentLesson: number,
+    recordHistory: boolean,
+    confirmedLessonIds: readonly string[],
+  ) {
     setRowActionError(null);
     try {
       if (!effectiveUserId) throw new Error("Not signed in");
@@ -3851,6 +3956,8 @@ export default function ScheduleBuilderPage() {
         goalId: row.dbId,
         newCurrentLesson,
         vacationBlocks: vacations,
+        recordHistory,
+        confirmedLessonIds,
       });
       void logPlanEvent({
         userId: effectiveUserId,
@@ -3861,6 +3968,7 @@ export default function ScheduleBuilderPage() {
           action: "recalibrate",
           new_current_lesson: result.clamped,
           gap_count: result.gapCount,
+          record_history: result.recordedHistory,
         },
       });
       // Sync local row to match the DB truth without marking dirty — the
@@ -3887,6 +3995,10 @@ export default function ScheduleBuilderPage() {
         );
       }
     } catch (err) {
+      // The list the family agreed to changed before the write. Nothing was
+      // written; the form says so and keeps Save closed until it is reopened,
+      // so hand the refusal back to it rather than closing it here.
+      if (err instanceof RecalibrateListChangedError) throw err;
       const msg = (err as { message?: string })?.message ?? "Couldn't recalibrate.";
       setRowActionError(msg);
     }
@@ -4280,7 +4392,12 @@ function BuilderView(props: {
   setMenuOpenLocalId: (id: string | null) => void;
   recalibratingLocalId: string | null;
   setRecalibratingLocalId: (id: string | null) => void;
-  onRecalibrateRow: (localId: string, newCurrentLesson: number) => Promise<void>;
+  onRecalibrateRow: (
+    localId: string,
+    newCurrentLesson: number,
+    recordHistory: boolean,
+    confirmedLessonIds: readonly string[],
+  ) => Promise<void>;
   onMarkFinishedRow: (localId: string) => Promise<void>;
   rowActionError: string | null;
   onDismissRowActionError: () => void;
@@ -4392,7 +4509,8 @@ function BuilderView(props: {
                   recalibrating={props.recalibratingLocalId === row.localId}
                   onOpenRecalibrate={() => props.setRecalibratingLocalId(row.localId)}
                   onCloseRecalibrate={() => props.setRecalibratingLocalId(null)}
-                  onRecalibrate={(newValue) => props.onRecalibrateRow(row.localId, newValue)}
+                  onRecalibrate={(newValue, recordHistory, confirmedLessonIds) =>
+                    props.onRecalibrateRow(row.localId, newValue, recordHistory, confirmedLessonIds)}
                   onMarkFinished={() => props.onMarkFinishedRow(row.localId)}
                 />
               ))}
@@ -4498,7 +4616,7 @@ function RowCard(props: {
   recalibrating: boolean;
   onOpenRecalibrate: () => void;
   onCloseRecalibrate: () => void;
-  onRecalibrate: (newCurrentLesson: number) => Promise<void>;
+  onRecalibrate: (newCurrentLesson: number, recordHistory: boolean, confirmedLessonIds: readonly string[]) => Promise<void>;
   onMarkFinished: () => Promise<void>;
 }) {
   const { row } = props;
@@ -4615,6 +4733,13 @@ function RowCard(props: {
           nextLesson: sched.nextLesson,
           nextLessonDate: sched.nextLessonDate,
           todayYmd: props.todayStr,
+          // The sentence describes the save that is actually queued up, so it
+          // reads the same choice the save reads.
+          recordHistory: historyRequested(row),
+          // A saved goal already holds its completed lessons. Only the ones
+          // between that and the new position are being left out.
+          alreadyRecorded: completedThrough(row),
+          savedGoal: row.dbId != null,
         })
       : "";
 
@@ -5124,6 +5249,68 @@ function RowCard(props: {
                 />
               </div>
 
+              {/* Does Rooted write the lessons BEFORE that number down as
+                  done? The number says where the family is; it has never said
+                  what Rooted holds, and reading it as both is what put hours
+                  on reports nobody logged. Default no, so the answer that adds
+                  nothing is the answer they get by not deciding. */}
+              {row.dbId == null && row.start_at_lesson > 1 ? (
+                <div className="mt-2 rounded-lg border border-[#e8e2d9] bg-[#faf8f4] px-2.5 py-2">
+                  <p className="text-[12px] text-[#7a6f65] mb-1.5">
+                    {row.start_at_lesson === 2
+                      ? "Did you do lesson 1 in Rooted?"
+                      : `Should Rooted fill in lessons 1 to ${row.start_at_lesson - 1} as done?`}
+                  </p>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`history-${row.localId}`}
+                      checked={!row.record_history}
+                      disabled={isReadOnly}
+                      onChange={() => props.onPatchRow(row.localId, { record_history: false })}
+                      className="mt-[3px] accent-[#2D5A3D]"
+                    />
+                    <span className="text-[13px] text-[#2D2A26]">
+                      No, just start me on lesson {row.start_at_lesson}
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer mt-1">
+                    <input
+                      type="radio"
+                      name={`history-${row.localId}`}
+                      checked={row.record_history}
+                      disabled={isReadOnly}
+                      onChange={() => props.onPatchRow(row.localId, { record_history: true })}
+                      className="mt-[3px] accent-[#2D5A3D]"
+                    />
+                    <span className="text-[13px] text-[#2D2A26]">
+                      Yes, add them to our records
+                    </span>
+                  </label>
+                  {row.record_history ? (
+                    <p className="mt-1.5 ml-6 text-[12px] text-[#7a6f65] leading-relaxed">
+                      Each one counts as {row.minutes_per_lesson ?? 30} minutes on your
+                      reports, from the minutes above.
+                    </p>
+                  ) : null}
+
+              {/* A saved goal has no yes/no here (see historyRequested), so it
+                  says where the yes lives instead: "I'm actually on..."
+                  completes the rows in between in place, which is the only
+                  way a saved goal's gap can be written without duplicating
+                  or skipping anything. */}
+              {row.dbId != null &&
+              sched.claimed &&
+              row.start_at_lesson - 1 > completedThrough(row) ? (
+                <p className="mt-1.5 text-[12px] text-[#7a6f65] leading-relaxed">
+                  To mark {row.start_at_lesson - 1 - completedThrough(row) === 1 ? "it" : "them"} done,
+                  use &ldquo;I&apos;m actually on...&rdquo; in this curriculum&apos;s menu instead of
+                  saving this number.
+                </p>
+              ) : null}
+                </div>
+              ) : null}
+
               {sched.overflow ? (
                 <p className="mt-2 text-[12px] text-[#9a3a3a] leading-relaxed">
                   {sched.overflow}
@@ -5136,8 +5323,14 @@ function RowCard(props: {
 
               {/* The start date is derived, not typed, until the family asks
                   for it. Once they type one it is theirs and is never silently
-                  re-derived. */}
-              {row.start_date_is_manual ? (
+                  re-derived.
+
+                  Only shown while history is being written. Without history
+                  the date decides nothing a family can see: the forward queue
+                  starts after today either way (Invariant 1), and offering a
+                  control that changes nothing is how the old screen came to
+                  ask the same fact three ways. */}
+              {historyRequested(row) && row.start_date_is_manual ? (
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <span className="text-[12px] text-[#7a6f65]">Start date</span>
                   <input
@@ -5247,10 +5440,16 @@ function RowCard(props: {
  * Builds a PanelGoal-shaped object from a Row so RecalibrateForm — which
  * was written against the Plan curriculum panel's CurriculumGoal type — can
  * be reused verbatim. Only the fields the form actually reads are filled
- * (id, total_lessons, current_lesson). The form derives its default value
- * from current_lesson + 1, so passing start_at_lesson - 1 keeps the
- * round-trip idempotent: re-opening the form after a save shows mom's
- * last entered value.
+ * (id, total_lessons, current_lesson).
+ *
+ * current_lesson is the SAVED position (completedThrough), not the number the
+ * family may have typed into the row and not saved. The form asks "Should
+ * Rooted mark lessons {current + 1} to {X - 1} as done?" and the recalibration
+ * completes exactly the lessons after the saved position, so feeding it an
+ * unsaved number would hide the question from the family the builder just sent
+ * here to answer it. handleRowRecalibrate moves start_at_lesson_initial to the
+ * new lesson, so re-opening the form after a save still shows the value just
+ * entered.
  */
 function rowToPanelGoal(row: Row): PanelGoal {
   return {
@@ -5259,7 +5458,7 @@ function rowToPanelGoal(row: Row): PanelGoal {
     curriculum_name: row.name,
     subject_label: row.subject || null,
     total_lessons: row.total_lessons ?? 0,
-    current_lesson: Math.max(0, row.start_at_lesson - 1),
+    current_lesson: row.dbId ? completedThrough(row) : Math.max(0, row.start_at_lesson - 1),
     lessons_per_day: 1,
     target_date: null,
     school_days: null,

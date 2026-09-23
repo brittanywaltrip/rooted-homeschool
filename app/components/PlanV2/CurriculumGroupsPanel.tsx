@@ -6,6 +6,14 @@ import type { PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
 import { computeFinishDate, type QueueHold, type VacationBlock as SchedulerVacationBlock } from "@/app/lib/scheduler";
+import {
+  ESTIMATE_REPORT_MINUTES,
+  formatAddedTime,
+  formatLessonList,
+  planRecalibrateGap,
+  type RecalibrateGapRow,
+} from "@/app/lib/recalibrate";
+import { supabase } from "@/lib/supabase";
 // Ordering + month grouping for the expanded lesson list. Extracted so the
 // sort and the run-length grouper are covered by lessonListSort.test.ts.
 // They are only correct as a pair, and that file explains why.
@@ -183,7 +191,12 @@ export interface CurriculumGroupsPanelProps {
   recalibratingGoalId: string | null;
   /** Receives the new value mom typed. Parent runs the curriculum_goals
    *  UPDATE (current_lesson + start_at_lesson) and reloads. */
-  onRecalibrate: (goal: CurriculumGoal, newCurrentLesson: number) => Promise<void>;
+  onRecalibrate: (
+    goal: CurriculumGoal,
+    newCurrentLesson: number,
+    recordHistory: boolean,
+    confirmedLessonIds: readonly string[],
+  ) => Promise<void>;
   /** Cancels an in-progress recalibration without saving. */
   onCloseRecalibrate: () => void;
 }
@@ -446,7 +459,8 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                   <div className="px-4 pb-3 bg-[#f0f7f1] border-t border-[#c5dbc9]">
                     <RecalibrateForm
                       goal={goal}
-                      onSubmit={(newValue) => onRecalibrate(goal, newValue)}
+                      onSubmit={(newValue, recordHistory, confirmedLessonIds) =>
+                        onRecalibrate(goal, newValue, recordHistory, confirmedLessonIds)}
                       onClose={onCloseRecalibrate}
                     />
                   </div>
@@ -553,7 +567,12 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
 
 export function RecalibrateForm(props: {
   goal: CurriculumGoal;
-  onSubmit: (newCurrentLesson: number) => Promise<void>;
+  /**
+   * `confirmedLessonIds` is the list the family was shown for a Yes, and the
+   * write refuses unless its own fresh read produces exactly that list. Empty
+   * on No.
+   */
+  onSubmit: (newCurrentLesson: number, recordHistory: boolean, confirmedLessonIds: readonly string[]) => Promise<void>;
   onClose: () => void;
 }) {
   const { goal, onSubmit, onClose } = props;
@@ -566,6 +585,56 @@ export function RecalibrateForm(props: {
   const cap = goal.total_lessons > 0 ? goal.total_lessons : undefined;
   const clampedDefault = cap != null ? Math.min(cap, defaultDisplayValue) : defaultDisplayValue;
   const [value, setValue] = useState<string>(String(clampedDefault));
+  // Should the unfinished lessons below the new position be written down as
+  // done? Moving the pointer says where the family is; it does not say Rooted
+  // holds the lessons in between, and writing them as done put hours on
+  // reports nobody logged. Default NO, the same default as the Schedule
+  // Builder's "Already into it" question.
+  const [recordHistory, setRecordHistory] = useState(false);
+  const typed = Number(value);
+  const oldCountDone = Math.max(0, goal.current_lesson ?? 0);
+
+  // The question names exactly the lessons a Yes would mark done, so it reads
+  // the goal's unfinished lessons and asks planRecalibrateGap, the same rule
+  // the recalibration writes with. A lesson the family pinned keeps its day and
+  // a skipped one is never counted, so "lessons 11 to 18" would overstate both
+  // the lessons and the hours. Read once when the form opens.
+  const [gapRows, setGapRows] = useState<RecalibrateGapRow[] | null>(null);
+  const [gapReadFailed, setGapReadFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const { data, error: readErr } = await supabase
+        .from("lessons")
+        .select("id, lesson_number, queue_position, queue_pinned, skipped, completed")
+        .eq("curriculum_goal_id", goal.id)
+        .eq("completed", false)
+        .gt("lesson_number", oldCountDone);
+      if (cancelled) return;
+      if (readErr) setGapReadFailed(true);
+      else setGapRows((data ?? []) as RecalibrateGapRow[]);
+    })();
+    return () => { cancelled = true; };
+  }, [goal.id, oldCountDone]);
+
+  const plan = useMemo(
+    () =>
+      gapRows && Number.isInteger(typed)
+        ? planRecalibrateGap(gapRows, oldCountDone, typed)
+        : null,
+    [gapRows, oldCountDone, typed],
+  );
+  const toMarkDone = (plan?.toComplete ?? []).map((r) => r.lesson_number!).filter((n) => n != null);
+  const keptPinned = (plan?.keptPinned ?? []).map((r) => r.lesson_number!).filter((n) => n != null);
+  const checking = gapRows === null && !gapReadFailed;
+  // Only asked when a Yes would mark something done.
+  const asksAboutHistory = toMarkDone.length > 0;
+  // Save is closed while the lessons are being read, when they could not be
+  // read (the family would be answering a question they were never shown), and
+  // after the write refused because the list changed underneath the form: the
+  // list on screen is stale, and only reopening shows the current one.
+  const [listChanged, setListChanged] = useState(false);
+  const saveBlocked = checking || gapReadFailed || listChanged;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -584,12 +653,15 @@ export function RecalibrateForm(props: {
       setError(`Lesson must be at most ${goal.total_lessons}.`);
       return;
     }
+    if (saveBlocked) return;
     setSubmitting(true);
     setError(null);
+    const yes = asksAboutHistory && recordHistory;
     try {
-      await onSubmit(n);
+      await onSubmit(n, yes, yes ? (plan?.toComplete ?? []).map((r) => r.id) : []);
       onClose();
     } catch (e) {
+      if (e instanceof Error && e.name === "RecalibrateListChangedError") setListChanged(true);
       setError(e instanceof Error ? e.message : "Couldn't update the schedule.");
     } finally {
       setSubmitting(false);
@@ -626,6 +698,52 @@ export function RecalibrateForm(props: {
       <p className="text-[11px] text-[#5c7f63] leading-relaxed">
         This resets your position in the queue. Lessons you&apos;ve already logged stay in your history.
       </p>
+      {asksAboutHistory ? (
+        <div className="rounded-md border border-[#c5dbc9] bg-white px-2.5 py-2">
+          <p className="text-[11px] font-semibold text-[#2d4a36] mb-1">
+            {`Should Rooted mark ${formatLessonList(toMarkDone)} as done?`}
+          </p>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name={`recalibrate-history-${goal.id}`}
+              checked={!recordHistory}
+              onChange={() => setRecordHistory(false)}
+              className="mt-[2px] accent-[#2D5A3D]"
+            />
+            <span className="text-[12px] text-[#2D2A26]">No, just move me to lesson {typed}</span>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer mt-1">
+            <input
+              type="radio"
+              name={`recalibrate-history-${goal.id}`}
+              checked={recordHistory}
+              onChange={() => setRecordHistory(true)}
+              className="mt-[2px] accent-[#2D5A3D]"
+            />
+            <span className="text-[12px] text-[#2D2A26]">Yes, add them to our records</span>
+          </label>
+          <p className="mt-1 text-[11px] text-[#5c7f63] leading-relaxed">
+            {recordHistory
+              ? `They get estimated dates between your last logged lesson and yesterday, and add ${formatAddedTime(toMarkDone.length * ESTIMATE_REPORT_MINUTES)} to your hours (${ESTIMATE_REPORT_MINUTES} minutes each).`
+              : "Nothing is added to your records or your hours."}
+          </p>
+          {keptPinned.length > 0 ? (
+            <p className="mt-1 text-[11px] text-[#5c7f63] leading-relaxed">
+              {`${formatLessonList(keptPinned, true)} ${keptPinned.length === 1 ? "keeps the day you moved it" : "keep the days you moved them"} to.`}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      {checking ? (
+        <p className="text-[11px] text-[#5c7f63]">Checking your lessons...</p>
+      ) : null}
+      {gapReadFailed ? (
+        <p className="text-[11px] text-[#b91c1c]">
+          We couldn&apos;t check this curriculum&apos;s lessons, so this can&apos;t be saved right now.
+          Close it and try again.
+        </p>
+      ) : null}
       {error ? <p className="text-[11px] text-[#b91c1c]">{error}</p> : null}
       <div className="flex items-center gap-2 pt-1">
         <button
@@ -639,7 +757,7 @@ export function RecalibrateForm(props: {
         <button
           type="button"
           onClick={handleSave}
-          disabled={submitting}
+          disabled={submitting || saveBlocked}
           className="text-[11px] font-bold text-white bg-[#2D5A3D] hover:bg-[var(--g-deep)] rounded-lg px-3 py-1.5 transition-colors disabled:opacity-50"
         >
           {submitting ? "Saving…" : "Save"}

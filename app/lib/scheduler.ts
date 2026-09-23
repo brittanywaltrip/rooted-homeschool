@@ -3093,6 +3093,28 @@ export interface NextLessonSentenceArgs {
   nextLessonDate?: string;
   /** Today, so the sentence can say "today" instead of repeating the date. */
   todayYmd: string;
+  /**
+   * Is the save going to write the earlier lessons down as done?
+   *
+   * Default NO, which is the default of the control it mirrors. The sentence
+   * has to say which of the two things is about to happen, because they differ
+   * in what ends up on a family's reports, and the number they typed looks the
+   * same either way.
+   */
+  recordHistory?: boolean;
+  /**
+   * Lessons the goal already holds as done (a saved goal's current_lesson).
+   * Only the ones between this and the starting lesson are being left out, so
+   * a family on lesson 11 of a book moving to 46 reads "Lessons 11 to 45", not
+   * "Lessons 1 to 45", which would say their real work is being dropped.
+   */
+  alreadyRecorded?: number;
+  /**
+   * Is this a curriculum that is already saved? Its lessons in between exist
+   * as unfinished rows, so the true statement is that they won't be marked
+   * done, not that nothing is added: they stay in the book, unfinished.
+   */
+  savedGoal?: boolean;
 }
 
 /**
@@ -3108,6 +3130,29 @@ export interface NextLessonSentenceArgs {
 export function nextLessonSentence(a: NextLessonSentenceArgs): string {
   const { history, nextLesson, todayYmd } = a;
   const parts: string[] = [];
+
+  // Declining the history is the default, so it is the case the sentence has
+  // to state plainly: nothing is going on the family's reports, and the lesson
+  // they named is still where they start. Said in their terms ("your reports"),
+  // because hours appearing from nowhere is how this is noticed.
+  if (!a.recordHistory) {
+    const from = Math.max(0, a.alreadyRecorded ?? 0) + 1;
+    const to = nextLesson - 1;
+    if (to >= from) {
+      const earlier = from === to ? `Lesson ${from}` : `Lessons ${from} to ${to}`;
+      parts.push(
+        a.savedGoal
+          ? `${earlier} won't be marked done.`
+          : `${earlier} won't be added to your records or your hours.`,
+      );
+    }
+    if (a.nextLessonDate) {
+      const when =
+        a.nextLessonDate === todayYmd ? "today" : formatWeekdayLong(a.nextLessonDate);
+      parts.push(`You start on lesson ${nextLesson}, up ${when}.`);
+    }
+    return parts.join(" ");
+  }
 
   if (history.lastLesson > 0 && history.startDate && history.endDate) {
     const range =
@@ -4283,6 +4328,124 @@ export function planGoalDelete(rows: GoalDeleteRow[]): GoalDeletePlan {
     plan.deleteIds.push(r.id);
   }
   return plan;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Bulk delete on the Plan calendar (2026-09-22)
+ *
+ * THE DAMAGE. A family deleted six curricula on 2026-09-22 at 18:49. That went
+ * exactly as planGoalDelete above intends: her completed rows were kept, and
+ * the FK nulled their goal link. Seventy seconds later she selected those same
+ * kept rows on the Plan calendar and bulk-deleted them, in seven batches
+ * between 18:50:42 and 18:51:19. Thirty completed lessons, with their minutes
+ * and their dates, gone for good. It was the second time in five days that her
+ * completion history disappeared, and the first time we found out that the
+ * subject delete was not the thing destroying it.
+ *
+ * WHY SHE DID IT is the part worth keeping. A kept row is a row with no
+ * curriculum any more, and every calendar surface selects on scheduled_date
+ * without filtering `curriculum_goal_id is null`, so those rows keep rendering
+ * with no subject name against them. Preserved history looked like clutter,
+ * and the control next to it deleted without asking.
+ *
+ * THE RULE. The same one the rest of the app already follows everywhere else:
+ *
+ *   open      -> DELETED. Nothing a child did is recorded on them.
+ *   completed -> NOT deleted by the ordinary action. A person marked that
+ *                lesson done; the minutes are on the reports and there is no
+ *                soft delete, no tombstone and no undo past five seconds.
+ *                Removing it has to be asked for in its own words.
+ *
+ * Pure, so the rule is pinned by tests rather than by reading an async handler
+ * that also owns optimistic state, a deferred write and an undo timer.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface BulkDeleteRow {
+  id: string;
+  completed: boolean;
+}
+
+export interface BulkDeletePlan {
+  /** Unfinished rows. The ordinary action removes exactly these. */
+  deleteIds: string[];
+  /** Rows a person marked done. Never removed without being named first. */
+  completedIds: string[];
+}
+
+/**
+ * Split a bulk-delete selection into the part that is safe to remove and the
+ * part that is somebody's recorded work.
+ *
+ * The caller must treat a non-empty `completedIds` as a question to ask, not a
+ * list to act on. Deleting a completed lesson row takes its minutes out of
+ * Hours Logged, its notes with it, and detaches any photo attached to it
+ * (`memories.lesson_id` is ON DELETE SET NULL), none of which is recoverable.
+ */
+export function planBulkLessonDelete(rows: BulkDeleteRow[]): BulkDeletePlan {
+  const plan: BulkDeletePlan = { deleteIds: [], completedIds: [] };
+  for (const r of rows) {
+    if (r.completed) plan.completedIds.push(r.id);
+    else plan.deleteIds.push(r.id);
+  }
+  return plan;
+}
+
+export interface BulkDeleteConfirmCopy {
+  title: string;
+  body: string;
+  /** The primary button. The safe answer whenever one exists. */
+  confirmLabel: string;
+  cancelLabel: string;
+  /** Mixed selections only: the separate red answer that also deletes completed rows. */
+  altLabel: string | null;
+}
+
+/**
+ * Words for the bulk-delete confirm, singular and plural both. Pure so every
+ * count combination is pinned by a test. Any answer that removes a completed
+ * lesson says in plain words what goes with it: the day it was done, its
+ * minutes and notes, and its time on the reports.
+ */
+export function bulkDeleteConfirmCopy(openCount: number, doneCount: number): BulkDeleteConfirmCopy {
+  const one = doneCount === 1;
+  // `who` is the grammatical subject: "Deleting it", "Deleting the done ones too".
+  const loss = (who: string) => one
+    ? `${who} permanently removes the day it was done, its minutes and notes, and its time comes off your reports. This can't be undone.`
+    : `${who} permanently removes the days they were done, their minutes and notes, and their time comes off your reports. This can't be undone.`;
+
+  if (openCount === 0) {
+    return {
+      title: one ? "Delete 1 lesson you marked done?" : `Delete ${doneCount} lessons you marked done?`,
+      body: `You checked ${one ? "this lesson" : "these lessons"} off as done. ${loss(one ? "Deleting it" : "Deleting them")}`,
+      confirmLabel: one ? "Delete it anyway" : "Delete them anyway",
+      cancelLabel: one ? "Keep it" : "Keep them",
+      altLabel: null,
+    };
+  }
+
+  const total = openCount + doneCount;
+  const openPart = openCount === 1 ? "The other 1 is unfinished" : `The other ${openCount} are unfinished`;
+  return {
+    title: `Delete ${total} lessons?`,
+    body:
+      `${doneCount} ${one ? "lesson" : "lessons"} in this selection ${one ? "is" : "are"} marked done. ` +
+      `${openPart} and can go safely. ` +
+      loss(one ? "Deleting the done one too" : "Deleting the done ones too"),
+    confirmLabel: `Delete the ${openCount} unfinished`,
+    cancelLabel: "Cancel",
+    altLabel: `Delete all ${total}, including the ${doneCount} done and ${one ? "its" : "their"} report hours`,
+  };
+}
+
+/** What to tell the parent when a bulk delete did not fully happen, or null. */
+export function bulkDeleteFailureNotice(requested: number, deleted: number, failed: boolean): string | null {
+  if (!failed && deleted >= requested) return null;
+  if (deleted <= 0) {
+    return requested === 1
+      ? "Couldn't delete that lesson. Nothing was removed. Please try again."
+      : `Couldn't delete those ${requested} lessons. Nothing was removed. Please try again.`;
+  }
+  return `Only ${deleted} of ${requested} lessons were deleted. The rest are still on your plan. Please try again.`;
 }
 
 /**

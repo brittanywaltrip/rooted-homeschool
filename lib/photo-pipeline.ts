@@ -394,18 +394,172 @@ export async function preparePhoto(
  * two policy rejections.
  */
 export function isRetriableUploadFailure(err: unknown): boolean {
-  const status = (err as { status?: unknown; statusCode?: unknown } | null)?.status;
-  const numeric =
-    typeof status === "number"
-      ? status
-      : typeof status === "string" && /^\d+$/.test(status)
-        ? Number(status)
-        : null;
+  const numeric = httpStatusOf(err);
   // 408 request timeout, 425 too early, 429 rate limited, 5xx server side.
   if (numeric !== null) return numeric === 408 || numeric === 425 || numeric === 429 || numeric >= 500;
   // No HTTP status: the request never completed. That includes our own network
   // timeout, which rejects with UPLOAD_FAILED_MESSAGE and no status.
   return true;
+}
+
+function httpStatusOf(err: unknown): number | null {
+  const status = (err as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return status;
+  if (typeof status === "string" && /^\d+$/.test(status)) return Number(status);
+  return null;
+}
+
+function statusCodeOf(err: unknown): string | null {
+  const code = (err as { statusCode?: unknown } | null)?.statusCode;
+  return typeof code === "string" || typeof code === "number" ? String(code) : null;
+}
+
+/**
+ * "This path is already taken." Storage says it with a 409, or, on older
+ * servers, a 400 whose body statusCode is "409" / "Duplicate". With a stable
+ * path per photo this is not a failure to report: it usually means an earlier
+ * attempt for the SAME photo landed, and the verification step decides.
+ */
+function isAlreadyExists(err: unknown): boolean {
+  const status = httpStatusOf(err);
+  const code = statusCodeOf(err);
+  if (status === 409 || code === "409") return true;
+  const message = (err as { message?: unknown } | null)?.message;
+  return typeof message === "string" && /already exists|duplicate/i.test(message);
+}
+
+/**
+ * "There is no object at that path," as opposed to "I could not find out."
+ * Storage answers a missing object with a 404, or a 400 whose body carries
+ * statusCode "404" / "not_found". Anything else, including no answer at all,
+ * is NOT proof of absence.
+ */
+function isNotFound(err: unknown): boolean {
+  const status = httpStatusOf(err);
+  if (status === 404) return true;
+  if (status !== 400) return false;
+  const code = statusCodeOf(err);
+  if (code === "404" || code === "not_found") return true;
+  const message = (err as { message?: unknown } | null)?.message;
+  return typeof message === "string" && /not.?found/i.test(message);
+}
+
+/**
+ * Strip anything from an error message that must not reach Sentry: URLs
+ * (a signed URL carries its token in the query string), bearer tokens and
+ * JWT-shaped strings. Storage paths are left out of diagnostics entirely.
+ */
+export function redactUploadMessage(message: string): string {
+  return message
+    .replace(/https?:\/\/\S+/gi, "[url]")
+    .replace(/bearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/eyJ[\w-]+\.[\w-]+\.[\w-]+/g, "[jwt]")
+    .replace(/(token|apikey|signature|key)=[^&\s]+/gi, "$1=[redacted]")
+    .slice(0, 200);
+}
+
+/** What one upload attempt or verification said, safe to hand to Sentry. */
+export type UploadNote = {
+  step: "upload" | "verify";
+  status: number | null;
+  statusCode: string | null;
+  name: string | null;
+  message: string;
+};
+
+function noteFor(step: UploadNote["step"], err: unknown): UploadNote {
+  const name = (err as { name?: unknown } | null)?.name;
+  return {
+    step,
+    status: httpStatusOf(err),
+    statusCode: statusCodeOf(err),
+    name: typeof name === "string" ? name : null,
+    message: redactUploadMessage(describe(err)),
+  };
+}
+
+/**
+ * The three answers a verification can give. "absent" and "unverified" are
+ * deliberately different: absent means Storage looked and there is no object;
+ * unverified means we could not find out (no answer, a timeout, a refusal, or
+ * an object whose size does not match the bytes we sent).
+ */
+export type UploadVerification =
+  | { state: "present" }
+  | { state: "absent" }
+  | { state: "unverified"; reason: "no_answer" | "error" | "size_mismatch" | "no_size"; note?: UploadNote };
+
+/**
+ * Ask Storage, as the signed-in family, whether the object at `path` exists
+ * and is the file we sent. This goes through the same client and the same
+ * row-level security as the upload itself (the family's own-folder SELECT
+ * policy), so it can only ever see the family's own photos.
+ *
+ * Only a size match counts as "present". The object at this path can only
+ * have come from this pipeline for this photo, but a size check is what makes
+ * attaching it a verified act rather than an assumption.
+ */
+export async function verifyUploadedObject(
+  client: SupabaseClient,
+  path: string,
+  expectedBytes: number,
+): Promise<UploadVerification> {
+  let answer: { data: unknown; error: unknown };
+  try {
+    answer = await withNetworkTimeout(
+      client.storage.from(MEMORY_PHOTOS_BUCKET).info(path) as Promise<{ data: unknown; error: unknown }>,
+      "Storage verify",
+    );
+  } catch (thrown) {
+    return { state: "unverified", reason: "no_answer", note: noteFor("verify", thrown) };
+  }
+  if (answer.error) {
+    if (isNotFound(answer.error)) return { state: "absent" };
+    const note = noteFor("verify", answer.error);
+    return { state: "unverified", reason: note.status === null ? "no_answer" : "error", note };
+  }
+  const data = (answer.data ?? {}) as { size?: unknown; metadata?: { size?: unknown } | null };
+  const size = typeof data.size === "number" ? data.size : typeof data.metadata?.size === "number" ? data.metadata.size : null;
+  if (size === null) return { state: "unverified", reason: "no_size" };
+  if (size !== expectedBytes) return { state: "unverified", reason: "size_mismatch" };
+  return { state: "present" };
+}
+
+/**
+ * The save could not be confirmed. Carries the family-facing message every
+ * caller already shows, plus `outcome` and `diagnostics` for Sentry:
+ *
+ * - "rejected": Storage refused the upload (a status that is the server's
+ *   real answer, e.g. 403).
+ * - "absent": no answer to the upload, and Storage then confirmed there is no
+ *   object. Nothing landed.
+ * - "unverified": no answer to the upload, and we could not confirm either
+ *   way. The photo MAY have landed; Try again reuses the same path, so it
+ *   will be picked up rather than duplicated.
+ *
+ * `diagnostics` holds statuses, error names and redacted messages only: no
+ * storage path, no URL, no token, no photo bytes.
+ */
+export class UploadFailedError extends Error {
+  outcome: "rejected" | "absent" | "unverified";
+  diagnostics: {
+    outcome: "rejected" | "absent" | "unverified";
+    attempts: number;
+    reusedPath: boolean;
+    notes: UploadNote[];
+    verifications: string[];
+  };
+
+  constructor(
+    outcome: UploadFailedError["outcome"],
+    diagnostics: Omit<UploadFailedError["diagnostics"], "outcome">,
+    cause: unknown,
+  ) {
+    super(UPLOAD_FAILED_MESSAGE, { cause });
+    this.name = "UploadFailedError";
+    this.outcome = outcome;
+    this.diagnostics = { outcome, ...diagnostics };
+  }
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -435,6 +589,41 @@ async function attemptUpload(
 }
 
 /**
+ * A photo whose save has not been confirmed yet, keyed by the File the family
+ * picked. Every caller keeps that same File for Try again (Today's retry toast,
+ * the Quick photo sheet), so a second attempt finds this entry and reuses the
+ * SAME path and the SAME encoded bytes.
+ *
+ * That is what makes a late landing harmless. Supabase cannot cancel an upload
+ * in flight, so a request that timed out on the phone can still arrive: on
+ * 2026-09-22 one arrived 46 minutes later. With a fresh path per attempt, each
+ * late arrival was a second copy of the photo that no memory pointed at. With
+ * one path, whichever request lands first owns it, the other gets a 409, and
+ * verification attaches the one object exactly once.
+ *
+ * The entry is dropped the moment an upload is confirmed, so a later, separate
+ * save of the same File gets its own object and two memories never share one
+ * (deleting either memory would otherwise delete the other's photo).
+ */
+const unconfirmedUploads = new WeakMap<File, { path: string; prepared: PreparedPhoto }>();
+
+/**
+ * The part of a new photo's path that makes it unique. A millisecond timestamp
+ * plus the file name is not: two different photos both called "image.jpg"
+ * (what several pickers name every photo) can start in the same millisecond,
+ * and now that a path is kept and REUSED until confirmed, a shared path would
+ * let one photo's 409 verify against the other photo's object. Size alone
+ * cannot tell them apart. 122 random bits can.
+ */
+function uniquePathToken(): string {
+  const c = globalThis.crypto;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  const bytes = new Uint8Array(16);
+  c.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
  * Prepare a picked file and put it in the memory-photos bucket, returning the
  * signed URL and the natural dimensions the memories row records.
  *
@@ -442,7 +631,8 @@ async function attemptUpload(
  * app/dashboard/layout.tsx builds its own with createSupabaseBrowserClient().
  *
  * PhotoReadError from preparePhoto bubbles up untouched so the caller can show
- * its userMessage; an upload failure throws a plain Error instead.
+ * its userMessage; an upload that cannot be confirmed throws UploadFailedError,
+ * whose message is the same "Upload failed" copy families have always seen.
  */
 export async function uploadMemoryPhoto(
   client: SupabaseClient,
@@ -450,30 +640,85 @@ export async function uploadMemoryPhoto(
   file: File,
   onStage?: (stage: PhotoStage) => void,
 ): Promise<{ photoUrl: string; width: number; height: number }> {
-  const prepared = await preparePhoto(file, MEMORY_MAX_DIMENSION, onStage);
-
-  const safeName = prepared.file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+  let pending = unconfirmedUploads.get(file);
+  // A pending path belongs to the family that started it. A sign-out and a
+  // different sign-in in the same tab must not reuse it (their RLS would
+  // refuse it anyway).
+  if (pending && !pending.path.startsWith(`${userId}/`)) pending = undefined;
+  const reusedPath = pending !== undefined;
+  if (!pending) {
+    const prepared = await preparePhoto(file, MEMORY_MAX_DIMENSION, onStage);
+    const safeName = prepared.file.name.replace(/[^a-zA-Z0-9.-]/g, "_");
+    pending = { path: `${userId}/${Date.now()}-${uniquePathToken()}-${safeName}`, prepared };
+    unconfirmedUploads.set(file, pending);
+  }
+  const { path, prepared } = pending;
   onStage?.("uploading");
 
-  // Two attempts at most, and the second only for a failure that never got an
-  // answer. Each attempt gets its OWN path: upsert is false on purpose, so
-  // reusing the first path would turn a dropped connection whose bytes did land
-  // into a 409 and lose the photo a second time.
-  let path = `${userId}/${Date.now()}-${safeName}`;
-  let upErr = await attemptUpload(client, path, prepared.file);
-  if (upErr && isRetriableUploadFailure(upErr)) {
-    console.warn(`[photo-pipeline] upload attempt 1 failed, retrying: ${describe(upErr)}`);
-    await sleep(UPLOAD_RETRY_DELAY_MS);
-    path = `${userId}/${Date.now()}-${safeName}`;
-    upErr = await attemptUpload(client, path, prepared.file);
+  const notes: UploadNote[] = [];
+  const verifications: string[] = [];
+  let lastError: unknown = null;
+  let attempts = 0;
+  let confirmed = false;
+  let lastVerification: UploadVerification | null = null;
+
+  const verify = async () => {
+    lastVerification = await verifyUploadedObject(client, path, prepared.file.size);
+    verifications.push(
+      lastVerification.state === "unverified" ? `unverified:${lastVerification.reason}` : lastVerification.state,
+    );
+    if (lastVerification.state === "unverified" && lastVerification.note) notes.push(lastVerification.note);
+    return lastVerification;
+  };
+
+  // Two attempts at most, both at the same path.
+  while (attempts < 2 && !confirmed) {
+    attempts++;
+    const upErr = await attemptUpload(client, path, prepared.file);
+    if (!upErr) {
+      confirmed = true;
+      break;
+    }
+    lastError = upErr;
+    notes.push(noteFor("upload", upErr));
+
+    if (isAlreadyExists(upErr)) {
+      // Something is already at this photo's path: an earlier attempt that
+      // landed. Attach it only once Storage confirms it is this file.
+      const seen = await verify();
+      if (seen.state === "present") confirmed = true;
+      // A 409 with nothing there is contradictory; give Try again a fresh
+      // path rather than walking into the same wall every time.
+      else if (seen.state === "absent") unconfirmedUploads.delete(file);
+      break;
+    }
+    if (!isRetriableUploadFailure(upErr)) {
+      unconfirmedUploads.delete(file);
+      console.warn(`[photo-pipeline] upload refused: ${redactUploadMessage(describe(upErr))}`);
+      throw new UploadFailedError("rejected", { attempts, reusedPath, notes, verifications }, upErr);
+    }
+    // No answer. The bytes may still have landed (a response lost on the way
+    // back looks exactly like a request that never arrived), so ask before
+    // sending the photo again.
+    if ((await verify()).state === "present") {
+      confirmed = true;
+      break;
+    }
+    if (attempts < 2) {
+      console.warn(`[photo-pipeline] upload attempt ${attempts} got no answer, retrying`);
+      await sleep(UPLOAD_RETRY_DELAY_MS);
+    }
   }
-  if (upErr) {
-    console.warn(`[photo-pipeline] upload failed for ${path}: ${describe(upErr)}`);
-    // The same message a family and Sentry have always seen for this. The cause
-    // is attached so the underlying storage error is finally visible in the
-    // issue instead of only in a console nobody reads.
-    throw new Error(UPLOAD_FAILED_MESSAGE, { cause: upErr });
+
+  if (!confirmed) {
+    const final = lastVerification as UploadVerification | null;
+    const outcome = final?.state === "absent" ? "absent" : "unverified";
+    console.warn(`[photo-pipeline] upload not confirmed (${outcome}) after ${attempts} attempt(s)`);
+    // The entry stays: Try again with this same File reuses the path, so a
+    // copy that lands late is attached once instead of orphaned.
+    throw new UploadFailedError(outcome, { attempts, reusedPath, notes, verifications }, lastError);
   }
+  unconfirmedUploads.delete(file);
 
   // Bounded like the upload, but a timeout here degrades instead of throwing:
   // the file IS already in storage by this point. Throwing would tell the
@@ -495,7 +740,7 @@ export async function uploadMemoryPhoto(
       "Signed URL",
     );
   } catch (err) {
-    console.warn(`[photo-pipeline] signing ${path} failed, storing bare path: ${describe(err)}`);
+    console.warn(`[photo-pipeline] signing failed, storing bare path: ${redactUploadMessage(describe(err))}`);
   }
 
   return { photoUrl: signed ?? path, width: prepared.width, height: prepared.height };
