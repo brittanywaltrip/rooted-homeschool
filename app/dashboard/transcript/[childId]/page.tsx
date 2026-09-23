@@ -11,11 +11,12 @@ import { calculateGPA, getCreditsBySubject, COLLEGE_READY_TARGETS, GRADE_POINTS 
 import { STATE_REQUIREMENTS, resolveStateCode } from "@/lib/transcript/state-requirements";
 import {
   calculateCreditsFromHours,
-  calculatedNumbers,
   hoursSourceOnSave,
-  planLinkedCourseRefresh,
+  planRefreshWrites,
+  useCalculatedFromRead,
   USE_CALCULATED_LABEL,
   type HoursSource,
+  type LessonMinutesRead,
 } from "@/lib/transcript/hours-source";
 import { getUserAccess, canExport } from "@/lib/user-access";
 import PreviewWatermark from "@/app/components/PreviewWatermark";
@@ -164,6 +165,9 @@ export default function TranscriptBuilderPage() {
   // Set by "Use hours from lessons"; cleared as soon as the family types again.
   const [formUseCalculated, setFormUseCalculated] = useState(false);
   const [formCalculating, setFormCalculating] = useState(false);
+  // "Use hours from lessons" could not read the lessons. Shown beside the
+  // button; the form's numbers were left alone.
+  const [formHoursError, setFormHoursError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   // Toast
@@ -517,11 +521,17 @@ export default function TranscriptBuilderPage() {
 
     // Fetch lesson data for new goals in bulk
     const goalIds = newGoals.map(g => g.id);
-    const { data: lessonData } = await supabase
+    const { data: lessonData, error: lessonErr } = await supabase
       .from("lessons")
       .select("curriculum_goal_id, minutes_spent, completed")
       .in("curriculum_goal_id", goalIds)
       .eq("completed", true);
+    // Without the lessons the new courses' hours would be a guessed zero.
+    // Import nothing this time; the next open imports them with real hours.
+    if (lessonErr) {
+      await refreshLinkedCourseHours(uid, existingCourses);
+      return 0;
+    }
 
     // Group lessons by goal
     const lessonsByGoal: Record<string, { count: number; totalMinutes: number }> = {};
@@ -572,22 +582,32 @@ export default function TranscriptBuilderPage() {
     return inserts.length;
   }
 
-  /** Completed-lesson minutes per goal, the way the transcript has always counted them. */
-  async function lessonMinutesByGoal(goalIds: string[]): Promise<Record<string, number>> {
-    if (goalIds.length === 0) return {};
-    const { data: lessonData } = await supabase
-      .from("lessons")
-      .select("curriculum_goal_id, minutes_spent, completed")
-      .in("curriculum_goal_id", goalIds)
-      .eq("completed", true);
+  /**
+   * Completed-lesson minutes per goal, the way the transcript has always
+   * counted them. A failed read is { ok: false }, never an empty result: an
+   * empty result means zero minutes, and a failure must not become a zero
+   * anywhere (see LessonMinutesRead).
+   */
+  async function lessonMinutesByGoal(goalIds: string[]): Promise<LessonMinutesRead> {
+    if (goalIds.length === 0) return { ok: true, byGoal: {} };
+    try {
+      const { data: lessonData, error } = await supabase
+        .from("lessons")
+        .select("curriculum_goal_id, minutes_spent, completed")
+        .in("curriculum_goal_id", goalIds)
+        .eq("completed", true);
+      if (error) return { ok: false };
 
-    const lessonsByGoal: Record<string, number> = {};
-    for (const l of (lessonData ?? [])) {
-      const gid = l.curriculum_goal_id;
-      if (!gid) continue;
-      lessonsByGoal[gid] = (lessonsByGoal[gid] || 0) + (l.minutes_spent ?? 45);
+      const lessonsByGoal: Record<string, number> = {};
+      for (const l of (lessonData ?? [])) {
+        const gid = l.curriculum_goal_id;
+        if (!gid) continue;
+        lessonsByGoal[gid] = (lessonsByGoal[gid] || 0) + (l.minutes_spent ?? 45);
+      }
+      return { ok: true, byGoal: lessonsByGoal };
+    } catch {
+      return { ok: false };
     }
-    return lessonsByGoal;
   }
 
   async function refreshLinkedCourseHours(uid: string, existingCourses: Course[]) {
@@ -596,15 +616,16 @@ export default function TranscriptBuilderPage() {
     const linkedCourses = existingCourses.filter(c => c.curriculum_goal_id && c.hours_source === "calculated");
     if (linkedCourses.length === 0) return;
 
-    const lessonsByGoal = await lessonMinutesByGoal(linkedCourses.map(c => c.curriculum_goal_id!));
+    // A failed read plans no writes at all (planRefreshWrites): the stored
+    // numbers stay as they are and the next page open tries again. It used to
+    // read as zero minutes and write 0 hours onto every calculated course.
+    const read = await lessonMinutesByGoal(linkedCourses.map(c => c.curriculum_goal_id!));
 
-    for (const course of linkedCourses) {
-      const plan = planLinkedCourseRefresh(course, lessonsByGoal[course.curriculum_goal_id!] || 0);
-      if (!plan) continue;
+    for (const { id, update } of planRefreshWrites(linkedCourses, read)) {
       await supabase
         .from("transcript_courses")
-        .update({ ...plan, updated_at: new Date().toISOString() })
-        .eq("id", course.id)
+        .update({ ...update, updated_at: new Date().toISOString() })
+        .eq("id", id)
         // Belt and braces: a row that became 'family' in another tab since
         // this page loaded is not overwritten either.
         .eq("hours_source", "calculated");
@@ -784,6 +805,7 @@ export default function TranscriptBuilderPage() {
   }
 
   function closeModal() {
+    setFormHoursError(null);
     setModalOpen(false);
     setEditingCourse(null);
     setDeleteConfirm(false);
@@ -807,11 +829,19 @@ export default function TranscriptBuilderPage() {
     const goalId = form.curriculum_goal_id;
     if (!goalId || formCalculating) return;
     setFormCalculating(true);
-    const minutes = (await lessonMinutesByGoal([goalId]))[goalId] || 0;
-    const numbers = calculatedNumbers(minutes);
-    setForm(prev => ({ ...prev, ...numbers }));
-    setFormUseCalculated(true);
-    setFormCalculating(false);
+    setFormHoursError(null);
+    try {
+      const result = useCalculatedFromRead(await lessonMinutesByGoal([goalId]), goalId);
+      if (!result.ok) {
+        // Hours, credits and source stay exactly as the family had them.
+        setFormHoursError(result.error);
+        return;
+      }
+      setForm(prev => ({ ...prev, ...result.numbers }));
+      setFormUseCalculated(true);
+    } finally {
+      setFormCalculating(false);
+    }
   }
 
   /** The hours_source this form would save right now. */
@@ -1521,6 +1551,9 @@ export default function TranscriptBuilderPage() {
                     </div>
                   );
                 })()}
+                {formHoursError && (
+                  <p role="alert" className="mt-1 text-[11px] text-[#b91c1c]">{formHoursError}</p>
+                )}
 
                 {/* Link to curriculum goal */}
                 {goals.length > 0 && (

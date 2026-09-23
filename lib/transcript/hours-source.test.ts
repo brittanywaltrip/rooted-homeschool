@@ -13,6 +13,10 @@ import {
   calculatedNumbers,
   hoursSourceOnSave,
   planLinkedCourseRefresh,
+  planRefreshWrites,
+  useCalculatedFromRead,
+  USE_CALCULATED_READ_FAILED,
+  type LessonMinutesRead,
 } from './hours-source.ts'
 
 const course = (over: Partial<Parameters<typeof planLinkedCourseRefresh>[0]> = {}) => ({
@@ -162,14 +166,67 @@ const page = readFileSync(resolve(process.cwd(), 'app/dashboard/transcript/[chil
 test('page: the page-open refresh reads only calculated courses and guards its update', () => {
   const refresh = page.slice(page.indexOf('async function refreshLinkedCourseHours('), page.indexOf('async function handleManualSync('))
   assert.match(refresh, /c\.hours_source === "calculated"/)
-  assert.match(refresh, /planLinkedCourseRefresh\(/)
+  assert.match(refresh, /planRefreshWrites\(linkedCourses, read\)/, 'every write comes from the failure-aware plan')
   assert.match(refresh, /\.eq\("hours_source", "calculated"\)/, 'a row made family in another tab is not overwritten')
   assert.doesNotMatch(refresh, /calculateCreditsFromHours\(/, 'no second copy of the credit rule')
 })
 
 test('page: courses imported from Plan start calculated, and the form save writes the source', () => {
-  const sync = page.slice(page.indexOf('async function syncCoursesFromPlan('), page.indexOf('/** Completed-lesson minutes per goal'))
+  const sync = page.slice(page.indexOf('async function syncCoursesFromPlan('), page.indexOf('async function lessonMinutesByGoal('))
   assert.match(sync, /hours_source: "calculated"/)
   const save = page.slice(page.indexOf('async function saveCourse('), page.indexOf('async function deleteCourse('))
   assert.match(save, /hours_source: pendingHoursSource\(\)/)
+})
+
+// ── A failed lesson read is never a zero ─────────────────────────────────
+//
+// The page read `data ?? []` and ignored `error`, so a failed read looked like
+// "no lessons". "Use hours from lessons" then filled 0 hours and 0.5 credits,
+// and the page-open refresh wrote 0 hours onto every calculated course.
+
+const FAILED: LessonMinutesRead = { ok: false }
+
+test('"Use hours from lessons": a failed read is an error and changes nothing', () => {
+  const failed = useCalculatedFromRead(FAILED, 'g1')
+  assert.deepEqual(failed, { ok: false, error: USE_CALCULATED_READ_FAILED })
+  assert.equal('numbers' in failed, false, 'no numbers exist to put in the form')
+  // A successful read of a goal with no completed lessons IS a real zero.
+  assert.deepEqual(useCalculatedFromRead({ ok: true, byGoal: {} }, 'g1'), {
+    ok: true, numbers: { hours_logged: null, credits_earned: 0.5 },
+  })
+  assert.deepEqual(useCalculatedFromRead({ ok: true, byGoal: { g1: 150 * 60 } }, 'g1'), {
+    ok: true, numbers: { hours_logged: 150, credits_earned: 1.5 },
+  })
+})
+
+test('refresh: a failed read writes nothing, even to calculated courses that would change', () => {
+  const courses = [
+    { id: 'c1', curriculum_goal_id: 'g1', hours_source: 'calculated' as const, hours_logged: 40, credits_earned: 0.5, grade_letter: null },
+    { id: 'c2', curriculum_goal_id: 'g2', hours_source: 'calculated' as const, hours_logged: 12, credits_earned: 0.5, grade_letter: null },
+  ]
+  assert.deepEqual(planRefreshWrites(courses, FAILED), [])
+  // The same courses after a successful read: g1 moved, g2 has no lessons now.
+  assert.deepEqual(planRefreshWrites(courses, { ok: true, byGoal: { g1: 50 * 60 } }), [
+    { id: 'c1', update: { hours_logged: 50, credits_earned: 0.5 } },
+    { id: 'c2', update: { hours_logged: null, credits_earned: 0.5 } },
+  ])
+})
+
+test('page: the lessons read reports failure, and the button leaves the form alone on one', () => {
+  const helper = page.slice(page.indexOf('async function lessonMinutesByGoal('), page.indexOf('async function refreshLinkedCourseHours('))
+  assert.match(helper, /Promise<LessonMinutesRead>/)
+  assert.match(helper, /if \(error\) return \{ ok: false \};/)
+  assert.match(helper, /catch \{\s*return \{ ok: false \};/)
+
+  const button = page.slice(page.indexOf('async function useHoursFromLessons('), page.indexOf('function pendingHoursSource('))
+  const failBranch = button.indexOf('if (!result.ok) {')
+  assert.ok(failBranch !== -1, 'the button handles a failed read')
+  const branch = button.slice(failBranch, button.indexOf('}', failBranch))
+  assert.match(branch, /setFormHoursError\(result\.error\);\s*return;/, 'shows the error and stops')
+  assert.doesNotMatch(branch, /setForm\(|setFormUseCalculated/, 'hours, credits and source are not touched')
+  assert.ok(button.indexOf('setForm(prev') > failBranch, 'the form is only filled after the failure check')
+  assert.match(page, /\{formHoursError && \(\s*<p role="alert"/)
+
+  const sync = page.slice(page.indexOf('async function syncCoursesFromPlan('), page.indexOf('async function lessonMinutesByGoal('))
+  assert.match(sync, /if \(lessonErr\) \{\s*await refreshLinkedCourseHours\(uid, existingCourses\);\s*return 0;/, 'no import with guessed-zero hours')
 })

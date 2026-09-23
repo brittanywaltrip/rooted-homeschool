@@ -179,4 +179,65 @@ test.describe('Transcript hours source', { tag: TAG }, () => {
     expect(r[NAMES.family]).toMatchObject({ hours_logged: LESSON_HOURS, credits_earned: 0.5, hours_source: 'calculated' })
     expect(r[NAMES.unclassified]).toMatchObject({ hours_logged: 7, credits_earned: 1, hours_source: null })
   })
+
+  // A failed lesson read used to look like "no lessons": 0 minutes. The button
+  // then filled 0 hours and 0.5 credit, and the page-open refresh wrote 0 hours
+  // onto calculated courses. Only the lessons read for THIS goal is failed.
+  const failLessonsRead = (page: Page) =>
+    page.route(
+      (url) =>
+        url.pathname.endsWith('/rest/v1/lessons') &&
+        decodeURIComponent(url.search).includes('select=curriculum_goal_id,minutes_spent,completed') &&
+        !!goalId && url.search.includes(goalId),
+      (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'e2e: simulated read failure' }) }),
+    )
+  const creditsInput = (page: Page) => page.locator('label:has-text("Credits earned") + input')
+
+  test('a failed lesson read is an error, never zero: the button changes nothing and the refresh writes nothing', async ({ page }) => {
+    const sb = adminClient()
+    test.skip(!sb || !goalId || !childId, 'needs the courses seeded by the previous test')
+
+    // 1. The button. Unclassified course: 7 hours, 1 credit, no source.
+    await openTranscript(page)
+    await openCourse(page, NAMES.unclassified)
+    await expect(hoursInput(page)).toHaveValue('7')
+    await expect(creditsInput(page)).toHaveValue('1')
+    await failLessonsRead(page)
+    await page.getByRole('button', { name: 'Use hours from lessons' }).click()
+    await expect(page.getByRole('alert').filter({ hasText: /couldn't read this curriculum's lessons, so nothing was changed/i }))
+      .toBeVisible({ timeout: 10_000 })
+    await expect(hoursInput(page), 'hours unchanged, not 0').toHaveValue('7')
+    await expect(creditsInput(page), 'credits unchanged, not 0.5').toHaveValue('1')
+    await expect(page.locator('[data-hours-source="unclassified"]'), 'source unchanged').toBeVisible()
+    // Saving now writes exactly what the family already had.
+    await page.getByRole('button', { name: /Update course/ }).click()
+    await expect(page.getByText('Course updated')).toBeVisible({ timeout: 10_000 })
+    let r = await rows()
+    expect(r[NAMES.unclassified]).toMatchObject({ hours_logged: 7, credits_earned: 1, hours_source: null })
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+
+    // 2. The page-open refresh. A calculated course whose stored hours differ
+    // from its lessons (9 vs 4): a successful open writes 4; a failed read
+    // must leave 9.
+    const uid = await requireTestUserId('transcript hours source failed read')
+    const { error: setErr } = await sb!
+      .from('transcript_courses')
+      .update({ hours_logged: 9, credits_earned: 0.5 })
+      .eq('user_id', uid)
+      .eq('id', r[NAMES.family].id)
+    expect(setErr).toBeNull()
+    expect((await rows())[NAMES.family]).toMatchObject({ hours_logged: 9, hours_source: 'calculated' })
+
+    await failLessonsRead(page)
+    await openTranscript(page)
+    r = await rows()
+    expect(r[NAMES.family], 'a failed read writes nothing').toMatchObject({ hours_logged: 9, credits_earned: 0.5, hours_source: 'calculated' })
+    expect(r[NAMES.unclassified]).toMatchObject({ hours_logged: 7, credits_earned: 1, hours_source: null })
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+
+    // And the same open with the read working brings it back in step, so the
+    // 9 above was the failure being respected, not a refresh that never ran.
+    await openTranscript(page)
+    await expect.poll(async () => (await rows())[NAMES.family]?.hours_logged, { timeout: 20_000 }).toBe(LESSON_HOURS)
+  })
 })

@@ -103,3 +103,58 @@ export function calculatedNumbers(totalMinutes: number): { hours_logged: number 
   const hours = hoursFromMinutes(totalMinutes);
   return { hours_logged: hours || null, credits_earned: calculateCreditsFromHours(hours) };
 }
+
+/**
+ * A read of lesson minutes per goal that can fail, and says so.
+ *
+ * The page used to read `data ?? []` and ignore `error`, so a failed read was
+ * indistinguishable from "no lessons": zero minutes. "Use hours from lessons"
+ * then filled the form with 0 hours and 0.5 credits, and the page-open
+ * refresh wrote 0 hours onto every calculated course. A failure is now its
+ * own answer, and nothing downstream may turn it into a number.
+ */
+export type LessonMinutesRead =
+  | { ok: true; byGoal: Record<string, number> }
+  | { ok: false };
+
+/** What the family sees when the lessons could not be read. */
+export const USE_CALCULATED_READ_FAILED =
+  "We couldn't read this curriculum's lessons, so nothing was changed. Try again in a moment.";
+
+/**
+ * What "Use hours from lessons" does with a read.
+ *
+ * ok: the numbers to put in the form, and the form switches to 'calculated'.
+ * Failed: an error for the family, and NOTHING else. The form's hours,
+ * credits and source stay exactly as they were, so a save afterwards writes
+ * what the family already had.
+ */
+export function useCalculatedFromRead(
+  read: LessonMinutesRead,
+  goalId: string,
+): { ok: true; numbers: { hours_logged: number | null; credits_earned: number } } | { ok: false; error: string } {
+  if (!read.ok) return { ok: false, error: USE_CALCULATED_READ_FAILED };
+  return { ok: true, numbers: calculatedNumbers(read.byGoal[goalId] ?? 0) };
+}
+
+/**
+ * Every write the page-open refresh may make, from one read.
+ *
+ * A failed read writes nothing at all: the stored numbers are left exactly as
+ * they are, and the next page open tries again. A goal the read did not return
+ * has no completed lessons, which is a real zero only because the read itself
+ * succeeded.
+ */
+export function planRefreshWrites<C extends RefreshableCourse & { id: string; curriculum_goal_id: string | null }>(
+  courses: readonly C[],
+  read: LessonMinutesRead,
+): { id: string; update: { hours_logged: number | null; credits_earned?: number } }[] {
+  if (!read.ok) return [];
+  const out: { id: string; update: { hours_logged: number | null; credits_earned?: number } }[] = [];
+  for (const c of courses) {
+    if (!c.curriculum_goal_id) continue;
+    const update = planLinkedCourseRefresh(c, read.byGoal[c.curriculum_goal_id] ?? 0);
+    if (update) out.push({ id: c.id, update });
+  }
+  return out;
+}
