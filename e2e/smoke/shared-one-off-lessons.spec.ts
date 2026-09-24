@@ -55,6 +55,7 @@ test('a reused one-off lesson creates independent entries and report time for tw
     await expect(form.getByLabel('Use a past one-off lesson')).toBeVisible();
     await form.getByLabel('Use a past one-off lesson').selectOption({ label: title });
     await expect(form.getByLabel('Title', { exact: true })).toHaveValue('Compare leaves');
+    await form.getByRole('checkbox', { name: first!.name }).check();
     await form.getByRole('checkbox', { name: secondName }).check();
     await form.getByRole('button', { name: 'Add lesson', exact: true }).click();
     await expect.poll(async () => (await newRows()).length, { timeout: 30_000 }).toBe(2);
@@ -70,6 +71,7 @@ test('a reused one-off lesson creates independent entries and report time for tw
       .getByText('Log a lesson you did', { exact: true }).click();
     const logForm = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Log a lesson you did' }) });
     await logForm.getByLabel('Use a past one-off lesson').selectOption({ label: title });
+    await logForm.getByRole('checkbox', { name: first!.name }).check();
     await logForm.getByRole('checkbox', { name: secondName }).check();
     await logForm.getByLabel('Minutes').fill('40');
     await logForm.getByRole('button', { name: 'Log as done' }).click();
