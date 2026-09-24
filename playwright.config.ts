@@ -118,7 +118,7 @@ export default defineConfig({
     {
       name: 'chromium',
       // Everything except the curriculum-writing specs below.
-      grepInvert: /@curriculum-writes/,
+      grepInvert: /@curriculum-writes|@account-children/,
       // The phone screenshots are a look-at-it tool, not a gate. See the
       // mobile-screenshots project at the bottom.
       testIgnore: /screenshots\//,
@@ -142,6 +142,24 @@ export default defineConfig({
       // teardown). See CURRICULUM_WRITES in e2e/smoke/critical-paths.spec.ts.
       name: 'curriculum-writes',
       grep: /@curriculum-writes/,
+      grepInvert: /@account-children/,
+      testIgnore: /screenshots\//,
+      // The specs that add a child to the shared account run after these.
+      teardown: 'account-children',
+      use: {
+        browserName: 'chromium',
+        storageState: STORAGE_STATE,
+      },
+    },
+    {
+      // Specs that add a temporary child to the shared test account (shared
+      // one-off lessons, Plan this week). A Schedule Builder spec that loads
+      // while such a child exists and saves after it is removed timed out on
+      // its save (smoke runs 36072579452 and 36073167592, both first attempts,
+      // both overlapping). So they run last: this is curriculum-writes'
+      // teardown, after every spec that reads the account's children.
+      name: 'account-children',
+      grep: /@account-children/,
       testIgnore: /screenshots\//,
       use: {
         browserName: 'chromium',
