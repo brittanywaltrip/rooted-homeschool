@@ -72,6 +72,7 @@ import VacationBlockModal, { type VacationBlockExisting, type VacationBlockSave 
 import RecentChangesCard from "./RecentChangesCard";
 import DayCellContextMenu from "./DayCellContextMenu";
 import AddLessonModal, { type AddLessonSubmit } from "./AddLessonModal";
+import { oneOffLessonRows } from "./oneOffLessonRows";
 import LessonSearchModal, { type LessonSearchResult } from "./LessonSearchModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
@@ -1228,6 +1229,21 @@ export default function PlanV2() {
   // restore the prior column values. Either way the DB writes are awaited
   // so failures surface to the user (the modal shows the error inline).
 
+  const registerSharedLessonUndo = useCallback((rows: PlanV2Lesson[], title: string) => {
+    const insertedIds = rows.map((row) => row.id);
+    setUndoAction({
+      message: `Added ${rows.length} lessons · ${title}`,
+      key: `lesson-add:${insertedIds.join(":")}`,
+      onUndo: async () => {
+        const { error: undoError } = await supabase.from("lessons")
+          .delete().eq("user_id", effectiveUserId).in("id", insertedIds);
+        if (undoError) flashNotice("Couldn't undo those lessons. Please try again.");
+        else setLessons((prev) => prev.filter((lesson) => !insertedIds.includes(lesson.id)));
+        reload();
+      },
+    });
+  }, [effectiveUserId, setLessons, reload]);
+
   const handleSubmitAddLesson = useCallback(async (values: AddLessonSubmit) => {
     if (!effectiveUserId) throw new Error("Not signed in");
     // "Log an extra lesson" mode (from the unified "+" sheet): the row goes
@@ -1246,6 +1262,39 @@ export default function PlanV2() {
     // and left the real day empty. Noon UTC matches what healGoalIntegrity
     // writes for ghost completions (app/lib/scheduler.ts).
     const completedAt = isExtraCompletion ? `${values.scheduled_date}T12:00:00Z` : null;
+    const childIds = [...new Set(values.child_ids)];
+    if (childIds.length === 0 || childIds.some((id) => !kids.some((child) => child.id === id))) {
+      throw new Error("Choose at least one child from your family.");
+    }
+    if (values.curriculum_goal_id && childIds.length !== 1) {
+      throw new Error("A curriculum lesson belongs to one child. Choose a one-off lesson for multiple children.");
+    }
+    if (childIds.length > 1) {
+      // Each child needs an independent lesson and completion for their own
+      // reports. Insert the set together so a failure cannot save just one.
+      const { data: inserted, error } = await supabase.from("lessons")
+        .insert(oneOffLessonRows(effectiveUserId, childIds, values, isExtraCompletion))
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)");
+      if (error || !inserted || inserted.length !== childIds.length) {
+        throw new Error(error?.message ?? "Couldn't add a lesson for every child.");
+      }
+      const rows = inserted as unknown as PlanV2Lesson[];
+      setLessons((prev) => [...prev, ...rows]);
+      hapticTap(20);
+      rows.forEach((row) => recordEvent("lesson.created", {
+        lesson_id: row.id,
+        lesson_title: row.title ?? "",
+        date: values.scheduled_date,
+        curriculum_goal_id: null,
+        actor: "user",
+      }));
+      registerSharedLessonUndo(rows, values.title);
+      reload();
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+      setAddLessonAsCompleted(false);
+      return;
+    }
+    const childId = childIds[0];
 
     // Drift E contract (see resolveCustomLessonGoalLink in scheduler.ts): an
     // INCOMPLETE lesson may not be attached to a goal without a queue slot,
@@ -1379,7 +1428,7 @@ export default function PlanV2() {
           .from("lessons")
           .insert({
             user_id: effectiveUserId,
-            child_id: values.child_id,
+            child_id: childId,
             curriculum_goal_id: goalIdForInsert,
             title: values.title,
             lesson_number: values.lesson_number,
@@ -1415,7 +1464,7 @@ export default function PlanV2() {
         .from("lessons")
         .insert({
           user_id: effectiveUserId,
-          child_id: values.child_id,
+          child_id: childId,
           curriculum_goal_id: goalIdForInsert,
           title: values.title,
           lesson_number: isExtraCompletion ? null : values.lesson_number,
@@ -1513,7 +1562,7 @@ export default function PlanV2() {
     // from a non-unified entry (e.g. day "+ Add lesson" link) goes back to
     // the default future-schedule semantic.
     setAddLessonAsCompleted(false);
-  }, [effectiveUserId, setLessons, recordEvent, reload, addLessonAsCompleted]);
+  }, [effectiveUserId, kids, setLessons, recordEvent, reload, addLessonAsCompleted, registerSharedLessonUndo]);
 
   /**
    * "Continue on another day": add a second (third, and so on) day of work on a
@@ -6400,6 +6449,7 @@ export default function PlanV2() {
           initialDate={addLessonInitialDate}
           childrenList={kids}
           goals={curriculumGoals}
+          userId={effectiveUserId}
           mode={addLessonAsCompleted ? "log_done" : "schedule"}
           onClose={() => { setAddLessonOpen(false); setAddLessonAsCompleted(false); }}
           onSubmit={handleSubmitAddLesson}

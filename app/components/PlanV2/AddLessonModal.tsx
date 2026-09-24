@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 import type { PlanV2Child } from "./types";
+import { reusableOneOffLessons } from "./oneOffLessonChoices";
 
 /* ============================================================================
- * AddLessonModal — single-lesson insert from the Plan toolbar or day context
+ * AddLessonModal — add lessons from the Plan toolbar or day context
  * menu. Minimal form: the common homeschool case is "add one more thing to
  * Tuesday." Curriculum goal is optional so one-off lessons don't need setup.
  *
@@ -29,7 +31,7 @@ export type AddLessonGoalOption = {
 };
 
 export type AddLessonSubmit = {
-  child_id: string;
+  child_ids: string[];
   curriculum_goal_id: string | null;
   title: string;
   lesson_number: number | null;
@@ -43,6 +45,7 @@ export interface AddLessonModalProps {
   initialDate: string;
   childrenList: PlanV2Child[];
   goals: AddLessonGoalOption[];
+  userId: string | null;
   onClose: () => void;
   /** Resolves when the insert commits — parent awaits so we can show the
    *  "Adding…" / "Couldn't save" state accurately. */
@@ -55,10 +58,10 @@ export interface AddLessonModalProps {
 }
 
 export default function AddLessonModal(props: AddLessonModalProps) {
-  const { isOpen, initialDate, childrenList: kids, goals, onClose, onSubmit, mode = "schedule" } = props;
+  const { isOpen, initialDate, childrenList: kids, goals, userId, onClose, onSubmit, mode = "schedule" } = props;
   const isLogDone = mode === "log_done";
 
-  const [childId, setChildId] = useState<string>("");
+  const [childIds, setChildIds] = useState<string[]>([]);
   const [goalId, setGoalId] = useState<string>("");
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
@@ -68,13 +71,15 @@ export default function AddLessonModal(props: AddLessonModalProps) {
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pastLessons, setPastLessons] = useState<ReturnType<typeof reusableOneOffLessons>>([]);
+  const [pastLessonsError, setPastLessonsError] = useState(false);
 
   const titleInputRef = useRef<HTMLInputElement | null>(null);
 
   // Reset when the modal reopens so a prior entry doesn't leak into the next.
   useEffect(() => {
     if (!isOpen) return;
-    setChildId(kids[0]?.id ?? "");
+    setChildIds(kids[0] ? [kids[0].id] : []);
     setGoalId("");
     setTitle("");
     setSubject("");
@@ -89,13 +94,34 @@ export default function AddLessonModal(props: AddLessonModalProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
+  // Only family-entered, one-off lessons are offered for reuse. A generated
+  // curriculum title is not a reusable subject or an independent lesson.
+  useEffect(() => {
+    if (!isOpen || !userId) return;
+    let cancelled = false;
+    setPastLessons([]);
+    setPastLessonsError(false);
+    void supabase.from("lessons")
+      .select("title")
+      .eq("user_id", userId)
+      .is("curriculum_goal_id", null)
+      .order("created_at", { ascending: false })
+      .limit(300)
+      .then(({ data, error: readError }) => {
+        if (cancelled) return;
+        if (readError) setPastLessonsError(true);
+        else setPastLessons(reusableOneOffLessons(data ?? []));
+      });
+    return () => { cancelled = true; };
+  }, [isOpen, userId]);
+
   // Scope goal dropdown to the picked child (goals are per-child). When a
   // child with no goals is selected, the dropdown just shows "(no goal)".
-  const goalsForChild = goals.filter((g) => !g.child_id || g.child_id === childId);
+  const goalsForChild = goals.filter((g) => !g.child_id || g.child_id === childIds[0]);
 
   if (!isOpen) return null;
 
-  const canSubmit = !!childId && !!date && (title.trim().length > 0 || subject.trim().length > 0);
+  const canSubmit = childIds.length > 0 && !!date && (title.trim().length > 0 || subject.trim().length > 0);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -113,7 +139,7 @@ export default function AddLessonModal(props: AddLessonModalProps) {
 
     try {
       await onSubmit({
-        child_id: childId,
+        child_ids: childIds,
         curriculum_goal_id: goalId || null,
         title: finalTitle,
         lesson_number: Number.isFinite(parsedLessonNumber) && parsedLessonNumber > 0 ? parsedLessonNumber : null,
@@ -158,23 +184,36 @@ export default function AddLessonModal(props: AddLessonModalProps) {
           </div>
 
           <div className="px-5 pb-4 pt-2 space-y-3 overflow-y-auto">
-            {/* Child */}
-            <label className="block">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">
-                Child
-              </span>
-              <select
-                value={childId}
-                onChange={(e) => setChildId(e.target.value)}
-                className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
-              >
-                {kids.length === 0 ? <option value="">(no children)</option> : null}
-                {kids.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </label>
-
+            {/* A curriculum belongs to one child. A one-off lesson can be
+                planned for several children, with a separate row for each. */}
+            <fieldset className="block">
+              <legend className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">
+                {goalId ? "Child" : "Children"}
+              </legend>
+              {goalId ? (
+                <select
+                  value={childIds[0] ?? ""}
+                  onChange={(e) => { setChildIds([e.target.value]); setGoalId(""); }}
+                  className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926]"
+                >
+                  {kids.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              ) : (
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2">
+                  {kids.map((c) => (
+                    <label key={c.id} className="flex items-center gap-2 text-sm text-[#2d2926]">
+                      <input type="checkbox" checked={childIds.includes(c.id)}
+                        onChange={() => setChildIds((current) => current.includes(c.id)
+                          ? current.filter((id) => id !== c.id) : [...current, c.id])}
+                        className="accent-[#2D5A3D]" />
+                      {c.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+              {kids.length === 0 ? <p className="text-xs text-[#b91c1c]">Add a child first.</p> : null}
+              {childIds.length > 1 ? <p className="mt-1 text-xs text-[#7a6f65]">Each child gets their own lesson. It counts on their report when you mark it done.</p> : null}
+            </fieldset>
             {/* Curriculum goal (optional) */}
             <label className="block">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">
@@ -185,6 +224,10 @@ export default function AddLessonModal(props: AddLessonModalProps) {
                 onChange={(e) => {
                   const next = e.target.value;
                   setGoalId(next);
+                  if (next && childIds.length > 1) {
+                    const selectedGoal = goals.find((g) => g.id === next);
+                    setChildIds([selectedGoal?.child_id ?? childIds[0]]);
+                  }
                   // Auto-fill Subject from the picked goal so the user doesn't
                   // have to retype "Math" etc. "(no goal)" clears Subject.
                   // Title is intentionally not touched — that's per-lesson.
@@ -204,6 +247,20 @@ export default function AddLessonModal(props: AddLessonModalProps) {
               </select>
             </label>
 
+            {!goalId && pastLessons.length > 0 ? (
+              <label className="block">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">Use a past one-off lesson</span>
+                <select value="" onChange={(e) => {
+                  const chosen = pastLessons[Number(e.target.value)];
+                  if (chosen) { setSubject(chosen.subject); setTitle(chosen.title); }
+                }} className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926]">
+                  <option value="">Choose a title you used before (optional)</option>
+                  {pastLessons.map((choice, i) => <option key={`${choice.subject}|${choice.title}`} value={i}>{choice.label}</option>)}
+                </select>
+              </label>
+            ) : null}
+            {pastLessonsError && !goalId ? <p className="text-xs text-[#7a6f65]">Past lessons couldn&apos;t load. You can still type this one.</p> : null}
+
             {/* Subject + Title side by side on sm+ */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <label className="block">
@@ -214,9 +271,14 @@ export default function AddLessonModal(props: AddLessonModalProps) {
                   type="text"
                   value={subject}
                   onChange={(e) => setSubject(e.target.value)}
+                  list="one-off-subjects"
+                  maxLength={40}
                   placeholder="e.g. Math"
                   className="mt-1 w-full border border-[#e8e2d9] rounded-xl bg-white px-3 py-2 text-sm text-[#2d2926] placeholder:text-[#c4bfb8] focus:outline-none focus:border-[#5c7f63] focus:ring-2 focus:ring-[#5c7f63]/20"
                 />
+                <datalist id="one-off-subjects">
+                  {[...new Set(pastLessons.map((choice) => choice.subject).filter(Boolean))].map((name) => <option key={name} value={name} />)}
+                </datalist>
               </label>
               <label className="block">
                 <span className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">
