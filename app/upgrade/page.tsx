@@ -144,6 +144,7 @@ function UpgradePageInner() {
 
   const trialAlreadyUsed = !!trialStartedAt
     && new Date(trialStartedAt).getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000 <= Date.now()
+  const trialIsActive = !!trialStartedAt && !trialAlreadyUsed && !isPaying
 
   return (
     <main className="min-h-screen bg-[#f8f7f4] px-4 py-14">
@@ -153,15 +154,19 @@ function UpgradePageInner() {
         <div className="text-center mb-12">
           <div className="text-5xl mb-5">🌿</div>
           <h1 className="text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'var(--font-display)' }}>
-            Keep everything you&apos;ve built 🌿
+            Find your Rooted plan 🌿
           </h1>
           <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base mb-2">
             Your homeschool, organized, saved, and ready whenever you need it.
           </p>
           <p className="text-[#5c7f63] font-medium max-w-md mx-auto text-sm">
-            {trialAlreadyUsed
-              ? 'Your free trial has ended. Upgrade to keep everything you built.'
-              : 'Start with 30 days free, full access to every feature, no credit card needed.'}
+            {isPaying
+              ? 'You already have Rooted+. Your memories and records are saved in your account.'
+              : trialIsActive
+                ? 'Your Rooted+ trial is active. Your memories and records are saved in your account.'
+                : trialAlreadyUsed
+                  ? 'Your memories stay saved on the free plan. Upgrade to see older memories and use Rooted+ features.'
+                  : 'Start with 30 days free, full access to every feature, no credit card needed.'}
           </p>
         </div>
 
@@ -192,7 +197,7 @@ function UpgradePageInner() {
             <div className="mb-5">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-base font-bold text-[#2d2926]">Rooted</span>
-                {!isPaying && (
+                {!isPaying && !trialIsActive && (
                   <span className="text-[10px] font-semibold bg-[#f0ede8] text-[#7a6f65] px-2 py-0.5 rounded-full uppercase tracking-wide">
                     Current plan
                   </span>
@@ -221,7 +226,7 @@ function UpgradePageInner() {
               disabled
               className="w-full py-2.5 rounded-xl border border-[#e8e2d9] text-sm font-semibold text-[#b5aca4] bg-[#f8f7f4] cursor-not-allowed"
             >
-              Current plan
+              {trialIsActive ? 'Free plan after trial' : 'Current plan'}
             </button>
           </div>
 
