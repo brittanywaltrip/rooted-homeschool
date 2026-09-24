@@ -2,6 +2,9 @@ import { test, expect } from '@playwright/test';
 import { adminClient, requireTestUserId } from '../admin';
 import { gotoAppPage } from '../helpers/overlays';
 
+// Adds a child to the shared e2e account. Run after ordinary smoke specs so
+// their child selectors cannot observe this temporary fixture.
+test.describe('Shared one-off lessons', { tag: '@curriculum-writes' }, () => {
 test('a reused one-off lesson creates independent entries and report time for two children', async ({ page }) => {
   test.setTimeout(120_000);
   const sb = adminClient();
@@ -97,4 +100,5 @@ test('a reused one-off lesson creates independent entries and report time for tw
     }
     if (secondId) await sb!.from('children').delete().eq('user_id', uid).eq('id', secondId);
   }
+});
 });
