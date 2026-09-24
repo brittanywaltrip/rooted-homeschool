@@ -20,7 +20,7 @@ import TodayEveryoneSection from "./TodayEveryoneSection";
 import TodayKidSection from "./TodayKidSection";
 import { groupItems, type TodayItem, type Child } from "./groupItems";
 import type { CardHandlers } from "./TodayItemCard";
-import { resolveLessonSubject } from "@/lib/lesson-subject";
+import { oneOffTitleSubject, resolveLessonSubject } from "@/lib/lesson-subject";
 
 // ─── Source-row shapes the page already loads (mirror dashboard/page.tsx) ──
 
@@ -110,7 +110,11 @@ function toItems(
       time: lessonTime(l),
       duration_minutes: l.minutes_spent,
       title: l.title,
-      subject_label: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label),
+      // A one-off lesson ("Plan this week", Add a lesson) has no subjects row
+      // or curriculum; its subject is the "Subject · " prefix of its title.
+      subject_label:
+        resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label)
+        ?? oneOffTitleSubject(l.title, l.curriculum_goal_id),
       lesson_number: l.lesson_number ?? null,
       completed: l.completed,
       raw: l,

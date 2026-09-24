@@ -28,3 +28,23 @@ export function resolveLessonSubject(
   if (fromGoal) return fromGoal;
   return null;
 }
+
+/**
+ * The subject a one-off lesson carries in its own title. Plan's Add a lesson
+ * and "Plan this week" write a one-off as "Subject · Title" (there is no
+ * subjects row or curriculum to read it from), so without this Today filed
+ * every one of them under "Untitled". The same split the reusable one-off
+ * choices use (app/components/PlanV2/oneOffLessonChoices.ts): the text before
+ * the first " · ", at most 40 characters. Null for a curriculum lesson, whose
+ * subject comes from resolveLessonSubject, and for a title with no subject.
+ */
+export function oneOffTitleSubject(
+  title: string | null | undefined,
+  curriculumGoalId: string | null | undefined,
+): string | null {
+  if (curriculumGoalId) return null;
+  const saved = (title ?? "").trim();
+  const split = saved.indexOf(" · ");
+  if (split <= 0 || split > 40) return null;
+  return saved.slice(0, split).trim() || null;
+}

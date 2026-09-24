@@ -30,7 +30,17 @@ day the parent chose. Past days cannot be planned; break days are offered but
 not chosen by default. Each child checks off their own row (Invariant 15/16
 unchanged) and Hours & Attendance counts it on that child's report only, with
 the planned minutes (or 30 when none were given). Undo removes the planned
-lessons that are still unfinished. Test: `app/components/PlanV2/weekPlan.test.ts`.
+lessons that are still unfinished.
+
+Today reads these one-offs as a family planned them: the subject header comes
+from the "Subject · " prefix of the title when there is no subjects row or
+curriculum (`oneOffTitleSubject` in `lib/lesson-subject.ts`, the same split
+the reusable one-off choices use); Upcoming lists unfinished one-offs dated
+from tomorrow through the same 15 days it projects curricula for; and the
+check-off sheet offers a lesson's planned minutes ("You planned 45 min")
+before the curriculum default. All three apply to Add a lesson's one-offs
+too. Tests: `app/components/PlanV2/weekPlan.test.ts`,
+`lib/lesson-subject.test.ts`, `e2e/smoke/week-planner.spec.ts`.
 
 ---
 
