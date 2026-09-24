@@ -119,8 +119,19 @@ async function rescheduleLesson4(page: Page, name: string, target: string) {
   await expect(page.getByText('Only this lesson moves. Lessons after it stay on their dates.')).toBeVisible();
 }
 
+// The undo bar appears only once the write has landed and stays for five
+// seconds (UndoBar's UNDO_WINDOW_MS). A cold first request on a fresh
+// deployment can take well over 20 seconds, which is how an earlier version of
+// this wait failed a first attempt with the write still in flight. Tests that
+// only need the write wait on the database instead (writeLanded).
 async function waitForUndoBar(page: Page) {
-  await expect(page.getByRole('button', { name: /^Undo$/ }).first()).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('button', { name: /^Undo$/ }).first()).toBeVisible({ timeout: 60_000 });
+}
+
+async function writeLanded(sb: Sb, goalId: string, lesson: number, date: string) {
+  await expect
+    .poll(async () => (await stored(sb, goalId)).get(lesson)!.scheduled_date, { timeout: 60_000, intervals: [500, 1_000, 2_000] })
+    .toBe(date);
 }
 
 test.describe('Moving one lesson moves one lesson, on Plan and Today (Invariant 24)', { tag: CURRICULUM_WRITES }, () => {
@@ -161,7 +172,7 @@ test.describe('Moving one lesson moves one lesson, on Plan and Today (Invariant 
 
     await rescheduleLesson4(page, name, localYmd(3));
     await page.getByRole('button', { name: /Move just this lesson/ }).click();
-    await waitForUndoBar(page);
+    await writeLanded(sb, goalId, 4, localYmd(3));
 
     // Plan (the stored rows): only lesson 4 moved.
     const after = await stored(sb, goalId);
@@ -237,7 +248,7 @@ test.describe('Moving one lesson moves one lesson, on Plan and Today (Invariant 
     // Before the fix Today showed lesson 5 here, and the finish date never moved.
     await rescheduleLesson4(page, name, localYmd(3));
     await page.getByRole('button', { name: /Shift all remaining lessons forward/ }).click();
-    await waitForUndoBar(page);
+    await writeLanded(sb, goalId, 5, localYmd(4));
     expect(await todaysLessons(page, name)).toEqual([]);
     expect((await stored(sb, goalId)).get(20)!.scheduled_date, 'the finish date moved three days').toBe(localYmd(19));
   });
