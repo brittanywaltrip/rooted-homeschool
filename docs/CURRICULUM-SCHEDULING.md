@@ -6,6 +6,16 @@
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
 
+**September 24, 2026 — shared one-off lesson entry.** Plan's Add a lesson form
+can select multiple children only when no curriculum goal is selected. It
+inserts one independent lesson per child in a single database statement, with
+the date the parent chose and `scheduled_source = 'plan_move'` (or
+`'extra_log'` for Log as done). These rows have no goal or queue slot, so
+the curriculum scheduler never moves them. Each child completes their own
+row; Reports reads the respective child's completion. The subject/title
+choices reuse only family-entered one-off titles, never generated curriculum
+lesson placeholders. No existing lesson or completion is rewritten.
+
 ---
 
 ## Why this document exists
