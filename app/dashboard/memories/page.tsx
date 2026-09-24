@@ -288,6 +288,8 @@ export default function MemoriesPage() {
 
   const load = useCallback(async () => {
     if (!effectiveUserId) return;
+    setLoading(true);
+    setLoadError(false);
     try {
 
     // trial_started_at is REQUIRED here. getUserAccess reads it to tell a
@@ -336,7 +338,7 @@ export default function MemoriesPage() {
       setHiddenOlderCount(0);
     }
 
-    const [{ data: kids }, { data: memRows }, { data: reflData }] = await Promise.all([
+    const [{ data: kids }, { data: memRows, error: memoriesError }, { data: reflData }] = await Promise.all([
       supabase
         .from("children")
         .select("id, name, color")
@@ -357,6 +359,9 @@ export default function MemoriesPage() {
         .order("date", { ascending: false }),
     ]);
 
+    // A failed read must not look like an empty library.
+    if (memoriesError) throw memoriesError;
+
     setChildren(capitalizeChildNames(kids ?? []));
     setReflections((reflData as unknown as Reflection[]) ?? []);
 
@@ -373,13 +378,14 @@ export default function MemoriesPage() {
       }
       setMemories(mems);
     } else {
-      const { data: events } = await supabase
+      const { data: events, error: legacyMemoriesError } = await supabase
         .from("app_events")
         .select("id, type, payload, created_at")
         .eq("user_id", effectiveUserId)
         .in("type", ["memory_photo", "memory_project", "memory_book", "memory_field_trip", "memory_activity"])
         .gte("created_at", dateFloor)
         .order("created_at", { ascending: false });
+      if (legacyMemoriesError) throw legacyMemoriesError;
       setMemories((events ?? []).map((e) => legacyToMemory(e as unknown as LegacyEvent)));
     }
 
@@ -855,7 +861,7 @@ export default function MemoriesPage() {
           >
             <div className="w-10 h-10 rounded-xl bg-[#fef6e4] flex items-center justify-center text-lg mb-2">📖</div>
             <p className="text-[13px] font-bold text-[#2D2A26] leading-tight">Yearbook</p>
-            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">{memories.filter((m) => m.include_in_book).length} memories saved this year</p>
+            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">{loading ? "Loading memories…" : loadError ? "Memories unavailable" : `${memories.filter((m) => m.include_in_book).length} memories saved this year`}</p>
           </Link>
           <Link
             href="/dashboard/settings?tab=family#family-sharing"
@@ -872,7 +878,7 @@ export default function MemoriesPage() {
       <div>
         <div className="flex items-baseline justify-between mb-2.5 pl-0.5">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74]">Your Memories</p>
-          <span className="text-[13px] text-[#b0a89e] font-medium">{filtered.length} total</span>
+          <span className="text-[13px] text-[#b0a89e] font-medium" role="status" aria-live="polite">{loading ? "Loading memories…" : loadError ? "Unavailable" : `${filtered.length} total`}</span>
         </div>
         <div className="bg-white border border-[#e8e5e0] rounded-2xl p-3 shadow-sm">
           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1117,8 +1123,9 @@ export default function MemoriesPage() {
           </button>
         </div>
       ) : loading ? (
-        <div className="text-center py-16">
-          <span className="text-3xl animate-pulse">📷</span>
+        <div className="text-center py-16" role="status" aria-live="polite">
+          <span className="text-3xl animate-pulse" aria-hidden="true">📷</span>
+          <p className="text-sm text-[#7a6f65] mt-2">Loading your memories…</p>
         </div>
       ) : filtered.length === 0 ? (
         searchQuery.trim() ? (
