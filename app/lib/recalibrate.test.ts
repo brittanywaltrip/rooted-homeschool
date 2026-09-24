@@ -25,8 +25,9 @@ import {
   RecalibrateListChangedError,
   sameLessonIds,
 } from './recalibrate.ts'
-import { recomputeCurrentLesson } from './scheduler.ts'
+import { recomputeCurrentLesson, computeNextLessonsForGoal, queueHoldsFromRows } from './scheduler.ts'
 import { makeMemorySupabase } from './test-helpers/memory-supabase.ts'
+import { bookOrderView } from './move-keep-slot.ts'
 
 // ── Date helpers ─────────────────────────────────────────────────────────
 // The utility reads `new Date()` directly, so tests anchor against the
@@ -134,7 +135,13 @@ function makeRecalibrateSupabase(opts: {
         onRejected?: (e: unknown) => unknown,
       ) => {
         let data: unknown
-        if (projection === 'id, lesson_number, queue_position, queue_pinned, skipped, scheduled_date') {
+        if (projection === 'lesson_number, queue_position') {
+          // Phase 0's book-order check: these fixtures are in order.
+          data = opts.gapLessons.map((g) => ({ lesson_number: g.lesson_number, queue_position: g.queue_position ?? g.lesson_number }))
+        } else if (projection === 'id') {
+          // The pinned-lesson-X read: none pinned in these fixtures.
+          data = []
+        } else if (projection === 'id, lesson_number, queue_position, queue_pinned, skipped, scheduled_date') {
           // A gap row with no slot given holds the healthy one, lesson_number.
           data = opts.gapLessons.map((g) => ({ queue_position: g.lesson_number, ...g }))
         } else if (
@@ -233,14 +240,22 @@ function lessonNumbersIn(write: CapturedWrite, gap: GapLessonRow[]): number[] {
  * goal's unfinished lessons. A Yes must carry exactly this list.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function confirmedFor(client: any, goalId: string, lesson: number): Promise<string[]> {
+async function confirmedFor(client: any, goalId: string, lesson: number, opts: { bookOrder?: boolean } = {}): Promise<string[]> {
+  // The form's read (RecalibrateForm): every numbered row plus the goal, seen
+  // in book order when the queue has drifted, because the write restores the
+  // order before it reads. `bookOrder: false` is a database without
+  // restore_queue_book_order, where the write reads the drifted queue as is.
   const { data: goal } = await client.from('curriculum_goals').select('current_lesson').eq('id', goalId).maybeSingle()
-  const { data: rows } = await client
+  const { data: all } = await client
     .from('lessons')
     .select('id, lesson_number, queue_position, queue_pinned, skipped, completed')
     .eq('curriculum_goal_id', goalId)
-    .eq('completed', false)
-  return planRecalibrateGap(rows ?? [], goal?.current_lesson ?? 0, lesson).toComplete.map((r: { id: string }) => r.id)
+    .not('lesson_number', 'is', null)
+  const view = bookOrderView(all ?? [], goal ?? { start_at_lesson: 1, total_lessons: null })
+  const useView = view.drifted && opts.bookOrder !== false
+  const countDone = useView ? view.currentLesson : goal?.current_lesson ?? 0
+  const rows = (useView ? view.rows : all ?? []).filter((r: { completed?: boolean; lesson_number: number | null }) => !r.completed && (r.lesson_number ?? 0) > countDone)
+  return planRecalibrateGap(rows, countDone, lesson).toComplete.map((r: { id: string }) => r.id)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -705,7 +720,7 @@ test('the old null slot is what broke it: the same builder save with slotless es
   assert.equal(await recomputeCurrentLesson(client as any, goalId), 10)
 })
 
-function driftedGoal(lesson5Pinned: boolean) {
+function driftedGoal(lesson5Pinned: boolean, opts: { withoutRestoreFunction?: boolean } = {}) {
   // Lesson 5 sits in slot 20 and lessons 6 to 20 in slots 5 to 19: what
   // move_lesson_to_date leaves when lesson 5 is moved three weeks out.
   const goalId = 'drifted'
@@ -726,29 +741,34 @@ function driftedGoal(lesson5Pinned: boolean) {
       current_lesson: 4, start_at_lesson: 1,
     }],
     lessons,
-  }) }
+  }, { noRpc: opts.withoutRestoreFunction }) }
 }
 
-test('a moved (pinned) lesson keeps its placement on Yes, and the pointer never overshoots', async () => {
+test('a drifted queue is put back in book order first; a moved (pinned) lesson keeps its day on Yes', async () => {
+  // Lesson 5 was moved three weeks out with move_lesson_to_date (slot 20;
+  // lessons 6 to 20 slid into 5 to 19). "I'm on lesson 12" is about the BOOK,
+  // so the queue is restored first: lesson n in slot n again.
   const { goalId, client, tables } = driftedGoal(true)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 12) })
   const byNum = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!
+  assert.equal(res.bookOrderRestored, true)
+  for (let n = 1; n <= 30; n++) assert.equal(byNum(n).queue_position, n, `lesson ${n} back in slot ${n}`)
   assert.equal(byNum(5).completed, false, 'the family moved it; Yes does not turn that into a completion')
-  assert.equal(byNum(5).queue_pinned, true)
-  assert.equal(byNum(5).queue_position, 20)
+  assert.equal(byNum(5).queue_pinned, true, 'it keeps the day they moved it to')
   assert.deepEqual(res.keptPinned, [5])
-  for (let n = 6; n <= 11; n++) assert.equal(byNum(n).queue_position, n - 1, `lesson ${n} keeps slot ${n - 1}`)
+  for (let n = 6; n <= 11; n++) assert.equal(byNum(n).completed, true, `lesson ${n} marked done on Yes`)
+  assert.equal(byNum(12).completed, false)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  assert.equal(await recomputeCurrentLesson(client as any, goalId), 11, 'never past the lesson the family typed')
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 11, 'lesson 12 is next, not the slot 12 of a drifted queue')
 })
 
-test('an unpinned lesson in a slot above the new pointer gives the slot up, so the pointer never overshoots', async () => {
+test('without restore_queue_book_order (before the migration), an unpinned lesson in a slot above the new pointer still gives the slot up', async () => {
   // Found by the local code review: a completed row holding slot 20 would drive
   // both recomputes to 20.
-  const { goalId, client, tables } = driftedGoal(false)
+  const { goalId, client, tables } = driftedGoal(false, { withoutRestoreFunction: true })
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 12) })
+  await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 12, vacationBlocks: [], recordHistory: true, confirmedLessonIds: await confirmedFor(client, goalId, 12, { bookOrder: false }) })
   const byNum = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!
   assert.equal(byNum(5).completed, true)
   assert.equal(byNum(5).queue_position, null, 'slot 20 is above the pointer and is given up')
@@ -1177,4 +1197,101 @@ test('recalibrate holds no minutes figure of its own', () => {
   const src = readFileSync(new URL('./recalibrate.ts', import.meta.url), 'utf8')
   assert.doesNotMatch(src, /ESTIMATE_REPORT_MINUTES|=\s*30;/, 'the estimate lives in lib/lesson-minutes.ts only')
   assert.match(src, /from "\.\.\/\.\.\/lib\/lesson-minutes\.ts"/)
+})
+
+// ── "I'm actually on lesson X" after a move (the August 2026 sequence) ─────────
+//
+// Every-day school week so the tests never depend on the weekday they run on.
+// Plan shows each row's stored date; Today shows the projector's answer over
+// the same rows. After the recalibration the two must agree and the lesson
+// the family named must be due today.
+
+function sequenceGoal(rows: Record<string, unknown>[], goal: Record<string, unknown> = {}) {
+  const goalId = 'seq'
+  return { goalId, ...makeMemorySupabase({
+    curriculum_goals: [{
+      id: goalId, total_lessons: 20, lessons_per_day: 1, school_days: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      start_date: ymd(daysAgo(10)), lessons_per_day_overrides: null, created_at: '2026-08-01T00:00:00Z',
+      current_lesson: 3, start_at_lesson: 1, ...goal,
+    }],
+    lessons: rows.map((r) => ({ curriculum_goal_id: goalId, is_backfill: false, skipped: false, date: r.scheduled_date, ...r })),
+  }) }
+}
+
+function planAndToday(tables: Record<string, Record<string, unknown>[]>) {
+  const g = tables.curriculum_goals[0]
+  const rows = tables.lessons as Array<{ lesson_number: number; queue_position: number | null; scheduled_date: string | null; completed: boolean; skipped: boolean; queue_pinned: boolean; curriculum_goal_id: string }>
+  const proj = computeNextLessonsForGoal(
+    { id: g.id as string, total_lessons: g.total_lessons as number, lessons_per_day: 1, school_days: g.school_days as string[], current_lesson: g.current_lesson as number, start_date: g.start_date as string, lessons_per_day_overrides: null },
+    todayMid(), 3650, [], 0, queueHoldsFromRows(rows, g.id as string),
+  )
+  const bySlot = new Map(proj.map((p) => [p.lesson_number, p.date]))
+  const today = ymd(todayMid())
+  return {
+    todayLessons: proj.filter((p) => p.date === today).map((p) => rows.find((r) => r.queue_position === p.lesson_number)!.lesson_number),
+    disagreements: rows
+      .filter((r) => !r.completed && !r.skipped && r.queue_position != null && r.scheduled_date != null && r.scheduled_date >= today)
+      .filter((r) => bySlot.get(r.queue_position!) !== r.scheduled_date)
+      .map((r) => r.lesson_number),
+  }
+}
+
+const inDays = (n: number) => ymd(new Date(todayMid().getTime() + n * 86400000))
+
+test('Move just this lesson 4, then "I\'m actually on lesson 4": lesson 4 is due today on Plan and Today', async () => {
+  // The state move_lesson_keep_slot leaves: lesson 4 pinned five days out in
+  // its own slot, lessons 5 to 9 held on their days, 10 onward unpinned.
+  const rows: Record<string, unknown>[] = []
+  for (let n = 1; n <= 20; n++) {
+    rows.push({
+      id: `S${n}`, lesson_number: n, queue_position: n, completed: n <= 3,
+      completed_at: n <= 3 ? `${ymd(daysAgo(4 - n))}T15:00:00Z` : null,
+      scheduled_date: n === 4 ? inDays(5) : n <= 3 ? ymd(daysAgo(4 - n)) : inDays(n - 4),
+      queue_pinned: n >= 4 && n <= 9,
+      scheduled_source: n === 4 ? 'plan_move' : n >= 5 && n <= 9 ? 'plan_hold' : 'wizard_create',
+    })
+  }
+  const { goalId, client, tables } = sequenceGoal(rows)
+  const before = planAndToday(tables)
+  assert.deepEqual(before.todayLessons, [], 'after the move, nothing of this curriculum is due today')
+  assert.deepEqual(before.disagreements, [])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 4, vacationBlocks: [] })
+  assert.equal(res.releasedPin.writtenIds.length, 1, 'the pin on lesson 4 is released')
+  const after = planAndToday(tables)
+  assert.deepEqual(after.todayLessons, [4], 'Today shows lesson 4')
+  assert.equal(tables.lessons.find((r) => r.lesson_number === 4)!.scheduled_date, ymd(todayMid()), 'Plan shows lesson 4 today')
+  assert.deepEqual(after.disagreements, [], 'Plan and Today agree on every lesson')
+  for (let n = 5; n <= 9; n++) assert.equal(tables.lessons.find((r) => r.lesson_number === n)!.scheduled_date, inDays(n - 4), `held lesson ${n} kept its day`)
+})
+
+test('the stranded-lesson state: lesson 5 done in slot 6 hid lesson 6; "I\'m actually on lesson 6" brings it back to Today', async () => {
+  // A production curriculum on 2026-09-24, read-only: lesson 5 completed in slot 6,
+  // lesson 6 unfinished in slot 5 behind the pointer (6), pinned to a past day
+  // by the 2026-09-08 repair. start_at_lesson 5 from the family's last try.
+  const rows: Record<string, unknown>[] = []
+  for (let n = 1; n <= 20; n++) {
+    const slot = n === 5 ? 6 : n === 6 ? 5 : n
+    rows.push({
+      id: `R${n}`, lesson_number: n, queue_position: slot, completed: n <= 5,
+      completed_at: n <= 5 ? `${ymd(daysAgo(10 - n))}T15:00:00Z` : null,
+      scheduled_date: n <= 6 ? ymd(daysAgo(10 - n)) : inDays(n - 7),
+      queue_pinned: n === 6, scheduled_source: n === 6 ? 'cleanup_sql' : 'wizard_create',
+    })
+  }
+  const { goalId, client, tables } = sequenceGoal(rows, { current_lesson: 6, start_at_lesson: 5 })
+  assert.ok(!planAndToday(tables).todayLessons.includes(6), 'before: lesson 6 is on no screen')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const res = await recalibrateCurriculumGoal({ supabase: client as any, goalId, newCurrentLesson: 6, vacationBlocks: [] })
+  assert.equal(res.bookOrderRestored, true)
+  const byNum = (n: number) => tables.lessons.find((r) => r.lesson_number === n)!
+  assert.equal(byNum(5).queue_position, 5)
+  assert.equal(byNum(6).queue_position, 6)
+  assert.equal(byNum(5).completed, true, 'the completed lesson 5 is untouched')
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  assert.equal(await recomputeCurrentLesson(client as any, goalId), 5)
+  const after = planAndToday(tables)
+  assert.deepEqual(after.todayLessons, [6], 'Today shows lesson 6')
+  assert.equal(byNum(6).scheduled_date, ymd(todayMid()), 'Plan shows lesson 6 today')
+  assert.deepEqual(after.disagreements, [])
 })
