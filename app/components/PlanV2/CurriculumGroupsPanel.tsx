@@ -716,7 +716,7 @@ export function RecalibrateForm(props: {
         <span className="text-[11px] text-[#5c7f63]">of {goal.total_lessons}</span>
       </div>
       <p className="text-[11px] text-[#5c7f63] leading-relaxed">
-        This resets your position in the queue. Lessons you&apos;ve already logged stay in your history.
+        This resets your position in the queue. If you moved lesson {Number.isInteger(typed) ? typed : "X"} to another day, saving releases that date so it can be your next lesson. Lessons you&apos;ve already logged stay in your history.
       </p>
       {asksAboutHistory ? (
         <div className="rounded-md border border-[#c5dbc9] bg-white px-2.5 py-2">
