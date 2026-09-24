@@ -14,6 +14,7 @@ import {
   type RecalibrateGapRow,
 } from "@/app/lib/recalibrate";
 import { supabase } from "@/lib/supabase";
+import { bookOrderView } from "@/app/lib/move-keep-slot";
 // Ordering + month grouping for the expanded lesson list. Extracted so the
 // sort and the run-length grouper are covered by lessonListSort.test.ts.
 // They are only correct as a pair, and that file explains why.
@@ -592,30 +593,49 @@ export function RecalibrateForm(props: {
   // Builder's "Already into it" question.
   const [recordHistory, setRecordHistory] = useState(false);
   const typed = Number(value);
-  const oldCountDone = Math.max(0, goal.current_lesson ?? 0);
 
   // The question names exactly the lessons a Yes would mark done, so it reads
   // the goal's unfinished lessons and asks planRecalibrateGap, the same rule
   // the recalibration writes with. A lesson the family pinned keeps its day and
   // a skipped one is never counted, so "lessons 11 to 18" would overstate both
   // the lessons and the hours. Read once when the form opens.
+  //
+  // Read in BOOK order (bookOrderView): when a Plan move has left the queue out
+  // of order, the recalibration puts it back before it reads anything, so the
+  // list and the saved position here are the ones it will see.
   const [gapRows, setGapRows] = useState<RecalibrateGapRow[] | null>(null);
+  const [viewCountDone, setViewCountDone] = useState<number | null>(null);
   const [gapReadFailed, setGapReadFailed] = useState(false);
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const { data, error: readErr } = await supabase
-        .from("lessons")
-        .select("id, lesson_number, queue_position, queue_pinned, skipped, completed")
-        .eq("curriculum_goal_id", goal.id)
-        .eq("completed", false)
-        .gt("lesson_number", oldCountDone);
+      const [rowsRes, goalRes] = await Promise.all([
+        supabase
+          .from("lessons")
+          .select("id, lesson_number, queue_position, queue_pinned, skipped, completed")
+          .eq("curriculum_goal_id", goal.id)
+          .not("lesson_number", "is", null),
+        supabase
+          .from("curriculum_goals")
+          .select("start_at_lesson, total_lessons, current_lesson")
+          .eq("id", goal.id)
+          .maybeSingle(),
+      ]);
       if (cancelled) return;
-      if (readErr) setGapReadFailed(true);
-      else setGapRows((data ?? []) as RecalibrateGapRow[]);
+      if (rowsRes.error || goalRes.error || !goalRes.data) {
+        setGapReadFailed(true);
+        return;
+      }
+      const g = goalRes.data as { start_at_lesson: number | null; total_lessons: number | null; current_lesson: number | null };
+      const all = (rowsRes.data ?? []) as RecalibrateGapRow[];
+      const view = bookOrderView(all, g);
+      const countDone = view.drifted ? view.currentLesson : Math.max(0, g.current_lesson ?? 0);
+      setViewCountDone(countDone);
+      setGapRows(view.rows.filter((r) => !r.completed && (r.lesson_number ?? 0) > countDone));
     })();
     return () => { cancelled = true; };
-  }, [goal.id, oldCountDone]);
+  }, [goal.id]);
+  const oldCountDone = viewCountDone ?? Math.max(0, goal.current_lesson ?? 0);
 
   const plan = useMemo(
     () =>
