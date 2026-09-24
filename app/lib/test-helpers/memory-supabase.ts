@@ -16,6 +16,13 @@
 // triggers, no unique indexes. `refuseUpdate` stands in for a BEFORE UPDATE
 // trigger that returns NULL: the row is silently left alone and is missing
 // from the returned representation, with no error.
+//
+// rpc: only restore_queue_book_order, written out here independently of the
+// app's bookOrderView so a test of one is not a test of itself: the goal's
+// slotted lessons take its slots in lesson_number order, then current_lesson
+// is recomputed the way the lessons trigger does (the one trigger emulated,
+// because the real function's answer depends on it). Any other name answers
+// the way PostgREST does for a missing function, PGRST202.
 
 type Row = Record<string, unknown>
 type Pred = (r: Row) => boolean
@@ -45,7 +52,7 @@ function orPredicate(expr: string): Pred {
 
 export function makeMemorySupabase(
   seed: Record<string, Row[]>,
-  opts: { refuseUpdate?: (table: string, row: Row, payload: Row) => boolean } = {},
+  opts: { refuseUpdate?: (table: string, row: Row, payload: Row) => boolean; noRpc?: boolean } = {},
 ) {
   const tables: Record<string, Row[]> = {}
   for (const [name, rows] of Object.entries(seed)) tables[name] = rows.map((r) => ({ ...r }))
@@ -121,7 +128,40 @@ export function makeMemorySupabase(
     return chain
   }
 
+  function restoreQueueBookOrder(goalId: string) {
+    const goals = tables.curriculum_goals ?? []
+    const goal = goals.find((g) => g.id === goalId)
+    if (!goal) return { data: { status: 'invalid', reason: 'not_owner' }, error: null }
+    const slotted = (tables.lessons ?? []).filter(
+      (r) => r.curriculum_goal_id === goalId && r.lesson_number != null && r.queue_position != null,
+    )
+    const slots = slotted.map((r) => r.queue_position as number).sort((a, b) => a - b)
+    const byNumber = [...slotted].sort((a, b) => (a.lesson_number as number) - (b.lesson_number as number))
+    let changed = 0
+    byNumber.forEach((r, i) => {
+      if (r.queue_position !== slots[i]) {
+        r.queue_position = slots[i]
+        changed++
+      }
+    })
+    if (changed === 0) return { data: { status: 'in_order', changed: 0 }, error: null }
+    let maxDone = 0
+    for (const r of tables.lessons ?? []) {
+      if (r.curriculum_goal_id === goalId && r.completed && r.queue_position != null) {
+        maxDone = Math.max(maxDone, r.queue_position as number)
+      }
+    }
+    let current = Math.max(((goal.start_at_lesson as number | null) ?? 1) - 1, maxDone)
+    if (goal.total_lessons != null) current = Math.min(current, goal.total_lessons as number)
+    goal.current_lesson = current
+    return { data: { status: 'restored', changed }, error: null }
+  }
+
   const client = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      if (name === 'restore_queue_book_order' && !opts.noRpc) return restoreQueueBookOrder(args.p_goal_id as string)
+      return { data: null, error: { code: 'PGRST202', message: `Could not find the function public.${name}` } }
+    },
     from(table: string) {
       return {
         select: (cols?: string) => (query(table, 'select').select as (c?: string) => unknown)(cols),

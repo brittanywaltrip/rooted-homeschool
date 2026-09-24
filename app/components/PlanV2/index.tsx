@@ -35,6 +35,7 @@ import MonthGrid from "./MonthGrid";
 import WeekListView from "./WeekListView";
 import DayDetailPanelV2, { type CatchUpEntry } from "./DayDetailPanel";
 import { logPastDayLessons } from "@/app/lib/logPastDayLessons";
+import { moveLessonKeepSlot, keepSlotUndoRows } from "@/app/lib/move-keep-slot";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
 import MissedLessonsBanner from "./MissedLessonsBanner";
@@ -3207,6 +3208,98 @@ export default function PlanV2() {
     recentTimersRef.current.set(lessonId, timer);
   }, []);
 
+  /**
+   * Put snapshotted rows back: dates and pin flag exactly, and the source
+   * mapped through sourceForUndoRestore (a restored 'queue_resync' is written
+   * as 'undo_restore', because a parent's undo is not the automatic writer).
+   * Confirmed per row: `ok` is false when any row did not change back.
+   */
+  const restoreLessonSnapshot = useCallback(async (
+    rows: ReprojectSnapshotRow[],
+  ): Promise<{ ok: boolean; failed: number }> => {
+    let failed = 0;
+    for (let i = 0; i < rows.length; i += 20) {
+      const results = await Promise.allSettled(
+        rows.slice(i, i + 20).map(async (s) => {
+          const { data, error } = await supabase
+            .from("lessons")
+            .update({
+              scheduled_date: s.scheduled_date,
+              date: s.date,
+              queue_pinned: s.queue_pinned ?? false,
+              scheduled_source: sourceForUndoRestore(s.scheduled_source),
+            })
+            .eq("id", s.id)
+            .select("id");
+          return !error && (data?.length ?? 0) === 1;
+        }),
+      );
+      for (const r of results) if (r.status !== "fulfilled" || !r.value) failed++;
+    }
+    return { ok: failed === 0, failed };
+  }, []);
+
+  /**
+   * The one write for moving a single lesson, shared by every single-move
+   * entry point (the reschedule dialog and its "Move just this lesson", drag
+   * and drop, the week list's Move picker).
+   *
+   * A curriculum lesson moved to a LATER day goes through
+   * move_lesson_keep_slot: it is pinned on its new day, its queue slot is
+   * unchanged, and the lessons after it that sit between today and that day
+   * are held on their dates. Plan and Today then agree that only this lesson
+   * moved. It used to go through move_lesson_to_date, which renumbered the
+   * queue: Today showed the next lesson on the day this one left, while Plan
+   * kept it on its own day (see app/lib/move-keep-slot.ts).
+   *
+   * Moves to an EARLIER day, one-off lessons, and a database without the new
+   * function (PGRST202) keep move_lesson_to_date.
+   *
+   * Returns null when nothing was written. Otherwise `undo` puts back exactly
+   * what was changed and reports whether all of it landed.
+   */
+  const writeSingleMove = useCallback(async (
+    lessonId: string,
+    fromDateStr: string,
+    toDateStr: string,
+  ): Promise<{ held: number; keptSlot: boolean; undo: () => Promise<boolean> } | null> => {
+    const lesson = lessons.find((l) => l.id === lessonId);
+    if (toDateStr > fromDateStr && lesson?.curriculum_goal_id && !lesson.completed) {
+      const res = await moveLessonKeepSlot(supabase, {
+        lessonId,
+        targetDate: toDateStr,
+        localDay: todayStr,
+        holdBetween: true,
+      });
+      if (res.status === "failed") return null;
+      if (res.status === "moved") {
+        const priorRows = keepSlotUndoRows(res);
+        return {
+          held: res.held.length,
+          keptSlot: true,
+          undo: async () => (await restoreLessonSnapshot(priorRows)).ok,
+        };
+      }
+      // not_movable / unavailable: nothing was written; the queue move below.
+    }
+    const { error } = await supabase.rpc("move_lesson_to_date", {
+      p_lesson_id: lessonId,
+      p_target_date: toDateStr,
+    });
+    if (error) return null;
+    return {
+      held: 0,
+      keptSlot: false,
+      undo: async () => {
+        const { error: backErr } = await supabase.rpc("move_lesson_to_date", {
+          p_lesson_id: lessonId,
+          p_target_date: fromDateStr,
+        });
+        return !backErr;
+      },
+    };
+  }, [lessons, todayStr, restoreLessonSnapshot]);
+
   // ── Move a single lesson to a new date ────────────────────────────────────
   // Shared by drag-drop AND the mobile/desktop reschedule dialog. Handles
   // vacation warn-but-allow, weekend warn-but-allow, optimistic state,
@@ -3249,18 +3342,11 @@ export default function PlanV2() {
       flagLanded(lessonId);
       hapticTap(20);
 
-      // DB write via the move_lesson_to_date RPC. The RPC atomically
-      // (a) updates scheduled_date / date / scheduled_source, and
-      // (b) shifts queue_position so the projected queue (Today page)
-      // honors the move. See migration 20260518064205 + the matching
-      // pure helper planQueueMove in scheduler.ts.
-      try {
-        const { error } = await supabase.rpc("move_lesson_to_date", {
-          p_lesson_id: lessonId,
-          p_target_date: toDateStr,
-        });
-        if (error) throw error;
-      } catch {
+      // One write for every single move (writeSingleMove): a later day keeps
+      // the lesson's queue slot and holds the lessons after it, so Today shows
+      // what Plan shows.
+      const written = await writeSingleMove(lessonId, fromDateStr, toDateStr).catch(() => null);
+      if (!written) {
         setLessons((prev) =>
           prev.map((l) =>
             l.id === lessonId ? { ...l, scheduled_date: fromDateStr, date: fromDateStr } : l,
@@ -3303,14 +3389,9 @@ export default function PlanV2() {
           );
           hapticTap(20);
           flagLanded(lessonId);
-          try {
-            await supabase.rpc("move_lesson_to_date", {
-              p_lesson_id: lessonId,
-              p_target_date: fromDateStr,
-            });
-          } catch {
-            flashNotice("Couldn't undo, check your connection.");
-          }
+          const undone = await written.undo().catch(() => false);
+          if (!undone) flashNotice(written.keptSlot ? UNDO_INCOMPLETE_NOTICE : "Couldn't undo, check your connection.");
+          reloadPins();
           reload();
         },
       });
@@ -3323,10 +3404,12 @@ export default function PlanV2() {
         from_date: fromDateStr,
         to_date: toDateStr,
         actor,
+        kept_slot: written.keptSlot,
+        held: written.held,
       });
 
-      // move_lesson_to_date sets queue_pinned in the same statement it writes
-      // the date (migration 20260730000000), so the pin map needs a refresh.
+      // Both writes pin the moved lesson (and the keep-slot move may hold
+      // others) in the same statement as the date, so the pin map needs a refresh.
       reloadPins();
       reload();
       // Cross-route notification — Today page (when mounted) listens for
@@ -3337,7 +3420,7 @@ export default function PlanV2() {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent],
+    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent, writeSingleMove],
   );
 
   // ── Appointment move (drag-drop on non-recurring instances) ────────────────
@@ -3709,12 +3792,9 @@ export default function PlanV2() {
     flagLanded(lessonId);
     hapticTap(15);
 
-    // Atomic queue-aware move (see migration 20260518064205).
-    const { error } = await supabase.rpc("move_lesson_to_date", {
-      p_lesson_id: lessonId,
-      p_target_date: toDateStr,
-    });
-    if (error) {
+    // The same write as every single move (writeSingleMove).
+    const written = await writeSingleMove(lessonId, fromDate, toDateStr).catch(() => null);
+    if (!written) {
       setLessons((prev) =>
         prev.map((l) => (l.id === lessonId ? { ...l, scheduled_date: fromDate, date: fromDate } : l)),
       );
@@ -3731,10 +3811,9 @@ export default function PlanV2() {
         );
         flagLanded(lessonId);
         hapticTap(15);
-        await supabase.rpc("move_lesson_to_date", {
-          p_lesson_id: lessonId,
-          p_target_date: fromDate,
-        });
+        const undone = await written.undo().catch(() => false);
+        if (!undone) flashNotice(written.keptSlot ? UNDO_INCOMPLETE_NOTICE : "Couldn't undo, check your connection.");
+        reloadPins();
         reload();
       },
     });
@@ -3743,9 +3822,13 @@ export default function PlanV2() {
       from_date: fromDate,
       to_date: toDateStr,
       source: "week_edit_picker",
+      kept_slot: written.keptSlot,
+      held: written.held,
     });
+    // A move pins the lesson (and may hold others), so the pin map needs a refresh.
+    reloadPins();
     reload();
-  }, [lessons, vacationBlocks, setLessons, flagLanded, reload, recordEvent]);
+  }, [lessons, vacationBlocks, setLessons, flagLanded, reload, reloadPins, recordEvent, writeSingleMove]);
 
   // ── Bulk: mark done ───────────────────────────────────────────────────────
   //
@@ -4297,36 +4380,6 @@ export default function PlanV2() {
     [],
   );
 
-  /**
-   * Put snapshotted rows back: dates and pin flag exactly, and the source
-   * mapped through sourceForUndoRestore (a restored 'queue_resync' is written
-   * as 'undo_restore', because a parent's undo is not the automatic writer).
-   * Confirmed per row: `ok` is false when any row did not change back.
-   */
-  const restoreLessonSnapshot = useCallback(async (
-    rows: ReprojectSnapshotRow[],
-  ): Promise<{ ok: boolean; failed: number }> => {
-    let failed = 0;
-    for (let i = 0; i < rows.length; i += 20) {
-      const results = await Promise.allSettled(
-        rows.slice(i, i + 20).map(async (s) => {
-          const { data, error } = await supabase
-            .from("lessons")
-            .update({
-              scheduled_date: s.scheduled_date,
-              date: s.date,
-              queue_pinned: s.queue_pinned ?? false,
-              scheduled_source: sourceForUndoRestore(s.scheduled_source),
-            })
-            .eq("id", s.id)
-            .select("id");
-          return !error && (data?.length ?? 0) === 1;
-        }),
-      );
-      for (const r of results) if (r.status !== "fulfilled" || !r.value) failed++;
-    }
-    return { ok: failed === 0, failed };
-  }, []);
 
   /**
    * Snapshot, then re-project and unpin ONE goal's incomplete tail, as a
@@ -4397,12 +4450,12 @@ export default function PlanV2() {
   /**
    * Cascade shift: the family moved one lesson and chose to shift the rest.
    *
-   * The move itself goes through the move_lesson_to_date RPC, which is the ONE
-   * path that pins correctly (it writes queue_position and queue_pinned in the
-   * same statement). Everything after it is then unpinned and re-projected, and
-   * the projector lays the tail out AROUND the pinned lesson by itself. That is
-   * exactly the "this moved, shift the rest after it" intent, without the
-   * hand-placed dates the old implementation wrote.
+   * The move itself goes through move_lesson_keep_slot, which pins the lesson
+   * on its new day in its own queue slot (queue_position and queue_pinned are
+   * never out of step). Everything after it is then unpinned and re-projected,
+   * and the projector lays every later slot out AFTER the pinned lesson by
+   * itself. That is exactly the "this moved, shift the rest after it" intent,
+   * without the hand-placed dates the old implementation wrote.
    *
    * The old version pinned the whole tail with no queue_position, which froze
    * the goal's auto-roll until every lesson was completed.
@@ -4447,17 +4500,37 @@ export default function PlanV2() {
     }
     const snapshot = snapRows as unknown as ReprojectSnapshotRow[];
 
-    // Move the trigger lesson the correct way. The RPC writes scheduled_date,
-    // date, scheduled_source, queue_position AND queue_pinned atomically, so
-    // this pin holds a real slot and the reconciler honors it.
-    const { error: moveErr } = await supabase.rpc("move_lesson_to_date", {
-      p_lesson_id: c.lessonId,
-      p_target_date: c.toDateStr,
+    // Pin the trigger lesson on its new day WITHOUT renumbering the queue
+    // (move_lesson_keep_slot). The re-spread below then lays every later slot
+    // out after that pin, which is the shift the dialog promised. It used to
+    // go through move_lesson_to_date, which gave the lesson the slot at the
+    // end of its new day and slid the lessons in between down one: the
+    // re-spread then packed those from today, so they moved EARLIER, and the
+    // finish date the dialog named never arrived (rooted-staging, 2026-09-24).
+    // move_lesson_to_date stays as the fallback for a database without the
+    // new function.
+    const kept = await moveLessonKeepSlot(supabase, {
+      lessonId: c.lessonId,
+      targetDate: c.toDateStr,
+      localDay: todayStr,
+      holdBetween: false,
     });
-    if (moveErr) {
+    if (kept.status === "failed") {
       setBulkBusy(false);
       flashNotice("Couldn't move that lesson, check your connection.");
       return;
+    }
+    const keptSlot = kept.status === "moved";
+    if (!keptSlot) {
+      const { error: moveErr } = await supabase.rpc("move_lesson_to_date", {
+        p_lesson_id: c.lessonId,
+        p_target_date: c.toDateStr,
+      });
+      if (moveErr) {
+        setBulkBusy(false);
+        flashNotice("Couldn't move that lesson, check your connection.");
+        return;
+      }
     }
 
     // Unpin and re-project everything else. keepPinnedIds protects the lesson
@@ -4502,17 +4575,22 @@ export default function PlanV2() {
       key: `shift-forward-cascade:${Date.now()}`,
       onUndo: async () => {
         hapticTap(20);
-        // The RPC moved the lesson into a new queue slot and shifted its
-        // siblings. Restoring dates alone left the slots shifted: Today (which
-        // projects by slot) then showed the next lesson where Plan (which reads
-        // the date) showed the moved one. Found on staging 2026-09-21.
+        // Put the tail's dates back first. The keep-slot move changed no
+        // queue slot, so the lesson's own row is then restored the same way.
         //
-        // So: put the tail's dates back first, then move the lesson back with
-        // the same RPC, which recomputes its slot from what now sits on that
-        // day and shifts the siblings back; then its prior pin and source.
+        // Fallback path only (move_lesson_to_date, a database without the new
+        // function): that RPC moved the lesson into a new queue slot and
+        // shifted its siblings, and restoring dates alone left the slots
+        // shifted (staging 2026-09-21), so the lesson is moved back with the
+        // same RPC, which shifts the siblings back; then its prior pin and
+        // source.
         const undone = await restoreLessonSnapshot(tailUndoRows);
         let ok = undone.ok;
-        if (movedPrior?.scheduled_date) {
+        if (keptSlot && movedPrior) {
+          // No slot moved, so the lesson's own row goes back like any other.
+          const back = await restoreLessonSnapshot([movedPrior]);
+          if (!back.ok) ok = false;
+        } else if (movedPrior?.scheduled_date) {
           const { error: moveBackErr } = await supabase.rpc("move_lesson_to_date", {
             p_lesson_id: c.lessonId,
             p_target_date: movedPrior.scheduled_date,
@@ -4563,7 +4641,7 @@ export default function PlanV2() {
     }
   }, [
     curriculumGoals, setLessons, flagLanded, reprojectGoalTail,
-    restoreLessonSnapshot, recordEvent, reload, reloadPins,
+    restoreLessonSnapshot, recordEvent, reload, reloadPins, todayStr,
   ]);
 
   // ── Past-date move with optional completion ──────────────────────────────

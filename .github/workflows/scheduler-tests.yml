@@ -30,6 +30,11 @@ on:
       - 'app/lib/past-year-dates.ts'
       - 'app/lib/past-year-dates.test.ts'
       - 'app/dashboard/years/add/page.tsx'
+      - 'app/lib/move-keep-slot.ts'
+      - 'app/lib/move-keep-slot.test.ts'
+      - 'app/lib/recalibrate.ts'
+      - 'app/lib/recalibrate.test.ts'
+      - 'app/components/PlanV2/CurriculumGroupsPanel.tsx'
       - '.github/workflows/scheduler-tests.yml'
   pull_request:
     paths:
@@ -53,6 +58,11 @@ on:
       - 'app/lib/past-year-dates.ts'
       - 'app/lib/past-year-dates.test.ts'
       - 'app/dashboard/years/add/page.tsx'
+      - 'app/lib/move-keep-slot.ts'
+      - 'app/lib/move-keep-slot.test.ts'
+      - 'app/lib/recalibrate.ts'
+      - 'app/lib/recalibrate.test.ts'
+      - 'app/components/PlanV2/CurriculumGroupsPanel.tsx'
 
 jobs:
   scheduler-tests:
@@ -85,6 +95,11 @@ jobs:
         # The batch helper every lesson insert goes through, and the past-year
         # flow's date helper. Both are swept by the scheduler tests above.
         run: node --test app/lib/batches.test.ts app/lib/past-year-dates.test.ts
+
+      - name: Run the single-move and recalibration tests
+        # Invariant 24: moving one lesson changes one lesson's day on Plan and
+        # on Today; "I'm actually on lesson X" reads the queue in book order.
+        run: node --test app/lib/move-keep-slot.test.ts app/lib/recalibrate.test.ts
 
       - name: Run cleanup-bunched-lessons tests
         # The cleanup script mirrors planRescheduleLessons; its tests guard
