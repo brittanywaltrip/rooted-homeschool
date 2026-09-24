@@ -100,6 +100,7 @@ import {
   resyncGoalsForParent,
   sourceForUndoRestore,
   isProjectorPlacedSource,
+  addLessonPlacement,
   PARENT_RESPREAD_SOURCE,
   COMPLETION_RESPREAD_FAILED_NOTE,
   type ParentRespreadSource,
@@ -1270,7 +1271,7 @@ export default function PlanV2() {
       // Select-then-update/insert to avoid the unique-constraint collision.
       const { data: existing } = await supabase
         .from("lessons")
-        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, queue_position, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
         .eq("curriculum_goal_id", goalIdForInsert!)
         .eq("lesson_number", values.lesson_number!)
         .maybeSingle();
@@ -1294,6 +1295,7 @@ export default function PlanV2() {
           scheduled_date: string | null;
           date: string | null;
           scheduled_source: string | null;
+          queue_position: number | null;
         };
         const isUntouchedPlaceholder =
           ex.completed === false &&
@@ -1341,6 +1343,13 @@ export default function PlanV2() {
         if (isExtraCompletion) {
           updatePayload.scheduled_source = "extra_log";
         }
+        // The family chose this day: pin it so no re-date moves it back.
+        Object.assign(updatePayload, addLessonPlacement({
+          curriculum_goal_id: goalIdForInsert,
+          lesson_number: values.lesson_number,
+          queue_position: ex.queue_position,
+          completed: isExtraCompletion,
+        }));
         const { error: updErr } = await supabase
           .from("lessons")
           .update(updatePayload)
@@ -1384,6 +1393,13 @@ export default function PlanV2() {
             ...(isExtraCompletion
               ? { scheduled_source: "extra_log", is_backfill: false, queue_position: null }
               : {}),
+            // The family chose this day: pin it so no re-date moves it back.
+            ...addLessonPlacement({
+              curriculum_goal_id: goalIdForInsert,
+              lesson_number: values.lesson_number,
+              queue_position: queuePosition,
+              completed: isExtraCompletion,
+            }),
           })
           .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
           .single();
@@ -6802,6 +6818,22 @@ export default function PlanV2() {
               onClick: () => {
                 closeUnifiedAdd();
                 handleMenuAddAppointment(targetDate, "event");
+              },
+            },
+            // The same form and save as the month view's long-press "Add a
+            // lesson" (handleMenuAddLesson), reachable from week view's day
+            // "+", which until now only offered to log finished work.
+            {
+              key: "lesson",
+              label: "Add a lesson",
+              description: "Plan a lesson for this day",
+              emoji: "📚",
+              bg: "#eaf2ec",
+              color: "#2D5A3D",
+              onClick: () => {
+                closeUnifiedAdd();
+                setAddLessonAsCompleted(false);
+                handleMenuAddLesson(targetDate);
               },
             },
             {

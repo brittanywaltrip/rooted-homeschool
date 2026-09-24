@@ -166,7 +166,7 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'vacation_resched'` — vacation block insert/edit
 - `'catchup_resched'` — catch-up modal accepted
 - `'skip_today'` — "skip rest of today" pushed today's incompletes forward. Retired September 2026: the Running late sheet that held it was never drawn, so it and its handler were removed. Older rows still carry the label.
-- `'plan_move'` — user dragged or rescheduled a single lesson on the Plan page (queue reorder)
+- `'plan_move'` — user dragged or rescheduled a single lesson on the Plan page (queue reorder), changed its date in Edit lesson, or placed a numbered curriculum lesson on a day with Add a lesson (`addLessonPlacement`, September 2026)
 - `'queue_resync'` — Plan / Today data loader aligned the cached scheduled_date with the queue projector's output (no user-visible change, just keeps the cache honest after current_lesson advances or a `plan_move` shifts siblings without re-dating them). AUTOMATIC ONLY: `syncProjectedScheduledDates` is its one writer, it is gated by `NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED` inside the helper, and no action a parent takes may write it (September 2026, see "Parent re-spreads" below).
 - `'catchup_spread'`, `'catchup_pushback'`, `'plan_cascade_shift'`, `'recalibrate_respread'`: a PARENT asked for the projector's answer: Plan catch-up re-spread, push back N school days, the tail of a cascade shift, and "I'm actually on lesson X". Written by `reprojectGoalForParent` / `writeParentProjectedDates`, never gated by the automatic switch.
 - `'skip_respread'`, `'skip_undo'`: a PARENT skipped a lesson (the lessons after it move up) or unskipped one, or undid a bulk skip (the queue is re-dated around it). Also `'catchup_spread'` from Today's recovery Yes and No. Written by `resyncGoalsForParent`, which projects exactly as the automatic reconciler does (pins held, skips stepped over, the per-day cap, lessons completed today counted against today) but is never gated by the switch and never writes `'queue_resync'`. Distinct sources on purpose: renaming the automatic writer's source would walk straight past the containment trigger.
@@ -228,7 +228,13 @@ push-back, shift-forward, bulk move). Also set by the Plan page's Edit lesson
 save when, and only when, the family changes the date (September 2026): it
 writes `queue_pinned = true` and `scheduled_source = 'plan_move'` on that one
 row, and undo restores the prior pin. Before that, an edited date was an
-ordinary queue row and the next Today load moved it back. System writes — vacation re-spread,
+ordinary queue row and the next Today load moved it back. Also set by Plan's
+Add a lesson when the family picks a curriculum, types a lesson number and
+chooses the day (September 2026, `addLessonPlacement` in `scheduler.ts`), on
+both the reused placeholder and the inserted row, only when the row holds a
+slot. Before that the add wrote the date alone, so the next resync moved it
+back and the next Schedule Builder save deleted and re-created it. One-offs and
+"Log a lesson you did" are unchanged. System writes — vacation re-spread,
 `queue_resync` — must NOT pin. `computeNextLessonsForGoal` takes a `pins`
 argument; `pinsFromRows` / `loadPinsByGoal` are the single derivation used by
 every projecting surface so no two can disagree. Empty pins reproduces the
@@ -1374,7 +1380,9 @@ Auto-scheduling never bunches; only the user can.
   statement. **If you are about to write `queue_pinned: true` anywhere else,
   you are reintroducing this bug.** The carve-outs are the Edit lesson date
   change (one row, which keeps the slot it already holds, so it is neither an
-  invisible pin nor a frozen tail), Unskip of a lesson the pointer has already
+  invisible pin nor a frozen tail), Plan's Add a lesson for a numbered
+  curriculum lesson (the same one-row shape: `addLessonPlacement` pins only a
+  row that holds a slot), Unskip of a lesson the pointer has already
   passed (its slot is at or below `current_lesson`, so the projector ignores
   the pin) and "Add a past year"
   (below): its rows are on archived goals in an archived year, which no
