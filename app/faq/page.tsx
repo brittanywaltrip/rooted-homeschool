@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import Link from "next/link";
 import { ChevronDown } from "lucide-react";
 import { MarketingBackLink, MarketingLogo } from "@/app/components/MarketingHeaderLinks";
@@ -284,27 +284,30 @@ const sections = [
 
 function AccordionItem({ q, a }: { q: string; a: React.ReactNode }) {
   const [open, setOpen] = useState(false);
+  const panelId = useId();
   return (
     <div className="border-b border-[#e8e2d9] last:border-0">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-start justify-between gap-4 py-4 text-left group"
-        aria-expanded={open}
-      >
-        <span className="text-sm font-medium text-[#2d2926] group-hover:text-[#5c7f63] transition-colors leading-snug">
-          {q}
-        </span>
-        <ChevronDown
-          size={16}
-          strokeWidth={2}
-          className={`shrink-0 mt-0.5 text-[#b5aca4] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
-        />
-      </button>
-      {open && (
-        <div className="pb-4 text-sm text-[#5c5248] leading-relaxed">
-          {a}
-        </div>
-      )}
+      <h3>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="w-full flex items-start justify-between gap-4 py-4 text-left group"
+          aria-expanded={open}
+          aria-controls={panelId}
+        >
+          <span className="text-sm font-medium text-[#2d2926] group-hover:text-[#5c7f63] transition-colors leading-snug">
+            {q}
+          </span>
+          <ChevronDown
+            size={16}
+            strokeWidth={2}
+            className={`shrink-0 mt-0.5 text-[#b5aca4] transition-transform duration-200 ${open ? "rotate-180" : ""}`}
+          />
+        </button>
+      </h3>
+      <div id={panelId} hidden={!open} className="pb-4 text-sm text-[#5c5248] leading-relaxed">
+        {a}
+      </div>
     </div>
   );
 }
