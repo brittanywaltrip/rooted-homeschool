@@ -56,22 +56,42 @@ export default function WeekPlannerModal(props: {
   const [error, setError] = useState<string | null>(null);
   const [pastSubjects, setPastSubjects] = useState<string[]>([]);
 
+  // Has the parent chosen children or days since the sheet opened? Until
+  // then the defaults follow the data: Plan loads its children, school days
+  // and breaks after the page renders, and a sheet opened before they arrive
+  // would otherwise start with no children and Monday-to-Friday.
+  const [childrenTouched, setChildrenTouched] = useState(false);
+  const [daysTouched, setDaysTouched] = useState(false);
+
   // A fresh sheet every time it opens, for the week on screen.
   useEffect(() => {
     if (!isOpen) return;
     setSubject("");
-    setChildIds(kids.map((k) => k.id));
     setMinutes("");
     setNotes("");
     setError(null);
     setSubmitting(false);
+    setChildrenTouched(false);
+    setDaysTouched(false);
+  }, [isOpen]);
+
+  const kidsKey = kids.map((k) => k.id).join(",");
+  useEffect(() => {
+    if (!isOpen || childrenTouched) return;
+    setChildIds(kidsKey ? kidsKey.split(",") : []);
+  }, [isOpen, childrenTouched, kidsKey]);
+
+  const schoolDaysKey = schoolDays.join(",");
+  const breaksKey = breaks.map((b) => `${b.start_date}:${b.end_date}`).join(",");
+  const weekKey = weekStart.getTime();
+  useEffect(() => {
+    if (!isOpen || daysTouched) return;
     setDays(
-      weekPlanDays({ weekStart, today, schoolDays, breaks }).map((d) => ({
+      weekPlanDays({ weekStart: new Date(weekKey), today, schoolDays: schoolDaysKey ? schoolDaysKey.split(",") : [], breaks: breaksKey ? breaksKey.split(",").map((b) => { const [start_date, end_date] = b.split(":"); return { start_date, end_date }; }) : [] }).map((d) => ({
         date: d.date, past: d.past, onBreak: d.onBreak, chosen: d.defaultChosen, title: "", edited: false,
       })),
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, daysTouched, weekKey, today, schoolDaysKey, breaksKey]);
 
   // The family's own one-off subjects, the same list Add a lesson offers.
   useEffect(() => {
@@ -107,6 +127,7 @@ export default function WeekPlannerModal(props: {
   // Typing a title fills the later chosen days the parent has not typed in
   // yet, counting up: "Week 12.1" -> "Week 12.2", "Week 12.3".
   function setTitle(index: number, value: string) {
+    setDaysTouched(true);
     setDays((prev) => {
       const next = prev.map((d, i) => (i === index ? { ...d, title: value, edited: value.trim() !== "" } : d));
       const later = next.map((d, i) => ({ d, i })).filter(({ d, i }) => i > index && d.chosen && !d.edited);
@@ -117,6 +138,7 @@ export default function WeekPlannerModal(props: {
   }
 
   function toggleDay(index: number) {
+    setDaysTouched(true);
     setDays((prev) => prev.map((d, i) => (i === index ? { ...d, chosen: !d.chosen } : d)));
   }
 
@@ -187,7 +209,10 @@ export default function WeekPlannerModal(props: {
                     <input
                       type="checkbox"
                       checked={childIds.includes(c.id)}
-                      onChange={() => setChildIds((cur) => (cur.includes(c.id) ? cur.filter((id) => id !== c.id) : [...cur, c.id]))}
+                      onChange={() => {
+                        setChildrenTouched(true);
+                        setChildIds((cur) => (cur.includes(c.id) ? cur.filter((id) => id !== c.id) : [...cur, c.id]));
+                      }}
                       className="accent-[#2D5A3D]"
                     />
                     {c.name}
