@@ -93,7 +93,7 @@ The calendar. A week view and a month view of every lesson, activity, appointmen
 - "You have N missed lessons" with Mark all done, Select all, and Reschedule on each one. Each lesson reads like the rows: "Math · Lesson 8", with the curriculum name underneath.
 - Cards to Close This School Year, Edit Year Details, Download Progress Report (Rooted+), and Past Years.
 - The curriculum list with a pace badge for each subject ("On pace", "N lessons behind", "Finished!") and a menu: Edit, Log past hours, I'm actually on..., Stop, Mark as finished, Delete.
-- A + button: add an appointment or event, log a lesson you did, a new activity, a new curriculum, or a break.
+- A + button: add an appointment or event, add a lesson, log a lesson you did, a new activity, a new curriculum, or a break. Each day in week view has its own +, and a long press on a day in month view offers Add a lesson too.
 - Tapping a day opens it: lessons by child, appointments, notes, and for a past day "Did you do any of this on (day)?"
 - Print (daily as a PDF; weekly and monthly are Rooted+).
 
@@ -105,6 +105,7 @@ The lessons dated in the weeks on screen, curricula, activities, appointments, b
 
 - Checking off a lesson works exactly as on Today, including asking which day.
 - Dragging a lesson, or Reschedule, moves it and holds it there. The family can move onto a break day or overfill a day; Plan warns but allows it, with Undo.
+- Add a lesson with a curriculum and a lesson number puts that lesson on the chosen day and holds it there, the same as a drag. Left without a number, it is a one-off lesson, not part of the curriculum.
 - Re-spread and Push back re-plan every unfinished lesson in the affected subjects, with Undo.
 - Adding a break can shift every later lesson back by the number of school days in the break (on by default).
 - Delete a curriculum: unfinished lessons are removed from the calendar, finished lessons stay on reports, lessons with notes are kept. Stop: the curriculum ends where it is. Mark as finished: it is put away.

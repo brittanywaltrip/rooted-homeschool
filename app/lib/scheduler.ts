@@ -4044,6 +4044,44 @@ export function resolveCustomLessonGoalLink(
   return { curriculum_goal_id: null, detachedFromGoal: true };
 }
 
+/**
+ * Plan's "Add a lesson": where a numbered curriculum lesson the family placed
+ * on a date is allowed to go afterwards. Nowhere, is the answer.
+ *
+ * The family picked the curriculum, typed the lesson number and chose the day.
+ * That is a placement made by hand, the same fact a drag or an Edit lesson
+ * date change records (Invariant 12), so it pins with the source those write.
+ * Until September 2026 the add wrote the date and nothing else: a reused
+ * placeholder kept its projector-placed source and an inserted row had no
+ * source at all (Invariant 10). Either way it was an ordinary queue row, and
+ * the page-load resync or the daily reconciliation put it back wherever the
+ * projector wanted it, and a Schedule Builder save deleted and re-created it.
+ *
+ * One row that keeps the slot it holds, like the Edit lesson carve-out under
+ * "What this PR did NOT change" in docs/CURRICULUM-SCHEDULING.md: neither an
+ * invisible pin nor a frozen tail. So a row with no slot is NOT pinned: a
+ * pinned row with a null queue_position is invisible to the pin set, and the
+ * projector would double-book its day.
+ *
+ * Returns null, and the caller writes nothing extra, for:
+ *   - a one-off (no curriculum): nothing re-dates a row with no slot anyway;
+ *   - "Log a lesson you did" (completed): it is history, stamped 'extra_log';
+ *   - a curriculum row with no lesson number or no slot.
+ */
+export const ADD_LESSON_PLACEMENT_SOURCE = "plan_move";
+
+export function addLessonPlacement(input: {
+  curriculum_goal_id: string | null;
+  lesson_number: number | null;
+  queue_position: number | null;
+  completed: boolean;
+}): { queue_pinned: true; scheduled_source: typeof ADD_LESSON_PLACEMENT_SOURCE } | null {
+  if (!input.curriculum_goal_id) return null;
+  if (input.completed) return null;
+  if (input.lesson_number == null || input.queue_position == null) return null;
+  return { queue_pinned: true, scheduled_source: ADD_LESSON_PLACEMENT_SOURCE };
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
  * Queue reorder (manual move)
  *

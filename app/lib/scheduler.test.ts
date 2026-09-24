@@ -35,6 +35,10 @@ import {
   pinsByGoalFromRows,
   planPhase2LessonInserts,
   resolveCustomLessonGoalLink,
+  addLessonPlacement,
+  ADD_LESSON_PLACEMENT_SOURCE,
+  planProjectedDateWrites,
+  isProjectorPlacedSource,
   lessonsPerDayForDate,
   isPinProjectable,
   isMakeUpPin,
@@ -10689,4 +10693,179 @@ test('builder preview: skips are loaded once and handed to every schedule line',
   assert.match(src, /const nextQueued = projected\.find\(\(p\) => p\.lesson_number > previewCurrent\);/)
   assert.match(src, /calcPace\(row, today, nextQueued\?\.date, vacations, skippedSlots\)/)
   assert.equal((src.match(/nextLesson: sched\.nextLesson,/g) ?? []).length, 4, 'both stored-progress lines and both next-lesson lines read the stepped lesson')
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Plan's "Add a lesson" places a numbered lesson where the family put it
+// (September 2026, Stage 0 of the Brandy follow-up proposal).
+//
+// The add wrote the chosen date and nothing else. A reused placeholder kept its
+// projector-placed source and an inserted row had no source at all, so either
+// way it was an ordinary queue row: the page-load resync and the daily
+// reconciliation moved it back to the projector's day, and a Schedule Builder
+// save deleted it and re-created that lesson number on the projector's day. It
+// now pins, through addLessonPlacement, the same fact a drag records.
+//
+// Each case runs the row the handler writes today and, as a control, the same
+// row as the handler wrote it before (no pin), so these tests fail on the old
+// behaviour rather than passing whatever it does.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ADD_GOAL_ID = REBUILD_GOAL.id
+// REBUILD_GOAL from Mon Sep 14: 12 Mon 14, 13 Tue 15, 14 Wed 16, 15 Thu 17,
+// 16 Fri 18, 17 Mon 21. The family puts lesson 15 on Wed Sep 23 instead.
+const ADD_PICKED_DAY = '2026-09-23'
+const ADD_PROJECTED_DAY_FOR_15 = '2026-09-17'
+
+/** What handleSubmitAddLesson writes onto the row, then and now. */
+function addLessonToDay(row: RebuildRow, day: string, withFix: boolean): RebuildRow {
+  const placement = withFix
+    ? addLessonPlacement({
+        curriculum_goal_id: ADD_GOAL_ID,
+        lesson_number: row.lesson_number,
+        queue_position: row.queue_position,
+        completed: false,
+      })
+    : null
+  return { ...row, scheduled_date: day, date: day, completed: false, ...placement }
+}
+
+/** Goal rows with lesson 15 as the builder's untouched placeholder, on its projected day. */
+function rowsWithPlaceholder15(): RebuildRow[] {
+  return Array.from({ length: 20 }, (_, i) => i + 1).map((n) =>
+    n === 15 ? rebuildRow(15, { scheduled_date: ADD_PROJECTED_DAY_FOR_15, date: ADD_PROJECTED_DAY_FOR_15 }) : rebuildRow(n),
+  )
+}
+
+/** The projection every re-dater computes: pins hold their day. */
+function projectAddGoal(rows: RebuildRow[]) {
+  const pins = pinsFromRows(rows.map((r) => ({ ...r, curriculum_goal_id: ADD_GOAL_ID })), ADD_GOAL_ID)
+  const projected = computeNextLessonsForGoal(REBUILD_GOAL, MON_SEP_14, 3650, [], 0, pins)
+  const projDateByKey = new Map(projected.map((p) => [`${ADD_GOAL_ID}|${p.lesson_number}`, p.date]))
+  return { projected, projDateByKey }
+}
+
+test('add lesson: addLessonPlacement pins only a numbered, slotted, unfinished curriculum lesson', () => {
+  const numbered = { curriculum_goal_id: 'g', lesson_number: 15, queue_position: 15, completed: false }
+  assert.deepEqual(addLessonPlacement(numbered), { queue_pinned: true, scheduled_source: 'plan_move' })
+  assert.equal(ADD_LESSON_PLACEMENT_SOURCE, 'plan_move', 'the source move_lesson_to_date and Edit lesson write')
+  // One-off: no curriculum, no slot, nothing re-dates it. Unchanged.
+  assert.equal(addLessonPlacement({ ...numbered, curriculum_goal_id: null, queue_position: null }), null)
+  // "Log a lesson you did": history, stamped extra_log by its own branch. Unchanged.
+  assert.equal(addLessonPlacement({ ...numbered, completed: true }), null)
+  // No number, or a row holding no slot: a pin there would be invisible to the
+  // pin set and the projector would double-book its day.
+  assert.equal(addLessonPlacement({ ...numbered, lesson_number: null }), null)
+  assert.equal(addLessonPlacement({ ...numbered, queue_position: null }), null)
+  // And a pinned row is no longer an untouched placeholder, so a second add of
+  // the same number is refused instead of moving it again.
+  assert.equal(isProjectorPlacedSource('plan_move'), false)
+  assert.equal(isProjectorPlacedSource('queue_resync'), true)
+})
+
+test('add lesson: a reused placeholder stays on the chosen day through the page-load resync and the daily reconciliation', async () => {
+  for (const withFix of [true, false]) {
+    const rows = rowsWithPlaceholder15().map((r) => (r.id === 'L15' ? addLessonToDay(r, ADD_PICKED_DAY, withFix) : r))
+    const { projected, projDateByKey } = projectAddGoal(rows)
+    const rowKey = (r: RebuildRow) => (r.queue_position == null ? null : `${ADD_GOAL_ID}|${r.queue_position}`)
+
+    // Page-load resync (queue_resync), the real writer.
+    const { supabase, writes } = makeResyncSupabase()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await syncProjectedScheduledDates(supabase as any, rows, projDateByKey, rowKey)
+    const resyncMoved15 = writes.some((w) => w.ids.includes('L15'))
+    // Daily reconciliation: planDailyReconcile hands its rows to this same planner.
+    const dailyMoved15 = [...planProjectedDateWrites(rows, projDateByKey, rowKey).values()].some((ids) => ids.includes('L15'))
+
+    if (withFix) {
+      assert.equal(resyncMoved15, false, 'the page-load resync leaves the placed lesson alone')
+      assert.equal(dailyMoved15, false, 'the daily reconciliation leaves it alone')
+      // Today and Plan read the projector: it shows lesson 15 on her day.
+      assert.equal(projected.find((p) => p.lesson_number === 15)?.date, ADD_PICKED_DAY)
+      const onPicked = projected.filter((p) => p.date === ADD_PICKED_DAY)
+      assert.equal(onPicked.length, 1, 'nothing else is stacked on her day (1 a day)')
+    } else {
+      // The bug: both re-daters put it back on the projector's Thursday.
+      assert.equal(resyncMoved15, true, 'control: an unpinned add is re-dated on the next load')
+      assert.equal(dailyMoved15, true, 'control: and by the daily reconciliation')
+      assert.equal(projDateByKey.get(`${ADD_GOAL_ID}|15`), ADD_PROJECTED_DAY_FOR_15)
+    }
+  }
+  // The reconciliation really does use that planner.
+  const src = stripComments(loadRepoFile('app/lib/scheduler.ts'))
+  const daily = extractFunctionBody(src, /export async function planDailyReconcile\s*\(/)
+  assert.match(daily, /planProjectedDateWrites\(plan\.rows, plan\.projDateByKey, plan\.rowKey\)/)
+})
+
+test('add lesson: a reused placeholder survives a later Schedule Builder save that leaves its schedule alone', () => {
+  const before = rowsWithPlaceholder15()
+  const fixed = rebuildThroughPhase2(before.map((r) => (r.id === 'L15' ? addLessonToDay(r, ADD_PICKED_DAY, true) : r)))
+  assert.ok(!fixed.plan.deletedIds.has('L15'), 'the floor delete holds the placed lesson back')
+  const fifteen = fixed.after.filter((r) => r.lesson_number === 15)
+  assert.equal(fifteen.length, 1, 'lesson 15 exists exactly once')
+  assert.equal(fifteen[0].id, 'L15', 'and it is the same row')
+  assert.equal(fifteen[0].scheduled_date, ADD_PICKED_DAY, 'still on the day she chose')
+  assert.ok(!fixed.inserts.some((p) => p.lesson_number === 15), 'its number is not recreated')
+  const live = fixed.after.filter((r) => !r.completed)
+  const days = live.map((r) => r.scheduled_date).filter((d): d is string => d != null)
+  assert.equal(new Set(days).size, days.length, 'no day holds two lessons on a 1-a-day goal')
+  assert.deepEqual(live.map((r) => r.lesson_number).sort((a, b) => a! - b!), [12, 13, 14, 15, 16, 17, 18, 19, 20])
+  // Completed history is untouched.
+  for (const r of before.filter((b) => b.completed)) {
+    assert.deepEqual(fixed.after.find((a) => a.id === r.id), r, `completed ${r.id} unchanged`)
+  }
+
+  // Control: the unpinned add was deleted and lesson 15 came back on the projector's day.
+  const old = rebuildThroughPhase2(before.map((r) => (r.id === 'L15' ? addLessonToDay(r, ADD_PICKED_DAY, false) : r)))
+  assert.ok(old.plan.deletedIds.has('L15'), 'control: the old add was deleted by the rebuild')
+  assert.notEqual(old.after.find((r) => r.lesson_number === 15)?.scheduled_date, ADD_PICKED_DAY)
+})
+
+test('add lesson: an inserted numbered lesson stays on the chosen day through the resync and a later Builder save', async () => {
+  // Lesson 15 has no row at all, so the add inserts one in slot 15.
+  const withoutFifteen = Array.from({ length: 20 }, (_, i) => i + 1).filter((n) => n !== 15).map((n) => rebuildRow(n))
+  for (const withFix of [true, false]) {
+    const added = addLessonToDay(rebuildRow(15, { id: 'ADDED' }), ADD_PICKED_DAY, withFix)
+    const rows = [...withoutFifteen, added]
+    const { projDateByKey } = projectAddGoal(rows)
+    const { supabase, writes } = makeResyncSupabase()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await syncProjectedScheduledDates(supabase as any, rows, projDateByKey, (r) => `${ADD_GOAL_ID}|${r.queue_position}`)
+    const rebuilt = rebuildThroughPhase2(rows)
+    const fifteen = rebuilt.after.filter((r) => r.lesson_number === 15)
+    if (withFix) {
+      assert.ok(!writes.some((w) => w.ids.includes('ADDED')), 'the resync leaves it alone')
+      assert.equal(fifteen.length, 1)
+      assert.equal(fifteen[0].id, 'ADDED', 'the Builder keeps the inserted row')
+      assert.equal(fifteen[0].scheduled_date, ADD_PICKED_DAY)
+    } else {
+      assert.ok(writes.some((w) => w.ids.includes('ADDED')), 'control: the old insert was re-dated')
+      assert.ok(rebuilt.plan.deletedIds.has('ADDED'), 'control: and deleted by the Builder')
+    }
+  }
+})
+
+test('add lesson: a Builder save that changes that curriculum\'s schedule releases the pin, as it does for a drag (Invariant 12)', () => {
+  const before = rowsWithPlaceholder15().map((r) => (r.id === 'L15' ? addLessonToDay(r, ADD_PICKED_DAY, true) : r))
+  const regrid = rebuildThroughPhase2(before, true)
+  assert.ok(regrid.plan.deletedIds.has('L15'), 'new school days or pace redefine the grid her placement sat on')
+  assert.equal(regrid.after.filter((r) => r.lesson_number === 15).length, 1, 'lesson 15 still exists once')
+})
+
+test('add lesson: the Plan handler pins on both the reuse and the insert, and nowhere else', () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const body = extractFunctionBody(src, /const handleSubmitAddLesson = useCallback\(async \(values: AddLessonSubmit\) =>/)
+  assert.match(body, /\.select\("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, queue_position,/, 'the reuse reads the slot it pins')
+  assert.match(body, /Object\.assign\(updatePayload, addLessonPlacement\(\{[^}]*queue_position: ex\.queue_position,[^}]*completed: isExtraCompletion,/)
+  assert.match(body, /\.\.\.addLessonPlacement\(\{[^}]*queue_position: queuePosition,[^}]*completed: isExtraCompletion,/)
+  assert.equal((body.match(/addLessonPlacement\(/g) ?? []).length, 2, 'the one-off branch is unchanged')
+  assert.doesNotMatch(body, /queue_pinned:\s*true/, 'the pin has one definition, addLessonPlacement')
+})
+
+test("add lesson: week view's day \"+\" offers Add a lesson through the month view's own handler", () => {
+  const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
+  const row = src.slice(src.indexOf('key: "lesson",'), src.indexOf('key: "extra",'))
+  assert.match(row, /label: "Add a lesson",/)
+  assert.match(row, /setAddLessonAsCompleted\(false\);\s*handleMenuAddLesson\(targetDate\);/, 'schedule mode, same opener as the long-press menu')
+  assert.ok(src.indexOf('key: "lesson",') < src.indexOf('key: "extra",'), 'listed before Log a lesson you did')
 })
