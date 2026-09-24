@@ -118,7 +118,7 @@ export default defineConfig({
     {
       name: 'chromium',
       // Everything except the curriculum-writing specs below.
-      grepInvert: /@curriculum-writes|@account-children/,
+      grepInvert: /@curriculum-writes/,
       // The phone screenshots are a look-at-it tool, not a gate. See the
       // mobile-screenshots project at the bottom.
       testIgnore: /screenshots\//,
@@ -142,25 +142,17 @@ export default defineConfig({
       // teardown). See CURRICULUM_WRITES in e2e/smoke/critical-paths.spec.ts.
       name: 'curriculum-writes',
       grep: /@curriculum-writes/,
-      grepInvert: /@account-children/,
       testIgnore: /screenshots\//,
-      // The specs that add a child to the shared account run after these.
-      teardown: 'account-children',
-      use: {
-        browserName: 'chromium',
-        storageState: STORAGE_STATE,
-      },
-    },
-    {
-      // Specs that add a temporary child to the shared test account (shared
-      // one-off lessons, Plan this week). A Schedule Builder spec that loads
-      // while such a child exists and saves after it is removed timed out on
-      // its save (smoke runs 36072579452 and 36073167592, both first attempts,
-      // both overlapping). So they run last: this is curriculum-writes'
-      // teardown, after every spec that reads the account's children.
-      name: 'account-children',
-      grep: /@account-children/,
-      testIgnore: /screenshots\//,
+      // One at a time. Two specs here add a temporary child to the shared
+      // account (shared one-off lessons, Plan this week), and a Schedule
+      // Builder spec that loaded while one existed and saved after it was
+      // removed timed out on its save: first attempts of smoke runs
+      // 36072579452 and 36073167592, each overlapping both. Running this
+      // project serially removes the overlap. Do NOT fix it by giving this
+      // project a teardown of its own: a teardown project's teardown is never
+      // run, its tests report "did not run" and the job still passes
+      // (run 36073814208 silently skipped 21 tests that way).
+      workers: 1,
       use: {
         browserName: 'chromium',
         storageState: STORAGE_STATE,

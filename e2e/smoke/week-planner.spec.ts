@@ -7,8 +7,8 @@ import { gotoAppPage } from '../helpers/overlays';
 // separately, and it counts on their own report with the minutes she planned.
 //
 // Adds a temporary second child to the shared e2e account, like the shared
-// one-off lesson spec, so it runs in the account-children project, after every
-// other spec (playwright.config.ts), and removes everything it made in `finally`.
+// one-off lesson spec, so it runs in the @curriculum-writes teardown project
+// after the ordinary specs, and removes everything it made in `finally`.
 // Days are chosen explicitly (today, and next Monday to Thursday) because the
 // suite can run on any weekday.
 
@@ -62,7 +62,7 @@ async function chooseOnly(form: ReturnType<Page['locator']>, weekStart: string, 
   }
 }
 
-test.describe('Plan this week', { tag: '@account-children' }, () => {
+test.describe('Plan this week', { tag: '@curriculum-writes' }, () => {
   test('a parent plans a week for two children; each checks off their own and it counts on their own report', async ({ page }) => {
     test.setTimeout(180_000);
     const sb = adminClient();
