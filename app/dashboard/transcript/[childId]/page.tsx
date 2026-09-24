@@ -10,8 +10,8 @@ import { SUBJECT_CATEGORIES, GRADE_OPTIONS, SEMESTERS, getSchoolYearOptions } fr
 import { calculateGPA, getCreditsBySubject, COLLEGE_READY_TARGETS, GRADE_POINTS } from "@/lib/transcript/gpa";
 import { STATE_REQUIREMENTS, resolveStateCode } from "@/lib/transcript/state-requirements";
 import {
-  calculateCreditsFromHours,
   hoursSourceOnSave,
+  importedCourseNumbers,
   planRefreshWrites,
   useCalculatedFromRead,
   USE_CALCULATED_LABEL,
@@ -546,8 +546,11 @@ export default function TranscriptBuilderPage() {
     const currentYear = getSchoolYearOptions()[3] || getSchoolYearOptions()[0];
     const inserts = newGoals.map(goal => {
       const lessons = lessonsByGoal[goal.id];
-      const hours = lessons ? Math.round(lessons.totalMinutes / 60) : 0;
-      const credits = lessons ? calculateCreditsFromHours(hours) : 1.0;
+      const imported = importedCourseNumbers({
+        creditsValue: goal.credits_value,
+        completedLessons: lessons?.count ?? 0,
+        totalMinutes: lessons?.totalMinutes ?? 0,
+      });
 
       return {
         user_id: uid,
@@ -556,8 +559,8 @@ export default function TranscriptBuilderPage() {
         subject_category: mapSubjectToCategory(goal.subject_label),
         credit_type: goal.course_level && goal.course_level !== "standard" ? goal.course_level : "standard",
         course_level: goal.course_level || "standard",
-        credits_earned: goal.credits_value != null ? goal.credits_value : credits,
-        hours_logged: hours || null,
+        credits_earned: imported.credits_earned,
+        hours_logged: imported.hours_logged,
         grade_letter: null,
         grade_points: null,
         school_year: goal.school_year || currentYear,
@@ -1537,17 +1540,19 @@ export default function TranscriptBuilderPage() {
                     <div className="flex items-center justify-between gap-2 -mt-1" data-hours-source={source ?? "unclassified"}>
                       <p className="text-[11px] text-[#8a8580]">
                         {source === "calculated"
-                          ? "Hours and credits update from logged lessons."
+                          ? "Hours update from logged lessons. Credits stay as they are."
                           : source === "family"
                             ? "Your hours and credits are kept as entered."
                             : "Hours and credits are kept as saved."}
                       </p>
-                      {source !== "calculated" && (
-                        <button type="button" onClick={useHoursFromLessons} disabled={formCalculating}
-                          className="shrink-0 text-[11px] font-medium underline text-[#2D5A3D] disabled:opacity-60">
-                          {formCalculating ? "Calculating..." : USE_CALCULATED_LABEL}
-                        </button>
-                      )}
+                      {/* Offered on every linked course, calculated ones included:
+                          the page-open refresh keeps hours in step but never
+                          touches credits, so this is how a family asks for
+                          both to be recalculated from the lessons. */}
+                      <button type="button" onClick={useHoursFromLessons} disabled={formCalculating}
+                        className="shrink-0 text-[11px] font-medium underline text-[#2D5A3D] disabled:opacity-60">
+                        {formCalculating ? "Calculating..." : USE_CALCULATED_LABEL}
+                      </button>
                     </div>
                   );
                 })()}

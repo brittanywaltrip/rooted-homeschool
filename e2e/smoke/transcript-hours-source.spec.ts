@@ -30,6 +30,9 @@ const NAMES = {
   calculated: 'E2E TH calculated',
   family: 'E2E TH family',
   unclassified: 'E2E TH unclassified',
+  // Calculated, holding the 1 credit an import gives a curriculum with no
+  // completed lessons yet: the refresh must move its hours and keep the credit.
+  creditsKept: 'E2E TH credits kept',
 }
 // Four completed lessons at 60 minutes: round(240 / 60) = 4 hours, 0.5 credit.
 const LESSON_HOURS = 4
@@ -130,6 +133,7 @@ test.describe('Transcript hours source', { tag: TAG }, () => {
       { ...base, course_name: NAMES.calculated, hours_logged: 1, credits_earned: 0.5, hours_source: 'calculated' },
       { ...base, course_name: NAMES.family, hours_logged: 150, credits_earned: 1, hours_source: 'family' },
       { ...base, course_name: NAMES.unclassified, hours_logged: 7, credits_earned: 1, hours_source: null },
+      { ...base, course_name: NAMES.creditsKept, hours_logged: null, credits_earned: 1, hours_source: 'calculated' },
     ])
     expect(tcErr).toBeNull()
 
@@ -137,10 +141,14 @@ test.describe('Transcript hours source', { tag: TAG }, () => {
     await openTranscript(page)
     // Positive signal that the refresh ran: the calculated course reaches 4.
     await expect.poll(async () => (await rows())[NAMES.calculated]?.hours_logged, { timeout: 20_000 }).toBe(LESSON_HOURS)
+    await expect.poll(async () => (await rows())[NAMES.creditsKept]?.hours_logged, { timeout: 20_000 }).toBe(LESSON_HOURS)
     let r = await rows()
     expect(r[NAMES.calculated]).toMatchObject({ hours_logged: LESSON_HOURS, credits_earned: 0.5, hours_source: 'calculated' })
     expect(r[NAMES.family]).toMatchObject({ hours_logged: 150, credits_earned: 1, hours_source: 'family' })
     expect(r[NAMES.unclassified]).toMatchObject({ hours_logged: 7, credits_earned: 1, hours_source: null })
+    // Hours follow the lessons; the credit is left exactly as it was (it used
+    // to be silently replaced with 0.5, the credit 4 hours works out to).
+    expect(r[NAMES.creditsKept]).toMatchObject({ hours_logged: LESSON_HOURS, credits_earned: 1, hours_source: 'calculated' })
     // A course imported from Plan on this open starts calculated.
     const imported = Object.values(r).filter((x) => !Object.values(NAMES).includes(x.course_name))
     for (const x of imported) expect(x.hours_source, `imported ${x.course_name}`).toBe('calculated')
@@ -178,6 +186,20 @@ test.describe('Transcript hours source', { tag: TAG }, () => {
     r = await rows()
     expect(r[NAMES.family]).toMatchObject({ hours_logged: LESSON_HOURS, credits_earned: 0.5, hours_source: 'calculated' })
     expect(r[NAMES.unclassified]).toMatchObject({ hours_logged: 7, credits_earned: 1, hours_source: null })
+
+    // 5. On a calculated course the button is offered too, and it is the one
+    //    way credits get recalculated: the family asks, and both move.
+    await page.goto(`/dashboard/transcript/${childId}`, { waitUntil: 'domcontentloaded' })
+    await expect(page.getByText(NAMES.creditsKept).first()).toBeVisible({ timeout: 30_000 })
+    await openCourse(page, NAMES.creditsKept)
+    await expect(page.getByText('Hours update from logged lessons. Credits stay as they are.')).toBeVisible()
+    await page.getByRole('button', { name: 'Use hours from lessons' }).click()
+    await expect(hoursInput(page)).toHaveValue(String(LESSON_HOURS))
+    await expect(page.locator('label:has-text("Credits earned") + input')).toHaveValue('0.5')
+    await page.getByRole('button', { name: /Update course/ }).click()
+    await expect(page.getByText('Course updated')).toBeVisible({ timeout: 10_000 })
+    r = await rows()
+    expect(r[NAMES.creditsKept]).toMatchObject({ hours_logged: LESSON_HOURS, credits_earned: 0.5, hours_source: 'calculated' })
   })
 
   // A failed lesson read used to look like "no lessons": 0 minutes. The button
