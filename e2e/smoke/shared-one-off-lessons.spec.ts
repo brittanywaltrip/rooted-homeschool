@@ -83,6 +83,7 @@ test('a reused one-off lesson creates independent entries and report time for tw
     expect(done.every((row) => row.minutes_spent === 40 && row.curriculum_goal_id === null)).toBe(true);
 
     await gotoAppPage(page, '/dashboard/reports');
+    await page.getByRole('button', { name: 'Preview Log' }).click();
     await page.getByRole('button', { name: first!.name, exact: true }).click();
     await expect(page.getByText(title, { exact: true })).toHaveCount(1);
     await page.getByRole('button', { name: secondName, exact: true }).click();
