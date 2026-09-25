@@ -1,5 +1,6 @@
 "use client";
 
+import { LessonUnitsProvider } from "@/lib/lesson-units-context";
 import { Fragment, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { FileText, Printer, Calendar, Clock, BookOpen, CheckSquare, Sparkles } from "lucide-react";
@@ -12,7 +13,8 @@ import { schoolNameFor } from "@/lib/school-name";
 import { mergeBookRecords, bookBelongsToChild, bookCover, bookHowLabel, ratingLeaves, isFinishedBook, isReadingBook, BOOK_HOW_LABELS, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
-import { attendancePresentDates, buildRemovalContext, lessonReportSubject, type RemovalContext } from "@/lib/progress-report-rows";
+import { attendancePresentDates, buildRemovalContext, lessonReportDescription, lessonReportSubject, type RemovalContext } from "@/lib/progress-report-rows";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import {
   selectActivitySessions, summarizeActivitySessions, groupActivitySessions,
   activityChildLabel, formatSessionDuration,
@@ -35,7 +37,7 @@ type Lesson   = {
   curriculum_goals: { subject_label: string | null } | null;
   /** The family's own subject. Kept on a lesson whose curriculum was deleted. */
   subjects: { name: string | null } | null;
-  title: string; date: string | null; scheduled_date: string | null;
+  title: string; lesson_number?: number | null; date: string | null; scheduled_date: string | null;
   completed: boolean;
   minutes_spent: number | null;
   /** Older time column. Counts only when minutes_spent is missing and this is positive (lib/lesson-minutes.ts). */
@@ -75,7 +77,7 @@ function fallbackYearStart() {
 
 /** Every column this page reads off a lesson row. Shared by both reads. */
 const LESSON_COLUMNS =
-  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), subjects(name), title, date, scheduled_date, completed, minutes_spent, hours, notes";
+  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), subjects(name), title, lesson_number, date, scheduled_date, completed, minutes_spent, hours, notes";
 
 /**
  * The window the UNCOMPLETED half of the lesson read covers.
@@ -240,6 +242,8 @@ function PrintReport({
   onAddAbsence: (row: { child_id: string; start_date: string; end_date: string; reason: string }) => Promise<boolean>;
   onDeleteAbsence: (id: string) => Promise<boolean>;
 }) {
+  // The curriculum's own words for a lesson ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const [addingDayOff, setAddingDayOff] = useState(false);
   const [dayOffChild, setDayOffChild] = useState("");
   const [dayOffStart, setDayOffStart] = useState("");
@@ -502,7 +506,7 @@ function PrintReport({
                     <td className="py-2 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(date)}</td>
                     <td className="py-2 pr-3 align-top text-[#7a6f65]">{lessonReportSubject(lesson, "Unassigned", removal)}</td>
                     <td className="py-2 pr-3 align-top text-[#2d2926]">
-                      <span className="font-medium">{lesson.title}</span>
+                      <span className="font-medium">{lessonReportDescription(lesson, unitFor(lesson.curriculum_goal_id))}</span>
                       {lesson.notes && <span className="block mt-0.5 text-[#6b6560] whitespace-pre-wrap">{lesson.notes}</span>}
                       {canEdit && editingLessonId === lesson.id ? (
                         <div className="no-print mt-2 space-y-2">
@@ -1037,7 +1041,16 @@ function ReadingLogPrintSheet({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
+/** Each screen here shows lesson numbers in the curriculum's own words (lib/lesson-units-context.tsx). */
 export default function ReportsPage() {
+  return (
+    <LessonUnitsProvider>
+      <ReportsPageInner />
+    </LessonUnitsProvider>
+  );
+}
+
+function ReportsPageInner() {
   const { effectiveUserId, isPartner } = usePartner();
   // Archived years become presets, so a year a family filed after the fact
   // ("Add a past year") is one tap away. Completed lessons are read with no

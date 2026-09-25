@@ -9,6 +9,8 @@
 // loadData) on mount, then keeps that state local. If the parent
 // re-mounts it, the queries re-fire — current behavior.
 
+import type { LessonUnit } from "@/lib/lesson-label";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useCallback, useState, useEffect, useRef } from "react";
 import { useSessionUser } from "@/lib/session-context";
 import { supabase } from "@/lib/supabase";
@@ -103,6 +105,9 @@ type TabLesson = {
   notes?: string | null;
   subjects: { name: string; color: string | null } | null;
   curriculum_goals?: { subject_label: string | null; curriculum_name?: string | null } | null;
+  // Which curriculum, for its lesson wording ("Week 12.3"). Selected by all
+  // three loaders already.
+  curriculum_goal_id?: string | null;
   // Used by the Past tab's per-subject lesson_number desc sort. Optional
   // because not every legacy row has a lesson_number set.
   lesson_number?: number | null;
@@ -117,8 +122,9 @@ type TabLesson = {
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 /** A lesson card's heading, through the same helper as Plan's rows. */
-function lessonTabHeading(l: TabLesson): { title: string; subtitle: string | null } {
+function lessonTabHeading(l: TabLesson, unit: LessonUnit | null = null): { title: string; subtitle: string | null } {
   const args = {
+    unit,
     lessonNumber: l.lesson_number,
     title: l.title,
     subject: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label),
@@ -147,6 +153,8 @@ export default function InlineScheduleTabs({
   onManage: () => void;
   isPartner: boolean;
 }) {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const sessionUser = useSessionUser();
   const sessionUserRef = useRef(sessionUser);
   sessionUserRef.current = sessionUser;
@@ -381,6 +389,7 @@ export default function InlineScheduleTabs({
           notes: r.notes,
           subjects: r.subjects,
           curriculum_goals: r.curriculum_goals,
+          curriculum_goal_id: r.curriculum_goal_id,
           lesson_number: r.lesson_number,
         });
       }
@@ -409,6 +418,7 @@ export default function InlineScheduleTabs({
           notes: r.notes,
           subjects: r.subjects,
           curriculum_goals: r.curriculum_goals,
+          curriculum_goal_id: r.curriculum_goal_id,
           lesson_number: r.lesson_number,
         });
       }
@@ -579,7 +589,7 @@ export default function InlineScheduleTabs({
                       // used to print the stored "<curriculum> — Lesson 44"
                       // title, dash and all, right under a Plan page that did
                       // not. A one-off keeps its own title.
-                      const heading = lessonTabHeading(l);
+                      const heading = lessonTabHeading(l, unitFor(l.curriculum_goal_id));
                       const childName = kids.find((ch) => ch.id === l.child_id)?.name ?? "";
                       const muted = [heading.subtitle, childName].filter((x) => !!x).join(" · ");
                       return (
@@ -790,7 +800,7 @@ export default function InlineScheduleTabs({
                               const dateLabel = completionTs
                                 ? formatRelativeFromTimestamp(completionTs)
                                 : fmtRelDate(l.scheduled_date);
-                              const heading = lessonTabHeading(l);
+                              const heading = lessonTabHeading(l, unitFor(l.curriculum_goal_id));
                               return (
                                 <div
                                   key={`l-${l.id}`}

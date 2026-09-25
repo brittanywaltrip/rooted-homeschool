@@ -1,3 +1,4 @@
+import { displayLessonTitle, type LessonUnit } from "./lesson-label.ts";
 /* ============================================================================
  * How one completed lesson reads on a printed report.
  *
@@ -21,6 +22,8 @@ export type ReportLessonRow = {
     curriculum_name?: string | null;
   } | null;
   is_backfill?: boolean;
+  /** For the curriculum's lesson wording ("Week 12.3"); display only. */
+  lesson_number?: number | null;
 };
 
 export interface DailyLogRow {
@@ -214,8 +217,11 @@ export function lessonReportSubject(
  * been overloaded for weeks and the existing data cannot be split honestly. So
  * the marker is gone. A completed lesson is a lesson.
  */
-export function lessonReportDescription(l: ReportLessonRow): string {
-  return l.title || "Lesson";
+export function lessonReportDescription(l: ReportLessonRow, unit: LessonUnit | null = null): string {
+  // The stored title, in the curriculum's own words when it has them. The
+  // saved text is what removedCurriculumName and lessonReportSubject parse,
+  // and it is never rewritten.
+  return displayLessonTitle(l.title, l.lesson_number, unit) || "Lesson";
 }
 
 /** One row of the printed daily log. */
@@ -225,11 +231,12 @@ export function lessonDailyLogRow(args: {
   minutes: number;
   estimated: boolean;
   removal?: RemovalContext | null;
+  unit?: LessonUnit | null;
 }): DailyLogRow {
   return {
     childName: args.childName,
     subject: lessonReportSubject(args.lesson, "General", args.removal),
-    description: lessonReportDescription(args.lesson),
+    description: lessonReportDescription(args.lesson, args.unit ?? null),
     minutes: args.minutes,
     type: "Lesson",
     estimated: args.estimated,

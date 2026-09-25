@@ -1,5 +1,7 @@
 "use client";
 
+import { CURRICULA_UPDATED_EVENT, LessonUnitsProvider, useLessonUnits } from "@/lib/lesson-units-context";
+import { LESSON_UNIT_LABELS, MAX_LESSONS_PER_UNIT, formatLessonLabel, lessonUnitColumns, lessonUnitFromGoal, unitCount, unitNoun, unitNounPlural, type LessonUnitLabel } from "@/lib/lesson-label";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MoreVertical, Trash2 } from "lucide-react";
@@ -122,6 +124,15 @@ type Row = {
   // loads as false, so re-saving an untouched curriculum can never invent a
   // second copy of its history.
   record_history: boolean;
+  // What the curriculum calls its lessons, "Week 12.3" for lesson 47 at 4 a
+  // week (lib/lesson-label.ts). Display only: lesson numbers, queue slots and
+  // every scheduling rule are unchanged. Only a row the family changed in this
+  // session (unit_touched) writes it, in its own write after the save
+  // (writeLessonUnits); an untouched row shows the saved wording and never
+  // writes it, so a stale tab cannot put an old choice back.
+  unit_label?: string | null;
+  lessons_per_unit?: number | null;
+  unit_touched?: boolean;
   // curriculum_goals.current_lesson as loaded. Null for never-saved rows.
   // The Invariant 21 pre-flight needs to know where progress stands BEFORE
   // phase 1 writes, and start_at_lesson alone cannot say: the pre-fill seeds
@@ -1208,7 +1219,16 @@ function formatDraftSavedAt(savedAt: number): string {
 
 // ─── Component ─────────────────────────────────────────────────────────────
 
+/** Each screen here shows lesson numbers in the curriculum's own words (lib/lesson-units-context.tsx). */
 export default function ScheduleBuilderPage() {
+  return (
+    <LessonUnitsProvider>
+      <ScheduleBuilderPageInner />
+    </LessonUnitsProvider>
+  );
+}
+
+function ScheduleBuilderPageInner() {
   const router = useRouter();
   const { effectiveUserId } = usePartner();
   const today = useMemo(() => todayDate(), []);
@@ -3767,6 +3787,37 @@ export default function ScheduleBuilderPage() {
       // and show the "we saved your draft" notice for work already done.
       clearScheduleDraft(effectiveUserId);
 
+      // ── What each curriculum calls its lessons ("Week 12.3"). ────────────
+      // Its own write, after everything else has landed, and only for rows the
+      // family changed in this session. Display only, so a failure here costs
+      // the words and nothing else: the schedule above is already saved. It is
+      // kept out of the curriculum insert and update on purpose: a database
+      // without these columns would reject the whole save, not just the words.
+      const unitWrites = rows
+        .filter((r) => r.type === "curriculum" && r.unit_touched)
+        .map((r) => ({
+          id: r.dbId ?? landedNewGoals.find((l) => l.localId === r.localId)?.id ?? null,
+          cols: lessonUnitColumns(r.unit_label, r.lessons_per_unit),
+        }))
+        .filter((w): w is { id: string; cols: ReturnType<typeof lessonUnitColumns> } => !!w.id);
+      if (unitWrites.length > 0) {
+        const results = await Promise.all(
+          unitWrites.map((w) => supabase.from("curriculum_goals").update(w.cols).eq("id", w.id).select("id")),
+        );
+        const failed = results.filter((r) => r.error || (r.data?.length ?? 0) !== 1);
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(CURRICULA_UPDATED_EVENT));
+        if (failed.length > 0) {
+          captureSupabaseError("lesson unit wording write failed", failed[0].error ?? new Error("no row updated"), {
+            level: "warning",
+            extra: { fn: "handleSave.writeLessonUnits", failed: failed.length, of: unitWrites.length },
+          });
+          setPostSaveNotice(
+            "Your schedule was saved, but the lesson wording wasn't. You can reopen the curriculum to choose it again.",
+          );
+          return;
+        }
+      }
+
       // ── "You're Rooted" ───────────────────────────────────────────────────
       // A successful save used to push straight to Plan with a banner: no
       // confirmation of what had just been set up and no next step, at the one
@@ -4620,6 +4671,13 @@ function RowCard(props: {
   onMarkFinished: () => Promise<void>;
 }) {
   const { row } = props;
+  // The wording this row reads in: what the family chose in this session, or
+  // what is saved for the curriculum, or "Lesson".
+  const { unitFor } = useLessonUnits();
+  const savedUnit = unitFor(row.dbId ?? null);
+  const unitLabel = row.unit_touched ? (row.unit_label ?? "lesson") : (savedUnit?.label ?? "lesson");
+  const unitPer = row.unit_touched ? (row.lessons_per_unit ?? 1) : (savedUnit?.perUnit ?? 1);
+  const shownUnit = lessonUnitFromGoal({ lesson_unit_label: unitLabel, lessons_per_unit: unitPer });
   // The same answer the sentence above it shows. Computing it again here with
   // no anchor walked from today, so a curriculum starting in January quoted a
   // finish month before its own first lesson, and disagreed with the line
@@ -5164,6 +5222,59 @@ function RowCard(props: {
         />
       </div>
 
+      {/* What the book calls its lessons. Display only: "Week 12.3" is lesson
+          47 of a 4-a-week book to the scheduler, and always will be. */}
+      {isCurriculum ? (
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[12px] text-[#7a6f65]">
+          <label htmlFor={`unit-label-${row.localId}`}>Lessons are called</label>
+          <select
+            id={`unit-label-${row.localId}`}
+            value={unitLabel}
+            disabled={isReadOnly}
+            onChange={(e) => props.onPatchRow(row.localId, {
+              unit_label: e.target.value,
+              lessons_per_unit: e.target.value === "lesson" ? null : unitPer,
+              unit_touched: true,
+            })}
+            className="px-2 py-1 rounded-lg border border-[#e8e2d9] bg-white text-[13px] text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+          >
+            {LESSON_UNIT_LABELS.map((l) => (
+              <option key={l} value={l}>{unitNoun(l)}</option>
+            ))}
+          </select>
+          {unitLabel !== "lesson" ? (
+            <>
+              <label htmlFor={`unit-per-${row.localId}`}>Lessons in each {unitNoun(unitLabel as LessonUnitLabel, { lower: true })}</label>
+              <input
+                id={`unit-per-${row.localId}`}
+                type="number"
+                min={1}
+                max={MAX_LESSONS_PER_UNIT}
+                value={unitPer}
+                disabled={isReadOnly}
+                onChange={(e) => {
+                  const n = Math.floor(Number(e.target.value));
+                  props.onPatchRow(row.localId, {
+                    unit_label: unitLabel,
+                    lessons_per_unit: Number.isFinite(n) && n >= 1 ? Math.min(n, MAX_LESSONS_PER_UNIT) : 1,
+                    unit_touched: true,
+                  });
+                }}
+                className="w-16 px-2 py-1 rounded-lg border border-[#e8e2d9] bg-white text-[13px] text-[#2d2926] focus:outline-none focus:border-[#5c7f63]"
+              />
+            </>
+          ) : null}
+          {shownUnit ? (
+            <p className="w-full text-[12px] text-[#7a6f65]">
+              {`Lesson ${Math.max(1, row.start_at_lesson)} shows as ${formatLessonLabel(Math.max(1, row.start_at_lesson), shownUnit)}`}
+              {row.total_lessons && row.total_lessons > 0
+                ? `, and ${row.total_lessons} lessons are ${unitCount(row.total_lessons, shownUnit.perUnit)} ${unitNounPlural(shownUnit, { lower: true })}.`
+                : "."}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {/* ── Where are you with this? ────────────────────────────────────────
           One question in place of Start at, Already completed, the start date
           and the green estimate banner. The family types the NEXT lesson and
@@ -5247,6 +5358,11 @@ function RowCard(props: {
                   onChange={(e) => changeStartAtLesson(Number(e.target.value) || 1)}
                   className="w-20 px-2 py-1 rounded-lg border border-[#e8e2d9] bg-white text-[13px] font-semibold text-[#2D5A3D] focus:outline-none focus:border-[#5c7f63]"
                 />
+                {shownUnit ? (
+                  <span className="text-[12px] text-[#7a6f65]">
+                    {`That's ${formatLessonLabel(row.start_at_lesson, shownUnit)}`}
+                  </span>
+                ) : null}
               </div>
 
               {/* Does Rooted write the lessons BEFORE that number down as

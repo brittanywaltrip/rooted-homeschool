@@ -144,6 +144,7 @@ function UpgradePageInner() {
 
   const trialAlreadyUsed = !!trialStartedAt
     && new Date(trialStartedAt).getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000 <= Date.now()
+  const trialInProgress = !!trialStartedAt && !trialAlreadyUsed && !isPaying
 
   return (
     <main className="min-h-screen bg-[#f8f7f4] px-4 py-14">
@@ -153,21 +154,24 @@ function UpgradePageInner() {
         <div className="text-center mb-12">
           <div className="text-5xl mb-5">🌿</div>
           <h1 className="text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: 'var(--font-display)' }}>
-            Keep everything you&apos;ve built 🌿
+            Keep the memories. Choose the tools you need. 🌿
           </h1>
           <p className="text-[#7a6f65] leading-relaxed max-w-md mx-auto text-base mb-2">
-            Your homeschool, organized, saved, and ready whenever you need it.
+            Your lessons and memories stay saved in Rooted, even on the free plan.
           </p>
           <p className="text-[#5c7f63] font-medium max-w-md mx-auto text-sm">
-            {trialAlreadyUsed
-              ? 'Your free trial has ended. Upgrade to keep everything you built.'
-              : 'Start with 30 days free, full access to every feature, no credit card needed.'}
+            {isPaying
+              ? 'You already have Rooted+. Your family can keep planning and sharing here.'
+              : trialAlreadyUsed
+                ? 'Your trial ended. Keep planning free, or get your full memory timeline, unlimited photos, exports and sharing with Rooted+.'
+                : trialInProgress
+                  ? 'Your 30-day trial includes Rooted+. Your saved work stays here when the trial ends.'
+                  : 'Try every feature for 30 days, no credit card needed.'}
           </p>
         </div>
 
-        {/* Social proof */}
-        <p className="text-sm text-[#9a8f85] text-center mb-10">
-          Join 1,500+ homeschool families already using Rooted 🌿
+        <p className="text-sm text-[#7a6f65] text-center mb-10">
+          Free keeps lesson planning and logging. Rooted+ gives your family its full story and the ways to share it.
         </p>
 
         {/* Referral discount banner */}
@@ -207,10 +211,10 @@ function UpgradePageInner() {
             <ul className="space-y-2 mb-6 flex-1">
               {[
                 ...(trialAlreadyUsed ? [] : ['30-day free trial, full access to everything']),
-                'After trial: lesson logging & curriculum planning',
-                'After trial: garden & scheduling',
-                'After trial: up to 50 photos, other memories unlimited, last 30 days',
-                'After trial: curated resources',
+                'Saved lessons and memories stay in your account',
+                'Lesson logging, curriculum planning and scheduling',
+                'Up to 50 photos; view your last 30 days of memories',
+                'Preview your yearbook and reports',
               ].map(f => (
                 <li key={f} className="flex items-start gap-2 text-sm text-[#7a6f65]">
                   <span className="text-[#c8bfb5] shrink-0 mt-0.5">✓</span>{f}

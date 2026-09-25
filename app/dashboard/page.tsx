@@ -3,6 +3,8 @@
 // TODO(cleanup): Delete stale test lessons for admin account:
 // DELETE FROM lessons WHERE title ILIKE '%test%' AND user_id = 'd18ca881-a776-4e82-b145-832adc88a88a';
 
+import { LessonUnitsProvider, useLessonUnits } from "@/lib/lesson-units-context";
+import { displayLessonTitle, formatLessonLabel, formatLessonRange } from "@/lib/lesson-label";
 import { useEffect, useState, useCallback, useRef } from "react";
 import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
@@ -425,7 +427,18 @@ type FamilyNotification = {
   created_at: string;
 };
 
+/** Each screen here shows lesson numbers in the curriculum's own words (lib/lesson-units-context.tsx). */
 export default function TodayPage() {
+  return (
+    <LessonUnitsProvider>
+      <TodayPageInner />
+    </LessonUnitsProvider>
+  );
+}
+
+function TodayPageInner() {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   // State, not a render-time constant, so a tab left open past midnight moves
   // to the new day on its own (see the rollover effect below) and loadData is
   // rebuilt for it. A render-time constant only changed when something else
@@ -4893,7 +4906,7 @@ export default function TodayPage() {
                         after. */}
                     <p className="text-[13px] text-[#5c4a1a] leading-snug break-words">
                       <span className="font-semibold">{subjectLabel}</span>
-                      {" "}Lesson {g.current_lesson}
+                      {" "}{formatLessonLabel(g.current_lesson, unitFor(g.goal_id))}
                       {g.resolved_day
                         ? <> was due {completionLabelDate(g.resolved_day)}. Did you do it?</>
                         : <>: did you do it?</>}
@@ -5647,7 +5660,7 @@ export default function TodayPage() {
 
                 {/* Lesson title */}
                 <p className="text-xl font-bold text-[#2d2926] text-center mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                  {lesson.title}
+                  {displayLessonTitle(lesson.title, lesson.lesson_number, unitFor(lesson.curriculum_goal_id))}
                 </p>
 
                 {/* Child + date */}
@@ -5907,7 +5920,7 @@ export default function TodayPage() {
                                     >
                                       {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
                                     </div>
-                                    <span className="flex-1 min-w-0 text-sm text-[#2d2926]">{l.title}</span>
+                                    <span className="flex-1 min-w-0 text-sm text-[#2d2926]">{displayLessonTitle(l.title, l.lesson_number, unitFor(l.curriculum_goal_id))}</span>
                                     <span className="text-[10px] text-[#b5aca4] shrink-0">
                                       {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                                     </span>
@@ -5932,6 +5945,9 @@ export default function TodayPage() {
                   only; the save path is unchanged. */}
               {(() => {
                 const skippedNums = new Set<number>();
+                // Which curricula the skipped numbers came from: one, and the
+                // warning reads in that curriculum's words ("Week 12.3").
+                const skippedGoals = new Set<string>();
 
                 for (const lesson of upcomingLessons) {
                   if (!extraChecked.has(lesson.id)) continue;
@@ -5944,6 +5960,7 @@ export default function TodayPage() {
 
                   // If selected lesson is not the next expected, everything between is skipped
                   if (lesson.lesson_number > lowestForGoal) {
+                    skippedGoals.add(lesson.curriculum_goal_id);
                     for (let n = lowestForGoal; n < lesson.lesson_number; n++) {
                       skippedNums.add(n);
                     }
@@ -5962,10 +5979,11 @@ export default function TodayPage() {
                 const sorted = Array.from(skippedNums).sort((a, b) => a - b);
                 const lo = sorted[0];
                 const hi = sorted[sorted.length - 1];
+                const skipUnit = skippedGoals.size === 1 ? unitFor([...skippedGoals][0]) : null;
                 const message =
                   sorted.length === 1
-                    ? `Heads up, this skips lesson ${lo}. It won't appear as completed in your plan.`
-                    : `Heads up, this skips lessons ${lo} through ${hi}. They won't appear as completed in your plan.`;
+                    ? `Heads up, this skips ${formatLessonLabel(lo, skipUnit, { lower: true })}. It won't appear as completed in your plan.`
+                    : `Heads up, this skips ${formatLessonRange(lo, hi, skipUnit, { lower: true }).replace(" to ", " through ")}. They won't appear as completed in your plan.`;
 
                 return (
                   <p className="text-[12px] text-[#a06b00] bg-[#fef9e8] border border-[#f0dda8] rounded-lg px-3 py-2 mb-3 leading-snug">
@@ -7019,9 +7037,9 @@ export default function TodayPage() {
       {completionChoice && (
         <CompletionDateChooser
           lessonTitle={
-            completionChoice.lesson.title?.trim() ||
+            displayLessonTitle(completionChoice.lesson.title?.trim(), completionChoice.lesson.lesson_number, unitFor(completionChoice.lesson.curriculum_goal_id)) ||
             (completionChoice.lesson.lesson_number
-              ? `Lesson ${completionChoice.lesson.lesson_number}`
+              ? formatLessonLabel(completionChoice.lesson.lesson_number, unitFor(completionChoice.lesson.curriculum_goal_id))
               : "This lesson")
           }
           plannedDate={completionChoice.plannedDate}

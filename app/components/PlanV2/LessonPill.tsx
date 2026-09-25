@@ -1,5 +1,7 @@
 "use client";
 
+import { displayLessonTitle, formatLessonLabel, type LessonUnit } from "@/lib/lesson-label";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useDraggable } from "@dnd-kit/core";
 import { useLongPress } from "./useLongPress";
 import { CheckCircle } from "./print-decorations";
@@ -36,13 +38,15 @@ interface Props {
   onRequestSelect?: () => void;
 }
 
-function displayTitle(l: PlanV2Lesson): string {
-  if (l.title && l.title.trim().length > 0) return l.title;
-  if (l.lesson_number) return `Lesson ${l.lesson_number}`;
+function displayTitle(l: PlanV2Lesson, unit: LessonUnit | null): string {
+  if (l.title && l.title.trim().length > 0) return displayLessonTitle(l.title, l.lesson_number, unit);
+  if (l.lesson_number) return formatLessonLabel(l.lesson_number, unit);
   return "Untitled";
 }
 
 export default function LessonPill(props: Props) {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const {
     lesson, child, childOrderedIndex, sourceDateStr,
     missed, justLanded, draggable = true,
@@ -54,7 +58,7 @@ export default function LessonPill(props: Props) {
   const subject = lesson.subjects?.name ?? null;
   const initial = child ? child.name.charAt(0).toUpperCase() : "·";
   const done = lesson.completed;
-  const label = displayTitle(lesson);
+  const label = displayTitle(lesson, unitFor(lesson.curriculum_goal_id));
   // Another day of work on an existing lesson. Text only, no badge shape:
   // the pill is already dense and a continuation is not a different KIND
   // of thing, just a second sitting.

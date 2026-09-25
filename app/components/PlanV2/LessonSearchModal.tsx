@@ -1,5 +1,7 @@
 "use client";
 
+import { displayLessonTitle, formatLessonLabel } from "@/lib/lesson-label";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -64,6 +66,8 @@ function formatDate(dateStr: string | null | undefined): string {
 }
 
 export default function LessonSearchModal(props: LessonSearchModalProps) {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const { isOpen, onClose, effectiveUserId, childrenList, onJumpToLesson } = props;
 
   const [query, setQuery] = useState("");
@@ -255,11 +259,12 @@ export default function LessonSearchModal(props: LessonSearchModalProps) {
                         const childName = l.child_id ? childNameById.get(l.child_id) : null;
                         const isArchived = !!l.curriculum_goals?.archived;
                         const offCalendar = !dateStr;
+                        const unit = unitFor(l.curriculum_goal_id);
                         const title =
                           l.title && l.title.trim().length > 0
-                            ? l.title
+                            ? displayLessonTitle(l.title, l.lesson_number, unit)
                             : l.lesson_number
-                              ? `Lesson ${l.lesson_number}`
+                              ? formatLessonLabel(l.lesson_number, unit)
                               : "Lesson";
                         return (
                           <li key={l.id}>
@@ -297,7 +302,7 @@ export default function LessonSearchModal(props: LessonSearchModalProps) {
                                 </span>
                                 <span className="block text-[10px] text-[#9a8e84] mt-0.5">
                                   {[
-                                    l.lesson_number != null ? `Lesson ${l.lesson_number}` : null,
+                                    l.lesson_number != null ? formatLessonLabel(l.lesson_number, unit) : null,
                                     childName,
                                     dateStr ? formatDate(dateStr) : null,
                                   ]
