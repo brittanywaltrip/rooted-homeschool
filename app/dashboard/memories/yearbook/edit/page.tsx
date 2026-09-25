@@ -916,6 +916,14 @@ export default function YearbookEditPage() {
           ← Back to yearbook
         </Link>
 
+        {!isReadOnly && <details className="rounded-2xl border border-[#dce8dd] bg-[#f3f8f3] px-4 py-3.5 text-[13px] text-[#2d4233]">
+          <summary className="cursor-pointer font-medium text-[#2D5A3D]">How your Yearbook comes together</summary>
+          <div className="mt-3 space-y-2 leading-relaxed">
+            <p>Memories marked for Yearbook become its photos and moments. Add more from Memories whenever you like.</p>
+            <p>Choose a theme and sections here, then add a cover photo or personal notes. Return to the Yearbook to see the pages together.</p>
+          </div>
+        </details>}
+
         {isReadOnly && (
           <div className="bg-[#faeeda] text-[#854F0B] rounded-xl p-4 text-sm">
             This yearbook is closed. You can still read it but not edit it.
