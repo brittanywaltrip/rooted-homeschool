@@ -73,6 +73,8 @@ import RecentChangesCard from "./RecentChangesCard";
 import DayCellContextMenu from "./DayCellContextMenu";
 import AddLessonModal, { type AddLessonSubmit } from "./AddLessonModal";
 import { oneOffLessonRows } from "./oneOffLessonRows";
+import WeekPlannerModal from "./WeekPlannerModal";
+import { weekPlanRows, type WeekPlanInput } from "./weekPlan";
 import LessonSearchModal, { type LessonSearchResult } from "./LessonSearchModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
@@ -541,6 +543,8 @@ export default function PlanV2() {
   // calendar's 42-day grid, under an archived curriculum, or with no date.
   const [searchOpen, setSearchOpen] = useState(false);
   const [addLessonOpen, setAddLessonOpen] = useState(false);
+  // "Plan this week": the parent-led weekly planner (WeekPlannerModal).
+  const [weekPlannerOpen, setWeekPlannerOpen] = useState(false);
   const [addLessonInitialDate, setAddLessonInitialDate] = useState<string>(todayStr);
   // True when AddLessonModal was opened from the unified "+" sheet's "Log
   // an extra lesson" action. Insert path uses this to write completed=true
@@ -1244,6 +1248,56 @@ export default function PlanV2() {
       },
     });
   }, [effectiveUserId, setLessons, reload]);
+
+  /**
+   * "Plan this week": one lesson per chosen child per chosen day, all in ONE
+   * insert statement, so the week is saved whole or not at all. The rows are
+   * shared one-off lessons (weekPlanRows over oneOffLessonRows): no curriculum
+   * and no queue slot, so the curriculum scheduler never moves, rebuilds or
+   * completes them, and each child checks off and reports their own.
+   * Undo removes the lessons it added that are still unfinished; one a child
+   * has already done stays, because that is now their record.
+   */
+  const handleSubmitWeekPlan = useCallback(async (input: WeekPlanInput) => {
+    if (!effectiveUserId) throw new Error("Not signed in");
+    if (input.childIds.some((id) => !kids.some((child) => child.id === id))) {
+      throw new Error("Choose children from your family.");
+    }
+    const rows = weekPlanRows(effectiveUserId, input, todayStr);
+    const { data: inserted, error } = await supabase.from("lessons")
+      .insert(rows)
+      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)");
+    if (error || !inserted || inserted.length !== rows.length) {
+      throw new Error(error ? "Couldn't save this week. Nothing was added." : "Couldn't add every lesson. Check your plan and try again.");
+    }
+    const added = inserted as unknown as PlanV2Lesson[];
+    const addedIds = added.map((row) => row.id);
+    setLessons((prev) => [...prev, ...added]);
+    hapticTap(20);
+    const subject = input.subject.trim() || "your week";
+    recordEvent("lesson.bulk_action", {
+      action: "week_plan",
+      count: added.length,
+      child_count: new Set(input.childIds).size,
+      days: input.days.map((d) => d.date),
+      subject: input.subject.trim() || null,
+      lesson_ids: addedIds,
+      succeeded: added.length,
+      failed: 0,
+    });
+    setUndoAction({
+      message: `Added ${added.length} ${added.length === 1 ? "lesson" : "lessons"} · ${subject}`,
+      key: `week-plan:${addedIds.join(":")}`,
+      onUndo: async () => {
+        const { error: undoError } = await supabase.from("lessons")
+          .delete().eq("user_id", effectiveUserId).eq("completed", false).in("id", addedIds);
+        if (undoError) flashNotice("Couldn't undo that week. Please try again.");
+        reload();
+      },
+    });
+    reload();
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+  }, [effectiveUserId, kids, todayStr, setLessons, recordEvent, reload]);
 
   const handleSubmitAddLesson = useCallback(async (values: AddLessonSubmit) => {
     if (!effectiveUserId) throw new Error("Not signed in");
@@ -5559,7 +5613,7 @@ export default function PlanV2() {
           />
         ) : null}
 
-        {curriculumGoals.length === 0 && !loading ? (
+        {curriculumGoals.length === 0 && lessons.length === 0 && !loading ? (
           /* New-user empty state — rendered in place of the calendar so a
              zero-goal user sees the call to action without scrolling past a
              blank week. The calendar only renders once the user has goals.
@@ -5577,6 +5631,17 @@ export default function PlanV2() {
               >
                 Add a subject
               </button>
+              {/* A family who plans by hand needs no curriculum first. Once
+                  the week has lessons in it, the calendar shows instead. */}
+              {!isPartner ? (
+                <button
+                  type="button"
+                  onClick={() => setWeekPlannerOpen(true)}
+                  className="mt-3 text-[13px] font-medium text-[#2D5A3D] underline underline-offset-2"
+                >
+                  Or plan this week yourself
+                </button>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -5675,6 +5740,19 @@ export default function PlanV2() {
 
                 {/* Breaks entry has moved to the unified "+" sheet in the hero. */}
               </div>
+
+              {/* The parent-led weekly planner, for the week on screen. */}
+              {viewMode === "week" && !isPartner && !selectMode ? (
+                <div className="flex">
+                  <button
+                    type="button"
+                    onClick={() => setWeekPlannerOpen(true)}
+                    className="text-[12px] font-medium px-3 py-1.5 rounded-full border border-[#d4e8d4] bg-[#f4f8f2] text-[#2D5A3D] hover:bg-[#e8f0e9] transition-colors"
+                  >
+                    Plan this week
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             {/* Select-mode action bar — shown above the grid whenever the user
@@ -6445,6 +6523,17 @@ export default function PlanV2() {
           />
         ) : null}
 
+        <WeekPlannerModal
+          isOpen={weekPlannerOpen}
+          weekStart={weekStart}
+          today={todayStr}
+          childrenList={kids}
+          schoolDays={schoolDays}
+          breaks={vacationBlocks}
+          userId={effectiveUserId}
+          onClose={() => setWeekPlannerOpen(false)}
+          onSubmit={handleSubmitWeekPlan}
+        />
         <AddLessonModal
           isOpen={addLessonOpen}
           initialDate={addLessonInitialDate}

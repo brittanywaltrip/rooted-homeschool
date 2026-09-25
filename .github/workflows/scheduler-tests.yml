@@ -35,6 +35,9 @@ on:
       - 'app/lib/recalibrate.ts'
       - 'app/lib/recalibrate.test.ts'
       - 'app/components/PlanV2/CurriculumGroupsPanel.tsx'
+      - 'app/components/PlanV2/weekPlan.ts'
+      - 'app/components/PlanV2/weekPlan.test.ts'
+      - 'app/components/PlanV2/oneOffLessonRows.ts'
       - '.github/workflows/scheduler-tests.yml'
   pull_request:
     paths:
@@ -63,6 +66,9 @@ on:
       - 'app/lib/recalibrate.ts'
       - 'app/lib/recalibrate.test.ts'
       - 'app/components/PlanV2/CurriculumGroupsPanel.tsx'
+      - 'app/components/PlanV2/weekPlan.ts'
+      - 'app/components/PlanV2/weekPlan.test.ts'
+      - 'app/components/PlanV2/oneOffLessonRows.ts'
 
 jobs:
   scheduler-tests:
@@ -100,6 +106,12 @@ jobs:
         # Invariant 24: moving one lesson changes one lesson's day on Plan and
         # on Today; "I'm actually on lesson X" reads the queue in book order.
         run: node --test app/lib/move-keep-slot.test.ts app/lib/recalibrate.test.ts
+
+      - name: Run the weekly planner tests
+        # "Plan this week" rows are one-offs: no goal, no queue slot, never
+        # completed by the write. These tests pin that the scheduler has
+        # nothing to read in them.
+        run: node --test app/components/PlanV2/weekPlan.test.ts app/components/PlanV2/oneOffLessonRows.test.ts
 
       - name: Run cleanup-bunched-lessons tests
         # The cleanup script mirrors planRescheduleLessons; its tests guard

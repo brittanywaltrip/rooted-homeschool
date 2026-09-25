@@ -16,6 +16,34 @@ row; Reports reads the respective child's completion. The subject/title
 choices reuse only family-entered one-off titles, never generated curriculum
 lesson placeholders. No existing lesson or completion is rewritten.
 
+**"Plan this week" (parent-led weekly planner).** Plan's week view offers
+"Plan this week": the parent names a subject, picks the children and the days
+of the week on screen, and gives each day its own title ("Week 12.1",
+"Week 12.2"...; typing the first counts up the rest). Save inserts one row per
+child per chosen day, all in ONE statement, built by the same
+`oneOffLessonRows` as the shared one-off entry (`weekPlanRows` in
+`app/components/PlanV2/weekPlan.ts`) and tagged `scheduled_source =
+'week_plan'`. They are one-off rows: no goal, no queue slot, no lesson number,
+not completed. So no projector, re-date, Builder save, pointer recompute,
+orphan cleanup or missed-work rule reads them, and nothing moves them off the
+day the parent chose. Past days cannot be planned; break days are offered but
+not chosen by default. Each child checks off their own row (Invariant 15/16
+unchanged) and Hours & Attendance counts it on that child's report only, with
+the planned minutes, or the shared 30-minute estimate when none were given
+(`lessonMinutes` in `lib/lesson-minutes.ts`: the row's `hours: 0` is not a
+recorded time). Undo removes the planned
+lessons that are still unfinished.
+
+Today reads these one-offs as a family planned them: the subject header comes
+from the "Subject · " prefix of the title when there is no subjects row or
+curriculum (`oneOffTitleSubject` in `lib/lesson-subject.ts`, the same split
+the reusable one-off choices use); Upcoming lists unfinished one-offs dated
+from tomorrow through the same 15 days it projects curricula for; and the
+check-off sheet offers a lesson's planned minutes ("You planned 45 min")
+before the curriculum default. All three apply to Add a lesson's one-offs
+too. Tests: `app/components/PlanV2/weekPlan.test.ts`,
+`lib/lesson-subject.test.ts`, `e2e/smoke/week-planner.spec.ts`.
+
 ---
 
 ## Why this document exists
@@ -176,6 +204,7 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'vacation_resched'` — vacation block insert/edit
 - `'catchup_resched'` — catch-up modal accepted
 - `'skip_today'` — "skip rest of today" pushed today's incompletes forward. Retired September 2026: the Running late sheet that held it was never drawn, so it and its handler were removed. Older rows still carry the label.
+- `'week_plan'` — a one-off lesson the parent planned with Plan's "Plan this week" (September 2026): no goal, no queue slot, never re-dated by any system path.
 - `'plan_move'` — user dragged or rescheduled a single lesson on the Plan page, changed its date in Edit lesson, or placed a numbered curriculum lesson on a day with Add a lesson (`addLessonPlacement`, September 2026). A move to a later day keeps the lesson's queue slot (`move_lesson_keep_slot`, Invariant 24); a move to an earlier day still reorders the queue (`move_lesson_to_date`).
 - `'plan_hold'` — "Move just this lesson" (and any single move to a later day) held this lesson on the date it already had, so the moved lesson's pin could not push it later (Invariant 24). The date is not written; the row is pinned and relabelled. Undo puts back the pin and source it had.
 - `'queue_resync'` — Plan / Today data loader aligned the cached scheduled_date with the queue projector's output (no user-visible change, just keeps the cache honest after current_lesson advances or a `plan_move` shifts siblings without re-dating them). AUTOMATIC ONLY: `syncProjectedScheduledDates` is its one writer, it is gated by `NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED` inside the helper, and no action a parent takes may write it (September 2026, see "Parent re-spreads" below).

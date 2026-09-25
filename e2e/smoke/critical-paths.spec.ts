@@ -1639,6 +1639,12 @@ test.describe('Schedule Builder links goals to active year + shows them post-sav
     const nextLessonField = firstChildCard.getByLabel(/What lesson are you on next\?/i).last();
     await nextLessonField.fill('3');
     await nextLessonField.blur();
+    // Since PR #94 the lesson number records nothing unless the family says
+    // so, and without those two lessons the row has nothing in this week on a
+    // Friday or a weekend (the first new lesson is next Monday): the test then
+    // failed every Friday to Sunday and passed Monday to Thursday by luck
+    // (smoke run 36086451738, a Friday). Opt in, as the backfill spec does.
+    await firstChildCard.getByRole('radio', { name: /Yes, add them to our records/i }).last().check();
 
     // ── 4. Preview + Save. Default Mon-Fri / 1-per-day are already seeded.
     await previewAndSave(page);
