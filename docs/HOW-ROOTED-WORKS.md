@@ -47,15 +47,17 @@ A few places do NOT use this and are called out in their sections: the Memories 
 
 The home screen. From top to bottom:
 
-- A green header with the family name, a greeting, the date, how many memories this year, how many days this month had something logged, and how many of today's lessons are done.
+- A green header with the family name, a greeting and the date. "How Today works" opens three short instructions when needed. Totals live beside the relevant task or record.
 - A break banner when today is inside a break ("Enjoy your break, school resumes...").
-- For newer families: a Getting Started card, a One Question a Month card, and a trial badge.
+- For newer families: a Getting Started card. A non-urgent trial badge appears below the main work.
 - "Did you finish?" cards when a subject's current lesson has no record: "Math Lesson 12 was due Sep 10. Did you do it?" with Yes on that day, Yes today, or Not yet.
-- Today's lessons, grouped by child, with activities and appointments. When nothing is scheduled: "You have nothing scheduled today. Please enjoy your day!"
-- Upcoming, Recurring and Past tabs.
+- Today's plan, grouped by child, shows lessons, activities and appointments with one combined done count. When nothing is scheduled: "You have nothing scheduled today. Please enjoy your day!"
 - The capture button. If this school year has no memories yet, it is the big "Capture your first memory" card.
-- One suggestion card at a time (see your Garden, try Plan, and so on).
-- My Lists, Today's Story (every memory dated today), the Your Yearbook strip (pages, lessons, books and days of school this year), and On This Day (a memory from about a year ago).
+- Coming up opens the Upcoming, Recurring and Past tabs on demand.
+- Today's Story (every memory dated today) and the Your Yearbook strip (pages, lessons, books and days of school this year). On This Day appears only for a memory dated within three days of today last year and shows that date.
+- My Lists when the family has them, followed by one suggestion card at a time (see your Garden, try Plan, and so on), family updates, achievements and the non-urgent trial badge.
+
+The optional question for each month remains in the Yearbook editor. It no longer opens on Today just because the family has not written an answer.
 
 **What it looks at**
 
@@ -73,7 +75,7 @@ How Today decides which lessons to show: for each subject it takes the next less
 
 **What "this year" means here**
 
-The memory count in the header, the first-memory card, the Your Yearbook strip and the garden leaves are all this school year. The photo count (for the free plan limit) is all time. "Lessons from earlier" looks back up to 14 days.
+The first-memory card, the Your Yearbook strip and the garden leaves are all this school year. The photo count (for the free plan limit) is all time. "Lessons from earlier" looks back up to 14 days.
 
 **Most likely to confuse**
 
