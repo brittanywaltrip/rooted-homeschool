@@ -72,7 +72,7 @@ test.describe('Catch-up refuses a lesson that changed while the sheet was open',
 
     await gotoAppPage(page, '/dashboard/plan');
     await expect(page.getByRole('heading', { name: /^Plan$/ }).first()).toBeVisible({ timeout: 20_000 });
-    await page.getByRole('button', { name: /^Review$/ }).first().click({ timeout: 30_000 });
+    await page.getByRole('button', { name: /^Review \d+ lessons? from earlier$/ }).first().click({ timeout: 30_000 });
     const sheet = page.locator('[role="dialog"][aria-labelledby="missed-recovery-title"]');
     await expect(sheet).toBeVisible({ timeout: 15_000 });
     await expect(sheet.getByText(name).first(), 'fixture: the seeded curriculum is offered').toBeVisible();
@@ -86,7 +86,7 @@ test.describe('Catch-up refuses a lesson that changed while the sheet was open',
       .eq('lesson_number', 4);
     expect(otherErr).toBeNull();
 
-    await sheet.getByRole('button', { name: /^Mark \d+ done on these days$/ }).click();
+    await sheet.getByRole('button', { name: /^Mark \d+ done/ }).click();
     await expect(sheet.getByRole('alert')).toContainText(/lessons changed/i, { timeout: 30_000 });
 
     const rows = await stored(sb, goalId);
