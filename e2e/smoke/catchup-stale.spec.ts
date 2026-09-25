@@ -90,7 +90,8 @@ test.describe('Catch-up refuses a lesson that changed while the sheet was open',
     await expect(sheet.getByRole('alert')).toContainText(/lessons changed/i, { timeout: 30_000 });
 
     const rows = await stored(sb, goalId);
-    expect(rows.get(4)!.completed_at, 'the other tab\'s completion is kept').toBe(otherTabAt);
+    // Compare instants: PostgREST returns "+00:00" where the seed wrote "Z".
+    expect(Date.parse(rows.get(4)!.completed_at ?? ''), 'the other tab\'s completion is kept').toBe(Date.parse(otherTabAt));
     expect(rows.get(4)!.date).toBe(localYmd(-4));
     for (const n of [5, 6, 7]) expect(rows.get(n)!.completed, `lesson ${n} stays unfinished`).toBe(false);
     expect(await answered(sb, userId), 'no curriculum records a catch-up answer').toEqual(answeredBefore);
