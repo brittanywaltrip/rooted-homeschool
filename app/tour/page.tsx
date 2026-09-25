@@ -22,11 +22,11 @@ const FEATURES: {
     id: "memories",
     label: "Memories",
     emoji: "📸",
-    headline: "Capture every learning moment",
+    headline: "Keep the moments that matter",
     sub: "The years go by so fast. Rooted helps you hold onto them: photos, quotes, books, and moments you'd otherwise forget.",
     bullets: [
-      "Save photos, field trip moments, and little things they said, it takes 10 seconds",
-      "Build a book log as you go, a record of everything they've ever read",
+      "Save photos, field trip moments, and little things they said",
+      "Log books as you go and build a reading record over time",
       "Share a private link with grandparents, aunts, uncles, and cousins, no app needed",
     ],
     note: "Shareable link, no app download needed 🔗",
@@ -100,14 +100,14 @@ const FEATURES: {
     label: "Yearbook",
     emoji: "📖",
     headline: "Your family yearbook",
-    sub: "Every win, quote, and book fills your yearbook automatically as you go. Add photos you love. At year-end, flip through a beautiful book, with your letter, each child\u2019s chapter and interview, and messages from family.",
+    sub: "Choose which memories go into your Yearbook, then add the photos and personal touches you love. Revisit the book throughout the year, with your letter, each child\u2019s chapter and interview, and approved family messages.",
     bullets: [
-      "📖 Wins, quotes & books added automatically",
-      "📸 Bookmark any photo to add it",
+      "📖 Mark wins, quotes & books for your Yearbook",
+      "📸 Choose photos to include",
       "✍️ Each child gets their own chapter with interview Q&A",
       "💌 Family can leave messages, you approve what appears",
     ],
-    note: "Builds itself all year, flip through it any time 📖",
+    note: "Make it yours as the year unfolds 📖",
   },
 ];
 
@@ -700,20 +700,20 @@ export default function TourPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-                The part moms love most
+                The moments families love most
               </p>
               <h2 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
                 These years go by so fast.{" "}
                 <em className="not-italic" style={{ color: "#5c7f63" }}>Hold onto them.</em>
               </h2>
               <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                Between the lessons, the field trips, the little things they said that made you laugh, so much gets forgotten. Rooted gives you a beautiful, simple place to save it all. It takes 10 seconds.
+                Between the lessons, the field trips, the little things they said that made you laugh, so much gets forgotten. Rooted gives you a beautiful, simple place to save what matters to your family.
               </p>
               <ul className="space-y-4 mb-8">
                 {[
                   { emoji: "📸", title: "Photos from your day", desc: "Snap and save moments as they happen, field trips, projects, backyard science." },
                   { emoji: "✍️", title: "Little notes & quotes", desc: "Write down what they said, what clicked, what made them proud. You'll want these later." },
-                  { emoji: "📖", title: "Books they loved", desc: "Build a reading log automatically as you go. A record of their whole reading life." },
+                  { emoji: "📖", title: "Books they loved", desc: "Log books as you go and build a reading record you can revisit." },
                   { emoji: "🌿", title: "Look back and see it", desc: "Your whole homeschool journey, month by month. Proof you're doing something beautiful." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
@@ -800,11 +800,11 @@ export default function TourPage() {
                 See how far they&apos;ve come.
               </h2>
               <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                At the end of a homeschool year it&apos;s easy to wonder, did we do enough? Rooted answers that question beautifully. Every lesson, every book, every subject, all in one place you can print, share, or save forever.
+                At the end of a homeschool year it&apos;s easy to wonder, did we do enough? Rooted brings the lessons and books you logged into a record you can print, share, or save.
               </p>
               <ul className="space-y-4 mb-8">
                 {[
-                  { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook, a living record of their whole learning life." },
+                  { emoji: "📸", title: "A yearbook, not just a document", desc: "Choose the memories, books, and photos you want to preserve in your family Yearbook." },
                   { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles, anyone you choose. No app download needed." },
                   { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
                 ].map((item) => (
