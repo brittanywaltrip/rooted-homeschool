@@ -548,6 +548,7 @@ export default function MemoriesPage() {
 
   // ── Filter + Search ──────────────────────────────────────────────────────
 
+  const yearbookCount = memories.filter((m) => m.include_in_book).length;
   const filtered = memories.filter((m) => {
     // Filter by child / family / favorites / yearbook / type
     if (filter === "favorites" && !m.favorite) return false;
@@ -878,7 +879,7 @@ export default function MemoriesPage() {
           >
             <div className="w-10 h-10 rounded-xl bg-[#fef6e4] flex items-center justify-center text-lg mb-2">📖</div>
             <p className="text-[13px] font-bold text-[#2D2A26] leading-tight">Yearbook</p>
-            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">{loading ? "Loading memories…" : loadError ? "Memories unavailable" : `${memories.filter((m) => m.include_in_book).length} ${isFreeWindowed ? "recent memories" : "memories"} marked for Yearbook`}</p>
+            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">{loading ? "Loading memories…" : loadError ? "Memories unavailable" : `${yearbookCount} ${isFreeWindowed ? "recent " : ""}${yearbookCount === 1 ? "memory" : "memories"} marked for Yearbook`}</p>
           </Link>
           <Link
             href="/dashboard/settings?tab=family#family-sharing"
