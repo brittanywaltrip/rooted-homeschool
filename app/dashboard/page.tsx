@@ -5410,10 +5410,10 @@ export default function TodayPage() {
           if (!hasAnyLessons) return null;
           return (
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Book</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Yearbook</p>
               <div className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3.5">
                 <p className="text-[13px] text-[#5C5346]" style={{ fontFamily: "var(--font-display)" }}>
-                  {schoolYearName ? `Your ${schoolYearName} book starts with your first memory.` : "Your book starts with your first memory."}
+                  {schoolYearName ? `Your ${schoolYearName} yearbook starts with your first memory.` : "Your yearbook starts with your first memory."}
                 </p>
               </div>
             </div>
@@ -5444,7 +5444,7 @@ export default function TodayPage() {
 
         return (
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Book</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Yearbook</p>
             <div className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3.5 flex items-start gap-3">
               <div className="flex-1 min-w-0">
                 <p className="leading-none">
