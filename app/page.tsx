@@ -274,6 +274,15 @@ export default function Home() {
 
 function HomeInner() {
   const [scrolled, setScrolled] = useState(false);
+  const [monthlyAvailable, setMonthlyAvailable] = useState(false);
+
+  // Match /upgrade: show Monthly only when its checkout price is configured.
+  useEffect(() => {
+    fetch("/api/stripe/plans")
+      .then((response) => response.ok ? response.json() : null)
+      .then((plans) => setMonthlyAvailable(Boolean(plans?.monthly)))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
@@ -465,7 +474,7 @@ function HomeInner() {
           </div>
 
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
-            <span>🌿</span> Trusted by 1,500+ homeschool families
+            <span>🌿</span> Built for real homeschool days
           </p>
         </div>
 
@@ -477,12 +486,12 @@ function HomeInner() {
         </div>
       </section>
 
-      {/* ── 3. SOCIAL PROOF STRIP ──────────────────────────────────────────── */}
+      {/* ── 3. WHAT ROOTED OFFERS ─────────────────────────────────────────── */}
       <section className="bg-[#fefcf9] border-b border-[#e8e2d9]">
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-y sm:divide-y-0 divide-[#e8e2d9]">
             {[
-              { number: "1,500+",       label: "Families Growing with Rooted", icon: "🌱" },
+              { number: "One Place",    label: "For Plans and Memories",       icon: "🌱" },
               { number: "Built by a Mom", label: "Not a Tech Company",         icon: "👩‍👧" },
               { number: "Free",         label: "To Start, No Card",            icon: "🎁" },
               { number: "One Click",    label: "Beautiful Printables",         icon: "🖨️" },
@@ -931,8 +940,8 @@ function HomeInner() {
             Start free. Grow with Rooted.
           </h2>
           <p className="text-[#7a6f65] max-w-lg mx-auto">
-            Try everything free for 30 days, no credit card needed. After your trial,
-            keep using Rooted free or upgrade to keep all your premium features.
+            Try everything for 30 days with no credit card. After that, keep planning
+            and logging lessons free. Your saved work stays in Rooted.
           </p>
         </div>
 
@@ -951,8 +960,7 @@ function HomeInner() {
           </div>
         )}
 
-        {/* Plan cards. 2 cols on desktop because only 2 cards render (Monthly is gated off). When Monthly is re-enabled, bump to lg:grid-cols-3. */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-5 mb-12 mt-4 items-start max-w-3xl mx-auto">
+        <div className={`grid grid-cols-1 sm:grid-cols-2 ${monthlyAvailable ? "lg:grid-cols-3 max-w-5xl" : "max-w-3xl"} gap-5 mb-12 mt-4 items-start mx-auto`}>
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
@@ -969,10 +977,10 @@ function HomeInner() {
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "30-day free trial, full access to everything",
-                "After trial: lesson tracking & curriculum planning",
-                "After trial: garden, badges, & scheduling",
-                "After trial: memories (50 photo limit)",
-                "After trial: curated resources",
+                "Saved lessons and memories stay in your account",
+                "After trial: lesson tracking, planning & scheduling",
+                "After trial: up to 50 photos; view the last 30 days of memories",
+                "After trial: yearbook and report previews",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
                   <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
@@ -1027,19 +1035,19 @@ function HomeInner() {
             </Link>
           </div>
 
-          {/* Monthly — hidden during Founding Family window */}
-          {false && <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
+          {/* Show the same Monthly option as /upgrade when checkout is ready. */}
+          {monthlyAvailable && <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
             <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Rooted+ Monthly</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
                 className="text-4xl font-bold text-[#2d2926]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
-                $6.99
+                $9.99
               </span>
               <span className="text-sm text-[#b5aca4] mb-1">/mo</span>
             </div>
-            <p className="text-xs text-[#b5aca4] mb-6">Pay as you go · ≈ $83.88/year</p>
+            <p className="text-xs text-[#b5aca4] mb-6">Billed monthly · Cancel anytime</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
@@ -1057,16 +1065,16 @@ function HomeInner() {
               ))}
             </ul>
             <Link
-              href="/signup"
+              href="/upgrade"
               className="block w-full border border-[#e8e2d9] text-[#7a6f65] hover:bg-[#f0ede8] font-medium py-3 rounded-xl transition-colors text-sm"
             >
-              Start Monthly →
+              See Monthly Plan →
             </Link>
           </div>}
         </div>
 
         <p className="text-xs sm:text-sm text-[#7a6f65] text-center max-w-2xl mx-auto px-4 pt-6 pb-8 leading-relaxed">
-          <strong className="text-[#2d2926]">Rooted+ is $59/yr. Unlimited photos, exports, and family sharing.</strong>
+          <strong className="text-[#2d2926]">Free keeps your saved work. Rooted+ unlocks the full memory timeline, unlimited new photos, exports and family sharing.</strong>
         </p>
 
         {/* Feature comparison table */}
@@ -1086,7 +1094,9 @@ function HomeInner() {
                 { feature: "Garden & growth tree",      free: "✓",            founding: "✓"               },
                 { feature: "Curriculum planning",       free: "✓",            founding: "✓"               },
                 { feature: "Scheduling",                free: "✓",            founding: "✓"               },
-                { feature: "Photos",                    free: "50 (unlimited during trial)", founding: "✓ Unlimited" },
+                { feature: "Saved lessons & memories",  free: "Kept in your account", founding: "Kept in your account" },
+                { feature: "Memory timeline",           free: "Last 30 days", founding: "Full history" },
+                { feature: "Photos",                    free: "Up to 50 (unlimited during trial)", founding: "✓ Unlimited" },
                 { feature: "Yearbook",                  free: "Full during trial · Preview after", founding: "✓ Full, no watermark + PDF download" },
                 { feature: "Transcript builder",        free: "Full during trial · Preview after", founding: "✓ Full + export" },
                 { feature: "PDF exports (transcripts, hours, reports)", free: "During trial only", founding: "✓" },
