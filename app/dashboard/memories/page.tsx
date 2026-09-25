@@ -853,11 +853,11 @@ export default function MemoriesPage() {
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
 
       <details className="rounded-2xl border border-[#dce8dd] bg-[#f3f8f3] px-4 py-3.5 text-[13px] text-[#2d4233]">
-        <summary className="cursor-pointer font-semibold text-[#2D5A3D]">How Memories works</summary>
+        <summary className="cursor-pointer font-medium text-[#2D5A3D]">How Memories works</summary>
         <div className="mt-3 space-y-2 leading-relaxed">
-          <p><strong>Save a moment.</strong> Capture Memory opens Today, where you can add a photo, win, book, drawing, or trip.</p>
-          <p><strong>Find it again.</strong> Browse by child or type, search, or mark a favorite. Tap a memory to see its details.</p>
-          <p><strong>Make it yours.</strong> Mark the moments you want in your Yearbook. You can also choose whether each memory is visible to family.</p>
+          <p><span className="font-medium">Save a moment.</span> Capture Memory opens Today, where you can add a photo, win, book, drawing, or trip.</p>
+          <p><span className="font-medium">Find it again.</span> Browse by child or type, search, or mark a favorite. Tap a memory to see its details.</p>
+          <p><span className="font-medium">Make it yours.</span> Mark the moments you want in your Yearbook. You can also choose whether each memory is visible to family.</p>
         </div>
       </details>
 
