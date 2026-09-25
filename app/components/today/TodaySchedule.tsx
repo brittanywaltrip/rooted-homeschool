@@ -184,10 +184,15 @@ export default function TodaySchedule({
     // the page, or tomorrow's lesson satisfies it from the Upcoming tab.
     <div data-testid="today-schedule">
       {/* Header */}
-      <div className="flex items-center justify-between px-0.5 -mb-1">
-        <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">Today&apos;s lessons</p>
+      <div className="flex items-start justify-between gap-2 px-0.5 -mb-1">
+        <div>
+          <h2 className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">Today&apos;s plan</h2>
+          {totalItems > 0 && (
+            <p className="text-[12px] text-[#7a6f65] mt-1">Check off lessons, activities and appointments as you finish them.</p>
+          )}
+        </div>
         {totalItems > 0 && (
-          <span className="text-[12px] text-[#b5aca4]">
+          <span className="text-[12px] text-[#5c7f63] font-medium whitespace-nowrap">
             {doneItems} of {totalItems} done
           </span>
         )}

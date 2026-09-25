@@ -1508,7 +1508,7 @@ export default function YearbookEditPage() {
         <div className="bg-white rounded-xl border border-[#e8e3dc] p-5">
           <p className="text-[13px] font-semibold text-[#2d2926]">Our year, month by month</p>
           <p className="text-[11px] text-[#9a8f85] italic mt-0.5 mb-3">
-            One question a month, in your own words. We&apos;ll ask gently on your Today page each month; view or edit any month here. Blank months are skipped in the book.
+            One optional question each month, in your own words. Answer any month you like; blank months are skipped in the book.
           </p>
           <div className="space-y-3">
             {yearbookMonths(yearbookKey).map((month) => (

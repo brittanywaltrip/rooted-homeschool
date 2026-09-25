@@ -65,6 +65,31 @@ const dismissMissedLessonModal = dismissMissedLessonSheet
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe('FLOW 1. Today page loads', () => {
+  test('Today explains the main actions and keeps the extra schedule available', async ({ page }) => {
+    await page.goto('/dashboard');
+    await expect(page.getByRole('button', { name: 'How Today works' })).toBeVisible({ timeout: 20_000 });
+    await dismissMissedLessonModal(page);
+
+    const guide = page.locator('#today-guide');
+    await expect(guide).toBeHidden();
+    await page.getByRole('button', { name: 'How Today works' }).click();
+    await expect(guide.getByText('Do your work.')).toBeVisible();
+    await expect(guide.getByText('Keep the moment.')).toBeVisible();
+    await expect(guide.getByText('Look ahead.')).toBeVisible();
+    await page.getByRole('button', { name: 'How Today works' }).click();
+    await expect(guide).toBeHidden();
+
+    await expect(page.getByRole('heading', { name: "Today's plan" })).toBeVisible();
+    const comingUp = page.getByRole('button', { name: /Coming up/ });
+    if (await comingUp.count()) {
+      const extraSchedule = page.locator('#today-more-schedule');
+      await expect(extraSchedule).toBeHidden();
+      await comingUp.click();
+      await expect(extraSchedule).toBeVisible();
+      await expect(extraSchedule.getByRole('button', { name: /^Upcoming$/ })).toBeVisible();
+    }
+  });
+
   test('lesson or activation card appears, no console crashes', async ({ page }) => {
     const errors = collectConsoleErrors(page);
 
@@ -603,9 +628,9 @@ test.describe('FLOW 7. Stop recurring appointment', () => {
     ).toBeVisible({ timeout: 20_000 });
     await dismissMissedLessonModal(page);
 
-    // The Recurring tab is a flat button labeled "Recurring" inside the
-    // InlineScheduleTabs strip (InlineScheduleTabs.tsx:365). Click it to
-    // pivot the list to recurring appointments.
+    // Supporting schedule tabs stay available behind the compact Coming up
+    // control. Open them before checking the recurring appointment path.
+    await page.getByRole('button', { name: /Coming up/ }).click();
     const recurringTab = page.getByRole('button', { name: /^Recurring$/ }).first();
     if ((await recurringTab.count()) === 0) {
       test.skip(true, 'Recurring tab is not on the page. likely a render variant we do not exercise here.');
