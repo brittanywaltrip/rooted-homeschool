@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
+import { sumLessonMinutes } from "@/lib/lesson-minutes";
 
 export const dynamic = "force-dynamic";
 
@@ -52,10 +53,10 @@ export async function GET(
   // Paged: a year filed after the fact ("Add a past year") can hold well over
   // 1,000 completed rows, and an unranged read would return the first 1,000
   // with no error, so the hours and lesson count would simply be short.
-  const { data: completedLessons, error: lessonsErr } = await selectAllRowsResult<{ minutes_spent: number | null }>((from, to) =>
+  const { data: completedLessons, error: lessonsErr } = await selectAllRowsResult<{ minutes_spent: number | null; hours: number | null }>((from, to) =>
     supabaseAdmin
       .from("lessons")
-      .select("minutes_spent")
+      .select("minutes_spent, hours")
       .eq("user_id", userId)
       .eq("school_year_id", schoolYearId)
       .eq("completed", true)
@@ -67,10 +68,10 @@ export async function GET(
   }
 
   const totalLessonsCompleted = completedLessons?.length ?? 0;
-  const totalMinutes = (completedLessons ?? []).reduce(
-    (sum, l) => sum + (l.minutes_spent ?? 0),
-    0
-  );
+  // lib/lesson-minutes.ts: the same rule as Reports. This summary used to count
+  // a lesson with no minutes as 0, so a year's summary read fewer hours than
+  // its own Reports page.
+  const totalMinutes = sumLessonMinutes(completedLessons ?? []).minutes;
 
   const { data: goals, error: goalsErr } = await supabaseAdmin
     .from("curriculum_goals")

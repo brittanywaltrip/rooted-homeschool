@@ -24,6 +24,7 @@ import { selectReportPhotos, type ReportPhoto } from "@/lib/report-evidence";
 import { buildActivityLog, selectReportAppointments } from "@/lib/report-activity-log";
 import { dayOffInputError, dayOffLength, selectReportDaysOff, type ReportAbsence, type ReportBreak } from "@/lib/report-days-off";
 import { resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE } from "@/app/lib/scheduler";
+import { lessonMinutes, sumLessonMinutes } from "@/lib/lesson-minutes";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +38,8 @@ type Lesson   = {
   title: string; date: string | null; scheduled_date: string | null;
   completed: boolean;
   minutes_spent: number | null;
+  /** Older time column. Counts only when minutes_spent is missing and this is positive (lib/lesson-minutes.ts). */
+  hours?: number | null;
   notes: string | null;
 };
 /**
@@ -72,7 +75,7 @@ function fallbackYearStart() {
 
 /** Every column this page reads off a lesson row. Shared by both reads. */
 const LESSON_COLUMNS =
-  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), subjects(name), title, date, scheduled_date, completed, minutes_spent, notes";
+  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), subjects(name), title, date, scheduled_date, completed, minutes_spent, hours, notes";
 
 /**
  * The window the UNCOMPLETED half of the lesson read covers.
@@ -277,7 +280,10 @@ function PrintReport({
     if (child && a.child_id !== child.id) return false;
     return a.date >= dateFrom && a.date <= dateTo && a.duration_minutes;
   });
-  const lessonHours = completedLessons.reduce((sum, l) => sum + ((l.minutes_spent ?? 30) / 60), 0);
+  // One rule for lesson time everywhere (lib/lesson-minutes.ts): recorded
+  // minutes as recorded, a recorded 0 as 0, and only a lesson with no time at
+  // all as the estimate.
+  const lessonHours = sumLessonMinutes(completedLessons).minutes / 60;
   const memoryHours = filteredActivities.reduce((sum, a) => sum + ((a.duration_minutes ?? 0) / 60), 0);
 
   // Completed recurring-activity sessions: a FOURTH source, distinct from the
@@ -357,7 +363,7 @@ function PrintReport({
       subjectMap[key] = { name, color: null, count: 0, hours: 0 };
     }
     subjectMap[key].count++;
-    subjectMap[key].hours += (l.minutes_spent ?? 30) / 60;
+    subjectMap[key].hours += lessonMinutes(l).minutes / 60;
   });
 
   // For a single-child report, whole-family appointments (empty child_ids)
@@ -490,7 +496,7 @@ function PrintReport({
             <tbody>
               {lessonDetails.map((lesson) => {
                 const date = lesson.date ?? lesson.scheduled_date;
-                const minutes = lesson.minutes_spent ?? 30;
+                const minutes = lessonMinutes(lesson).minutes;
                 return (
                   <tr key={lesson.id} className="border-t border-[#f2ede6]">
                     <td className="py-2 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(date)}</td>
@@ -533,7 +539,7 @@ function PrintReport({
                         </div>
                       ) : canEdit ? (
                         <button type="button" className="no-print block mt-1 text-xs font-medium text-[#5c7f63]"
-                          onClick={() => { setEditingActivityId(null); setEditingLessonId(lesson.id); setRecordDate(date ?? ""); setRecordMinutes(String(lesson.minutes_spent ?? 30)); setDetailText(lesson.notes ?? ""); setDeleteConfirm(null); setDetailError(null); }}>
+                          onClick={() => { setEditingActivityId(null); setEditingLessonId(lesson.id); setRecordDate(date ?? ""); setRecordMinutes(String(lessonMinutes(lesson).minutes)); setDetailText(lesson.notes ?? ""); setDeleteConfirm(null); setDetailError(null); }}>
                           Edit record
                         </button>
                       ) : null}
@@ -1521,7 +1527,7 @@ export default function ReportsPage() {
   });
   const completedFiltered   = filteredLessons.filter((l) => l.completed);
   const completedCount      = completedFiltered.length;
-  const lessonHoursQuick    = completedFiltered.reduce((s, l) => s + ((l.minutes_spent ?? 30) / 60), 0);
+  const lessonHoursQuick    = sumLessonMinutes(completedFiltered).minutes / 60;
   const activityHoursQuick  = activities.filter((a) => {
     if (selectedChild !== "all" && a.child_id !== selectedChild) return false;
     return a.date >= dateFrom && a.date <= dateTo;

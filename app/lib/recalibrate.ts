@@ -11,6 +11,7 @@ import {
   type CurriculumGoalConfig,
   type VacationBlock,
 } from "./scheduler.ts";
+import { sumLessonMinutes, type LessonMinutesTotal } from "../../lib/lesson-minutes.ts";
 import { queueOutOfBookOrder, restoreQueueBookOrder } from "./move-keep-slot.ts";
 
 /* ============================================================================
@@ -89,6 +90,9 @@ export interface RecalibrateGapRow {
   skipped?: boolean | null;
   completed?: boolean | null;
   scheduled_date?: string | null;
+  /** Read so the form can promise the hours Reports will count (addedReportMinutes). */
+  minutes_spent?: number | null;
+  hours?: number | null;
 }
 
 /**
@@ -152,11 +156,16 @@ export function formatLessonList(numbers: readonly number[], capital = false): s
 }
 
 /**
- * What an estimate adds to Reports. Estimates carry no minutes, and Reports
- * counts a completed lesson with none as 30 (app/dashboard/reports/page.tsx).
- * If the shared lesson-minutes rule lands (PR #96), read its constant instead.
+ * What a Yes adds to the family's hours: exactly what Reports will count for
+ * these lessons once they are done, through the one shared rule
+ * (lib/lesson-minutes.ts). An estimate writes no minutes, so a lesson with none
+ * counts ESTIMATED_MINUTES_PER_LESSON; one that already carries recorded
+ * minutes, or a saved hours value, counts that. The promise and the report
+ * cannot disagree because they are the same call.
  */
-export const ESTIMATE_REPORT_MINUTES = 30;
+export function addedReportMinutes(rows: readonly RecalibrateGapRow[]): LessonMinutesTotal {
+  return sumLessonMinutes(rows);
+}
 
 /** "30 minutes", "1 hour", "3 hours 30 minutes". */
 export function formatAddedTime(minutes: number): string {

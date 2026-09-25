@@ -16,6 +16,7 @@ import { joinNames } from "./garden-config.ts";
 // completed_at, the "{name} — Lesson {n}" title lessonReportSubject reads).
 
 import { capitalizeName } from "../../lib/utils.ts";
+import { sumLessonMinutes } from "../../lib/lesson-minutes.ts";
 
 export const PAST_YEAR_SOURCE = "past_year";
 /**
@@ -176,11 +177,14 @@ export function buildPastYearArchive(args: {
   end: string;
   daysAttended: number;
   goals: readonly { id: string; child_id: string; curriculum_name: string; subject_label: string | null; current_lesson: number; total_lessons: number }[];
-  lessons: readonly { child_id: string; minutes_spent: number | null }[];
+  lessons: readonly { child_id: string; minutes_spent: number | null; hours?: number | null }[];
   childNames: Record<string, string>;
   memories: YearMemoryCounts;
 }) {
-  const minutes = args.lessons.reduce((m, l) => m + (typeof l.minutes_spent === "number" ? l.minutes_spent : 0), 0);
+  // lib/lesson-minutes.ts, the rule the Years card reads the same lessons with.
+  // This used to count a lesson with no minutes as 0 while the Years card
+  // counted 30, so a filed year's archive and its own card disagreed.
+  const minutes = sumLessonMinutes(args.lessons).minutes;
   const childIds = [...new Set(args.goals.map((g) => g.child_id))];
   return {
     user_id: args.userId,

@@ -6,7 +6,9 @@ import test from "node:test";
 const page = readFileSync(resolve(import.meta.dirname, "..", "app", "dashboard", "reports", "page.tsx"), "utf8");
 
 test("the report reads, prints, and manages parent-owned lesson and activity records", () => {
-  assert.match(page, /completed, minutes_spent, notes/);
+  // `hours` rides along so a lesson with no minutes but a saved hours value
+  // counts as recorded time (lib/lesson-minutes.ts).
+  assert.match(page, /completed, minutes_spent, hours, notes/);
   assert.match(page, /id, activity_id, date, minutes_spent, completed, notes/);
   assert.match(page, /lesson\.notes/);
   assert.match(page, /s\.notes/);
