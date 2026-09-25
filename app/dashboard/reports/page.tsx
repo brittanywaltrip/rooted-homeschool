@@ -1721,7 +1721,7 @@ function ReportsPageInner() {
         <details className="mt-3 text-sm text-[#5c5346]">
           <summary className="cursor-pointer font-medium text-[#2D5A3D]">How are hours counted?</summary>
           <p className="mt-2">Completed lessons and recorded activity time add to hours. A completed lesson without a recorded time counts as a 30-minute estimate. Appointments appear in the log, but their planned time does not add to hours.</p>
-          <p className="mt-2">To correct a lesson or activity, open Preview Log and choose Edit record.</p>
+          {!isPartner && <p className="mt-2">To correct a lesson or activity, open Preview Log and choose Edit record.</p>}
         </details>
       </div>
 
