@@ -1,5 +1,7 @@
 "use client";
 
+import { displayLessonTitle, formatLessonLabel, formatLessonOfTotal } from "@/lib/lesson-label";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Hand, MoreVertical, Pencil, Trash2 } from "lucide-react";
 import type { PlanV2Child, PlanV2Lesson } from "./types";
@@ -204,6 +206,8 @@ export interface CurriculumGroupsPanelProps {
 }
 
 export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps) {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const {
     goals, lessons, kids, vacationBlocks,
     onCreate, onEdit, onDelete, onStop, onMarkFinished,
@@ -356,7 +360,7 @@ export default function CurriculumGroupsPanel(props: CurriculumGroupsPanelProps)
                         <span className="group-hover:underline">{goal.curriculum_name}</span>
                       </span>
                       <span className="block text-[11px] text-[#9a8e84] mt-0.5 tabular-nums">
-                        Lesson {Math.min(completedCount + 1, goal.total_lessons)} of {goal.total_lessons}
+                        {formatLessonOfTotal(Math.min(completedCount + 1, goal.total_lessons), goal.total_lessons, unitFor(goal.id))}
                       </span>
                     </button>
                     <span
@@ -577,6 +581,8 @@ export function RecalibrateForm(props: {
   onSubmit: (newCurrentLesson: number, recordHistory: boolean, confirmedLessonIds: readonly string[]) => Promise<void>;
   onClose: () => void;
 }) {
+  // The curriculum's own words for the number typed ("That's Week 12.1").
+  const recalUnit = useLessonUnits().unitFor(props.goal.id);
   const { goal, onSubmit, onClose } = props;
   // The field reflects mom's "I'm actually on lesson X" mental model:
   // the lesson currently in progress, which is one slot beyond the count
@@ -717,6 +723,9 @@ export function RecalibrateForm(props: {
           className="w-[88px] text-[14px] font-semibold text-[#2D5A3D] border border-[#c5dbc9] rounded-md bg-white px-2.5 py-1.5 focus:outline-none focus:border-[#2D5A3D]"
         />
         <span className="text-[11px] text-[#5c7f63]">of {goal.total_lessons}</span>
+        {recalUnit && Number.isInteger(typed) && typed >= 1 ? (
+          <span className="text-[11px] text-[#5c7f63]">{`That's ${formatLessonLabel(typed, recalUnit)}`}</span>
+        ) : null}
       </div>
       <p className="text-[11px] text-[#5c7f63] leading-relaxed">
         This resets your position in the queue. If you moved lesson {Number.isInteger(typed) ? typed : "X"} to another day, saving releases that date so it can be your next lesson. Lessons you&apos;ve already logged stay in your history.
@@ -808,6 +817,8 @@ function LessonList(props: {
   onUnskipLesson: (lesson: PlanV2Lesson) => void;
   onDeleteLesson: (lesson: PlanV2Lesson) => void;
 }) {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const { lessons, onToggleLesson, onEditLesson, onRescheduleLesson, onContinueLesson, onSkipLesson, onUnskipLesson, onDeleteLesson } = props;
   // Run-length grouper. Correct only because `lessons` arrives date-sorted
   // from sortLessonsForList; see lessonListSort.ts.
@@ -841,11 +852,12 @@ function LessonList(props: {
           </p>
           <ul className="space-y-1">
             {g.rows.map((l) => {
+              const unit = unitFor(l.curriculum_goal_id);
               const title =
                 l.title && l.title.trim().length > 0
-                  ? l.title
+                  ? displayLessonTitle(l.title, l.lesson_number, unit)
                   : l.lesson_number
-                    ? `Lesson ${l.lesson_number}`
+                    ? formatLessonLabel(l.lesson_number, unit)
                     : "Lesson";
               // Completed rows surface the actual completion date so the
               // user can see when each lesson got marked off. Incomplete /

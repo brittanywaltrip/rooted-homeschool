@@ -21,6 +21,8 @@
 // tapping "Yes, mark them done" repeatedly because the page used to hide the
 // sheet before its first write, so the tap looked like nothing.
 
+import { formatProjectedWorkLabel } from "@/lib/lesson-label";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, X } from "lucide-react";
 import CompletionDateChooser, { labelDate } from "@/app/components/CompletionDateChooser";
@@ -91,6 +93,9 @@ export default function MissedLessonRecoveryModal({
   today,
   onShown,
 }: Props) {
+  // A missed entry has a projected queue slot, which may differ from the
+  // book's lesson number after a manual reorder.
+  const { unitFor } = useLessonUnits();
   const [submitting, setSubmitting] = useState<"yes" | "no" | null>(null);
   // Why the last submit failed, shown under the buttons until the next try.
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -300,10 +305,11 @@ export default function MissedLessonRecoveryModal({
                                 checked={on}
                                 disabled={submitting !== null}
                                 onChange={() => toggleRow(e)}
+                                aria-label={`${formatProjectedWorkLabel(e.lesson_number, unitFor(g.id))} for ${g.subject_label || g.curriculum_name}, due ${labelDate(shown)}`}
                                 className="w-4 h-4 shrink-0 accent-[#5c7f63] cursor-pointer"
                               />
                               <span className="text-[13px] text-[#2d2926] shrink-0">
-                                Lesson {e.lesson_number}
+                                {formatProjectedWorkLabel(e.lesson_number, unitFor(g.id))}
                               </span>
                               {e.also_today && (
                                 <span className="text-[11px] text-[#7a6f65] bg-[#f6f3ee] rounded-full px-2 py-0.5 truncate">
@@ -315,9 +321,9 @@ export default function MissedLessonRecoveryModal({
                               type="button"
                               disabled={submitting !== null}
                               onClick={() =>
-                                setChoosingFor({ entry: e, label: `Lesson ${e.lesson_number}` })
+                                setChoosingFor({ entry: e, label: formatProjectedWorkLabel(e.lesson_number, unitFor(g.id)) })
                               }
-                              aria-label={`Change the date for lesson ${e.lesson_number}, currently ${labelDate(shown)}`}
+                              aria-label={`Change the date for ${formatProjectedWorkLabel(e.lesson_number, unitFor(g.id)).toLowerCase()}, currently ${labelDate(shown)}`}
                               className={`shrink-0 text-[12px] min-h-[32px] px-2.5 rounded-lg border transition-colors ${
                                 changed
                                   ? "text-[#2D5A3D] border-[#c5dbc9] bg-[#f0f7f2] font-medium"

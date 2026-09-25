@@ -21,6 +21,8 @@ import TodayKidSection from "./TodayKidSection";
 import { groupItems, type TodayItem, type Child } from "./groupItems";
 import type { CardHandlers } from "./TodayItemCard";
 import { oneOffTitleSubject, resolveLessonSubject } from "@/lib/lesson-subject";
+import { displayLessonTitle, type LessonUnit } from "@/lib/lesson-label";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 
 // ─── Source-row shapes the page already loads (mirror dashboard/page.tsx) ──
 
@@ -100,6 +102,7 @@ function toItems(
   lessons: LessonRow[],
   activities: ActivityRow[],
   appointments: AppointmentRow[],
+  unitFor: (goalId: string | null | undefined) => LessonUnit | null = () => null,
 ): TodayItem[] {
   const out: TodayItem[] = [];
   for (const l of lessons) {
@@ -109,7 +112,9 @@ function toItems(
       child_ids: [l.child_id],
       time: lessonTime(l),
       duration_minutes: l.minutes_spent,
-      title: l.title,
+      // The stored title, in the curriculum's own words when it has them
+      // ("Math with Confidence — Week 12.3"); the saved text is unchanged.
+      title: displayLessonTitle(l.title, l.lesson_number, unitFor(l.curriculum_goal_id)),
       // A one-off lesson ("Plan this week", Add a lesson) has no subjects row
       // or curriculum; its subject is the "Subject · " prefix of its title.
       subject_label:
@@ -161,7 +166,8 @@ export default function TodaySchedule({
   isSchoolDay = true,
   noteEditor,
 }: Props) {
-  const items = toItems(lessons, activities, appointments);
+  const { unitFor } = useLessonUnits();
+  const items = toItems(lessons, activities, appointments, unitFor);
   const grouped = groupItems(items, children);
   const totalItems = items.length;
   const doneItems = items.filter((i) => i.completed).length;
