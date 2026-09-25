@@ -9,10 +9,20 @@ import PageHero from "@/app/components/PageHero";
 import { SUBJECT_CATEGORIES, GRADE_OPTIONS, SEMESTERS, getSchoolYearOptions } from "@/lib/transcript/constants";
 import { calculateGPA, getCreditsBySubject, COLLEGE_READY_TARGETS, GRADE_POINTS } from "@/lib/transcript/gpa";
 import { STATE_REQUIREMENTS, resolveStateCode } from "@/lib/transcript/state-requirements";
+import {
+  hoursSourceOnSave,
+  importedCourseNumbers,
+  planRefreshWrites,
+  useCalculatedFromRead,
+  USE_CALCULATED_LABEL,
+  type HoursSource,
+  type LessonMinutesRead,
+} from "@/lib/transcript/hours-source";
 import { getUserAccess, canExport } from "@/lib/user-access";
 import PreviewWatermark from "@/app/components/PreviewWatermark";
 import ExportGateModal from "@/app/components/ExportGateModal";
 import { jsPDF } from "jspdf";
+import { lessonMinutes } from "@/lib/lesson-minutes";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -46,6 +56,8 @@ type Course = {
   curriculum_goal_id: string | null;
   is_external: boolean;
   external_provider: string | null;
+  // Who owns hours_logged and credits_earned. See lib/transcript/hours-source.ts.
+  hours_source: HoursSource;
 };
 
 type CurriculumGoal = { id: string; curriculum_name: string; icon_emoji: string | null; subject_label: string | null; school_year: string | null; default_minutes: number; course_level: string | null; credits_value: number | null; archived: boolean | null; completed_at: string | null };
@@ -68,6 +80,7 @@ const EMPTY_COURSE: Omit<Course, "id"> = {
   curriculum_goal_id: null,
   is_external: false,
   external_provider: null,
+  hours_source: null,
 };
 
 const STATE_LIST = Object.entries(STATE_REQUIREMENTS).map(([code, s]) => ({ code, name: s.name })).sort((a, b) => a.name.localeCompare(b.name));
@@ -114,12 +127,6 @@ function mapSubjectToCategory(label: string | null): string {
   return "other";
 }
 
-function calculateCreditsFromHours(hours: number): number {
-  if (hours <= 0) return 0.5;
-  const raw = Math.round((hours / 120) * 2) / 2;
-  return Math.max(0.5, raw);
-}
-
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export default function TranscriptBuilderPage() {
@@ -150,6 +157,18 @@ export default function TranscriptBuilderPage() {
   const [editingCourse, setEditingCourse] = useState<Course | null>(null);
   const [form, setForm] = useState<Omit<Course, "id">>(EMPTY_COURSE);
   const [formSaving, setFormSaving] = useState(false);
+  // The hours and credits the form opened with, so a save can tell a number
+  // the family typed from one it merely carried.
+  const [formOpened, setFormOpened] = useState<{ hours_logged: number | null; credits_earned: number }>({
+    hours_logged: EMPTY_COURSE.hours_logged,
+    credits_earned: EMPTY_COURSE.credits_earned,
+  });
+  // Set by "Use hours from lessons"; cleared as soon as the family types again.
+  const [formUseCalculated, setFormUseCalculated] = useState(false);
+  const [formCalculating, setFormCalculating] = useState(false);
+  // "Use hours from lessons" could not read the lessons. Shown beside the
+  // button; the form's numbers were left alone.
+  const [formHoursError, setFormHoursError] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState(false);
 
   // Toast
@@ -503,11 +522,17 @@ export default function TranscriptBuilderPage() {
 
     // Fetch lesson data for new goals in bulk
     const goalIds = newGoals.map(g => g.id);
-    const { data: lessonData } = await supabase
+    const { data: lessonData, error: lessonErr } = await supabase
       .from("lessons")
-      .select("curriculum_goal_id, minutes_spent, completed")
+      .select("curriculum_goal_id, minutes_spent, hours, completed")
       .in("curriculum_goal_id", goalIds)
       .eq("completed", true);
+    // Without the lessons the new courses' hours would be a guessed zero.
+    // Import nothing this time; the next open imports them with real hours.
+    if (lessonErr) {
+      await refreshLinkedCourseHours(uid, existingCourses);
+      return 0;
+    }
 
     // Group lessons by goal
     const lessonsByGoal: Record<string, { count: number; totalMinutes: number }> = {};
@@ -516,14 +541,20 @@ export default function TranscriptBuilderPage() {
       if (!gid) continue;
       if (!lessonsByGoal[gid]) lessonsByGoal[gid] = { count: 0, totalMinutes: 0 };
       lessonsByGoal[gid].count++;
-      lessonsByGoal[gid].totalMinutes += (l.minutes_spent ?? 45);
+      // lib/lesson-minutes.ts, the rule Reports uses. This page used to fall
+      // back to 45 where Reports used 30, so the same lessons read as more
+      // hours on the transcript than on the hours report.
+      lessonsByGoal[gid].totalMinutes += lessonMinutes(l).minutes;
     }
 
     const currentYear = getSchoolYearOptions()[3] || getSchoolYearOptions()[0];
     const inserts = newGoals.map(goal => {
       const lessons = lessonsByGoal[goal.id];
-      const hours = lessons ? Math.round(lessons.totalMinutes / 60) : 0;
-      const credits = lessons ? calculateCreditsFromHours(hours) : 1.0;
+      const imported = importedCourseNumbers({
+        creditsValue: goal.credits_value,
+        completedLessons: lessons?.count ?? 0,
+        totalMinutes: lessons?.totalMinutes ?? 0,
+      });
 
       return {
         user_id: uid,
@@ -532,8 +563,8 @@ export default function TranscriptBuilderPage() {
         subject_category: mapSubjectToCategory(goal.subject_label),
         credit_type: goal.course_level && goal.course_level !== "standard" ? goal.course_level : "standard",
         course_level: goal.course_level || "standard",
-        credits_earned: goal.credits_value != null ? goal.credits_value : credits,
-        hours_logged: hours || null,
+        credits_earned: imported.credits_earned,
+        hours_logged: imported.hours_logged,
         grade_letter: null,
         grade_points: null,
         school_year: goal.school_year || currentYear,
@@ -543,6 +574,8 @@ export default function TranscriptBuilderPage() {
         curriculum_goal_id: goal.id,
         is_external: false,
         external_provider: null,
+        // Imported from Plan: the page owns these numbers until a family types.
+        hours_source: "calculated" as const,
       };
     });
 
@@ -556,37 +589,55 @@ export default function TranscriptBuilderPage() {
     return inserts.length;
   }
 
+  /**
+   * Completed-lesson minutes per goal, the way the transcript has always
+   * counted them. A failed read is { ok: false }, never an empty result: an
+   * empty result means zero minutes, and a failure must not become a zero
+   * anywhere (see LessonMinutesRead).
+   */
+  async function lessonMinutesByGoal(goalIds: string[]): Promise<LessonMinutesRead> {
+    if (goalIds.length === 0) return { ok: true, byGoal: {} };
+    try {
+      const { data: lessonData, error } = await supabase
+        .from("lessons")
+        .select("curriculum_goal_id, minutes_spent, hours, completed")
+        .in("curriculum_goal_id", goalIds)
+        .eq("completed", true);
+      if (error) return { ok: false };
+
+      const lessonsByGoal: Record<string, number> = {};
+      for (const l of (lessonData ?? [])) {
+        const gid = l.curriculum_goal_id;
+        if (!gid) continue;
+        // lib/lesson-minutes.ts, the rule Reports uses (it used to fall back
+        // to 45 here where Reports used 30).
+        lessonsByGoal[gid] = (lessonsByGoal[gid] || 0) + lessonMinutes(l).minutes;
+      }
+      return { ok: true, byGoal: lessonsByGoal };
+    } catch {
+      return { ok: false };
+    }
+  }
+
   async function refreshLinkedCourseHours(uid: string, existingCourses: Course[]) {
-    const linkedCourses = existingCourses.filter(c => c.curriculum_goal_id);
+    // Only courses the page owns. A family's typed numbers ('family') and rows
+    // nobody has classified (null) are never rewritten on page open.
+    const linkedCourses = existingCourses.filter(c => c.curriculum_goal_id && c.hours_source === "calculated");
     if (linkedCourses.length === 0) return;
 
-    const goalIds = linkedCourses.map(c => c.curriculum_goal_id!);
-    const { data: lessonData } = await supabase
-      .from("lessons")
-      .select("curriculum_goal_id, minutes_spent, completed")
-      .in("curriculum_goal_id", goalIds)
-      .eq("completed", true);
+    // A failed read plans no writes at all (planRefreshWrites): the stored
+    // numbers stay as they are and the next page open tries again. It used to
+    // read as zero minutes and write 0 hours onto every calculated course.
+    const read = await lessonMinutesByGoal(linkedCourses.map(c => c.curriculum_goal_id!));
 
-    const lessonsByGoal: Record<string, number> = {};
-    for (const l of (lessonData ?? [])) {
-      const gid = l.curriculum_goal_id;
-      if (!gid) continue;
-      lessonsByGoal[gid] = (lessonsByGoal[gid] || 0) + (l.minutes_spent ?? 45);
-    }
-
-    for (const course of linkedCourses) {
-      const totalMinutes = lessonsByGoal[course.curriculum_goal_id!] || 0;
-      const newHours = Math.round(totalMinutes / 60);
-      if (newHours === (course.hours_logged || 0)) continue;
-
-      const newCredits = calculateCreditsFromHours(newHours);
-      // Don't overwrite credits if mom has manually set them (heuristic: credits differ AND grade is assigned)
-      const creditsManuallySet = course.grade_letter && course.credits_earned !== calculateCreditsFromHours(course.hours_logged || 0);
-
-      const update: Record<string, unknown> = { hours_logged: newHours || null, updated_at: new Date().toISOString() };
-      if (!creditsManuallySet) update.credits_earned = newCredits;
-
-      await supabase.from("transcript_courses").update(update).eq("id", course.id);
+    for (const { id, update } of planRefreshWrites(linkedCourses, read)) {
+      await supabase
+        .from("transcript_courses")
+        .update({ ...update, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        // Belt and braces: a row that became 'family' in another tab since
+        // this page loaded is not overwritten either.
+        .eq("hours_source", "calculated");
     }
   }
 
@@ -747,6 +798,8 @@ export default function TranscriptBuilderPage() {
     const years = getSchoolYearOptions();
     setEditingCourse(null);
     setForm({ ...EMPTY_COURSE, school_year: years[3] || years[0] });
+    setFormOpened({ hours_logged: EMPTY_COURSE.hours_logged, credits_earned: EMPTY_COURSE.credits_earned });
+    setFormUseCalculated(false);
     setDeleteConfirm(false);
     setModalOpen(true);
   }
@@ -754,17 +807,21 @@ export default function TranscriptBuilderPage() {
   function openEditCourse(course: Course) {
     setEditingCourse(course);
     setForm({ ...course, course_level: course.course_level || "standard" });
+    setFormOpened({ hours_logged: course.hours_logged, credits_earned: course.credits_earned });
+    setFormUseCalculated(false);
     setDeleteConfirm(false);
     setModalOpen(true);
   }
 
   function closeModal() {
+    setFormHoursError(null);
     setModalOpen(false);
     setEditingCourse(null);
     setDeleteConfirm(false);
   }
 
   function updateForm<K extends keyof Omit<Course, "id">>(key: K, value: Omit<Course, "id">[K]) {
+    if (key === "hours_logged" || key === "credits_earned") setFormUseCalculated(false);
     setForm(prev => {
       const next = { ...prev, [key]: value };
       // Auto-fill grade points when grade letter changes
@@ -773,6 +830,37 @@ export default function TranscriptBuilderPage() {
         next.grade_points = letter ? (GRADE_POINTS[letter] ?? null) : null;
       }
       return next;
+    });
+  }
+
+  /** "Use hours from lessons": fill the form with the page's own numbers. */
+  async function useHoursFromLessons() {
+    const goalId = form.curriculum_goal_id;
+    if (!goalId || formCalculating) return;
+    setFormCalculating(true);
+    setFormHoursError(null);
+    try {
+      const result = useCalculatedFromRead(await lessonMinutesByGoal([goalId]), goalId);
+      if (!result.ok) {
+        // Hours, credits and source stay exactly as the family had them.
+        setFormHoursError(result.error);
+        return;
+      }
+      setForm(prev => ({ ...prev, ...result.numbers }));
+      setFormUseCalculated(true);
+    } finally {
+      setFormCalculating(false);
+    }
+  }
+
+  /** The hours_source this form would save right now. */
+  function pendingHoursSource(): HoursSource {
+    return hoursSourceOnSave({
+      opened: formOpened,
+      saved: { hours_logged: form.hours_logged, credits_earned: form.credits_earned, curriculum_goal_id: form.curriculum_goal_id || null },
+      previous: editingCourse?.hours_source ?? null,
+      isNew: !editingCourse,
+      useCalculated: formUseCalculated,
     });
   }
 
@@ -807,6 +895,7 @@ export default function TranscriptBuilderPage() {
       curriculum_goal_id: form.curriculum_goal_id || null,
       is_external: !!form.external_provider?.trim(),
       external_provider: form.external_provider?.trim() || null,
+      hours_source: pendingHoursSource(),
       updated_at: new Date().toISOString(),
     };
 
@@ -1450,6 +1539,33 @@ export default function TranscriptBuilderPage() {
                   </div>
                 </div>
 
+                {/* Who owns this linked course's hours and credits */}
+                {form.curriculum_goal_id && (() => {
+                  const source = pendingHoursSource();
+                  return (
+                    <div className="flex items-center justify-between gap-2 -mt-1" data-hours-source={source ?? "unclassified"}>
+                      <p className="text-[11px] text-[#8a8580]">
+                        {source === "calculated"
+                          ? "Hours update from logged lessons. Credits stay as they are."
+                          : source === "family"
+                            ? "Your hours and credits are kept as entered."
+                            : "Hours and credits are kept as saved."}
+                      </p>
+                      {/* Offered on every linked course, calculated ones included:
+                          the page-open refresh keeps hours in step but never
+                          touches credits, so this is how a family asks for
+                          both to be recalculated from the lessons. */}
+                      <button type="button" onClick={useHoursFromLessons} disabled={formCalculating}
+                        className="shrink-0 text-[11px] font-medium underline text-[#2D5A3D] disabled:opacity-60">
+                        {formCalculating ? "Calculating..." : USE_CALCULATED_LABEL}
+                      </button>
+                    </div>
+                  );
+                })()}
+                {formHoursError && (
+                  <p role="alert" className="mt-1 text-[11px] text-[#b91c1c]">{formHoursError}</p>
+                )}
+
                 {/* Link to curriculum goal */}
                 {goals.length > 0 && (
                   <div>
@@ -1459,7 +1575,6 @@ export default function TranscriptBuilderPage() {
                       <option value="">None</option>
                       {goals.map(g => <option key={g.id} value={g.id}>{g.icon_emoji ? `${g.icon_emoji} ` : ""}{g.curriculum_name}</option>)}
                     </select>
-                    {form.curriculum_goal_id && <p className="text-[11px] text-[#8a8580] mt-1">Hours will auto-calculate from logged lessons</p>}
                   </div>
                 )}
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { breakCanShift } from "./handleVacationSave.shift";
 
 /* ============================================================================
  * VacationBlockModal — create / edit / delete a vacation block, with the
@@ -163,6 +164,8 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
   if (!isOpen) return null;
 
   const canSave = name.trim().length > 0 && !!start && !!end && start <= end;
+  // A break that is already over (a sick day logged afterwards) never shifts.
+  const canShift = mode === "create" && breakCanShift(end, isoToday());
 
   async function handleSave() {
     if (!canSave || submitting) return;
@@ -173,7 +176,7 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
         name: name.trim(),
         start_date: start,
         end_date: end,
-        apply_shift: mode === "create" ? applyShift : false,
+        apply_shift: canShift ? applyShift : false,
       });
       onClose();
     } catch (e) {
@@ -390,7 +393,13 @@ export default function VacationBlockModal(props: VacationBlockModalProps) {
                   </label>
                 </div>
 
-                {mode === "create" ? (
+                {mode === "create" && !canShift && end ? (
+                  <p className="text-[12px] text-[#7a6f65] rounded-lg px-3 py-2 bg-[#faf7f2]">
+                    This break is already over, so your lessons stay where they are.
+                    A break counts for the whole family. For one child&apos;s sick day, use &quot;Add a day off&quot; on the Hours &amp; Attendance report instead.
+                  </p>
+                ) : null}
+                {mode === "create" && canShift ? (
                   <fieldset className="space-y-1.5">
                     <legend className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-1">
                       What about lessons in this range?

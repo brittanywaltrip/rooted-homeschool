@@ -11,8 +11,9 @@
 
 import { supabase } from "@/lib/supabase";
 import { generateProgressReport, fmtMins, type ReportData } from "@/lib/pdf";
-import { lessonDailyLogRow, subjectTableTotals } from "@/lib/progress-report-rows";
+import { buildRemovalContext, lessonDailyLogRow, subjectTableTotals } from "@/lib/progress-report-rows";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
+import { lessonMinutes as sharedLessonMinutes } from "@/lib/lesson-minutes";
 import { augustYearOf, getCurrentSchoolYear, schoolYearQuarters, todayLocalYmd, type SchoolYearWindow } from "@/app/lib/school-year";
 
 export type ReportRangePreset = "q1" | "q2" | "q3" | "q4" | "custom" | "full";
@@ -37,6 +38,7 @@ type LessonRow = {
   title: string;
   completed: boolean;
   minutes_spent: number | null;
+  hours?: number | null;
   scheduled_date: string | null;
   date: string | null;
   curriculum_goal_id: string | null;
@@ -53,7 +55,7 @@ type MemoryRow = {
   date: string;
   duration_minutes: number | null;
 };
-type GoalRow = { id: string; default_minutes: number };
+type GoalRow = { id: string; curriculum_name?: string | null };
 type ActivityLogRow = {
   activity_id: string;
   date: string;
@@ -102,12 +104,12 @@ function computeRange(opts: DownloadProgressReportOpts, schoolYear: SchoolYearWi
 }
 
 /** Minutes + "is this estimated from the goal's default?" flag. */
-function lessonMinutes(l: LessonRow, goalDefaults: Record<string, number>): { m: number; e: boolean } {
-  if (l.minutes_spent != null) return { m: l.minutes_spent, e: false };
-  if (l.curriculum_goal_id && goalDefaults[l.curriculum_goal_id]) {
-    return { m: goalDefaults[l.curriculum_goal_id], e: true };
-  }
-  return { m: 30, e: true };
+// The one rule every total uses (lib/lesson-minutes.ts). This report used to
+// price a lesson with no minutes at its curriculum's default_minutes, where
+// Reports priced it at 30, so the PDF and the page disagreed.
+function lessonMinutes(l: LessonRow): { m: number; e: boolean } {
+  const r = sharedLessonMinutes(l);
+  return { m: r.minutes, e: r.estimated };
 }
 
 function lessonDate(l: LessonRow): string {
@@ -125,18 +127,21 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
   const fileYear = augustYearOf(todayLocalYmd());
   const dateGenerated = now.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 
-  const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }] = await Promise.all([
+  const [{ data: lr }, { data: mr }, { data: gr }, { data: al }, { data: acts }, { data: delEvents }] = await Promise.all([
     // Paged. The report's own range filter runs below, in JS, so this read
     // has to bring back the family's whole history or the range can land
     // entirely past PostgREST's 1,000-row cap and print an empty report.
     // See lib/supabase-all-rows.ts.
     selectAllRowsResult<LessonRow>((from, to) =>
-      supabase.from("lessons").select("child_id, title, completed, minutes_spent, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label, curriculum_name), is_backfill").eq("user_id", userId)
+      supabase.from("lessons").select("child_id, title, completed, minutes_spent, hours, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label, curriculum_name), is_backfill").eq("user_id", userId)
         .order("id").range(from, to)),
     supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", userId),
-    supabase.from("curriculum_goals").select("id, default_minutes").eq("user_id", userId),
+    supabase.from("curriculum_goals").select("id, curriculum_name").eq("user_id", userId),
     supabase.from("activity_logs").select("activity_id, date, minutes_spent, completed, is_backfill").eq("user_id", userId).eq("completed", true),
     supabase.from("activities").select("id, name, emoji, child_ids").eq("user_id", userId),
+    // The family's own deletion records: with the curriculum names above
+    // (archived included), what establishes a removed curriculum.
+    supabase.from("app_events").select("payload").eq("user_id", userId).eq("type", "curriculum_goal.deleted"),
   ]);
 
   let allLessons = (lr ?? []) as unknown as LessonRow[];
@@ -144,8 +149,10 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
   let allActivityLogs = (al ?? []) as unknown as ActivityLogRow[];
   const activityMap: Record<string, ActivityRow> = {};
   for (const a of ((acts ?? []) as unknown as ActivityRow[])) activityMap[a.id] = a;
-  const goalDefaults: Record<string, number> = {};
-  for (const g of ((gr ?? []) as unknown as GoalRow[])) goalDefaults[g.id] = g.default_minutes ?? 30;
+  const removal = buildRemovalContext(
+    ((delEvents ?? []) as { payload: { curriculum_name?: string | null } | null }[]).map((e) => e.payload?.curriculum_name ?? null),
+    ((gr ?? []) as unknown as GoalRow[]).map((g) => g.curriculum_name ?? null),
+  );
 
   const { start: rangeStart, end: rangeEnd, label: dateRangeLabel } = computeRange(opts, schoolYear);
   if (rangeStart && rangeEnd) {
@@ -181,7 +188,7 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
       })
     : activityLogs;
 
-  const scopedLessonMins = scopedDone.reduce((s, l) => s + lessonMinutes(l, goalDefaults).m, 0);
+  const scopedLessonMins = scopedDone.reduce((s, l) => s + lessonMinutes(l).m, 0);
   const scopedActivityMins = scopedActivityLogs.reduce((s, a) => s + (a.minutes_spent || 0), 0);
   const scopedMemoryMins = scopedMemories
     .filter((m) => m.duration_minutes)
@@ -194,12 +201,12 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
 
   // Backfill hours (for the "N hours imported" callout).
   const backfillMins =
-    done.filter((l) => l.is_backfill).reduce((s, l) => s + lessonMinutes(l, goalDefaults).m, 0) +
+    done.filter((l) => l.is_backfill).reduce((s, l) => s + lessonMinutes(l).m, 0) +
     activityLogs.filter((a) => a.is_backfill).reduce((s, a) => s + (a.minutes_spent || 0), 0);
 
   const childrenReport: ReportData["children"] = reportChildren.map((c) => {
     const childLessons = done.filter((l) => l.child_id === c.id);
-    const childLessonMins = childLessons.reduce((s, l) => s + lessonMinutes(l, goalDefaults).m, 0);
+    const childLessonMins = childLessons.reduce((s, l) => s + lessonMinutes(l).m, 0);
     const childActs = activityLogs.filter((a) => activityMap[a.activity_id]?.child_ids?.includes(c.id));
     const childActMins = childActs.reduce((s, a) => s + (a.minutes_spent || 0), 0);
     const childLessonDays = new Set(childLessons.map(lessonDate).filter(Boolean));
@@ -208,7 +215,7 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
 
     // Same subject rule as the day-by-day log below (lessonReportSubject), so
     // a curriculum lesson prints under its subject in both, not "General".
-    const subjectTotals = subjectTableTotals(childLessons, (l) => lessonMinutes(l, goalDefaults));
+    const subjectTotals = subjectTableTotals(childLessons, (l) => lessonMinutes(l), removal);
     const activityAgg: Record<string, { name: string; emoji: string; sessions: number; mins: number }> = {};
     for (const a of childActs) {
       const act = activityMap[a.activity_id];
@@ -252,13 +259,14 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
     const d = lessonDate(l);
     if (!d) continue;
     if (!dailyLogMap[d]) dailyLogMap[d] = [];
-    const r = lessonMinutes(l, goalDefaults);
+    const r = lessonMinutes(l);
     dailyLogMap[d].push(
       lessonDailyLogRow({
         lesson: l,
         childName: childNameMap[l.child_id] || "",
         minutes: r.m,
         estimated: r.e,
+        removal,
       }),
     );
   }

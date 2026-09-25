@@ -354,7 +354,10 @@ test("a filed year's archive is the close route's stats shape plus days_attended
   assert.deepEqual(Object.keys(a.stats).sort(), [...closeKeys, "days_attended"].sort());
   assert.equal(a.stats.days_attended, 162);
   assert.equal(a.stats.lessons_completed, 300);
-  assert.equal(a.stats.hours_logged, 90);
+  // 180 lessons at a recorded 30 minutes plus 120 with no minutes, which count
+  // as the estimate (lib/lesson-minutes.ts) the way the Years card already
+  // counted them. This read 90 while those 120 counted as nothing.
+  assert.equal(a.stats.hours_logged, 150);
   assert.equal(a.stats.badges_count, 0, "a filed year earns no badges");
   assert.deepEqual(a.per_child_data, [{ child_id: "k1", child_name: "Kelly", grade_level: null, lessons_completed: 300, badges_count: 0, goals_count: 2, grade_from: null, grade_to: null }]);
   assert.equal(a.garden_snapshot[1].completion_pct, 0.75);

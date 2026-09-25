@@ -12,7 +12,7 @@ import { schoolNameFor } from "@/lib/school-name";
 import { mergeBookRecords, bookBelongsToChild, bookCover, bookHowLabel, ratingLeaves, isFinishedBook, isReadingBook, BOOK_HOW_LABELS, LEGACY_BOOK_EVENT_TYPES, type MemoryRecord } from "@/lib/memory-leaves";
 import SignedImage from "@/components/SignedImage";
 import ExportGateModal from "@/app/components/ExportGateModal";
-import { attendancePresentDates, lessonReportSubject } from "@/lib/progress-report-rows";
+import { attendancePresentDates, buildRemovalContext, lessonReportSubject, type RemovalContext } from "@/lib/progress-report-rows";
 import {
   selectActivitySessions, summarizeActivitySessions, groupActivitySessions,
   activityChildLabel, formatSessionDuration,
@@ -21,6 +21,10 @@ import {
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
 import { fallbackSchoolYear, getCurrentSchoolYear, todayLocalYmd } from "@/app/lib/school-year";
 import { selectReportPhotos, type ReportPhoto } from "@/lib/report-evidence";
+import { buildActivityLog, selectReportAppointments } from "@/lib/report-activity-log";
+import { dayOffInputError, dayOffLength, selectReportDaysOff, type ReportAbsence, type ReportBreak } from "@/lib/report-days-off";
+import { resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE } from "@/app/lib/scheduler";
+import { lessonMinutes, sumLessonMinutes } from "@/lib/lesson-minutes";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,9 +33,13 @@ type Lesson   = {
   id: string; child_id: string;
   curriculum_goal_id: string | null;
   curriculum_goals: { subject_label: string | null } | null;
+  /** The family's own subject. Kept on a lesson whose curriculum was deleted. */
+  subjects: { name: string | null } | null;
   title: string; date: string | null; scheduled_date: string | null;
   completed: boolean;
   minutes_spent: number | null;
+  /** Older time column. Counts only when minutes_spent is missing and this is positive (lib/lesson-minutes.ts). */
+  hours?: number | null;
   notes: string | null;
 };
 /**
@@ -67,7 +75,7 @@ function fallbackYearStart() {
 
 /** Every column this page reads off a lesson row. Shared by both reads. */
 const LESSON_COLUMNS =
-  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), title, date, scheduled_date, completed, minutes_spent, notes";
+  "id, child_id, curriculum_goal_id, curriculum_goals(subject_label), subjects(name), title, date, scheduled_date, completed, minutes_spent, hours, notes";
 
 /**
  * The window the UNCOMPLETED half of the lesson read covers.
@@ -200,8 +208,8 @@ function formatLogDate(d: string | null): string {
 
 function PrintReport({
   child, allChildren: allKids, dateFrom, dateTo, lessons, books, activities, appointments,
-  activityLogs, activityDefs, photos, canEdit,
-  onUpdateLesson, onDeleteLesson, onUpdateActivity, onDeleteActivity,
+  activityLogs, activityDefs, photos, includePhotos, breaks, absences, removal, canEdit,
+  onUpdateLesson, onDeleteLesson, onUpdateActivity, onDeleteActivity, onAddAbsence, onDeleteAbsence,
 }: {
   child: Child | null;
   allChildren: Child[];
@@ -216,12 +224,30 @@ function PrintReport({
   /** Their definitions, INCLUDING retired ones. */
   activityDefs: ActivityDefinition[];
   photos: ReportPhoto[];
+  /** The "Include photos" choice. Off leaves photos out of this document only. */
+  includePhotos: boolean;
+  /** Breaks from Plan (vacation_blocks). Listed as Days Off; never change Days Present. */
+  breaks: ReportBreak[];
+  /** One child's days off (child_absences), added from this report. */
+  absences: ReportAbsence[];
+  /** What the family's own records establish about removed curricula. */
+  removal: RemovalContext | null;
   canEdit: boolean;
   onUpdateLesson: (lessonId: string, patch: ReportRecordPatch) => Promise<boolean>;
   onDeleteLesson: (lessonId: string) => Promise<boolean>;
   onUpdateActivity: (logId: string, patch: ReportRecordPatch) => Promise<boolean>;
   onDeleteActivity: (logId: string) => Promise<boolean>;
+  onAddAbsence: (row: { child_id: string; start_date: string; end_date: string; reason: string }) => Promise<boolean>;
+  onDeleteAbsence: (id: string) => Promise<boolean>;
 }) {
+  const [addingDayOff, setAddingDayOff] = useState(false);
+  const [dayOffChild, setDayOffChild] = useState("");
+  const [dayOffStart, setDayOffStart] = useState("");
+  const [dayOffEnd, setDayOffEnd] = useState("");
+  const [dayOffReason, setDayOffReason] = useState("Sick day");
+  const [dayOffError, setDayOffError] = useState<string | null>(null);
+  const [dayOffSaving, setDayOffSaving] = useState(false);
+  const [removeDayOffId, setRemoveDayOffId] = useState<string | null>(null);
   const [editingLessonId, setEditingLessonId] = useState<string | null>(null);
   const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
   const [detailText, setDetailText] = useState("");
@@ -254,7 +280,10 @@ function PrintReport({
     if (child && a.child_id !== child.id) return false;
     return a.date >= dateFrom && a.date <= dateTo && a.duration_minutes;
   });
-  const lessonHours = completedLessons.reduce((sum, l) => sum + ((l.minutes_spent ?? 30) / 60), 0);
+  // One rule for lesson time everywhere (lib/lesson-minutes.ts): recorded
+  // minutes as recorded, a recorded 0 as 0, and only a lesson with no time at
+  // all as the estimate.
+  const lessonHours = sumLessonMinutes(completedLessons).minutes / 60;
   const memoryHours = filteredActivities.reduce((sum, a) => sum + ((a.duration_minutes ?? 0) / 60), 0);
 
   // Completed recurring-activity sessions: a FOURTH source, distinct from the
@@ -270,7 +299,7 @@ function PrintReport({
   const activitySummary = summarizeActivitySessions(activitySessions);
   const activityGroups = groupActivitySessions(activitySessions);
 
-  const filteredPhotos = selectReportPhotos(photos, child?.id ?? null, dateFrom, dateTo);
+  const filteredPhotos = selectReportPhotos(photos, child?.id ?? null, dateFrom, dateTo, includePhotos);
 
   function patchFromEditor(): ReportRecordPatch | null {
     const minutes = recordMinutes.trim() === "" ? null : Number(recordMinutes);
@@ -324,7 +353,7 @@ function PrintReport({
     // Same resolution the Progress Report uses, so the two documents cannot
     // disagree about what a lesson's subject is. "Unassigned" is this page's
     // wording for the same last resort.
-    const name = lessonReportSubject(l, "Unassigned");
+    const name = lessonReportSubject(l, "Unassigned", removal);
     // Standalone logs used to collapse into ONE "uncat" bucket, so a family
     // whose extra logs span Music, Math and Writing saw a single "Unassigned"
     // line. With a real subject per row they group by that instead, which is
@@ -334,22 +363,39 @@ function PrintReport({
       subjectMap[key] = { name, color: null, count: 0, hours: 0 };
     }
     subjectMap[key].count++;
-    subjectMap[key].hours += (l.minutes_spent ?? 30) / 60;
+    subjectMap[key].hours += lessonMinutes(l).minutes / 60;
   });
 
   // For a single-child report, whole-family appointments (empty child_ids)
   // are counted toward that child; appointments explicitly tagged to other
   // kids are excluded. "All Children" includes everything.
-  const filteredAppointments: ReportAppointment[] = appointments.filter((a) => {
-    if (child && a.child_ids.length > 0 && !a.child_ids.includes(child.id)) return false;
-    return a.date >= dateFrom && a.date <= dateTo;
-  });
+  const filteredAppointments: ReportAppointment[] = selectReportAppointments(appointments, child?.id ?? null, dateFrom, dateTo);
+
+  // Sessions and appointments printed as ONE dated list. A plain union of two
+  // tables that never write to each other: every record appears once. Only
+  // session minutes count toward Hours Logged, as before; appointment time is
+  // shown on its row and has never been part of that total.
+  const activityLog = buildActivityLog(activitySessions, filteredAppointments);
 
   // Days Present unions completed-lesson dates with completed-appointment
   // dates so co-op or activity days without a curriculum lesson still count.
   // Dates appearing in both contribute once. The rule, and why it reads the
   // lesson's own day, lives in attendancePresentDates.
   const presentDates = attendancePresentDates(completedLessons, filteredAppointments.map((a) => a.date));
+  const daysOff = selectReportDaysOff({ breaks, absences, childId: child?.id ?? null, from: dateFrom, to: dateTo });
+  const dayOffOwner = (childId: string | null) =>
+    childId === null ? "Whole family" : (allKids.find((kid) => kid.id === childId)?.name ?? "Child");
+
+  async function saveDayOff() {
+    const err = dayOffInputError(dayOffChild, dayOffStart, dayOffEnd, dayOffReason);
+    if (err) { setDayOffError(err); return; }
+    setDayOffSaving(true);
+    const ok = await onAddAbsence({ child_id: dayOffChild, start_date: dayOffStart, end_date: dayOffEnd, reason: dayOffReason.trim() });
+    setDayOffSaving(false);
+    if (!ok) { setDayOffError("Couldn't save the day off. Please try again."); return; }
+    setAddingDayOff(false);
+    setDayOffError(null);
+  }
 
   const fromLabel = new Date(dateFrom + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   const toLabel   = new Date(dateTo   + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
@@ -450,11 +496,11 @@ function PrintReport({
             <tbody>
               {lessonDetails.map((lesson) => {
                 const date = lesson.date ?? lesson.scheduled_date;
-                const minutes = lesson.minutes_spent ?? 30;
+                const minutes = lessonMinutes(lesson).minutes;
                 return (
                   <tr key={lesson.id} className="border-t border-[#f2ede6]">
                     <td className="py-2 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(date)}</td>
-                    <td className="py-2 pr-3 align-top text-[#7a6f65]">{lessonReportSubject(lesson, "Unassigned")}</td>
+                    <td className="py-2 pr-3 align-top text-[#7a6f65]">{lessonReportSubject(lesson, "Unassigned", removal)}</td>
                     <td className="py-2 pr-3 align-top text-[#2d2926]">
                       <span className="font-medium">{lesson.title}</span>
                       {lesson.notes && <span className="block mt-0.5 text-[#6b6560] whitespace-pre-wrap">{lesson.notes}</span>}
@@ -493,7 +539,7 @@ function PrintReport({
                         </div>
                       ) : canEdit ? (
                         <button type="button" className="no-print block mt-1 text-xs font-medium text-[#5c7f63]"
-                          onClick={() => { setEditingActivityId(null); setEditingLessonId(lesson.id); setRecordDate(date ?? ""); setRecordMinutes(String(lesson.minutes_spent ?? 30)); setDetailText(lesson.notes ?? ""); setDeleteConfirm(null); setDetailError(null); }}>
+                          onClick={() => { setEditingActivityId(null); setEditingLessonId(lesson.id); setRecordDate(date ?? ""); setRecordMinutes(String(lessonMinutes(lesson).minutes)); setDetailText(lesson.notes ?? ""); setDeleteConfirm(null); setDetailError(null); }}>
                           Edit record
                         </button>
                       ) : null}
@@ -504,46 +550,6 @@ function PrintReport({
               })}
             </tbody>
           </table>
-        </div>
-      )}
-
-      {/* Activities and appointments */}
-      {filteredAppointments.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
-            Activities and Appointments
-          </h3>
-          <div className="space-y-2">
-            {filteredAppointments
-              .slice()
-              .sort((a, b) => b.date.localeCompare(a.date))
-              .map((a) => {
-                const dateLabel = new Date(a.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
-                const dur = a.duration_minutes;
-                const durLabel = dur && dur > 0
-                  ? (dur >= 60 ? `${(dur / 60).toFixed(1)}h` : `${dur}m`)
-                  : null;
-                const kidLabel = a.child_ids.length === 0
-                  ? "All children"
-                  : a.child_ids
-                      .map((id) => allKids.find((c) => c.id === id)?.name)
-                      .filter((n): n is string => !!n)
-                      .join(", ");
-                return (
-                  <div key={`${a.id}-${a.date}`} className="flex items-center gap-3">
-                    <span aria-hidden className="shrink-0">{a.emoji || "📍"}</span>
-                    <span className="text-sm text-[#2d2926] flex-1 min-w-0 truncate">{a.title}</span>
-                    <span className="text-xs text-[#7a6f65] shrink-0">{dateLabel}</span>
-                    {durLabel ? (
-                      <span className="text-xs text-[#b5aca4] shrink-0">{durLabel}</span>
-                    ) : null}
-                    {kidLabel ? (
-                      <span className="text-xs text-[#b5aca4] shrink-0">{kidLabel}</span>
-                    ) : null}
-                  </div>
-                );
-              })}
-          </div>
         </div>
       )}
 
@@ -564,15 +570,22 @@ function PrintReport({
         </div>
       )}
 
-      {/* Recurring activity sessions — a SEPARATE source from timed memories
-           above and from appointments below. Each line is a definition; the
-           count beside it is completed sessions, not definitions. */}
-      {activitySessions.length > 0 && (
+      {/* One Activities section: completed recurring-activity sessions and
+           completed school appointments, which used to print as two sections.
+           Each rollup line is a definition; the count beside it is completed
+           sessions, not definitions. Appointments are listed in the dated
+           table below and, as before, do not add to Hours Logged. */}
+      {activityLog.rows.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
-            Activities ({activitySummary.activityTypes} {activitySummary.activityTypes === 1 ? "activity" : "activities"},{" "}
-            {activitySummary.sessions} {activitySummary.sessions === 1 ? "session" : "sessions"},{" "}
-            {activitySummary.hours.toFixed(1)}h)
+            Activities ({[
+              activityLog.sessions > 0
+                ? `${activityLog.sessions} ${activityLog.sessions === 1 ? "session" : "sessions"}, ${activitySummary.hours.toFixed(1)}h`
+                : null,
+              activityLog.appointments > 0
+                ? `${activityLog.appointments} ${activityLog.appointments === 1 ? "appointment" : "appointments"}`
+                : null,
+            ].filter(Boolean).join(", ")})
           </h3>
           <div className="space-y-1">
             {activityGroups.map((g) => (
@@ -593,10 +606,11 @@ function PrintReport({
             ))}
           </div>
 
-          {/* One row per completed session, in date order. The grouped totals
-              above answer "how much"; this answers "when", which is what a
-              family is asked for when she has to show her work. Same source,
-              same filters: no row here is absent from the totals above. */}
+          {/* One row per completed session or appointment, in date order. The
+              grouped totals above answer "how much"; this answers "when", which
+              is what a family is asked for when she has to show her work. Same
+              filters as the totals: every session here is in them, and each
+              record appears once (lib/report-activity-log.ts). */}
           <table className="w-full mt-4 text-sm border-t border-[#e8e2d9]">
             <thead>
               <tr className="text-left text-[11px] uppercase tracking-widest text-[#b5aca4]">
@@ -607,10 +621,34 @@ function PrintReport({
               </tr>
             </thead>
             <tbody>
-              {activitySessions.map((s, i) => {
+              {activityLog.rows.map((row) => {
+                if (row.kind === "appointment") {
+                  const a = row.appointment;
+                  const kidLabel = a.child_ids.length === 0
+                    ? "Whole family"
+                    : a.child_ids
+                        .map((id) => allKids.find((c) => c.id === id)?.name)
+                        .filter((n): n is string => !!n)
+                        .join(", ");
+                  return (
+                    <tr key={row.key} className="border-t border-[#f2ede6]">
+                      <td className="py-1.5 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(row.date)}</td>
+                      <td className="py-1.5 pr-3 align-top text-[#2d2926]">
+                        <span className="mr-1">{a.emoji || "\u{1F4CD}"}</span>
+                        {a.title}
+                        <span className="block text-[10px] uppercase tracking-wide text-[#b5aca4]">appointment</span>
+                      </td>
+                      <td className="py-1.5 pr-3 align-top text-[#7a6f65]">{kidLabel || "\u2014"}</td>
+                      <td className="py-1.5 align-top text-[#7a6f65] text-right whitespace-nowrap">
+                        {formatSessionDuration(row.minutes)}
+                      </td>
+                    </tr>
+                  );
+                }
+                const s = row.session;
                 const who = activityChildLabel(s, (id) => allKids.find((k) => k.id === id)?.name);
                 return (
-                  <tr key={`${s.activityId}-${s.date}-${i}`} className="border-t border-[#f2ede6]">
+                  <tr key={row.key} className="border-t border-[#f2ede6]">
                     <td className="py-1.5 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(s.date)}</td>
                     <td className="py-1.5 pr-3 align-top text-[#2d2926]">
                       <span className="mr-1">{s.emoji ?? "\u2728"}</span>
@@ -725,6 +763,98 @@ function PrintReport({
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Days off. Two kinds: a break from Plan belongs to the whole family and
+          prints on every report; a child's day off (child_absences, added
+          here) prints only on that child's report and the family report.
+          A record only: neither adds to or removes from Days Present. */}
+      {(daysOff.length > 0 || canEdit) && (
+        <div data-report-days-off>
+          {daysOff.length > 0 && (
+            <>
+              <h3 className="text-sm font-semibold text-[#7a6f65] uppercase tracking-widest mb-3">
+                Days Off ({daysOff.length})
+              </h3>
+              <ul className="space-y-1">
+                {daysOff.map((d) => {
+                  const days = dayOffLength(d);
+                  return (
+                    <li key={d.kind + d.id} data-day-off-kind={d.kind} className="text-sm text-[#2d2926] break-inside-avoid">
+                      <span className="font-medium">{d.name}</span>
+                      <span className="text-[#8a8078]">
+                        {" · "}
+                        {d.start === d.end ? formatLogDate(d.start) : `${formatLogDate(d.start)} to ${formatLogDate(d.end)}`}
+                        {days > 1 ? ` (${days} days)` : ""}
+                        {" · "}{dayOffOwner(d.childId)}
+                      </span>
+                      {canEdit && d.kind === "absence" && (
+                        removeDayOffId === d.id ? (
+                          <span className="no-print ml-2 text-xs">
+                            <button type="button" className="font-semibold text-red-600"
+                              onClick={async () => { if (await onDeleteAbsence(d.id)) setRemoveDayOffId(null); }}>Confirm remove</button>
+                            <button type="button" className="ml-2 text-[#7a6f65]" onClick={() => setRemoveDayOffId(null)}>Cancel</button>
+                          </span>
+                        ) : (
+                          <button type="button" className="no-print ml-2 text-xs font-medium text-red-600"
+                            onClick={() => setRemoveDayOffId(d.id)}>Remove</button>
+                        )
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+          {canEdit && (
+            addingDayOff ? (
+              <div className="no-print mt-3 space-y-2 rounded-xl border border-[#e8e2d9] p-3">
+                <label className="block text-[11px] text-[#7a6f65]">Who was out?
+                  <select value={dayOffChild} onChange={(e) => setDayOffChild(e.target.value)}
+                    className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]">
+                    {allKids.map((kid) => <option key={kid.id} value={kid.id}>{kid.name}</option>)}
+                  </select>
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[11px] text-[#7a6f65]">First day
+                    <input type="date" value={dayOffStart} onChange={(e) => setDayOffStart(e.target.value)}
+                      className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                  </label>
+                  <label className="text-[11px] text-[#7a6f65]">Last day
+                    <input type="date" value={dayOffEnd} min={dayOffStart || undefined} onChange={(e) => setDayOffEnd(e.target.value)}
+                      className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                  </label>
+                </div>
+                <label className="block text-[11px] text-[#7a6f65]">Reason
+                  <input type="text" value={dayOffReason} maxLength={80} onChange={(e) => setDayOffReason(e.target.value)}
+                    className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
+                </label>
+                <p className="text-[11px] text-[#7a6f65]">This shows only on this child&apos;s report and the family report. It doesn&apos;t change their lessons or Days Present.</p>
+                {dayOffError && <p className="text-xs text-red-600">{dayOffError}</p>}
+                <div className="flex gap-2">
+                  <button type="button" disabled={dayOffSaving} onClick={saveDayOff}
+                    className="rounded-lg bg-[#5c7f63] px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50">
+                    {dayOffSaving ? "Saving..." : "Save day off"}
+                  </button>
+                  <button type="button" onClick={() => { setAddingDayOff(false); setDayOffError(null); }}
+                    className="px-2 py-1.5 text-xs font-medium text-[#7a6f65]">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <button type="button" className="no-print mt-2 text-xs font-medium text-[#5c7f63]"
+                onClick={() => {
+                  setDayOffChild(child?.id ?? allKids[0]?.id ?? "");
+                  setDayOffStart("");
+                  setDayOffEnd("");
+                  setDayOffReason("Sick day");
+                  setDayOffError(null);
+                  setAddingDayOff(true);
+                }}>
+                + Add a day off
+              </button>
+            )
+          )}
         </div>
       )}
 
@@ -967,6 +1097,12 @@ export default function ReportsPage() {
   // Simple is the default because it is what portfolio law actually asks for:
   // dates and titles. Detailed is for families who want the fuller record.
   const [printMode, setPrintMode] = useState<"simple" | "detailed">("simple");
+  // On by default, which is what the report did before this choice existed.
+  // Off only changes this document: photos stay in Memories, untouched.
+  const [includePhotos, setIncludePhotos] = useState(true);
+  const [breaks, setBreaks] = useState<ReportBreak[]>([]);
+  const [absences, setAbsences] = useState<ReportAbsence[]>([]);
+  const [removal, setRemoval] = useState<RemovalContext | null>(null);
 
   // ── Book sheet ─────────────────────────────────────────────────────────────
   // One bottom sheet serves both variants. An in-progress book leads with
@@ -1129,6 +1265,10 @@ export default function ReportsPage() {
         { data: profile },
         { data: oneTimeAppts },
         { data: exceptionAppts },
+        { data: breakRows },
+        { data: absenceRows },
+        { data: deletedGoalEvents },
+        { data: currentGoalNames },
       ] = await Promise.all([
         supabase.from("children").select("id, name").eq("user_id", effectiveUserId).eq("archived", false).order("sort_order"),
         // PostgREST caps a response at 1,000 rows and says nothing about the
@@ -1198,6 +1338,15 @@ export default function ReportsPage() {
           .eq("completed", true)
           .eq("appointments.user_id", effectiveUserId)
           .eq("appointments.is_school_activity", true),
+        // Breaks from Plan, printed as Days Off (a sick day, a holiday).
+        supabase.from("vacation_blocks").select("id, name, start_date, end_date").eq("user_id", effectiveUserId),
+        // One child's days off, printed only on that child's report.
+        supabase.from("child_absences").select("id, child_id, reason, start_date, end_date").eq("user_id", effectiveUserId),
+        // What establishes a removed curriculum (lib/progress-report-rows.ts):
+        // the family's own deletion records, and every curriculum they still
+        // have, archived included.
+        supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "curriculum_goal.deleted"),
+        supabase.from("curriculum_goals").select("curriculum_name").eq("user_id", effectiveUserId),
       ]);
 
       setChildren(capitalizeChildNames(kids ?? []));
@@ -1207,6 +1356,12 @@ export default function ReportsPage() {
       setPhotos(photoRows ?? []);
       setActivityLogs(actLogRows ?? []);
       setActivityDefs(actDefRows ?? []);
+      setBreaks((breakRows as ReportBreak[] | null) ?? []);
+      setAbsences((absenceRows as ReportAbsence[] | null) ?? []);
+      setRemoval(buildRemovalContext(
+        ((deletedGoalEvents ?? []) as { payload: { curriculum_name?: string | null } | null }[]).map((e) => e.payload?.curriculum_name ?? null),
+        ((currentGoalNames ?? []) as { curriculum_name: string | null }[]).map((g) => g.curriculum_name),
+      ));
 
       type OneTimeRow = { id: string; title: string; emoji: string | null; date: string; duration_minutes: number | null; location: string | null; child_ids: string[] | null; is_school_activity: boolean };
       type ExceptionRow = {
@@ -1275,24 +1430,39 @@ export default function ReportsPage() {
       console.error("[hours-report] lesson record save failed", error);
       return false;
     }
+    const goalId = lessons.find((row) => row.id === lessonId)?.curriculum_goal_id ?? null;
     setLessons((rows) => rows.map((row) => row.id === lessonId ? {
       ...row, date: patch.date, scheduled_date: patch.date,
       minutes_spent: patch.minutes, notes: patch.notes,
     } : row));
+    // Moving a completion onto or off today changes how many lessons Today
+    // counts as done today, which moves its projection. Re-date that
+    // curriculum so Plan follows. The record edit itself already saved.
+    await redateAfterRecordChange(goalId, "completion");
     return true;
   }
 
   async function deleteLessonRecord(lessonId: string): Promise<boolean> {
     if (!effectiveUserId || isPartner) return false;
+    const goalId = lessons.find((row) => row.id === lessonId)?.curriculum_goal_id ?? null;
     const { data, error } = await supabase.rpc("delete_report_lesson_record", { p_lesson_id: lessonId });
     if (error || data !== true) {
       console.error("[hours-report] lesson record delete failed", error);
       return false;
     }
+    // Removing a completion moves the pointer back (the RPC recomputes it and
+    // compacts later queue slots): re-date that curriculum so Plan matches Today.
+    await redateAfterRecordChange(goalId, "uncompletion");
     // Deleting a curriculum completion compacts every later visible Lesson N.
     // Reload rather than guessing those server-owned sequence changes locally.
     await load();
     return true;
+  }
+
+  async function redateAfterRecordChange(goalId: string | null, kind: "completion" | "uncompletion") {
+    if (!goalId || !effectiveUserId) return;
+    const res = await resyncGoalsForParent(supabase, effectiveUserId, [goalId], PARENT_RESPREAD_SOURCE[kind]);
+    if (!res.ok) showBookToast(COMPLETION_RESPREAD_FAILED_NOTE);
   }
 
   async function updateActivityRecord(logId: string, patch: ReportRecordPatch): Promise<boolean> {
@@ -1324,6 +1494,30 @@ export default function ReportsPage() {
     return true;
   }
 
+  async function addAbsence(row: { child_id: string; start_date: string; end_date: string; reason: string }): Promise<boolean> {
+    if (!effectiveUserId || isPartner) return false;
+    const { data, error } = await supabase.from("child_absences")
+      .insert({ ...row, user_id: effectiveUserId })
+      .select("id, child_id, reason, start_date, end_date").single();
+    if (error || !data) {
+      console.error("[hours-report] day off save failed", error);
+      return false;
+    }
+    setAbsences((rows) => [...rows, data as ReportAbsence]);
+    return true;
+  }
+
+  async function deleteAbsence(id: string): Promise<boolean> {
+    if (!effectiveUserId || isPartner) return false;
+    const { error } = await supabase.from("child_absences").delete().eq("id", id).eq("user_id", effectiveUserId);
+    if (error) {
+      console.error("[hours-report] day off delete failed", error);
+      return false;
+    }
+    setAbsences((rows) => rows.filter((row) => row.id !== id));
+    return true;
+  }
+
   const activeChild = selectedChild === "all" ? null : (children.find((c) => c.id === selectedChild) ?? null);
 
   // Quick stats for the controls card
@@ -1333,7 +1527,7 @@ export default function ReportsPage() {
   });
   const completedFiltered   = filteredLessons.filter((l) => l.completed);
   const completedCount      = completedFiltered.length;
-  const lessonHoursQuick    = completedFiltered.reduce((s, l) => s + ((l.minutes_spent ?? 30) / 60), 0);
+  const lessonHoursQuick    = sumLessonMinutes(completedFiltered).minutes / 60;
   const activityHoursQuick  = activities.filter((a) => {
     if (selectedChild !== "all" && a.child_id !== selectedChild) return false;
     return a.date >= dateFrom && a.date <= dateTo;
@@ -1582,8 +1776,19 @@ export default function ReportsPage() {
         <div className="rounded-xl border border-[#dfe9e1] bg-[#f4f8f4] px-3.5 py-3">
           <p className="text-xs font-semibold text-[#2D5A3D]">Complete documentation is included</p>
           <p className="mt-0.5 text-xs leading-relaxed text-[#6b756d]">
-            Your report includes each completed lesson, saved lesson and activity details, and dated photos with their captions.
+            {includePhotos
+              ? "Your report includes each completed lesson, saved lesson and activity details, and dated photos with their captions."
+              : "Your report includes each completed lesson and saved lesson and activity details. Photos are left out of this report and stay safe in Memories."}
           </p>
+          <label className="mt-2.5 flex items-center gap-2 text-sm text-[#2d2926]">
+            <input
+              type="checkbox"
+              checked={includePhotos}
+              onChange={(e) => setIncludePhotos(e.target.checked)}
+              className="h-4 w-4 accent-[#5c7f63]"
+            />
+            Include photos
+          </label>
         </div>
 
         {/* Quick stats preview */}
@@ -1635,12 +1840,18 @@ export default function ReportsPage() {
           activityLogs={activityLogs}
           activityDefs={activityDefs}
           photos={photos}
+          includePhotos={includePhotos}
+          breaks={breaks}
+          absences={absences}
+          removal={removal}
           appointments={appointments}
           canEdit={!isPartner}
           onUpdateLesson={updateLessonRecord}
           onDeleteLesson={deleteLessonRecord}
           onUpdateActivity={updateActivityRecord}
           onDeleteActivity={deleteActivityRecord}
+          onAddAbsence={addAbsence}
+          onDeleteAbsence={deleteAbsence}
         />
       )}
 

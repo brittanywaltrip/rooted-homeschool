@@ -16,6 +16,12 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
+import { buildRemovalContext, removedCurriculumName, type RemovalContext } from "@/lib/progress-report-rows";
+import { useDailyReconcile } from "@/app/hooks/useDailyReconcile";
+import { useLocalDay } from "@/app/hooks/useLocalDay";
+import { loadMissedWork, type MissedWorkGoalRow } from "@/app/lib/missed-work";
+import { answerMissedYes, answerMissedNo, type MissedAnswerDeps } from "@/app/lib/missed-work-answers";
+import MissedLessonRecoveryModal, { type MissedEntry, type MissedGoal, type RecoveryRow } from "@/app/components/MissedLessonRecoveryModal";
 import { usePartner } from "@/lib/partner-context";
 import { posthog } from "@/lib/posthog";
 import PageHero from "@/app/components/PageHero";
@@ -29,11 +35,10 @@ import MonthGrid from "./MonthGrid";
 import WeekListView from "./WeekListView";
 import DayDetailPanelV2, { type CatchUpEntry } from "./DayDetailPanel";
 import { logPastDayLessons } from "@/app/lib/logPastDayLessons";
-import { loadCatchUpRows, type CatchUpClient, type CatchUpRow, type CatchUpGoalRow } from "./loadCatchUpLessons";
+import { moveLessonKeepSlot, keepSlotUndoRows } from "@/app/lib/move-keep-slot";
 import UndoBar, { type UndoAction } from "./UndoBar";
 import SelectActionBar from "./SelectActionBar";
 import MissedLessonsBanner from "./MissedLessonsBanner";
-import CatchUpBanner from "./CatchUpBanner";
 // StatsBar removed from V2 plan page — stats live on the Transcripts page.
 import CurriculumGroupsPanel, { type CurriculumGoal as PanelGoal } from "./CurriculumGroupsPanel";
 import CompletionConfetti from "./CompletionConfetti";
@@ -63,12 +68,13 @@ import MonthlyPrintSheet from "./MonthlyPrintSheet";
 import { CornerLeaves } from "./print-decorations";
 import { loadLessonPhotosForPrint } from "@/lib/lesson-photo";
 import { canExport } from "@/lib/user-access";
-import ShiftForwardModal, { type ReprojectGoalPreview } from "./ShiftForwardModal";
-import PushBackModal from "./PushBackModal";
 import VacationBlockModal, { type VacationBlockExisting, type VacationBlockSave } from "./VacationBlockModal";
 import RecentChangesCard from "./RecentChangesCard";
 import DayCellContextMenu from "./DayCellContextMenu";
 import AddLessonModal, { type AddLessonSubmit } from "./AddLessonModal";
+import { oneOffLessonRows } from "./oneOffLessonRows";
+import WeekPlannerModal from "./WeekPlannerModal";
+import { weekPlanRows, type WeekPlanInput } from "./weekPlan";
 import LessonSearchModal, { type LessonSearchResult } from "./LessonSearchModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
@@ -87,17 +93,20 @@ import {
   schoolDayDelta,
   buildPastDateCompletionPayload,
   loadPinsByGoal,
-  isSkippedSlot,
   resolveCustomLessonGoalLink,
   planGoalReassign,
   planGoalDelete,
-  computeNextLessonsForGoal,
+  planBulkLessonDelete,
+  bulkDeleteConfirmCopy,
+  bulkDeleteFailureNotice,
   computeGapLessonsForGoal,
   reprojectGoalForParent,
   resyncGoalsForParent,
   sourceForUndoRestore,
   isProjectorPlacedSource,
+  addLessonPlacement,
   PARENT_RESPREAD_SOURCE,
+  COMPLETION_RESPREAD_FAILED_NOTE,
   type ParentRespreadSource,
   toGoalConfig,
   GOAL_CONFIG_COLUMNS,
@@ -107,6 +116,7 @@ import {
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
+import { lessonMinutes } from "@/lib/lesson-minutes";
 import {
   buildOptimisticEventRow,
   filterEventsForDay,
@@ -171,6 +181,7 @@ function formatShortDate(iso: string | null): string {
 function toTodayLessons(
   ls: PlanV2Lesson[],
   goals: readonly { id: string; curriculum_name: string | null; subject_label: string | null }[] = [],
+  removal: RemovalContext | null = null,
 ): TodayLessonCardLesson[] {
   const goalById = new Map(goals.map((g) => [g.id, g]));
   return ls.map((l) => ({
@@ -189,6 +200,7 @@ function toTodayLessons(
     // (lessonTitle.ts), so it needs the goal's two names.
     subject_label: l.curriculum_goals?.subject_label ?? (l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.subject_label ?? null : null),
     curriculum_name: l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.curriculum_name ?? null : null,
+    removed_curriculum_name: removedCurriculumName(l, removal),
   }));
 }
 
@@ -242,23 +254,8 @@ export function pickQueuePositionForNewLesson(
 
 // Catch-up banner dismissal constants — module-scoped so useEffect/useCallback
 // dependency arrays stay stable.
-const CATCHUP_DISMISS_KEY = "rooted_planv2_catchup_dismissed_at";
-const CATCHUP_DISMISS_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 
 type ViewMode = "week" | "month";
-
-/** The slice of a lesson the two catch-up modals need: enough to identify the
- *  row, date it, and label it in their preview lists. Both ShiftForwardModal
- *  and PushBackModal accept this shape, so one wide query feeds both. */
-
-/** One goal queued for re-projection by the catch-up flow. The config is
- *  captured when the modal opens and reused on confirm, so the family gets
- *  exactly the spread the preview promised rather than a re-read that may
- *  have moved underneath her. */
-type ReprojectPlanEntry = {
-  config: CurriculumGoalConfig;
-  preview: ReprojectGoalPreview;
-};
 
 /** A lesson row's date + pin state before the re-projection, for Undo. */
 type ReprojectSnapshotRow = {
@@ -283,19 +280,12 @@ type TailReprojectOutcome = {
 const UNDO_INCOMPLETE_NOTICE =
   "Couldn't undo everything. Some lessons kept their new dates, so check your plan.";
 
-/** The honest tail of a toast when some curriculums were not re-spread. */
-function respreadFailureNote(failed: number, partial: number): string {
-  const kept = failed - partial;
-  const parts: string[] = [];
-  if (kept > 0) parts.push(`${kept} couldn't be moved and kept ${kept === 1 ? "its" : "their"} dates`);
-  if (partial > 0) parts.push(`${partial} only partly moved, so check ${partial === 1 ? "it" : "them"}`);
-  return `${parts.join(", ")}.`.replace(/^./, (c) => c.toUpperCase());
-}
-
 export default function PlanV2() {
   const { effectiveUserId, isPartner } = usePartner();
   const router = useRouter();
-  const todayStr = useMemo(() => toDateStr(new Date()), []);
+  // Follows the local day: a Plan tab left open overnight moves to the new day
+  // (it used to keep yesterday as "today" until a reload).
+  const todayStr = useLocalDay(toDateStr);
   const isMobile = useIsMobile();
 
   const [monthStart, setMonthStart] = useState<Date>(() => firstOfMonth(new Date()));
@@ -388,6 +378,12 @@ export default function PlanV2() {
   // Deferred bulk delete — rows are removed from state immediately; DB DELETE
   // fires when the undo window expires. Snapshot lets Undo restore them.
   const pendingBulkDeleteRef = useRef<{ rows: PlanV2Lesson[]; timer: number } | null>(null);
+  // Set only when a bulk-delete selection contains rows somebody marked done.
+  // An unfinished-only selection never opens a dialog. See performBulkDelete.
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState<{
+    openRows: PlanV2Lesson[];
+    completedRows: PlanV2Lesson[];
+  } | null>(null);
 
   // Sensors split by input type so desktop and touch can have different
   // activation constraints. Mouse: 15px distance keeps taps as clicks while
@@ -445,28 +441,6 @@ export default function PlanV2() {
     return () => { cancelled = true; };
   }, [effectiveUserId]);
 
-  // Catch-up banner dismissal — kept in localStorage as a 7-day quiet period.
-  // Constants live at module scope (see CATCHUP_* above the component) so
-  // the effect + useCallback don't trip exhaustive-deps.
-  const [catchUpSuppressedUntil, setCatchUpSuppressedUntil] = useState<number>(0);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const raw = window.localStorage.getItem(CATCHUP_DISMISS_KEY);
-      if (!raw) return;
-      const ts = parseInt(raw, 10);
-      if (Number.isFinite(ts)) {
-        setCatchUpSuppressedUntil(ts + CATCHUP_DISMISS_WINDOW_MS);
-      }
-    } catch { /* private-mode / quota — just ignore */ }
-  }, []);
-  const dismissCatchUp = useCallback(() => {
-    const now = Date.now();
-    setCatchUpSuppressedUntil(now + CATCHUP_DISMISS_WINDOW_MS);
-    try {
-      window.localStorage.setItem(CATCHUP_DISMISS_KEY, String(now));
-    } catch { /* ignore */ }
-  }, []);
 
   // Manual placements per goal (see PinnedSlot in scheduler.ts). Loaded wide
   // (all months) because a pin outside the visible window still moves the
@@ -507,26 +481,6 @@ export default function PlanV2() {
     return () => { cancelled = true; };
   }, [effectiveUserId, pinsNonce]);
 
-  // Both catch-up modals operate on the whole schedule, so neither can read
-  // `lessons` state (capped to the visible grid window). These hold the full
-  // sets loaded from the DB when each modal opens; see loadCatchUpLessons.
-  const [shiftForwardOpen, setShiftForwardOpen] = useState(false);
-  const [shiftForwardLoading, setShiftForwardLoading] = useState(false);
-  // The per-goal re-projection plan built when the modal opens. Replaces the
-  // old flat missed-lesson list: the flow no longer moves individual rows, it
-  // re-projects whole goals.
-  const [shiftForwardPlan, setShiftForwardPlan] = useState<ReprojectPlanEntry[]>([]);
-  // Missed rows with no curriculum_goal_id. Nothing to re-project for them,
-  // so they are reported in the modal rather than silently skipped.
-  const [shiftForwardUnlinked, setShiftForwardUnlinked] = useState(0);
-  const [pushBackOpen, setPushBackOpen] = useState(false);
-  const [pushBackLoading, setPushBackLoading] = useState(false);
-  // Per-goal re-projection plan, same shape the re-spread flow uses. The old
-  // pushBackFuture/pushBackMissed row lists are gone: push-back no longer
-  // moves individual rows, it re-projects whole goals from a resume date.
-  const [pushBackPlan, setPushBackPlan] = useState<ReprojectPlanEntry[]>([]);
-  const [pushBackShiftDays, setPushBackShiftDays] = useState(1);
-  const [pushBackMissedCount, setPushBackMissedCount] = useState(0);
 
   // Vacation modal — single instance for both create + edit. `existing` is
   // null in create mode; populated in edit mode with the block we clicked.
@@ -589,6 +543,8 @@ export default function PlanV2() {
   // calendar's 42-day grid, under an archived curriculum, or with no date.
   const [searchOpen, setSearchOpen] = useState(false);
   const [addLessonOpen, setAddLessonOpen] = useState(false);
+  // "Plan this week": the parent-led weekly planner (WeekPlannerModal).
+  const [weekPlannerOpen, setWeekPlannerOpen] = useState(false);
   const [addLessonInitialDate, setAddLessonInitialDate] = useState<string>(todayStr);
   // True when AddLessonModal was opened from the unified "+" sheet's "Log
   // an extra lesson" action. Insert path uses this to write completed=true
@@ -622,6 +578,29 @@ export default function PlanV2() {
   };
   const [curriculumGoals, setCurriculumGoals] = useState<GoalFull[]>([]);
   const [goalsReloadNonce, setGoalsReloadNonce] = useState(0);
+
+  // What the family's own records establish about curricula they removed:
+  // their curriculum_goal.deleted events and every curriculum they still have,
+  // archived included (curriculumGoals above is active-only). Only a lesson
+  // whose removal this establishes is labelled "(removed curriculum)";
+  // reloaded when the active list changes so a just-deleted curriculum counts.
+  const [removal, setRemoval] = useState<RemovalContext | null>(null);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const [{ data: events }, { data: names }] = await Promise.all([
+        supabase.from("app_events").select("payload").eq("user_id", effectiveUserId).eq("type", "curriculum_goal.deleted"),
+        supabase.from("curriculum_goals").select("curriculum_name").eq("user_id", effectiveUserId),
+      ]);
+      if (cancelled) return;
+      setRemoval(buildRemovalContext(
+        ((events ?? []) as { payload: { curriculum_name?: string | null } | null }[]).map((e) => e.payload?.curriculum_name ?? null),
+        ((names ?? []) as { curriculum_name: string | null }[]).map((g) => g.curriculum_name),
+      ));
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, curriculumGoals]);
 
   const reloadGoals = useCallback(() => setGoalsReloadNonce((n) => n + 1), []);
 
@@ -825,6 +804,12 @@ export default function PlanV2() {
   const { kids, lessons, appointments, vacationBlocks, activities: calendarActivities, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
 
+  // Once a day, bring stored lesson dates in step with Today's projection
+  // (app/lib/daily-reconcile.ts), then reload so this calendar shows them.
+  const { failureNote: reconcileFailureNote } = useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
+    onRedated: () => { reload(); reloadPins(); },
+  });
+
   // Post-save landing from the Schedule Builder. The builder commits the new
   // curriculum_goals + lessons (awaited) then soft-navigates here with
   // `?saved=1`. The first data load on this fresh mount can paint before those
@@ -1009,7 +994,29 @@ export default function PlanV2() {
     onLessonCompleted: (event) => {
       posthog.capture("lesson_completed", event);
     },
+    // A completion or un-completion re-dated the rest of that curriculum.
+    onScheduleRedated: () => {
+      reload();
+      reloadPins();
+    },
+    onRedateFailed: (message) => flashNotice(message),
   });
+
+  // Every single check and uncheck on Plan goes through here, so a failed
+  // write is said, the optimistic tick is already rolled back by the hook,
+  // and the calendar reloads to what is really stored.
+  const toggleLessonReported = useCallback(
+    async (id: string, current: boolean): Promise<boolean> => {
+      try {
+        return await toggleLesson(id, current);
+      } catch {
+        flashNotice(current ? "Couldn't unmark that lesson, try again." : "Couldn't save that lesson, try again.");
+        reload();
+        return false;
+      }
+    },
+    [toggleLesson, reload],
+  );
 
   // After lesson toggle / bulk completion, recomputeCurrentLesson may have
   // stamped completed_at on a goal for the first time. This detects that
@@ -1049,7 +1056,7 @@ export default function PlanV2() {
       // onChoose records the audit event and the toast once the family answers.
       const plannedDate = snap?.scheduled_date ?? snap?.date ?? null;
       const willAsk = !current && !!snap && plannedDate !== null && plannedDate !== todayStr;
-      const wrote = await toggleLesson(id, current);
+      const wrote = await toggleLessonReported(id, current);
       // A tap dropped because the first one is still writing is not an event,
       // a toast or a completion: the row and the history must keep agreeing.
       if (willAsk || !wrote) return;
@@ -1078,7 +1085,7 @@ export default function PlanV2() {
         await fireConfettiIfNewlyCompleted(snap.curriculum_goal_id);
       }
     },
-    [lessons, toggleLesson, recordEvent, fireConfettiIfNewlyCompleted, todayStr],
+    [lessons, toggleLessonReported, recordEvent, fireConfettiIfNewlyCompleted, todayStr],
   );
 
   const deleteLessonWithLog = useCallback(
@@ -1227,6 +1234,71 @@ export default function PlanV2() {
   // restore the prior column values. Either way the DB writes are awaited
   // so failures surface to the user (the modal shows the error inline).
 
+  const registerSharedLessonUndo = useCallback((rows: PlanV2Lesson[], title: string) => {
+    const insertedIds = rows.map((row) => row.id);
+    setUndoAction({
+      message: `Added ${rows.length} lessons · ${title}`,
+      key: `lesson-add:${insertedIds.join(":")}`,
+      onUndo: async () => {
+        const { error: undoError } = await supabase.from("lessons")
+          .delete().eq("user_id", effectiveUserId).in("id", insertedIds);
+        if (undoError) flashNotice("Couldn't undo those lessons. Please try again.");
+        else setLessons((prev) => prev.filter((lesson) => !insertedIds.includes(lesson.id)));
+        reload();
+      },
+    });
+  }, [effectiveUserId, setLessons, reload]);
+
+  /**
+   * "Plan this week": one lesson per chosen child per chosen day, all in ONE
+   * insert statement, so the week is saved whole or not at all. The rows are
+   * shared one-off lessons (weekPlanRows over oneOffLessonRows): no curriculum
+   * and no queue slot, so the curriculum scheduler never moves, rebuilds or
+   * completes them, and each child checks off and reports their own.
+   * Undo removes the lessons it added that are still unfinished; one a child
+   * has already done stays, because that is now their record.
+   */
+  const handleSubmitWeekPlan = useCallback(async (input: WeekPlanInput) => {
+    if (!effectiveUserId) throw new Error("Not signed in");
+    if (input.childIds.some((id) => !kids.some((child) => child.id === id))) {
+      throw new Error("Choose children from your family.");
+    }
+    const rows = weekPlanRows(effectiveUserId, input, todayStr);
+    const { data: inserted, error } = await supabase.from("lessons")
+      .insert(rows)
+      .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)");
+    if (error || !inserted || inserted.length !== rows.length) {
+      throw new Error(error ? "Couldn't save this week. Nothing was added." : "Couldn't add every lesson. Check your plan and try again.");
+    }
+    const added = inserted as unknown as PlanV2Lesson[];
+    const addedIds = added.map((row) => row.id);
+    setLessons((prev) => [...prev, ...added]);
+    hapticTap(20);
+    const subject = input.subject.trim() || "your week";
+    recordEvent("lesson.bulk_action", {
+      action: "week_plan",
+      count: added.length,
+      child_count: new Set(input.childIds).size,
+      days: input.days.map((d) => d.date),
+      subject: input.subject.trim() || null,
+      lesson_ids: addedIds,
+      succeeded: added.length,
+      failed: 0,
+    });
+    setUndoAction({
+      message: `Added ${added.length} ${added.length === 1 ? "lesson" : "lessons"} · ${subject}`,
+      key: `week-plan:${addedIds.join(":")}`,
+      onUndo: async () => {
+        const { error: undoError } = await supabase.from("lessons")
+          .delete().eq("user_id", effectiveUserId).eq("completed", false).in("id", addedIds);
+        if (undoError) flashNotice("Couldn't undo that week. Please try again.");
+        reload();
+      },
+    });
+    reload();
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+  }, [effectiveUserId, kids, todayStr, setLessons, recordEvent, reload]);
+
   const handleSubmitAddLesson = useCallback(async (values: AddLessonSubmit) => {
     if (!effectiveUserId) throw new Error("Not signed in");
     // "Log an extra lesson" mode (from the unified "+" sheet): the row goes
@@ -1245,6 +1317,39 @@ export default function PlanV2() {
     // and left the real day empty. Noon UTC matches what healGoalIntegrity
     // writes for ghost completions (app/lib/scheduler.ts).
     const completedAt = isExtraCompletion ? `${values.scheduled_date}T12:00:00Z` : null;
+    const childIds = [...new Set(values.child_ids)];
+    if (childIds.length === 0 || childIds.some((id) => !kids.some((child) => child.id === id))) {
+      throw new Error("Choose at least one child from your family.");
+    }
+    if (values.curriculum_goal_id && childIds.length !== 1) {
+      throw new Error("A curriculum lesson belongs to one child. Choose a one-off lesson for multiple children.");
+    }
+    if (childIds.length > 1) {
+      // Each child needs an independent lesson and completion for their own
+      // reports. Insert the set together so a failure cannot save just one.
+      const { data: inserted, error } = await supabase.from("lessons")
+        .insert(oneOffLessonRows(effectiveUserId, childIds, values, isExtraCompletion))
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)");
+      if (error || !inserted || inserted.length !== childIds.length) {
+        throw new Error(error?.message ?? "Couldn't add a lesson for every child.");
+      }
+      const rows = inserted as unknown as PlanV2Lesson[];
+      setLessons((prev) => [...prev, ...rows]);
+      hapticTap(20);
+      rows.forEach((row) => recordEvent("lesson.created", {
+        lesson_id: row.id,
+        lesson_title: row.title ?? "",
+        date: values.scheduled_date,
+        curriculum_goal_id: null,
+        actor: "user",
+      }));
+      registerSharedLessonUndo(rows, values.title);
+      reload();
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+      setAddLessonAsCompleted(false);
+      return;
+    }
+    const childId = childIds[0];
 
     // Drift E contract (see resolveCustomLessonGoalLink in scheduler.ts): an
     // INCOMPLETE lesson may not be attached to a goal without a queue slot,
@@ -1271,7 +1376,7 @@ export default function PlanV2() {
       // Select-then-update/insert to avoid the unique-constraint collision.
       const { data: existing } = await supabase
         .from("lessons")
-        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
+        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, queue_position, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
         .eq("curriculum_goal_id", goalIdForInsert!)
         .eq("lesson_number", values.lesson_number!)
         .maybeSingle();
@@ -1295,6 +1400,7 @@ export default function PlanV2() {
           scheduled_date: string | null;
           date: string | null;
           scheduled_source: string | null;
+          queue_position: number | null;
         };
         const isUntouchedPlaceholder =
           ex.completed === false &&
@@ -1342,6 +1448,13 @@ export default function PlanV2() {
         if (isExtraCompletion) {
           updatePayload.scheduled_source = "extra_log";
         }
+        // The family chose this day: pin it so no re-date moves it back.
+        Object.assign(updatePayload, addLessonPlacement({
+          curriculum_goal_id: goalIdForInsert,
+          lesson_number: values.lesson_number,
+          queue_position: ex.queue_position,
+          completed: isExtraCompletion,
+        }));
         const { error: updErr } = await supabase
           .from("lessons")
           .update(updatePayload)
@@ -1370,7 +1483,7 @@ export default function PlanV2() {
           .from("lessons")
           .insert({
             user_id: effectiveUserId,
-            child_id: values.child_id,
+            child_id: childId,
             curriculum_goal_id: goalIdForInsert,
             title: values.title,
             lesson_number: values.lesson_number,
@@ -1385,6 +1498,13 @@ export default function PlanV2() {
             ...(isExtraCompletion
               ? { scheduled_source: "extra_log", is_backfill: false, queue_position: null }
               : {}),
+            // The family chose this day: pin it so no re-date moves it back.
+            ...addLessonPlacement({
+              curriculum_goal_id: goalIdForInsert,
+              lesson_number: values.lesson_number,
+              queue_position: queuePosition,
+              completed: isExtraCompletion,
+            }),
           })
           .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
           .single();
@@ -1399,7 +1519,7 @@ export default function PlanV2() {
         .from("lessons")
         .insert({
           user_id: effectiveUserId,
-          child_id: values.child_id,
+          child_id: childId,
           curriculum_goal_id: goalIdForInsert,
           title: values.title,
           lesson_number: isExtraCompletion ? null : values.lesson_number,
@@ -1426,6 +1546,10 @@ export default function PlanV2() {
     // current_lesson so the queue pointer reflects the highest completed slot.
     if (isExtraCompletion && goalIdForInsert) {
       await recomputeCurrentLesson(supabase, goalIdForInsert);
+      // And re-date the rest of that curriculum from the new pointer, as the
+      // family's own action, so Plan matches Today.
+      const redate = await resyncGoalsForParent(supabase, effectiveUserId, [goalIdForInsert], PARENT_RESPREAD_SOURCE.completion);
+      if (!redate.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
     }
 
     // Optimistic state: patch in-place if we updated a pre-existing row
@@ -1463,6 +1587,13 @@ export default function PlanV2() {
           } catch {
             /* best-effort; next reload reconciles */
           }
+          // Removing a logged completion can move the pointer back (the lessons
+          // trigger recomputes it on delete): re-date the curriculum again.
+          if (isExtraCompletion && goalIdForInsert && effectiveUserId) {
+            await recomputeCurrentLesson(supabase, goalIdForInsert);
+            const back = await resyncGoalsForParent(supabase, effectiveUserId, [goalIdForInsert], PARENT_RESPREAD_SOURCE.uncompletion);
+            if (!back.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
+          }
           reload();
         },
       });
@@ -1486,7 +1617,7 @@ export default function PlanV2() {
     // from a non-unified entry (e.g. day "+ Add lesson" link) goes back to
     // the default future-schedule semantic.
     setAddLessonAsCompleted(false);
-  }, [effectiveUserId, setLessons, recordEvent, reload, addLessonAsCompleted]);
+  }, [effectiveUserId, kids, setLessons, recordEvent, reload, addLessonAsCompleted, registerSharedLessonUndo]);
 
   /**
    * "Continue on another day": add a second (third, and so on) day of work on a
@@ -2361,11 +2492,12 @@ export default function PlanV2() {
   }, [effectiveUserId, curriculumGoals, recordEvent, reload]);
 
   // "I'm actually on lesson X" recalibration. Bumps the queue pointer so
-  // Today/Plan project lesson X as the next slot, without touching the
-  // lessons table from app code. trg_curriculum_goals_cleanup_orphans
-  // (migration 20260519180000) auto-completes any incomplete rows that
-  // fall before the new position; completed history is preserved and
-  // notes-bearing rows are skipped.
+  // Today/Plan project lesson X as the next slot. The unfinished lessons below
+  // the new position are written as done estimates ONLY when the family says
+  // yes to that in the form (`recordHistory`, default no); otherwise they are
+  // left unfinished and trg_curriculum_goals_cleanup_orphans unschedules them.
+  // That trigger completes nothing (20260907000000). Completed history is
+  // never touched either way.
   //
   // Off-by-one note: in mom's UI the field is "Which lesson are you
   // actually on?" (the lesson currently in progress). The scheduler
@@ -2380,13 +2512,15 @@ export default function PlanV2() {
   // RecalibrateForm mirrors this by defaulting to current_lesson + 1, so
   // re-opening the form shows mom's last entered value.
   const handleRecalibrateGoal = useCallback(
-    async (goal: PanelGoal, newCurrentLesson: number) => {
+    async (goal: PanelGoal, newCurrentLesson: number, recordHistory: boolean, confirmedLessonIds: readonly string[]) => {
       if (!effectiveUserId) throw new Error("Not signed in");
       const result = await recalibrateCurriculumGoal({
         supabase,
         goalId: goal.id,
         newCurrentLesson,
         vacationBlocks: vacationBlocks as unknown as SchedVacationBlock[],
+        recordHistory,
+        confirmedLessonIds,
       });
       recordEvent("curriculum_goal.updated", {
         goal_id: goal.id,
@@ -2394,6 +2528,7 @@ export default function PlanV2() {
         action: "recalibrate",
         new_current_lesson: result.clamped,
         gap_count: result.gapCount,
+        record_history: result.recordedHistory,
       });
       // Say what actually landed. The pointer is committed before the lesson
       // writes, so a partial failure is not rolled back and must not read as
@@ -2827,6 +2962,11 @@ export default function PlanV2() {
     for (const e of selected.slice(0, okCount)) {
       recordEvent("lesson.completed", { goal_id: e.goal_id, date: e.date });
     }
+    // logPastDayLessons recomputed each pointer; re-date the rest of those
+    // curricula from it, as the family's own action, so Plan matches Today.
+    const redate = await resyncGoalsForParent(
+      supabase, effectiveUserId, Array.from(new Set(selected.map((e) => e.goal_id))), PARENT_RESPREAD_SOURCE.completion,
+    );
     reload();
     reloadPins();
     if (typeof window !== "undefined") {
@@ -2834,270 +2974,124 @@ export default function PlanV2() {
     }
     if (failedCount > 0) {
       flashNotice(`Logged ${okCount}, but ${failedCount} didn't save. Try those again.`);
+    } else if (!redate.ok) {
+      flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
     }
   }, [effectiveUserId, recordEvent, reload, reloadPins, flashNotice]);
 
-  // Missed = scheduled_date before today AND not completed. Uses filteredLessons
-  // so the banner respects the active child filter chips (Amanda grades one
-  // child at a time and doesn't want bulk actions to leak across kids).
-  const missedLessonsInView = useMemo<PlanV2Lesson[]>(() => {
-    return filteredLessons
-      .filter((l) => {
-        const d = l.scheduled_date ?? l.date;
-        return !!d && d < todayStr && !l.completed;
-      })
-      .sort((a, b) =>
-        ((a.scheduled_date ?? a.date) ?? "").localeCompare((b.scheduled_date ?? b.date) ?? ""),
-      );
-  }, [filteredLessons, todayStr]);
-
-  // NOTE: there is deliberately no `futureLessonsInView` memo here any more.
-  // Push-back was the only consumer, and deriving it from `lessons` was the
-  // bug: usePlanV2Data caps state to the visible 42-cell grid window, so the
-  // modal moved only the loaded rows and later months doubled up underneath
-  // them. openPushBack below loads the real, all-months sets from the DB.
-
-  // Both catch-up modals act on the WHOLE schedule (every goal), so their
-  // input comes from the DB, not from `lessons`: the future half was silently
-  // capped at the end of the visible grid, and the missed half was capped at
-  // its start, so a mom more than a month behind never saw her older misses.
-  //
-  // Two filters are reapplied here so the wide sets mean what the old in-view
-  // lists meant: archived goals stay out (usePlanV2Data hides them, and "Mark
-  // as finished" work shouldn't be rescheduled), and the active child filter
-  // still scopes the action (Amanda grades one child at a time and bulk
-  // actions must not leak across kids).
-  //
-  // Returns null on failure so callers can abort without writing anything.
-  const loadCatchUpLessons = useCallback(async (): Promise<
-    { missed: CatchUpRow[]; future: CatchUpGoalRow[] } | null
-  > => {
-    if (!effectiveUserId) return null;
-
-    // Paged, both halves, through loadCatchUpRows. The old single unranged
-    // read stopped at PostgREST's 1,000-row cap without saying so, and a
-    // family with 1,950 uncompleted scheduled rows confirmed against a
-    // schedule missing every late-year curriculum. See the loader's header.
-    // The structural client type is what lets the loader be unit tested with
-    // a fake; checking the real SupabaseClient against it makes tsc recurse
-    // through supabase-js's generics until it gives up, hence the cast.
-    const sets = await loadCatchUpRows(supabase as unknown as CatchUpClient, { userId: effectiveUserId, todayStr });
-    if (!sets) return null;
-
-    const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
-    const inView = <T extends { child_id: string | null }>(r: T) =>
-      allKidsSelected || (r.child_id ? childFilter.has(r.child_id) : true);
-    return {
-      missed: sets.missed.filter(inView),
-      future: sets.future.filter(inView),
-    };
-  }, [effectiveUserId, childFilter, kids.length, todayStr]);
-
-  // Both openers load at open time rather than confirm time because each
-  // modal previews counts and landing dates; a windowed count would tell her
-  // the wrong thing about what she is agreeing to.
-  const openPushBack = useCallback(async () => {
-    if (!effectiveUserId) return;
-    setPushBackPlan([]);
-    setPushBackMissedCount(0);
-    setPushBackLoading(true);
-    setPushBackOpen(true);
-
-    const sets = await loadCatchUpLessons();
-    if (!sets) {
-      // Nothing has been written at this point, and nothing will be: close
-      // the modal rather than let her confirm against a partial schedule,
-      // which is the exact failure this load exists to prevent.
-      setPushBackOpen(false);
-      setPushBackLoading(false);
-      flashNotice("Couldn't load your whole schedule, nothing moved. Try again.");
-      return;
-    }
-
-    // Affected goals = the curriculums the missed AND upcoming lessons belong
-    // to. Push-back re-projects whole goals, so the row lists only matter for
-    // deciding WHICH goals and for the default number of days.
-    const goalIds = Array.from(
-      new Set(
-        [...sets.missed, ...sets.future]
-          .map((r) => r.curriculum_goal_id)
-          .filter((g): g is string => !!g),
-      ),
-    );
-    setPushBackMissedCount(sets.missed.length);
-    // Same default the old modal used: pause for about as many teaching days
-    // as the family is behind.
-    setPushBackShiftDays(Math.max(1, sets.missed.length));
-
-    if (goalIds.length === 0) {
-      setPushBackPlan([]);
-      setPushBackLoading(false);
-      return;
-    }
-
-    // GOAL_CONFIG_COLUMNS + toGoalConfig, never a hand-rolled list.
-    const { data: goalRows, error: goalErr } = await supabase
-      .from("curriculum_goals")
-      .select(`${GOAL_CONFIG_COLUMNS}, curriculum_name`)
-      .eq("user_id", effectiveUserId)
-      .in("id", goalIds);
-    if (goalErr || !goalRows) {
-      setPushBackOpen(false);
-      setPushBackLoading(false);
-      flashNotice("Couldn't load your curriculums, nothing moved. Try again.");
-      return;
-    }
-
-    const entries: ReprojectPlanEntry[] = [];
-    for (const raw of goalRows as unknown as (GoalConfigRow & { curriculum_name: string | null })[]) {
-      const config = toGoalConfig(raw);
-      entries.push({
-        config,
-        preview: {
-          goalId: config.id,
-          curriculumName: raw.curriculum_name ?? "Curriculum",
-          // Counts are recomputed per shift value by pushBackPreview; these
-          // placeholders are never rendered.
-          lessonCount: 0,
-          firstDate: null,
-        },
-      });
-    }
-    setPushBackPlan(entries);
-    setPushBackLoading(false);
-  // flashNotice is intentionally omitted: it is a plain function declaration
-  // that only closes over setNotice, so listing it would rebuild this
-  // callback every render for no behavioral gain. Matches the rest of the file.
-  }, [effectiveUserId, loadCatchUpLessons]);
-
-  const closePushBack = useCallback(() => {
-    setPushBackOpen(false);
-    setPushBackLoading(false);
-    setPushBackPlan([]);
-    setPushBackMissedCount(0);
-  }, []);
-
-  const openShiftForward = useCallback(async () => {
-    if (!effectiveUserId) return;
-    setShiftForwardPlan([]);
-    setShiftForwardUnlinked(0);
-    setShiftForwardLoading(true);
-    setShiftForwardOpen(true);
-
-    const sets = await loadCatchUpLessons();
-    if (!sets) {
-      setShiftForwardOpen(false);
-      setShiftForwardLoading(false);
-      flashNotice("Couldn't load your missed lessons, nothing moved. Try again.");
-      return;
-    }
-
-    // Affected goals = the distinct curriculums the missed lessons belong to.
-    const goalIds = Array.from(
-      new Set(sets.missed.map((r) => r.curriculum_goal_id).filter((g): g is string => !!g)),
-    );
-    const unlinked = sets.missed.filter((r) => !r.curriculum_goal_id).length;
-    setShiftForwardUnlinked(unlinked);
-
-    if (goalIds.length === 0) {
-      setShiftForwardPlan([]);
-      setShiftForwardLoading(false);
-      return;
-    }
-
-    // GOAL_CONFIG_COLUMNS + toGoalConfig, never a hand-rolled column list. The
-    // component's own `curriculumGoals` state is NOT usable here: its select
-    // omits lessons_per_day_overrides, and a config built without that column
-    // silently falls back to the flat lessons_per_day, so the preview would
-    // promise a spread the projector will not produce (see the doc comment
-    // above GOAL_CONFIG_COLUMNS in scheduler.ts).
-    const { data: goalRows, error: goalErr } = await supabase
-      .from("curriculum_goals")
-      .select(`${GOAL_CONFIG_COLUMNS}, curriculum_name`)
-      .eq("user_id", effectiveUserId)
-      .in("id", goalIds);
-    if (goalErr || !goalRows) {
-      setShiftForwardOpen(false);
-      setShiftForwardLoading(false);
-      flashNotice("Couldn't load your curriculums, nothing moved. Try again.");
-      return;
-    }
-
-    const today = new Date();
-    const entries: ReprojectPlanEntry[] = [];
-    for (const raw of goalRows as unknown as (GoalConfigRow & { curriculum_name: string | null })[]) {
-      const config = toGoalConfig(raw);
-      // No pins on purpose: confirming clears this goal's pins, so the
-      // preview must project the same pin-free tail the write will produce.
-      // Skips survive the confirm, so they stay in.
-      const projected = computeNextLessonsForGoal(
-        config,
-        today,
-        3650,
-        vacationBlocks as unknown as SchedVacationBlock[],
-        0,
-        (pinsByGoal.get(config.id) ?? []).filter(isSkippedSlot),
-      );
-      if (projected.length === 0) continue;
-      entries.push({
-        config,
-        preview: {
-          goalId: config.id,
-          curriculumName: raw.curriculum_name ?? "Curriculum",
-          lessonCount: projected.length,
-          firstDate: projected[0]?.date ?? null,
-        },
-      });
-    }
-
-    setShiftForwardPlan(entries);
-    setShiftForwardLoading(false);
-  }, [effectiveUserId, loadCatchUpLessons, vacationBlocks, pinsByGoal]);
-
-  const closeShiftForward = useCallback(() => {
-    setShiftForwardOpen(false);
-    setShiftForwardLoading(false);
-    setShiftForwardPlan([]);
-    setShiftForwardUnlinked(0);
-  }, []);
-
-  // True backlog size, all months. The catch-up banner headline used the
-  // month-windowed count, so a mom several months behind was told she was
-  // "12 lessons behind" while the modal she opened from it moved far more.
-  // Cheap: one count-only query, refreshed with the calendar.
-  const [missedTotal, setMissedTotal] = useState<number | null>(null);
+  // Missed work: the SAME lessons Today asks about (app/lib/missed-work.ts),
+  // projected from each curriculum's last completion and last catch-up answer.
+  // Not "stored date before today": re-dating (a parent action or the daily
+  // reconciliation) moves stored dates without answering anything, and Plan
+  // used to empty its list while Today still asked. Reloaded with the calendar
+  // so a completion here is reflected at once. Respects the child filter chips
+  // (Amanda grades one child at a time and doesn't want bulk answers to leak
+  // across kids).
+  const [missedWork, setMissedWork] = useState<{ goals: MissedWorkGoalRow[]; entriesByGoal: Map<string, MissedEntry[]> } | null>(null);
+  const [missedReviewOpen, setMissedReviewOpen] = useState(false);
   useEffect(() => {
-    if (!effectiveUserId) return;
+    if (!effectiveUserId || isPartner) return;
     let cancelled = false;
-    (async () => {
-      const { count, error } = await supabase
-        .from("lessons")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", effectiveUserId)
-        .eq("completed", false)
-        .not("scheduled_date", "is", null)
-        .lt("scheduled_date", todayStr);
-      if (cancelled || error) return;
-      setMissedTotal(count ?? 0);
+    void (async () => {
+      const res = await loadMissedWork(supabase, effectiveUserId);
+      // A failed read keeps what was shown rather than claim nothing is missed.
+      if (!cancelled && res) setMissedWork(res);
     })();
     return () => { cancelled = true; };
-  }, [effectiveUserId, todayStr, pinsNonce]);
+  }, [effectiveUserId, isPartner, todayStr, lessons]);
 
-  // Catch-up threshold: 5+ past incomplete spanning 2+ distinct days AND
-  // the 7-day dismissal window has elapsed. Dismissal count doesn't scope
-  // to child filter — if the user is behind with ANY child filter off, we
-  // still respect the pause.
-  const showCatchUpBanner = useMemo(() => {
-    if (Date.now() < catchUpSuppressedUntil) return false;
-    if (missedLessonsInView.length < 5) return false;
-    const distinctDates = new Set<string>();
-    for (const l of missedLessonsInView) {
-      const d = l.scheduled_date ?? l.date;
-      if (d) distinctDates.add(d);
-      if (distinctDates.size >= 2) break;
+  const missedInView = useMemo(() => {
+    const entriesByGoal = new Map<string, MissedEntry[]>();
+    const goals: MissedGoal[] = [];
+    if (!missedWork) return { entriesByGoal, goals, total: 0, dates: 0 };
+    const allKidsSelected = childFilter.size === 0 || childFilter.size === kids.length;
+    const kidName = new Map(kids.map((k) => [k.id, k.name]));
+    let total = 0;
+    const dates = new Set<string>();
+    for (const g of missedWork.goals) {
+      const entries = missedWork.entriesByGoal.get(g.id);
+      if (!entries || entries.length === 0) continue;
+      if (!allKidsSelected && g.child_id && !childFilter.has(g.child_id)) continue;
+      entriesByGoal.set(g.id, entries);
+      goals.push({
+        id: g.id,
+        curriculum_name: g.curriculum_name,
+        subject_label: g.subject_label,
+        child_id: g.child_id,
+        child_name: g.child_id ? (kidName.get(g.child_id) ?? null) : null,
+      });
+      total += entries.length;
+      for (const e of entries) dates.add(e.date);
     }
-    return distinctDates.size >= 2;
-  }, [missedLessonsInView, catchUpSuppressedUntil]);
+    return { entriesByGoal, goals, total, dates: dates.size };
+  }, [missedWork, childFilter, kids]);
+
+  const missedBannerGroups = useMemo(
+    () =>
+      missedInView.goals.map((g) => {
+        const subject = g.subject_label ?? g.curriculum_name;
+        return {
+          goalId: g.id,
+          label: g.child_name ? `${g.child_name} · ${subject}` : subject,
+          entries: missedInView.entriesByGoal.get(g.id) ?? [],
+        };
+      }),
+    [missedInView],
+  );
+
+  const refreshMissedWork = useCallback(async () => {
+    if (!effectiveUserId) return;
+    const res = await loadMissedWork(supabase, effectiveUserId);
+    if (res) setMissedWork(res);
+  }, [effectiveUserId]);
+
+  // The same answers Today gives (app/lib/missed-work-answers.ts). Each throws
+  // on failure so the prompt can say why and hand the button back.
+  const missedAnswerDeps = useCallback(async (): Promise<MissedAnswerDeps> => {
+    const { data: subjectRows } = await supabase
+      .from("subjects")
+      .select("id, name")
+      .eq("user_id", effectiveUserId);
+    return {
+      supabase,
+      userId: effectiveUserId,
+      todayStr,
+      entriesByGoal: missedInView.entriesByGoal,
+      goals: missedInView.goals,
+      subjects: (subjectRows ?? []) as Array<{ id: string; name: string }>,
+      track: (event, props) => posthog.capture(event, props),
+    };
+  }, [effectiveUserId, todayStr, missedInView]);
+
+  const handleMissedYes = useCallback(async (rows: RecoveryRow[]) => {
+    if (rows.length === 0) { setMissedReviewOpen(false); return; }
+    try {
+      await answerMissedYes(await missedAnswerDeps(), rows);
+    } catch (err) {
+      reload();
+      reloadPins();
+      await refreshMissedWork();
+      throw err;
+    }
+    setMissedReviewOpen(false);
+    reload();
+    reloadPins();
+    await refreshMissedWork();
+    flashNotice(`Marked ${rows.length} lesson${rows.length === 1 ? "" : "s"} done.`);
+    window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+  }, [missedAnswerDeps, reload, reloadPins, refreshMissedWork]);
+
+  const handleMissedNo = useCallback(async () => {
+    try {
+      await answerMissedNo(await missedAnswerDeps());
+    } finally {
+      reload();
+      reloadPins();
+      await refreshMissedWork();
+    }
+    setMissedReviewOpen(false);
+  }, [missedAnswerDeps, reload, reloadPins, refreshMissedWork]);
+
 
   function prevMonth() {
     if (viewMode === "week") {
@@ -3318,6 +3312,98 @@ export default function PlanV2() {
     recentTimersRef.current.set(lessonId, timer);
   }, []);
 
+  /**
+   * Put snapshotted rows back: dates and pin flag exactly, and the source
+   * mapped through sourceForUndoRestore (a restored 'queue_resync' is written
+   * as 'undo_restore', because a parent's undo is not the automatic writer).
+   * Confirmed per row: `ok` is false when any row did not change back.
+   */
+  const restoreLessonSnapshot = useCallback(async (
+    rows: ReprojectSnapshotRow[],
+  ): Promise<{ ok: boolean; failed: number }> => {
+    let failed = 0;
+    for (let i = 0; i < rows.length; i += 20) {
+      const results = await Promise.allSettled(
+        rows.slice(i, i + 20).map(async (s) => {
+          const { data, error } = await supabase
+            .from("lessons")
+            .update({
+              scheduled_date: s.scheduled_date,
+              date: s.date,
+              queue_pinned: s.queue_pinned ?? false,
+              scheduled_source: sourceForUndoRestore(s.scheduled_source),
+            })
+            .eq("id", s.id)
+            .select("id");
+          return !error && (data?.length ?? 0) === 1;
+        }),
+      );
+      for (const r of results) if (r.status !== "fulfilled" || !r.value) failed++;
+    }
+    return { ok: failed === 0, failed };
+  }, []);
+
+  /**
+   * The one write for moving a single lesson, shared by every single-move
+   * entry point (the reschedule dialog and its "Move just this lesson", drag
+   * and drop, the week list's Move picker).
+   *
+   * A curriculum lesson moved to a LATER day goes through
+   * move_lesson_keep_slot: it is pinned on its new day, its queue slot is
+   * unchanged, and the lessons after it that sit between today and that day
+   * are held on their dates. Plan and Today then agree that only this lesson
+   * moved. It used to go through move_lesson_to_date, which renumbered the
+   * queue: Today showed the next lesson on the day this one left, while Plan
+   * kept it on its own day (see app/lib/move-keep-slot.ts).
+   *
+   * Moves to an EARLIER day, one-off lessons, and a database without the new
+   * function (PGRST202) keep move_lesson_to_date.
+   *
+   * Returns null when nothing was written. Otherwise `undo` puts back exactly
+   * what was changed and reports whether all of it landed.
+   */
+  const writeSingleMove = useCallback(async (
+    lessonId: string,
+    fromDateStr: string,
+    toDateStr: string,
+  ): Promise<{ held: number; keptSlot: boolean; undo: () => Promise<boolean> } | null> => {
+    const lesson = lessons.find((l) => l.id === lessonId);
+    if (toDateStr > fromDateStr && lesson?.curriculum_goal_id && !lesson.completed) {
+      const res = await moveLessonKeepSlot(supabase, {
+        lessonId,
+        targetDate: toDateStr,
+        localDay: todayStr,
+        holdBetween: true,
+      });
+      if (res.status === "failed") return null;
+      if (res.status === "moved") {
+        const priorRows = keepSlotUndoRows(res);
+        return {
+          held: res.held.length,
+          keptSlot: true,
+          undo: async () => (await restoreLessonSnapshot(priorRows)).ok,
+        };
+      }
+      // not_movable / unavailable: nothing was written; the queue move below.
+    }
+    const { error } = await supabase.rpc("move_lesson_to_date", {
+      p_lesson_id: lessonId,
+      p_target_date: toDateStr,
+    });
+    if (error) return null;
+    return {
+      held: 0,
+      keptSlot: false,
+      undo: async () => {
+        const { error: backErr } = await supabase.rpc("move_lesson_to_date", {
+          p_lesson_id: lessonId,
+          p_target_date: fromDateStr,
+        });
+        return !backErr;
+      },
+    };
+  }, [lessons, todayStr, restoreLessonSnapshot]);
+
   // ── Move a single lesson to a new date ────────────────────────────────────
   // Shared by drag-drop AND the mobile/desktop reschedule dialog. Handles
   // vacation warn-but-allow, weekend warn-but-allow, optimistic state,
@@ -3360,18 +3446,11 @@ export default function PlanV2() {
       flagLanded(lessonId);
       hapticTap(20);
 
-      // DB write via the move_lesson_to_date RPC. The RPC atomically
-      // (a) updates scheduled_date / date / scheduled_source, and
-      // (b) shifts queue_position so the projected queue (Today page)
-      // honors the move. See migration 20260518064205 + the matching
-      // pure helper planQueueMove in scheduler.ts.
-      try {
-        const { error } = await supabase.rpc("move_lesson_to_date", {
-          p_lesson_id: lessonId,
-          p_target_date: toDateStr,
-        });
-        if (error) throw error;
-      } catch {
+      // One write for every single move (writeSingleMove): a later day keeps
+      // the lesson's queue slot and holds the lessons after it, so Today shows
+      // what Plan shows.
+      const written = await writeSingleMove(lessonId, fromDateStr, toDateStr).catch(() => null);
+      if (!written) {
         setLessons((prev) =>
           prev.map((l) =>
             l.id === lessonId ? { ...l, scheduled_date: fromDateStr, date: fromDateStr } : l,
@@ -3414,14 +3493,9 @@ export default function PlanV2() {
           );
           hapticTap(20);
           flagLanded(lessonId);
-          try {
-            await supabase.rpc("move_lesson_to_date", {
-              p_lesson_id: lessonId,
-              p_target_date: fromDateStr,
-            });
-          } catch {
-            flashNotice("Couldn't undo, check your connection.");
-          }
+          const undone = await written.undo().catch(() => false);
+          if (!undone) flashNotice(written.keptSlot ? UNDO_INCOMPLETE_NOTICE : "Couldn't undo, check your connection.");
+          reloadPins();
           reload();
         },
       });
@@ -3434,10 +3508,12 @@ export default function PlanV2() {
         from_date: fromDateStr,
         to_date: toDateStr,
         actor,
+        kept_slot: written.keptSlot,
+        held: written.held,
       });
 
-      // move_lesson_to_date sets queue_pinned in the same statement it writes
-      // the date (migration 20260730000000), so the pin map needs a refresh.
+      // Both writes pin the moved lesson (and the keep-slot move may hold
+      // others) in the same statement as the date, so the pin map needs a refresh.
       reloadPins();
       reload();
       // Cross-route notification — Today page (when mounted) listens for
@@ -3448,7 +3524,7 @@ export default function PlanV2() {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent],
+    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent, writeSingleMove],
   );
 
   // ── Appointment move (drag-drop on non-recurring instances) ────────────────
@@ -3639,12 +3715,17 @@ export default function PlanV2() {
     window.clearTimeout(pending.timer);
     pendingBulkDeleteRef.current = null;
     const ids = pending.rows.map((r) => r.id);
-    try {
-      await supabase.from("lessons").delete().in("id", ids);
-    } catch {
-      /* best-effort on unmount; next loadData will reconcile */
+    // supabase-js RESOLVES with { error } rather than throwing, so a failed
+    // delete used to vanish here. Ask for the deleted ids back and say so when
+    // fewer came back than were asked for.
+    const { data, error } = await supabase.from("lessons").delete().in("id", ids).select("id");
+    const notice = bulkDeleteFailureNotice(ids.length, data?.length ?? 0, !!error);
+    if (notice) {
+      console.error("[plan] bulk delete incomplete", error);
+      flashNotice(notice);
+      reload();
     }
-  }, []);
+  }, [reload]);
 
   useEffect(() => {
     return () => {
@@ -3815,12 +3896,9 @@ export default function PlanV2() {
     flagLanded(lessonId);
     hapticTap(15);
 
-    // Atomic queue-aware move (see migration 20260518064205).
-    const { error } = await supabase.rpc("move_lesson_to_date", {
-      p_lesson_id: lessonId,
-      p_target_date: toDateStr,
-    });
-    if (error) {
+    // The same write as every single move (writeSingleMove).
+    const written = await writeSingleMove(lessonId, fromDate, toDateStr).catch(() => null);
+    if (!written) {
       setLessons((prev) =>
         prev.map((l) => (l.id === lessonId ? { ...l, scheduled_date: fromDate, date: fromDate } : l)),
       );
@@ -3837,10 +3915,9 @@ export default function PlanV2() {
         );
         flagLanded(lessonId);
         hapticTap(15);
-        await supabase.rpc("move_lesson_to_date", {
-          p_lesson_id: lessonId,
-          p_target_date: fromDate,
-        });
+        const undone = await written.undo().catch(() => false);
+        if (!undone) flashNotice(written.keptSlot ? UNDO_INCOMPLETE_NOTICE : "Couldn't undo, check your connection.");
+        reloadPins();
         reload();
       },
     });
@@ -3849,9 +3926,13 @@ export default function PlanV2() {
       from_date: fromDate,
       to_date: toDateStr,
       source: "week_edit_picker",
+      kept_slot: written.keptSlot,
+      held: written.held,
     });
+    // A move pins the lesson (and may hold others), so the pin map needs a refresh.
+    reloadPins();
     reload();
-  }, [lessons, vacationBlocks, setLessons, flagLanded, reload, recordEvent]);
+  }, [lessons, vacationBlocks, setLessons, flagLanded, reload, reloadPins, recordEvent, writeSingleMove]);
 
   // ── Bulk: mark done ───────────────────────────────────────────────────────
   //
@@ -3971,6 +4052,12 @@ export default function PlanV2() {
         await fireConfettiIfNewlyCompleted(gid);
       }
     }
+    // The pointer moved: re-date the rest of each curriculum as the family's
+    // own action, so Plan matches what Today now projects.
+    const redate = affectedGoalIds.size > 0 && effectiveUserId
+      ? await resyncGoalsForParent(supabase, effectiveUserId, Array.from(affectedGoalIds), PARENT_RESPREAD_SOURCE.completion)
+      : { ok: true, written: 0, failedGoals: [] as string[] };
+    if (!redate.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
 
     if (succeededIds.length > 0) {
       setUndoAction({
@@ -4036,10 +4123,17 @@ export default function PlanV2() {
               Array.from(affectedGoalIds).map((gid) => recomputeCurrentLesson(supabase, gid)),
             );
           }
+          // The completion re-dated the lessons after these; with them back in
+          // the queue, re-date again so Plan matches Today.
+          const back = affectedGoalIds.size > 0 && effectiveUserId
+            ? await resyncGoalsForParent(supabase, effectiveUserId, Array.from(affectedGoalIds), PARENT_RESPREAD_SOURCE.uncompletion)
+            : { ok: true, written: 0, failedGoals: [] as string[] };
           // The local patch above is optimistic; reload() replaces it with
           // what the database holds, and the notice says why they differ.
           if (undoFailed > 0) flashNotice(UNDO_INCOMPLETE_NOTICE);
+          else if (!back.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
           reload();
+          reloadPins();
         },
       });
     } else {
@@ -4065,7 +4159,7 @@ export default function PlanV2() {
     reload();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode, recordEvent, fireConfettiIfNewlyCompleted, todayStr]);
+  }, [lessons, setLessons, reload, reloadPins, exitSelectMode, recordEvent, fireConfettiIfNewlyCompleted, todayStr, effectiveUserId]);
 
   // ── Bulk: skip (mark skipped, clear scheduled_date) ───────────────────────
   // Same write as the single Skip in usePlanLessonActions. It used to send
@@ -4228,12 +4322,13 @@ export default function PlanV2() {
 
   // ── Bulk: delete (deferred DB write to undo window) ──────────────────────
 
-  const performBulkDelete = useCallback(async (ids: string[]) => {
+  // The write half, once the selection is settled. `rows` is exactly what will
+  // be deleted: the caller has already decided whether completed rows are in it.
+  const runBulkDelete = useCallback(async (rows: PlanV2Lesson[]) => {
     // Commit any prior pending delete before starting a new one — only one
     // undoable batch can sit open at a time (matches 93f9be6 semantics).
     await commitPendingBulkDelete();
 
-    const rows = lessons.filter((l) => ids.includes(l.id));
     if (rows.length === 0) {
       exitSelectMode();
       return;
@@ -4247,10 +4342,16 @@ export default function PlanV2() {
     // taps Undo first, the timer is cleared and the rows are restored.
     const timer = window.setTimeout(async () => {
       pendingBulkDeleteRef.current = null;
-      try {
-        await supabase.from("lessons").delete().in("id", Array.from(rowIdSet));
-      } catch {
-        /* silent — next reload reconciles */
+      // A failed or partial delete is SAID, never swallowed: the rows would
+      // otherwise reappear on the next reload with no explanation, or worse,
+      // look deleted when they are not. supabase-js resolves with { error }
+      // rather than throwing, so the old try/catch never saw a failure.
+      const { data, error } = await supabase
+        .from("lessons").delete().in("id", Array.from(rowIdSet)).select("id");
+      const notice = bulkDeleteFailureNotice(rowIdSet.size, data?.length ?? 0, !!error);
+      if (notice) {
+        console.error("[plan] bulk delete incomplete", error);
+        flashNotice(notice);
       }
       reload();
     }, 5_000);
@@ -4282,6 +4383,10 @@ export default function PlanV2() {
       action: "delete",
       count: rows.length,
       lesson_ids: rows.map((r) => r.id),
+      // Recorded so a later investigation can tell an ordinary tidy-up of
+      // unfinished rows from a deletion of somebody's completed work without
+      // having to reconstruct it from rows that no longer exist. 2026-09-22.
+      completed_count: rows.filter((r) => r.completed).length,
       from_dates: rows
         .map((r) => r.scheduled_date ?? r.date ?? null)
         .filter((d): d is string => !!d),
@@ -4290,7 +4395,38 @@ export default function PlanV2() {
     });
 
     exitSelectMode();
-  }, [lessons, setLessons, reload, exitSelectMode, commitPendingBulkDelete, recordEvent]);
+  }, [setLessons, reload, exitSelectMode, commitPendingBulkDelete, recordEvent]);
+
+  /* Bulk delete preserves completed work by default (2026-09-22).
+   *
+   * See the planBulkLessonDelete block in app/lib/scheduler.ts for why. In
+   * short: deleting a curriculum deliberately KEEPS its completed rows, those
+   * kept rows then render on the calendar with no subject name against them,
+   * and this control used to remove them on one tap with no question asked.
+   * A family lost thirty completed lessons that way in 37 seconds.
+   *
+   * Unfinished-only selections are untouched: same immediate delete, same 5s
+   * undo. Only a selection containing completed rows stops to ask, and the
+   * non-destructive answer is the default one. */
+  const performBulkDelete = useCallback(async (ids: string[]) => {
+    const rows = lessons.filter((l) => ids.includes(l.id));
+    if (rows.length === 0) {
+      exitSelectMode();
+      return;
+    }
+
+    const plan = planBulkLessonDelete(rows);
+    if (plan.completedIds.length === 0) {
+      await runBulkDelete(rows);
+      return;
+    }
+
+    const completedSet = new Set(plan.completedIds);
+    setBulkDeleteConfirm({
+      openRows: rows.filter((r) => !completedSet.has(r.id)),
+      completedRows: rows.filter((r) => completedSet.has(r.id)),
+    });
+  }, [lessons, exitSelectMode, runBulkDelete]);
 
   // ── Catch-up + push-back handlers ────────────────────────────────────────
   // Each of these owns: pre-mutation snapshot, batch UPDATE with
@@ -4348,36 +4484,6 @@ export default function PlanV2() {
     [],
   );
 
-  /**
-   * Put snapshotted rows back: dates and pin flag exactly, and the source
-   * mapped through sourceForUndoRestore (a restored 'queue_resync' is written
-   * as 'undo_restore', because a parent's undo is not the automatic writer).
-   * Confirmed per row: `ok` is false when any row did not change back.
-   */
-  const restoreLessonSnapshot = useCallback(async (
-    rows: ReprojectSnapshotRow[],
-  ): Promise<{ ok: boolean; failed: number }> => {
-    let failed = 0;
-    for (let i = 0; i < rows.length; i += 20) {
-      const results = await Promise.allSettled(
-        rows.slice(i, i + 20).map(async (s) => {
-          const { data, error } = await supabase
-            .from("lessons")
-            .update({
-              scheduled_date: s.scheduled_date,
-              date: s.date,
-              queue_pinned: s.queue_pinned ?? false,
-              scheduled_source: sourceForUndoRestore(s.scheduled_source),
-            })
-            .eq("id", s.id)
-            .select("id");
-          return !error && (data?.length ?? 0) === 1;
-        }),
-      );
-      for (const r of results) if (r.status !== "fulfilled" || !r.value) failed++;
-    }
-    return { ok: failed === 0, failed };
-  }, []);
 
   /**
    * Snapshot, then re-project and unpin ONE goal's incomplete tail, as a
@@ -4444,233 +4550,16 @@ export default function PlanV2() {
     return { ok: false, partial: !rolledBack.ok, undoRows: [] };
   }, [vacationBlocks, restoreLessonSnapshot]);
 
-  /**
-   * Catch-up: re-project each affected goal's remaining tail from today.
-   *
-   * The old handler took hand-computed target dates from the modal and wrote
-   * them with batchUpdateScheduledDates(pairs, "plan_move", true). That was
-   * wrong twice over. The dates came from one global counter that ignored each
-   * goal's school_days and lessons_per_day, and the write PINNED every row
-   * without ever setting queue_position, but reconcileGoalScheduleCache keys
-   * pins on queue_position, so those pins dragged the projector cursor and the
-   * unpinned tail got re-dated around the mess on every Today load.
-   *
-   * Now the flow defers to the projector instead of competing with it:
-   * reprojectGoalTail lays the whole tail out on that goal's own school days,
-   * in lesson order, honoring per-weekday overrides and vacation blocks, and
-   * releases the pins in the same writes. One definition of "where does this
-   * lesson go" (Invariant 8), and the result is stable across resyncs because
-   * it IS what the reconciler would produce anyway. It is written as the
-   * family's action (catchup_spread), not as the automatic resync.
-   */
-  const handleCatchUpReprojectConfirm = useCallback(async () => {
-    const plan = shiftForwardPlan;
-    if (plan.length === 0) return;
-    setBulkBusy(true);
-
-    const today = new Date();
-    // Only the rows this action actually changed, so Undo puts back exactly
-    // those and nothing else.
-    const undoRows: ReprojectSnapshotRow[] = [];
-    const doneGoals: { goal_id: string; curriculum_name: string; lesson_count: number }[] = [];
-    let failedGoals = 0;
-    // A failed goal whose partial writes could not be put back.
-    let partialGoals = 0;
-
-    for (const entry of plan) {
-      const r = await reprojectGoalTail(entry.config, {
-        from: today,
-        source: PARENT_RESPREAD_SOURCE.catchUp,
-      });
-      undoRows.push(...r.undoRows);
-      if (!r.ok) {
-        failedGoals++;
-        if (r.partial) partialGoals++;
-        continue;
-      }
-      doneGoals.push({
-        goal_id: entry.config.id,
-        curriculum_name: entry.preview.curriculumName,
-        lesson_count: entry.preview.lessonCount,
-      });
-    }
-
-    const totalLessons = doneGoals.reduce((sum, g) => sum + g.lesson_count, 0);
-
-    recordEvent("lesson.bulk_action", {
-      action: "catch_up_reproject",
-      count: totalLessons,
-      goal_ids: doneGoals.map((g) => g.goal_id),
-      per_goal: doneGoals,
-      succeeded: doneGoals.length,
-      failed: failedGoals,
-    });
-
-    if (doneGoals.length > 0) {
-      setUndoAction({
-        message:
-          failedGoals > 0
-            ? `Re-spread ${doneGoals.length} of ${plan.length} curriculums. ${respreadFailureNote(failedGoals, partialGoals)}`
-            : `Re-spread ${totalLessons} lesson${totalLessons === 1 ? "" : "s"} from today`,
-        key: `catch-up-reproject:${Date.now()}`,
-        onUndo: async () => {
-          hapticTap(20);
-          const undone = await restoreLessonSnapshot(undoRows);
-          if (!undone.ok) flashNotice(UNDO_INCOMPLETE_NOTICE);
-          reloadPins();
-          reload();
-        },
-      });
-    } else {
-      flashNotice(
-        partialGoals > 0
-          ? "Couldn't re-spread your schedule. Some lessons moved and couldn't be put back, so check your plan."
-          : "Couldn't re-spread your schedule, so nothing changed. Check your connection and try again.",
-      );
-    }
-
-    reloadPins();
-    reload();
-    setBulkBusy(false);
-    // Cross-route notification: Today re-reads so the new dates show without
-    // a manual refresh, same as every other bulk path here.
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
-    }
-  }, [shiftForwardPlan, reprojectGoalTail, restoreLessonSnapshot, recordEvent, reload, reloadPins]);
-
-  /**
-   * Where a goal resumes after pausing for `shiftDays` school days.
-   *
-   * Per goal, not global: two curriculums with different school_days pause for
-   * the same number of TEACHING days but resume on different calendar dates.
-   */
-  const pushBackResumeDate = useCallback((
-    config: CurriculumGoalConfig,
-    shiftDays: number,
-  ): string => {
-    const goalSchoolDays = (config.school_days && config.school_days.length > 0)
-      ? config.school_days
-      : schoolDays;
-    return nthSchoolDay(todayStr, goalSchoolDays, Math.max(1, shiftDays), vacationBlocks);
-  }, [schoolDays, vacationBlocks, todayStr]);
-
-  /** Per-goal preview for the push-back modal, recomputed as the family
-   *  changes the number of days. Same projector call the write performs, so
-   *  the preview cannot promise something the write will not produce. */
-  const pushBackPreview = useMemo<ReprojectGoalPreview[]>(() => {
-    return pushBackPlan.map((entry) => {
-      const resume = pushBackResumeDate(entry.config, pushBackShiftDays);
-      const projected = computeNextLessonsForGoal(
-        entry.config,
-        new Date(`${resume}T00:00:00`),
-        3650,
-        vacationBlocks as unknown as SchedVacationBlock[],
-        0,
-        (pinsByGoal.get(entry.config.id) ?? []).filter(isSkippedSlot),
-      );
-      return {
-        goalId: entry.config.id,
-        curriculumName: entry.preview.curriculumName,
-        lessonCount: projected.length,
-        firstDate: projected[0]?.date ?? null,
-      };
-    });
-  }, [pushBackPlan, pushBackShiftDays, pushBackResumeDate, vacationBlocks, pinsByGoal]);
-
-  /**
-   * "Push schedule back by N school days": the family is pausing, so every
-   * affected curriculum re-projects from its own resume date.
-   *
-   * Replaces a hand-placed batch that pinned the entire tail. See
-   * reprojectGoalTail above for why that was wrong.
-   */
-  const handlePushBackConfirm = useCallback(async () => {
-    const plan = pushBackPlan;
-    const shiftDays = pushBackShiftDays;
-    if (plan.length === 0) return;
-    setBulkBusy(true);
-
-    const undoRows: ReprojectSnapshotRow[] = [];
-    const doneGoals: { goal_id: string; curriculum_name: string; lesson_count: number; resumes: string }[] = [];
-    let failedGoals = 0;
-    let partialGoals = 0;
-
-    for (const entry of plan) {
-      const resume = pushBackResumeDate(entry.config, shiftDays);
-      const r = await reprojectGoalTail(entry.config, {
-        from: new Date(`${resume}T00:00:00`),
-        source: PARENT_RESPREAD_SOURCE.pushBack,
-      });
-      undoRows.push(...r.undoRows);
-      if (!r.ok) {
-        failedGoals++;
-        if (r.partial) partialGoals++;
-        continue;
-      }
-      doneGoals.push({
-        goal_id: entry.config.id,
-        curriculum_name: entry.preview.curriculumName,
-        lesson_count: entry.preview.lessonCount,
-        resumes: resume,
-      });
-    }
-
-    const totalLessons = doneGoals.reduce((sum, g) => sum + g.lesson_count, 0);
-
-    recordEvent("lesson.bulk_action", {
-      action: "push_back_reproject",
-      count: totalLessons,
-      goal_ids: doneGoals.map((g) => g.goal_id),
-      per_goal: doneGoals,
-      school_days_shifted: shiftDays,
-      succeeded: doneGoals.length,
-      failed: failedGoals,
-    });
-
-    if (doneGoals.length > 0) {
-      setUndoAction({
-        message:
-          failedGoals > 0
-            ? `Pushed ${doneGoals.length} of ${plan.length} curriculums back. ${respreadFailureNote(failedGoals, partialGoals)}`
-            : `Pushed your schedule back by ${shiftDays} school day${shiftDays === 1 ? "" : "s"}`,
-        key: `push-back-reproject:${Date.now()}`,
-        onUndo: async () => {
-          hapticTap(20);
-          const undone = await restoreLessonSnapshot(undoRows);
-          if (!undone.ok) flashNotice(UNDO_INCOMPLETE_NOTICE);
-          reloadPins();
-          reload();
-        },
-      });
-    } else {
-      flashNotice(
-        partialGoals > 0
-          ? "Couldn't push the schedule back. Some lessons moved and couldn't be put back, so check your plan."
-          : "Couldn't push the schedule back, so nothing changed. Check your connection and try again.",
-      );
-    }
-
-    reloadPins();
-    reload();
-    setBulkBusy(false);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
-    }
-  }, [
-    pushBackPlan, pushBackShiftDays, pushBackResumeDate,
-    reprojectGoalTail, restoreLessonSnapshot, recordEvent, reload, reloadPins,
-  ]);
 
   /**
    * Cascade shift: the family moved one lesson and chose to shift the rest.
    *
-   * The move itself goes through the move_lesson_to_date RPC, which is the ONE
-   * path that pins correctly (it writes queue_position and queue_pinned in the
-   * same statement). Everything after it is then unpinned and re-projected, and
-   * the projector lays the tail out AROUND the pinned lesson by itself. That is
-   * exactly the "this moved, shift the rest after it" intent, without the
-   * hand-placed dates the old implementation wrote.
+   * The move itself goes through move_lesson_keep_slot, which pins the lesson
+   * on its new day in its own queue slot (queue_position and queue_pinned are
+   * never out of step). Everything after it is then unpinned and re-projected,
+   * and the projector lays every later slot out AFTER the pinned lesson by
+   * itself. That is exactly the "this moved, shift the rest after it" intent,
+   * without the hand-placed dates the old implementation wrote.
    *
    * The old version pinned the whole tail with no queue_position, which froze
    * the goal's auto-roll until every lesson was completed.
@@ -4715,17 +4604,37 @@ export default function PlanV2() {
     }
     const snapshot = snapRows as unknown as ReprojectSnapshotRow[];
 
-    // Move the trigger lesson the correct way. The RPC writes scheduled_date,
-    // date, scheduled_source, queue_position AND queue_pinned atomically, so
-    // this pin holds a real slot and the reconciler honors it.
-    const { error: moveErr } = await supabase.rpc("move_lesson_to_date", {
-      p_lesson_id: c.lessonId,
-      p_target_date: c.toDateStr,
+    // Pin the trigger lesson on its new day WITHOUT renumbering the queue
+    // (move_lesson_keep_slot). The re-spread below then lays every later slot
+    // out after that pin, which is the shift the dialog promised. It used to
+    // go through move_lesson_to_date, which gave the lesson the slot at the
+    // end of its new day and slid the lessons in between down one: the
+    // re-spread then packed those from today, so they moved EARLIER, and the
+    // finish date the dialog named never arrived (rooted-staging, 2026-09-24).
+    // move_lesson_to_date stays as the fallback for a database without the
+    // new function.
+    const kept = await moveLessonKeepSlot(supabase, {
+      lessonId: c.lessonId,
+      targetDate: c.toDateStr,
+      localDay: todayStr,
+      holdBetween: false,
     });
-    if (moveErr) {
+    if (kept.status === "failed") {
       setBulkBusy(false);
       flashNotice("Couldn't move that lesson, check your connection.");
       return;
+    }
+    const keptSlot = kept.status === "moved";
+    if (!keptSlot) {
+      const { error: moveErr } = await supabase.rpc("move_lesson_to_date", {
+        p_lesson_id: c.lessonId,
+        p_target_date: c.toDateStr,
+      });
+      if (moveErr) {
+        setBulkBusy(false);
+        flashNotice("Couldn't move that lesson, check your connection.");
+        return;
+      }
     }
 
     // Unpin and re-project everything else. keepPinnedIds protects the lesson
@@ -4770,17 +4679,22 @@ export default function PlanV2() {
       key: `shift-forward-cascade:${Date.now()}`,
       onUndo: async () => {
         hapticTap(20);
-        // The RPC moved the lesson into a new queue slot and shifted its
-        // siblings. Restoring dates alone left the slots shifted: Today (which
-        // projects by slot) then showed the next lesson where Plan (which reads
-        // the date) showed the moved one. Found on staging 2026-09-21.
+        // Put the tail's dates back first. The keep-slot move changed no
+        // queue slot, so the lesson's own row is then restored the same way.
         //
-        // So: put the tail's dates back first, then move the lesson back with
-        // the same RPC, which recomputes its slot from what now sits on that
-        // day and shifts the siblings back; then its prior pin and source.
+        // Fallback path only (move_lesson_to_date, a database without the new
+        // function): that RPC moved the lesson into a new queue slot and
+        // shifted its siblings, and restoring dates alone left the slots
+        // shifted (staging 2026-09-21), so the lesson is moved back with the
+        // same RPC, which shifts the siblings back; then its prior pin and
+        // source.
         const undone = await restoreLessonSnapshot(tailUndoRows);
         let ok = undone.ok;
-        if (movedPrior?.scheduled_date) {
+        if (keptSlot && movedPrior) {
+          // No slot moved, so the lesson's own row goes back like any other.
+          const back = await restoreLessonSnapshot([movedPrior]);
+          if (!back.ok) ok = false;
+        } else if (movedPrior?.scheduled_date) {
           const { error: moveBackErr } = await supabase.rpc("move_lesson_to_date", {
             p_lesson_id: c.lessonId,
             p_target_date: movedPrior.scheduled_date,
@@ -4831,7 +4745,7 @@ export default function PlanV2() {
     }
   }, [
     curriculumGoals, setLessons, flagLanded, reprojectGoalTail,
-    restoreLessonSnapshot, recordEvent, reload, reloadPins,
+    restoreLessonSnapshot, recordEvent, reload, reloadPins, todayStr,
   ]);
 
   // ── Past-date move with optional completion ──────────────────────────────
@@ -4850,9 +4764,14 @@ export default function PlanV2() {
     await performMove(p.lessonId, p.fromDateStr, p.toDateStr);
     if (!markCompleted) return;
     const payload = buildPastDateCompletionPayload(`${p.toDateStr}T12:00:00Z`);
-    const { error } = await supabase.from("lessons").update(payload).eq("id", p.lessonId);
-    if (error) {
+    const { data: done, error } = await supabase
+      .from("lessons")
+      .update(payload)
+      .eq("id", p.lessonId)
+      .select("id, curriculum_goal_id");
+    if (error || (done ?? []).length !== 1) {
       flashNotice("Lesson moved, but couldn't mark complete.");
+      reload();
       return;
     }
     setLessons((prev) =>
@@ -4862,8 +4781,18 @@ export default function PlanV2() {
           : l,
       ),
     );
+    // This path used to leave the pointer to the lessons trigger alone and
+    // re-date nothing. Recompute it here like every other completion, then
+    // re-date the rest of the curriculum as the family's own action.
+    const goalId = (done?.[0] as { curriculum_goal_id: string | null } | undefined)?.curriculum_goal_id;
+    if (goalId && effectiveUserId) {
+      await recomputeCurrentLesson(supabase, goalId);
+      const redate = await resyncGoalsForParent(supabase, effectiveUserId, [goalId], PARENT_RESPREAD_SOURCE.completion);
+      if (!redate.ok) flashNotice(COMPLETION_RESPREAD_FAILED_NOTE);
+    }
     reload();
-  }, [performMove, setLessons, reload, flashNotice]);
+    reloadPins();
+  }, [performMove, setLessons, reload, reloadPins, flashNotice, effectiveUserId]);
 
   // ── Vacation block modal handlers ────────────────────────────────────────
 
@@ -5272,6 +5201,7 @@ export default function PlanV2() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (printDialogOpen) { setPrintDialogOpen(false); return; }
+      if (bulkDeleteConfirm) { setBulkDeleteConfirm(null); return; }
       if (deleteGoalConfirm) { setDeleteGoalConfirm(null); return; }
       if (stopGoalConfirm) { setStopGoalConfirm(null); return; }
       if (markFinishedConfirm) { setMarkFinishedConfirm(null); return; }
@@ -5281,8 +5211,6 @@ export default function PlanV2() {
       if (activityModalOpen) { setActivityModalOpen(false); setActivityEditing(null); return; }
       if (wizardOpen) { setWizardOpen(false); setWizardEditData(null); return; }
       if (vacationModalOpen) { setVacationModalOpen(false); return; }
-      if (pushBackOpen) { closePushBack(); return; }
-      if (shiftForwardOpen) { closeShiftForward(); return; }
       if (searchOpen) { setSearchOpen(false); return; }
       if (addLessonOpen) { setAddLessonOpen(false); return; }
       if (editLessonTarget) { setEditLessonTarget(null); return; }
@@ -5299,7 +5227,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, pushBackOpen, shiftForwardOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, continueTarget, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode, closePushBack, closeShiftForward]);
+  }, [printDialogOpen, bulkDeleteConfirm, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, continueTarget, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -5392,7 +5320,7 @@ export default function PlanV2() {
     const m = new Map<string, number>();
     for (const l of lessons) {
       if (!l.curriculum_goal_id || !l.completed) continue;
-      const mins = l.minutes_spent ?? 0;
+      const mins = lessonMinutes(l).minutes;
       m.set(l.curriculum_goal_id, (m.get(l.curriculum_goal_id) ?? 0) + mins);
     }
     return m;
@@ -5655,55 +5583,37 @@ export default function PlanV2() {
           </Link>
         )}
 
-        {/* Catch-up banner — above MissedLessonsBanner when the user has a
-            meaningful backlog (5+ across 2+ days) and hasn't dismissed it
-            within the last 7 days. Handles bulk "shift everything" flows;
-            MissedLessonsBanner handles per-row and select-all flows. */}
-        {!loading && showCatchUpBanner ? (
-          <CatchUpBanner
-            count={missedTotal ?? missedLessonsInView.length}
-            onShiftForward={() => void openShiftForward()}
-            onPushBack={() => void openPushBack()}
-            onDismiss={dismissCatchUp}
-          />
+
+        {/* Missed-lessons banner, above the calendar card: the same lessons
+            Today asks about, and Review opens the same prompt, so the question
+            is answered once whichever screen the family is on. */}
+        {reconcileFailureNote ? (
+          <p role="status" className="text-[12px] text-[#7a4a1a] bg-[#fdf6e8] border border-[#e8d9a8] rounded-xl px-3.5 py-2.5">
+            {reconcileFailureNote}
+          </p>
         ) : null}
 
-        {/* Missed-lessons banner — above the calendar card so partners who
-            grade after the fact can bulk-close the backlog in two clicks.
-            Per-row Reschedule opens the same RescheduleDialog used by the day
-            panel; "Mark all done" calls performBulkMarkDone which fires the
-            universal undo bar; "Select all" enters the existing multi-select
-            mode with the banner items pre-selected. */}
         {!loading ? (
           <MissedLessonsBanner
-            missedLessons={missedLessonsInView}
+            groups={missedBannerGroups}
             busy={bulkBusy}
-            curriculumNameByGoal={Object.fromEntries(curriculumGoals.map((g) => [g.id, g.curriculum_name]))}
-            onMarkAllDone={() => {
-              const ids = missedLessonsInView.map((l) => l.id);
-              if (ids.length === 0) return;
-              performBulkMarkDone(ids);
-            }}
-            onSelectAll={() => {
-              const ids = missedLessonsInView.map((l) => l.id);
-              if (ids.length === 0) return;
-              setSelectMode(true);
-              setSelectedIds(new Set(ids));
-              setMoveTargetMode(false);
-              hapticTap(20);
-            }}
-            onReschedule={(lesson) => {
-              const fromDateStr = lesson.scheduled_date ?? lesson.date ?? null;
-              if (!fromDateStr) {
-                flashNotice("This lesson isn't on the calendar yet, edit it from the Plan page.");
-                return;
-              }
-              setRescheduleTarget({ lessonId: lesson.id, fromDateStr });
-            }}
+            onReview={() => setMissedReviewOpen(true)}
+            onAddBreak={() => openVacationModalCreate(todayStr)}
           />
         ) : null}
 
-        {curriculumGoals.length === 0 && !loading ? (
+        {missedReviewOpen ? (
+          <MissedLessonRecoveryModal
+            goals={missedInView.goals}
+            entriesByGoal={missedInView.entriesByGoal}
+            onYes={handleMissedYes}
+            onNo={handleMissedNo}
+            onDismiss={() => setMissedReviewOpen(false)}
+            today={todayStr}
+          />
+        ) : null}
+
+        {curriculumGoals.length === 0 && lessons.length === 0 && !loading ? (
           /* New-user empty state — rendered in place of the calendar so a
              zero-goal user sees the call to action without scrolling past a
              blank week. The calendar only renders once the user has goals.
@@ -5721,6 +5631,17 @@ export default function PlanV2() {
               >
                 Add a subject
               </button>
+              {/* A family who plans by hand needs no curriculum first. Once
+                  the week has lessons in it, the calendar shows instead. */}
+              {!isPartner ? (
+                <button
+                  type="button"
+                  onClick={() => setWeekPlannerOpen(true)}
+                  className="mt-3 text-[13px] font-medium text-[#2D5A3D] underline underline-offset-2"
+                >
+                  Or plan this week yourself
+                </button>
+              ) : null}
             </div>
           </div>
         ) : (
@@ -5819,6 +5740,19 @@ export default function PlanV2() {
 
                 {/* Breaks entry has moved to the unified "+" sheet in the hero. */}
               </div>
+
+              {/* The parent-led weekly planner, for the week on screen. */}
+              {viewMode === "week" && !isPartner && !selectMode ? (
+                <div className="flex">
+                  <button
+                    type="button"
+                    onClick={() => setWeekPlannerOpen(true)}
+                    className="text-[12px] font-medium px-3 py-1.5 rounded-full border border-[#d4e8d4] bg-[#f4f8f2] text-[#2D5A3D] hover:bg-[#e8f0e9] transition-colors"
+                  >
+                    Plan this week
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             {/* Select-mode action bar — shown above the grid whenever the user
@@ -5892,6 +5826,7 @@ export default function PlanV2() {
                     activities={filteredActivities}
                     vacationBlocks={vacationBlocks}
                     curriculumGoals={curriculumGoals}
+                    removal={removal}
                     loading={loading}
                     onMoveLesson={moveLessonToDate}
                     isPartner={isPartner}
@@ -5907,7 +5842,7 @@ export default function PlanV2() {
                       if (fromDate) setRescheduleTarget({ lessonId: l.id, fromDateStr: fromDate });
                     }}
                     onEditLesson={(l) => setEditLessonTarget(l)}
-                    onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
+                    onToggleLessonDone={(l) => { void toggleLessonReported(l.id, l.completed); }}
                     onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                     onMarkBreakForDay={(date) => handleMenuMarkBreak(date)}
                     onDayAdd={(date) => openUnifiedAdd(date)}
@@ -5994,6 +5929,7 @@ export default function PlanV2() {
                       activities={filteredActivities}
                       vacationBlocks={vacationBlocks}
                       curriculumGoals={curriculumGoals}
+                      removal={removal}
                       loading={loading}
                         onMoveLesson={moveLessonToDate}
                       isPartner={isPartner}
@@ -6009,7 +5945,7 @@ export default function PlanV2() {
                         if (fromDate) setRescheduleTarget({ lessonId: l.id, fromDateStr: fromDate });
                       }}
                       onEditLesson={(l) => setEditLessonTarget(l)}
-                      onToggleLessonDone={(l) => { void toggleLesson(l.id, l.completed); }}
+                      onToggleLessonDone={(l) => { void toggleLessonReported(l.id, l.completed); }}
                       onAddLessonForDay={(date) => { setAddLessonInitialDate(date); setAddLessonOpen(true); }}
                       onMarkBreakForDay={(date) => handleMenuMarkBreak(date)}
                       onDayAdd={(date) => openUnifiedAdd(date)}
@@ -6225,6 +6161,7 @@ export default function PlanV2() {
           const panelLessons = toTodayLessons(
             filteredLessons.filter((l) => (l.scheduled_date ?? l.date) === openDayStr),
             curriculumGoals,
+            removal,
           );
           // Appointments DO carry child scoping (child_ids), and
           // filteredAppointments already applies the rule the rest of the page
@@ -6586,11 +6523,23 @@ export default function PlanV2() {
           />
         ) : null}
 
+        <WeekPlannerModal
+          isOpen={weekPlannerOpen}
+          weekStart={weekStart}
+          today={todayStr}
+          childrenList={kids}
+          schoolDays={schoolDays}
+          breaks={vacationBlocks}
+          userId={effectiveUserId}
+          onClose={() => setWeekPlannerOpen(false)}
+          onSubmit={handleSubmitWeekPlan}
+        />
         <AddLessonModal
           isOpen={addLessonOpen}
           initialDate={addLessonInitialDate}
           childrenList={kids}
           goals={curriculumGoals}
+          userId={effectiveUserId}
           mode={addLessonAsCompleted ? "log_done" : "schedule"}
           onClose={() => { setAddLessonOpen(false); setAddLessonAsCompleted(false); }}
           onSubmit={handleSubmitAddLesson}
@@ -6606,25 +6555,7 @@ export default function PlanV2() {
           onSubmit={handleSubmitEditLesson}
         />
 
-        {/* Catch-up modals + vacation modal */}
-        <ShiftForwardModal
-          isOpen={shiftForwardOpen}
-          loading={shiftForwardLoading}
-          goals={shiftForwardPlan.map((e) => e.preview)}
-          unlinkedMissedCount={shiftForwardUnlinked}
-          onClose={closeShiftForward}
-          onConfirm={handleCatchUpReprojectConfirm}
-        />
-        <PushBackModal
-          isOpen={pushBackOpen}
-          loading={pushBackLoading}
-          shiftDays={pushBackShiftDays}
-          onShiftDaysChange={setPushBackShiftDays}
-          goals={pushBackPreview}
-          missedCount={pushBackMissedCount}
-          onClose={closePushBack}
-          onConfirm={handlePushBackConfirm}
-        />
+        {/* Vacation modal */}
         <VacationBlockModal
           isOpen={vacationModalOpen}
           mode={
@@ -6923,6 +6854,51 @@ export default function PlanV2() {
           </div>
         ) : null}
 
+        {/* Bulk delete confirm. Opens ONLY when the selection contains rows
+            somebody marked done; an unfinished-only selection deletes straight
+            away with its 5 second undo, exactly as before. The primary button
+            is the non-destructive answer whenever there is one. */}
+        {bulkDeleteConfirm ? (() => {
+          const open = bulkDeleteConfirm.openRows;
+          const done = bulkDeleteConfirm.completedRows;
+          const copy = bulkDeleteConfirmCopy(open.length, done.length);
+          // Cancelling only closes the dialog: nothing is deleted and the
+          // selection stays as it was.
+          const close = () => setBulkDeleteConfirm(null);
+          const deleteRows = (rows: PlanV2Lesson[]) => {
+            setBulkDeleteConfirm(null);
+            void runBulkDelete(rows);
+          };
+
+          // Nothing safe to offer: every row in the selection is completed.
+          if (open.length === 0) {
+            return (
+              <ConfirmDialog
+                title={copy.title}
+                body={copy.body}
+                confirmLabel={copy.confirmLabel}
+                cancelLabel={copy.cancelLabel}
+                destructive
+                onCancel={close}
+                onConfirm={() => deleteRows(done)}
+              />
+            );
+          }
+
+          return (
+            <ConfirmDialog
+              title={copy.title}
+              body={copy.body}
+              confirmLabel={copy.confirmLabel}
+              cancelLabel={copy.cancelLabel}
+              altLabel={copy.altLabel ?? undefined}
+              onAlt={() => deleteRows([...open, ...done])}
+              onCancel={close}
+              onConfirm={() => deleteRows(open)}
+            />
+          );
+        })() : null}
+
         {/* Curriculum delete confirm */}
         {deleteGoalConfirm ? (
           <ConfirmDialog
@@ -7060,6 +7036,22 @@ export default function PlanV2() {
               onClick: () => {
                 closeUnifiedAdd();
                 handleMenuAddAppointment(targetDate, "event");
+              },
+            },
+            // The same form and save as the month view's long-press "Add a
+            // lesson" (handleMenuAddLesson), reachable from week view's day
+            // "+", which until now only offered to log finished work.
+            {
+              key: "lesson",
+              label: "Add a lesson",
+              description: "Plan a lesson for this day",
+              emoji: "📚",
+              bg: "#eaf2ec",
+              color: "#2D5A3D",
+              onClick: () => {
+                closeUnifiedAdd();
+                setAddLessonAsCompleted(false);
+                handleMenuAddLesson(targetDate);
               },
             },
             {
@@ -7282,10 +7274,18 @@ function ConfirmDialog(props: {
   confirmLabel: string;
   cancelLabel?: string;
   destructive?: boolean;
+  // An optional THIRD answer, below the main row and always destructive.
+  // It exists so a dialog can offer a safe default as its primary button and
+  // still let someone say the dangerous thing in its own words, rather than
+  // making the dangerous thing the only way forward. Used by the bulk-delete
+  // confirm: "delete the unfinished ones" is the primary, "delete all of them,
+  // including the done ones" is this.
+  altLabel?: string;
+  onAlt?: () => void | Promise<void>;
   onCancel: () => void;
   onConfirm: () => void | Promise<void>;
 }) {
-  const { title, body, confirmLabel, cancelLabel, destructive, onCancel, onConfirm } = props;
+  const { title, body, confirmLabel, cancelLabel, destructive, altLabel, onAlt, onCancel, onConfirm } = props;
   return (
     <>
       <div className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[70]" onClick={onCancel} aria-hidden />
@@ -7323,6 +7323,17 @@ function ConfirmDialog(props: {
               {confirmLabel}
             </button>
           </div>
+          {altLabel && onAlt ? (
+            <div className="px-5 pb-5 -mt-2">
+              <button
+                type="button"
+                onClick={() => void onAlt()}
+                className="w-full min-h-[44px] text-sm font-medium text-[#b91c1c] rounded-xl hover:bg-[#fdeaea] transition-colors"
+              >
+                {altLabel}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </>

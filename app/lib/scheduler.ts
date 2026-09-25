@@ -467,6 +467,9 @@ export function projectionOverCap(
   const perDate = new Map<string, number>();
   for (const p of projected) {
     if (pinnedSlots.has(p.lesson_number)) continue;
+    // A make-up (Invariant 23) is a pinned row behind the pointer, placed on
+    // its own day: a family's placement, exempt like any pin.
+    if (p.lesson_number <= goal.current_lesson) continue;
     const count = (perDate.get(p.date) ?? 0) + 1;
     perDate.set(p.date, count);
     if (count > maxPerDay) return { date: p.date, count, max: maxPerDay };
@@ -503,9 +506,27 @@ export const PARENT_RESPREAD_SOURCE = {
   unskip: "skip_undo",
   /** Skip: the skipped slot is stepped over, so the lessons after it move up. */
   skip: "skip_respread",
+  /**
+   * A parent marked lessons done (on time, early, late or on a chosen past
+   * day). The pointer moved, so the rest of the curriculum is re-dated from
+   * it, the way Today already projects it.
+   */
+  completion: "completion_respread",
+  /** A parent un-marked a lesson (or undid a completion): the queue is re-dated. */
+  uncompletion: "uncomplete_respread",
 } as const;
 export type ParentRespreadSource =
   (typeof PARENT_RESPREAD_SOURCE)[keyof typeof PARENT_RESPREAD_SOURCE];
+
+/**
+ * What a surface says when a completion (or un-completion) saved but the
+ * follow-up re-date of the rest of the curriculum did not fully land. The
+ * completion itself is never rolled back for this: the lesson really was
+ * done, and Today projects from the pointer regardless. Only Plan's stored
+ * dates are behind until the next parent action re-dates them.
+ */
+export const COMPLETION_RESPREAD_FAILED_NOTE =
+  "Saved, but your upcoming lessons couldn't be moved to match. Try again, or check your connection.";
 
 /**
  * Written by an undo that puts a row back where the automatic projector had
@@ -719,6 +740,56 @@ export async function resyncGoalsForParent(
     if (!r.ok) failedGoals.push(config.id);
   }
   return { ok: failedGoals.length === 0, written, failedGoals };
+}
+
+/** One row the daily reconciliation would move, with the date it saw. */
+export interface DailyReconcileMove {
+  id: string;
+  from: string | null;
+  to: string;
+}
+
+export type DailyReconcilePlan =
+  | { ok: true; moves: DailyReconcileMove[]; pins: Array<[number, string]>; skipped: number[] }
+  | { ok: false; reason: "read_failed" | "over_cap" };
+
+/**
+ * What the once-a-day reconciliation would change for one curriculum, and the
+ * pins and skips it projected around. Never writes: the write goes through the
+ * apply_daily_reconcile RPC, which re-checks every one of these values (and the
+ * curriculum's settings, breaks and today's completions) under row locks.
+ *
+ * The same projection the parent re-dates use (planGoalResync): pins hold their
+ * day, skips are stepped over, and completed, backfill, pinned and skipped rows
+ * are never moved.
+ */
+export async function planDailyReconcile(
+  supabase: SupabaseClient,
+  goal: CurriculumGoalConfig,
+  vacationBlocks: VacationBlock[],
+  completedTodayCount: number,
+  today: Date,
+): Promise<DailyReconcilePlan> {
+  const plan = await planGoalResync(supabase, goal, vacationBlocks, completedTodayCount, today, "planDailyReconcile");
+  if (!plan.ok) {
+    if (plan.reason === "nothing_projected") return { ok: true, moves: [], pins: [], skipped: [] };
+    return { ok: false, reason: plan.reason };
+  }
+  const byDate = planProjectedDateWrites(plan.rows, plan.projDateByKey, plan.rowKey);
+  const rowById = new Map(plan.rows.map((r) => [r.id, r]));
+  const moves: DailyReconcileMove[] = [];
+  for (const [to, ids] of byDate) {
+    for (const id of ids) moves.push({ id, from: rowById.get(id)?.scheduled_date ?? null, to });
+  }
+  const pins: Array<[number, string]> = plan.rows
+    .filter((r) => !r.completed && r.queue_pinned && !r.skipped && r.queue_position != null && r.scheduled_date)
+    .map((r) => [r.queue_position as number, r.scheduled_date as string] as [number, string])
+    .sort((a, b) => a[0] - b[0]);
+  const skipped = plan.rows
+    .filter((r) => !r.completed && r.skipped && r.queue_position != null)
+    .map((r) => r.queue_position as number)
+    .sort((a, b) => a - b);
+  return { ok: true, moves, pins, skipped };
 }
 
 export type ParentReprojectResult = ConfirmedWriteOutcome & {
@@ -1581,6 +1652,41 @@ export function isPinProjectable(
   return true;
 }
 
+/**
+ * Invariant 23: is this pin a MAKE-UP the projector places on its own day?
+ *
+ * A make-up is an unfinished lesson a family reopened behind the pointer, the
+ * usual case being a lesson recorded as done before they started tracking that
+ * they untick because it needs doing again. The pointer cannot follow it back
+ * (it never drops below start_at_lesson - 1, and never below a later
+ * completion), so it is not a queue slot. The row is pinned to the day it is
+ * due. From that day on it is emitted there and spends that day's capacity;
+ * before it, a make-up is history the family can see on Plan and is left alone.
+ *
+ * `fromYmd` is the first day of the projection window.
+ */
+export function isMakeUpPin(
+  pin: { slot: number; date: string },
+  goal: PinProjectabilityConfig,
+  fromYmd: string,
+): boolean {
+  if (pin.slot < 1 || pin.slot > goal.current_lesson) return false;
+  return pin.date >= fromYmd;
+}
+
+/**
+ * Does this pin hold its day in a projection starting on `fromYmd`? A live
+ * queue pin always does (isPinProjectable); a make-up does from its day on
+ * (isMakeUpPin). Every capacity check that exempts or counts pins reads this.
+ */
+export function pinHoldsDay(
+  pin: { slot: number; date: string },
+  goal: PinProjectabilityConfig,
+  fromYmd: string,
+): boolean {
+  return isPinProjectable(pin, goal) || isMakeUpPin(pin, goal, fromYmd);
+}
+
 /** The lesson columns needed to derive a pin. */
 export interface PinnableRow {
   queue_position?: number | null;
@@ -2090,7 +2196,6 @@ export function computeNextLessonsForGoal(
   pins: readonly QueueHold[] = [],
 ): ProjectedLesson[] {
   if (daysAhead <= 0) return [];
-  if (goal.current_lesson >= goal.total_lessons) return [];
 
   const schoolDaysBool = schoolDaysToBool(normalizeSchoolDays(goal.school_days));
   const out: ProjectedLesson[] = [];
@@ -2137,6 +2242,23 @@ export function computeNextLessonsForGoal(
     used.set(p.date, (used.get(p.date) ?? 0) + 1);
   }
 
+  // Make-ups (Invariant 23): a lesson a family reopened behind the pointer is
+  // not a queue slot, but it is work due on its day. It is emitted on that day
+  // and the day's capacity is spent on it, so the queue never stacks a fresh
+  // lesson on top. A make-up dated before the window is left where it is.
+  const makeUps: ProjectedLesson[] = [];
+  const makeUpSlots = new Set<number>();
+  for (const p of pins) {
+    if (isSkippedSlot(p) || skippedSlots.has(p.slot)) continue;
+    if (!isMakeUpPin(p, goal, fromDateStr)) continue;
+    if (p.date >= endDateStr || makeUpSlots.has(p.slot)) continue;
+    makeUpSlots.add(p.slot);
+    makeUps.push({ goal_id: goal.id, lesson_number: p.slot, date: p.date });
+    used.set(p.date, (used.get(p.date) ?? 0) + 1);
+  }
+  makeUps.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.lesson_number - b.lesson_number));
+  if (goal.current_lesson >= goal.total_lessons) return makeUps;
+
   // The "next" lesson_number is current_lesson + 1 (current_lesson is the
   // count of completed lessons; lesson_number is 1-indexed in the row).
   // On the first day this is overridden to include lessons already
@@ -2163,7 +2285,16 @@ export function computeNextLessonsForGoal(
   // overcapacity guard in reconcileGoalScheduleCache saw "2026-08-10 has 2
   // (max 1)" and correctly refused to write the cache. The guard was right;
   // the projection was wrong.
-  const emitted = new Set<number>();
+  // Seeded with the make-up slots (Invariant 23), which were emitted above and
+  // are behind the pointer by definition. The first-day rewind below walks back
+  // over `completedTodayCount` slots to keep today's finished cards on screen,
+  // and that walk can land on a make-up: a completion today does not always
+  // move the pointer (an extra lesson logged against the curriculum carries no
+  // queue slot at all, and a second make-up finished today sits behind
+  // start_at_lesson - 1, which the pointer never drops below). Reached that
+  // way, the slot was emitted once as a make-up and once by the queue walk, so
+  // Today rendered one lesson as two identical cards.
+  const emitted = new Set<number>(makeUpSlots);
 
   let safety = 0;
   while (nextLesson <= goal.total_lessons && safety < 10_000) {
@@ -2220,12 +2351,14 @@ export function computeNextLessonsForGoal(
             // that are not skipped: a skip between two of today's completions
             // is not one of them. With no skips this is exactly
             // max(1, current_lesson - completedTodayCount + 1).
+            // A make-up is emitted on its own day, so the rewind steps over
+            // it exactly as it steps over a skip.
             let rewound = goal.current_lesson + 1;
             for (let back = completedTodayCount; back > 0 && rewound > 1; ) {
               rewound--;
-              if (!skippedSlots.has(rewound)) back--;
+              if (!skippedSlots.has(rewound) && !makeUpSlots.has(rewound)) back--;
             }
-            while (skippedSlots.has(rewound)) rewound++;
+            while (skippedSlots.has(rewound) || makeUpSlots.has(rewound)) rewound++;
             nextLesson = rewound;
             firstDayApplied = true;
             if (nextLesson > goal.total_lessons) break;
@@ -2233,7 +2366,12 @@ export function computeNextLessonsForGoal(
             if (pinDateBySlot.has(nextLesson)) break;
           }
           const u = used.get(dateStr) ?? 0;
-          if (u < perDayHere) {
+          // A rewound slot is a lesson already DONE today, shown as a checked
+          // card. It belongs on today whatever else is there (a make-up, a
+          // pin), and still spends today's capacity, so it can never spill
+          // onto tomorrow and push the queue out.
+          const doneTodayCard = firstDayApplied && dateStr === fromDateStr && nextLesson <= goal.current_lesson;
+          if (u < perDayHere || doneTodayCard) {
             out.push({ goal_id: goal.id, lesson_number: nextLesson, date: dateStr });
             emitted.add(nextLesson);
             used.set(dateStr, u + 1);
@@ -2252,7 +2390,9 @@ export function computeNextLessonsForGoal(
     }
   }
 
-  return out;
+  // After the queue, so `out[0]` is still the next queue lesson for every
+  // caller that reads it that way.
+  return makeUps.length > 0 ? [...out, ...makeUps] : out;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -2417,15 +2557,44 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
   clearPins: boolean;
   currentLesson: number;
   totalLessons: number;
+  /**
+   * The family's today. When given, an unpinned row behind the pointer dated
+   * today or later is turned into a make-up (Invariant 23): see `makeUpIds`.
+   */
+  todayYmd?: string;
 }) {
   const { beforeRows, goalId, clearPins } = args;
+  // Behind the pointer (Invariant 23): unfinished, not skipped, in a slot the
+  // queue has already passed. Nothing about such a row is the rebuild's to
+  // decide. It is never deleted (the history backfill would then re-create it
+  // as DONE, completing a lesson the family reopened), never released by a
+  // schedule change, and never re-dated.
+  const isBehind = (r: T) =>
+    !r.completed && !r.skipped && r.queue_position != null && r.queue_position <= args.currentLesson;
+  const behindRows = beforeRows.filter(isBehind);
   // (Spread, not a literal: this is an in-memory view of rows already read,
   // not a payload, and Invariant 10's source sweep reads any literal carrying
   // scheduled_date as a write.)
+  // `pinnedRows` is the pins a schedule change releases: the live queue's only.
   const pinnedRows = beforeRows
-    .filter((r) => !r.completed && r.queue_pinned && !r.skipped)
+    .filter((r) => !r.completed && r.queue_pinned && !r.skipped && !isBehind(r))
     .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
-  const survivingPins = clearPins ? [] : pinnedRows;
+  const makeUpRows = behindRows
+    .filter((r) => r.queue_pinned)
+    .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
+  // A row reopened before make-ups existed was left unpinned, so no surface
+  // could see it (Sentry ROOTED-HOMESCHOOL-1Q). The rebuild pins it where it
+  // is, the same thing reopening it does now, so Today, Plan and every
+  // projection agree it holds that day. Past-dated ones are left as they are.
+  const makeUpConversions = args.todayYmd
+    ? behindRows.filter((r) => !r.queue_pinned && r.scheduled_date != null && r.scheduled_date >= args.todayYmd!)
+    : [];
+  const makeUpIds = new Set(makeUpConversions.map((r) => r.id));
+  const survivingPins = [
+    ...(clearPins ? [] : pinnedRows),
+    ...makeUpRows,
+    ...makeUpConversions.map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId })),
+  ];
   // Keyed by queue_position, which is what the projector's slots mean.
   const pins: PinnedSlot[] = pinsFromRows(survivingPins, goalId);
 
@@ -2456,6 +2625,7 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
     ...survivingPins.map((r) => r.id),
     ...skippedRows.map((r) => r.id),
     ...workRowIds,
+    ...behindRows.map((r) => r.id),
   ]);
   // Mirrors the COMMIT delete exactly: incomplete, lesson_number strictly above
   // the floor, minus the held-back rows. PostgREST's `gt` never matches a NULL,
@@ -2475,6 +2645,8 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
 
   return {
     pinnedRows,
+    makeUpIds,
+    behindIds: new Set(behindRows.map((r) => r.id)),
     pins,
     holds,
     projectableSkippedSlots,
@@ -2921,6 +3093,28 @@ export interface NextLessonSentenceArgs {
   nextLessonDate?: string;
   /** Today, so the sentence can say "today" instead of repeating the date. */
   todayYmd: string;
+  /**
+   * Is the save going to write the earlier lessons down as done?
+   *
+   * Default NO, which is the default of the control it mirrors. The sentence
+   * has to say which of the two things is about to happen, because they differ
+   * in what ends up on a family's reports, and the number they typed looks the
+   * same either way.
+   */
+  recordHistory?: boolean;
+  /**
+   * Lessons the goal already holds as done (a saved goal's current_lesson).
+   * Only the ones between this and the starting lesson are being left out, so
+   * a family on lesson 11 of a book moving to 46 reads "Lessons 11 to 45", not
+   * "Lessons 1 to 45", which would say their real work is being dropped.
+   */
+  alreadyRecorded?: number;
+  /**
+   * Is this a curriculum that is already saved? Its lessons in between exist
+   * as unfinished rows, so the true statement is that they won't be marked
+   * done, not that nothing is added: they stay in the book, unfinished.
+   */
+  savedGoal?: boolean;
 }
 
 /**
@@ -2936,6 +3130,29 @@ export interface NextLessonSentenceArgs {
 export function nextLessonSentence(a: NextLessonSentenceArgs): string {
   const { history, nextLesson, todayYmd } = a;
   const parts: string[] = [];
+
+  // Declining the history is the default, so it is the case the sentence has
+  // to state plainly: nothing is going on the family's reports, and the lesson
+  // they named is still where they start. Said in their terms ("your reports"),
+  // because hours appearing from nowhere is how this is noticed.
+  if (!a.recordHistory) {
+    const from = Math.max(0, a.alreadyRecorded ?? 0) + 1;
+    const to = nextLesson - 1;
+    if (to >= from) {
+      const earlier = from === to ? `Lesson ${from}` : `Lessons ${from} to ${to}`;
+      parts.push(
+        a.savedGoal
+          ? `${earlier} won't be marked done.`
+          : `${earlier} won't be added to your records or your hours.`,
+      );
+    }
+    if (a.nextLessonDate) {
+      const when =
+        a.nextLessonDate === todayYmd ? "today" : formatWeekdayLong(a.nextLessonDate);
+      parts.push(`You start on lesson ${nextLesson}, up ${when}.`);
+    }
+    return parts.join(" ");
+  }
 
   if (history.lastLesson > 0 && history.startDate && history.endDate) {
     const range =
@@ -3827,6 +4044,44 @@ export function resolveCustomLessonGoalLink(
   return { curriculum_goal_id: null, detachedFromGoal: true };
 }
 
+/**
+ * Plan's "Add a lesson": where a numbered curriculum lesson the family placed
+ * on a date is allowed to go afterwards. Nowhere, is the answer.
+ *
+ * The family picked the curriculum, typed the lesson number and chose the day.
+ * That is a placement made by hand, the same fact a drag or an Edit lesson
+ * date change records (Invariant 12), so it pins with the source those write.
+ * Until September 2026 the add wrote the date and nothing else: a reused
+ * placeholder kept its projector-placed source and an inserted row had no
+ * source at all (Invariant 10). Either way it was an ordinary queue row, and
+ * the page-load resync or the daily reconciliation put it back wherever the
+ * projector wanted it, and a Schedule Builder save deleted and re-created it.
+ *
+ * One row that keeps the slot it holds, like the Edit lesson carve-out under
+ * "What this PR did NOT change" in docs/CURRICULUM-SCHEDULING.md: neither an
+ * invisible pin nor a frozen tail. So a row with no slot is NOT pinned: a
+ * pinned row with a null queue_position is invisible to the pin set, and the
+ * projector would double-book its day.
+ *
+ * Returns null, and the caller writes nothing extra, for:
+ *   - a one-off (no curriculum): nothing re-dates a row with no slot anyway;
+ *   - "Log a lesson you did" (completed): it is history, stamped 'extra_log';
+ *   - a curriculum row with no lesson number or no slot.
+ */
+export const ADD_LESSON_PLACEMENT_SOURCE = "plan_move";
+
+export function addLessonPlacement(input: {
+  curriculum_goal_id: string | null;
+  lesson_number: number | null;
+  queue_position: number | null;
+  completed: boolean;
+}): { queue_pinned: true; scheduled_source: typeof ADD_LESSON_PLACEMENT_SOURCE } | null {
+  if (!input.curriculum_goal_id) return null;
+  if (input.completed) return null;
+  if (input.lesson_number == null || input.queue_position == null) return null;
+  return { queue_pinned: true, scheduled_source: ADD_LESSON_PLACEMENT_SOURCE };
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
  * Queue reorder (manual move)
  *
@@ -4111,6 +4366,124 @@ export function planGoalDelete(rows: GoalDeleteRow[]): GoalDeletePlan {
     plan.deleteIds.push(r.id);
   }
   return plan;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Bulk delete on the Plan calendar (2026-09-22)
+ *
+ * THE DAMAGE. A family deleted six curricula on 2026-09-22 at 18:49. That went
+ * exactly as planGoalDelete above intends: her completed rows were kept, and
+ * the FK nulled their goal link. Seventy seconds later she selected those same
+ * kept rows on the Plan calendar and bulk-deleted them, in seven batches
+ * between 18:50:42 and 18:51:19. Thirty completed lessons, with their minutes
+ * and their dates, gone for good. It was the second time in five days that her
+ * completion history disappeared, and the first time we found out that the
+ * subject delete was not the thing destroying it.
+ *
+ * WHY SHE DID IT is the part worth keeping. A kept row is a row with no
+ * curriculum any more, and every calendar surface selects on scheduled_date
+ * without filtering `curriculum_goal_id is null`, so those rows keep rendering
+ * with no subject name against them. Preserved history looked like clutter,
+ * and the control next to it deleted without asking.
+ *
+ * THE RULE. The same one the rest of the app already follows everywhere else:
+ *
+ *   open      -> DELETED. Nothing a child did is recorded on them.
+ *   completed -> NOT deleted by the ordinary action. A person marked that
+ *                lesson done; the minutes are on the reports and there is no
+ *                soft delete, no tombstone and no undo past five seconds.
+ *                Removing it has to be asked for in its own words.
+ *
+ * Pure, so the rule is pinned by tests rather than by reading an async handler
+ * that also owns optimistic state, a deferred write and an undo timer.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+export interface BulkDeleteRow {
+  id: string;
+  completed: boolean;
+}
+
+export interface BulkDeletePlan {
+  /** Unfinished rows. The ordinary action removes exactly these. */
+  deleteIds: string[];
+  /** Rows a person marked done. Never removed without being named first. */
+  completedIds: string[];
+}
+
+/**
+ * Split a bulk-delete selection into the part that is safe to remove and the
+ * part that is somebody's recorded work.
+ *
+ * The caller must treat a non-empty `completedIds` as a question to ask, not a
+ * list to act on. Deleting a completed lesson row takes its minutes out of
+ * Hours Logged, its notes with it, and detaches any photo attached to it
+ * (`memories.lesson_id` is ON DELETE SET NULL), none of which is recoverable.
+ */
+export function planBulkLessonDelete(rows: BulkDeleteRow[]): BulkDeletePlan {
+  const plan: BulkDeletePlan = { deleteIds: [], completedIds: [] };
+  for (const r of rows) {
+    if (r.completed) plan.completedIds.push(r.id);
+    else plan.deleteIds.push(r.id);
+  }
+  return plan;
+}
+
+export interface BulkDeleteConfirmCopy {
+  title: string;
+  body: string;
+  /** The primary button. The safe answer whenever one exists. */
+  confirmLabel: string;
+  cancelLabel: string;
+  /** Mixed selections only: the separate red answer that also deletes completed rows. */
+  altLabel: string | null;
+}
+
+/**
+ * Words for the bulk-delete confirm, singular and plural both. Pure so every
+ * count combination is pinned by a test. Any answer that removes a completed
+ * lesson says in plain words what goes with it: the day it was done, its
+ * minutes and notes, and its time on the reports.
+ */
+export function bulkDeleteConfirmCopy(openCount: number, doneCount: number): BulkDeleteConfirmCopy {
+  const one = doneCount === 1;
+  // `who` is the grammatical subject: "Deleting it", "Deleting the done ones too".
+  const loss = (who: string) => one
+    ? `${who} permanently removes the day it was done, its minutes and notes, and its time comes off your reports. This can't be undone.`
+    : `${who} permanently removes the days they were done, their minutes and notes, and their time comes off your reports. This can't be undone.`;
+
+  if (openCount === 0) {
+    return {
+      title: one ? "Delete 1 lesson you marked done?" : `Delete ${doneCount} lessons you marked done?`,
+      body: `You checked ${one ? "this lesson" : "these lessons"} off as done. ${loss(one ? "Deleting it" : "Deleting them")}`,
+      confirmLabel: one ? "Delete it anyway" : "Delete them anyway",
+      cancelLabel: one ? "Keep it" : "Keep them",
+      altLabel: null,
+    };
+  }
+
+  const total = openCount + doneCount;
+  const openPart = openCount === 1 ? "The other 1 is unfinished" : `The other ${openCount} are unfinished`;
+  return {
+    title: `Delete ${total} lessons?`,
+    body:
+      `${doneCount} ${one ? "lesson" : "lessons"} in this selection ${one ? "is" : "are"} marked done. ` +
+      `${openPart} and can go safely. ` +
+      loss(one ? "Deleting the done one too" : "Deleting the done ones too"),
+    confirmLabel: `Delete the ${openCount} unfinished`,
+    cancelLabel: "Cancel",
+    altLabel: `Delete all ${total}, including the ${doneCount} done and ${one ? "its" : "their"} report hours`,
+  };
+}
+
+/** What to tell the parent when a bulk delete did not fully happen, or null. */
+export function bulkDeleteFailureNotice(requested: number, deleted: number, failed: boolean): string | null {
+  if (!failed && deleted >= requested) return null;
+  if (deleted <= 0) {
+    return requested === 1
+      ? "Couldn't delete that lesson. Nothing was removed. Please try again."
+      : `Couldn't delete those ${requested} lessons. Nothing was removed. Please try again.`;
+  }
+  return `Only ${deleted} of ${requested} lessons were deleted. The rest are still on your plan. Please try again.`;
 }
 
 /**

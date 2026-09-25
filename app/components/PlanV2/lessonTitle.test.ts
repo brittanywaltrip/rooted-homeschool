@@ -21,11 +21,16 @@ test("a one-off lesson keeps its own title", () => {
   assert.equal(lessonRowTitle({ lessonNumber: null, title: " ", subject: "Science", curriculumName: null }), "Science");
 });
 
-test("the missed-lessons banner and the week rows use the same title", () => {
-  for (const f of ["app/components/PlanV2/MissedLessonsBanner.tsx", "app/components/PlanV2/WeekListView.tsx"]) {
-    const src = readFileSync(resolve(import.meta.dirname, "..", "..", "..", f), "utf8");
-    assert.match(src, /lessonRowTitle\(/, `${f} titles its rows through lessonRowTitle`);
-  }
+test("the week rows title through lessonRowTitle; the missed banner labels curricula as the prompt does", () => {
+  const read = (f: string) => readFileSync(resolve(import.meta.dirname, "..", "..", "..", f), "utf8");
+  assert.match(read("app/components/PlanV2/WeekListView.tsx"), /lessonRowTitle\(/);
+  // The banner lists the same lessons Today's prompt asks about, grouped the
+  // way the prompt groups them: "Maya · Math", then "Lesson 3".
+  const plan = read("app/components/PlanV2/index.tsx");
+  const modal = read("app/components/MissedLessonRecoveryModal.tsx");
+  assert.match(plan, /g\.child_name \? `\$\{g\.child_name\} · \$\{subject\}` : subject/);
+  assert.match(modal, /g\.child_name \? `\$\{g\.child_name\} · \$\{subject\}` : subject/);
+  assert.match(read("app/components/PlanV2/MissedLessonsBanner.tsx"), /Lesson \{e\.lesson_number\}/);
 });
 
 test("the muted line says what the title does not: the curriculum under a numbered lesson", () => {
@@ -46,4 +51,42 @@ test("Today's Upcoming and Past cards and the day panel's lesson card use the sa
     assert.match(src, /lessonRowSubtitle\(/, `${f} takes its muted line from lessonRowSubtitle`);
     assert.doesNotMatch(src, /\{l\.title\}/, `${f} never renders the stored title raw`);
   }
+});
+
+test("a kept lesson whose curriculum is gone shows its saved title, never 'Lesson · Lesson 12'", () => {
+  // No subject, no live curriculum, removal not established.
+  assert.equal(
+    lessonRowTitle({ lessonNumber: 12, title: "Happy Cheetah — Lesson 12", subject: null, curriculumName: null, completed: true }),
+    "Happy Cheetah — Lesson 12",
+  );
+  // No saved title either: an honest fallback, never the word "Lesson" twice.
+  assert.equal(lessonRowTitle({ lessonNumber: 12, title: "  ", subject: null, curriculumName: null, completed: true }), "Completed lesson 12");
+  assert.equal(lessonRowTitle({ lessonNumber: null, title: null, subject: null, curriculumName: null, completed: true }), "Completed lesson");
+});
+
+test("a removed curriculum is named only when the caller has established it, and never as a subject", () => {
+  assert.equal(
+    lessonRowTitle({ lessonNumber: 12, title: "Happy Cheetah — Lesson 12", subject: null, curriculumName: null, removedCurriculum: "Happy Cheetah", completed: true }),
+    "Happy Cheetah (removed curriculum) · Lesson 12",
+  );
+  // The family's own subject still wins: "Math · Lesson 12".
+  assert.equal(
+    lessonRowTitle({ lessonNumber: 12, title: "Happy Cheetah — Lesson 12", subject: "Math", curriculumName: null, removedCurriculum: "Happy Cheetah" }),
+    "Math · Lesson 12",
+  );
+  // A live curriculum is unchanged.
+  assert.equal(
+    lessonRowTitle({ lessonNumber: 3, title: "X — Lesson 3", subject: null, curriculumName: "Happy Cheetah" }),
+    "Happy Cheetah · Lesson 3",
+  );
+});
+
+test("Plan passes the established-removal name, not a title prefix, to the title helper", () => {
+  const week = readFileSync(resolve(import.meta.dirname, "WeekListView.tsx"), "utf8");
+  assert.match(week, /removedCurriculum: removedCurriculumName\(l, removal\)/);
+  const card = readFileSync(resolve(import.meta.dirname, "..", "TodayLessonCard.tsx"), "utf8");
+  assert.match(card, /removedCurriculum: lesson\.removed_curriculum_name \?\? null/);
+  const plan = readFileSync(resolve(import.meta.dirname, "index.tsx"), "utf8");
+  assert.match(plan, /removed_curriculum_name: removedCurriculumName\(l, removal\)/);
+  assert.match(plan, /from\("app_events"\)\.select\("payload"\)\.eq\("user_id", effectiveUserId\)\.eq\("type", "curriculum_goal\.deleted"\)/);
 });

@@ -26,6 +26,10 @@ import {
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
 import { formatRelativeDate, formatRelativeFromTimestamp } from "./relativeDate";
+import { useLocalDay } from "@/app/hooks/useLocalDay";
+
+const localYmd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 type Child = { id: string; name: string; color: string | null };
 
@@ -380,6 +384,34 @@ export default function InlineScheduleTabs({
           lesson_number: r.lesson_number,
         });
       }
+      // One-off lessons the family placed on a coming day ("Plan this week",
+      // Add a lesson). They have no curriculum and no queue slot, so the
+      // projection above never finds them; their stored day is their day.
+      // Same window as the projection: tomorrow through 15 days out.
+      const lastDay = new Date(todayMid);
+      lastDay.setDate(lastDay.getDate() + 15);
+      const lastKey = fmtD(lastDay);
+      const { data: oneOffData } = await supabase
+        .from("lessons")
+        .select("id, title, child_id, scheduled_date, notes, subjects(name, color), curriculum_goals(subject_label, curriculum_name), curriculum_goal_id, lesson_number")
+        .eq("user_id", user.id)
+        .eq("completed", false)
+        .is("curriculum_goal_id", null)
+        .gt("scheduled_date", todayKey)
+        .lte("scheduled_date", lastKey);
+      for (const r of (oneOffData ?? []) as unknown as Array<Omit<RowLite, "queue_position">>) {
+        if (!r.scheduled_date) continue;
+        hydrated.push({
+          id: r.id,
+          title: r.title,
+          child_id: r.child_id,
+          scheduled_date: r.scheduled_date,
+          notes: r.notes,
+          subjects: r.subjects,
+          curriculum_goals: r.curriculum_goals,
+          lesson_number: r.lesson_number,
+        });
+      }
       // Sort by date asc, then by title for stability inside a date.
       // Existing render then groups by the first date with lessons.
       hydrated.sort((a, b) => {
@@ -409,10 +441,13 @@ export default function InlineScheduleTabs({
       setLoaded(true);
   }, []);
 
-  // Initial fetch on mount.
+  // Initial fetch on mount, and again when the local day changes: Upcoming is
+  // projected from "today", so a tab left open overnight otherwise labelled
+  // yesterday's "tomorrow" as today.
+  const localDay = useLocalDay(localYmd);
   useEffect(() => {
     void loadTabsData();
-  }, [loadTabsData]);
+  }, [loadTabsData, localDay]);
 
   // Re-fetch when lessons change elsewhere (Log Extra save, Plan reschedule,
   // etc.) so the Upcoming + Past tabs reflect the new queue state without a

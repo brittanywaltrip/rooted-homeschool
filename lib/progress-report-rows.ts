@@ -89,29 +89,72 @@ function subjectFromTitle(l: ReportLessonRow): string | null {
 }
 
 /**
- * The curriculum name still readable in an ORPHANED lesson's title.
+ * ORPHANED LESSONS. When a family deletes a curriculum, its completed lessons
+ * are kept as history (item 5 of the 2026-09-08 queue-slot brief) and the FK
+ * sets their curriculum_goal_id to NULL. The delete path copies the goal's
+ * subject onto the row's subject_id first when a matching `subjects` row
+ * exists, which is rule 1 below and the answer the family actually chose
+ * (33 of the 44 such rows on 2026-09-22). For the rest, the curriculum name in
+ * the title is only called a removed curriculum when removal is established.
  *
- * When a family deletes a curriculum, its completed lessons are kept as history
- * (item 5 of the 2026-09-08 queue-slot brief) and the FK sets their
- * curriculum_goal_id to NULL, so rules 2 and 3 below go empty and work the
- * child really did printed as "General" on a document handed to a school
- * district. The delete path copies the goal's subject onto the row's subject_id
- * first, which is rule 1 and the answer the family actually chose; this is the
- * fallback for the rows where no `subjects` row matched, and for the 357 rows
- * already orphaned before that code existed.
+ * What we KNOW about curricula a family has removed, from stored records only.
  *
- * Guarded exactly like subjectFromTitle, for the same reasons: only a row with
- * no curriculum, only the spaced em dash the builder writes, and 1 to 40
- * characters.
+ * `deleted`: names from the family's own `curriculum_goal.deleted` app_events
+ * (recorded by the Plan delete since 2026-05-15). `current`: names of every
+ * curriculum the family still has, archived included. Both are lowercased and
+ * trimmed by curriculumKey.
  */
-function subjectFromLessonTitle(l: ReportLessonRow): string | null {
-  if (l.curriculum_goal_id) return null;
+export interface RemovalContext {
+  deleted: ReadonlySet<string>;
+  current: ReadonlySet<string>;
+}
+
+export function curriculumKey(name: string | null | undefined): string {
+  return (name ?? "").trim().toLowerCase();
+}
+
+export function buildRemovalContext(
+  deletedNames: readonly (string | null | undefined)[],
+  currentNames: readonly (string | null | undefined)[],
+): RemovalContext {
+  const keys = (xs: readonly (string | null | undefined)[]) => new Set(xs.map(curriculumKey).filter((k) => k.length > 0));
+  return { deleted: keys(deletedNames), current: keys(currentNames) };
+}
+
+/** How a lesson from an established-removed curriculum is labelled. */
+export function removedCurriculumLabel(name: string): string {
+  return `${name} (removed curriculum)`;
+}
+
+/**
+ * The name of the curriculum an orphaned lesson came from, ONLY when its
+ * removal is established. Otherwise null.
+ *
+ * A lesson with no curriculum is not evidence of a removal on its own: a
+ * standalone lesson has none either, and the add-lesson sheet lets a family
+ * type both a lesson number and a title of any shape. So all three must hold:
+ *   - the row has no curriculum (`curriculum_goal_id` null);
+ *   - its title is exactly the builder's "{name} — Lesson {n}", name 1 to 40
+ *     characters;
+ *   - the family's own records say a curriculum by that name was deleted, and
+ *     no curriculum by that name exists now, live or archived (a same-named
+ *     curriculum could be the one this row was detached from, not a removal).
+ * With no context, removal cannot be established and the answer is null.
+ */
+export function removedCurriculumName(
+  l: Pick<ReportLessonRow, "curriculum_goal_id" | "title">,
+  ctx?: RemovalContext | null,
+): string | null {
+  if (!ctx || l.curriculum_goal_id) return null;
   const title = l.title ?? "";
   const at = title.indexOf(TITLE_LESSON_SEPARATOR);
   if (at < 0) return null;
-  const prefix = title.slice(0, at).trim();
-  if (prefix.length < 1 || prefix.length > MAX_TITLE_SUBJECT_LENGTH) return null;
-  return prefix;
+  if (!/^\d+$/.test(title.slice(at + TITLE_LESSON_SEPARATOR.length))) return null;
+  const name = title.slice(0, at).trim();
+  if (name.length < 1 || name.length > MAX_TITLE_SUBJECT_LENGTH) return null;
+  const key = curriculumKey(name);
+  if (!ctx.deleted.has(key) || ctx.current.has(key)) return null;
+  return name;
 }
 
 /**
@@ -121,8 +164,15 @@ function subjectFromLessonTitle(l: ReportLessonRow): string | null {
  *   2. the goal's subject_label
  *   3. the goal's curriculum_name, which the family chose
  *   4. the "Subject · " prefix a standalone log carries in its title
- *   5. the "Curriculum — Lesson n" prefix an orphaned goal row carries
+ *   5. "{curriculum} (removed curriculum)", only when removedCurriculumName
+ *      establishes the removal from the family's own records
  *   6. the fallback
+ *
+ * A curriculum name is never printed as if it were a subject. Rule 5 used to
+ * read the "Curriculum — Lesson n" title prefix of any orphaned row and print
+ * it in the subject column; that presented a curriculum as a subject and
+ * claimed a removal nothing had established. The row's saved title still
+ * prints in full as its description.
  *
  * Curriculum lessons carry `subject_id` NULL — the subject lives on the goal —
  * so reading only `subjects.name` printed "General" for essentially every
@@ -135,13 +185,15 @@ function subjectFromLessonTitle(l: ReportLessonRow): string | null {
 export function lessonReportSubject(
   l: ReportLessonRow,
   fallback = "General",
+  removal?: RemovalContext | null,
 ): string {
+  const removed = removedCurriculumName(l, removal);
   return (
     l.subjects?.name ||
     l.curriculum_goals?.subject_label ||
     l.curriculum_goals?.curriculum_name ||
     subjectFromTitle(l) ||
-    subjectFromLessonTitle(l) ||
+    (removed ? removedCurriculumLabel(removed) : null) ||
     fallback
   );
 }
@@ -172,10 +224,11 @@ export function lessonDailyLogRow(args: {
   childName: string;
   minutes: number;
   estimated: boolean;
+  removal?: RemovalContext | null;
 }): DailyLogRow {
   return {
     childName: args.childName,
-    subject: lessonReportSubject(args.lesson),
+    subject: lessonReportSubject(args.lesson, "General", args.removal),
     description: lessonReportDescription(args.lesson),
     minutes: args.minutes,
     type: "Lesson",
@@ -228,10 +281,11 @@ export function attendancePresentDates(
 export function subjectTableTotals<L extends ReportLessonRow>(
   lessons: readonly L[],
   minutesFor: (l: L) => { m: number; e: boolean },
+  removal?: RemovalContext | null,
 ): { name: string; count: number; minutes: number; estimated: boolean }[] {
   const agg = new Map<string, { count: number; minutes: number; estimated: boolean }>();
   for (const l of lessons) {
-    const name = lessonReportSubject(l, "General");
+    const name = lessonReportSubject(l, "General", removal);
     const row = agg.get(name) ?? { count: 0, minutes: 0, estimated: false };
     const r = minutesFor(l);
     row.count++;

@@ -17,6 +17,9 @@ import {
   preparePhoto,
   uploadMemoryPhoto,
   isRetriableUploadFailure,
+  verifyUploadedObject,
+  redactUploadMessage,
+  UploadFailedError,
   withTimeout,
   PhotoReadError,
   MEMORY_MAX_DIMENSION,
@@ -271,80 +274,359 @@ test('isRetriableUploadFailure: a rejection the server actually made is not retr
   assert.equal(isRetriableUploadFailure({ status: '403', message: 'denied' }), false)
 })
 
-/** A Supabase stand-in whose upload answers from a scripted list. */
-function stubUploadClient(answers: unknown[]) {
+// ── Stored but not attached ─────────────────────────────────────────────────
+//
+// Production evidence, 2026-09-11 and 2026-09-22: the last photo of a Quick
+// photo batch was written to memory-photos, the edge logs recorded no response
+// to its upload, and no memory row followed. On 09-22 the retry, at a fresh
+// path, reached Storage 46 minutes later, leaving two copies and no memory.
+// The logs cannot say whether the phone received a response; what they show is
+// an object that was stored and never attached. These tests pin the recovery:
+// ask Storage before retrying, attach only a verified object, keep one path per
+// photo so a late arrival cannot become a second copy.
+
+/**
+ * An in-memory Storage for one bucket. `upload` answers from a script:
+ *   'ok'       stores the file and answers
+ *   'lost'     stores the file, then fails with no status (the answer is lost)
+ *   'drop'     stores nothing and fails with no status (never arrived)
+ *   an object  a refusal Storage made, returned as the error
+ * A path that already holds an object answers 409, like upsert: false does.
+ * `info` reads the store unless a scripted answer says otherwise:
+ *   'noanswer' throws, as a request that never completes does
+ *   'mismatch' reports an object of a different size
+ *   an object  returned as the error
+ */
+type UploadScript = 'ok' | 'lost' | 'drop' | Record<string, unknown>
+type InfoScript = 'store' | 'noanswer' | 'mismatch' | Record<string, unknown>
+
+function stubStorage(uploads: UploadScript[], infos: InfoScript[] = []) {
+  const store = new Map<string, number>()
+  const contents = new Map<string, string>()
   const paths: string[] = []
+  const infoCalls: string[] = []
   const client = {
     storage: {
       from() {
         return {
-          upload: async (path: string) => {
+          upload: async (path: string, file: File) => {
             paths.push(path)
-            const answer = answers[paths.length - 1] ?? null
-            if (answer instanceof Error) throw answer
-            return { data: answer ? null : { path }, error: answer ?? null }
+            if (store.has(path)) {
+              return { data: null, error: { name: 'StorageApiError', status: 409, statusCode: '409', message: 'The resource already exists' } }
+            }
+            const step = uploads[paths.length - 1] ?? 'ok'
+            if (step === 'ok' || step === 'lost') {
+              store.set(path, file.size)
+              contents.set(path, await file.text())
+            }
+            if (step === 'ok') return { data: { path }, error: null }
+            if (step === 'lost' || step === 'drop') {
+              return { data: null, error: { name: 'StorageUnknownError', message: 'Failed to fetch' } }
+            }
+            return { data: null, error: step }
+          },
+          info: async (path: string) => {
+            infoCalls.push(path)
+            const step = infos[infoCalls.length - 1] ?? 'store'
+            if (step === 'noanswer') throw new TypeError('Failed to fetch')
+            if (step === 'mismatch') return { data: { name: path, size: 999999 }, error: null }
+            if (step !== 'store') return { data: null, error: step }
+            if (!store.has(path)) {
+              return { data: null, error: { name: 'StorageApiError', status: 400, statusCode: '404', message: 'Object not found' } }
+            }
+            return { data: { name: path, size: store.get(path) }, error: null }
           },
         }
       },
     },
   }
-  return { client, paths }
+  return { client, paths, infoCalls, store, contents }
 }
 
-test('uploadMemoryPhoto: one dropped connection is retried and the photo lands', { timeout: 20000 }, async () => {
+const photo = (name: string) => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/jpeg' })
+
+test('uploadMemoryPhoto: a request that never arrived is retried at the SAME path and lands once', { timeout: 20000 }, async () => {
   const restore = stubBrowserImagePipeline(3000, 2000)
   try {
-    const { client, paths } = stubUploadClient([{ message: 'TypeError: Failed to fetch' }, null])
+    const { client, paths, infoCalls, store } = stubStorage(['drop', 'ok'])
 
-    const result = await uploadMemoryPhoto(
-      client as never,
-      'user-1',
-      new File([new Uint8Array([1, 2, 3])], 'IMG_1.jpg', { type: 'image/jpeg' }),
-    )
+    const result = await uploadMemoryPhoto(client as never, 'user-1', photo('IMG_1.jpg'))
 
-    assert.equal(paths.length, 2, 'the first attempt failed and a second was made')
-    assert.notEqual(paths[0], paths[1], 'each attempt gets its own path, so a half-landed upload cannot 409')
+    assert.equal(paths.length, 2, 'the first attempt got no answer and a second was made')
+    assert.equal(paths[0], paths[1], 'one path per photo, so a late arrival cannot become a second copy')
+    assert.equal(infoCalls.length, 1, 'Storage was asked before the photo was sent again')
+    assert.equal(store.size, 1, 'exactly one object')
     assert.equal(result.width, 3000, 'the natural width still comes back')
     assert.equal(result.height, 2000)
     // signedPhotoUrl cannot load under node --test, so the bare path is stored,
     // which is the already-supported fallback SignedImage re-signs from.
-    assert.equal(result.photoUrl, paths[1])
+    assert.equal(result.photoUrl, paths[0])
   } finally {
     restore()
   }
 })
 
-test('uploadMemoryPhoto: a policy rejection is not retried', { timeout: 20000 }, async () => {
+test('uploadMemoryPhoto: stored-but-unanswered is verified and attached, not reported as failed', { timeout: 20000 }, async () => {
   const restore = stubBrowserImagePipeline(1200, 900)
   try {
-    const { client, paths } = stubUploadClient([{ status: 403, message: 'new row violates row-level security policy' }])
+    const { client, paths, infoCalls, store } = stubStorage(['lost'])
 
-    const err = await rejection(
-      uploadMemoryPhoto(client as never, 'user-1', new File([new Uint8Array([1])], 'IMG_2.jpg', { type: 'image/jpeg' })),
-    )
+    const result = await uploadMemoryPhoto(client as never, 'user-1', photo('IMG_2.jpg'))
 
-    assert.equal(paths.length, 1, 'asking again would have got the same answer')
-    assert.match((err as Error).message, /Upload failed/, 'the family sees the message that already exists')
-    assert.equal(((err as Error & { cause?: { status?: number } }).cause ?? {}).status, 403, 'the real reason is attached for Sentry')
+    assert.equal(paths.length, 1, 'no second upload: Storage confirmed the first one landed')
+    assert.equal(infoCalls.length, 1)
+    assert.equal(store.size, 1, 'no duplicate object')
+    assert.equal(result.photoUrl, paths[0], 'the verified object is the one handed back to attach')
   } finally {
     restore()
   }
 })
 
-test('uploadMemoryPhoto: a second failure gives up rather than looping', { timeout: 20000 }, async () => {
+test('uploadMemoryPhoto: an object whose size does not match is never attached', { timeout: 20000 }, async () => {
   const restore = stubBrowserImagePipeline(1200, 900)
   try {
-    const { client, paths } = stubUploadClient([
-      { message: 'TypeError: Failed to fetch' },
-      { message: 'TypeError: Failed to fetch' },
+    // First check: nothing there. Second: something at the path, wrong size.
+    const { client } = stubStorage(['drop', 'drop'], ['store', 'mismatch'])
+
+    const err = await rejection(uploadMemoryPhoto(client as never, 'user-1', photo('IMG_3.jpg')))
+
+    assert.ok(err instanceof UploadFailedError)
+    assert.equal(err.outcome, 'unverified', 'a mismatch is "could not confirm", never "present"')
+    assert.deepEqual(err.diagnostics.verifications, ['absent', 'unverified:size_mismatch'])
+  } finally {
+    restore()
+  }
+})
+
+test('uploadMemoryPhoto: "file absent" and "verification failed" are different outcomes', { timeout: 20000 }, async () => {
+  const restore = stubBrowserImagePipeline(1200, 900)
+  try {
+    const absent = stubStorage(['drop', 'drop'])
+    const errAbsent = await rejection(uploadMemoryPhoto(absent.client as never, 'user-1', photo('IMG_4a.jpg')))
+    assert.ok(errAbsent instanceof UploadFailedError)
+    assert.equal(errAbsent.outcome, 'absent', 'Storage looked and there is no object')
+    assert.equal(absent.paths.length, 2, 'two attempts, never three')
+
+    const unknown = stubStorage(['drop', 'drop'], ['noanswer', 'noanswer'])
+    const errUnknown = await rejection(uploadMemoryPhoto(unknown.client as never, 'user-1', photo('IMG_4b.jpg')))
+    assert.ok(errUnknown instanceof UploadFailedError)
+    assert.equal(errUnknown.outcome, 'unverified', 'no answer to the check is not proof of absence')
+    assert.deepEqual(errUnknown.diagnostics.verifications, ['unverified:no_answer', 'unverified:no_answer'])
+
+    // Both still read as the copy families already know.
+    assert.match(errAbsent.message, /Upload failed/)
+    assert.match(errUnknown.message, /Upload failed/)
+  } finally {
+    restore()
+  }
+})
+
+test('uploadMemoryPhoto: a late arrival is attached once by Try again, not duplicated', { timeout: 20000 }, async () => {
+  const restore = stubBrowserImagePipeline(1200, 900)
+  try {
+    const { client, paths, store } = stubStorage(['drop', 'drop'])
+    const picked = photo('IMG_5.jpg')
+    const stages: string[] = []
+
+    await rejection(uploadMemoryPhoto(client as never, 'user-1', picked))
+    // The request that timed out on the phone reaches Storage afterwards,
+    // like the one that arrived 46 minutes late on 2026-09-22.
+    store.set(paths[0], 1)
+
+    const result = await uploadMemoryPhoto(client as never, 'user-1', picked, (s) => stages.push(s))
+
+    assert.equal(new Set(paths).size, 1, 'every attempt, across both saves, used one path')
+    assert.equal(store.size, 1, 'one object, attached once')
+    assert.equal(result.photoUrl, paths[0])
+    assert.deepEqual(stages, ['uploading'], 'Try again reuses the encoded bytes rather than decoding again')
+  } finally {
+    restore()
+  }
+})
+
+test('uploadMemoryPhoto: once confirmed, the same File saved again gets its own object', { timeout: 20000 }, async () => {
+  const restore = stubBrowserImagePipeline(1200, 900)
+  try {
+    const { client, paths, store } = stubStorage(['ok', 'ok'])
+    const picked = photo('IMG_6.jpg')
+
+    const first = await uploadMemoryPhoto(client as never, 'user-1', picked)
+    await new Promise((r) => setTimeout(r, 5))
+    const second = await uploadMemoryPhoto(client as never, 'user-1', picked)
+
+    // Two memories must never share one object: deleting either would delete
+    // the other's photo.
+    assert.notEqual(first.photoUrl, second.photoUrl)
+    assert.equal(store.size, 2)
+    assert.equal(paths.length, 2)
+  } finally {
+    restore()
+  }
+})
+
+/**
+ * A decode/encode stand-in that carries each photo's bytes through to the
+ * JPEG it "writes", so a test can tell which photo ended up in which object.
+ * The default stub encodes every photo to the same single byte.
+ */
+function stubContentCarryingPipeline(): () => void {
+  const g = globalThis as Record<string, unknown>
+  const priorBitmap = g.createImageBitmap
+  const priorDocument = g.document
+  g.createImageBitmap = async (blob: Blob) => ({ width: 1200, height: 900, tag: await blob.text(), close: () => {} })
+  g.document = {
+    createElement: () => {
+      let drawn = ''
+      return {
+        width: 0,
+        height: 0,
+        getContext: () => ({ drawImage: (src: { tag: string }) => { drawn = src.tag } }),
+        toBlob: (cb: (blob: Blob) => void) => cb(new Blob([drawn], { type: 'image/jpeg' })),
+      }
+    },
+  }
+  return () => {
+    g.createImageBitmap = priorBitmap
+    g.document = priorDocument
+  }
+}
+
+test('uploadMemoryPhoto: two different photos with the same name and size, started in the same millisecond, each keep their own object', { timeout: 20000 }, async () => {
+  const restore = stubContentCarryingPipeline()
+  const realNow = Date.now
+  Date.now = () => 1790053396101
+  try {
+    // Several pickers call every photo "image.jpg". Same name, same byte size,
+    // different pictures.
+    const first = new File(['PHOTO-A'], 'image.jpg', { type: 'image/jpeg' })
+    const second = new File(['PHOTO-B'], 'image.jpg', { type: 'image/jpeg' })
+    assert.equal(first.size, second.size)
+    const { client, paths, contents } = stubStorage(['ok', 'ok'])
+
+    const [a, b] = await Promise.all([
+      uploadMemoryPhoto(client as never, 'user-1', first),
+      uploadMemoryPhoto(client as never, 'user-1', second),
     ])
 
-    const err = await rejection(
-      uploadMemoryPhoto(client as never, 'user-1', new File([new Uint8Array([1])], 'IMG_3.jpg', { type: 'image/jpeg' })),
-    )
+    assert.equal(new Set(paths).size, 2, 'two photos, two paths, even in one millisecond')
+    assert.notEqual(a.photoUrl, b.photoUrl)
+    // What the callers insert: one memories row per photo, photo_url = photoUrl.
+    const memories = [
+      { picked: 'PHOTO-A', photo_url: a.photoUrl },
+      { picked: 'PHOTO-B', photo_url: b.photoUrl },
+    ]
+    for (const m of memories) {
+      assert.equal(contents.get(m.photo_url), m.picked, 'each memory points at its own photo')
+    }
+  } finally {
+    Date.now = realNow
+    restore()
+  }
+})
 
-    assert.equal(paths.length, 2, 'two attempts, never three')
-    assert.match((err as Error).message, /Upload failed/)
+test('uploadMemoryPhoto: a retry of the SAME photo still reuses its path when names and clocks collide', { timeout: 20000 }, async () => {
+  const restore = stubContentCarryingPipeline()
+  const realNow = Date.now
+  Date.now = () => 1790053396101
+  try {
+    const picked = new File(['PHOTO-C'], 'image.jpg', { type: 'image/jpeg' })
+    const other = new File(['PHOTO-D'], 'image.jpg', { type: 'image/jpeg' })
+    const { client, paths, contents, store } = stubStorage(['drop', 'drop', 'ok', 'ok'])
+
+    await rejection(uploadMemoryPhoto(client as never, 'user-1', picked))
+    const otherResult = await uploadMemoryPhoto(client as never, 'user-1', other)
+    const retried = await uploadMemoryPhoto(client as never, 'user-1', picked)
+
+    assert.equal(paths[0], paths[1], 'both attempts of the first save shared one path')
+    assert.equal(retried.photoUrl, paths[0], 'Try again went back to that same path')
+    assert.notEqual(otherResult.photoUrl, retried.photoUrl, 'the other photo never took it')
+    assert.equal(contents.get(retried.photoUrl), 'PHOTO-C')
+    assert.equal(contents.get(otherResult.photoUrl), 'PHOTO-D')
+    assert.equal(store.size, 2)
+  } finally {
+    Date.now = realNow
+    restore()
+  }
+})
+
+test('uploadMemoryPhoto: a pending path is never reused for a different family', { timeout: 20000 }, async () => {
+  const restore = stubBrowserImagePipeline(1200, 900)
+  try {
+    const { client, paths } = stubStorage(['drop', 'drop', 'ok'])
+    const picked = photo('IMG_7.jpg')
+
+    await rejection(uploadMemoryPhoto(client as never, 'user-1', picked))
+    await uploadMemoryPhoto(client as never, 'user-2', picked)
+
+    assert.ok(paths[2].startsWith('user-2/'), 'the second family uploads into its own folder')
+  } finally {
+    restore()
+  }
+})
+
+test('uploadMemoryPhoto: a policy rejection is not retried or verified', { timeout: 20000 }, async () => {
+  const restore = stubBrowserImagePipeline(1200, 900)
+  try {
+    const { client, paths, infoCalls } = stubStorage([{ status: 403, message: 'new row violates row-level security policy' }])
+
+    const err = await rejection(uploadMemoryPhoto(client as never, 'user-1', photo('IMG_8.jpg')))
+
+    assert.equal(paths.length, 1, 'asking again would have got the same answer')
+    assert.equal(infoCalls.length, 0)
+    assert.ok(err instanceof UploadFailedError)
+    assert.equal(err.outcome, 'rejected')
+    assert.match(err.message, /Upload failed/, 'the family sees the message that already exists')
+    assert.equal(((err as Error & { cause?: { status?: number } }).cause ?? {}).status, 403, 'the real reason is attached')
+    assert.equal(err.diagnostics.notes[0].status, 403, 'and summarised for Sentry')
+  } finally {
+    restore()
+  }
+})
+
+test('verifyUploadedObject: only a 404-shaped answer counts as absent', { timeout: 5000 }, async () => {
+  const withInfo = (info: () => Promise<unknown>) =>
+    ({ storage: { from: () => ({ info }) } }) as never
+
+  assert.deepEqual(
+    await verifyUploadedObject(withInfo(async () => ({ data: null, error: { status: 404, message: 'Not found' } })), 'u/p.jpg', 3),
+    { state: 'absent' },
+  )
+  const refused = await verifyUploadedObject(
+    withInfo(async () => ({ data: null, error: { status: 403, message: 'denied' } })),
+    'u/p.jpg',
+    3,
+  )
+  assert.equal(refused.state, 'unverified', 'a refusal is not proof the file is missing')
+  const noSize = await verifyUploadedObject(withInfo(async () => ({ data: { name: 'p.jpg' }, error: null })), 'u/p.jpg', 3)
+  assert.equal(noSize.state, 'unverified')
+  assert.deepEqual(
+    await verifyUploadedObject(withInfo(async () => ({ data: { metadata: { size: 3 } }, error: null })), 'u/p.jpg', 3),
+    { state: 'present' },
+  )
+})
+
+test('upload diagnostics carry no URL, token, JWT or storage path', { timeout: 20000 }, async () => {
+  const restore = stubBrowserImagePipeline(1200, 900)
+  try {
+    const leaky = {
+      status: 400,
+      message:
+        'bad request for https://auth.example.com/storage/v1/object/sign/memory-photos/user-1/x.jpg?token=SECRET123 ' +
+        'Bearer abc.def.ghi eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLTEifQ.c2lnbmF0dXJl',
+    }
+    const { client } = stubStorage([leaky])
+
+    const err = await rejection(uploadMemoryPhoto(client as never, 'user-1', photo('Private Name.jpg')))
+    assert.ok(err instanceof UploadFailedError)
+    const serialized = JSON.stringify(err.diagnostics)
+
+    assert.doesNotMatch(serialized, /SECRET123/)
+    assert.doesNotMatch(serialized, /https?:\/\//)
+    assert.doesNotMatch(serialized, /eyJ/)
+    assert.doesNotMatch(serialized, /abc\.def\.ghi/)
+    assert.doesNotMatch(serialized, /user-1\//, 'no storage path')
+    assert.doesNotMatch(serialized, /Private/, 'no file name')
+    assert.equal(redactUploadMessage('x'.repeat(500)).length, 200, 'bounded')
   } finally {
     restore()
   }
@@ -353,7 +635,7 @@ test('uploadMemoryPhoto: a second failure gives up rather than looping', { timeo
 test('uploadMemoryPhoto: the stage callback names the slow steps in order', { timeout: 20000 }, async () => {
   const restore = stubBrowserImagePipeline(1200, 900)
   try {
-    const { client } = stubUploadClient([null])
+    const { client } = stubStorage(['ok'])
     const stages: string[] = []
 
     await uploadMemoryPhoto(

@@ -1,0 +1,20 @@
+-- Rollback notes for child_absences (PR #88). READ BEFORE RUNNING ANYTHING.
+--
+-- An APP rollback does not need this file. The table is additive and nothing
+-- that schedules lessons reads it, so the previous app (dpl_QsewPTVZ...,
+-- 58a24af) runs fine with the table present; it simply never shows Days Off.
+-- Keep the table and every row in it: these are families' own records of a
+-- child's sick days, and they come back into view as soon as the app is
+-- rolled forward again.
+--
+-- Dropping the table deletes those records permanently. Do it only as a
+-- deliberate decision, and only after exporting what is there:
+--
+--   copy (select * from public.child_absences order by created_at)
+--     to stdout with csv header;        -- run from psql, save the output
+--
+-- then, and only then:
+--
+--   drop table if exists public.child_absences;
+--
+-- Nothing here runs automatically; every statement above is commented out.

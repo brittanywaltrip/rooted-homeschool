@@ -20,10 +20,10 @@ import {
   withSameCountEveryDay,
   type PerDayShape,
 } from "@/app/lib/builder-pace";
-import { isPhase2NoOp, planPhase2Rows, phase2RedateTargets, builderNextLesson, skippedSlotsFromRows, type PinnableRow, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isPinProjectable, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
-import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
+import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, type PinnableRow, type PinnedSlot, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
-import { batches, LESSON_INSERT_BATCH } from "@/app/lib/batches";
+import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
@@ -106,6 +106,22 @@ type Row = {
   // straight back to "Already into it" and moved the family off the branch
   // they had just chosen.
   where_branch: WhereBranch | null;
+  // Under "Already into it": should Rooted write the earlier lessons as DONE?
+  //
+  // Answering "I am on lesson 46" says where the family is. It does not say
+  // that Rooted holds the first 45 lessons, and it used to be read as though
+  // it did: the save derived a past start date from the number and wrote 45
+  // completed, backfilled rows with minutes, which land on reports as hours
+  // nobody logged. A family setting the same book up twice while finding
+  // their way got two sets of them.
+  //
+  // So it is asked now, and the default is NO. Saying yes is how genuine prior
+  // work gets recorded, and only then is a past start date derived, only then
+  // does the backfill run, and only then does the Invariant 21 refusal have
+  // anything to weigh. Transient row state, never a column: an existing row
+  // loads as false, so re-saving an untouched curriculum can never invent a
+  // second copy of its history.
+  record_history: boolean;
   // curriculum_goals.current_lesson as loaded. Null for never-saved rows.
   // The Invariant 21 pre-flight needs to know where progress stands BEFORE
   // phase 1 writes, and start_at_lesson alone cannot say: the pre-fill seeds
@@ -243,6 +259,7 @@ function blankRow(child_id: string, type: RowType): Row {
     progress_confirmed: false,
     start_date_is_manual: false,
     where_branch: null,
+    record_history: false,
     _dbCurrentLesson: null,
     emoji: type === "curriculum" ? "" : type === "coop" ? COOP_DEFAULT_EMOJI : ACTIVITY_DEFAULT_EMOJI,
     readOnly: false,
@@ -321,6 +338,7 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     // theirs until they switch branches.
     start_date_is_manual: g.start_date != null,
     where_branch: null,
+    record_history: false,
     _dbCurrentLesson: g.current_lesson ?? 0,
     emoji: "",
     readOnly: false,
@@ -395,6 +413,7 @@ function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
     progress_confirmed: false,
     start_date_is_manual: false,
     where_branch: null,
+    record_history: false,
     _dbCurrentLesson: null,
     emoji: fallbackEmoji,
     readOnly,
@@ -549,6 +568,26 @@ function invariant21ClaimChanged(row: Row): boolean {
   return row.start_at_lesson_initial != null && row.start_at_lesson !== row.start_at_lesson_initial;
 }
 
+/**
+ * Is this save going to write the lessons before the starting lesson as DONE?
+ *
+ * Only when the family said yes, and only for a curriculum that is not on disk
+ * yet. On a saved goal a "yes" could not do what it says: the unfinished rows
+ * between the old position and the new one are held behind the pointer and
+ * never deleted (Invariant 23), and the backfill skips every lesson number that
+ * already has a row, so the confirmation would promise history the save never
+ * writes. Existing goals record a gap through "I'm actually on..." instead,
+ * which completes those rows in place.
+ *
+ * Every reader goes through this: the derived start date, the Invariant 21
+ * pre-flight, the backfill that writes `completed: true`, the sentence, and the
+ * control itself. A new row writes its history at most once by construction:
+ * after the save it reloads as a saved goal, where this is false.
+ */
+function historyRequested(row: Row): boolean {
+  return row.record_history && row.dbId == null && row.start_at_lesson > 1;
+}
+
 function activeDayIndices(row: Row): number[] {
   const out: number[] = [];
   for (let i = 0; i < 7; i++) {
@@ -675,6 +714,16 @@ function rowScheduleFor(
    * preview steps over them exactly as the save and every projector do.
    */
   skippedByGoal: ReadonlyMap<string, readonly number[]> = new Map(),
+  /**
+   * The family's pins per saved goal (make-ups included, Invariant 23) and how
+   * many of each goal's lessons were completed today, so the preview names the
+   * same next day the save will write: a make-up or a lesson already done
+   * today spends today's capacity in the save, and so it does here.
+   */
+  live: {
+    pinsByGoal: ReadonlyMap<string, readonly PinnedSlot[]>;
+    doneTodayByGoal: ReadonlyMap<string, number>;
+  } = { pinsByGoal: new Map(), doneTodayByGoal: new Map() },
 ): RowSchedule | null {
   if (row.type !== "curriculum") return null;
   // Ask the ROW, not compactCurriculumPerDay: that helper falls back to Mon-Fri
@@ -701,12 +750,18 @@ function rowScheduleFor(
   // that is what the save writes: reading the walk here said "Sep 7 through
   // today" while the save dated the same lessons from the typed Aug 1, so the
   // confirmation contradicted the thing it was confirming.
-  const stated = branch === "fresh" ? 0 : nextLesson - 1;
+  // "Already into it" says WHERE the family is. Only `record_history` says
+  // Rooted should write the lessons before it down as done. The number alone
+  // used to mean both, so a family placing their starting point was given
+  // completed lessons and report hours they never logged.
+  const willRecordHistory = branch === "already" && historyRequested(row);
+  const stated = willRecordHistory ? nextLesson - 1 : 0;
   const typedStart = row.start_date_is_manual ? row.start_date : null;
   const history: DerivedHistory =
-    !claimed
-      ? // Nothing derived, and nothing claimed. The caller reads
-        // `storedProgressLine` for this row instead.
+    !claimed || !willRecordHistory
+      ? // Nothing to lay down: either nothing is claimed (the caller reads
+        // `storedProgressLine` for this row instead), or the family is
+        // starting at their lesson without filling in what came before.
         { dates: [], schoolDayCount: 0, lastLesson: 0, truncated: false }
       : typedStart && stated > 0
       ? (() => {
@@ -732,7 +787,10 @@ function rowScheduleFor(
           };
         })()
       : deriveHistoryFromNextLesson({
-          nextLesson: branch === "fresh" ? 1 : nextLesson,
+          // Only reachable while willRecordHistory holds, which already means
+          // the "already into it" branch, so there is no "fresh" case left to
+          // fold in here.
+          nextLesson,
           schoolDays: school_days,
           lessonsPerDay: lessons_per_day,
           lessonsPerDayOverrides: lessons_per_day_overrides,
@@ -754,12 +812,15 @@ function rowScheduleFor(
     vacations,
   }).startDate;
 
-  // A typed date is the family's; a derived one follows the walk.
+  // A typed date is the family's; a derived one follows the walk. The walk is
+  // only consulted when history is actually being written: deriving a past
+  // start date for a family who declined it would date the forward queue from
+  // a day they never asked for, and the backfill reads the same field.
   const effectiveStartDate = !claimed
     ? (row.start_date ?? undefined)
     : row.start_date_is_manual && row.start_date
       ? row.start_date
-      : branch === "already"
+      : willRecordHistory
         ? derivedStart
         : (row.start_date ?? undefined);
 
@@ -797,6 +858,11 @@ function rowScheduleFor(
     ? new Date(`${effectiveStartDate}T00:00:00`)
     : today;
   const anchor = isNew ? forwardScheduleStart(startPick, today) : today;
+  const previewCurrent = branch === "fresh" ? 0 : nextLesson - 1;
+  // A schedule change releases the live queue's pins but never a make-up.
+  const goalPins = row.dbId ? (live.pinsByGoal.get(row.dbId) ?? []) : [];
+  const keptPins = scheduleFieldsChangedForRow(row) ? goalPins.filter((p) => p.slot <= previewCurrent) : goalPins;
+  const doneTodayHere = !isNew && row.dbId ? (live.doneTodayByGoal.get(row.dbId) ?? 0) : 0;
   const projected = computeNextLessonsForGoal(
     {
       id: row.dbId ?? row.localId,
@@ -810,19 +876,22 @@ function rowScheduleFor(
     anchor,
     3650,
     vacations,
-    0,
-    skippedSlots.map((slot) => ({ slot, skipped: true as const })),
+    doneTodayHere,
+    [...skippedSlots.map((slot) => ({ slot, skipped: true as const })), ...keptPins],
   );
 
   // The pace anchor is the next lesson's own date, so the finish month counts
   // forward from where the family is rather than from a start date behind them.
-  const pace = calcPace(row, today, projected[0]?.date, vacations, skippedSlots);
+  // The next QUEUE lesson: a lesson already done today (shown back on today)
+  // and a make-up (Invariant 23) both sit at or below the pointer and are not it.
+  const nextQueued = projected.find((p) => p.lesson_number > previewCurrent);
+  const pace = calcPace(row, today, nextQueued?.date, vacations, skippedSlots);
   return {
     branch,
     history,
     // The lesson that will actually be dated: a skipped one is stepped over.
     nextLesson: builderNextLesson(branch === "fresh" ? 1 : nextLesson, skippedSlots, row.total_lessons),
-    nextLessonDate: projected[0]?.date,
+    nextLessonDate: nextQueued?.date,
     effectiveStartDate,
     overflow,
     finishLabel: pace?.finishLabel ?? null,
@@ -964,6 +1033,11 @@ function rowIsValid(row: Row): boolean {
  * `start_at_lesson_initial` is the DB's `current_lesson + 1` at load time; a
  * never-saved row has no progress to protect.
  */
+function startAtLessonTouched(row: Row): boolean {
+  // A never-saved row has no baseline, so its number is always the family's.
+  return row.start_at_lesson_initial == null || row.start_at_lesson !== row.start_at_lesson_initial;
+}
+
 function completedThrough(row: Row): number {
   return row.start_at_lesson_initial != null ? row.start_at_lesson_initial - 1 : 0;
 }
@@ -1031,6 +1105,14 @@ function carryDbFieldsOntoDraftRow(draftRow: Row, freshRow: Row): Row {
   if (freshRow.readOnly) return freshRow;
   return {
     ...draftRow,
+    // The starting lesson is the draft's only if the draft CHANGED it. A draft
+    // that left it alone carries whatever it was when the draft was written,
+    // and restoring that next to the fresh start_at_lesson_initial below would
+    // read as the family typing the old number: "I'm actually on 19" made in
+    // the meantime would be written back to 11 by the next save.
+    start_at_lesson: startAtLessonTouched(draftRow)
+      ? draftRow.start_at_lesson
+      : freshRow.start_at_lesson,
     previouslySavedAs: freshRow.previouslySavedAs,
     readOnly: freshRow.readOnly,
     readOnlyReason: freshRow.readOnlyReason,
@@ -1237,6 +1319,10 @@ export default function ScheduleBuilderPage() {
   const [vacations, setVacations] = useState<SchedVacationBlock[]>([]);
   // Skipped queue slots per saved goal, for the preview (Invariant 22).
   const [skippedByGoal, setSkippedByGoal] = useState<ReadonlyMap<string, readonly number[]>>(new Map());
+  const [previewLive, setPreviewLive] = useState<{
+    pinsByGoal: ReadonlyMap<string, readonly PinnedSlot[]>;
+    doneTodayByGoal: ReadonlyMap<string, number>;
+  }>({ pinsByGoal: new Map(), doneTodayByGoal: new Map() });
   // What this family has typed before, newest first, for the two suggestion
   // lists. Read once with the rest of the builder; no new table.
   const [ownCurriculumNames, setOwnCurriculumNames] = useState<string[]>([]);
@@ -1279,7 +1365,7 @@ export default function ScheduleBuilderPage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const [kidsResp, goalsResp, activitiesResp, vacationsResp, pastNamesResp, skippedResp] = await Promise.all([
+        const [kidsResp, goalsResp, activitiesResp, vacationsResp, pastNamesResp, skippedResp, pinnedResp, doneTodayResp] = await Promise.all([
           supabase
             .from("children")
             .select("id, name, color, sort_order")
@@ -1321,6 +1407,21 @@ export default function ScheduleBuilderPage() {
             .eq("user_id", effectiveUserId)
             .eq("skipped", true)
             .eq("completed", false),
+          // Pins (make-ups included) and today's completions, for the preview
+          // only: the save reads both from the goal's own rows.
+          supabase
+            .from("lessons")
+            .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned, skipped")
+            .eq("user_id", effectiveUserId)
+            .eq("queue_pinned", true)
+            .eq("completed", false),
+          supabase
+            .from("lessons")
+            .select("curriculum_goal_id")
+            .eq("user_id", effectiveUserId)
+            .eq("completed", true)
+            .gte("completed_at", today.toISOString())
+            .lt("completed_at", new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1).toISOString()),
         ]);
         if (cancelled) return;
 
@@ -1349,6 +1450,21 @@ export default function ScheduleBuilderPage() {
             byGoal.set(goalId, list);
           }
           setSkippedByGoal(byGoal);
+        }
+        if (!pinnedResp.error && !doneTodayResp.error) {
+          const pinsByGoal = new Map<string, PinnedSlot[]>();
+          for (const r of (pinnedResp.data ?? []) as PinnableRow[]) {
+            const goalId = r.curriculum_goal_id;
+            if (!goalId) continue;
+            const list = pinsByGoal.get(goalId) ?? [];
+            list.push(...pinsFromRows([r], goalId));
+            pinsByGoal.set(goalId, list);
+          }
+          const doneTodayByGoal = new Map<string, number>();
+          for (const r of (doneTodayResp.data ?? []) as { curriculum_goal_id: string | null }[]) {
+            if (r.curriculum_goal_id) doneTodayByGoal.set(r.curriculum_goal_id, (doneTodayByGoal.get(r.curriculum_goal_id) ?? 0) + 1);
+          }
+          setPreviewLive({ pinsByGoal, doneTodayByGoal });
         }
         // Non-fatal for the same reason: without it the shared list still
         // suggests, it just does not know this family yet.
@@ -1421,7 +1537,8 @@ export default function ScheduleBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveUserId]);
+    // `today` is fixed for the page's life (useMemo with no deps).
+  }, [effectiveUserId, today]);
 
   // ── Unsaved changes guard ────────────────────────────────────────────────
   // Kept for desktop browsers. It does NOT fire on iOS Safari, which is why
@@ -1709,11 +1826,11 @@ export default function ScheduleBuilderPage() {
     const out = new Map<string, RowSchedule>();
     for (const r of rows) {
       if (r.type !== "curriculum" || r.pendingDelete) continue;
-      const sched = rowScheduleFor(r, today, todayStr, vacations, skippedByGoal);
+      const sched = rowScheduleFor(r, today, todayStr, vacations, skippedByGoal, previewLive);
       if (sched) out.set(r.localId, sched);
     }
     return out;
-  }, [rows, today, todayStr, vacations, skippedByGoal]);
+  }, [rows, today, todayStr, vacations, skippedByGoal, previewLive]);
 
   // ── The derived start date is written back onto the row ──────────────────
   //
@@ -1743,7 +1860,15 @@ export default function ScheduleBuilderPage() {
       if (!invariant21ClaimChanged(r)) continue;
       const sched = schedByLocalId.get(r.localId);
       if (!sched) continue;
-      const derived = sched.branch === "already" ? (sched.history.startDate ?? null) : r.start_date;
+      // Only a row that is actually writing history gets a derived date. The
+      // walk exists to say "your first lesson was N school days ago", which is
+      // a statement about history; a family who is only placing their starting
+      // point keeps whatever start date the goal already had (usually none,
+      // which is what sends the forward queue past today per Invariant 1).
+      const derived =
+        sched.branch === "already" && historyRequested(r)
+          ? (sched.history.startDate ?? null)
+          : r.start_date;
       if (derived !== r.start_date) patches.set(r.localId, derived);
     }
     if (patches.size === 0) return;
@@ -2003,6 +2128,14 @@ export default function ScheduleBuilderPage() {
         r.type === "curriculum" &&
         !r.pendingDelete &&
         !r.readOnly &&
+        // Invariant 21 asks "can Rooted record everything this family says is
+        // done". A row that is not writing history is not saying anything is
+        // done, so there is nothing to fit and nothing to lose: the refusal
+        // has no subject. This is also the escape for a family whose progress
+        // genuinely cannot fit between any start date and today (on lesson 182
+        // after one school day): they can now place themselves there instead
+        // of being refused with no way forward.
+        historyRequested(r) &&
         !!r.start_date &&
         r.start_date < saveTodayStr &&
         !!r.total_lessons &&
@@ -2332,9 +2465,20 @@ export default function ScheduleBuilderPage() {
 
           if (row.previouslySavedAs === "curriculum_goals" && row.dbId) {
             // In-place UPDATE, preserving legacy fields the builder doesn't expose.
+            //
+            // start_at_lesson is written only when the family changed it in
+            // THIS session. It is what holds the pointer after "I'm actually on
+            // lesson 19" with No (recompute_curriculum_current_lesson floors on
+            // it), and every save writes every curriculum row, so a tab opened
+            // before that move, saving anything at all, would write the old 11
+            // back: the pointer falls to 10 and phase 2 deletes and regenerates
+            // lessons 11 to 18. The move silently undone. An untouched number
+            // is left as the database has it.
+            const updatePayload: Partial<typeof payload> = { ...payload };
+            if (!startAtLessonTouched(row)) delete updatePayload.start_at_lesson;
             const { error } = await supabase
               .from("curriculum_goals")
-              .update(payload)
+              .update(updatePayload)
               .eq("id", row.dbId);
             if (error) throw error;
             localCurriculumIds.add(row.dbId);
@@ -2587,7 +2731,7 @@ export default function ScheduleBuilderPage() {
           count: beforeRowsCount,
         } = await supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, completed, notes, minutes_spent, queue_pinned, skipped, scheduled_date, date, title", { count: "exact" })
+          .select("id, lesson_number, queue_position, completed, completed_at, notes, minutes_spent, queue_pinned, skipped, scheduled_date, date, title", { count: "exact" })
           .eq("curriculum_goal_id", goalId);
         if (beforeRowsErr) throw beforeRowsErr;
         const beforeRows = (beforeRowsData ?? []) as {
@@ -2595,6 +2739,7 @@ export default function ScheduleBuilderPage() {
           lesson_number: number | null;
           queue_position: number | null;
           completed: boolean;
+          completed_at: string | null;
           notes: string | null;
           minutes_spent: number | null;
           queue_pinned: boolean | null;
@@ -2627,15 +2772,21 @@ export default function ScheduleBuilderPage() {
         // deleted, never re-dated, never recreated, and their slot is never
         // given to an insert. Before this a builder save deleted a note-free
         // skipped lesson and re-created it as an ordinary dated one.
+        //
+        // Rows behind the pointer (Invariant 23) are held back too, always: a
+        // lesson the family reopened is theirs to finish, not the rebuild's to
+        // delete (the history backfill would re-create it as done). An unpinned
+        // one dated today or later is made a make-up (makeUpIds), pinned where
+        // it is, so it holds its day here and on every other surface.
         const {
           pinnedRows,
+          makeUpIds,
+          behindIds,
           pins,
           holds,
           projectableSkippedSlots,
-          completedFloor,
           holdsParentWork,
           workRowIds,
-          heldBackIds,
           deletedIds,
           survivors,
         } = planPhase2Rows({
@@ -2644,6 +2795,7 @@ export default function ScheduleBuilderPage() {
           clearPins,
           currentLesson,
           totalLessons: row.total_lessons,
+          todayYmd: ymd(todayMid),
         });
 
         const goalConfig = {
@@ -2695,7 +2847,23 @@ export default function ScheduleBuilderPage() {
           !(row.previouslySavedAs === "curriculum_goals" && row.dbId) || beforeRows.length === 0;
         const startPick = row.start_date ? new Date(`${row.start_date}T00:00:00`) : todayMid;
         const forwardAnchor = isNewGoal ? forwardScheduleStart(startPick, todayMid) : todayMid;
-        const upcoming = computeNextLessonsForGoal(goalConfig, forwardAnchor, 3650, vacations, 0, holds);
+        // Lessons already done today count against today's pace, exactly as
+        // Today counts them (completed_at inside the family's local day), so an
+        // existing goal re-saved on a day it already has a finished lesson does
+        // not get a second one dated today. A new goal is anchored past today
+        // (Invariant 1), where the count does not apply.
+        const dayStart = new Date(todayMid);
+        const dayEnd = new Date(todayMid);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const doneToday = countDoneToday(beforeRows, dayStart.toISOString(), dayEnd.toISOString());
+        const upcoming = computeNextLessonsForGoal(
+          goalConfig,
+          forwardAnchor,
+          3650,
+          vacations,
+          isNewGoal ? 0 : doneToday,
+          holds,
+        );
         if (upcoming.length === 0) return;
 
         /* ── PLAN ─────────────────────────────────────────────────────────────
@@ -2760,6 +2928,14 @@ export default function ScheduleBuilderPage() {
         // below the call for why returning is the only safe answer.
         let unclaimedShortfall: string | null = null;
         const planHistoricalBackfill = () => {
+          // The family has to ASK for their earlier lessons to be written down
+          // (Row.record_history). Answering "I am on lesson 46" places them in
+          // the book; it does not assert that Rooted holds the 45 before it,
+          // and writing those rows put hours on reports nobody logged. Guarded
+          // here as well as at the derivation, because this is the function
+          // that actually writes `completed: true` and Invariant 15 says that
+          // claim belongs to a person.
+          if (!historyRequested(row)) return [];
           if (!row.start_date || row.start_date >= ymdToday || currentLesson <= 0) return [];
           const startMid = new Date(`${row.start_date}T00:00:00`);
           // Project from start_date with current_lesson=0 +
@@ -3039,71 +3215,78 @@ export default function ScheduleBuilderPage() {
           return map && typeof map[dayLabel] === "number" ? map[dayLabel] : lessons_per_day;
         };
 
-        // PRE-WRITE capacity assertion. Refuses to commit a batch where the
-        // projector put more than the day's ceiling on a single date. The May
-        // 2026 t.ferrebee bug ("lesson 1 + lesson 2 both on 5/30 for lpd=1")
-        // shipped because the equivalent post-write check threw inside
-        // phase="post_save" and the catch swallowed it softly, leaving the bad
-        // rows in the database.
+        // ProjectedLesson.lesson_number IS the queue slot (see its doc
+        // comment): the slot-to-date map the kept rows are re-dated from.
+        const projDateBySlot = new Map<number, string>();
+        for (const u of upcoming) {
+          if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date);
+        }
+
+        // Everything this goal's rebuild writes, and the COMPLETE result it
+        // leaves, decided and checked before the first write (planPhase2Commit
+        // in app/lib/phase2-commit.ts). Kept rows in the live queue take the
+        // projector's date for their slot; pins, skips and make-ups keep
+        // theirs.
         //
-        // The ceiling applies to PROJECTED, UNPINNED lessons only. A pinned row
-        // is the family's own placement, and stacking is a supported feature:
-        // bulk-move-to-one-day puts N lessons on one date on purpose, and
-        // `move_lesson_to_date` stacks queue positions to match (see the
-        // "Invariant 2 carve-out for manual moves" section of
-        // docs/CURRICULUM-SCHEDULING.md — auto-scheduling never bunches, only
-        // the user can). Seeding this count from the surviving pins read a
-        // supported feature as corruption and refused the save: goal 503610a9
-        // has lessons 8 and 18 both pinned to 2026-09-02 on a 1/day goal, so
-        // the guard saw "2 > 1" and threw. The projector already reserves each
-        // pinned date's capacity before it places anything unpinned, so an
-        // unpinned row can never land on a pinned day that is full.
-        const unpinnedByDate: Record<string, number> = {};
-        for (const r of toInsert) {
-          if (!r.scheduled_date) continue;
-          unpinnedByDate[r.scheduled_date] = (unpinnedByDate[r.scheduled_date] ?? 0) + 1;
-        }
-        const preInsertViolations: string[] = [];
-        for (const [dateStr, count] of Object.entries(unpinnedByDate)) {
-          const allowed = perDayAllowed(dateStr);
-          if (count > allowed) {
-            preInsertViolations.push(`${dateStr} (${count} > ${allowed})`);
-          }
-        }
-        if (preInsertViolations.length > 0) {
-          console.error(
-            "[handleSave] Projector emitted overcapacity batch, refusing INSERT",
-            { goalId, violations: preInsertViolations },
-          );
+        // ── PRE-WRITE validation of the COMPLETE result ─────────────────────
+        // Not just the rows about to be inserted: every row the curriculum will
+        // hold once this commits, kept rows and completed work included, day by
+        // day. The lessons this plan places must fit in what each day has left
+        // after the lessons already done today and every other unfinished
+        // lesson dated there (pins, make-ups, rows the rebuild keeps). The old
+        // pre-write check counted the inserts alone, so a kept row on the same
+        // day passed here and failed only after everything had committed
+        // (Sentry ROOTED-HOMESCHOOL-1Q). apply_builder_rebuild runs the same
+        // rule again inside its transaction.
+        const releasedIds = new Set(clearPins ? pinnedRows.map((r) => r.id) : []);
+        const { redates, plan: commitPlan, validation } = planPhase2Commit({
+          beforeRows,
+          survivors,
+          deletedIds,
+          releasedIds,
+          makeUpIds,
+          behindIds,
+          projDateBySlot,
+          inserts: [...histToInsert, ...toInsert].map((r) => ({
+            child_id: r.child_id,
+            lesson_number: r.lesson_number,
+            queue_position: r.queue_position,
+            title: r.title,
+            scheduled_date: r.scheduled_date,
+            scheduled_source: "wizard_create",
+            completed: r.completed,
+            completed_at: "completed_at" in r ? r.completed_at : null,
+            is_backfill: "is_backfill" in r ? r.is_backfill : false,
+            minutes_spent: "minutes_spent" in r ? r.minutes_spent : null,
+            hours: r.hours,
+          })),
+          totalLessons: row.total_lessons,
+          todayYmd: ymd(todayMid),
+          doneToday,
+          currentLesson,
+          perDayAllowed,
+        });
+        if (validation.overCapacity.length > 0 || validation.integrity.length > 0) {
+          const days = validation.overCapacity.map((v) => `${v.date} (${v.placed} > ${v.room})`);
+          console.error("[handleSave] phase 2 plan refused before any write", {
+            goalId,
+            overCapacity: validation.overCapacity,
+            integrity: validation.integrity,
+          });
           throw new ScheduleAssertionError(
-            `Lesson scheduling produced ${preInsertViolations.length} overcapacity date(s): ${preInsertViolations.join(", ")}. The curriculum saved, but lessons were not generated. Please try a different start date or contact support.`,
+            days.length > 0
+              ? `Lesson scheduling produced ${days.length} overcapacity date(s): ${days.join(", ")}. The curriculum saved, but lessons were not generated. Please try a different start date or contact support.`
+              : `Lesson scheduling was refused before anything was written: ${validation.integrity[0]}. The curriculum saved, but lessons were not generated. Please contact support.`,
           );
         }
 
-        // Pins are exempt from the ceiling, not from observability. A date
+        // Pins are exempt from the ceiling, not from observability. A day
         // holding more hand-placed lessons than the goal plans per day is worth
         // knowing about, so it goes to Sentry as a WARNING with the dates
-        // attached — never as a throw, because the family chose it.
-        //
-        // Counted the way the PROJECTOR counts pins: isPinProjectable is the
-        // single definition of which pins hold a slot, and it lives next to the
-        // projector that reads it. A pin whose slot is at or below
-        // current_lesson, or past total_lessons, is stale — the projector emits
-        // nothing for it and reserves no capacity on its date, so counting it
-        // here would double-count a day the projector had legitimately filled
-        // with a fresh lesson. That mismatch is what produced 49 "overcapacity"
-        // dates on a single goal, and 45 goals across 12 families still hold a
-        // pin in that shape.
-        const pinnedByDate: Record<string, number> = {};
-        for (const p of pins) {
-          if (!isPinProjectable(p, { current_lesson: currentLesson, total_lessons: row.total_lessons })) {
-            continue;
-          }
-          pinnedByDate[p.date] = (pinnedByDate[p.date] ?? 0) + 1;
-        }
-        const stackedPinDates = Object.entries(pinnedByDate)
-          .filter(([dateStr, count]) => count > perDayAllowed(dateStr))
-          .map(([dateStr, count]) => `${dateStr} (${count} > ${perDayAllowed(dateStr)})`);
+        // attached, never as a throw, because the family chose it (Sentry
+        // ROOTED-HOMESCHOOL-1J). Counted on the end state, so a make-up
+        // (Invariant 23) is a hand-placed lesson here like any other pin.
+        const stackedPinDates = validation.pinStacks.map((p) => `${p.date} (${p.pinned} > ${p.allowed})`);
         if (stackedPinDates.length > 0) {
           captureSupabaseError(
             "Curriculum save phase 2: hand-placed lessons stacked past the per-day cap",
@@ -3199,22 +3382,15 @@ export default function ScheduleBuilderPage() {
         }
 
         /* ── COMMIT ───────────────────────────────────────────────────────────
-         * Every assertion above passed against the computed batch, so the
-         * writes below are the first destructive calls this goal makes. Keep it
-         * that way: anything that can refuse the batch belongs in PLAN, above.
+         * Every check above ran against the complete computed result. The
+         * writes below are the first this goal makes, and they are ONE
+         * transaction (apply_builder_rebuild): it re-reads the rows under lock,
+         * refuses a plan made against rows that changed since `beforeRows`,
+         * writes everything, and re-checks capacity before it commits. A
+         * failure anywhere writes nothing, so a curriculum is never left half
+         * rebuilt. Keep it that way: anything that can refuse the batch
+         * belongs in PLAN, above.
          * ─────────────────────────────────────────────────────────────────── */
-
-        // When the user re-spread THIS goal, release the pins explicitly rather
-        // than just ignoring them: leaving queue_pinned=true on rows we are
-        // about to re-date would freeze them at their new projector dates and
-        // make the next sibling save unable to move them either.
-        // ProjectedLesson.lesson_number IS the queue slot (see its doc
-        // comment); this is the slot-to-date map the held-back rows and the
-        // no-op check below both read.
-        const projDateBySlot = new Map<number, string>();
-        for (const u of upcoming) {
-          if (!projDateBySlot.has(u.lesson_number)) projDateBySlot.set(u.lesson_number, u.date);
-        }
 
         // ── An unchanged sibling writes nothing ──────────────────────────────
         // See isPhase2NoOp in scheduler.ts for the rule and the reasons. The
@@ -3232,7 +3408,8 @@ export default function ScheduleBuilderPage() {
           todayYmd: ymd(todayMid),
           perDayAllowed,
         });
-        if (verdict.noop) {
+        const keptRowMoves = redates.some((t) => t.to !== t.from);
+        if (verdict.noop && makeUpIds.size === 0 && !keptRowMoves) {
           console.debug(`[handleSave] goal ${goalId}: ${verdict.reason}, no rows written`);
           void logPlanEvent({
             userId: effectiveUserId,
@@ -3249,160 +3426,75 @@ export default function ScheduleBuilderPage() {
           return;
         }
 
-
-        if (clearPins && pinnedRows.length > 0) {
-          const { error: unpinErr } = await supabase
-            .from("lessons")
-            .update({ queue_pinned: false })
-            .in("id", pinnedRows.map((r) => r.id));
-          if (unpinErr) throw unpinErr;
+        // The goal as the database holds it now, sent back as the snapshot the
+        // transaction compares under lock. Read, not reconstructed from the
+        // builder row, so a difference can only mean something really changed.
+        const { data: goalNow, error: goalNowErr } = await supabase
+          .from("curriculum_goals")
+          .select("total_lessons, current_lesson, start_at_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date")
+          .eq("id", goalId)
+          .single();
+        if (goalNowErr || !goalNow) throw goalNowErr ?? new Error(`Phase 2 could not re-read goal ${goalId}`);
+        const snapshot = goalNow as Phase2GoalSnapshot;
+        if (snapshot.current_lesson !== currentLesson || snapshot.total_lessons !== row.total_lessons) {
+          // The plan was made from a different pointer or length: plan again.
+          throw new Error(`Phase 2 plan for goal ${goalId} is stale (pointer or total moved)`);
+        }
+        const committed = await applyPhase2Commit(supabase, {
+          goalId,
+          localDay: ymd(todayMid),
+          expected: phase2Expected({
+            goal: snapshot,
+            rows: beforeRows,
+            dayStartIso: dayStart.toISOString(),
+            dayEndIso: dayEnd.toISOString(),
+          }),
+          plan: commitPlan,
+        });
+        if (committed.status === "refused" || committed.status === "invalid") {
+          // Nothing was written. The database disagreed with a plan the page
+          // had already validated, which reproduces on every attempt.
+          throw new ScheduleAssertionError(
+            `Lesson scheduling was refused before anything was written (${committed.reason}). The curriculum saved, but lessons were not generated. Please contact support.`,
+          );
+        }
+        if (committed.status === "unavailable") {
+          // The transaction is not on this database (the release order puts
+          // the migration first). Nothing was written, and there is no
+          // non-atomic fallback: the family is asked to save again.
+          captureSupabaseError(
+            "Curriculum save phase 2: apply_builder_rebuild is unavailable",
+            new Error(committed.reason),
+            { tags: { phase: "phase2_commit_unavailable", goal_id: goalId } },
+          );
+          throw new Error(`Phase 2 commit unavailable: ${committed.reason}`);
+        }
+        if (committed.status !== "applied") {
+          // 'stale' (a row changed since it was read) or a failed transaction:
+          // nothing was written, and the retry re-reads and plans again.
+          throw new Error(`Phase 2 commit ${committed.status}: ${committed.reason}`);
         }
 
-        let floorDelete = supabase
-          .from("lessons")
-          .delete()
-          .eq("curriculum_goal_id", goalId)
-          .eq("completed", false)
-          .gt("lesson_number", completedFloor);
-        // Manual placements survive the re-spread (unless this goal's own
-        // schedule changed, in which case no pin is held back and they were
-        // already released above). Without this exclusion the delete wiped them
-        // and the reinsert brought them back unpinned at projector dates.
-        if (heldBackIds.size > 0) {
-          floorDelete = floorDelete.not("id", "in", `(${[...heldBackIds].join(",")})`);
-        }
-        const { error: incompleteDeleteErr } = await floorDelete;
-        if (incompleteDeleteErr) throw incompleteDeleteErr;
-
-        // One request per batch of 500 (app/lib/batches.ts), the same helper
-        // "Add a past year" writes with. 100 per request cost a 180-lesson
-        // goal two round trips where one does.
         // ── Count what the DATABASE wrote, not what we planned to write ─────
-        //
-        // These two loops threw on error and counted nothing, and the
-        // schedule.rebuilt event below logged `toInsert.length`: the PLANNED
-        // number. So an insert that landed short reported success in the audit
-        // trail. Goal 69e9b6b8 is logged as "inserted: 52, skipped: 0" and
-        // holds 51 rows, numbered 2 to 52, every one created in that save. The
-        // log asserting 52 is why nobody looked for a week.
-        //
-        // `.select("id")` makes the insert return its rows, so the count is the
-        // server's answer. A short batch now fails the save loudly instead of
-        // being written down as a success.
-        let histInserted = 0;
-        for (const batch of batches(histToInsert, LESSON_INSERT_BATCH)) {
-          const { data: wrote, error: histErr } = await supabase
-            .from("lessons")
-            .insert(batch)
-            .select("id");
-          if (histErr) throw histErr;
-          histInserted += (wrote ?? []).length;
-        }
-        let forwardInserted = 0;
-        for (const batch of batches(toInsert, LESSON_INSERT_BATCH)) {
-          const { data: wrote, error: lessonErr } = await supabase
-            .from("lessons")
-            .insert(batch)
-            .select("id");
-          if (lessonErr) throw lessonErr;
-          forwardInserted += (wrote ?? []).length;
-        }
-        const plannedInsertCount = histToInsert.length + toInsert.length;
-        const confirmedInsertCount = histInserted + forwardInserted;
+        // Goal 69e9b6b8 is logged as "inserted: 52, skipped: 0" and holds 51
+        // rows; the log asserting 52 is why nobody looked for a week. The
+        // commit reports the rows it inserted; a short count is reported, never
+        // shown to the family, because the save itself committed.
+        const plannedInsertCount = commitPlan.inserts.length;
+        const confirmedInsertCount = committed.inserted;
         if (confirmedInsertCount !== plannedInsertCount) {
-          // Deterministic by construction: the same batch rebuilds identically,
-          // so a retry reproduces it. ScheduleAssertionError skips the retry and
-          // routes to the notice, and the goal is named for support.
           console.error("[handleSave] insert landed short", {
             goalId,
             planned: plannedInsertCount,
             confirmed: confirmedInsertCount,
           });
-          // The delete and the inserts have committed by the time we get here,
-          // and throwing skips everything below: the over-ceiling cleanup, the
-          // pin release and the pointer recompute. Recompute at least, so the
-          // goal is not left rebuilt with a pointer describing the old row set.
-          // The rest is re-applied by the next save.
-          await recomputeCurrentLesson(supabase, goalId);
-          throw new ScheduleAssertionError(
-            `Lesson scheduling wrote ${confirmedInsertCount} of ${plannedInsertCount} planned rows. ` +
-              "The curriculum saved, but its lessons are incomplete. We've been notified.",
+          captureSupabaseError(
+            "Curriculum save phase 2 inserted fewer rows than planned",
+            new Error(`Goal ${goalId}: ${confirmedInsertCount} of ${plannedInsertCount} planned rows`),
+            { tags: { phase: "phase2_insert_short", goal_id: goalId } },
           );
         }
-
-        // Cleanup: if the user reduced total_lessons on an edit, any rows
-        // previously inserted past the new ceiling become stale. Delete
-        // only INCOMPLETE rows so historical completions are preserved
-        // (Invariant 3: backfilled / completed lessons stay put).
-        //
-        // Pinned rows are deliberately NOT excluded here. A pin says "this
-        // lesson belongs on this day"; it cannot say "this lesson exists" once
-        // the user has shortened the curriculum past it. Reducing total_lessons
-        // to 100 retires lesson 120 whether or not it was hand-placed. Note
-        // that shortening total_lessons is itself a schedule-field change, so
-        // scheduleFieldsChangedForRow already released this goal's pins above.
-        let overCeilingDelete = supabase
-          .from("lessons")
-          .delete()
-          .eq("curriculum_goal_id", goalId)
-          .gt("lesson_number", row.total_lessons)
-          .eq("completed", false);
-        // Item 4 again. Shortening a curriculum retires the lessons past the
-        // new end, but it does not entitle the app to shred what the parent
-        // wrote on one of them. A retired row carrying notes or logged minutes
-        // is UNSCHEDULED instead of deleted: it leaves every calendar surface
-        // (they all select on scheduled_date) and it stops holding a queue
-        // slot, so it can blank nothing, and the text survives.
-        const overCeilingWorkIds = beforeRows
-          .filter(
-            (r) =>
-              !r.completed &&
-              r.lesson_number != null &&
-              // Unknown ceiling retires nothing, matching how PostgREST's `gt`
-              // treats the NULL in the delete above.
-              row.total_lessons != null &&
-              r.lesson_number > row.total_lessons &&
-              holdsParentWork(r),
-          )
-          .map((r) => r.id);
-        if (overCeilingWorkIds.length > 0) {
-          overCeilingDelete = overCeilingDelete.not("id", "in", `(${overCeilingWorkIds.join(",")})`);
-          const { error: unscheduleErr } = await supabase
-            .from("lessons")
-            .update({ scheduled_date: null, queue_position: null, queue_pinned: false })
-            .in("id", overCeilingWorkIds);
-          if (unscheduleErr) throw unscheduleErr;
-        }
-        const { error: cleanupErr } = await overCeilingDelete;
-        if (cleanupErr) throw cleanupErr;
-
-        // Item 4: the held-back rows are UPDATED rather than deleted and
-        // recreated. They keep their id, their notes and their lesson_number;
-        // what the rebuild is entitled to change is where they sit. The
-        // projector's date for a slot is read out of `upcoming`, the same
-        // output the fresh inserts were built from, so a kept row lands on the
-        // same day the row that replaced it would have.
-        //
-        // Pinned rows are excluded: a pin is the parent saying "this lesson
-        // belongs on this day" and Invariant 12 is that the system never
-        // re-dates a manual placement. They were already surviving the delete
-        // before this change and they keep surviving it untouched.
-        // ProjectedLesson.lesson_number IS the queue slot, not the lesson
-        // number — see its doc comment. That is the column a kept row is
-        // matched on, the same way the fresh inserts take their date from the
-        // slot they land in.
-        // Skipped rows are excluded for the same reason (Invariant 22): a skip
-        // has no day. phase2RedateTargets is the one rule, shared with the
-        // no-op check.
-        let rebuiltUpdated = 0;
-        for (const t of phase2RedateTargets({ beforeRows, workRowIds, projDateBySlot })) {
-          const { error: redateErr } = await supabase
-            .from("lessons")
-            .update({ scheduled_date: t.date, date: t.date, scheduled_source: "wizard_create" })
-            .eq("id", t.id);
-          if (redateErr) throw redateErr;
-          rebuiltUpdated += 1;
-        }
+        const rebuiltUpdated = committed.redated;
 
         void logPlanEvent({
           userId: effectiveUserId,
@@ -3512,63 +3604,57 @@ export default function ScheduleBuilderPage() {
           }
         }
 
-        // Post-INSERT overcapacity assertion. The May 20 audit surfaced
-        // pre-existing goals where two disjoint lesson_number ranges
-        // collided onto the same future scheduled_date (e.g. lessons
-        // 94-95 AND 155-156 both on the same day) — a silent corruption
-        // pattern the floor-anchored delete + lesson_number dedup is
-        // supposed to prevent. This read-only check verifies no future
-        // school day exceeds lessons_per_day for THIS goal after the
-        // INSERT batch settled. On violation: throw so handleSave's
-        // catch surfaces the error and the user can re-try, instead of
-        // silently shipping the bad rows.
+        // Post-save capacity MONITOR. The save above is one committed
+        // transaction that was validated in full before it was sent and again
+        // inside it, so a violation here means the rows changed underneath it
+        // (another tab, another device) or a rule disagrees with itself. Either
+        // way the family's save DID commit, so this reports and never throws:
+        // telling a parent a committed save failed is what sent the family in
+        // ROOTED-HOMESCHOOL-1Q to "email hello@" for a schedule already written.
         const todayYmd = ymd(todayMid);
-        const { data: overCheck, error: overCheckErr } = await supabase
+        const { data: afterCheck, error: afterCheckErr } = await supabase
           .from("lessons")
-          .select("scheduled_date, queue_pinned, skipped")
-          .eq("curriculum_goal_id", goalId)
-          .eq("completed", false)
-          .gte("scheduled_date", todayYmd);
-        if (overCheckErr) throw overCheckErr;
-        // Same rule as the pre-write assertion: the ceiling is for lessons the
-        // SCHEDULER placed. Pinned rows are the family's own placements and are
-        // skipped entirely — not just the projectable ones. A stale pin (slot
-        // at or below current_lesson) is invisible to the projector, so the
-        // projector legitimately puts a fresh lesson on that same date; if the
-        // stale pinned row were counted here the day would read as doubly
-        // booked and the save would end on "email hello@" for a schedule that
-        // is in fact correct.
-        const dateMap: Record<string, number> = {};
-        for (const r of (overCheck ?? []) as {
-          scheduled_date: string | null;
-          queue_pinned: boolean | null;
-          skipped: boolean | null;
-        }[]) {
-          if (!r.scheduled_date) continue;
-          if (r.queue_pinned) continue;
-          // A skipped row holds no day; one an older save re-dated is not a
-          // lesson the scheduler placed.
-          if (r.skipped) continue;
-          dateMap[r.scheduled_date] = (dateMap[r.scheduled_date] ?? 0) + 1;
-        }
-        // The per-day ceiling MUST honor lessons_per_day_overrides, which is
-        // why both checks now read the one `perDayAllowed` closure. Pre-fix,
-        // this compared every date against the flat lessons_per_day (the
-        // override AVERAGE for uneven goals), so any goal with e.g. Mon=2/Tue=1
-        // legitimately projected 2 Monday lessons, passed the pre-check,
-        // INSERTed, then THREW here on every save attempt. The thrown error
-        // killed the phase-2 loop, so every goal after it in the same save
-        // silently got zero lessons (the July 2026 Lepior bug: all of one
-        // child's new curricula dead because her first goal had uneven per-day
-        // counts).
-        const violated = Object.entries(dateMap).filter(
-          ([dateStr, count]) => count > perDayAllowed(dateStr),
-        );
-        if (violated.length > 0) {
-          console.error("[handleSave] Overcapacity after INSERT", violated);
-          throw new ScheduleAssertionError(
-            `Overcapacity detected on ${violated.length} date(s) after save. Lesson rows may need another save to resolve.`,
-          );
+          .select("id, lesson_number, queue_position, completed, completed_at, queue_pinned, skipped, scheduled_date")
+          .eq("curriculum_goal_id", goalId);
+        if (!afterCheckErr && afterCheck) {
+          const actual = afterCheck as Phase2CommitRow[];
+          const monitorRows = actual.map((r) => ({
+            id: r.id,
+            lesson_number: r.lesson_number,
+            queue_position: r.queue_position,
+            completed: r.completed,
+            queue_pinned: r.queue_pinned ?? false,
+            skipped: r.skipped ?? false,
+            scheduled_date: r.scheduled_date,
+            notes: null,
+            minutes_spent: null,
+            // Every unpinned unfinished row counts as scheduler-placed here:
+            // the strictest reading of Invariant 2 on what is actually stored.
+            placed: !(r.queue_pinned ?? false),
+            inserted: false,
+          }));
+          const seen = validatePhase2End({
+            beforeRows: actual,
+            plan: { unpin_ids: [], makeup_ids: [], delete_ids: [], inserts: [], retire_above: null, retire_keep_ids: [], redates: [] },
+            endRows: monitorRows,
+            todayYmd,
+            doneToday: countDoneToday(actual, dayStart.toISOString(), dayEnd.toISOString()),
+            currentLesson,
+            perDayAllowed,
+          });
+          if (seen.overCapacity.length > 0 || seen.integrity.length > 0) {
+            console.error("[handleSave] committed schedule is over the daily pace", seen);
+            captureSupabaseError(
+              "Curriculum save: committed schedule is over the daily pace",
+              new Error(
+                `Goal ${goalId}: ${seen.overCapacity.map((v) => `${v.date} (${v.placed} > ${v.room})`).join(", ") || seen.integrity.join("; ")}`,
+              ),
+              {
+                tags: { phase: "curriculum_save_post_commit_monitor", goal_id: goalId },
+                extra: { overCapacity: seen.overCapacity, integrity: seen.integrity },
+              },
+            );
+          }
         }
       };
 
@@ -3704,7 +3790,7 @@ export default function ScheduleBuilderPage() {
         }
         // The earliest forward-scheduled lesson across everything just saved.
         const firstDates = createdRows
-          .map((r) => rowScheduleFor(r, today, todayStr, vacations, skippedByGoal)?.nextLessonDate)
+          .map((r) => rowScheduleFor(r, today, todayStr, vacations, skippedByGoal, previewLive)?.nextLessonDate)
           .filter((d): d is string => !!d)
           .sort();
         // The screen has to be full-bleed, and everything under app/dashboard
@@ -3842,10 +3928,16 @@ export default function ScheduleBuilderPage() {
   // ── Immediate row actions (recalibrate + mark finished) ─────────────────
   // Both bypass the pending-delete Save flow because they're destructive
   // edits the user expects to apply right now: "I'm actually on lesson X"
-  // re-anchors the queue + backfills gap dates, and "Mark as finished"
+  // re-anchors the queue (and writes the gap as done only when the family
+  // says yes to that in the form), and "Mark as finished"
   // archives the goal so it drops off Today + Plan. Local row state syncs
   // afterward so the page reflects the new DB truth without a reload.
-  async function handleRowRecalibrate(localId: string, newCurrentLesson: number) {
+  async function handleRowRecalibrate(
+    localId: string,
+    newCurrentLesson: number,
+    recordHistory: boolean,
+    confirmedLessonIds: readonly string[],
+  ) {
     setRowActionError(null);
     try {
       if (!effectiveUserId) throw new Error("Not signed in");
@@ -3864,6 +3956,8 @@ export default function ScheduleBuilderPage() {
         goalId: row.dbId,
         newCurrentLesson,
         vacationBlocks: vacations,
+        recordHistory,
+        confirmedLessonIds,
       });
       void logPlanEvent({
         userId: effectiveUserId,
@@ -3874,6 +3968,7 @@ export default function ScheduleBuilderPage() {
           action: "recalibrate",
           new_current_lesson: result.clamped,
           gap_count: result.gapCount,
+          record_history: result.recordedHistory,
         },
       });
       // Sync local row to match the DB truth without marking dirty — the
@@ -3900,6 +3995,10 @@ export default function ScheduleBuilderPage() {
         );
       }
     } catch (err) {
+      // The list the family agreed to changed before the write. Nothing was
+      // written; the form says so and keeps Save closed until it is reopened,
+      // so hand the refusal back to it rather than closing it here.
+      if (err instanceof RecalibrateListChangedError) throw err;
       const msg = (err as { message?: string })?.message ?? "Couldn't recalibrate.";
       setRowActionError(msg);
     }
@@ -4293,7 +4392,12 @@ function BuilderView(props: {
   setMenuOpenLocalId: (id: string | null) => void;
   recalibratingLocalId: string | null;
   setRecalibratingLocalId: (id: string | null) => void;
-  onRecalibrateRow: (localId: string, newCurrentLesson: number) => Promise<void>;
+  onRecalibrateRow: (
+    localId: string,
+    newCurrentLesson: number,
+    recordHistory: boolean,
+    confirmedLessonIds: readonly string[],
+  ) => Promise<void>;
   onMarkFinishedRow: (localId: string) => Promise<void>;
   rowActionError: string | null;
   onDismissRowActionError: () => void;
@@ -4405,7 +4509,8 @@ function BuilderView(props: {
                   recalibrating={props.recalibratingLocalId === row.localId}
                   onOpenRecalibrate={() => props.setRecalibratingLocalId(row.localId)}
                   onCloseRecalibrate={() => props.setRecalibratingLocalId(null)}
-                  onRecalibrate={(newValue) => props.onRecalibrateRow(row.localId, newValue)}
+                  onRecalibrate={(newValue, recordHistory, confirmedLessonIds) =>
+                    props.onRecalibrateRow(row.localId, newValue, recordHistory, confirmedLessonIds)}
                   onMarkFinished={() => props.onMarkFinishedRow(row.localId)}
                 />
               ))}
@@ -4511,7 +4616,7 @@ function RowCard(props: {
   recalibrating: boolean;
   onOpenRecalibrate: () => void;
   onCloseRecalibrate: () => void;
-  onRecalibrate: (newCurrentLesson: number) => Promise<void>;
+  onRecalibrate: (newCurrentLesson: number, recordHistory: boolean, confirmedLessonIds: readonly string[]) => Promise<void>;
   onMarkFinished: () => Promise<void>;
 }) {
   const { row } = props;
@@ -4628,6 +4733,13 @@ function RowCard(props: {
           nextLesson: sched.nextLesson,
           nextLessonDate: sched.nextLessonDate,
           todayYmd: props.todayStr,
+          // The sentence describes the save that is actually queued up, so it
+          // reads the same choice the save reads.
+          recordHistory: historyRequested(row),
+          // A saved goal already holds its completed lessons. Only the ones
+          // between that and the new position are being left out.
+          alreadyRecorded: completedThrough(row),
+          savedGoal: row.dbId != null,
         })
       : "";
 
@@ -5137,6 +5249,68 @@ function RowCard(props: {
                 />
               </div>
 
+              {/* Does Rooted write the lessons BEFORE that number down as
+                  done? The number says where the family is; it has never said
+                  what Rooted holds, and reading it as both is what put hours
+                  on reports nobody logged. Default no, so the answer that adds
+                  nothing is the answer they get by not deciding. */}
+              {row.dbId == null && row.start_at_lesson > 1 ? (
+                <div className="mt-2 rounded-lg border border-[#e8e2d9] bg-[#faf8f4] px-2.5 py-2">
+                  <p className="text-[12px] text-[#7a6f65] mb-1.5">
+                    {row.start_at_lesson === 2
+                      ? "Did you do lesson 1 in Rooted?"
+                      : `Should Rooted fill in lessons 1 to ${row.start_at_lesson - 1} as done?`}
+                  </p>
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="radio"
+                      name={`history-${row.localId}`}
+                      checked={!row.record_history}
+                      disabled={isReadOnly}
+                      onChange={() => props.onPatchRow(row.localId, { record_history: false })}
+                      className="mt-[3px] accent-[#2D5A3D]"
+                    />
+                    <span className="text-[13px] text-[#2D2A26]">
+                      No, just start me on lesson {row.start_at_lesson}
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-2 cursor-pointer mt-1">
+                    <input
+                      type="radio"
+                      name={`history-${row.localId}`}
+                      checked={row.record_history}
+                      disabled={isReadOnly}
+                      onChange={() => props.onPatchRow(row.localId, { record_history: true })}
+                      className="mt-[3px] accent-[#2D5A3D]"
+                    />
+                    <span className="text-[13px] text-[#2D2A26]">
+                      Yes, add them to our records
+                    </span>
+                  </label>
+                  {row.record_history ? (
+                    <p className="mt-1.5 ml-6 text-[12px] text-[#7a6f65] leading-relaxed">
+                      Each one counts as {row.minutes_per_lesson ?? 30} minutes on your
+                      reports, from the minutes above.
+                    </p>
+                  ) : null}
+
+              {/* A saved goal has no yes/no here (see historyRequested), so it
+                  says where the yes lives instead: "I'm actually on..."
+                  completes the rows in between in place, which is the only
+                  way a saved goal's gap can be written without duplicating
+                  or skipping anything. */}
+              {row.dbId != null &&
+              sched.claimed &&
+              row.start_at_lesson - 1 > completedThrough(row) ? (
+                <p className="mt-1.5 text-[12px] text-[#7a6f65] leading-relaxed">
+                  To mark {row.start_at_lesson - 1 - completedThrough(row) === 1 ? "it" : "them"} done,
+                  use &ldquo;I&apos;m actually on...&rdquo; in this curriculum&apos;s menu instead of
+                  saving this number.
+                </p>
+              ) : null}
+                </div>
+              ) : null}
+
               {sched.overflow ? (
                 <p className="mt-2 text-[12px] text-[#9a3a3a] leading-relaxed">
                   {sched.overflow}
@@ -5149,8 +5323,14 @@ function RowCard(props: {
 
               {/* The start date is derived, not typed, until the family asks
                   for it. Once they type one it is theirs and is never silently
-                  re-derived. */}
-              {row.start_date_is_manual ? (
+                  re-derived.
+
+                  Only shown while history is being written. Without history
+                  the date decides nothing a family can see: the forward queue
+                  starts after today either way (Invariant 1), and offering a
+                  control that changes nothing is how the old screen came to
+                  ask the same fact three ways. */}
+              {historyRequested(row) && row.start_date_is_manual ? (
                 <div className="mt-2 flex items-center gap-2 flex-wrap">
                   <span className="text-[12px] text-[#7a6f65]">Start date</span>
                   <input
@@ -5260,10 +5440,16 @@ function RowCard(props: {
  * Builds a PanelGoal-shaped object from a Row so RecalibrateForm — which
  * was written against the Plan curriculum panel's CurriculumGoal type — can
  * be reused verbatim. Only the fields the form actually reads are filled
- * (id, total_lessons, current_lesson). The form derives its default value
- * from current_lesson + 1, so passing start_at_lesson - 1 keeps the
- * round-trip idempotent: re-opening the form after a save shows mom's
- * last entered value.
+ * (id, total_lessons, current_lesson).
+ *
+ * current_lesson is the SAVED position (completedThrough), not the number the
+ * family may have typed into the row and not saved. The form asks "Should
+ * Rooted mark lessons {current + 1} to {X - 1} as done?" and the recalibration
+ * completes exactly the lessons after the saved position, so feeding it an
+ * unsaved number would hide the question from the family the builder just sent
+ * here to answer it. handleRowRecalibrate moves start_at_lesson_initial to the
+ * new lesson, so re-opening the form after a save still shows the value just
+ * entered.
  */
 function rowToPanelGoal(row: Row): PanelGoal {
   return {
@@ -5272,7 +5458,7 @@ function rowToPanelGoal(row: Row): PanelGoal {
     curriculum_name: row.name,
     subject_label: row.subject || null,
     total_lessons: row.total_lessons ?? 0,
-    current_lesson: Math.max(0, row.start_at_lesson - 1),
+    current_lesson: row.dbId ? completedThrough(row) : Math.max(0, row.start_at_lesson - 1),
     lessons_per_day: 1,
     target_date: null,
     school_days: null,

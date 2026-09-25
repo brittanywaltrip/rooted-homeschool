@@ -41,10 +41,10 @@
 -- BACKUP
 -- Step 1 copies the whole ledger to
 -- supabase_migrations.schema_migrations_backup_20260921 before any insert,
--- inside the same transaction. The pre-change snapshot (123 rows, fingerprint
--- b2f32591310f4ff5ed38246d28081896, refreshed 2026-09-22 after PR #84's
--- staging-only daily_reconcile migration) is committed next to this file as
--- staging-ledger-snapshot-2026-09-22.tsv. If the live fingerprint differs when
+-- inside the same transaction. The pre-change snapshot (129 rows, fingerprint
+-- ca8b1d64578094008cbb3168b7ce6ef1, refreshed 2026-09-25 after the
+-- move_lesson_keep_slot staging migration) is committed next to this file as
+-- staging-ledger-snapshot-2026-09-25.tsv. If the live fingerprint differs when
 -- this runs, the script aborts: the ledger changed since it was prepared.
 -- Re-read it immediately before running; refresh the snapshot and these
 -- constants if anything else has been applied to staging since.
@@ -79,7 +79,7 @@ begin
   end if;
   select count(*), md5(string_agg(version || coalesce(name,'') || coalesce(md5(array_to_string(statements, E'\n')),'-'), ',' order by version))
     into v_n, v_fp from supabase_migrations.schema_migrations;
-  if v_fp <> 'b2f32591310f4ff5ed38246d28081896' or v_n <> 123 then
+  if v_fp <> 'ca8b1d64578094008cbb3168b7ce6ef1' or v_n <> 129 then
     raise exception 'ABORT: ledger changed since preparation (rows %, fingerprint %)', v_n, v_fp;
   end if;
 end $$;
@@ -125,7 +125,7 @@ begin
       or md5(regexp_replace(regexp_replace(array_to_string(r.statements, E'\n'), '--[^\n]*', '', 'g'), '\s+', '', 'g')) <> e.sql_md5;
   select count(*) into v_total from supabase_migrations.schema_migrations;
   select count(*) into v_backup from supabase_migrations.schema_migrations_backup_20260921;
-  if v_new <> 5 or v_bad <> 0 or v_total <> 128 or v_backup <> 123 then
+  if v_new <> 5 or v_bad <> 0 or v_total <> 134 or v_backup <> 129 then
     raise exception 'ABORT: verification failed (new %, mismatched %, total %, backup %)', v_new, v_bad, v_total, v_backup;
   end if;
 end $$;

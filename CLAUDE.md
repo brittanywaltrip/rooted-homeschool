@@ -587,6 +587,12 @@ of goals satisfied this on 2026-09-08. A goal that does not is either:
 Tell them apart before touching anything: if any misaligned row in the goal has
 `queue_pinned = true`, treat the whole goal as (b) and leave it alone.
 
+The one realignment that is allowed is the family's own: "I'm actually on
+lesson X" calls `restore_queue_book_order` on a drifted goal, because the family
+has just told us where they are in the book (Invariant 24). Since September 24,
+2026 a move to a later day no longer creates drift (`move_lesson_keep_slot`);
+moves to an earlier day still do.
+
 ## Cron jobs
 10 jobs in vercel.json. vercel.json is the source of truth; this list has
 drifted before, so re-read the file rather than trusting the count here.

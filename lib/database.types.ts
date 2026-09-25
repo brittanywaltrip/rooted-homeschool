@@ -2253,6 +2253,7 @@ export type Database = {
           grade_percentage: number | null
           grade_points: number | null
           hours_logged: number | null
+          hours_source: string | null
           id: string
           is_external: boolean | null
           school_year: string
@@ -2276,6 +2277,7 @@ export type Database = {
           grade_percentage?: number | null
           grade_points?: number | null
           hours_logged?: number | null
+          hours_source?: string | null
           id?: string
           is_external?: boolean | null
           school_year: string
@@ -2299,6 +2301,7 @@ export type Database = {
           grade_percentage?: number | null
           grade_points?: number | null
           hours_logged?: number | null
+          hours_source?: string | null
           id?: string
           is_external?: boolean | null
           school_year?: string

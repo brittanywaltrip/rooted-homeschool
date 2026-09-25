@@ -143,6 +143,16 @@ export default defineConfig({
       name: 'curriculum-writes',
       grep: /@curriculum-writes/,
       testIgnore: /screenshots\//,
+      // One at a time. Two specs here add a temporary child to the shared
+      // account (shared one-off lessons, Plan this week), and a Schedule
+      // Builder spec that loaded while one existed and saved after it was
+      // removed timed out on its save: first attempts of smoke runs
+      // 36072579452 and 36073167592, each overlapping both. Running this
+      // project serially removes the overlap. Do NOT fix it by giving this
+      // project a teardown of its own: a teardown project's teardown is never
+      // run, its tests report "did not run" and the job still passes
+      // (run 36073814208 silently skipped 21 tests that way).
+      workers: 1,
       use: {
         browserName: 'chromium',
         storageState: STORAGE_STATE,

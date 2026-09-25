@@ -20,7 +20,7 @@ import TodayEveryoneSection from "./TodayEveryoneSection";
 import TodayKidSection from "./TodayKidSection";
 import { groupItems, type TodayItem, type Child } from "./groupItems";
 import type { CardHandlers } from "./TodayItemCard";
-import { resolveLessonSubject } from "@/lib/lesson-subject";
+import { oneOffTitleSubject, resolveLessonSubject } from "@/lib/lesson-subject";
 
 // ─── Source-row shapes the page already loads (mirror dashboard/page.tsx) ──
 
@@ -110,7 +110,11 @@ function toItems(
       time: lessonTime(l),
       duration_minutes: l.minutes_spent,
       title: l.title,
-      subject_label: resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label),
+      // A one-off lesson ("Plan this week", Add a lesson) has no subjects row
+      // or curriculum; its subject is the "Subject · " prefix of its title.
+      subject_label:
+        resolveLessonSubject(l.subjects?.name, l.curriculum_goals?.subject_label)
+        ?? oneOffTitleSubject(l.title, l.curriculum_goal_id),
       lesson_number: l.lesson_number ?? null,
       completed: l.completed,
       raw: l,
@@ -168,7 +172,11 @@ export default function TodaySchedule({
   const onlyKid = children.length === 1;
 
   return (
-    <div>
+    // data-testid marks where TODAY's cards live. The Upcoming/Past tabs below
+    // render the same "Subject · Lesson N" heading (lessonRowTitle), so a smoke
+    // assertion about what is due TODAY has to be rooted here rather than on
+    // the page, or tomorrow's lesson satisfies it from the Upcoming tab.
+    <div data-testid="today-schedule">
       {/* Header */}
       <div className="flex items-center justify-between px-0.5 -mb-1">
         <p className="text-[13px] font-medium uppercase tracking-[0.8px] text-[#8a8580]">Today&apos;s lessons</p>

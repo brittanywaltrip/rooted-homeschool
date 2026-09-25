@@ -17,6 +17,8 @@ import {
   lessonReportDescription,
   lessonReportSubject,
   subjectTableTotals,
+  buildRemovalContext,
+  removedCurriculumName,
   type ReportLessonRow,
 } from './progress-report-rows.ts'
 
@@ -183,10 +185,11 @@ test('only the spaced middle dot counts, not a hyphen or a bare dot', () => {
   //
   // 'Math — Lesson 3' was in this list until 2026-09-09. It is no longer a
   // "must not be split" case: the spaced em dash is the Schedule Builder's own
-  // title format, so on a row with NO curriculum it now identifies an orphaned
-  // curriculum lesson and resolves to 'Math' under rule 5. See "an orphaned
-  // curriculum lesson takes its subject from the title" below. The middle-dot
-  // rule itself is unchanged, which is what this test is about.
+  // title format, and on a row with NO curriculum it can name a removed
+  // curriculum under rule 5, but only when the family's records establish the
+  // removal. See "an orphaned lesson is labelled a removed curriculum only
+  // when removal is established" below. The middle-dot rule itself is
+  // unchanged, which is what this test is about.
   for (const title of ['Math - Addition', 'Math·Addition', 'Math: Addition']) {
     assert.equal(
       lessonReportSubject(row({ title, curriculum_goal_id: null })),
@@ -223,9 +226,15 @@ test('the attendance page uses the shared resolver and groups by it', () => {
     'the page imports the shared resolver',
   )
   assert.ok(
-    /lessonReportSubject\(l, "Unassigned"\)/.test(src),
-    'and calls it with its own fallback wording',
+    /lessonReportSubject\(l, "Unassigned", removal\)/.test(src),
+    'and calls it with its own fallback wording and the removal context',
   )
+  // The family's own subject is read, so a lesson kept after its curriculum was
+  // deleted still prints under the subject the delete carried onto it.
+  assert.ok(/subjects\(name\)/.test(src.slice(src.indexOf('const LESSON_COLUMNS'), src.indexOf('const LESSON_COLUMNS') + 300)),
+    'LESSON_COLUMNS reads subjects(name)')
+  assert.ok(/from\("app_events"\)\.select\("payload"\)\.eq\("user_id", effectiveUserId\)\.eq\("type", "curriculum_goal\.deleted"\)/.test(src),
+    'removal is established from the family\'s own deletion records')
   assert.ok(
     !/\?\? "Unassigned"/.test(src),
     'the hand-rolled subject_label fallback is gone',
@@ -247,22 +256,62 @@ test('the attendance page uses the shared resolver and groups by it', () => {
 
 const MDASH = ' — Lesson '
 
-test('an orphaned curriculum lesson takes its subject from the title', () => {
+// The family's own records: "Apologia" and "Happy Cheetah" were deleted;
+// "Saxon Math" was deleted once but a curriculum by that name exists again.
+const removal = buildRemovalContext(['Apologia', ' happy cheetah ', 'Saxon Math'], ['Saxon Math', 'Reading'])
+
+test('an orphaned lesson is labelled a removed curriculum only when removal is established', () => {
   assert.equal(
-    lessonReportSubject(row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null })),
-    'Apologia',
+    lessonReportSubject(row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null }), 'General', removal),
+    'Apologia (removed curriculum)',
   )
-  // Both report fallbacks, since the Attendance Log passes its own.
+  // Both report fallbacks, since the Attendance Log passes its own. Name match
+  // ignores case and surrounding space.
   assert.equal(
-    lessonReportSubject(row({ title: `Happy Cheetah${MDASH}12`, curriculum_goal_id: null }), 'Unassigned'),
-    'Happy Cheetah',
+    lessonReportSubject(row({ title: `Happy Cheetah${MDASH}12`, curriculum_goal_id: null }), 'Unassigned', removal),
+    'Happy Cheetah (removed curriculum)',
   )
 })
 
+test('no removal is claimed without the evidence', () => {
+  const orphan = row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null })
+  // No context at all: nothing can be established.
+  assert.equal(lessonReportSubject(orphan, 'Unassigned'), 'Unassigned')
+  // No deletion record for that name.
+  assert.equal(
+    lessonReportSubject(row({ title: `Math Mammoth${MDASH}4`, curriculum_goal_id: null }), 'Unassigned', removal),
+    'Unassigned',
+  )
+  // A curriculum by that name exists now, so the row may simply be detached.
+  assert.equal(
+    lessonReportSubject(row({ title: `Saxon Math${MDASH}2`, curriculum_goal_id: null }), 'Unassigned', removal),
+    'Unassigned',
+  )
+  // Not the builder's exact title shape: trailing words after the number.
+  assert.equal(
+    lessonReportSubject(row({ title: `Apologia${MDASH}1 review`, curriculum_goal_id: null }), 'Unassigned', removal),
+    'Unassigned',
+  )
+  assert.equal(removedCurriculumName(orphan, null), null)
+})
+
+test('the family\'s own subject beats any curriculum label, and a curriculum is never printed as a subject', () => {
+  assert.equal(
+    lessonReportSubject(row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null, subjects: { name: 'Science' } }), 'General', removal),
+    'Science',
+  )
+  // Without established removal the title prefix is NOT used as a subject.
+  assert.notEqual(lessonReportSubject(row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null })), 'Apologia')
+})
+
 test('the orphan rule keeps the whole title as the description', () => {
-  const r = logRow(row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null }))
-  assert.equal(r.subject, 'Apologia')
+  const r = lessonDailyLogRow({ lesson: row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null }), childName: 'Ava', minutes: 30, estimated: false, removal })
+  assert.equal(r.subject, 'Apologia (removed curriculum)')
   assert.equal(r.description, `Apologia${MDASH}1`)
+  // Unestablished: the saved title is still printed in full.
+  const u = logRow(row({ title: `Apologia${MDASH}1`, curriculum_goal_id: null }))
+  assert.equal(u.subject, 'General')
+  assert.equal(u.description, `Apologia${MDASH}1`)
 })
 
 test('a row that still has its curriculum never uses the orphan rule', () => {

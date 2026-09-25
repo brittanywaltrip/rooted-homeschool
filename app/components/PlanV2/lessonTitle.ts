@@ -16,14 +16,29 @@ export function lessonRowTitle(args: {
   title: string | null | undefined;
   subject: string | null | undefined;
   curriculumName: string | null | undefined;
+  /**
+   * The curriculum a lesson came from, ONLY when its removal is established
+   * (removedCurriculumName in lib/progress-report-rows.ts). Never pass a name
+   * merely read off a title.
+   */
+  removedCurriculum?: string | null;
+  completed?: boolean;
 }): string {
   const subject = args.subject?.trim() || null;
   const curriculum = args.curriculumName?.trim() || null;
-  if (args.lessonNumber != null) {
-    return `${subject ?? curriculum ?? "Lesson"} · Lesson ${args.lessonNumber}`;
-  }
+  const removed = args.removedCurriculum?.trim() || null;
   const own = args.title?.trim() || null;
-  return own ?? subject ?? curriculum ?? "Lesson";
+  const nothing = args.completed ? "Completed lesson" : "Lesson";
+  if (args.lessonNumber != null) {
+    const lead = subject ?? curriculum ?? (removed ? `${removed} (removed curriculum)` : null);
+    if (lead) return `${lead} · Lesson ${args.lessonNumber}`;
+    // A numbered lesson with no subject and no curriculum: one kept after its
+    // curriculum was deleted, or a standalone lesson given a number. Nothing
+    // establishes which, so it shows its own saved title rather than the
+    // literal "Lesson · Lesson 12" it used to.
+    return own ?? `${nothing} ${args.lessonNumber}`;
+  }
+  return own ?? subject ?? curriculum ?? nothing;
 }
 
 /**
