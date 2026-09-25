@@ -48,7 +48,7 @@ test('a reused one-off lesson creates independent entries and report time for tw
     seededId = seeded.id;
 
     await gotoAppPage(page, '/dashboard/plan');
-    await page.getByRole('button', { name: 'Add to your plan' }).click();
+    await page.getByRole('button', { name: 'Add a lesson, appointment, activity, curriculum or break' }).click();
     await page.getByRole('dialog', { name: 'Add to your plan' })
       .getByText('Add a lesson', { exact: true }).click();
     const form = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Add a lesson' }) });
@@ -66,7 +66,7 @@ test('a reused one-off lesson creates independent entries and report time for tw
 
     // Log the same saved title once more; each child's completion and minutes
     // must be independent on the report, not one shared lesson counted twice.
-    await page.getByRole('button', { name: 'Add to your plan' }).click();
+    await page.getByRole('button', { name: 'Add a lesson, appointment, activity, curriculum or break' }).click();
     await page.getByRole('dialog', { name: 'Add to your plan' })
       .getByText('Log a lesson you did', { exact: true }).click();
     const logForm = page.locator('form').filter({ has: page.getByRole('heading', { name: 'Log a lesson you did' }) });
