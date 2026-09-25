@@ -209,7 +209,7 @@ test.describe('Transcript hours source', { tag: TAG }, () => {
     page.route(
       (url) =>
         url.pathname.endsWith('/rest/v1/lessons') &&
-        decodeURIComponent(url.search).includes('select=curriculum_goal_id,minutes_spent,completed') &&
+        decodeURIComponent(url.search).includes('select=curriculum_goal_id,minutes_spent') &&
         !!goalId && url.search.includes(goalId),
       (route) => route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ message: 'e2e: simulated read failure' }) }),
     )

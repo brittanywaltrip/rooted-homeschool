@@ -296,11 +296,14 @@ export default function MemoriesPage() {
     // trial apart from an expired one, and every profile in production has it
     // set, so selecting only is_pro would resolve every trial account to
     // 'free' and hide their history the day they signed up.
-    const { data: profile } = await supabase
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("is_pro, plan_type, trial_started_at")
       .eq("id", effectiveUserId)
       .single();
+    // An unknown access tier could silently apply the free 30-day window and
+    // make an older library look empty. Keep the count unavailable instead.
+    if (profileError || !profile) throw profileError ?? new Error("Could not load memory access");
     const prof = profile as { is_pro?: boolean; plan_type?: string; trial_started_at?: string | null } | null;
     const userIsPro = prof?.is_pro ?? false;
     setIsPro(userIsPro);
@@ -328,11 +331,12 @@ export default function MemoriesPage() {
     // How much history is sitting outside the window. head:true so this costs
     // a count and returns no rows.
     if (windowed) {
-      const { count: olderCount } = await supabase
+      const { count: olderCount, error: olderCountError } = await supabase
         .from("memories")
         .select("id", { count: "exact", head: true })
         .eq("user_id", effectiveUserId)
         .lt("date", dateFloor);
+      if (olderCountError) throw olderCountError;
       setHiddenOlderCount(olderCount ?? 0);
     } else {
       setHiddenOlderCount(0);

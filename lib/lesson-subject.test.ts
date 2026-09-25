@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { resolveLessonSubject } from "./lesson-subject.ts";
+import { oneOffTitleSubject, resolveLessonSubject } from "./lesson-subject.ts";
 
 test("subjects.name set, goal.subject_label set → returns subjects.name (preferred)", () => {
   assert.equal(resolveLessonSubject("Math", "Mathematics"), "Math");
@@ -52,3 +52,13 @@ test("undefined for both args (e.g., row missing the join entirely) → returns 
   assert.equal(resolveLessonSubject(undefined, null), null);
   assert.equal(resolveLessonSubject(null, undefined), null);
 });
+
+test('oneOffTitleSubject reads the subject a one-off lesson carries in its title', () => {
+  assert.equal(oneOffTitleSubject('Unit study · Week 12.1', null), 'Unit study')
+  assert.equal(oneOffTitleSubject('  Nature Study · Compare leaves ', null), 'Nature Study')
+  assert.equal(oneOffTitleSubject('Unit study', null), null, 'no subject prefix')
+  assert.equal(oneOffTitleSubject(' · Week 12.1', null), null)
+  assert.equal(oneOffTitleSubject(`${'x'.repeat(41)} · Week 1`, null), null, 'longer than the 40-character subject field')
+  assert.equal(oneOffTitleSubject('Math · Lesson 3', 'goal-1'), null, 'a curriculum lesson takes its subject from the curriculum')
+  assert.equal(oneOffTitleSubject(null, null), null)
+})

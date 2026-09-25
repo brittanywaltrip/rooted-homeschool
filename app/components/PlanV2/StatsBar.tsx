@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { PlanV2Lesson } from "./types";
+import { lessonMinutes } from "@/lib/lesson-minutes";
 
 /* ============================================================================
  * StatsBar — compact viewport totals rendered above the calendar card.
@@ -11,9 +12,10 @@ import type { PlanV2Lesson } from "./types";
  * field_trips). Updates automatically whenever the parent's filter or
  * month window changes.
  *
- * Hours math uses minutes_spent when present, falling back to a 30-minute
- * estimate when a lesson has no recorded duration. The "~" prefix surfaces
- * when ANY lesson fell back so the user knows the number is approximate.
+ * Hours math is lib/lesson-minutes.ts, the rule every total shares: recorded
+ * minutes (a recorded 0 included), else a saved hours value, else the
+ * estimate. The "~" prefix surfaces when ANY lesson fell back to the estimate
+ * so the user knows the number is approximate.
  * ==========================================================================*/
 
 export type StatsMemory = {
@@ -51,14 +53,9 @@ export default function StatsBar(props: StatsBarProps) {
     for (const l of lessonsInView) {
       if (l.completed) completed++;
       if (l.completed) {
-        if (l.minutes_spent != null) {
-          mins += l.minutes_spent;
-        } else {
-          // Fall back to an estimated 30 min per completed lesson — matches
-          // the legacy report default.
-          mins += 30;
-          est = true;
-        }
+        const m = lessonMinutes(l);
+        mins += m.minutes;
+        if (m.estimated) est = true;
       }
     }
     return {

@@ -2692,7 +2692,12 @@ export default function TodayPage() {
     const lesson = lessons.find(l => l.id === id);
     if (!lesson) return;
     let defaultMins = 30;
-    if (lesson.curriculum_goal_id) {
+    // Minutes the parent already planned for this lesson ("Plan this week",
+    // Add a lesson) are the time she expects, so they are what the sheet
+    // offers; the curriculum default is only for a lesson with none.
+    if (lesson.minutes_spent != null && lesson.minutes_spent > 0) {
+      defaultMins = lesson.minutes_spent;
+    } else if (lesson.curriculum_goal_id) {
       const { data: goalRow } = await supabase
         .from("curriculum_goals")
         .select("default_minutes")
@@ -5702,7 +5707,9 @@ export default function TodayPage() {
 
                 {/* Helper text */}
                 <p className="text-xs text-[#5c7f63] text-center mb-5">
-                  {defaultMinutes} min is your default, change it if today was different
+                  {lesson.minutes_spent != null && lesson.minutes_spent > 0
+                    ? `You planned ${defaultMinutes} min, change it if today was different`
+                    : `${defaultMinutes} min is your default, change it if today was different`}
                 </p>
 
                 {/* Log it button */}

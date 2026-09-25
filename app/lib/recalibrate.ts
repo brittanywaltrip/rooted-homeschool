@@ -11,6 +11,8 @@ import {
   type CurriculumGoalConfig,
   type VacationBlock,
 } from "./scheduler.ts";
+import { sumLessonMinutes, type LessonMinutesTotal } from "../../lib/lesson-minutes.ts";
+import { queueOutOfBookOrder, restoreQueueBookOrder } from "./move-keep-slot.ts";
 
 /* ============================================================================
  * recalibrate.ts — shared "I'm actually on lesson X" recalibration.
@@ -88,6 +90,9 @@ export interface RecalibrateGapRow {
   skipped?: boolean | null;
   completed?: boolean | null;
   scheduled_date?: string | null;
+  /** Read so the form can promise the hours Reports will count (addedReportMinutes). */
+  minutes_spent?: number | null;
+  hours?: number | null;
 }
 
 /**
@@ -151,11 +156,16 @@ export function formatLessonList(numbers: readonly number[], capital = false): s
 }
 
 /**
- * What an estimate adds to Reports. Estimates carry no minutes, and Reports
- * counts a completed lesson with none as 30 (app/dashboard/reports/page.tsx).
- * If the shared lesson-minutes rule lands (PR #96), read its constant instead.
+ * What a Yes adds to the family's hours: exactly what Reports will count for
+ * these lessons once they are done, through the one shared rule
+ * (lib/lesson-minutes.ts). An estimate writes no minutes, so a lesson with none
+ * counts ESTIMATED_MINUTES_PER_LESSON; one that already carries recorded
+ * minutes, or a saved hours value, counts that. The promise and the report
+ * cannot disagree because they are the same call.
  */
-export const ESTIMATE_REPORT_MINUTES = 30;
+export function addedReportMinutes(rows: readonly RecalibrateGapRow[]): LessonMinutesTotal {
+  return sumLessonMinutes(rows);
+}
 
 /** "30 minutes", "1 hour", "3 hours 30 minutes". */
 export function formatAddedTime(minutes: number): string {
@@ -208,6 +218,10 @@ export interface RecalibrateResult {
   respread: ConfirmedWriteOutcome;
   /** Phase 5 could not read the upcoming lessons, so it moved nothing. */
   respreadReadFailed: boolean;
+  /** Phase 0 put a drifted queue back in book order first. */
+  bookOrderRestored: boolean;
+  /** The lesson the family is on was pinned elsewhere; its pin was released so it is due now. */
+  releasedPin: ConfirmedWriteOutcome;
 }
 
 /** True when every write the recalibration asked for landed. */
@@ -216,6 +230,7 @@ export function recalibrateFullyApplied(r: RecalibrateResult): boolean {
     r.estimates.failedIds.length === 0 &&
     r.unscheduled.failedIds.length === 0 &&
     r.respread.failedIds.length === 0 &&
+    r.releasedPin.failedIds.length === 0 &&
     !r.respreadReadFailed
   );
 }
@@ -243,6 +258,36 @@ export async function recalibrateCurriculumGoal(opts: {
 }): Promise<RecalibrateResult> {
   const { supabase, goalId, newCurrentLesson, vacationBlocks } = opts;
   const recordHistory = opts.recordHistory === true;
+
+  // ── Phase 0: book order. ────────────────────────────────────────────────
+  // "I'm actually on lesson X" is a statement about the BOOK, but the pointer
+  // and every projector count queue slots. A Plan move made with
+  // move_lesson_to_date renumbered the slots, so the two disagreed: after
+  // moving lesson 4 to a later day, slot 4 held lesson 5, "I'm on lesson 4"
+  // wrote current_lesson 3 (which it already was) and Today kept showing
+  // lesson 5. After a later lesson was completed in a higher slot, the lesson
+  // before it sat behind the pointer, invisible on Today, and no number the
+  // family could type brought it back (a family's four tries on 2026-08-26/27).
+  // So when the order has drifted it is put back first, in one transaction:
+  // the same slots, reassigned in lesson_number order. The form words its
+  // question from the same view (bookOrderView), so a Yes names the same
+  // lessons this write reads. Nothing is written if this fails.
+  const localDay = toDateStr(new Date());
+  const { data: orderRows, error: orderErr } = await supabase
+    .from("lessons")
+    .select("lesson_number, queue_position")
+    .eq("curriculum_goal_id", goalId)
+    .not("lesson_number", "is", null)
+    .not("queue_position", "is", null);
+  if (orderErr) throw new Error(orderErr.message);
+  let bookOrderRestored = false;
+  if (queueOutOfBookOrder((orderRows ?? []) as { lesson_number: number | null; queue_position: number | null }[])) {
+    const restored = await restoreQueueBookOrder(supabase, goalId, localDay);
+    if (restored.status === "failed") {
+      throw new Error("Couldn't put this curriculum's lessons back in order. Nothing was changed. Try again.");
+    }
+    bookOrderRestored = restored.status === "restored";
+  }
 
   // ── Phase 1: fetch the goal so we can clamp. ────────────────────────────
   const { data: goalRow, error: goalErr } = await supabase
@@ -461,6 +506,26 @@ export async function recalibrateCurriculumGoal(opts: {
     }
   }
 
+  // ── The lesson they are on is due now. ──────────────────────────────────
+  // A pin on it (a day the family moved it to, or a day "Move just this
+  // lesson" held it on) would keep it off Today while the pointer says it is
+  // next. Released, it takes the projector's first open day in Phase 5.
+  let releasedPin: ConfirmedWriteOutcome = NO_WRITES;
+  const { data: pinnedX } = await supabase
+    .from("lessons")
+    .select("id")
+    .eq("curriculum_goal_id", goalId)
+    .eq("lesson_number", clamped)
+    .eq("completed", false)
+    .eq("queue_pinned", true);
+  const pinnedXIds = ((pinnedX ?? []) as { id: string }[]).map((r) => r.id);
+  if (pinnedXIds.length > 0) {
+    releasedPin = await confirmedLessonsUpdate(supabase, pinnedXIds, {
+      queue_pinned: false,
+      scheduled_source: PARENT_RESPREAD_SOURCE.recalibrate,
+    });
+  }
+
   // ── Phase 5: re-align cached scheduled_date on the upcoming queue. ──────
   // syncProjectedScheduledDates skips completed + is_backfill rows, so the
   // estimate-stamped gap rows stay put.
@@ -512,7 +577,10 @@ export async function recalibrateCurriculumGoal(opts: {
     supabase,
     rows,
     projDateByKey,
-    (r) => (r.lesson_number != null ? `${goalId}|${r.lesson_number}` : null),
+    // Keyed by queue slot, which is what the projector emits
+    // (ProjectedLesson.lesson_number IS the slot). Keying by lesson_number
+    // wrote the date of a different lesson's slot whenever the two differed.
+    (r) => (r.queue_position != null ? `${goalId}|${r.queue_position}` : null),
     PARENT_RESPREAD_SOURCE.recalibrate,
   );
 
@@ -526,5 +594,7 @@ export async function recalibrateCurriculumGoal(opts: {
     unscheduled,
     respread,
     respreadReadFailed: !!rowsErr,
+    bookOrderRestored,
+    releasedPin,
   };
 }

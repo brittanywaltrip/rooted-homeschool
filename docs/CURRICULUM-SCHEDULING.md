@@ -2,9 +2,47 @@
 
 *The rules the scheduler must follow. Read this BEFORE touching `app/lib/scheduler.ts`, `app/components/CurriculumWizard.tsx`, the catch-up modal, or anything that writes to the `lessons` table.*
 
-*Last updated: September 22, 2026. Neither way of saying "we're on lesson N" invents completed history any more. The Schedule Builder's "Already into it" asks whether to fill the earlier lessons in, defaulting to NO, and only a Yes derives a past start date, runs the backfill or gives Invariant 21 anything to weigh; the question is offered only on a curriculum that is not saved yet (see "Where are you with this?"). "I'm actually on lesson X" asks the same question with the same default and writes its `'recalibrate_estimate'` rows only on Yes. Also September 22: adds Invariant 23 (a lesson reopened behind the pointer is a make-up that holds its day) and moves the Schedule Builder's phase 2 onto one transaction, `apply_builder_rebuild`, validated on its complete result before any write (Sentry ROOTED-HOMESCHOOL-1Q). September 15, 2026: Notes how the Schedule Builder now asks for lessons_per_day_overrides (one stepper, plus an opt-in per-day list). Adds the counting rule under the invariants intro: a recalibration estimate row counts toward current_lesson like a real completion, a continuation row never does. Also September 15: Invariant 1 notes the save-time scope of the guarantee. September 14, 2026: adds Invariant 22 (a skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number). September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
+*Last updated: September 24, 2026. Adds Invariant 24: moving one lesson to a later day changes that lesson's day on Plan AND on Today and nothing else's. "Move just this lesson", drag and drop and the week list's Move picker keep the lesson's queue slot (`move_lesson_keep_slot`) and hold the later lessons between today and the new day on their dates (`'plan_hold'`); "Shift all remaining lessons forward" keeps the slot and re-spreads after it, so it really shifts. "I'm actually on lesson X" puts a drifted queue back in book order first (`restore_queue_book_order`). September 22, 2026: Neither way of saying "we're on lesson N" invents completed history any more. The Schedule Builder's "Already into it" asks whether to fill the earlier lessons in, defaulting to NO, and only a Yes derives a past start date, runs the backfill or gives Invariant 21 anything to weigh; the question is offered only on a curriculum that is not saved yet (see "Where are you with this?"). "I'm actually on lesson X" asks the same question with the same default and writes its `'recalibrate_estimate'` rows only on Yes. Also September 22: adds Invariant 23 (a lesson reopened behind the pointer is a make-up that holds its day) and moves the Schedule Builder's phase 2 onto one transaction, `apply_builder_rebuild`, validated on its complete result before any write (Sentry ROOTED-HOMESCHOOL-1Q). September 15, 2026: Notes how the Schedule Builder now asks for lessons_per_day_overrides (one stepper, plus an opt-in per-day list). Adds the counting rule under the invariants intro: a recalibration estimate row counts toward current_lesson like a real completion, a continuation row never does. Also September 15: Invariant 1 notes the save-time scope of the guarantee. September 14, 2026: adds Invariant 22 (a skipped lesson is never re-dated, never healed, never counted done, and the queue steps over its number). September 12, 2026 — adds "Where are you with this?" (the family types the next lesson number; dates derive from it). September 11, 2026 — adds Invariant 21 (a stated completion count is never silently reduced, decided BEFORE the first write) and wires Invariant 1 up to a real call site for the first time. September 8, 2026 added Invariant 16 (a completion is dated by the person, once, through completeLessonOnDate). September 7, 2026 added Invariant 15 (only a person may complete a lesson; the orphan cleanup unschedules instead of completing). August 24, 2026 added Invariant 14 (the orphan cleanup never moves current_lesson). July 30, 2026 added Invariant 12 (pinned manual placements, including the Schedule Builder phase-2 exception) and Invariant 13 (trigger-completed rows hold no future date cache). See those sections plus "Queue position" below.*
 
 **This is the single source of truth.** It lives in the repo at `docs/CURRICULUM-SCHEDULING.md`. The companion test file is `app/lib/scheduler.test.ts`. The companion CI workflow is `.github/workflows/scheduler-tests.yml`. CI will block any PR that touches scheduler-related code if the tests fail.
+
+**September 24, 2026 — shared one-off lesson entry.** Plan's Add a lesson form
+can select multiple children only when no curriculum goal is selected. It
+inserts one independent lesson per child in a single database statement, with
+the date the parent chose and `scheduled_source = 'plan_move'` (or
+`'extra_log'` for Log as done). These rows have no goal or queue slot, so
+the curriculum scheduler never moves them. Each child completes their own
+row; Reports reads the respective child's completion. The subject/title
+choices reuse only family-entered one-off titles, never generated curriculum
+lesson placeholders. No existing lesson or completion is rewritten.
+
+**"Plan this week" (parent-led weekly planner).** Plan's week view offers
+"Plan this week": the parent names a subject, picks the children and the days
+of the week on screen, and gives each day its own title ("Week 12.1",
+"Week 12.2"...; typing the first counts up the rest). Save inserts one row per
+child per chosen day, all in ONE statement, built by the same
+`oneOffLessonRows` as the shared one-off entry (`weekPlanRows` in
+`app/components/PlanV2/weekPlan.ts`) and tagged `scheduled_source =
+'week_plan'`. They are one-off rows: no goal, no queue slot, no lesson number,
+not completed. So no projector, re-date, Builder save, pointer recompute,
+orphan cleanup or missed-work rule reads them, and nothing moves them off the
+day the parent chose. Past days cannot be planned; break days are offered but
+not chosen by default. Each child checks off their own row (Invariant 15/16
+unchanged) and Hours & Attendance counts it on that child's report only, with
+the planned minutes, or the shared 30-minute estimate when none were given
+(`lessonMinutes` in `lib/lesson-minutes.ts`: the row's `hours: 0` is not a
+recorded time). Undo removes the planned
+lessons that are still unfinished.
+
+Today reads these one-offs as a family planned them: the subject header comes
+from the "Subject · " prefix of the title when there is no subjects row or
+curriculum (`oneOffTitleSubject` in `lib/lesson-subject.ts`, the same split
+the reusable one-off choices use); Upcoming lists unfinished one-offs dated
+from tomorrow through the same 15 days it projects curricula for; and the
+check-off sheet offers a lesson's planned minutes ("You planned 45 min")
+before the curriculum default. All three apply to Add a lesson's one-offs
+too. Tests: `app/components/PlanV2/weekPlan.test.ts`,
+`lib/lesson-subject.test.ts`, `e2e/smoke/week-planner.spec.ts`.
 
 ---
 
@@ -166,14 +204,16 @@ Every UPDATE or INSERT to `lessons.date` must set `lessons.scheduled_source` to 
 - `'vacation_resched'` — vacation block insert/edit
 - `'catchup_resched'` — catch-up modal accepted
 - `'skip_today'` — "skip rest of today" pushed today's incompletes forward. Retired September 2026: the Running late sheet that held it was never drawn, so it and its handler were removed. Older rows still carry the label.
-- `'plan_move'` — user dragged or rescheduled a single lesson on the Plan page (queue reorder), changed its date in Edit lesson, or placed a numbered curriculum lesson on a day with Add a lesson (`addLessonPlacement`, September 2026)
+- `'week_plan'` — a one-off lesson the parent planned with Plan's "Plan this week" (September 2026): no goal, no queue slot, never re-dated by any system path.
+- `'plan_move'` — user dragged or rescheduled a single lesson on the Plan page, changed its date in Edit lesson, or placed a numbered curriculum lesson on a day with Add a lesson (`addLessonPlacement`, September 2026). A move to a later day keeps the lesson's queue slot (`move_lesson_keep_slot`, Invariant 24); a move to an earlier day still reorders the queue (`move_lesson_to_date`).
+- `'plan_hold'` — "Move just this lesson" (and any single move to a later day) held this lesson on the date it already had, so the moved lesson's pin could not push it later (Invariant 24). The date is not written; the row is pinned and relabelled. Undo puts back the pin and source it had.
 - `'queue_resync'` — Plan / Today data loader aligned the cached scheduled_date with the queue projector's output (no user-visible change, just keeps the cache honest after current_lesson advances or a `plan_move` shifts siblings without re-dating them). AUTOMATIC ONLY: `syncProjectedScheduledDates` is its one writer, it is gated by `NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED` inside the helper, and no action a parent takes may write it (September 2026, see "Parent re-spreads" below).
 - `'catchup_spread'`, `'catchup_pushback'`, `'plan_cascade_shift'`, `'recalibrate_respread'`: a PARENT asked for the projector's answer: Plan catch-up re-spread, push back N school days, the tail of a cascade shift, and "I'm actually on lesson X". Written by `reprojectGoalForParent` / `writeParentProjectedDates`, never gated by the automatic switch.
 - `'skip_respread'`, `'skip_undo'`: a PARENT skipped a lesson (the lessons after it move up) or unskipped one, or undid a bulk skip (the queue is re-dated around it). Also `'catchup_spread'` from Today's recovery Yes and No. Written by `resyncGoalsForParent`, which projects exactly as the automatic reconciler does (pins held, skips stepped over, the per-day cap, lessons completed today counted against today) but is never gated by the switch and never writes `'queue_resync'`. Distinct sources on purpose: renaming the automatic writer's source would walk straight past the containment trigger.
 - `'completion_respread'`, `'uncomplete_respread'`: a PARENT marked lessons done (on time, early, late, on a chosen past day, in bulk, from the Today extra-lessons sheet or prior-lesson card, from "Log a lesson you did", the Plan past-day checklist, or a past-date move) or un-marked one (single uncheck, bulk-done undo, removing a logged lesson, deleting a completed record on Reports). The pointer moved, so the rest of that curriculum is re-dated from it by `resyncGoalsForParent`, counting lessons completed today exactly as Today does. Only incomplete rows are written; completed history, pins, skips, school days, breaks and the per-day cap are kept. Without it, with the automatic reconciler off, Plan kept the old dates while Today moved on. A failed re-date is said (`COMPLETION_RESPREAD_FAILED_NOTE`) and never rolls the completion back.
 - `'daily_reconcile'`: the once-a-day reconciliation (`app/lib/daily-reconcile.ts`, SQL `public.apply_daily_reconcile`). When a school day passes with a family behind or ahead of plan, it re-dates each curriculum's unfinished, unpinned, unskipped, non-backfill lessons to what Today projects, at most once per curriculum per local day. The browser proposes; the function writes, only while the server switch `rooted_private.app_switches.daily_reconcile` is on (read at the moment of the call, so switching it off stops open tabs too), only if nothing it was computed from changed (pointer, pace, school days, overrides, start, breaks, pins, skips, today's completions, each row's date; otherwise `stale`), and never into the past. The day is logged in `rooted_private.daily_reconcile_log` in the same transaction as the writes, so a failure leaves it unmarked and retried.
 - `'undo_restore'`: an undo put a row back where the automatic projector had it. Written instead of restoring `'queue_resync'` (`sourceForUndoRestore`); every other snapshotted source is restored as it was.
-- `'recalibrate_estimate'` — synthesized completion date written by the "I'm actually on lesson X" recalibration gap-fill, ONLY when the family answers Yes to "Should Rooted mark lessons A to B as done?" (default No, September 22, 2026). The lessons it names are exactly the ones Yes completes, both decided by one pure rule, `planRecalibrateGap`: unfinished lessons after the saved `current_lesson` and before X, minus a lesson the family pinned (it keeps the day they moved it to, and the form says so) and minus a skipped one (Invariant 22). An unfinished row at or below the old position is a reopened make-up (Invariant 23) and is never part of it, whether found by its number or by its slot. The form states the hours the Yes adds (30 minutes each, Reports' rule for a lesson with no minutes). A Yes carries the ids of the lessons the family was shown (`confirmedLessonIds`); the write recomputes the list from a fresh read and refuses with `RecalibrateListChangedError`, before its first write, unless it is exactly that set, and a Yes without a list is refused the same way. The form keeps Save closed until it has read the lessons, if that read fails (it says so), and after a refusal, until the family reopens it. On No the gap rows stay unfinished and hold no date: the orphan cleanup unschedules the ones that carry nothing, and the recalibration unschedules the rest itself (unpinned rows the cleanup leaves dated because they carry notes; 2,030 such future lessons existed on 2026-09-22), tagged `'recalibrate_respread'`, notes and minutes kept, so no later builder save can turn them into make-ups. A row the family pinned keeps its day. The pointer holds through `start_at_lesson`, which is why the Schedule Builder writes `start_at_lesson` only when the family changed it in that session (`startAtLessonTouched`), and a restored draft takes the database's value unless the draft changed it: a stale tab or draft writing the old number back would otherwise undo the move. Estimate rows carry no minutes: their dates are estimated and so is their time. Lessons stamped with this source have completed_at + scheduled_date evenly distributed across the window between the goal's last real completion (or start_date / created_at) and yesterday. The Plan calendar lesson card surfaces an "Estimated date · tap to move." hint for these rows; moving the lesson via `move_lesson_to_date` overwrites the source with `'plan_move'`.
+- `'recalibrate_estimate'` — synthesized completion date written by the "I'm actually on lesson X" recalibration gap-fill, ONLY when the family answers Yes to "Should Rooted mark lessons A to B as done?" (default No, September 22, 2026). The lessons it names are exactly the ones Yes completes, both decided by one pure rule, `planRecalibrateGap`: unfinished lessons after the saved `current_lesson` and before X, minus a lesson the family pinned (it keeps the day they moved it to, and the form says so) and minus a skipped one (Invariant 22). An unfinished row at or below the old position is a reopened make-up (Invariant 23) and is never part of it, whether found by its number or by its slot. The form states the hours the Yes adds, counted by the one rule Reports counts with (`addedReportMinutes`, which is `sumLessonMinutes` from `lib/lesson-minutes.ts`): a listed lesson that already carries recorded minutes or a saved hours value is promised at that, and one with neither at `ESTIMATED_MINUTES_PER_LESSON`. A Yes carries the ids of the lessons the family was shown (`confirmedLessonIds`); the write recomputes the list from a fresh read and refuses with `RecalibrateListChangedError`, before its first write, unless it is exactly that set, and a Yes without a list is refused the same way. The form keeps Save closed until it has read the lessons, if that read fails (it says so), and after a refusal, until the family reopens it. On No the gap rows stay unfinished and hold no date: the orphan cleanup unschedules the ones that carry nothing, and the recalibration unschedules the rest itself (unpinned rows the cleanup leaves dated because they carry notes; 2,030 such future lessons existed on 2026-09-22), tagged `'recalibrate_respread'`, notes and minutes kept, so no later builder save can turn them into make-ups. A row the family pinned keeps its day. The pointer holds through `start_at_lesson`, which is why the Schedule Builder writes `start_at_lesson` only when the family changed it in that session (`startAtLessonTouched`), and a restored draft takes the database's value unless the draft changed it: a stale tab or draft writing the old number back would otherwise undo the move. Estimate rows carry no minutes: their dates are estimated and so is their time. Lessons stamped with this source have completed_at + scheduled_date evenly distributed across the window between the goal's last real completion (or start_date / created_at) and yesterday. The Plan calendar lesson card surfaces an "Estimated date · tap to move." hint for these rows; moving the lesson via `move_lesson_to_date` overwrites the source with `'plan_move'`.
 - `'manual_uncomplete'` — the user unchecked a completed lesson (`toggleLesson` in `app/components/PlanV2/usePlanLessonActions.ts`). This write does NOT move either date column; it exists to mark that the row went back into the queue, and it clears `is_backfill` alongside. Without that clear, a lesson logged on a past day (`catchup_resched` + `is_backfill`) and then unchecked kept its past date permanently: `syncProjectedScheduledDates` skips `is_backfill` rows, so the reconciler could never roll it forward and every load counted it as missed.
 - `'reopened'`: Invariant 23. A lesson unticked behind the pointer is pinned to the day it is due (its own day or today, whichever is later) by `public.reopen_lesson`, the one transaction both un-tick paths call (through `untickLessonThen` in `app/lib/reopen-lesson.ts`): it writes `manual_uncomplete`, lets the pointer trigger recompute, then writes `reopened` if the lesson is behind the pointer. The Schedule Builder's phase 2 writes the same source when it pins a row reopened before make-ups existed.
 - `'completion_pin'` — a lesson was marked done, so its calendar date was pinned
@@ -729,6 +769,7 @@ These tests MUST pass on `staging`, `main`, and `feat/plan-redesign`. Add new on
 | 24 | Invariant 21 claim scoping | Only rows this save claims something about are judged: an untouched refused-shape goal does not block an unrelated save, editing its starting position or school-week shape brings it back, a rename does not; phase 2 throws its backstop only for a claimed row and leaves an untouched short goal entirely alone rather than rebuilding it, and reports the shortfall. |
 | 25 | Skipped lessons (Invariant 22) | The projector steps over a skipped slot (lesson 12 skipped, `current_lesson` 11 projects 13 then 14); a skip takes no capacity; the reconciler never re-dates a skipped row; `planNextRow` never chooses one; every skip call site writes `skipped`, clears `scheduled_date` and `queue_pinned`, and never sends `date: null`. |
 | 27 | Starting at lesson N invents no history | The default sentence promises nothing is recorded and names the lesson they start on (singular, plural and lesson-1 shapes); a saved goal's sentence counts from its stored `current_lesson`; the opt-in sentence still describes the days it will write; every row constructor defaults the choice to no and nothing defaults it to yes; only an unsaved row can ask (`historyRequested`), and every reader goes through that one predicate; the backfill checks it BEFORE it reads any date; no history means no derived start date; the Invariant 21 pre-flight and the phase 2 backstop skip the same rows. `app/lib/recalibrate.test.ts`: by default a forward or backward recalibration completes nothing and the pointer still moves; Yes leaves a pinned lesson on its day and never completes a skipped one, and the form words its question and hours from the same `planRecalibrateGap` call; a Yes whose list changed after the form opened (a lesson completed or unpinned elsewhere), or that carries no list, is refused with nothing written; asking twice writes the gap once and leaves real completions exactly as they were; Yes never completes a reopened make-up, by slot or by number; No unschedules passed-over lessons that still hold a date, keeps their notes, and leaves pinned ones; lessons a No left behind are never swept up by a later move; estimates carry no minutes; no caller hardcodes Yes. The builder never writes an untouched `start_at_lesson` and a restored draft cannot either; the form counts from the saved position. |
+| 28 | One lesson moves (Invariant 24) | `app/lib/move-keep-slot.test.ts`: after "Move just this lesson", Plan's stored date and Today's projected date agree for every unfinished lesson, nothing of that curriculum is on today, and no queue slot changed; pins, skips, completed lessons and make-ups are kept; Shift all moves the later lessons the named school days and the finish date with them; the move_lesson_to_date companions pin the old failures. `app/lib/recalibrate.test.ts`: move then "I'm on lesson 4", and the stranded-lesson state, each end with the named lesson on today on both screens. SQL: `supabase/tests/move-keep-slot/run.sh`. |
 | 26 | Make-ups and the phase 2 commit (Invariant 23) | `app/lib/phase2-commit.test.ts`: a lesson unticked behind the pointer becomes a make-up on its day and Today shows it; the next lesson waits for tomorrow; repeated saves write nothing; notes and minutes survive; completed-today counts against today; stacked manual pins warn and never refuse; the 1Q plan is refused before any write; a failed transaction writes nothing. SQL: `supabase/tests/builder-rebuild/run.sh`. |
 
 ---
@@ -786,7 +827,7 @@ Added May 18, 2026 to close Ivy's bug: moving a lesson on the Plan page didn't r
 
 ### Writing rules — manual moves + orphan cleanup
 
-The `move_lesson_to_date(p_lesson_id, p_target_date)` Postgres function is the primary path that writes `queue_position` after creation. The orphan-cleanup trigger `trg_curriculum_goals_cleanup_orphans` (migration `20260519180000`) nulls `queue_position` on rows it marks complete; nulling keeps `recompute_curriculum_current_lesson` from re-counting cleaned-up rows in its `MAX(queue_position)` formula and so prevents a re-entry loop. No other code path may write `queue_position`.
+The `move_lesson_to_date(p_lesson_id, p_target_date)` Postgres function is the primary path that writes `queue_position` after creation. Since September 24, 2026 it is used only for a move to an EARLIER day, a one-off lesson and as a fallback: a move to a later day keeps the slot (`move_lesson_keep_slot`, Invariant 24). The other writer is `restore_queue_book_order`, called only by "I'm actually on lesson X" on a drifted queue. The orphan-cleanup trigger `trg_curriculum_goals_cleanup_orphans` (migration `20260519180000`) nulls `queue_position` on rows it marks complete; nulling keeps `recompute_curriculum_current_lesson` from re-counting cleaned-up rows in its `MAX(queue_position)` formula and so prevents a re-entry loop. No other code path may write `queue_position`.
 
 `move_lesson_to_date` is atomic:
 
@@ -1324,6 +1365,86 @@ never reported to the family as failed. Lessons completed today count against
 today's pace in the builder's projection, exactly as on Today.
 
 **Test case:** row 26 of the table above.
+
+### Invariant 24: Moving one lesson moves one lesson, on Plan and on Today
+
+When a family moves a single unfinished curriculum lesson to a LATER day and
+does not ask for the rest to shift, that lesson's day changes on every screen
+and no other lesson's day changes on any screen. The dialog says it in words:
+"Only this lesson moves. Lessons after it stay on their dates."
+
+**Why.** The move used `move_lesson_to_date`, which gives the lesson the queue
+slot after the target day's lessons and slides every lesson in between down
+one slot (Queue position, below). Plan draws stored dates, so Plan kept the
+promise. Today projects slots from today, so the next lesson in the book took
+the slot the moved one left: move lesson 4 off today and Today showed lesson 5,
+which Plan still had on Friday. A family cancelled over exactly that in August
+2026 (reproduced on rooted-staging 2026-09-24). The renumbering did two more
+things. "Shift all remaining lessons forward" re-spread the renumbered slots
+from today, so the later lessons moved EARLIER and the finish date it named
+never came. And a lesson completed in its renumbered, higher slot raised
+`current_lesson` (the highest completed slot) past the unfinished lesson it had
+been moved over, which then sat behind the pointer on no screen at all, where
+"I'm actually on lesson X" could not reach it: on 2026-09-24, 22 such lessons
+across 20 curricula and 10 families in production.
+
+**The rule.** `public.move_lesson_keep_slot(lesson, target, local_day,
+hold_between)` never writes `queue_position`. The lesson is pinned on its new
+day (`'plan_move'`). With `hold_between`, every unfinished, unskipped, unpinned
+lesson LATER in the queue and dated from the family's today through the target
+day is pinned where it already is (`'plan_hold'`, dates untouched), because the
+projector continues the queue after a pin and would otherwise push each of them
+past it. Nothing else is written. Not held: completed lessons, skipped lessons
+(Invariant 22), lessons the family already pinned (they keep their own source),
+make-ups (Invariant 23: a slot at or below the pointer holds no place in the
+queue, so moving one pushes nothing) and overdue lessons dated before today (a
+pin on a day already past would take them off Today).
+
+- **Every single move to a later day** goes through it: the reschedule dialog
+  ("Move just this lesson", and a move with nothing after it to shift), drag and
+  drop, and the week list's Move picker, all via `writeSingleMove` in
+  `app/components/PlanV2/index.tsx`. A move to an EARLIER day, a one-off lesson,
+  and a database without the function (PGRST202) keep `move_lesson_to_date`.
+- **"Shift all remaining lessons forward"** calls it without holds, then
+  re-spreads the rest with `reprojectGoalTail` (a parent re-spread). Because the
+  slot did not change, the projector lays every later lesson out after the pin,
+  and they land the promised number of school days later.
+- **Undo** restores exactly the rows the function reports it changed (each
+  row's prior date, pin and source), with no slot arithmetic.
+- **Capacity.** The target day may now hold more than `lessons_per_day` (the
+  moved lesson and the ones already there): the Invariant 2 carve-out below, a
+  soft warning. The projector places nothing unpinned beside them.
+- **Held lessons are pins.** They behave as every pin does (Invariant 12): the
+  automatic re-dates leave them alone, completing one retires it, and a
+  Schedule Builder save that changes that curriculum's schedule releases them.
+  A held lesson the family does not do on its day is overdue, as a moved lesson
+  already was; missed work (`computeMissedWork`) reads no dates and still asks.
+
+**"I'm actually on lesson X" puts the book back in order.** The number the
+family types is a lesson number; the pointer counts slots. When an earlier move
+left the queue out of book order the two disagree, so the recalibration first
+calls `public.restore_queue_book_order(goal, local_day)`: the slots the goal
+already holds, reassigned in lesson_number order, in one transaction. Only a
+family's own "I'm on lesson X" does this; no repair or background job
+realigns a family's drift (CLAUDE.md, "What makes a goal healthy"). The form
+words its question from the same view (`bookOrderView` in
+`app/lib/move-keep-slot.ts`), so a Yes names the lessons the write reads. The
+lesson they named, if pinned elsewhere, is released so it is due now, and the
+recalibration re-dates the upcoming lessons by queue slot (it keyed them by
+lesson number, which dated the wrong lesson whenever the two differed).
+
+**Test case:** `app/lib/move-keep-slot.test.ts` models both screens (Plan: the
+stored date; Today: the projector over the same rows) and asserts they agree
+after "Move just this lesson" with nothing on today and every later lesson on
+its date; that pins, skips, completed lessons and make-ups are kept; that the
+target day gains nothing unpinned; that "Shift all" moves the later lessons the
+named number of school days and the finish date with them; and, as companions,
+that `move_lesson_to_date` put lesson 5 on today and made Shift all pull the
+lessons earlier. `app/lib/recalibrate.test.ts` runs the two sequences through
+the real recalibration: move lesson 4, then "I'm on lesson 4" puts lesson 4 on
+today on both screens; and the stranded-lesson state (lesson 5 completed in slot 6)
+brings lesson 6 back with "I'm on lesson 6". SQL:
+`supabase/tests/move-keep-slot/run.sh`. Browser: `e2e/smoke/move-one-lesson.spec.ts`.
 
 ### Invariant 2 carve-out for manual moves
 
