@@ -5380,10 +5380,10 @@ export default function PlanV2() {
         style={{ background: "#F8F7F4" }}
       >
         <div id="plan-guide" hidden={!showPlanGuide} className="rounded-2xl border border-[#c8dfc8] bg-[#f0f7f2] px-4 py-4 text-[13px] text-[#2d4233] space-y-2">
-          <h2 className="font-semibold text-[15px]">Your plan in Rooted</h2>
-          <p><strong>Choose how to plan.</strong> Add a curriculum to make a schedule, or use Plan this week in Week view to choose the days and lessons yourself.</p>
-          <p><strong>Add what you need.</strong> Use + here or on a day to add a lesson, appointment or break. Log a lesson you did records work that is already finished.</p>
-          <p><strong>Adjust as you go.</strong> Move a lesson when plans change. Check it off on Today when it is done; that completed work counts in Reports.</p>
+          <h2 className="font-medium text-[15px]">Your plan in Rooted</h2>
+          <p><span className="font-medium">Choose how to plan.</span> Add a curriculum to make a schedule, or use Plan this week in Week view to choose the days and lessons yourself.</p>
+          <p><span className="font-medium">Add what you need.</span> Use + here or on a day to add a lesson, appointment or break. Log a lesson you did records work that is already finished.</p>
+          <p><span className="font-medium">Adjust as you go.</span> Move a lesson when plans change. Check it off on Today when it is done; that completed work counts in Reports.</p>
         </div>
         {/* Recovery card — shown when a year close left the account without an
             active school year. Warm, no guilt, one tap to pick back up. */}
