@@ -581,7 +581,7 @@ export default function GardenPage() {
         </div>
       </details>
 
-      {/* ── First-visit tip ───────────────────────────────── */
+      {/* ── First-visit tip ───────────────────────────────── */}
       {!tipDismissed && totalLeaves === 0 && (
         <div className="flex items-start gap-3 rounded-xl border-l-4 border-[#7ab87a] bg-[#f4faf4] px-4 py-3">
           <div className="flex-1 min-w-0">
