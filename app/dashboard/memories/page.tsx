@@ -844,8 +844,21 @@ export default function MemoriesPage() {
 
   return (
     <>
-    <PageHero overline="Your Family Story" title="Memories" subtitle="Photos, drawings, wins, books, field trips, everything." />
+    <PageHero
+      overline="Your Family Story"
+      title="Memories"
+      subtitle="Browse the moments you saved, choose what goes in your Yearbook, and share the ones you want family to see."
+    />
     <div className="max-w-3xl px-4 pt-5 pb-7 space-y-5">
+
+      <details className="rounded-2xl border border-[#dce8dd] bg-[#f3f8f3] px-4 py-3.5 text-[13px] text-[#2d4233]">
+        <summary className="cursor-pointer font-semibold text-[#2D5A3D]">How Memories works</summary>
+        <div className="mt-3 space-y-2 leading-relaxed">
+          <p><strong>Save a moment.</strong> Capture Memory opens Today, where you can add a photo, win, book, drawing, or trip.</p>
+          <p><strong>Find it again.</strong> Browse by child or type, search, or mark a favorite. Tap a memory to see its details.</p>
+          <p><strong>Make it yours.</strong> Mark the moments you want in your Yearbook. You can also choose whether each memory is visible to family.</p>
+        </div>
+      </details>
 
       {/* ── Quick Actions ─────────────────────────────────── */}
       <div>
@@ -865,7 +878,7 @@ export default function MemoriesPage() {
           >
             <div className="w-10 h-10 rounded-xl bg-[#fef6e4] flex items-center justify-center text-lg mb-2">📖</div>
             <p className="text-[13px] font-bold text-[#2D2A26] leading-tight">Yearbook</p>
-            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">{loading ? "Loading memories…" : loadError ? "Memories unavailable" : `${memories.filter((m) => m.include_in_book).length} memories saved this year`}</p>
+            <p className="text-[11px] text-[#8B7E74] mt-1 leading-snug">{loading ? "Loading memories…" : loadError ? "Memories unavailable" : `${memories.filter((m) => m.include_in_book).length} ${isFreeWindowed ? "recent memories" : "memories"} marked for Yearbook`}</p>
           </Link>
           <Link
             href="/dashboard/settings?tab=family#family-sharing"
