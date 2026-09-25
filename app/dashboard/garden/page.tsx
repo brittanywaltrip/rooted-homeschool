@@ -569,11 +569,19 @@ export default function GardenPage() {
       <PageHero
         overline="Your"
         title="Garden"
-        subtitle="Watch your family grow"
+        subtitle="Each child grows a tree as you log lessons, activities, and memories."
       />
       <div className="max-w-3xl mx-auto px-4 pt-3 pb-7 space-y-4 overflow-x-hidden">
 
-      {/* ── First-visit tip ───────────────────────────────── */}
+      <details className="rounded-2xl border border-[#dce8dd] bg-[#f3f8f3] px-4 py-3.5 text-[13px] text-[#2d4233]">
+        <summary className="cursor-pointer font-medium text-[#2D5A3D]">How Garden grows</summary>
+        <div className="mt-3 space-y-2 leading-relaxed">
+          <p>A completed lesson, logged book, captured memory, or completed activity earns a leaf for the child involved.</p>
+          <p>Tap a child to see their tree and next growth stage. Their tree starts fresh each school year; closed years stay in Years.</p>
+        </div>
+      </details>
+
+      {/* ── First-visit tip ───────────────────────────────── */
       {!tipDismissed && totalLeaves === 0 && (
         <div className="flex items-start gap-3 rounded-xl border-l-4 border-[#7ab87a] bg-[#f4faf4] px-4 py-3">
           <div className="flex-1 min-w-0">
@@ -840,14 +848,6 @@ export default function GardenPage() {
           ))}
         </div>
       )}
-
-      {/* ── How leaves are earned ─────────────────────────── */}
-      <div className="text-center">
-        <p className="text-[12px] font-medium text-[#5C5346] mb-1">How leaves are earned:</p>
-        <p className="text-[11px] text-[#8B7E74]">
-          Complete a lesson = 1 leaf · Log a book = 1 leaf · Capture a memory = 1 leaf · Complete an activity = 1 leaf
-        </p>
-      </div>
 
       {/* ── Child Toggle Pills ────────────────────────────── */}
       {children.length > 1 && (
