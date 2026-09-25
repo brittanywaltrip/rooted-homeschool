@@ -783,14 +783,23 @@ export default function PrintablesPage() {
 
   return (
     <>
-    <PageHero overline="Your Family's" title="Printables" subtitle="Made for you, not by you. Your certificates and ID cards, made beautiful automatically." />
+    <PageHero overline="Your Family's" title="Printables" subtitle="Make a year planner, photo frame, certificate, or ID card for your family." />
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-10">
+
+      <details className="rounded-2xl border border-[#dce8dd] bg-[#f3f8f3] px-4 py-3.5 text-[13px] text-[#2d4233]">
+        <summary className="cursor-pointer font-semibold text-[#2D5A3D]">How Printables works</summary>
+        <div className="mt-3 space-y-2 leading-relaxed">
+          <p><strong>Choose a look.</strong> Your style applies to certificates and ID cards. The year planner and photo frames have their own designs.</p>
+          <p><strong>Make it yours.</strong> Open a planner or photo frame, or fill in the award and ID card details here. Add a photo before downloading an ID card.</p>
+          <p><strong>Save or print.</strong> Photo frames are free. Downloading a year planner, certificate, or ID card requires Rooted+ or an active trial.</p>
+        </div>
+      </details>
 
       {/* ── Style Picker ──────────────────────────────────────────── */}
       <section>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8B7E74] mb-2 pl-1">Your Style</p>
-        <h2 className="text-[13px] font-medium text-[#5C5346] mb-0.5">Your style, applies to all printables</h2>
-        <p className="text-xs text-[#b5aca4] mb-4">Choose once, applied everywhere.</p>
+        <h2 className="text-[13px] font-medium text-[#5C5346] mb-0.5">Certificate &amp; ID card style</h2>
+        <p className="text-xs text-[#b5aca4] mb-4">Choose once for the certificates and ID cards below.</p>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {STYLES.map((s) => (
             <button key={s.id} onClick={() => saveStylePref(s.id)}
