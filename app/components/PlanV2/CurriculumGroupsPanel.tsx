@@ -7,13 +7,14 @@ import { resolveChildColor } from "./colors";
 import { isSchoolDayDate, isInVacation, type VacationRange } from "@/lib/school-days";
 import { computeFinishDate, type QueueHold, type VacationBlock as SchedulerVacationBlock } from "@/app/lib/scheduler";
 import {
-  ESTIMATE_REPORT_MINUTES,
+  addedReportMinutes,
   formatAddedTime,
   formatLessonList,
   planRecalibrateGap,
   type RecalibrateGapRow,
 } from "@/app/lib/recalibrate";
 import { supabase } from "@/lib/supabase";
+import { ESTIMATED_MINUTES_PER_LESSON } from "@/lib/lesson-minutes";
 import { bookOrderView } from "@/app/lib/move-keep-slot";
 // Ordering + month grouping for the expanded lesson list. Extracted so the
 // sort and the run-length grouper are covered by lessonListSort.test.ts.
@@ -612,7 +613,7 @@ export function RecalibrateForm(props: {
       const [rowsRes, goalRes] = await Promise.all([
         supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, queue_pinned, skipped, completed")
+          .select("id, lesson_number, queue_position, queue_pinned, skipped, completed, minutes_spent, hours")
           .eq("curriculum_goal_id", goal.id)
           .not("lesson_number", "is", null),
         supabase
@@ -646,6 +647,8 @@ export function RecalibrateForm(props: {
   );
   const toMarkDone = (plan?.toComplete ?? []).map((r) => r.lesson_number!).filter((n) => n != null);
   const keptPinned = (plan?.keptPinned ?? []).map((r) => r.lesson_number!).filter((n) => n != null);
+  // The hours a Yes adds, counted exactly as Reports will count them.
+  const added = addedReportMinutes(plan?.toComplete ?? []);
   const checking = gapRows === null && !gapReadFailed;
   // Only asked when a Yes would mark something done.
   const asksAboutHistory = toMarkDone.length > 0;
@@ -745,7 +748,13 @@ export function RecalibrateForm(props: {
           </label>
           <p className="mt-1 text-[11px] text-[#5c7f63] leading-relaxed">
             {recordHistory
-              ? `They get estimated dates between your last logged lesson and yesterday, and add ${formatAddedTime(toMarkDone.length * ESTIMATE_REPORT_MINUTES)} to your hours (${ESTIMATE_REPORT_MINUTES} minutes each).`
+              ? `They get estimated dates between your last logged lesson and yesterday, and add ${formatAddedTime(added.minutes)} to your hours${
+                  added.estimatedCount === toMarkDone.length
+                    ? ` (${ESTIMATED_MINUTES_PER_LESSON} minutes each).`
+                    : added.estimatedCount === 0
+                      ? ", from the time already recorded on them."
+                      : ` (time already recorded where there is some, ${ESTIMATED_MINUTES_PER_LESSON} minutes for the rest).`
+                }`
               : "Nothing is added to your records or your hours."}
           </p>
           {keptPinned.length > 0 ? (

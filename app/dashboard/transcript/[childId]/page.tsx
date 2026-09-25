@@ -22,6 +22,7 @@ import { getUserAccess, canExport } from "@/lib/user-access";
 import PreviewWatermark from "@/app/components/PreviewWatermark";
 import ExportGateModal from "@/app/components/ExportGateModal";
 import { jsPDF } from "jspdf";
+import { lessonMinutes } from "@/lib/lesson-minutes";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -523,7 +524,7 @@ export default function TranscriptBuilderPage() {
     const goalIds = newGoals.map(g => g.id);
     const { data: lessonData, error: lessonErr } = await supabase
       .from("lessons")
-      .select("curriculum_goal_id, minutes_spent, completed")
+      .select("curriculum_goal_id, minutes_spent, hours, completed")
       .in("curriculum_goal_id", goalIds)
       .eq("completed", true);
     // Without the lessons the new courses' hours would be a guessed zero.
@@ -540,7 +541,10 @@ export default function TranscriptBuilderPage() {
       if (!gid) continue;
       if (!lessonsByGoal[gid]) lessonsByGoal[gid] = { count: 0, totalMinutes: 0 };
       lessonsByGoal[gid].count++;
-      lessonsByGoal[gid].totalMinutes += (l.minutes_spent ?? 45);
+      // lib/lesson-minutes.ts, the rule Reports uses. This page used to fall
+      // back to 45 where Reports used 30, so the same lessons read as more
+      // hours on the transcript than on the hours report.
+      lessonsByGoal[gid].totalMinutes += lessonMinutes(l).minutes;
     }
 
     const currentYear = getSchoolYearOptions()[3] || getSchoolYearOptions()[0];
@@ -596,7 +600,7 @@ export default function TranscriptBuilderPage() {
     try {
       const { data: lessonData, error } = await supabase
         .from("lessons")
-        .select("curriculum_goal_id, minutes_spent, completed")
+        .select("curriculum_goal_id, minutes_spent, hours, completed")
         .in("curriculum_goal_id", goalIds)
         .eq("completed", true);
       if (error) return { ok: false };
@@ -605,7 +609,9 @@ export default function TranscriptBuilderPage() {
       for (const l of (lessonData ?? [])) {
         const gid = l.curriculum_goal_id;
         if (!gid) continue;
-        lessonsByGoal[gid] = (lessonsByGoal[gid] || 0) + (l.minutes_spent ?? 45);
+        // lib/lesson-minutes.ts, the rule Reports uses (it used to fall back
+        // to 45 here where Reports used 30).
+        lessonsByGoal[gid] = (lessonsByGoal[gid] || 0) + lessonMinutes(l).minutes;
       }
       return { ok: true, byGoal: lessonsByGoal };
     } catch {
