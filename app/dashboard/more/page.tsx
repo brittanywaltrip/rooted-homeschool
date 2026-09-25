@@ -21,7 +21,7 @@ export default function MorePage() {
 
   return (
     <>
-      <PageHero overline="More" title="More" subtitle="Everything else, all in one place." />
+      <PageHero overline="More" title="More" subtitle="Find resources, records, past years, settings, and help." />
       <div className="max-w-xl mx-auto px-5 pt-5 pb-10">
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
           {items.map(({ label, sub, href, icon: Icon }) => (
