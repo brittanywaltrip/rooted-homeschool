@@ -29,7 +29,9 @@ orphan cleanup or missed-work rule reads them, and nothing moves them off the
 day the parent chose. Past days cannot be planned; break days are offered but
 not chosen by default. Each child checks off their own row (Invariant 15/16
 unchanged) and Hours & Attendance counts it on that child's report only, with
-the planned minutes (or 30 when none were given). Undo removes the planned
+the planned minutes, or the shared 30-minute estimate when none were given
+(`lessonMinutes` in `lib/lesson-minutes.ts`: the row's `hours: 0` is not a
+recorded time). Undo removes the planned
 lessons that are still unfinished.
 
 Today reads these one-offs as a family planned them: the subject header comes

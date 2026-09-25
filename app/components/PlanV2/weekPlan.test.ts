@@ -13,6 +13,7 @@ import {
   weekPlanTitle,
   type WeekPlanInput,
 } from "./weekPlan.ts";
+import { lessonMinutes, sumLessonMinutes } from "../../../lib/lesson-minutes.ts";
 
 // Plan's week starts on Monday. Monday 2026-09-28.
 const MON = new Date(2026, 8, 28);
@@ -128,4 +129,20 @@ test("the planner reuses the shared one-off builder rather than a copy of it", (
   const src = readFileSync(new URL("./weekPlan.ts", import.meta.url), "utf8");
   assert.match(src, /import \{ oneOffLessonRows \} from "\.\/oneOffLessonRows\.ts"/);
   assert.doesNotMatch(src, /\.from\("lessons"\)/, "the pure module never writes");
+});
+
+test("a completed planned lesson counts by the shared lesson-minutes rule (#96), per child", () => {
+  // Planned with minutes: recorded, exactly as planned.
+  const withMinutes = weekPlanRows("family", plan, TODAY);
+  assert.deepEqual(lessonMinutes(withMinutes[0]), { minutes: 45, source: "recorded", estimated: false });
+  // Planned without minutes: the 30-minute estimate, flagged. The builder
+  // writes hours: 0, which the rule does not read as a recorded zero.
+  const noMinutes = weekPlanRows("family", { ...plan, minutes: null }, TODAY);
+  assert.equal(noMinutes[0].minutes_spent, null);
+  assert.equal(noMinutes[0].hours, 0);
+  assert.deepEqual(lessonMinutes(noMinutes[0]), { minutes: 30, source: "estimated", estimated: true });
+  // Each child's row is their own: one child finishing counts once, for them.
+  const zoeDone = withMinutes.filter((r) => r.child_id === "zoe").slice(0, 1).map((r) => ({ ...r, completed: true }));
+  assert.equal(sumLessonMinutes(zoeDone).minutes, 45);
+  assert.equal(withMinutes.filter((r) => r.child_id === "emma" && r.completed).length, 0);
 });
