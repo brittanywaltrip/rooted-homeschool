@@ -294,6 +294,7 @@ export default function PlanV2() {
 
   const [monthStart, setMonthStart] = useState<Date>(() => firstOfMonth(new Date()));
   const [viewMode, setViewMode] = useState<ViewMode>("week");
+  const [showPlanGuide, setShowPlanGuide] = useState(false);
   // Monday on or before today — anchor for the Week view (Mon..Sun layout
   // in WeekListView). Switched from Sunday-anchored when WeekListView replaced
   // WeekStrip in week mode.
@@ -5349,14 +5350,24 @@ export default function PlanV2() {
         />
       ) : null}
       <div className="relative">
-        <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
+        <PageHero overline="Your Curriculum" title="Plan" subtitle="See what's ahead and change your plan when life changes.">
+          <button
+            type="button"
+            onClick={() => setShowPlanGuide((open) => !open)}
+            aria-expanded={showPlanGuide}
+            aria-controls="plan-guide"
+            className="mt-2 text-[12px] text-[#fefcf9] underline underline-offset-2 hover:opacity-80"
+          >
+            How Plan works
+          </button>
+        </PageHero>
         {/* Unified "+" entry in the hero. Opens the bottom sheet with no
             pre-selected date — actions inside route to their own modals
             and fall back to today when a date is needed. */}
         <button
           type="button"
           onClick={() => openUnifiedAdd(null)}
-          aria-label="Add to your plan"
+          aria-label="Add a lesson, appointment, activity, curriculum or break"
           className="absolute top-7 right-6 w-[30px] h-[30px] rounded-full flex items-center justify-center text-white shadow-md hover:opacity-90 transition-opacity z-10"
           style={{ backgroundColor: "#5c7f63" }}
         >
@@ -5368,6 +5379,12 @@ export default function PlanV2() {
         className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
         style={{ background: "#F8F7F4" }}
       >
+        <div id="plan-guide" hidden={!showPlanGuide} className="rounded-2xl border border-[#c8dfc8] bg-[#f0f7f2] px-4 py-4 text-[13px] text-[#2d4233] space-y-2">
+          <h2 className="font-semibold text-[15px]">Your plan in Rooted</h2>
+          <p><strong>Choose how to plan.</strong> Add a curriculum to make a schedule, or use Plan this week in Week view to choose the days and lessons yourself.</p>
+          <p><strong>Add what you need.</strong> Use + here or on a day to add a lesson, appointment or break. Log a lesson you did records work that is already finished.</p>
+          <p><strong>Adjust as you go.</strong> Move a lesson when plans change. Check it off on Today when it is done; that completed work counts in Reports.</p>
+        </div>
         {/* Recovery card — shown when a year close left the account without an
             active school year. Warm, no guilt, one tap to pick back up. */}
         {showRecoveryCard && (
@@ -7576,7 +7593,7 @@ function PastCompleteDialog(props: {
             <div>
               <h2 className="text-base font-bold text-[#2d2926]">Did you do it on {toLabel}?</h2>
               <p className="text-xs text-[#7a6f65] mt-0.5">
-                You're moving this lesson to a past date.
+                You&apos;re moving this lesson to a past date.
               </p>
             </div>
             <button
