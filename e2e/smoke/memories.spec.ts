@@ -62,7 +62,7 @@ test.describe('Memories — signed in', () => {
     }
 
     await expect(page.getByText('1 total')).toBeVisible();
-    await expect(page.getByText('1 memories saved this year')).toBeVisible();
+    await expect(page.getByText(/^1 (?:recent )?memory marked for Yearbook$/)).toBeVisible();
     await expect(page.locator('[data-memory-id="00000000-0000-4000-8000-000000000103"]')).toBeVisible();
   });
 
