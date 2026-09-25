@@ -1692,8 +1692,17 @@ function ReportsPageInner() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-64">
-        <span className="text-2xl animate-pulse">📋</span>
+      <div className="max-w-3xl px-4 py-7 space-y-6" aria-busy="true">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-widest text-[#7a6f65] mb-0.5">For Your Family Records</p>
+          <h1 className="text-2xl font-bold text-[#2d2926]">Hours &amp; Attendance Log</h1>
+          <p role="status" className="text-sm text-[#7a6f65] mt-1">Loading your records…</p>
+        </div>
+        <div className="rounded-2xl border border-[#e8e2d9] bg-[#fefcf9] p-5 space-y-4" aria-hidden="true">
+          <div className="h-4 w-40 rounded bg-[#eee9e2] animate-pulse" />
+          <div className="h-9 w-full rounded-lg bg-[#eee9e2] animate-pulse" />
+          <div className="h-9 w-2/3 rounded-lg bg-[#eee9e2] animate-pulse" />
+        </div>
       </div>
     );
   }
@@ -1707,8 +1716,13 @@ function ReportsPageInner() {
         </p>
         <h1 className="text-2xl font-bold text-[#2d2926]">Hours &amp; Attendance Log 📋</h1>
         <p className="text-sm text-[#7a6f65] mt-1">
-          Hours logged · Subjects covered · Days completed
+          Choose a child and dates to see their hours, subjects and attendance days. Preview the log below, then print or save it as a PDF.
         </p>
+        <details className="mt-3 text-sm text-[#5c5346]">
+          <summary className="cursor-pointer font-medium text-[#2D5A3D]">How are hours counted?</summary>
+          <p className="mt-2">Completed lessons and recorded activity time add to hours. A completed lesson without a recorded time counts as a 30-minute estimate. Appointments appear in the log, but their planned time does not add to hours.</p>
+          {!isPartner && <p className="mt-2">To correct a lesson or activity, open Preview Log and choose Edit record.</p>}
+        </details>
       </div>
 
       {/* Report config card */}
