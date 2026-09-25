@@ -787,11 +787,11 @@ export default function PrintablesPage() {
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-10">
 
       <details className="rounded-2xl border border-[#dce8dd] bg-[#f3f8f3] px-4 py-3.5 text-[13px] text-[#2d4233]">
-        <summary className="cursor-pointer font-semibold text-[#2D5A3D]">How Printables works</summary>
+        <summary className="cursor-pointer font-medium text-[#2D5A3D]">How Printables works</summary>
         <div className="mt-3 space-y-2 leading-relaxed">
-          <p><strong>Choose a look.</strong> Your style applies to certificates and ID cards. The year planner and photo frames have their own designs.</p>
-          <p><strong>Make it yours.</strong> Open a planner or photo frame, or fill in the award and ID card details here. Add a photo before downloading an ID card.</p>
-          <p><strong>Save or print.</strong> Photo frames are free. Downloading a year planner, certificate, or ID card requires Rooted+ or an active trial.</p>
+          <p><span className="font-medium">Choose a look.</span> Your style applies to certificates and ID cards. The year planner and photo frames have their own designs.</p>
+          <p><span className="font-medium">Make it yours.</span> Open a planner or photo frame, or fill in the award and ID card details here. Add a photo before downloading an ID card.</p>
+          <p><span className="font-medium">Save or print.</span> Photo frames are free. Downloading a year planner, certificate, or ID card requires Rooted+ or an active trial.</p>
         </div>
       </details>
 
