@@ -56,6 +56,28 @@ export async function markCatchupAnswered(d: Pick<MissedAnswerDeps, "supabase" |
 
 /** "Yes": record the rows left checked. Throws when something did not land. */
 export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]): Promise<void> {
+  // The prompt can remain open while another tab completes or moves a lesson.
+  // Check every selected row before settling the unanswered ones or writing a
+  // completion, so an outdated prompt cannot rewrite that lesson's history.
+  const existingBySlot = new Map<string, { id: string } | null>();
+  for (const row of rows) {
+    const key = `${row.goal_id}|${row.lesson_number}`;
+    if (existingBySlot.has(key)) throw new Error("Your lessons changed since you opened this. Close this and try again.");
+    const { data, error } = await d.supabase
+      .from("lessons")
+      .select("id, lesson_number, completed, skipped, queue_pinned")
+      .eq("user_id", d.userId)
+      .eq("curriculum_goal_id", row.goal_id)
+      .eq("queue_position", row.lesson_number)
+      .maybeSingle();
+    if (error || (data && (data.completed || data.skipped || data.queue_pinned))) {
+      throw new Error("Your lessons changed since you opened this. Close this and try again.");
+    }
+    if (data && data.lesson_number !== row.lesson_number) {
+      throw new Error("This curriculum's lesson order has changed. Mark the lesson you did from Plan instead.");
+    }
+    existingBySlot.set(key, data ? { id: data.id as string } : null);
+  }
   // Unchecking is an answer, so act on it. Goals the family left something
   // unchecked on are settled through the SAME helper "No, reschedule them"
   // uses: those lessons move ahead in the plan and stop being offered as
@@ -91,19 +113,13 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
     // queue slot indices (see ProjectedLesson), and queue_position is the
     // column Today already matches projection slots against. Rows are
     // pre-generated at creation; a missing one falls through to an insert.
-    const { data: existing } = await d.supabase
-      .from("lessons")
-      .select("id")
-      .eq("user_id", d.userId)
-      .eq("curriculum_goal_id", row.goal_id)
-      .eq("queue_position", row.lesson_number)
-      .maybeSingle();
+    const existing = existingBySlot.get(`${row.goal_id}|${row.lesson_number}`);
 
     const goal = d.goals.find((g) => g.id === row.goal_id);
 
     if (existing) {
       await completeLessonOnDate(d.supabase, {
-        lessonId: (existing as { id: string }).id,
+        lessonId: existing.id,
         dateStr: row.date,
         choice: row.choice,
         todayStr: d.todayStr,

@@ -666,6 +666,13 @@ would have been due on past school days since each curriculum's last completion
 family last answered for it (`catchup_answered_on`). It projects from the
 curriculum's settings and reads no lesson dates.
 
+The projected number is a queue slot, not always the book lesson number. Before
+"Yes" writes any completion or records an answer, `answerMissedYes` checks
+every selected slot again. A completed, skipped or hand-placed row, a read
+failure, or a row whose book number differs from the projected slot stops the
+answer. The family can mark a reordered lesson directly from Plan. This keeps
+an open prompt from rewriting a lesson finished or moved in another tab.
+
 - Re-dating never answers it. A parent re-date or the daily reconciliation
   moves stored dates; only a completion or a recorded "not done" answer
   (`app/lib/missed-work-answers.ts`, used by both screens) changes the list.
@@ -681,7 +688,9 @@ curriculum's settings and reads no lesson dates.
   no break: Today never showed it and the next reconciliation undid it. A
   family pausing adds a break, which both honour; the missed banner links to it.
 
-**Test case:** `app/lib/missed-work.test.ts`; push-back vs break in
+**Test case:** `app/lib/missed-work.test.ts` includes stale-completion,
+reordered-slot and hand-placement refusals before any answer is written;
+push-back vs break in
 `app/lib/daily-reconcile.test.ts`.
 
 ---
