@@ -708,7 +708,7 @@ function HomeInner() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
               <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-                The part moms love most
+                The moments families love most
               </p>
               <h2
                 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug"
@@ -724,7 +724,7 @@ function HomeInner() {
                 {[
                   { emoji: "📸", title: "Photos from your day", desc: "Snap and save moments as they happen, field trips, projects, backyard science." },
                   { emoji: "✍️", title: "Little notes & quotes", desc: "Write down what they said, what clicked, what made them proud. You'll want these later." },
-                  { emoji: "📖", title: "Books they loved", desc: "Build a reading log automatically as you go. A record of their whole reading life." },
+                  { emoji: "📖", title: "Books they loved", desc: "Log books as you go and build a reading record you can revisit." },
                   { emoji: "🌿", title: "Look back and see it", desc: "Your whole homeschool journey, month by month. Proof you're doing something beautiful." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
