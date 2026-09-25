@@ -150,6 +150,15 @@ export function displayLessonTitle(
 }
 
 /**
+ * Missed-work entries carry a projected queue slot, not a saved lesson's book
+ * number. A manual reorder can make those different. Never call the slot a
+ * "Week 12.3" (or another custom unit) unless the book number is known.
+ */
+export function formatProjectedWorkLabel(slot: number, unit: LessonUnit | null): string {
+  return unit ? "Planned work" : formatLessonLabel(slot, null);
+}
+
+/**
  * What the Schedule Builder writes for a curriculum's wording. "Lesson" (or
  * nothing chosen) writes nulls, exactly what a curriculum that never set it
  * holds, so choosing the default never leaves a trace. Anything else writes

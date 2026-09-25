@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   LESSON_UNIT_LABELS,
   formatLessonLabel,
+  formatProjectedWorkLabel,
   formatLessonOfTotal,
   formatLessonRange,
   lessonNumberFor,
@@ -33,6 +34,12 @@ test("Math with Confidence: 4 lessons a week, lesson 47 is Week 12.3", () => {
   assert.equal(formatLessonLabel(49, MWC), "Week 13.1");
   assert.equal(formatLessonLabel(1, MWC), "Week 1.1");
   assert.equal(formatLessonLabel(47, MWC, { lower: true }), "week 12.3");
+});
+
+test("a projected missed-work slot never claims a book Week number", () => {
+  // The slot can be 47 while the lesson in it is number 46 after a manual move.
+  assert.equal(formatProjectedWorkLabel(47, MWC), "Planned work");
+  assert.equal(formatProjectedWorkLabel(47, null), "Lesson 47");
 });
 
 test("one lesson a unit reads as the unit alone", () => {

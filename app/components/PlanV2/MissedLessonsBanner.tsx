@@ -1,6 +1,6 @@
 "use client";
 
-import { formatLessonLabel } from "@/lib/lesson-label";
+import { formatProjectedWorkLabel } from "@/lib/lesson-label";
 import { useLessonUnits } from "@/lib/lesson-units-context";
 import type { MissedEntry } from "@/app/lib/recoverySelection";
 
@@ -45,7 +45,7 @@ function dayLabel(ymd: string): string {
 }
 
 export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
-  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  // Missed entries carry projected queue slots, not always book numbers.
   const { unitFor } = useLessonUnits();
   const { groups, onReview, onAddBreak, busy } = props;
   const n = groups.reduce((sum, g) => sum + g.entries.length, 0);
@@ -106,7 +106,7 @@ export default function MissedLessonsBanner(props: MissedLessonsBannerProps) {
               {g.entries.slice(0, 6).map((e) => (
                 <li key={`${e.goal_id}|${e.lesson_number}`} className="flex flex-wrap items-center gap-x-1.5">
                   <span>
-                    {formatLessonLabel(e.lesson_number, unitFor(e.goal_id))}, due {dayLabel(e.date)}
+                    {formatProjectedWorkLabel(e.lesson_number, unitFor(e.goal_id))}, due {dayLabel(e.date)}
                   </span>
                   {e.also_today ? (
                     <span style={{ fontSize: 10, color: "#7a6f65", background: "#f6f3ee", borderRadius: 999, padding: "0 6px" }}>

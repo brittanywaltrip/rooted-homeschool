@@ -3812,7 +3812,7 @@ function ScheduleBuilderPageInner() {
             extra: { fn: "handleSave.writeLessonUnits", failed: failed.length, of: unitWrites.length },
           });
           setPostSaveNotice(
-            "Your schedule was saved, but what your lessons are called did not save. Tap Save again to finish. Nothing else is affected.",
+            "Your schedule was saved, but the lesson wording wasn't. You can reopen the curriculum to choose it again.",
           );
           return;
         }

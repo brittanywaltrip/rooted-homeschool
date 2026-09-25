@@ -666,6 +666,12 @@ would have been due on past school days since each curriculum's last completion
 family last answered for it (`catchup_answered_on`). It projects from the
 curriculum's settings and reads no lesson dates.
 
+Those projected entries carry queue slots, which can differ from the saved
+book lesson numbers after a manual reorder. A curriculum with custom unit
+wording therefore shows "Planned work" in the missed-work banner, review sheet
+and day panel until the actual book lesson is known. It must not turn a queue
+slot into a confident "Week 12.3" claim.
+
 - Re-dating never answers it. A parent re-date or the daily reconciliation
   moves stored dates; only a completion or a recorded "not done" answer
   (`app/lib/missed-work-answers.ts`, used by both screens) changes the list.

@@ -30,10 +30,11 @@ test("the week rows title through lessonRowTitle; the missed banner labels curri
   const modal = read("app/components/MissedLessonRecoveryModal.tsx");
   assert.match(plan, /g\.child_name \? `\$\{g\.child_name\} · \$\{subject\}` : subject/);
   assert.match(modal, /g\.child_name \? `\$\{g\.child_name\} · \$\{subject\}` : subject/);
-  // Both name each lesson through the one formatter, in the curriculum's own
-  // words ("Lesson 3", or "Week 1.3" for a curriculum that counts in weeks).
-  assert.match(read("app/components/PlanV2/MissedLessonsBanner.tsx"), /formatLessonLabel\(e\.lesson_number, unitFor\(e\.goal_id\)\)/);
-  assert.match(modal, /formatLessonLabel\(e\.lesson_number, unitFor\(g\.id\)\)/);
+  // Missed entries have a queue slot rather than a guaranteed book number.
+  // All three surfaces use wording that cannot claim a false Week number.
+  assert.match(read("app/components/PlanV2/MissedLessonsBanner.tsx"), /formatProjectedWorkLabel\(e\.lesson_number, unitFor\(e\.goal_id\)\)/);
+  assert.match(modal, /formatProjectedWorkLabel\(e\.lesson_number, unitFor\(g\.id\)\)/);
+  assert.match(read("app/components/PlanV2/DayDetailPanel.tsx"), /formatProjectedWorkLabel\(entry\.lesson_number, unitFor\(entry\.goal_id\)\)/);
 });
 
 test("the muted line says what the title does not: the curriculum under a numbered lesson", () => {
