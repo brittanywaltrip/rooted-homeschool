@@ -666,6 +666,10 @@ would have been due on past school days since each curriculum's last completion
 family last answered for it (`catchup_answered_on`). It projects from the
 curriculum's settings and reads no lesson dates.
 
+Today shows a quiet "lessons from earlier" notice that opens the prompt on tap.
+Loading Today does not automatically open it over another task or the monthly
+reflection. Dismissing the prompt changes no lesson; the notice stays available.
+
 - Re-dating never answers it. A parent re-date or the daily reconciliation
   moves stored dates; only a completion or a recorded "not done" answer
   (`app/lib/missed-work-answers.ts`, used by both screens) changes the list.
