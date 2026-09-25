@@ -1,5 +1,7 @@
 "use client";
 
+import { displayLessonTitle, formatLessonLabel } from "@/lib/lesson-label";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -281,6 +283,8 @@ const UNDO_INCOMPLETE_NOTICE =
   "Couldn't undo everything. Some lessons kept their new dates, so check your plan.";
 
 export default function PlanV2() {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const { effectiveUserId, isPartner } = usePartner();
   const router = useRouter();
   // Follows the local day: a Plan tab left open overnight moves to the new day
@@ -2607,6 +2611,7 @@ export default function PlanV2() {
       .maybeSingle();
     const familyName = (prof as { display_name?: string } | null)?.display_name || "Family Academy";
     await downloadProgressReport({
+      unitFor,
       userId: effectiveUserId,
       familyName,
       children: kids.map((c) => ({ id: c.id, name: c.name, color: c.color })),
@@ -2684,6 +2689,7 @@ export default function PlanV2() {
         const renderDoc = (photos: Map<string, string[]> | undefined) =>
           pdf(
             <DailyPrintPDF
+              unitFor={unitFor}
               date={todayDate}
               familyName={familyName}
               lessons={todayLessons}
@@ -3433,6 +3439,13 @@ export default function PlanV2() {
           : source.lesson_number
             ? `Lesson ${source.lesson_number}`
             : "Lesson";
+      // What the toast says: the curriculum's own words ("Week 12.3"). The
+      // audit event below keeps the stored title (`label`).
+      const shownLabel = source.lesson_number != null && source.title?.trim()
+        ? displayLessonTitle(source.title, source.lesson_number, unitFor(source.curriculum_goal_id))
+        : source.lesson_number != null && !source.title?.trim()
+          ? formatLessonLabel(source.lesson_number, unitFor(source.curriculum_goal_id))
+          : label;
       const toLabel = new Date(`${toDateStr}T12:00:00`).toLocaleDateString("en-US", {
         weekday: "short", month: "short", day: "numeric",
       });
@@ -3481,7 +3494,7 @@ export default function PlanV2() {
       // upstream consistency (per Phase 5 safety rule #2).
       const weekendSuffix = toIsWeekend ? " · weekend" : "";
       setUndoAction({
-        message: `Moved "${label}" to ${toLabel}${weekendSuffix}`,
+        message: `Moved "${shownLabel}" to ${toLabel}${weekendSuffix}`,
         key: `${lessonId}:${toDateStr}:${Date.now()}`,
         onUndo: async () => {
           setLessons((prev) =>
@@ -3524,7 +3537,7 @@ export default function PlanV2() {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent, writeSingleMove],
+    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent, writeSingleMove, unitFor],
   );
 
   // ── Appointment move (drag-drop on non-recurring instances) ────────────────
@@ -5988,10 +6001,11 @@ export default function PlanV2() {
                         ? { child: kids.find((k) => k.id === activeLesson.child_id), index: kids.findIndex((k) => k.id === activeLesson.child_id) }
                         : null;
                       const color = resolveChildColor(meta?.child ?? null, meta?.index ?? 0);
+                      const activeUnit = unitFor(activeLesson.curriculum_goal_id);
                       const label = activeLesson.title && activeLesson.title.trim().length > 0
-                        ? activeLesson.title
+                        ? displayLessonTitle(activeLesson.title, activeLesson.lesson_number, activeUnit)
                         : activeLesson.lesson_number
-                          ? `Lesson ${activeLesson.lesson_number}`
+                          ? formatLessonLabel(activeLesson.lesson_number, activeUnit)
                           : "Lesson";
                       const initial = meta?.child ? meta.child.name.charAt(0).toUpperCase() : "·";
                       return (
@@ -6722,6 +6736,7 @@ export default function PlanV2() {
             <div className="plan-print-host">
               {activePrintMode === "daily" ? (
                 <DailyPrintSheet
+                  unitFor={unitFor}
                   date={todayDate}
                   childLabel={childLabel}
                   familyName={familyName}
@@ -6734,6 +6749,7 @@ export default function PlanV2() {
               ) : null}
               {activePrintMode === "weekly" ? (
                 <WeeklyPrintSheet
+                  unitFor={unitFor}
                   weekStart={weekStart}
                   childLabel={childLabel}
                   familyName={familyName}
@@ -7204,9 +7220,9 @@ export default function PlanV2() {
         {completionChoice ? (
           <CompletionDateChooser
             lessonTitle={
-              completionChoice.lesson.title?.trim() ||
+              displayLessonTitle(completionChoice.lesson.title?.trim(), completionChoice.lesson.lesson_number, unitFor(completionChoice.lesson.curriculum_goal_id)) ||
               (completionChoice.lesson.lesson_number
-                ? `Lesson ${completionChoice.lesson.lesson_number}`
+                ? formatLessonLabel(completionChoice.lesson.lesson_number, unitFor(completionChoice.lesson.curriculum_goal_id))
                 : "This lesson")
             }
             plannedDate={completionChoice.plannedDate}

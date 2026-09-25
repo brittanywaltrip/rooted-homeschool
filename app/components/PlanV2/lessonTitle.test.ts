@@ -30,7 +30,10 @@ test("the week rows title through lessonRowTitle; the missed banner labels curri
   const modal = read("app/components/MissedLessonRecoveryModal.tsx");
   assert.match(plan, /g\.child_name \? `\$\{g\.child_name\} · \$\{subject\}` : subject/);
   assert.match(modal, /g\.child_name \? `\$\{g\.child_name\} · \$\{subject\}` : subject/);
-  assert.match(read("app/components/PlanV2/MissedLessonsBanner.tsx"), /Lesson \{e\.lesson_number\}/);
+  // Both name each lesson through the one formatter, in the curriculum's own
+  // words ("Lesson 3", or "Week 1.3" for a curriculum that counts in weeks).
+  assert.match(read("app/components/PlanV2/MissedLessonsBanner.tsx"), /formatLessonLabel\(e\.lesson_number, unitFor\(e\.goal_id\)\)/);
+  assert.match(modal, /formatLessonLabel\(e\.lesson_number, unitFor\(g\.id\)\)/);
 });
 
 test("the muted line says what the title does not: the curriculum under a numbered lesson", () => {
@@ -89,4 +92,14 @@ test("Plan passes the established-removal name, not a title prefix, to the title
   const plan = readFileSync(resolve(import.meta.dirname, "index.tsx"), "utf8");
   assert.match(plan, /removed_curriculum_name: removedCurriculumName\(l, removal\)/);
   assert.match(plan, /from\("app_events"\)\.select\("payload"\)\.eq\("user_id", effectiveUserId\)\.eq\("type", "curriculum_goal\.deleted"\)/);
+});
+
+test("a curriculum's unit wording leads the row, and the default is unchanged", async () => {
+  const { lessonUnitFromGoal } = await import("../../../lib/lesson-label.ts");
+  const unit = lessonUnitFromGoal({ lesson_unit_label: "week", lessons_per_unit: 4 });
+  const base = { lessonNumber: 47, title: "Math with Confidence — Lesson 47", subject: "Math", curriculumName: "Math with Confidence" };
+  assert.equal(lessonRowTitle({ ...base, unit }), "Math · Week 12.3");
+  assert.equal(lessonRowTitle({ ...base, unit: null }), "Math · Lesson 47");
+  assert.equal(lessonRowTitle(base), "Math · Lesson 47");
+  assert.equal(lessonRowSubtitle({ ...base, unit }), "Math with Confidence");
 });

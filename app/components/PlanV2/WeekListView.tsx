@@ -1,5 +1,6 @@
 "use client";
 
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Calendar, MoreVertical, Move, Pencil, Plus, StickyNote, X } from "lucide-react";
 import { resolveChildColor } from "./colors";
@@ -88,6 +89,8 @@ type Props = {
 };
 
 export default function WeekListView(props: Props) {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const {
     weekStart, todayStr, kids, lessons, appointments, activities, vacationBlocks,
     curriculumGoals, removal, loading, isPartner,
@@ -360,6 +363,7 @@ export default function WeekListView(props: Props) {
                     // subject fallback produced for every one of them. Shared
                     // with the missed-lessons banner (./lessonTitle.ts).
                     const titleText = lessonRowTitle({
+                      unit: unitFor(l.curriculum_goal_id),
                       lessonNumber: l.lesson_number,
                       title: l.title,
                       subject: subjectRaw,

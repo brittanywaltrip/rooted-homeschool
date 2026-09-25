@@ -1,5 +1,6 @@
 "use client";
 
+import { displayLessonTitle, formatLessonLabel, formatLessonOfTotal, type LessonUnit } from "@/lib/lesson-label";
 import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson } from "./types";
 import { resolveChildColor } from "./colors";
 
@@ -21,6 +22,8 @@ const NOTE_BORDER = "#5c7f63";
 type Goal = { id: string; total_lessons: number | null };
 
 export interface DailyPrintSheetProps {
+  /** The curriculum's lesson wording ("Week 12.3"); display only. Omitted: "Lesson N". */
+  unitFor?: (goalId: string | null | undefined) => LessonUnit | null;
   date: Date;
   childLabel: string;          // kept for backwards-compat; not rendered in the new design
   familyName: string;
@@ -43,9 +46,9 @@ function lessonSubject(l: PlanV2Lesson): string {
   return l.subjects?.name ?? "Lesson";
 }
 
-function lessonTitleText(l: PlanV2Lesson): string {
-  if (l.title && l.title.trim().length > 0) return l.title;
-  if (l.lesson_number) return `Lesson ${l.lesson_number}`;
+function lessonTitleText(l: PlanV2Lesson, unit: LessonUnit | null = null): string {
+  if (l.title && l.title.trim().length > 0) return displayLessonTitle(l.title, l.lesson_number, unit);
+  if (l.lesson_number) return formatLessonLabel(l.lesson_number, unit);
   return "Lesson";
 }
 
@@ -54,7 +57,7 @@ function todayPrintedLabel(): string {
 }
 
 export default function DailyPrintSheet(props: DailyPrintSheetProps) {
-  const { date, familyName, lessons, appointments, kids, curriculumGoals, photosByLesson } = props;
+  const { date, familyName, lessons, appointments, kids, curriculumGoals, photosByLesson, unitFor } = props;
   const childIndex = new Map(kids.map((k, i) => [k.id, { child: k, index: i }]));
   const goalById = new Map(curriculumGoals.map((g) => [g.id, g]));
 
@@ -115,6 +118,7 @@ export default function DailyPrintSheet(props: DailyPrintSheetProps) {
                 <LessonRow
                   key={l.id}
                   lesson={l}
+                  unit={unitFor?.(l.curriculum_goal_id) ?? null}
                   color={resolveChildColor(k, i)}
                   totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
                   photos={photosByLesson?.get(l.id)}
@@ -129,6 +133,7 @@ export default function DailyPrintSheet(props: DailyPrintSheetProps) {
               <LessonRow
                 key={l.id}
                 lesson={l}
+                unit={unitFor?.(l.curriculum_goal_id) ?? null}
                 color="#7a6f65"
                 totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
                 photos={photosByLesson?.get(l.id)}
@@ -269,16 +274,17 @@ function KidSection({
 }
 
 function LessonRow({
-  lesson, color, totalLessons, photos,
+  lesson, unit, color, totalLessons, photos,
 }: {
   lesson: PlanV2Lesson;
+  unit?: LessonUnit | null;
   color: string;
   totalLessons: number | null;
   /** Signed + decoded URLs. Undefined or empty renders nothing at all. */
   photos?: string[];
 }) {
   const subject = lessonSubject(lesson);
-  const title = lessonTitleText(lesson);
+  const title = lessonTitleText(lesson, unit ?? null);
   const showProgress = lesson.lesson_number != null && totalLessons != null && totalLessons > 0;
   return (
     <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "4px 0", borderBottom: `0.5px solid ${HAIRLINE}` }}>
@@ -298,7 +304,7 @@ function LessonRow({
         <p style={{ margin: "1px 0 0", fontSize: 11, color: MUTED }}>{title}</p>
         {showProgress ? (
           <p style={{ margin: "1px 0 0", fontSize: 10, color: "#aaa" }}>
-            Lesson {lesson.lesson_number} of {totalLessons}
+            {formatLessonOfTotal(lesson.lesson_number!, totalLessons!, unit ?? null)}
           </p>
         ) : null}
         {lesson.notes ? (

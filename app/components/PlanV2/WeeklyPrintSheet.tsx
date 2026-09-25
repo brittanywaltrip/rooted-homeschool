@@ -1,5 +1,6 @@
 "use client";
 
+import { displayLessonTitle, formatLessonLabel, formatLessonOfTotal, type LessonUnit } from "@/lib/lesson-label";
 import type { PlanV2Activity, PlanV2Appointment, PlanV2Child, PlanV2Lesson, PlanV2Vacation } from "./types";
 import { resolveChildColor } from "./colors";
 import { activityOccursOn } from "./activityOccurrences";
@@ -33,6 +34,8 @@ type Goal = {
 };
 
 export interface WeeklyPrintSheetProps {
+  /** The curriculum's lesson wording ("Week 12.3"); display only. Omitted: "Lesson N". */
+  unitFor?: (goalId: string | null | undefined) => LessonUnit | null;
   weekStart: Date; // Monday on or before today (or any week the user navigated to)
   childLabel: string;          // kept for backwards-compat; not rendered
   familyName: string;
@@ -62,9 +65,9 @@ function lessonSubject(l: PlanV2Lesson): string {
   return l.subjects?.name ?? "Lesson";
 }
 
-function lessonTitleText(l: PlanV2Lesson): string {
-  if (l.title && l.title.trim().length > 0) return l.title;
-  if (l.lesson_number) return `Lesson ${l.lesson_number}`;
+function lessonTitleText(l: PlanV2Lesson, unit: LessonUnit | null = null): string {
+  if (l.title && l.title.trim().length > 0) return displayLessonTitle(l.title, l.lesson_number, unit);
+  if (l.lesson_number) return formatLessonLabel(l.lesson_number, unit);
   return "Lesson";
 }
 
@@ -80,7 +83,7 @@ function mondayOf(d: Date): Date {
 }
 
 export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
-  const { weekStart, familyName, lessons, appointments, kids, curriculumGoals, schoolDays, vacationBlocks, activities = [], photosByLesson } = props;
+  const { weekStart, familyName, lessons, appointments, kids, curriculumGoals, schoolDays, vacationBlocks, activities = [], photosByLesson, unitFor } = props;
   const childIndex = new Map(kids.map((k, i) => [k.id, { child: k, index: i }]));
   const goalById = new Map(curriculumGoals.map((g) => [g.id, g]));
 
@@ -224,6 +227,7 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
                             <LessonRow
                               key={l.id}
                               lesson={l}
+                              unit={unitFor?.(l.curriculum_goal_id) ?? null}
                               color={resolveChildColor(k, i)}
                               totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
                               startTime={goalTimeFor(l)}
@@ -246,6 +250,7 @@ export default function WeeklyPrintSheet(props: WeeklyPrintSheetProps) {
                             <LessonRow
                               key={l.id}
                               lesson={l}
+                              unit={unitFor?.(l.curriculum_goal_id) ?? null}
                               color="#7a6f65"
                               totalLessons={l.curriculum_goal_id ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null : null}
                               startTime={goalTimeFor(l)}
@@ -391,9 +396,10 @@ function KidBlock({
 }
 
 function LessonRow({
-  lesson, color, totalLessons, startTime, photos,
+  lesson, unit, color, totalLessons, startTime, photos,
 }: {
   lesson: PlanV2Lesson;
+  unit?: LessonUnit | null;
   color: string;
   totalLessons: number | null;
   /** Raw "HH:MM:SS" from the goal, or null. Null renders nothing at all so
@@ -403,7 +409,7 @@ function LessonRow({
   photos?: string[];
 }) {
   const subject = lessonSubject(lesson);
-  const title = lessonTitleText(lesson);
+  const title = lessonTitleText(lesson, unit ?? null);
   const timeLabel = formatPrintTime(startTime);
   const showProgress = lesson.lesson_number != null && totalLessons != null && totalLessons > 0;
   return (
@@ -431,7 +437,7 @@ function LessonRow({
         <p style={{ margin: "1px 0 0", fontSize: 10, color: MUTED }}>{title}</p>
         {showProgress ? (
           <p style={{ margin: "1px 0 0", fontSize: 9, color: "#aaa" }}>
-            Lesson {lesson.lesson_number} of {totalLessons}
+            {formatLessonOfTotal(lesson.lesson_number!, totalLessons!, unit ?? null)}
           </p>
         ) : null}
         {lesson.notes ? (

@@ -1,5 +1,7 @@
 "use client";
 
+import { formatLessonLabel } from "@/lib/lesson-label";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, MoreVertical, Move, Pencil, Plus, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
@@ -133,6 +135,8 @@ type NoteSaveState = "idle" | "saving" | "saved" | "error";
 type CatchUpState = "idle" | "logging" | "done" | "error";
 
 export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const {
     date, lessons, appointments, kids, isPartner,
     curriculumGoals = [],
@@ -690,7 +694,7 @@ export default function DayDetailPanelV2(props: DayDetailPanelV2Props) {
                         />
                         <span className="text-[12px] text-[#2d2926] min-w-0 truncate">
                           {entry.subject_label}
-                          <span className="text-[#9a8e84]"> · Lesson {entry.lesson_number}</span>
+                          <span className="text-[#9a8e84]"> · {formatLessonLabel(entry.lesson_number, unitFor(entry.goal_id))}</span>
                         </span>
                       </label>
                     );

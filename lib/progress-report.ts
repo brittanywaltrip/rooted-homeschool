@@ -10,6 +10,7 @@
  */
 
 import { supabase } from "@/lib/supabase";
+import type { LessonUnit } from "@/lib/lesson-label";
 import { generateProgressReport, fmtMins, type ReportData } from "@/lib/pdf";
 import { buildRemovalContext, lessonDailyLogRow, subjectTableTotals } from "@/lib/progress-report-rows";
 import { selectAllRowsResult } from "@/lib/supabase-all-rows";
@@ -19,6 +20,8 @@ import { augustYearOf, getCurrentSchoolYear, schoolYearQuarters, todayLocalYmd, 
 export type ReportRangePreset = "q1" | "q2" | "q3" | "q4" | "custom" | "full";
 
 export interface DownloadProgressReportOpts {
+  /** The curriculum's lesson wording ("Week 12.3") for the daily log; display only. */
+  unitFor?: (goalId: string | null | undefined) => LessonUnit | null;
   userId: string;
   familyName: string;
   children: { id: string; name: string; color: string | null }[];
@@ -133,7 +136,7 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
     // entirely past PostgREST's 1,000-row cap and print an empty report.
     // See lib/supabase-all-rows.ts.
     selectAllRowsResult<LessonRow>((from, to) =>
-      supabase.from("lessons").select("child_id, title, completed, minutes_spent, hours, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label, curriculum_name), is_backfill").eq("user_id", userId)
+      supabase.from("lessons").select("child_id, title, lesson_number, completed, minutes_spent, hours, scheduled_date, date, curriculum_goal_id, subjects(name), curriculum_goals(subject_label, curriculum_name), is_backfill").eq("user_id", userId)
         .order("id").range(from, to)),
     supabase.from("memories").select("child_id, type, title, date, duration_minutes").eq("user_id", userId),
     supabase.from("curriculum_goals").select("id, curriculum_name").eq("user_id", userId),
@@ -267,6 +270,7 @@ export async function downloadProgressReport(opts: DownloadProgressReportOpts): 
         minutes: r.m,
         estimated: r.e,
         removal,
+        unit: opts.unitFor?.(l.curriculum_goal_id) ?? null,
       }),
     );
   }
