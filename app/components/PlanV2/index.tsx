@@ -1,5 +1,7 @@
 "use client";
 
+import { displayLessonTitle, formatLessonLabel } from "@/lib/lesson-label";
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -281,6 +283,8 @@ const UNDO_INCOMPLETE_NOTICE =
   "Couldn't undo everything. Some lessons kept their new dates, so check your plan.";
 
 export default function PlanV2() {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const { effectiveUserId, isPartner } = usePartner();
   const router = useRouter();
   // Follows the local day: a Plan tab left open overnight moves to the new day
@@ -290,6 +294,7 @@ export default function PlanV2() {
 
   const [monthStart, setMonthStart] = useState<Date>(() => firstOfMonth(new Date()));
   const [viewMode, setViewMode] = useState<ViewMode>("week");
+  const [showPlanGuide, setShowPlanGuide] = useState(false);
   // Monday on or before today — anchor for the Week view (Mon..Sun layout
   // in WeekListView). Switched from Sunday-anchored when WeekListView replaced
   // WeekStrip in week mode.
@@ -2607,6 +2612,7 @@ export default function PlanV2() {
       .maybeSingle();
     const familyName = (prof as { display_name?: string } | null)?.display_name || "Family Academy";
     await downloadProgressReport({
+      unitFor,
       userId: effectiveUserId,
       familyName,
       children: kids.map((c) => ({ id: c.id, name: c.name, color: c.color })),
@@ -2684,6 +2690,7 @@ export default function PlanV2() {
         const renderDoc = (photos: Map<string, string[]> | undefined) =>
           pdf(
             <DailyPrintPDF
+              unitFor={unitFor}
               date={todayDate}
               familyName={familyName}
               lessons={todayLessons}
@@ -3433,6 +3440,13 @@ export default function PlanV2() {
           : source.lesson_number
             ? `Lesson ${source.lesson_number}`
             : "Lesson";
+      // What the toast says: the curriculum's own words ("Week 12.3"). The
+      // audit event below keeps the stored title (`label`).
+      const shownLabel = source.lesson_number != null && source.title?.trim()
+        ? displayLessonTitle(source.title, source.lesson_number, unitFor(source.curriculum_goal_id))
+        : source.lesson_number != null && !source.title?.trim()
+          ? formatLessonLabel(source.lesson_number, unitFor(source.curriculum_goal_id))
+          : label;
       const toLabel = new Date(`${toDateStr}T12:00:00`).toLocaleDateString("en-US", {
         weekday: "short", month: "short", day: "numeric",
       });
@@ -3481,7 +3495,7 @@ export default function PlanV2() {
       // upstream consistency (per Phase 5 safety rule #2).
       const weekendSuffix = toIsWeekend ? " · weekend" : "";
       setUndoAction({
-        message: `Moved "${label}" to ${toLabel}${weekendSuffix}`,
+        message: `Moved "${shownLabel}" to ${toLabel}${weekendSuffix}`,
         key: `${lessonId}:${toDateStr}:${Date.now()}`,
         onUndo: async () => {
           setLessons((prev) =>
@@ -3524,7 +3538,7 @@ export default function PlanV2() {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent, writeSingleMove],
+    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent, writeSingleMove, unitFor],
   );
 
   // ── Appointment move (drag-drop on non-recurring instances) ────────────────
@@ -5336,14 +5350,24 @@ export default function PlanV2() {
         />
       ) : null}
       <div className="relative">
-        <PageHero overline="Your Curriculum" title="Plan" subtitle="Your lessons, your pace." />
+        <PageHero overline="Your Curriculum" title="Plan" subtitle="See what's ahead and change your plan when life changes.">
+          <button
+            type="button"
+            onClick={() => setShowPlanGuide((open) => !open)}
+            aria-expanded={showPlanGuide}
+            aria-controls="plan-guide"
+            className="mt-2 text-[12px] text-[#fefcf9] underline underline-offset-2 hover:opacity-80"
+          >
+            How Plan works
+          </button>
+        </PageHero>
         {/* Unified "+" entry in the hero. Opens the bottom sheet with no
             pre-selected date — actions inside route to their own modals
             and fall back to today when a date is needed. */}
         <button
           type="button"
           onClick={() => openUnifiedAdd(null)}
-          aria-label="Add to your plan"
+          aria-label="Add a lesson, appointment, activity, curriculum or break"
           className="absolute top-7 right-6 w-[30px] h-[30px] rounded-full flex items-center justify-center text-white shadow-md hover:opacity-90 transition-opacity z-10"
           style={{ backgroundColor: "#5c7f63" }}
         >
@@ -5355,6 +5379,12 @@ export default function PlanV2() {
         className="px-4 pt-5 pb-28 space-y-4 max-w-5xl mx-auto"
         style={{ background: "#F8F7F4" }}
       >
+        <div id="plan-guide" hidden={!showPlanGuide} className="rounded-2xl border border-[#c8dfc8] bg-[#f0f7f2] px-4 py-4 text-[13px] text-[#2d4233] space-y-2">
+          <h2 className="font-medium text-[15px]">Your plan in Rooted</h2>
+          <p><span className="font-medium">Choose how to plan.</span> Add a curriculum to make a schedule, or use Plan this week in Week view to choose the days and lessons yourself.</p>
+          <p><span className="font-medium">Add what you need.</span> Use + here or on a day to add a lesson, appointment or break. Log a lesson you did records work that is already finished.</p>
+          <p><span className="font-medium">Adjust as you go.</span> Move a lesson when plans change. Check it off on Today when it is done; that completed work counts in Reports.</p>
+        </div>
         {/* Recovery card — shown when a year close left the account without an
             active school year. Warm, no guilt, one tap to pick back up. */}
         {showRecoveryCard && (
@@ -5988,10 +6018,11 @@ export default function PlanV2() {
                         ? { child: kids.find((k) => k.id === activeLesson.child_id), index: kids.findIndex((k) => k.id === activeLesson.child_id) }
                         : null;
                       const color = resolveChildColor(meta?.child ?? null, meta?.index ?? 0);
+                      const activeUnit = unitFor(activeLesson.curriculum_goal_id);
                       const label = activeLesson.title && activeLesson.title.trim().length > 0
-                        ? activeLesson.title
+                        ? displayLessonTitle(activeLesson.title, activeLesson.lesson_number, activeUnit)
                         : activeLesson.lesson_number
-                          ? `Lesson ${activeLesson.lesson_number}`
+                          ? formatLessonLabel(activeLesson.lesson_number, activeUnit)
                           : "Lesson";
                       const initial = meta?.child ? meta.child.name.charAt(0).toUpperCase() : "·";
                       return (
@@ -6722,6 +6753,7 @@ export default function PlanV2() {
             <div className="plan-print-host">
               {activePrintMode === "daily" ? (
                 <DailyPrintSheet
+                  unitFor={unitFor}
                   date={todayDate}
                   childLabel={childLabel}
                   familyName={familyName}
@@ -6734,6 +6766,7 @@ export default function PlanV2() {
               ) : null}
               {activePrintMode === "weekly" ? (
                 <WeeklyPrintSheet
+                  unitFor={unitFor}
                   weekStart={weekStart}
                   childLabel={childLabel}
                   familyName={familyName}
@@ -7204,9 +7237,9 @@ export default function PlanV2() {
         {completionChoice ? (
           <CompletionDateChooser
             lessonTitle={
-              completionChoice.lesson.title?.trim() ||
+              displayLessonTitle(completionChoice.lesson.title?.trim(), completionChoice.lesson.lesson_number, unitFor(completionChoice.lesson.curriculum_goal_id)) ||
               (completionChoice.lesson.lesson_number
-                ? `Lesson ${completionChoice.lesson.lesson_number}`
+                ? formatLessonLabel(completionChoice.lesson.lesson_number, unitFor(completionChoice.lesson.curriculum_goal_id))
                 : "This lesson")
             }
             plannedDate={completionChoice.plannedDate}
@@ -7560,7 +7593,7 @@ function PastCompleteDialog(props: {
             <div>
               <h2 className="text-base font-bold text-[#2d2926]">Did you do it on {toLabel}?</h2>
               <p className="text-xs text-[#7a6f65] mt-0.5">
-                You're moving this lesson to a past date.
+                You&apos;re moving this lesson to a past date.
               </p>
             </div>
             <button

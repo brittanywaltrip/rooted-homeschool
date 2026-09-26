@@ -3,6 +3,8 @@
 // TODO(cleanup): Delete stale test lessons for admin account:
 // DELETE FROM lessons WHERE title ILIKE '%test%' AND user_id = 'd18ca881-a776-4e82-b145-832adc88a88a';
 
+import { LessonUnitsProvider, useLessonUnits } from "@/lib/lesson-units-context";
+import { displayLessonTitle, formatLessonLabel, formatLessonRange } from "@/lib/lesson-label";
 import { useEffect, useState, useCallback, useRef } from "react";
 import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
@@ -65,7 +67,6 @@ import { MAX_PREFILL_TITLE } from "@/lib/mail-adventures";
 import { useIsNativeApp } from "@/lib/platform";
 import WhenPicker from "@/app/components/WhenPicker";
 import GettingStartedCard from "@/app/components/GettingStartedCard";
-import MonthlyQuestionCard from "@/app/components/MonthlyQuestionCard";
 import { estimateYearbookPages, type BookCounts, type BookSections } from "@/lib/yearbook-page-count";
 import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES, tinyMomentLines, paginateLetter, paginateByLineBudget, estimateLines, KEEPSAKE_LINES_PER_PAGE, KEEPSAKE_LINES_WITH_SIGNOFF } from "@/lib/yearbook-prompts";
 import { buildYearRecap, hasClosingNote } from "@/lib/year-recap";
@@ -426,7 +427,18 @@ type FamilyNotification = {
   created_at: string;
 };
 
+/** Each screen here shows lesson numbers in the curriculum's own words (lib/lesson-units-context.tsx). */
 export default function TodayPage() {
+  return (
+    <LessonUnitsProvider>
+      <TodayPageInner />
+    </LessonUnitsProvider>
+  );
+}
+
+function TodayPageInner() {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   // State, not a render-time constant, so a tab left open past midnight moves
   // to the new day on its own (see the rollover effect below) and loadData is
   // rebuilt for it. A render-time constant only changed when something else
@@ -633,7 +645,6 @@ export default function TodayPage() {
   const [totalPhotos, setTotalPhotos] = useState(0);
   const [curriculumGoalsCount, setCurriculumGoalsCount] = useState(0);
   const [achievementBanner, setAchievementBanner] = useState<{ label: string; childName?: string; isEducator: boolean; extra: number } | null>(null);
-  const [activeDaysThisMonth, setActiveDaysThisMonth] = useState(0);
   const [lastMemory, setLastMemory] = useState<{ id: string; type: string; title: string | null; date: string; child_id: string | null; photo_url: string | null } | null>(null);
   // Your Book strip: the yearbook's current page count plus the record behind
   // it. Null until loadData has run, so the strip never flashes a zero.
@@ -743,6 +754,8 @@ export default function TodayPage() {
   const [todayAppointments, setTodayAppointments] = useState<ApptRow[]>([]);
   const [showApptWizard, setShowApptWizard] = useState(false);
   const [showManageSchedule, setShowManageSchedule] = useState(false);
+  const [showMoreSchedule, setShowMoreSchedule] = useState(false);
+  const [showTodayGuide, setShowTodayGuide] = useState(false);
   const [allDoneCelebration, setAllDoneCelebration] = useState(false);
   // Recurring-occurrence completion confirmation. One-time appointments use
   // the existing PATCH /api/appointments toggle; recurring instances route
@@ -792,8 +805,7 @@ export default function TodayPage() {
   const [missedSheetSubmitting, setMissedSheetSubmitting] = useState(false);
 
   // ── Missed Lesson Recovery modal (Path A queue scheduling) ────────────────
-  // Shown on Today when overdueLessonCount > 0 and the sessionStorage flag
-  // `rooted_missed_lesson_prompt_shown` is not set. Binary YES/NO: mark
+  // Opened by the family from the lessons-from-earlier notice. YES/NO: mark
   // missed lessons done on their gap dates, or leave them and let the queue
   // projector absorb them going forward from today.
   const [showMissedRecovery, setShowMissedRecovery] = useState(false);
@@ -1011,7 +1023,6 @@ export default function TodayPage() {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
     const twoWeeks = new Date(); twoWeeks.setDate(twoWeeks.getDate() + 14);
-    const nowForSY = new Date();
     // "This year" is the family's active school year (app/lib/school-year.ts),
     // not a hardcoded August 1. Started now and chained into the queries that
     // need it, like the profile below.
@@ -1019,8 +1030,6 @@ export default function TodayPage() {
     // Every leaf source inside the year, read once: the leaf counts and the
     // Your Book strip's lessons and school days both come from these rows.
     const leafSourcesPromise = schoolYearPromise.then((sy) => loadLeafSources(supabase, effectiveUserId, sy));
-    const monthStartStr = `${nowForSY.getFullYear()}-${String(nowForSY.getMonth() + 1).padStart(2, "0")}-01`;
-    const monthEndStr = localDateStr(nowForSY);
     const otdNow = new Date();
     const lastYear = otdNow.getFullYear() - 1;
     const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
@@ -1114,8 +1123,6 @@ export default function TodayPage() {
       memCountResult,
       photoCountResult,
       ybCountResult,
-      monthLessonsResult,
-      monthMemoriesResult,
       lastMemResult,
       tier1Result,
       todayStoryResult,
@@ -1159,8 +1166,6 @@ export default function TodayPage() {
       schoolYearPromise.then((sy) => supabase.from("memories").select("id", { count: "exact", head: true }).eq("user_id", effectiveUserId).gte("date", sy.start).lte("date", sy.end)),
       supabase.from("memories").select("id").eq("user_id", effectiveUserId).not("photo_url", "is", null).neq("photo_url", ""),
       schoolYearPromise.then((sy) => supabase.from("memories").select("id").eq("user_id", effectiveUserId).eq("include_in_book", true).gte("date", sy.start).lte("date", sy.end)),
-      supabase.from("lessons").select("date, scheduled_date").eq("user_id", effectiveUserId).eq("completed", true).gte("scheduled_date", monthStartStr).lte("scheduled_date", monthEndStr),
-      supabase.from("memories").select("date").eq("user_id", effectiveUserId).gte("date", monthStartStr).lte("date", monthEndStr),
       supabase.from("memories").select("id, type, title, date, child_id, photo_url").eq("user_id", effectiveUserId).order("date", { ascending: false }).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, title, date, child_id, photo_url").eq("user_id", effectiveUserId).gte("date", localDateStr(otdStart)).lte("date", localDateStr(otdEnd)).order("date", { ascending: false }).limit(1).maybeSingle(),
       supabase.from("memories").select("id, type, title, caption, child_id, photo_url, include_in_book, created_at").eq("user_id", effectiveUserId).eq("date", today).order("created_at", { ascending: false }),
@@ -1746,10 +1751,8 @@ export default function TodayPage() {
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
     // ── Missed-lesson eligibility (Path A queue scheduling) ──────────────
-    // Computes overdueLessonCount for the banner and decides whether to
-    // open the Missed Lesson Recovery modal. The modal opens whenever
-    // there is at least one overdue entry and the per-session
-    // `rooted_missed_lesson_prompt_shown` flag is not set. Brand-new
+    // Computes overdueLessonCount for the notice. The family decides when
+    // to open the Missed Lesson Recovery modal. Brand-new
     // families with zero completions are skipped (no gap to show).
     void (async () => {
       const activeGoals = goalRows.filter((g) => g.current_lesson < g.total_lessons);
@@ -1827,17 +1830,8 @@ export default function TodayPage() {
       setMissedGoals(displayGoals);
       setMissedEntriesByGoal(entriesByGoal);
 
-      // Session gating. Once the user has seen / acted on the modal in
-      // this tab session we do not re-prompt, and the banner is hidden
-      // until the next session (read by the banner JSX below).
-      const alreadyShown =
-        typeof window !== "undefined" &&
-        window.sessionStorage.getItem("rooted_missed_lesson_prompt_shown") === "1";
-      if (alreadyShown) {
-        setShowMissedRecovery(false);
-        return;
-      }
-      setShowMissedRecovery(true);
+      // Loading the day never opens a dialog over another task. The notice
+      // stays available even after a review is dismissed.
     })();
 
     // ── Unconfirmed-prior-lesson check (Path A queue scheduling) ──────────
@@ -2067,14 +2061,6 @@ export default function TodayPage() {
       days: schoolDayDates.size,
     });
 
-    // Active days this month
-    const activeDates = new Set<string>();
-    (monthLessonsResult.data ?? []).forEach((l: { date?: string; scheduled_date?: string }) => {
-      const d = l.date ?? l.scheduled_date;
-      if (d) activeDates.add(d);
-    });
-    (monthMemoriesResult.data ?? []).forEach((m: { date: string }) => { if (m.date) activeDates.add(m.date); });
-    setActiveDaysThisMonth(activeDates.size);
 
     // Last captured memory
     setLastMemory(lastMemResult.data as typeof lastMemory);
@@ -2085,20 +2071,10 @@ export default function TodayPage() {
       setOnThisDayTier(1);
       checkAndAwardBadges(effectiveUserId);
     } else {
-      const tier2Start = new Date(lastYear, otdNow.getMonth(), 1);
-      const tier2End = new Date(lastYear, otdNow.getMonth() + 1, 0);
-      const { data: tier2Data } = await supabase.from("memories")
-        .select("id, title, date, child_id, photo_url")
-        .eq("user_id", effectiveUserId)
-        .gte("date", localDateStr(tier2Start)).lte("date", localDateStr(tier2End))
-        .order("date", { ascending: false }).limit(1).maybeSingle();
-      if (tier2Data) {
-        setOnThisDayMemory(tier2Data as typeof onThisDayMemory);
-        setOnThisDayTier(2);
-      } else {
-        setOnThisDayMemory(null);
-        setOnThisDayTier(3);
-      }
+      // An arbitrary memory from the same month a year ago is not an
+      // "on this day" moment. Keep this section occasional and truthful.
+      setOnThisDayMemory(null);
+      setOnThisDayTier(3);
     }
 
     // Today's story
@@ -2402,14 +2378,8 @@ export default function TodayPage() {
   // The number of lessons the last Yes marked done, while its toast shows.
   const [recoveryToast, setRecoveryToast] = useState<number | null>(null);
 
-  function markMissedRecoveryShown() {
-    if (typeof window === "undefined") return;
-    window.sessionStorage.setItem("rooted_missed_lesson_prompt_shown", "1");
-  }
-
   async function handleMissedRecoveryYes(rows: RecoveryRow[]) {
     if (!effectiveUserId) return;
-    markMissedRecoveryShown();
     // Nothing checked writes nothing; the sheet just closes.
     if (rows.length === 0) return setShowMissedRecovery(false);
 
@@ -2457,7 +2427,6 @@ export default function TodayPage() {
   }
 
   async function handleMissedRecoveryNo() {
-    markMissedRecoveryShown();
     // Every goal the prompt offered: the family answered "not these" for all
     // of them. The sheet stays up ("Rescheduling…") until the move and the
     // answer are both in, and a failure is thrown for the modal to show.
@@ -2476,14 +2445,11 @@ export default function TodayPage() {
     await refreshTodayStory();
   }
 
-  // X / dismiss: close the prompt without touching any lesson. Same session
-  // gating as YES/NO: markMissedRecoveryShown hides the prompt for the rest
-  // of this session. The "{n} lessons from earlier" link deliberately stays
-  // visible, since it is the only remaining way back to the catch-up flow.
+  // X / dismiss: close the prompt without touching any lesson. The
+  // "{n} lessons from earlier" notice stays visible so they can return.
   // No DB writes and no data refresh. Nothing changed, so there is nothing
   // to reload.
   function handleMissedRecoveryDismiss() {
-    markMissedRecoveryShown();
     setShowMissedRecovery(false);
   }
 
@@ -4671,27 +4637,30 @@ export default function TodayPage() {
           })()}
         </h1>
 
-        {/* Date + stats row */}
-        <div className="flex items-center justify-between mt-1">
-          <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.70)" }}>
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mt-1">
+          <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.85)" }}>
             {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
           </p>
-          {totalMemories > 0 && (
-            <p className="text-[14px]" style={{ color: "rgba(255,255,255,0.70)" }}>
-              {totalMemories} memories{activeDaysThisMonth > 0 ? ` · ${activeDaysThisMonth} day${activeDaysThisMonth !== 1 ? "s" : ""} active` : ""}
-            </p>
-          )}
+          <button
+            type="button"
+            onClick={() => setShowTodayGuide((open) => !open)}
+            aria-expanded={showTodayGuide}
+            aria-controls="today-guide"
+            className="text-[12px] underline underline-offset-2 text-[#fefcf9] hover:opacity-80"
+          >
+            How Today works
+          </button>
         </div>
-
-        {/* Lesson progress counter */}
-        {totalToday > 0 && (
-          <p className="text-[13px] mt-1" style={{ color: "rgba(255,255,255,0.82)" }}>
-            {completedToday} of {totalToday} lesson{totalToday !== 1 ? "s" : ""} done
-          </p>
-        )}
       </div>
 
       <div className="max-w-2xl mx-auto px-5 pt-4 pb-7 space-y-5">
+
+        <div id="today-guide" hidden={!showTodayGuide} className="rounded-2xl border border-[#c8dfc8] bg-[#f0f7f2] px-4 py-4 text-[13px] text-[#2d4233] space-y-2">
+          <h2 className="font-medium text-[15px]">Your day in Rooted</h2>
+          <p><span className="font-medium">Do your work.</span> Check off lessons, activities and appointments when you finish them. Lessons let you record how long you spent.</p>
+          <p><span className="font-medium">Keep the moment.</span> Capture a photo, book or win you want to remember. You can find it in Memories and Your Yearbook.</p>
+          <p><span className="font-medium">Look ahead.</span> Open Coming up for your schedule, or Plan to move a lesson to another day.</p>
+        </div>
 
       {/* ═══════════════════════════════════════════════════════════
           VACATION BANNER — when today is inside an active vacation
@@ -4757,70 +4726,9 @@ export default function TodayPage() {
         );
       })()}
 
-      {/* One Question a Month — gentle, dismissible, re-surfaces next month */}
-      {!loading && !isPartner && <MonthlyQuestionCard userId={effectiveUserId} />}
 
-      {/* Achievement banner */}
-      {achievementBanner && (
-        <button onClick={() => { setAchievementBanner(null); window.location.href = "/dashboard/printables"; }}
-          className="w-full rounded-2xl px-4 py-3 text-left transition-all hover:opacity-90"
-          style={{ backgroundColor: "#2D5016", color: "white" }}>
-          <p className="text-sm font-semibold">
-            {achievementBanner.isEducator ? "\uD83D\uDC9B You earned a certificate!" : `\uD83C\uDF89 ${achievementBanner.childName || "Your child"} earned a certificate!`}
-          </p>
-          <p className="text-xs opacity-80 mt-0.5">
-            {achievementBanner.label}
-            {achievementBanner.extra > 0 ? ` + ${achievementBanner.extra} more in Printables \u2192` : " \u00b7 Download \u2192"}
-          </p>
-        </button>
-      )}
-
-      {/* Trial badge — subtle info during first 22 days, UpgradeBanner handles last 8 */}
-      {(() => {
-        const access = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
-        if (access !== 'trial') return null;
-        const left = getTrialDaysLeft(trialStartedAt);
-        if (left <= 8) return null;
-        if (isNativeApp) {
-          return (
-            <div className="flex items-center gap-2 bg-[#f0f7f0] border border-[#c8dfc8] rounded-xl px-3 py-2 mb-3">
-              <span className="text-sm">🌿</span>
-              <p className="text-[11px] text-[#5c7f63] font-medium flex-1">
-                You&apos;re on your free Rooted+ trial · {left} day{left !== 1 ? 's' : ''} left
-              </p>
-              <span className="text-[11px] text-[#7a6f65] whitespace-nowrap">
-                rootedhomeschoolapp.com
-              </span>
-            </div>
-          );
-        }
-        return (
-          <Link
-            href="/upgrade"
-            className="flex items-center gap-2 bg-[#f0f7f0] border border-[#c8dfc8] rounded-xl px-3 py-2 mb-3 hover:bg-[#e6f0e6] hover:border-[#a8cfa8] transition-colors group"
-          >
-            <span className="text-sm">🌿</span>
-            <p className="text-[11px] text-[#5c7f63] font-medium flex-1">
-              You&apos;re on your free Rooted+ trial · {left} day{left !== 1 ? 's' : ''} left
-            </p>
-            <span className="text-[11px] text-[#2d5a3d] font-semibold whitespace-nowrap group-hover:translate-x-0.5 transition-transform">
-              Upgrade →
-            </span>
-          </Link>
-        );
-      })()}
-
-      {/* ═══════════════════════════════════════════════════════════
-          FROM EARLIER — past-dated incomplete lessons. Mom decides what
-          to do with them: mark complete, skip, reschedule individually,
-          or open the bulk reschedule sheet. Nothing moves silently.
-         ═══════════════════════════════════════════════════════════ */}
-      {/* TODO: remove after queue scheduling verified in production.
-          "From earlier" missed-lesson section. Under queue scheduling
-          there are no missed lessons. current_lesson stays put and the
-          same lesson re-appears on Today next school day. Replaced by
-          the Missed Lesson Recovery modal below which triggers whenever
-          overdueLessonCount > 0 (once per tab session). */}
+      {/* Legacy missed-lesson list. Queue scheduling keeps the next lesson
+          available, and the notice below opens the shared review on tap. */}
       {false && !loading && missedLessons.length > 0 && (() => {
         const missedItems = missedLessons.map((l) => ({
           id: l.id,
@@ -4916,19 +4824,19 @@ export default function TodayPage() {
       {!loading && overdueLessonCount > 0 && missedEntriesByGoal.size > 0 && (
         // Opens Today's own catch-up sheet, with the same lessons it counts.
         // Plan's missed banner lists the same lessons and opens the same
-        // sheet (app/lib/missed-work.ts). The sheet still opens by itself once
-        // per tab; this lets the family reopen it any time after that.
+        // sheet (app/lib/missed-work.ts). The family opens it when ready.
         <button
           type="button"
+          aria-label={`Review ${overdueLessonCount} lesson${overdueLessonCount !== 1 ? "s" : ""} from earlier`}
           onClick={() => {
-            posthog.capture("catchup_prompt_reopened", { lessons: overdueLessonCount });
+            posthog.capture("catchup_prompt_opened", { lessons: overdueLessonCount });
             setShowMissedRecovery(true);
           }}
           className="block w-full text-left px-3.5 py-2.5 rounded-xl bg-[#faf8f4] border border-[#e8e2d9] hover:bg-[#f4f0e8] transition-colors"
         >
           <p className="text-[12px] text-[#7a6f65]">
             {overdueLessonCount} lesson{overdueLessonCount !== 1 ? "s" : ""} from earlier
-            <span className="text-[#5c7f63] font-medium ml-1">Catch up →</span>
+            <span aria-hidden="true" className="text-[#5c7f63] font-medium ml-1">Catch up →</span>
           </p>
         </button>
       )}
@@ -4967,7 +4875,7 @@ export default function TodayPage() {
                         after. */}
                     <p className="text-[13px] text-[#5c4a1a] leading-snug break-words">
                       <span className="font-semibold">{subjectLabel}</span>
-                      {" "}Lesson {g.current_lesson}
+                      {" "}{formatLessonLabel(g.current_lesson, unitFor(g.goal_id))}
                       {g.resolved_day
                         ? <> was due {completionLabelDate(g.resolved_day)}. Did you do it?</>
                         : <>: did you do it?</>}
@@ -5074,13 +4982,6 @@ export default function TodayPage() {
               onCancelEditingNote: cancelEditingNote,
             }}
           />
-          <div className="bg-white rounded-2xl overflow-hidden mt-2" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04)" }}>
-            <InlineScheduleTabs
-              children={children}
-              onManage={() => setShowManageSchedule(true)}
-              isPartner={isPartner}
-            />
-          </div>
         </div>
       )}
 
@@ -5112,14 +5013,273 @@ export default function TodayPage() {
             </p>
           </div>
         ) : (
+          <div>
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMemoryPicker(true); }}
+              className="w-full py-3 rounded-xl text-center font-medium text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
+            >
+              ✚ Capture a memory
+            </button>
+            <p className="text-center text-[12px] text-[#7a6f65] mt-2">Keep a photo, book or moment from your day.</p>
+          </div>
+        )
+      )}
+
+      {!loading && (hasAnyLessons || todayActivities.length > 0 || todayAppointments.length > 0) && (
+        <div className="bg-white rounded-2xl border border-[#e8e5e0] overflow-hidden">
           <button
             type="button"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowMemoryPicker(true); }}
-            className="w-full py-3 rounded-xl text-center font-medium text-white bg-[#2D5A3D] hover:opacity-90 transition-colors"
+            onClick={() => setShowMoreSchedule((open) => !open)}
+            aria-expanded={showMoreSchedule}
+            aria-controls="today-more-schedule"
+            className="w-full px-4 py-3.5 text-left flex items-center justify-between gap-3 hover:bg-[#faf8f5]"
           >
-            ✚ Capture a memory
+            <span>
+              <span className="block text-[14px] font-semibold text-[#2d2926]">Coming up</span>
+              <span className="block text-[12px] text-[#7a6f65]">Upcoming, recurring and past</span>
+            </span>
+            <span className="text-[#5c7f63]" aria-hidden="true">{showMoreSchedule ? "⌃" : "⌄"}</span>
           </button>
-        )
+          <div id="today-more-schedule" hidden={!showMoreSchedule}>
+            <InlineScheduleTabs
+              children={children}
+              onManage={() => setShowManageSchedule(true)}
+              isPartner={isPartner}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Appointments section removed — merged into unified timeline above */}
+
+      {/* ── Photo limit nudge — free users with 45+ photos, once per session ──
+          Gated on the same access check the cap itself uses (getUserAccess,
+          as the photo pickers do), so a family in their trial, who is not
+          capped, is never warned. plan_type alone read them as free. */}
+      {getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt }) === "free" && totalPhotos >= 45 && totalPhotos < 50 && (() => {
+        if (typeof window !== "undefined" && sessionStorage.getItem("rooted_photo_limit_shown")) return null;
+        if (typeof window !== "undefined") sessionStorage.setItem("rooted_photo_limit_shown", "1");
+        if (isNativeApp) {
+          return (
+            <div className="block bg-[#faf6f0] border border-[#e8e2d9] rounded-xl px-4 py-3 text-sm text-[#7a6f65]">
+              You have {50 - totalPhotos} photo{50 - totalPhotos !== 1 ? "s" : ""} left before new memories stop saving. Keep everything with Rooted+ at rootedhomeschoolapp.com.
+            </div>
+          );
+        }
+        return (
+          <Link
+            href="/upgrade"
+            className="block bg-[#faf6f0] border border-[#e8e2d9] rounded-xl px-4 py-3 text-sm text-[#7a6f65] hover:bg-[#f5f0e8] transition-colors"
+          >
+            You have {50 - totalPhotos} photo{50 - totalPhotos !== 1 ? "s" : ""} left before new memories stop saving. Keep everything with Rooted+ →
+          </Link>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════
+          TODAY'S STORY — all memories logged today (only when non-empty)
+         ═══════════════════════════════════════════════════════════ */}
+      {todayStory.length > 0 && (
+        <div className="today-story-section">
+          <div className="mb-2 px-0.5">
+            <h2 className="text-[13px] font-medium uppercase tracking-wider text-[#8B7E74]">Today&apos;s Story</h2>
+            <p className="text-[12px] text-[#7a6f65] mt-1">Tap a memory to add a caption or details.</p>
+          </div>
+
+          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
+            {todayStory.map((m) => {
+              const typeIcons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🏆", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
+              const typeBgs: Record<string, string> = { win: "#f0e8f4", quote: "#f0e8f4", book: "#fef8ee", drawing: "#e8f0f8", field_trip: "#e8f5ea", project: "#e8f5ea" };
+              const icon = typeIcons[m.type] ?? "🌿";
+              const child = m.child_id ? children.find((c) => c.id === m.child_id) : null;
+              const ago = (() => {
+                const diff = Math.round((Date.now() - new Date(m.created_at).getTime()) / 60000);
+                if (diff < 1) return "just now";
+                if (diff < 60) return `${diff}m ago`;
+                const hrs = Math.round(diff / 60);
+                return `${hrs}h ago`;
+              })();
+              const typeLabel = m.type === "field_trip" ? "Trip" : m.type === "quote" ? "Moment" : m.type.charAt(0).toUpperCase() + m.type.slice(1);
+
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={async () => {
+                    const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", m.id).single();
+                    if (data) {
+                      const d = data as { id: string; title: string | null; caption: string | null; child_id: string | null; type: string };
+                      openEditSheet(d.id, d.title ?? "", d.caption ?? "", d.child_id ?? "", d.type);
+                    }
+                  }}
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-[#faf8f5] transition-colors"
+                >
+                  {/* Thumbnail */}
+                  {m.photo_url ? (
+                    <SignedImage src={m.photo_url} bucket="memory-photos" alt="" className="w-[42px] h-[42px] rounded-lg object-cover shrink-0" />
+                  ) : (
+                    <div
+                      className="w-[42px] h-[42px] rounded-lg flex items-center justify-center shrink-0 text-lg"
+                      style={{ backgroundColor: typeBgs[m.type] ?? "#f0ede8" }}
+                    >{icon}</div>
+                  )}
+                  {/* Content */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-bold text-[#2d2926] truncate">
+                      {m.title || (m.type === "photo" ? "Photo" : typeLabel)}
+                    </p>
+                    <p className="text-[10px] text-[#9a8f85] truncate">{typeLabel}{child ? ` · ${child.name}` : ""}</p>
+                  </div>
+                  {/* Time */}
+                  <span className="text-[10px] text-[#c8bfb5] shrink-0">{ago}</span>
+                  {/* Favorite heart */}
+                  <span className="text-[#e0dbd5] text-sm shrink-0 ml-1">♡</span>
+                </button>
+              );
+            })}
+          </div>
+          <Link href="/dashboard/memories" className="block text-center text-xs text-[#5c7f63] font-medium mt-2 hover:underline">
+            See all memories →
+          </Link>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          YOUR BOOK, the permanent page count. Sits AFTER Today's
+          Story on purpose: Today's Story answers "what did we do
+          today", this answers "what is it adding up to", and the
+          second question only makes sense once the first is answered.
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && bookStats && (() => {
+        // A new school year with nothing in it yet. The strip used to keep
+        // showing last year's pages and lessons here, directly under a
+        // "Capture your first memory" card that was counting this year: two
+        // cards on one screen disagreeing about whether the family had ever
+        // captured anything. Now both count this year, and an empty year says
+        // so in words instead of zeros. A brand-new family (no lessons ever)
+        // gets only the activation card, as before.
+        if (totalMemories === 0) {
+          if (!hasAnyLessons) return null;
+          return (
+            <div>
+              <h2 className="text-[13px] font-medium uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Yearbook</h2>
+              <div className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3.5">
+                <p className="text-[13px] text-[#5C5346]" style={{ fontFamily: "var(--font-display)" }}>
+                  {schoolYearName ? `Your ${schoolYearName} yearbook starts with your first memory.` : "Your yearbook starts with your first memory."}
+                </p>
+              </div>
+            </div>
+          );
+        }
+        // Nothing at all below three memories with no lessons behind them.
+        // "0 pages" reads as a scolding, and Rooted does not scold. The
+        // activation card above already speaks to a family with an empty book,
+        // and it does it warmly. This is a fact for families who have one.
+        if (totalMemories < 3 && bookStats.lessons === 0) return null;
+
+        const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+        // The record, middle-dot separated, with every zero left out. A family
+        // with no lessons logged has a book made of memories, so that is what
+        // the line counts for them.
+        const record =
+          bookStats.lessons === 0
+            ? `${totalMemories} memor${totalMemories === 1 ? "y" : "ies"}`
+            : [
+                `${plural(bookStats.lessons, "lesson")} completed`,
+                bookStats.books > 0 ? `${plural(bookStats.books, "book")} read` : null,
+                bookStats.days > 0 ? `${plural(bookStats.days, "day")} of school` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ");
+        const newestChild = lastMemory?.child_id ? children.find((c) => c.id === lastMemory.child_id) : null;
+        const newestLabel = lastMemory ? (lastMemory.title?.trim() || "Photo") : null;
+
+        return (
+          <div>
+            <div className="mb-2 px-0.5">
+              <h2 className="text-[13px] font-medium uppercase tracking-wider text-[#8B7E74]">Your Yearbook</h2>
+              <p className="text-[12px] text-[#7a6f65] mt-1">See how this school year is coming together.</p>
+            </div>
+            <div className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3.5 flex items-start gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="leading-none">
+                  {/* 500, not 700: CLAUDE.md allows 400 and 500 only. */}
+                  <span className="text-[28px] font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+                    {bookStats.pages}
+                  </span>
+                  <span className="text-xs text-[#9a8f85] ml-1.5">pages</span>
+                </p>
+                <p className="text-[11px] text-[#7a6f65] mt-2">{record}</p>
+                {newestLabel && (
+                  <p className="text-[10px] text-[#9a8f85] mt-1 truncate">
+                    Newest: {newestLabel}{newestChild ? ` · ${newestChild.name}` : ""}
+                  </p>
+                )}
+              </div>
+              <Link
+                href="/dashboard/memories/yearbook/read"
+                className="text-xs text-[#5c7f63] font-medium hover:underline shrink-0 mt-1"
+              >
+                Open →
+              </Link>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* A dated memory from within three days of this day last year. */}
+      {onThisDayMemory && onThisDayTier === 1 && (
+        <div>
+          <div
+            className="overflow-hidden"
+            style={{ backgroundColor: "#F0EAF8", border: "1px solid #D4B8E8", borderRadius: 14, padding: "14px 16px" }}
+          >
+            <p style={{ fontSize: 9, fontWeight: 700, color: "#8B6CAF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
+              FROM THIS TIME LAST YEAR · {safeParseDateStr(onThisDayMemory.date)?.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }).toUpperCase() ?? ""}
+            </p>
+            <p style={{ fontSize: 13, fontWeight: 700, color: "#4A2A6A", marginBottom: 8 }}>
+              {onThisDayMemory.title ?? "A memory from this time last year"}
+            </p>
+            {onThisDayMemory.photo_url && (
+              // SignedImage, not a raw img: memories.photo_url can hold a signed
+              // URL that has already expired (some save paths stored 1-hour
+              // links). SignedImage re-signs from the stored path at render
+              // time, which repairs the already-broken rows too.
+              <SignedImage
+                src={onThisDayMemory.photo_url} bucket="memory-photos" alt=""
+                className="w-full object-cover rounded-lg mb-2"
+                style={{ height: 68 }}
+              />
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-[11px]" style={{ color: "#6B4E8A" }}>Saved in your memories</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setLightboxMemory({
+                    id: onThisDayMemory.id,
+                    title: onThisDayMemory.title ?? "Memory",
+                    photo_url: onThisDayMemory.photo_url,
+                    date: onThisDayMemory.date,
+                    type: "photo",
+                  });
+                }}
+                className="text-[10px] font-semibold hover:underline"
+                style={{ color: "#8B6CAF" }}
+              >
+                View memory →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════
+          MY LISTS — collapsible inline lists
+         ═══════════════════════════════════════════════════════════ */}
+      {!loading && lists.length > 0 && (
+        <ListsSection lists={lists} onListsChanged={loadData} getToken={getToken} />
       )}
 
       {/* ═══════════════════════════════════════════════════════════
@@ -5294,234 +5454,55 @@ export default function TodayPage() {
         </div>
       )}
 
-      {/* ── Photo limit nudge — free users with 45+ photos, once per session ──
-          Gated on the same access check the cap itself uses (getUserAccess,
-          as the photo pickers do), so a family in their trial, who is not
-          capped, is never warned. plan_type alone read them as free. */}
-      {getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt }) === "free" && totalPhotos >= 45 && totalPhotos < 50 && (() => {
-        if (typeof window !== "undefined" && sessionStorage.getItem("rooted_photo_limit_shown")) return null;
-        if (typeof window !== "undefined") sessionStorage.setItem("rooted_photo_limit_shown", "1");
+      {/* Achievement banner */}
+      {achievementBanner && (
+        <button onClick={() => { setAchievementBanner(null); window.location.href = "/dashboard/printables"; }}
+          className="w-full rounded-2xl px-4 py-3 text-left transition-all hover:opacity-90"
+          style={{ backgroundColor: "#2D5016", color: "white" }}>
+          <p className="text-sm font-semibold">
+            {achievementBanner.isEducator ? "\uD83D\uDC9B You earned a certificate!" : `\uD83C\uDF89 ${achievementBanner.childName || "Your child"} earned a certificate!`}
+          </p>
+          <p className="text-xs opacity-80 mt-0.5">
+            {achievementBanner.label}
+            {achievementBanner.extra > 0 ? ` + ${achievementBanner.extra} more in Printables \u2192` : " \u00b7 Download \u2192"}
+          </p>
+        </button>
+      )}
+
+      {/* Trial badge — subtle info during first 22 days, UpgradeBanner handles last 8 */}
+      {(() => {
+        const access = getUserAccess({ is_pro: isPro, trial_started_at: trialStartedAt });
+        if (access !== 'trial') return null;
+        const left = getTrialDaysLeft(trialStartedAt);
+        if (left <= 8) return null;
         if (isNativeApp) {
           return (
-            <div className="block bg-[#faf6f0] border border-[#e8e2d9] rounded-xl px-4 py-3 text-sm text-[#7a6f65]">
-              You have {50 - totalPhotos} photo{50 - totalPhotos !== 1 ? "s" : ""} left before new memories stop saving. Keep everything with Rooted+ at rootedhomeschoolapp.com.
+            <div className="flex items-center gap-2 bg-[#f0f7f0] border border-[#c8dfc8] rounded-xl px-3 py-2 mb-3">
+              <span className="text-sm">🌿</span>
+              <p className="text-[11px] text-[#5c7f63] font-medium flex-1">
+                You&apos;re on your free Rooted+ trial · {left} day{left !== 1 ? 's' : ''} left
+              </p>
+              <span className="text-[11px] text-[#7a6f65] whitespace-nowrap">
+                rootedhomeschoolapp.com
+              </span>
             </div>
           );
         }
         return (
           <Link
             href="/upgrade"
-            className="block bg-[#faf6f0] border border-[#e8e2d9] rounded-xl px-4 py-3 text-sm text-[#7a6f65] hover:bg-[#f5f0e8] transition-colors"
+            className="flex items-center gap-2 bg-[#f0f7f0] border border-[#c8dfc8] rounded-xl px-3 py-2 mb-3 hover:bg-[#e6f0e6] hover:border-[#a8cfa8] transition-colors group"
           >
-            You have {50 - totalPhotos} photo{50 - totalPhotos !== 1 ? "s" : ""} left before new memories stop saving. Keep everything with Rooted+ →
+            <span className="text-sm">🌿</span>
+            <p className="text-[11px] text-[#5c7f63] font-medium flex-1">
+              You&apos;re on your free Rooted+ trial · {left} day{left !== 1 ? 's' : ''} left
+            </p>
+            <span className="text-[11px] text-[#2d5a3d] font-semibold whitespace-nowrap group-hover:translate-x-0.5 transition-transform">
+              Upgrade →
+            </span>
           </Link>
         );
       })()}
-
-      {/* Appointments section removed — merged into unified timeline above */}
-
-      {/* ═══════════════════════════════════════════════════════════
-          MY LISTS — collapsible inline lists
-         ═══════════════════════════════════════════════════════════ */}
-      {!loading && lists.length > 0 && (
-        <ListsSection lists={lists} onListsChanged={loadData} getToken={getToken} />
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          TODAY'S STORY — all memories logged today (only when non-empty)
-         ═══════════════════════════════════════════════════════════ */}
-      {todayStory.length > 0 && (
-        <div className="today-story-section">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Today&apos;s Story</p>
-
-          <div className="bg-white border border-[#e8e5e0] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
-            {todayStory.map((m) => {
-              const typeIcons: Record<string, string> = { photo: "📸", drawing: "🎨", win: "🏆", quote: "🏆", book: "📖", field_trip: "🗺️", project: "🔬", activity: "🎵" };
-              const typeBgs: Record<string, string> = { win: "#f0e8f4", quote: "#f0e8f4", book: "#fef8ee", drawing: "#e8f0f8", field_trip: "#e8f5ea", project: "#e8f5ea" };
-              const icon = typeIcons[m.type] ?? "🌿";
-              const child = m.child_id ? children.find((c) => c.id === m.child_id) : null;
-              const ago = (() => {
-                const diff = Math.round((Date.now() - new Date(m.created_at).getTime()) / 60000);
-                if (diff < 1) return "just now";
-                if (diff < 60) return `${diff}m ago`;
-                const hrs = Math.round(diff / 60);
-                return `${hrs}h ago`;
-              })();
-              const typeLabel = m.type === "field_trip" ? "Trip" : m.type === "quote" ? "Moment" : m.type.charAt(0).toUpperCase() + m.type.slice(1);
-
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={async () => {
-                    const { data } = await supabase.from("memories").select("id, title, caption, child_id, type").eq("id", m.id).single();
-                    if (data) {
-                      const d = data as { id: string; title: string | null; caption: string | null; child_id: string | null; type: string };
-                      openEditSheet(d.id, d.title ?? "", d.caption ?? "", d.child_id ?? "", d.type);
-                    }
-                  }}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 text-left hover:bg-[#faf8f5] transition-colors"
-                >
-                  {/* Thumbnail */}
-                  {m.photo_url ? (
-                    <SignedImage src={m.photo_url} bucket="memory-photos" alt="" className="w-[42px] h-[42px] rounded-lg object-cover shrink-0" />
-                  ) : (
-                    <div
-                      className="w-[42px] h-[42px] rounded-lg flex items-center justify-center shrink-0 text-lg"
-                      style={{ backgroundColor: typeBgs[m.type] ?? "#f0ede8" }}
-                    >{icon}</div>
-                  )}
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-[#2d2926] truncate">
-                      {m.title || (m.type === "photo" ? "Photo" : typeLabel)}
-                    </p>
-                    <p className="text-[10px] text-[#9a8f85] truncate">{typeLabel}{child ? ` · ${child.name}` : ""}</p>
-                  </div>
-                  {/* Time */}
-                  <span className="text-[10px] text-[#c8bfb5] shrink-0">{ago}</span>
-                  {/* Favorite heart */}
-                  <span className="text-[#e0dbd5] text-sm shrink-0 ml-1">♡</span>
-                </button>
-              );
-            })}
-          </div>
-          <Link href="/dashboard/memories" className="block text-center text-xs text-[#5c7f63] font-medium mt-2 hover:underline">
-            See all memories →
-          </Link>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════════════════════
-          YOUR BOOK, the permanent page count. Sits AFTER Today's
-          Story on purpose: Today's Story answers "what did we do
-          today", this answers "what is it adding up to", and the
-          second question only makes sense once the first is answered.
-         ═══════════════════════════════════════════════════════════ */}
-      {!loading && bookStats && (() => {
-        // A new school year with nothing in it yet. The strip used to keep
-        // showing last year's pages and lessons here, directly under a
-        // "Capture your first memory" card that was counting this year: two
-        // cards on one screen disagreeing about whether the family had ever
-        // captured anything. Now both count this year, and an empty year says
-        // so in words instead of zeros. A brand-new family (no lessons ever)
-        // gets only the activation card, as before.
-        if (totalMemories === 0) {
-          if (!hasAnyLessons) return null;
-          return (
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Book</p>
-              <div className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3.5">
-                <p className="text-[13px] text-[#5C5346]" style={{ fontFamily: "var(--font-display)" }}>
-                  {schoolYearName ? `Your ${schoolYearName} book starts with your first memory.` : "Your book starts with your first memory."}
-                </p>
-              </div>
-            </div>
-          );
-        }
-        // Nothing at all below three memories with no lessons behind them.
-        // "0 pages" reads as a scolding, and Rooted does not scold. The
-        // activation card above already speaks to a family with an empty book,
-        // and it does it warmly. This is a fact for families who have one.
-        if (totalMemories < 3 && bookStats.lessons === 0) return null;
-
-        const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-        // The record, middle-dot separated, with every zero left out. A family
-        // with no lessons logged has a book made of memories, so that is what
-        // the line counts for them.
-        const record =
-          bookStats.lessons === 0
-            ? `${totalMemories} memor${totalMemories === 1 ? "y" : "ies"}`
-            : [
-                `${plural(bookStats.lessons, "lesson")} completed`,
-                bookStats.books > 0 ? `${plural(bookStats.books, "book")} read` : null,
-                bookStats.days > 0 ? `${plural(bookStats.days, "day")} of school` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ");
-        const newestChild = lastMemory?.child_id ? children.find((c) => c.id === lastMemory.child_id) : null;
-        const newestLabel = lastMemory ? (lastMemory.title?.trim() || "Photo") : null;
-
-        return (
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-[#8B7E74] mb-2 px-0.5">Your Book</p>
-            <div className="bg-white border border-[#e8e5e0] rounded-2xl px-4 py-3.5 flex items-start gap-3">
-              <div className="flex-1 min-w-0">
-                <p className="leading-none">
-                  {/* 500, not 700: CLAUDE.md allows 400 and 500 only. */}
-                  <span className="text-[28px] font-medium text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-                    {bookStats.pages}
-                  </span>
-                  <span className="text-xs text-[#9a8f85] ml-1.5">pages</span>
-                </p>
-                <p className="text-[11px] text-[#7a6f65] mt-2">{record}</p>
-                {newestLabel && (
-                  <p className="text-[10px] text-[#9a8f85] mt-1 truncate">
-                    Newest: {newestLabel}{newestChild ? ` · ${newestChild.name}` : ""}
-                  </p>
-                )}
-              </div>
-              <Link
-                href="/dashboard/memories/yearbook/read"
-                className="text-xs text-[#5c7f63] font-medium hover:underline shrink-0 mt-1"
-              >
-                Open →
-              </Link>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* ═══════════════════════════════════════════════════════════
-          ON THIS DAY — purple card, show only for Tier 1 or 2 matches (1+ year)
-         ═══════════════════════════════════════════════════════════ */}
-      {onThisDayMemory && onThisDayTier <= 2 && (
-        <div>
-          <div
-            className="overflow-hidden"
-            style={{ backgroundColor: "#F0EAF8", border: "1px solid #D4B8E8", borderRadius: 14, padding: "14px 16px" }}
-          >
-            <p style={{ fontSize: 9, fontWeight: 700, color: "#8B6CAF", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-              ON THIS DAY · {onThisDayTier === 1 ? "1 YEAR AGO" : (safeParseDateStr(onThisDayMemory.date)?.toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase() ?? "")}
-            </p>
-            <p style={{ fontSize: 13, fontWeight: 700, color: "#4A2A6A", marginBottom: 8 }}>
-              {onThisDayMemory.title ?? "A memory from this time last year"}
-            </p>
-            {onThisDayMemory.photo_url && (
-              // SignedImage, not a raw img: memories.photo_url can hold a signed
-              // URL that has already expired (some save paths stored 1-hour
-              // links). SignedImage re-signs from the stored path at render
-              // time, which repairs the already-broken rows too.
-              <SignedImage
-                src={onThisDayMemory.photo_url} bucket="memory-photos" alt=""
-                className="w-full object-cover rounded-lg mb-2"
-                style={{ height: 68 }}
-              />
-            )}
-            <div className="flex items-center justify-between">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ backgroundColor: "#E0D0F0", color: "#6B4E8A" }}>
-                🔄 Full circle
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setLightboxMemory({
-                    id: onThisDayMemory.id,
-                    title: onThisDayMemory.title ?? "Memory",
-                    photo_url: onThisDayMemory.photo_url,
-                    date: onThisDayMemory.date,
-                    type: "photo",
-                  });
-                }}
-                className="text-[10px] font-semibold hover:underline"
-                style={{ color: "#8B6CAF" }}
-              >
-                View memory →
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ═══════════════════════════════════════════════════════════
           FILE INPUT — always rendered for capture flow
@@ -5648,7 +5629,7 @@ export default function TodayPage() {
 
                 {/* Lesson title */}
                 <p className="text-xl font-bold text-[#2d2926] text-center mb-1" style={{ fontFamily: "var(--font-display)" }}>
-                  {lesson.title}
+                  {displayLessonTitle(lesson.title, lesson.lesson_number, unitFor(lesson.curriculum_goal_id))}
                 </p>
 
                 {/* Child + date */}
@@ -5908,7 +5889,7 @@ export default function TodayPage() {
                                     >
                                       {isChecked && <span className="text-white text-[10px] font-bold">✓</span>}
                                     </div>
-                                    <span className="flex-1 min-w-0 text-sm text-[#2d2926]">{l.title}</span>
+                                    <span className="flex-1 min-w-0 text-sm text-[#2d2926]">{displayLessonTitle(l.title, l.lesson_number, unitFor(l.curriculum_goal_id))}</span>
                                     <span className="text-[10px] text-[#b5aca4] shrink-0">
                                       {new Date(l.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
                                     </span>
@@ -5933,6 +5914,9 @@ export default function TodayPage() {
                   only; the save path is unchanged. */}
               {(() => {
                 const skippedNums = new Set<number>();
+                // Which curricula the skipped numbers came from: one, and the
+                // warning reads in that curriculum's words ("Week 12.3").
+                const skippedGoals = new Set<string>();
 
                 for (const lesson of upcomingLessons) {
                   if (!extraChecked.has(lesson.id)) continue;
@@ -5945,6 +5929,7 @@ export default function TodayPage() {
 
                   // If selected lesson is not the next expected, everything between is skipped
                   if (lesson.lesson_number > lowestForGoal) {
+                    skippedGoals.add(lesson.curriculum_goal_id);
                     for (let n = lowestForGoal; n < lesson.lesson_number; n++) {
                       skippedNums.add(n);
                     }
@@ -5963,10 +5948,11 @@ export default function TodayPage() {
                 const sorted = Array.from(skippedNums).sort((a, b) => a - b);
                 const lo = sorted[0];
                 const hi = sorted[sorted.length - 1];
+                const skipUnit = skippedGoals.size === 1 ? unitFor([...skippedGoals][0]) : null;
                 const message =
                   sorted.length === 1
-                    ? `Heads up, this skips lesson ${lo}. It won't appear as completed in your plan.`
-                    : `Heads up, this skips lessons ${lo} through ${hi}. They won't appear as completed in your plan.`;
+                    ? `Heads up, this skips ${formatLessonLabel(lo, skipUnit, { lower: true })}. It won't appear as completed in your plan.`
+                    : `Heads up, this skips ${formatLessonRange(lo, hi, skipUnit, { lower: true }).replace(" to ", " through ")}. They won't appear as completed in your plan.`;
 
                 return (
                   <p className="text-[12px] text-[#a06b00] bg-[#fef9e8] border border-[#f0dda8] rounded-lg px-3 py-2 mb-3 leading-snug">
@@ -6983,18 +6969,9 @@ export default function TodayPage() {
       })()}
 
       {/* ── Missed Lesson Recovery modal (Path A queue scheduling) ──
-           Trigger logic in loadData. YES marks missed rows complete on
-           their gap dates and recomputes current_lesson per goal; NO is
-           a no-op write but still refreshes Today + Memories. Session-
-           storage flag `rooted_missed_lesson_prompt_shown` gates re-show. */}
-      {/* Suppressed while the caption card is open. loadData() runs immediately
-          before that card opens and can set showMissedRecovery, and this modal
-          renders at z-[80]/[81], so it landed square on top of the caption
-          field and both buttons. Nothing is lost: showMissedRecovery stays
-          true and the session flag is only written by the YES/NO/dismiss
-          handlers, so the prompt appears the moment the card is closed. It is
-          also the right call on its own terms, since catching up on lessons is
-          not urgent enough to interrupt a photo the family just took. */}
+           The family opens it from the lessons-from-earlier notice. YES marks
+           selected rows complete on their gap dates; NO records the answer.
+           A photo caption takes precedence if it opens after the tap. */}
       {showMissedRecovery && captionQueue.length === 0 && (
         <MissedLessonRecoveryModal
           goals={missedGoals}
@@ -7020,9 +6997,9 @@ export default function TodayPage() {
       {completionChoice && (
         <CompletionDateChooser
           lessonTitle={
-            completionChoice.lesson.title?.trim() ||
+            displayLessonTitle(completionChoice.lesson.title?.trim(), completionChoice.lesson.lesson_number, unitFor(completionChoice.lesson.curriculum_goal_id)) ||
             (completionChoice.lesson.lesson_number
-              ? `Lesson ${completionChoice.lesson.lesson_number}`
+              ? formatLessonLabel(completionChoice.lesson.lesson_number, unitFor(completionChoice.lesson.curriculum_goal_id))
               : "This lesson")
           }
           plannedDate={completionChoice.plannedDate}

@@ -673,6 +673,21 @@ failure, or a row whose book number differs from the projected slot stops the
 answer. The family can mark a reordered lesson directly from Plan. This keeps
 an open prompt from rewriting a lesson finished or moved in another tab.
 
+Those projected entries carry queue slots, which can differ from the saved
+book lesson numbers after a manual reorder. A curriculum with custom unit
+wording therefore shows "Planned work" in the missed-work banner, review sheet
+and day panel until the actual book lesson is known. It must not turn a queue
+slot into a confident "Week 12.3" claim.
+Today shows a quiet "lessons from earlier" notice that opens the prompt on tap.
+Loading Today does not automatically open it over another task or the monthly
+reflection. Dismissing the prompt changes no lesson; the notice stays available.
+The notice has the same explicit "Review N lessons from earlier" accessible
+button name as Plan, rather than joining the number and "Catch up" without
+spoken separation.
+The browser regression in `e2e/smoke/today-catchup-on-demand.spec.ts` seeds a
+missed-work goal on the guarded staging test account, checks the sheet stays
+closed until tapped, then confirms dismissing it writes no completion or answer.
+
 - Re-dating never answers it. A parent re-date or the daily reconciliation
   moves stored dates; only a completion or a recorded "not done" answer
   (`app/lib/missed-work-answers.ts`, used by both screens) changes the list.
@@ -1454,6 +1469,46 @@ the real recalibration: move lesson 4, then "I'm on lesson 4" puts lesson 4 on
 today on both screens; and the stranded-lesson state (lesson 5 completed in slot 6)
 brings lesson 6 back with "I'm on lesson 6". SQL:
 `supabase/tests/move-keep-slot/run.sh`. Browser: `e2e/smoke/move-one-lesson.spec.ts`.
+
+### Lesson wording ("Week 12.3") is display only
+
+A curriculum can say what its lessons are called and how many make one unit:
+`curriculum_goals.lesson_unit_label` (`lesson`, `week`, `day`, `unit`,
+`chapter`) and `lessons_per_unit` (1 to 20), both nullable. Math with
+Confidence at 4 a week reads lesson 47 as "Week 12.3"; 1 a unit reads "Week
+12". Null (every curriculum before September 2026) reads "Lesson 47" exactly
+as before.
+
+**The number never changes.** `lessons.lesson_number`, `queue_position`,
+`current_lesson`, `total_lessons`, the projector, pins, skips, make-ups and
+every invariant above keep counting whole numbers 1..N. The words are computed
+when a lesson is shown, by `lib/lesson-label.ts` (`formatLessonLabel`,
+`formatLessonOfTotal`, `formatLessonRange`, and `displayLessonTitle` for a
+stored title). **Stored titles are never rewritten**: "{name} — Lesson {n}"
+stays in the database because Reports' subject and removed-curriculum
+detection (`lib/progress-report-rows.ts`) and the reusable-title picker parse
+it. `displayLessonTitle` swaps the trailing "Lesson {n}" for the curriculum's
+words only when the number in the title is that row's `lesson_number`.
+
+**One fail-soft read.** The wording is loaded by `LessonUnitsProvider`
+(`lib/lesson-units-context.tsx`) in a query of its own, never by adding the
+columns to an existing lesson or curriculum select: on a database without
+them that would fail the whole query and take Today or Plan down with it. A
+failed read means "no wording". The Schedule Builder sets it on a curriculum
+row ("Lessons are called", "Lessons in each week") and writes it in a separate
+update after the save, only for rows changed in that session.
+`lib/lesson-label-sweep.test.ts` pins both rules.
+
+Where it shows: Today (the lesson list, "did you finish", the check-off and
+extra-lesson sheets, the skip warning, the date chooser, missed-lessons
+recovery), Upcoming and Past, Plan (week rows, month pills, the day panel and
+its catch-up rows, the missed banner, the curriculum card's "of" line, lesson
+search, the move toast, the date chooser), the three print sheets, the Hours &
+Attendance log and the progress report PDF, and a "That's Week 12.1" hint
+beside the numbers a family types (the builder's next lesson, "I'm actually
+on"). Missed work and the catch-up rows number by queue slot, as they always
+have; on a queue that is out of book order the slot and the lesson number
+differ there, with or without wording.
 
 ### Invariant 2 carve-out for manual moves
 

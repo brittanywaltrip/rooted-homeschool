@@ -1,4 +1,5 @@
 import { Document, Image, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { displayLessonTitle, formatLessonLabel, formatLessonOfTotal, type LessonUnit } from "@/lib/lesson-label";
 import { ensureFontsRegistered } from "./pdf-fonts";
 import type { PlanV2Appointment, PlanV2Child, PlanV2Lesson } from "./types";
 import { formatPrintTime, sortByTimeThenOriginal } from "./printTime";
@@ -31,6 +32,8 @@ type Goal = {
 };
 
 export interface DailyPrintPDFProps {
+  /** The curriculum's lesson wording ("Week 12.3"); display only. Omitted: "Lesson N". */
+  unitFor?: (goalId: string | null | undefined) => LessonUnit | null;
   date: Date;
   familyName: string;
   lessons: PlanV2Lesson[];
@@ -184,9 +187,9 @@ const styles = StyleSheet.create({
 function lessonSubject(l: PlanV2Lesson): string {
   return l.subjects?.name ?? "Lesson";
 }
-function lessonTitleText(l: PlanV2Lesson): string {
-  if (l.title && l.title.trim().length > 0) return l.title;
-  if (l.lesson_number) return `Lesson ${l.lesson_number}`;
+function lessonTitleText(l: PlanV2Lesson, unit: LessonUnit | null = null): string {
+  if (l.title && l.title.trim().length > 0) return displayLessonTitle(l.title, l.lesson_number, unit);
+  if (l.lesson_number) return formatLessonLabel(l.lesson_number, unit);
   return "Lesson";
 }
 function fallbackKidColor(idx: number): string {
@@ -234,7 +237,7 @@ function LessonPhotoStrip({ photos }: { photos?: string[] }) {
 }
 
 export default function DailyPrintPDF(props: DailyPrintPDFProps) {
-  const { date, familyName, lessons, appointments, kids, curriculumGoals, photosByLesson } = props;
+  const { date, familyName, lessons, appointments, kids, curriculumGoals, photosByLesson, unitFor } = props;
   const goalById = new Map(curriculumGoals.map((g) => [g.id, g]));
   /** The goal's scheduled_start_time for a lesson, or null. */
   const goalTimeFor = (l: PlanV2Lesson): string | null =>
@@ -292,7 +295,8 @@ export default function DailyPrintPDF(props: DailyPrintPDFProps) {
                 // Timed lessons lead in clock order; untimed keep their order.
                 sortByTimeThenOriginal(items, goalTimeFor).map((l) => {
                   const subject = lessonSubject(l);
-                  const title = lessonTitleText(l);
+                  const unit = unitFor?.(l.curriculum_goal_id) ?? null;
+                  const title = lessonTitleText(l, unit);
                   const total = l.curriculum_goal_id
                     ? goalById.get(l.curriculum_goal_id)?.total_lessons ?? null
                     : null;
@@ -309,7 +313,7 @@ export default function DailyPrintPDF(props: DailyPrintPDFProps) {
                           </View>
                           {showProgress ? (
                             <Text style={styles.progress}>
-                              Lesson {l.lesson_number} of {total}
+                              {formatLessonOfTotal(l.lesson_number!, total!, unit)}
                             </Text>
                           ) : null}
                         </View>
@@ -336,7 +340,7 @@ export default function DailyPrintPDF(props: DailyPrintPDFProps) {
             </View>
             {unassigned.map((l) => {
               const subject = lessonSubject(l);
-              const title = lessonTitleText(l);
+              const title = lessonTitleText(l, unitFor?.(l.curriculum_goal_id) ?? null);
               return (
                 <View key={l.id} style={styles.lessonRow}>
                   <View style={styles.checkbox} />

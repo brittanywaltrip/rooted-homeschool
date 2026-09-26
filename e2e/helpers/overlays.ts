@@ -1,14 +1,11 @@
 /**
- * Getting past what Today puts on top of itself.
+ * Defensive cleanup for overlays when navigating to Today.
  *
- * WHAT ACTUALLY GOES WRONG. A second or two after /dashboard renders, the
- * missed-lesson recovery sheet (MissedLessonRecoveryModal) mounts with a
- * full-screen `fixed inset-0 bg-black/40` overlay above everything. Any click
- * aimed at the page underneath is then refused with "subtree intercepts
- * pointer events", and Playwright RETRIES a click until its timeout. With no
- * explicit timeout that is the whole test budget: a helper in the screenshots
- * spec sat for 240 seconds this way, and the failure it finally reported was a
- * meaningless "Target page, context or browser has been closed".
+ * Before the on-demand catch-up change, the missed-lesson recovery sheet
+ * mounted after /dashboard loaded, covered the page and intercepted clicks.
+ * A screenshot helper once spent 240 seconds retrying beneath it. Today now
+ * opens the sheet only when the family taps its notice. Keep this helper for
+ * older deployments and tests that explicitly opened the sheet.
  *
  * Two earlier guesses about this, both written down and both WRONG, corrected
  * here so nobody spends the hour again:
@@ -18,9 +15,8 @@
  *     second; readyState reaches "complete".
  * The overlay was the whole of it.
  *
- * So: dismiss the sheet before touching the page, and never issue a click
- * without a timeout. playwright.config.ts sets a global actionTimeout as the
- * backstop for the second half of that.
+ * Never issue a click without a timeout: playwright.config.ts sets a global
+ * actionTimeout as the backstop.
  */
 import { expect, type Page } from '@playwright/test'
 
@@ -28,11 +24,9 @@ import { expect, type Page } from '@playwright/test'
 const MISSED_LESSON_SHEET = '[role="dialog"][aria-labelledby="missed-recovery-title"]'
 
 /**
- * Close the missed-lesson recovery sheet if this load raised one.
+ * Close the missed-lesson recovery sheet if one is already open.
  *
- * `waitMs` is how long to give it to appear: it mounts after the lesson data
- * arrives, so a check that runs the instant the greeting renders can miss it
- * and let the overlay block the next click. Returns true when one was closed.
+ * `waitMs` keeps the old call shape. Returns true when one was closed.
  */
 export async function dismissMissedLessonSheet(page: Page, waitMs = 6_000): Promise<boolean> {
   const sheet = page.locator(MISSED_LESSON_SHEET)
@@ -58,8 +52,8 @@ export async function hasBlockingOverlay(page: Page): Promise<boolean> {
 
 /**
  * Open /dashboard (or another app path) and hand back a page nothing is
- * covering: navigate, wait for the greeting, dismiss the sheet, and assert no
- * scrim is left. Every spec that taps something on Today should start here.
+ * covering: navigate, wait for the greeting, close an already-open sheet and
+ * assert no scrim is left. Every spec that taps Today can start here.
  */
 export async function gotoAppPage(
   page: Page,

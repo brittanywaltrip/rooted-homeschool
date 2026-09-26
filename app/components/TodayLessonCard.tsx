@@ -1,5 +1,6 @@
 "use client";
 
+import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import LessonPhotoButton from "@/app/components/LessonPhotoButton";
@@ -99,6 +100,8 @@ export default function TodayLessonCard({
   editingNoteId, editingNoteText, noteSaveState, noteTextareaRef, onNoteTextChange, onSaveNote, onCancelEditingNote,
   completeOnRowClick = true,
 }: TodayLessonCardProps) {
+  // The curriculum's own words for a lesson number ("Week 12.3"), display only.
+  const { unitFor } = useLessonUnits();
   const [menuOpen, setMenuOpen] = useState(false);
   const [showLeaf, setShowLeaf] = useState(false);
   const [particles, setParticles] = useState<Particle[]>([]);
@@ -148,6 +151,7 @@ export default function TodayLessonCard({
   // title. A one-off lesson keeps its own title.
   const subjectForTitle = resolveLessonSubject(lesson.subjects?.name, lesson.subject_label ?? null);
   const titleArgs = {
+    unit: unitFor(lesson.curriculum_goal_id),
     lessonNumber: lesson.lesson_number,
     title: lesson.title,
     subject: subjectForTitle,

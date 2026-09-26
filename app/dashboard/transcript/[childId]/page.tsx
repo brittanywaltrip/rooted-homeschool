@@ -987,6 +987,15 @@ export default function TranscriptBuilderPage() {
           </button>
         </div>
 
+        <details className="rounded-2xl border border-[#dce8dd] bg-[#f3f8f3] px-4 py-3.5 mb-4 text-[13px] text-[#2d4233]">
+          <summary className="cursor-pointer font-medium text-[#2D5A3D]">How this transcript works</summary>
+          <div className="mt-3 space-y-2 leading-relaxed">
+            <p><span className="font-medium">Courses:</span> Review courses from Plan, add outside courses, and enter grades or credits.</p>
+            <p><span className="font-medium">GPA:</span> See how graded courses add up. <span className="font-medium">Transcript:</span> Preview the graded courses and export a PDF when ready.</p>
+            <p>Use Settings above for the school name and administrator shown on the transcript.</p>
+          </div>
+        </details>
+
         {/* Settings panel (gear-triggered) */}
         {settingsOpen && (
           <div ref={settingsRef} className="bg-white rounded-2xl mb-4 overflow-hidden" style={{ boxShadow: "0 4px 24px rgba(0,0,0,0.06)" }}>

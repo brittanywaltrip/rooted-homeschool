@@ -6,14 +6,14 @@ import { BookOpen, FileText, Sparkles, HelpCircle, Mail, Settings, ChevronRight,
 import PageHero from "@/app/components/PageHero";
 
 const items = [
-  { label: "Resources",  sub: "Deals, freebies & field trips",       href: "/dashboard/resources",        icon: BookOpen  },
+  { label: "Resources",  sub: "Mail Adventures, printables & ideas",  href: "/dashboard/resources",        icon: BookOpen  },
   { label: "Transcripts", sub: "Courses, GPA & official transcripts", href: "/dashboard/transcript",       icon: GraduationCap },
   { label: "Reports",    sub: "Hours, attendance & reading log",      href: "/dashboard/reports",          icon: FileText  },
   { label: "Years",      sub: "Past years & year-end summaries",      href: "/dashboard/years",            icon: Archive   },
   { label: "What's New", sub: "Latest updates & improvements",       href: "/dashboard/more/whats-new",   icon: Sparkles  },
   { label: "FAQ",        sub: "Common questions",                    href: "/faq",                        icon: HelpCircle },
   { label: "Contact",    sub: "Get in touch",                        href: "/contact",                    icon: Mail      },
-  { label: "Settings",   sub: "Your account",                        href: "/dashboard/settings",         icon: Settings  },
+  { label: "Settings",   sub: "Family, children, sharing & account", href: "/dashboard/settings",         icon: Settings  },
 ];
 
 export default function MorePage() {
@@ -21,7 +21,7 @@ export default function MorePage() {
 
   return (
     <>
-      <PageHero overline="More" title="More" subtitle="Everything else, all in one place." />
+      <PageHero overline="More" title="More" subtitle="Find resources, records, past years, settings, and help." />
       <div className="max-w-xl mx-auto px-5 pt-5 pb-10">
         <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl overflow-hidden divide-y divide-[#f0ede8]">
           {items.map(({ label, sub, href, icon: Icon }) => (

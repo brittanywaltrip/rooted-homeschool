@@ -1,3 +1,5 @@
+import { formatLessonLabel, type LessonUnit } from "../../../lib/lesson-label.ts";
+
 /**
  * The words a lesson row leads with on Plan, shared by the week rows and the
  * missed-lessons banner so the two cannot drift.
@@ -23,6 +25,11 @@ export function lessonRowTitle(args: {
    */
   removedCurriculum?: string | null;
   completed?: boolean;
+  /**
+   * What the curriculum calls its lessons (lib/lesson-label.ts), or null for
+   * "Lesson N". Display only: the number is always lessons.lesson_number.
+   */
+  unit?: LessonUnit | null;
 }): string {
   const subject = args.subject?.trim() || null;
   const curriculum = args.curriculumName?.trim() || null;
@@ -31,7 +38,7 @@ export function lessonRowTitle(args: {
   const nothing = args.completed ? "Completed lesson" : "Lesson";
   if (args.lessonNumber != null) {
     const lead = subject ?? curriculum ?? (removed ? `${removed} (removed curriculum)` : null);
-    if (lead) return `${lead} · Lesson ${args.lessonNumber}`;
+    if (lead) return `${lead} · ${formatLessonLabel(args.lessonNumber, args.unit ?? null)}`;
     // A numbered lesson with no subject and no curriculum: one kept after its
     // curriculum was deleted, or a standalone lesson given a number. Nothing
     // establishes which, so it shows its own saved title rather than the
@@ -55,6 +62,7 @@ export function lessonRowSubtitle(args: {
   title: string | null | undefined;
   subject: string | null | undefined;
   curriculumName: string | null | undefined;
+  unit?: LessonUnit | null;
 }): string | null {
   const heading = lessonRowTitle(args);
   const raw = (args.lessonNumber != null ? args.curriculumName : args.subject)?.trim() || null;

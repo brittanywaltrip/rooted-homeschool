@@ -1130,6 +1130,7 @@ export default function SettingsPage() {
           Manage your account
         </p>
         <h1 className="text-2xl font-bold text-[#2d2926]">Settings ⚙️</h1>
+        <p className="text-sm text-[#7a6f65] mt-1">Choose a tab to manage your family details, children, sharing, or account.</p>
       </div>
 
       {/* ── Tab navigation ─────────────────────────────────── */}
