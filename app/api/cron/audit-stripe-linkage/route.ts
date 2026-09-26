@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import Stripe from 'stripe'
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 import { runStripeLinkageAudit } from '@/lib/audit-stripe-linkage'
+import { Resend } from 'resend'
+import { emailFooterText } from '@/lib/email-footer'
 
 // Monthly Stripe ↔ profile linkage audit. Guarded by CRON_SECRET (same
 // pattern as every other /api/cron/* route). Always returns 200 with a JSON
@@ -28,6 +30,23 @@ export async function GET(req: Request) {
       paidProfilesCount: report.paidProfilesCount,
       issueCount: report.issueCount,
     })
+    if (report.issueCount > 0) {
+      const resend = new Resend(process.env.RESEND_API_KEY)
+      const { error } = await resend.emails.send({
+        from: 'Rooted <hello@rootedhomeschoolapp.com>',
+        to: 'garfieldbrittany@gmail.com',
+        subject: `Rooted Stripe linkage audit: ${report.issueCount} finding(s)`,
+        text: [
+          `Stripe subscriptions: ${report.stripeBillableCount}`,
+          `Paid profiles: ${report.paidProfilesCount}`,
+          '',
+          ...report.issues.map((issue) =>
+            `${issue.kind}: customer ${issue.customerId ?? '—'}, subscription ${issue.subscriptionId ?? '—'}, user ${issue.userId ?? '—'} — ${issue.details}`,
+          ),
+        ].join('\n') + emailFooterText(),
+      })
+      if (error) throw new Error(`audit alert email failed: ${error.message}`)
+    }
     return NextResponse.json(report)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
