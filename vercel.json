@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/audit-stripe-linkage",
+      "schedule": "0 12 1 * *"
+    },
+    {
       "path": "/api/cron/sync-audience",
       "schedule": "0 12 * * *"
     },

@@ -46,6 +46,7 @@ import {
   type SendOutcome,
 } from '@/lib/email/email-claim'
 import { transactionalSuppressionFor } from '@/lib/email/resend-suppression'
+import { invoiceSubscriptionId } from '@/lib/invoice-subscription'
 
 const ADMIN_EMAIL = 'garfieldbrittany@gmail.com'
 const FOUNDING_PRICE_ID = process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID
@@ -159,28 +160,29 @@ const emailClaimStore: EmailClaimStore = {
 async function loadLinkedProfile(customerId: string): Promise<LinkedProfile | null> {
   const { data: prof } = await supabase
     .from('profiles')
-    .select('id, first_name, stripe_subscription_id')
+    .select('id, first_name, display_name, stripe_subscription_id')
     .eq('stripe_customer_id', customerId)
     .maybeSingle()
   if (!prof) return null
-  return hydrateLinkedProfile(prof as { id: string; first_name: string | null; stripe_subscription_id: string | null })
+  return hydrateLinkedProfile(prof as { id: string; first_name: string | null; display_name: string | null; stripe_subscription_id: string | null })
 }
 
 /** Same, for a profile already resolved by id on the cancellation path. */
 async function loadLinkedProfileById(userId: string): Promise<LinkedProfile | null> {
   const { data: prof } = await supabase
     .from('profiles')
-    .select('id, first_name, stripe_subscription_id')
+    .select('id, first_name, display_name, stripe_subscription_id')
     .eq('id', userId)
     .maybeSingle()
   if (!prof) return null
-  return hydrateLinkedProfile(prof as { id: string; first_name: string | null; stripe_subscription_id: string | null })
+  return hydrateLinkedProfile(prof as { id: string; first_name: string | null; display_name: string | null; stripe_subscription_id: string | null })
 }
 
 /** The address comes from auth.users for THIS id, never from Stripe's copy. */
 async function hydrateLinkedProfile(prof: {
   id: string
   first_name: string | null
+  display_name: string | null
   stripe_subscription_id: string | null
 }): Promise<LinkedProfile> {
   let email: string | null = null
@@ -192,6 +194,7 @@ async function hydrateLinkedProfile(prof: {
   }
   return {
     userId: prof.id,
+    familyLabel: prof.display_name,
     stripeSubscriptionId: prof.stripe_subscription_id,
     email,
     firstName: prof.first_name,
@@ -221,12 +224,12 @@ async function notifyAdminOnce(args: {
 }): Promise<void> {
   const subject = adminNoticeSubject({
     stage: args.stage,
-    familyLabel: args.familyLabel ?? null,
+    familyLabel: args.familyLabel ?? args.profile?.familyLabel ?? null,
     linked: !!args.profile,
   })
   const body = adminNoticeBody({
     stage: args.stage,
-    familyLabel: args.familyLabel ?? null,
+    familyLabel: args.familyLabel ?? args.profile?.familyLabel ?? null,
     userId: args.profile?.userId ?? null,
     customerId: args.customerId,
     subscriptionId: args.subscriptionId,
@@ -1143,10 +1146,7 @@ export async function POST(req: NextRequest) {
     // share one key and the second family notice would be swallowed, so a
     // missing id means we notify the admin and tell the customer nothing.
     const invoiceId = invoice.id ?? null
-    const subId =
-      typeof invoice.subscription === 'string'
-        ? invoice.subscription
-        : invoice.subscription?.id ?? null
+    const subId = invoiceSubscriptionId(invoice)
     const amountDue = invoice.amount_due ? invoice.amount_due / 100 : 0
     const nextAttempt = invoice.next_payment_attempt
       ? new Date(invoice.next_payment_attempt * 1000)

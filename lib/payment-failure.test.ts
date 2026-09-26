@@ -7,6 +7,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
+import { invoiceSubscriptionId } from "./invoice-subscription.ts";
 
 import {
   decideFirstFailureCustomerEmail,
@@ -129,17 +130,32 @@ function decideFromStripeInvoice(invoice: {
   id?: string | null;
   billing_reason?: string | null;
   subscription?: string | null;
+  parent?: { subscription_details?: { subscription?: string | null } | null } | null;
   next_payment_attempt?: number | null;
   attempt_count?: number | null;
 }) {
   return decideFirstFailureCustomerEmail({
     invoiceId: invoice.id ?? null,
     billingReason: invoice.billing_reason ?? null,
-    invoiceSubscriptionId: invoice.subscription ?? null,
+    invoiceSubscriptionId: invoiceSubscriptionId(invoice),
     profile: profile(),
     suppression: null,
   });
 }
+
+test("a current Stripe renewal invoice identifies its subscription and sends the family notice", () => {
+  const d = decideFromStripeInvoice({
+    id: "in_1", billing_reason: "subscription_cycle",
+    parent: { subscription_details: { subscription: "sub_live" } },
+    next_payment_attempt: 1790630425, attempt_count: 1,
+  });
+  assert.deepEqual(d, { send: true });
+});
+
+test("legacy invoice subscription reference remains supported", () => {
+  assert.equal(invoiceSubscriptionId({ subscription: { id: "sub_old" } }), "sub_old");
+  assert.equal(invoiceSubscriptionId({ parent: null }), null);
+});
 
 test("future retry time still sends the first notice", () => {
   const future = Math.floor(new Date("2026-09-21T12:00:00.000Z").getTime() / 1000);

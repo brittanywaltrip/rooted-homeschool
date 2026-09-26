@@ -53,6 +53,8 @@ export type CustomerDecision =
  */
 export interface LinkedProfile {
   userId: string;
+  /** Display label for the admin notice only; never used to resolve identity. */
+  familyLabel?: string | null;
   /** The subscription the profile currently holds, for the identity guard. */
   stripeSubscriptionId: string | null;
   /** Address to mail, read from auth.users for this exact id. */
