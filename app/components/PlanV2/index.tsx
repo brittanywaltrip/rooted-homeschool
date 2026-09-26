@@ -5686,7 +5686,7 @@ export default function PlanV2() {
                   <button
                     type="button"
                     onClick={prevMonth}
-                    aria-label="Previous month"
+                    aria-label={viewMode === "week" ? "Previous week" : "Previous month"}
                     className="w-8 h-8 flex items-center justify-center rounded-lg text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
                   >
                     <ChevronLeft size={16} />
@@ -5714,7 +5714,7 @@ export default function PlanV2() {
                   <button
                     type="button"
                     onClick={nextMonth}
-                    aria-label="Next month"
+                    aria-label={viewMode === "week" ? "Next week" : "Next month"}
                     className="w-8 h-8 flex items-center justify-center rounded-lg text-[#5c7f63] hover:bg-[#f0ede8] transition-colors"
                   >
                     <ChevronRight size={16} />
