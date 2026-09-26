@@ -671,6 +671,15 @@ book lesson numbers after a manual reorder. A curriculum with custom unit
 wording therefore shows "Planned work" in the missed-work banner, review sheet
 and day panel until the actual book lesson is known. It must not turn a queue
 slot into a confident "Week 12.3" claim.
+Today shows a quiet "lessons from earlier" notice that opens the prompt on tap.
+Loading Today does not automatically open it over another task or the monthly
+reflection. Dismissing the prompt changes no lesson; the notice stays available.
+The notice has the same explicit "Review N lessons from earlier" accessible
+button name as Plan, rather than joining the number and "Catch up" without
+spoken separation.
+The browser regression in `e2e/smoke/today-catchup-on-demand.spec.ts` seeds a
+missed-work goal on the guarded staging test account, checks the sheet stays
+closed until tapped, then confirms dismissing it writes no completion or answer.
 
 - Re-dating never answers it. A parent re-date or the daily reconciliation
   moves stored dates; only a completion or a recorded "not done" answer

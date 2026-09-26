@@ -805,8 +805,7 @@ function TodayPageInner() {
   const [missedSheetSubmitting, setMissedSheetSubmitting] = useState(false);
 
   // ── Missed Lesson Recovery modal (Path A queue scheduling) ────────────────
-  // Shown on Today when overdueLessonCount > 0 and the sessionStorage flag
-  // `rooted_missed_lesson_prompt_shown` is not set. Binary YES/NO: mark
+  // Opened by the family from the lessons-from-earlier notice. YES/NO: mark
   // missed lessons done on their gap dates, or leave them and let the queue
   // projector absorb them going forward from today.
   const [showMissedRecovery, setShowMissedRecovery] = useState(false);
@@ -1752,10 +1751,8 @@ function TodayPageInner() {
     setAllDoneBanner(loadedLessons.length > 0 && loadedLessons.every((l: Lesson) => l.completed));
 
     // ── Missed-lesson eligibility (Path A queue scheduling) ──────────────
-    // Computes overdueLessonCount for the banner and decides whether to
-    // open the Missed Lesson Recovery modal. The modal opens whenever
-    // there is at least one overdue entry and the per-session
-    // `rooted_missed_lesson_prompt_shown` flag is not set. Brand-new
+    // Computes overdueLessonCount for the notice. The family decides when
+    // to open the Missed Lesson Recovery modal. Brand-new
     // families with zero completions are skipped (no gap to show).
     void (async () => {
       const activeGoals = goalRows.filter((g) => g.current_lesson < g.total_lessons);
@@ -1833,17 +1830,8 @@ function TodayPageInner() {
       setMissedGoals(displayGoals);
       setMissedEntriesByGoal(entriesByGoal);
 
-      // Session gating. Once the user has seen / acted on the modal in
-      // this tab session we do not re-prompt, and the banner is hidden
-      // until the next session (read by the banner JSX below).
-      const alreadyShown =
-        typeof window !== "undefined" &&
-        window.sessionStorage.getItem("rooted_missed_lesson_prompt_shown") === "1";
-      if (alreadyShown) {
-        setShowMissedRecovery(false);
-        return;
-      }
-      setShowMissedRecovery(true);
+      // Loading the day never opens a dialog over another task. The notice
+      // stays available even after a review is dismissed.
     })();
 
     // ── Unconfirmed-prior-lesson check (Path A queue scheduling) ──────────
@@ -2390,14 +2378,8 @@ function TodayPageInner() {
   // The number of lessons the last Yes marked done, while its toast shows.
   const [recoveryToast, setRecoveryToast] = useState<number | null>(null);
 
-  function markMissedRecoveryShown() {
-    if (typeof window === "undefined") return;
-    window.sessionStorage.setItem("rooted_missed_lesson_prompt_shown", "1");
-  }
-
   async function handleMissedRecoveryYes(rows: RecoveryRow[]) {
     if (!effectiveUserId) return;
-    markMissedRecoveryShown();
     // Nothing checked writes nothing; the sheet just closes.
     if (rows.length === 0) return setShowMissedRecovery(false);
 
@@ -2445,7 +2427,6 @@ function TodayPageInner() {
   }
 
   async function handleMissedRecoveryNo() {
-    markMissedRecoveryShown();
     // Every goal the prompt offered: the family answered "not these" for all
     // of them. The sheet stays up ("Rescheduling…") until the move and the
     // answer are both in, and a failure is thrown for the modal to show.
@@ -2464,14 +2445,11 @@ function TodayPageInner() {
     await refreshTodayStory();
   }
 
-  // X / dismiss: close the prompt without touching any lesson. Same session
-  // gating as YES/NO: markMissedRecoveryShown hides the prompt for the rest
-  // of this session. The "{n} lessons from earlier" link deliberately stays
-  // visible, since it is the only remaining way back to the catch-up flow.
+  // X / dismiss: close the prompt without touching any lesson. The
+  // "{n} lessons from earlier" notice stays visible so they can return.
   // No DB writes and no data refresh. Nothing changed, so there is nothing
   // to reload.
   function handleMissedRecoveryDismiss() {
-    markMissedRecoveryShown();
     setShowMissedRecovery(false);
   }
 
@@ -4749,17 +4727,8 @@ function TodayPageInner() {
       })()}
 
 
-      {/* ═══════════════════════════════════════════════════════════
-          FROM EARLIER — past-dated incomplete lessons. Mom decides what
-          to do with them: mark complete, skip, reschedule individually,
-          or open the bulk reschedule sheet. Nothing moves silently.
-         ═══════════════════════════════════════════════════════════ */}
-      {/* TODO: remove after queue scheduling verified in production.
-          "From earlier" missed-lesson section. Under queue scheduling
-          there are no missed lessons. current_lesson stays put and the
-          same lesson re-appears on Today next school day. Replaced by
-          the Missed Lesson Recovery modal below which triggers whenever
-          overdueLessonCount > 0 (once per tab session). */}
+      {/* Legacy missed-lesson list. Queue scheduling keeps the next lesson
+          available, and the notice below opens the shared review on tap. */}
       {false && !loading && missedLessons.length > 0 && (() => {
         const missedItems = missedLessons.map((l) => ({
           id: l.id,
@@ -4855,19 +4824,19 @@ function TodayPageInner() {
       {!loading && overdueLessonCount > 0 && missedEntriesByGoal.size > 0 && (
         // Opens Today's own catch-up sheet, with the same lessons it counts.
         // Plan's missed banner lists the same lessons and opens the same
-        // sheet (app/lib/missed-work.ts). The sheet still opens by itself once
-        // per tab; this lets the family reopen it any time after that.
+        // sheet (app/lib/missed-work.ts). The family opens it when ready.
         <button
           type="button"
+          aria-label={`Review ${overdueLessonCount} lesson${overdueLessonCount !== 1 ? "s" : ""} from earlier`}
           onClick={() => {
-            posthog.capture("catchup_prompt_reopened", { lessons: overdueLessonCount });
+            posthog.capture("catchup_prompt_opened", { lessons: overdueLessonCount });
             setShowMissedRecovery(true);
           }}
           className="block w-full text-left px-3.5 py-2.5 rounded-xl bg-[#faf8f4] border border-[#e8e2d9] hover:bg-[#f4f0e8] transition-colors"
         >
           <p className="text-[12px] text-[#7a6f65]">
             {overdueLessonCount} lesson{overdueLessonCount !== 1 ? "s" : ""} from earlier
-            <span className="text-[#5c7f63] font-medium ml-1">Catch up →</span>
+            <span aria-hidden="true" className="text-[#5c7f63] font-medium ml-1">Catch up →</span>
           </p>
         </button>
       )}
@@ -7000,18 +6969,9 @@ function TodayPageInner() {
       })()}
 
       {/* ── Missed Lesson Recovery modal (Path A queue scheduling) ──
-           Trigger logic in loadData. YES marks missed rows complete on
-           their gap dates and recomputes current_lesson per goal; NO is
-           a no-op write but still refreshes Today + Memories. Session-
-           storage flag `rooted_missed_lesson_prompt_shown` gates re-show. */}
-      {/* Suppressed while the caption card is open. loadData() runs immediately
-          before that card opens and can set showMissedRecovery, and this modal
-          renders at z-[80]/[81], so it landed square on top of the caption
-          field and both buttons. Nothing is lost: showMissedRecovery stays
-          true and the session flag is only written by the YES/NO/dismiss
-          handlers, so the prompt appears the moment the card is closed. It is
-          also the right call on its own terms, since catching up on lessons is
-          not urgent enough to interrupt a photo the family just took. */}
+           The family opens it from the lessons-from-earlier notice. YES marks
+           selected rows complete on their gap dates; NO records the answer.
+           A photo caption takes precedence if it opens after the tap. */}
       {showMissedRecovery && captionQueue.length === 0 && (
         <MissedLessonRecoveryModal
           goals={missedGoals}

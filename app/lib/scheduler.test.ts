@@ -1887,12 +1887,9 @@ test('Invariant 6 — goal.completed_at preserved when last lesson is later mark
 
 // ── Invariant 7 — completion / dismiss is local ───────────────────────────
 
-test('Invariant 7 — Missed Lesson Recovery NO does not write to lessons table (session-only dismissal)', () => {
-  // The NO path is a true no-op against the DB. Under Path A queue
-  // scheduling, the projector already absorbs missed lessons into the
-  // upcoming schedule going forward from today, so NO does not need to
-  // re-date or touch any lesson row. It only flips the per-tab session
-  // flag that gates re-show.
+test('Invariant 7 — Missed Lesson Recovery NO uses the shared answer path', () => {
+  // The shared answer records the family's decision for each goal. The
+  // modal handler must not make its own lesson write or session-only answer.
   const src = loadRepoFile('app/dashboard/page.tsx')
   const body = extractFunctionBody(src, /async function handleMissedRecoveryNo\s*\(/)
   assert.ok(
@@ -1900,8 +1897,8 @@ test('Invariant 7 — Missed Lesson Recovery NO does not write to lessons table 
     'handleMissedRecoveryNo must not write to the lessons table',
   )
   assert.ok(
-    body.includes('markMissedRecoveryShown'),
-    'handleMissedRecoveryNo must call markMissedRecoveryShown to gate re-show',
+    body.includes('answerMissedNo(missedAnswerDeps())'),
+    'handleMissedRecoveryNo must record the answer through the shared path',
   )
 })
 
@@ -10553,8 +10550,12 @@ test("Today's lessons-from-earlier line reopens Today's own catch-up sheet, not 
   assert.match(block, /overdueLessonCount > 0 && missedEntriesByGoal\.size > 0/, 'no line when there is nothing to catch up on')
   assert.match(block, /setShowMissedRecovery\(true\)/, 'the tap opens the sheet')
   assert.doesNotMatch(block, /href="\/dashboard\/plan"/, 'and no longer sends the family to Plan')
-  // The once-per-tab auto-open is untouched.
-  assert.match(src, /window\.sessionStorage\.getItem\("rooted_missed_lesson_prompt_shown"\) === "1"/)
+  // Opening Today cannot interrupt another task with this dialog. The
+  // visible notice lets the family choose when to review missed work.
+  assert.doesNotMatch(src, /window\.sessionStorage\.getItem\("rooted_missed_lesson_prompt_shown"\)/)
+  const afterEntries = src.indexOf('setMissedEntriesByGoal(entriesByGoal);')
+  const recoveryLoad = src.slice(afterEntries, src.indexOf('})();', afterEntries))
+  assert.doesNotMatch(recoveryLoad, /setShowMissedRecovery\(true\)/)
 })
 
 test('controls that did nothing are gone, and what families use stays', () => {
