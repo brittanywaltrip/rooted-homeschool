@@ -4678,10 +4678,10 @@ function TodayPageInner() {
       <div className="max-w-2xl mx-auto px-5 pt-4 pb-7 space-y-5">
 
         <div id="today-guide" hidden={!showTodayGuide} className="rounded-2xl border border-[#c8dfc8] bg-[#f0f7f2] px-4 py-4 text-[13px] text-[#2d4233] space-y-2">
-          <h2 className="font-semibold text-[15px]">Your day in Rooted</h2>
-          <p><strong>Do your work.</strong> Check off lessons, activities and appointments when you finish them. Lessons let you record how long you spent.</p>
-          <p><strong>Keep the moment.</strong> Capture a photo, book or win you want to remember. You can find it in Memories and Your Yearbook.</p>
-          <p><strong>Look ahead.</strong> Open Coming up for your schedule, or Plan to move a lesson to another day.</p>
+          <h2 className="font-medium text-[15px]">Your day in Rooted</h2>
+          <p><span className="font-medium">Do your work.</span> Check off lessons, activities and appointments when you finish them. Lessons let you record how long you spent.</p>
+          <p><span className="font-medium">Keep the moment.</span> Capture a photo, book or win you want to remember. You can find it in Memories and Your Yearbook.</p>
+          <p><span className="font-medium">Look ahead.</span> Open Coming up for your schedule, or Plan to move a lesson to another day.</p>
         </div>
 
       {/* ═══════════════════════════════════════════════════════════

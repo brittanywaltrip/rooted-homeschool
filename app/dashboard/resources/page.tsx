@@ -618,8 +618,16 @@ export default function ResourcesPage() {
 
   return (
     <>
-    <PageHero overline="Discover" title="Resources 🌿" subtitle="Curated for your homeschool." />
+    <PageHero overline="Discover" title="Resources 🌿" subtitle="Find free printables, mail adventures, activities, and places to explore." />
     <div className="max-w-3xl px-4 pt-6 pb-8 space-y-8" style={{ background: "#faf9f6" }}>
+
+      <details className="rounded-2xl border border-[#dce8dd] bg-[#f3f8f3] px-4 py-3.5 text-[13px] text-[#2d4233]">
+        <summary className="cursor-pointer font-medium text-[#2D5A3D]">How to explore Resources</summary>
+        <div className="mt-3 space-y-2 leading-relaxed">
+          <p>Start with Mail Adventures or a free printable, then browse the activity ideas and other resources below.</p>
+          <p>Use search or a category to narrow the list. Tap the bookmark on a resource to find it later under Saved.</p>
+        </div>
+      </details>
 
       {/* ── Mail Adventures ──────────────────────────────────────
           Top of the page, above everything else. It is free for every
