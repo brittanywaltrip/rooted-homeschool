@@ -192,6 +192,88 @@ test('yes for all: every lesson filed on its day, nothing left to ask', async ()
   assert.deepEqual(brief(await todaySide(db)), [])
 })
 
+test('catch-up refuses stale selections before changing any lesson or recording an answer', async () => {
+  const db = seed()
+  const offered = await planSide(db)
+  const rows = (offered.get(GOAL) ?? []).slice(0, 2).map((e) => ({
+    goal_id: GOAL, lesson_number: e.lesson_number, date: e.date, choice: 'planned' as const,
+  }))
+  const changedElsewhere = db.tables.lessons.find((r) => r.id === 'L3')!
+  changedElsewhere.completed = true
+  const otherCompletionAt = day(-1).toISOString()
+  changedElsewhere.completed_at = otherCompletionAt
+
+  await assert.rejects(answerMissedYes(deps(db, offered), rows), /lessons changed/i)
+  assert.equal(changedElsewhere.completed_at, otherCompletionAt)
+  assert.equal(db.tables.lessons.find((r) => r.id === 'L4')!.completed, false)
+  assert.equal(db.tables.curriculum_goals[0].catchup_answered_on, null)
+})
+
+test('catch-up does not call a reordered queue slot by the wrong book lesson', async () => {
+  const db = seed()
+  const offered = await planSide(db)
+  const first = (offered.get(GOAL) ?? [])[0]
+  const row = db.tables.lessons.find((r) => r.id === 'L3')!
+  db.tables.lessons.find((r) => r.id === 'L9')!.lesson_number = 3
+  row.lesson_number = 9
+
+  await assert.rejects(answerMissedYes(deps(db, offered), [{
+    goal_id: GOAL, lesson_number: first.lesson_number, date: first.date, choice: 'planned',
+  }]), /lesson order has changed/i)
+  assert.equal(row.completed, false)
+  assert.equal(db.tables.curriculum_goals[0].catchup_answered_on, null)
+})
+
+test('catch-up leaves a hand-placed lesson unfinished on its chosen day', async () => {
+  const db = seed()
+  const offered = await planSide(db)
+  const first = (offered.get(GOAL) ?? [])[0]
+  const row = db.tables.lessons.find((r) => r.id === 'L3')!
+  row.queue_pinned = true
+  row.scheduled_date = '2026-10-20'
+  await assert.rejects(answerMissedYes(deps(db, offered), [{
+    goal_id: GOAL, lesson_number: first.lesson_number, date: first.date, choice: 'planned',
+  }]), /lessons changed/i)
+  assert.equal(row.completed, false)
+  assert.equal(row.scheduled_date, '2026-10-20')
+  assert.equal(db.tables.curriculum_goals[0].catchup_answered_on, null)
+})
+
+test('catch-up refuses a lesson changed between its read and conditional write', async () => {
+  const db = seed()
+  const offered = await planSide(db)
+  const first = (offered.get(GOAL) ?? [])[0]
+  const original = db.client.from.bind(db.client)
+  let changed = false
+  // Change the row immediately before the guarded UPDATE is evaluated.
+  db.client.from = ((table: string) => {
+    const q = original(table)
+    if (table !== 'lessons') return q
+    const update = q.update
+    return { ...q, update: (payload: Row) => {
+      if (payload.completed === true && !changed) {
+        changed = true
+        const row = db.tables.lessons.find((r) => r.id === 'L3')!
+        row.completed = true
+        row.completed_at = '2026-09-20T12:00:00Z'
+      }
+      return update(payload)
+    } }
+  }) as typeof db.client.from
+  await assert.rejects(answerMissedYes(deps(db, offered), [{ goal_id: GOAL, lesson_number: first.lesson_number, date: first.date, choice: 'planned' }]), /lessons changed/i)
+  assert.equal(db.tables.lessons.find((r) => r.id === 'L3')!.completed_at, '2026-09-20T12:00:00Z')
+  assert.equal(db.tables.curriculum_goals[0].catchup_answered_on, null)
+})
+
+test('catch-up refuses an un-slotted book lesson rather than inserting a duplicate', async () => {
+  const db = seed()
+  const offered = await planSide(db)
+  const first = (offered.get(GOAL) ?? [])[0]
+  db.tables.lessons.find((r) => r.id === 'L3')!.queue_position = null
+  await assert.rejects(answerMissedYes(deps(db, offered), [{ goal_id: GOAL, lesson_number: first.lesson_number, date: first.date, choice: 'planned' }]), /lessons changed/i)
+  assert.equal(db.tables.curriculum_goals[0].catchup_answered_on, null)
+})
+
 test('the gap window: after the last completion, two weeks at most, after the last answer', () => {
   const todayMid = new Date(2026, 8, 21)
   const at = (iso: string | null, start: string | null, answered: string | null) =>
