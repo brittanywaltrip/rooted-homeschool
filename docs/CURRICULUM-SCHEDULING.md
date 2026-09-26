@@ -672,6 +672,12 @@ every selected slot again. A completed, skipped or hand-placed row, a read
 failure, or a row whose book number differs from the projected slot stops the
 answer. The family can mark a reordered lesson directly from Plan. This keeps
 an open prompt from rewriting a lesson finished or moved in another tab.
+The final completion update repeats those conditions and requires one returned
+row, closing the gap between the read and the write. A missing slot is also
+checked by book lesson number before any insert, and write failures stop the
+answer. The catch-up answer is recorded only after completions and the parent
+re-date succeed; a failed partial operation leaves the review open for a fresh
+load rather than claiming the family finished everything.
 
 Those projected entries carry queue slots, which can differ from the saved
 book lesson numbers after a manual reorder. A curriculum with custom unit

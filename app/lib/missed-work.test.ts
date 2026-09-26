@@ -239,6 +239,41 @@ test('catch-up leaves a hand-placed lesson unfinished on its chosen day', async 
   assert.equal(db.tables.curriculum_goals[0].catchup_answered_on, null)
 })
 
+test('catch-up refuses a lesson changed between its read and conditional write', async () => {
+  const db = seed()
+  const offered = await planSide(db)
+  const first = (offered.get(GOAL) ?? [])[0]
+  const original = db.client.from.bind(db.client)
+  let changed = false
+  // Change the row immediately before the guarded UPDATE is evaluated.
+  db.client.from = ((table: string) => {
+    const q = original(table)
+    if (table !== 'lessons') return q
+    const update = q.update
+    return { ...q, update: (payload: Row) => {
+      if (payload.completed === true && !changed) {
+        changed = true
+        const row = db.tables.lessons.find((r) => r.id === 'L3')!
+        row.completed = true
+        row.completed_at = '2026-09-20T12:00:00Z'
+      }
+      return update(payload)
+    } }
+  }) as typeof db.client.from
+  await assert.rejects(answerMissedYes(deps(db, offered), [{ goal_id: GOAL, lesson_number: first.lesson_number, date: first.date, choice: 'planned' }]), /lessons changed/i)
+  assert.equal(db.tables.lessons.find((r) => r.id === 'L3')!.completed_at, '2026-09-20T12:00:00Z')
+  assert.equal(db.tables.curriculum_goals[0].catchup_answered_on, null)
+})
+
+test('catch-up refuses an un-slotted book lesson rather than inserting a duplicate', async () => {
+  const db = seed()
+  const offered = await planSide(db)
+  const first = (offered.get(GOAL) ?? [])[0]
+  db.tables.lessons.find((r) => r.id === 'L3')!.queue_position = null
+  await assert.rejects(answerMissedYes(deps(db, offered), [{ goal_id: GOAL, lesson_number: first.lesson_number, date: first.date, choice: 'planned' }]), /lessons changed/i)
+  assert.equal(db.tables.curriculum_goals[0].catchup_answered_on, null)
+})
+
 test('the gap window: after the last completion, two weeks at most, after the last answer', () => {
   const todayMid = new Date(2026, 8, 21)
   const at = (iso: string | null, start: string | null, answered: string | null) =>

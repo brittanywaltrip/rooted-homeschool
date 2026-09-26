@@ -168,6 +168,8 @@ export interface CompleteLessonArgs {
   /** Fires once, only after the write succeeds. */
   track?: (event: LessonCompletedEvent) => void;
   now?: Date;
+  /** Catch-up only: refuse a row changed after the review was opened. */
+  expectedUnfinished?: { userId: string; goalId: string; queuePosition: number; lessonNumber: number };
 }
 
 export interface CompleteLessonResult {
@@ -194,11 +196,27 @@ export async function completeLessonOnDate(
     now: args.now,
   });
   // Payload last: `extra` carries minutes and hours, never the date rule.
-  const { error } = await supabase
+  let write = supabase
     .from("lessons")
     .update({ ...(args.extra ?? {}), ...payload })
     .eq("id", args.lessonId);
-  if (error) return { payload, error };
+  if (args.expectedUnfinished) {
+    const expected = args.expectedUnfinished;
+    write = write.eq("user_id", expected.userId)
+      .eq("curriculum_goal_id", expected.goalId)
+      .eq("queue_position", expected.queuePosition)
+      .eq("lesson_number", expected.lessonNumber)
+      .eq("completed", false)
+      .eq("skipped", false)
+      .eq("queue_pinned", false);
+    const { data, error } = await write.select("id");
+    if (error || data?.length !== 1) {
+      return { payload, error: error ?? { message: "Your lessons changed since you opened this. Close this and try again." } };
+    }
+  } else {
+    const { error } = await write;
+    if (error) return { payload, error };
+  }
   args.track?.(
     buildLessonCompletedEvent({
       payload,

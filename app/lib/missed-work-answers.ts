@@ -44,13 +44,12 @@ export async function markCatchupAnswered(d: Pick<MissedAnswerDeps, "supabase" |
     .in("id", goalIds)
     .eq("user_id", d.userId);
   if (error) {
-    // Non-fatal. The completions just confirmed are already written; failing
-    // here only means the prompt may ask again.
     captureSupabaseError("Catch-up answer not recorded", error, {
       level: "warning",
       tags: { fn: "markCatchupAnswered" },
       extra: { goalIds },
     });
+    throw new Error("Your answer couldn't be saved. Close the review and try again.");
   }
 }
 
@@ -76,6 +75,14 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
     if (data && data.lesson_number !== row.lesson_number) {
       throw new Error("This curriculum's lesson order has changed. Mark the lesson you did from Plan instead.");
     }
+    if (!data) {
+      const byNumber = await d.supabase.from("lessons").select("id")
+        .eq("user_id", d.userId).eq("curriculum_goal_id", row.goal_id)
+        .eq("lesson_number", row.lesson_number).maybeSingle();
+      if (byNumber.error || byNumber.data) {
+        throw new Error("Your lessons changed since you opened this. Close this and try again.");
+      }
+    }
     existingBySlot.set(key, data ? { id: data.id as string } : null);
   }
   // Unchecking is an answer, so act on it. Goals the family left something
@@ -89,16 +96,10 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
     goalIds: offeredGoalIds,
     written: rows,
   });
-  await markCatchupAnswered(d, reschedGoalIds);
   const offeredCount = offeredGoalIds.reduce(
     (n, id) => n + (d.entriesByGoal.get(id) ?? []).length,
     0,
   );
-  d.track("catchup_prompt_confirmed", {
-    checked: rows.length,
-    unchecked: offeredCount - rows.length,
-    goals_rescheduled: reschedGoalIds.length,
-  });
 
   // Only the rows the family left checked, each on the date they saw. A row
   // they unchecked is not written and is not rescheduled either: it stays
@@ -118,7 +119,7 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
     const goal = d.goals.find((g) => g.id === row.goal_id);
 
     if (existing) {
-      await completeLessonOnDate(d.supabase, {
+      const result = await completeLessonOnDate(d.supabase, {
         lessonId: existing.id,
         dateStr: row.date,
         choice: row.choice,
@@ -126,8 +127,10 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
         surface: "recovery",
         lessonNumber: row.lesson_number,
         subjectLabel: goal?.subject_label ?? null,
+        expectedUnfinished: { userId: d.userId, goalId: row.goal_id, queuePosition: row.lesson_number, lessonNumber: row.lesson_number },
         track: (event) => d.track("lesson_completed", event as unknown as Record<string, unknown>),
       });
+      if (result.error) throw new Error(result.error.message);
       continue;
     }
 
@@ -180,7 +183,7 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
         `Missed-lesson recovery: no child_id resolvable for goal ${row.goal_id}; skipping insert`,
         { level: "error", tags: { fn: "acceptMissedRecovery" } },
       );
-      continue;
+      throw new Error("This curriculum needs a child before a lesson can be recorded. Close the review and try again.");
     }
     // curriculum_goals has no subject_id column, only subject_label. The
     // real id comes from matching that label against the already-loaded
@@ -216,7 +219,7 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
         tags: { fn: "acceptMissedRecovery" },
         extra: { goalId: row.goal_id, slot: row.lesson_number },
       });
-      continue;
+      throw new Error("Your lessons changed since you opened this. Close this and try again.");
     }
     d.track("lesson_completed", {
       lesson_number: row.lesson_number,
@@ -240,6 +243,12 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
   if (!moved.ok) {
     throw new Error("Your lessons were saved, but some upcoming ones couldn't be moved to their new days. Try again.");
   }
+  await markCatchupAnswered(d, reschedGoalIds);
+  d.track("catchup_prompt_confirmed", {
+    checked: rows.length,
+    unchecked: offeredCount - rows.length,
+    goals_rescheduled: reschedGoalIds.length,
+  });
 }
 
 /**
