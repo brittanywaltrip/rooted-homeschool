@@ -5335,7 +5335,7 @@ export default function PlanV2() {
       if (apptMoveTarget) { setApptMoveTarget(null); return; }
       if (openDayStr) { setOpenDayStr(null); return; }
       if (contextMenu) { setContextMenu(null); return; }
-      if (moveTargetMode) { setMoveTargetMode(false); return; }
+      if (moveTargetMode) { setMoveTargetMode(false); setDayMoveSource(null); return; }
       if (selectMode) { exitSelectMode(); return; }
     };
     window.addEventListener("keydown", onKey);
@@ -5921,7 +5921,7 @@ export default function PlanV2() {
                   void performBulkDelete(Array.from(selectedIds));
                 }}
                 onCancel={exitSelectMode}
-                onBackToSelection={() => setMoveTargetMode(false)}
+                onBackToSelection={() => { setMoveTargetMode(false); setDayMoveSource(null); }}
               />
             ) : null}
 
