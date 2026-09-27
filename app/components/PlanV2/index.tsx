@@ -77,6 +77,7 @@ import AddLessonModal, { type AddLessonSubmit } from "./AddLessonModal";
 import { oneOffLessonRows } from "./oneOffLessonRows";
 import WeekPlannerModal from "./WeekPlannerModal";
 import { weekPlanRows, type WeekPlanInput } from "./weekPlan";
+import { shiftManualPlan } from "./shiftManualPlan";
 import LessonSearchModal, { type LessonSearchResult } from "./LessonSearchModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
@@ -84,6 +85,7 @@ import { mapLessonDateAcrossVacation } from "./handleVacationSave.shift";
 import {
   DEFAULT_SCHOOL_DAYS,
   countSchoolDaysInRange,
+  isTeachingDay,
   nthSchoolDay,
   nthSchoolDayBefore,
 } from "@/lib/school-days";
@@ -379,6 +381,8 @@ export default function PlanV2() {
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [moveTargetMode, setMoveTargetMode] = useState(false);
+  const [dayMoveSource, setDayMoveSource] = useState<string | null>(null);
+  const [dayMoveChoice, setDayMoveChoice] = useState<{ from: string; to: string; ids: string[]; count: number; sourceCount: number } | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   // Deferred bulk delete — rows are removed from state immediately; DB DELETE
   // fires when the undo window expires. Snapshot lets Undo restore them.
@@ -3693,6 +3697,7 @@ export default function PlanV2() {
     setSelectMode(false);
     setSelectedIds(new Set());
     setMoveTargetMode(false);
+    setDayMoveSource(null);
   }, []);
 
   const toggleSelect = useCallback((lessonId: string) => {
@@ -4498,6 +4503,98 @@ export default function PlanV2() {
     [],
   );
 
+  const performManualTailShift = useCallback(async (choice: { from: string; to: string }) => {
+    setDayMoveChoice(null);
+    if (!effectiveUserId) return;
+    if (!isTeachingDay(choice.to, schoolDays, vacationBlocks) || choice.to === choice.from) {
+      flashNotice("Choose a different school day outside a break to shift the plan.");
+      return;
+    }
+    setBulkBusy(true);
+    const changed: ReprojectSnapshotRow[] = [];
+    try {
+      // Load the whole future plan, not just the visible month. A truncated
+      // calendar window would leave later manually planned days behind.
+      const snapshots: ReprojectSnapshotRow[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const { data, error } = await supabase.from("lessons")
+          .select("id, scheduled_date, date, completed, curriculum_goal_id, queue_pinned, scheduled_source")
+          .eq("user_id", effectiveUserId).eq("completed", false)
+          .is("curriculum_goal_id", null).gte("scheduled_date", choice.from)
+          .order("scheduled_date").order("id").range(offset, offset + 499);
+        if (error) throw error;
+        snapshots.push(...(data ?? []));
+        if (!data || data.length < 500) break;
+      }
+      const pairs = shiftManualPlan(snapshots.map((s) => ({ ...s, completed: false, curriculum_goal_id: null })),
+        choice.from, choice.to, schoolDays, vacationBlocks);
+      if (!pairs.some((p) => p.from === choice.from)) {
+        flashNotice("No unfinished manually planned lessons to shift on that day.");
+        return;
+      }
+      const prior = new Map(snapshots.map((s) => [s.id, s]));
+      for (const pair of pairs) {
+        // Recheck each original date and completion state. If another device
+        // changed a row after the preview, stop and restore what we moved.
+        const { data, error } = await supabase.from("lessons")
+          .update({ scheduled_date: pair.date, date: pair.date, scheduled_source: "plan_move", queue_pinned: true })
+          .eq("id", pair.id).eq("user_id", effectiveUserId)
+          .eq("scheduled_date", pair.from).eq("completed", false)
+          .is("curriculum_goal_id", null).select("id");
+        if (error || data?.length !== 1) {
+          throw new Error("Lesson changed while moving");
+        }
+        changed.push(prior.get(pair.id)!);
+      }
+      setUndoAction({
+        message: `Shifted ${pairs.length} planned lesson${pairs.length === 1 ? "" : "s"}`,
+        key: `manual-day-shift:${Date.now()}`,
+        onUndo: async () => {
+          const result = await restoreLessonSnapshot(changed);
+          if (!result.ok) flashNotice("Some lessons could not be restored. Please refresh Plan and contact support.");
+          reload();
+        },
+      });
+      recordEvent("lesson.bulk_action", {
+        action: "shift_manual_plan", count: pairs.length,
+        lesson_ids: pairs.map((p) => p.id), from_dates: pairs.map((p) => p.from),
+        to_dates: pairs.map((p) => p.date), succeeded: pairs.length, failed: 0,
+      });
+      reload();
+      exitSelectMode();
+    } catch {
+      const restored = await restoreLessonSnapshot(changed);
+      flashNotice(restored.ok
+        ? "Couldn't shift the whole plan. Earlier changes were restored; please try again."
+        : "Some lessons could not be restored. Please refresh Plan and contact support.");
+      reload();
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [effectiveUserId, schoolDays, vacationBlocks, restoreLessonSnapshot, reload, exitSelectMode, recordEvent]);
+
+  const prepareDayMove = useCallback(async (from: string, to: string, ids: string[]) => {
+    if (!effectiveUserId) return;
+    setBulkBusy(true);
+    try {
+      const [tail, source] = await Promise.all([
+        supabase.from("lessons").select("id", { head: true, count: "exact" })
+          .eq("user_id", effectiveUserId).eq("completed", false)
+          .is("curriculum_goal_id", null).gte("scheduled_date", from),
+        supabase.from("lessons").select("id", { head: true, count: "exact" })
+          .eq("user_id", effectiveUserId).eq("completed", false)
+          .is("curriculum_goal_id", null).eq("scheduled_date", from),
+      ]);
+      if (tail.error || source.error) throw tail.error ?? source.error;
+      setDayMoveChoice({ from, to, ids, count: tail.count ?? 0, sourceCount: source.count ?? 0 });
+      setMoveTargetMode(false);
+    } catch {
+      flashNotice("Couldn't check the planned lessons. Please try again.");
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [effectiveUserId]);
+
 
   /**
    * Snapshot, then re-project and unpin ONE goal's incomplete tail, as a
@@ -5099,6 +5196,7 @@ export default function PlanV2() {
     setSelectMode(true);
     setSelectedIds(new Set(ids));
     setMoveTargetMode(true);
+    setDayMoveSource(dateStr);
     hapticTap(20);
   }, [lessonsOnDate]);
 
@@ -5214,6 +5312,7 @@ export default function PlanV2() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      if (dayMoveChoice) { setDayMoveChoice(null); exitSelectMode(); return; }
       if (printDialogOpen) { setPrintDialogOpen(false); return; }
       if (bulkDeleteConfirm) { setBulkDeleteConfirm(null); return; }
       if (deleteGoalConfirm) { setDeleteGoalConfirm(null); return; }
@@ -5241,7 +5340,7 @@ export default function PlanV2() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [printDialogOpen, bulkDeleteConfirm, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, continueTarget, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
+  }, [dayMoveChoice, printDialogOpen, bulkDeleteConfirm, deleteGoalConfirm, stopGoalConfirm, markFinishedConfirm, deleteActivityConfirm, editYearOpen, reportDialogOpen, activityModalOpen, wizardOpen, vacationModalOpen, searchOpen, addLessonOpen, editLessonTarget, rescheduleTarget, cascadeChoice, pastCompleteConfirm, continueTarget, apptEditTarget, apptMoveTarget, openDayStr, contextMenu, moveTargetMode, selectMode, exitSelectMode]);
 
   // Announce universal-undo messages to screen readers when they appear.
   useEffect(() => {
@@ -5920,7 +6019,11 @@ export default function PlanV2() {
                   }}
                   onLessonSelectToggle={(lesson) => toggleSelect(lesson.id)}
                   onMoveTargetPick={(dateStr) => {
-                    void performBulkMove(Array.from(selectedIds), dateStr);
+                    if (dayMoveSource) {
+                      void prepareDayMove(dayMoveSource, dateStr, Array.from(selectedIds));
+                    } else {
+                      void performBulkMove(Array.from(selectedIds), dateStr);
+                    }
                   }}
                   onCellContextMenu={(dateStr, x, y) => {
                     if (selectMode) return;
@@ -6473,6 +6576,32 @@ export default function PlanV2() {
             onOpenDay={() => handleMenuOpenDay(contextMenu.dateStr)}
             onClose={() => setContextMenu(null)}
           />
+        ) : null}
+
+        {dayMoveChoice ? (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+            <div role="dialog" aria-modal="true" aria-labelledby="day-move-title"
+              className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl text-[#2D2A26]">
+              <h2 id="day-move-title" className="text-lg font-semibold">Move planned work</h2>
+              <p className="mt-2 text-sm">Move lessons from {dayMoveChoice.from} to {dayMoveChoice.to}.</p>
+              <p className="mt-2 text-sm">Shift {dayMoveChoice.count} unfinished manually planned lesson{dayMoveChoice.count === 1 ? "" : "s"} on this day and later days. Their spacing follows your school days and skips breaks. Completed lessons, appointments, and automatic curriculum scheduling stay as they are.</p>
+              {dayMoveChoice.sourceCount === 0 ? <p className="mt-2 text-sm text-amber-800">This day has no unfinished manually planned lessons to shift.</p> : null}
+              <div className="mt-5 flex flex-col gap-2">
+                <button type="button" disabled={bulkBusy || dayMoveChoice.sourceCount === 0 || !isTeachingDay(dayMoveChoice.to, schoolDays, vacationBlocks) || dayMoveChoice.to === dayMoveChoice.from} className="rounded-xl bg-[#2D5A3D] px-4 py-3 text-left text-sm font-semibold text-white disabled:opacity-50"
+                  onClick={() => void performManualTailShift(dayMoveChoice)}>
+                  Shift my planned days {dayMoveChoice.to > dayMoveChoice.from ? "forward" : "backward"}
+                </button>
+                <button type="button" disabled={bulkBusy} className="rounded-xl border border-[#d4e8d4] px-4 py-3 text-left text-sm font-medium disabled:opacity-50"
+                  onClick={() => {
+                    const choice = dayMoveChoice;
+                    setDayMoveChoice(null);
+                    void performBulkMove(choice.ids, choice.to);
+                  }}>Move only the selected day</button>
+                <button type="button" disabled={bulkBusy} className="rounded-xl px-4 py-2 text-sm"
+                  onClick={() => { setDayMoveChoice(null); exitSelectMode(); }}>Cancel</button>
+              </div>
+            </div>
+          </div>
         ) : null}
 
         {/* Appointment wizard — opens for either "+ Add appointment" (initialDate)
