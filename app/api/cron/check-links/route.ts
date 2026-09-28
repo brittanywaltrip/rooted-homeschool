@@ -69,6 +69,16 @@ export async function GET(request: Request) {
       .eq("is_active", true),
   ]);
 
+  // A failed read is not an empty catalog. Returning a successful zero-link
+  // report would hide a database outage and make the weekly check look green.
+  if (resourcesRes.error || listingsRes.error) {
+    console.error("[cron/check-links] catalog read failed", {
+      resources: resourcesRes.error?.message,
+      mailboxListings: listingsRes.error?.message,
+    });
+    return NextResponse.json({ error: "Link catalog read failed" }, { status: 500 });
+  }
+
   const targets: CheckTarget[] = [
     ...(resourcesRes.data ?? []).map((r) => ({
       id: r.id as string,
