@@ -126,6 +126,23 @@ begin
   end;
   execute 'reset role';
 
+  -- 7b. The scheduled task's path with SET ROLE service_role but no key
+  --     claims (what an MCP session can do): still refused.
+  begin
+    execute 'set local role service_role';
+    perform set_config('request.jwt.claims', '', true);
+    update public.lessons l
+       set completed = true, completed_at = (now() - interval '1 day')::timestamptz, queue_position = null
+      from public.curriculum_goals cg
+     where l.curriculum_goal_id = cg.id and cg.id = g and l.completed = false
+       and l.lesson_number is not null and l.lesson_number <= cg.current_lesson
+       and (l.notes is null or l.notes = '');
+    raise exception 'ASSERT failed: SET ROLE service_role auto-heal was NOT refused';
+  exception when check_violation then
+    res := res || '{"7b_set_role_service_no_claims":"refused"}';
+  end;
+  execute 'reset role';
+
   -- 8. A SECURITY DEFINER RPC called by the family runs as postgres but
   --    carries the family's claims: allowed.
   begin

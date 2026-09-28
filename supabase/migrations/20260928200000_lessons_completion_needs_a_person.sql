@@ -1,5 +1,12 @@
--- NOT YET APPLIED to production. Staging (cvgqovweybggrqakhdtd) only, for the
--- rehearsal in supabase/tests/completion-needs-a-person.sql. Per CLAUDE.md
+-- NOT YET APPLIED to production.
+-- Applied to rooted-staging (cvgqovweybggrqakhdtd) 2026-09-28 in two steps:
+--   20260928201722 lessons_completion_needs_a_person
+--   20260928201826 lessons_completion_needs_a_person_key_claims  (the
+--                  service_role clause also requires the key's claims)
+-- The final function body there is exactly this file's (md5 4c5e182a5325771883725e2b481525a5). Rehearsal:
+-- supabase/tests/completion-needs-a-person.sql, 12/12 on staging.
+-- On production apply it once, then rename this file to the version the
+-- production ledger records (CLAUDE.md). Per CLAUDE.md
 -- ("Migrations are applied by hand, never by a deploy"), merging this file
 -- changes nothing in the live database. Rollback:
 -- supabase/rollbacks/20260928200000_lessons_completion_needs_a_person_ROLLBACK.sql
@@ -38,7 +45,10 @@
 --      calls (reopen_lesson, apply_builder_rebuild, report corrections),
 --      because PostgREST's request claims stay set inside them.
 --   2. The service_role key: reviewed server code, repair scripts and the
---      e2e seeding, which all go through PostgREST with that key.
+--      e2e seeding, which all go through PostgREST with that key. Checked as
+--      current_user = service_role AND request.jwt.claims role = service_role,
+--      so a SQL session that merely runs SET ROLE service_role (which the
+--      Supabase MCP and the SQL editor can do) is still refused.
 --   3. A transaction that says why, out loud:
 --        set local rooted.completion_attested = '<ticket or reason>';
 --      For a reviewed repair run from the SQL editor. The reason is required
@@ -71,7 +81,12 @@ BEGIN
     IF auth.uid() IS NOT DISTINCT FROM NEW.user_id AND auth.uid() IS NOT NULL THEN
       RETURN NEW;
     END IF;
-    IF current_user = 'service_role' THEN
+    -- A real service-key request: PostgREST switches to service_role AND
+    -- stamps the key's claims. A SQL session that only runs SET ROLE
+    -- service_role (the Supabase MCP, the SQL editor) carries no claims and is
+    -- not let through here.
+    IF current_user = 'service_role'
+       AND coalesce(nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role', '') = 'service_role' THEN
       RETURN NEW;
     END IF;
     IF coalesce(btrim(current_setting('rooted.completion_attested', true)), '') <> '' THEN
