@@ -512,6 +512,22 @@ from Today's confirm prompt writing `current_lesson + 1`, 104 from an ordinary
 completion whose recompute stepped over queue-drifted rows, 102 from other
 pointer raises (Schedule Builder starting position, repairs).
 
+**Top-level statements are held to it too (2026-09-28).** The 2026-09-07
+guard only refused completion inside a trigger (`pg_trigger_depth() > 1`). On
+2026-09-25 a scheduled integrity check's "drift G auto-heal", run through the
+Supabase MCP as `postgres`, marked 250 lessons done across 123 curricula and 34
+families with the same fingerprint, and also nulled their `queue_position`. It
+picked rows by `lesson_number <= current_lesson`, but `current_lesson` is
+MAX(`queue_position`), so after a Plan drag had swapped two lessons' slots it
+caught lessons the family had not finished and left an empty slot below the
+pointer. `20260928200000_lessons_completion_needs_a_person` now refuses any
+completion at depth 1 unless `auth.uid()` is the lesson's owner (the browser
+and every RPC the family calls), the caller is `service_role` (reviewed server
+code, scripts, e2e seeding), or the transaction first ran
+`set local rooted.completion_attested = '<reason>'`. Tested by
+`supabase/tests/completion-needs-a-person.sql`. An orphan is reported, never
+"healed" by completing it.
+
 **What the cleanup was originally for, and what it does now.** Orphans are
 incomplete rows the pointer has moved past. The harm they do is a CALENDAR
 harm: they keep a real future `scheduled_date`, so they ghost onto Plan and
