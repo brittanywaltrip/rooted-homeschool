@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from 'resend'
-import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
+import { signedPhotoUrlAdmin } from '@/lib/photo-url'
 
 export const dynamic = 'force-dynamic'
 
-const TEST_USER_ID = 'f30ede7e-ad40-42a9-a134-8fd70932ba0f'
+const BUCKET = 'memory-photos'
 const ALERT_TO = 'garfieldbrittany@gmail.com'
 const FROM = 'Rooted Health Check <hello@rootedhomeschoolapp.com>'
 
@@ -15,25 +15,25 @@ export async function GET(req: NextRequest) {
 
   const checkedAt = new Date().toISOString()
 
-  const { data: mem, error } = await supabase
-    .from('memories')
-    .select('photo_url')
-    .eq('user_id', TEST_USER_ID)
-    .eq('type', 'photo')
-    .not('photo_url', 'is', null)
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-
-  if (error || !mem?.photo_url) {
-    console.error('[health-check] photo fixture read failed:', error?.message ?? 'no photo fixture')
+  // A dedicated synthetic object keeps the check independent of customer data
+  // and deleted test accounts. Its path is configured per environment.
+  const fixturePath = process.env.ROOTED_HEALTH_PHOTO_PATH?.trim()
+  if (!fixturePath) {
+    console.error('[health-check] ROOTED_HEALTH_PHOTO_PATH is not configured')
     return NextResponse.json(
-      { ok: false, status: 0, checked_at: checkedAt, reason: error ? 'photo_read_failed' : 'no_photo' },
+      { ok: false, status: 0, checked_at: checkedAt, reason: 'missing_fixture' },
       { status: 503 },
     )
   }
 
-  const url = mem.photo_url as string
+  // The bucket is private, so sign afresh rather than HEAD an old saved URL.
+  const url = await signedPhotoUrlAdmin(BUCKET, fixturePath, 60)
+  if (!url) {
+    return NextResponse.json(
+      { ok: false, status: 0, checked_at: checkedAt, reason: 'sign_failed' },
+      { status: 503 },
+    )
+  }
   let status = 0
   try {
     const res = await fetch(url, { method: 'HEAD' })
@@ -50,7 +50,7 @@ export async function GET(req: NextRequest) {
         from: FROM,
         to: ALERT_TO,
         subject: '🔴 Rooted Health Check Failed',
-        text: `Daily health check failed. Photo URL returned status ${status}. Check the memory-photos storage bucket and any recent Supabase changes. URL tested: ${url}`,
+        text: `Daily health check failed. The synthetic photo returned status ${status}. Check the memory-photos storage bucket and any recent Supabase changes.`,
       })
     } catch (e) {
       console.error('[health-check] Resend send failed:', e)
