@@ -14,9 +14,13 @@
 --   queue_position NULL -> lesson_number (UNDO_restore_slot)
 --                       -> the one empty slot (UNDO_restore_only_hole_SIGNOFF)
 --                       -> stays NULL (UNDO_archived)
--- Nothing else on the row changes: not the dates, not the pin, not the
--- source. Those were never touched by the 2026-09-25 statement, so they are
--- already what the family had. No other row is written.
+-- For a row BELOW the family's starting lesson (lesson_number <
+-- start_at_lesson), and only when v_hide_below_start is true (the default,
+-- per Brittany 2026-09-28): also queue_pinned -> false and scheduled_date ->
+-- NULL, so a lesson the family chose to start past can never show as missed
+-- work. The previous pin and date are kept in the backup table (step 0).
+-- Otherwise nothing else on the row changes: not the dates, not the pin, not
+-- the source. No other row is written.
 --
 -- Guards, any failure raises and rolls back everything:
 --   * each target row must still be exactly as the statement left it:
@@ -56,6 +60,9 @@ declare
   -- APPROVED CLASSES. Starts empty on purpose. Allowed values:
   --   'UNDO_restore_slot', 'UNDO_restore_only_hole_SIGNOFF', 'UNDO_archived'
   v_classes  text[] := array[]::text[];
+  -- Keep lessons below the family's starting lesson hidden (Brittany, 2026-09-28).
+  v_hide_below_start boolean := true;
+  v_leaked   int;
   v_targets  uuid[];
   v_goals    uuid[];
   v_expected int;
@@ -102,7 +109,11 @@ begin
                             when 'UNDO_restore_slot' then i.lesson_number
                             when 'UNDO_restore_only_hole_SIGNOFF' then i.eliminated_slot
                             else null
-                          end
+                          end,
+         queue_pinned = case when v_hide_below_start and i.lesson_number < coalesce(i.start_at_lesson, 1)
+                             then false else l.queue_pinned end,
+         scheduled_date = case when v_hide_below_start and i.lesson_number < coalesce(i.start_at_lesson, 1)
+                               then null else l.scheduled_date end
     from rooted_private.recovery_20260925_inventory i
    where i.lesson_id = l.id
      and i.action = any(v_classes)
@@ -128,6 +139,17 @@ begin
     from public.lessons where curriculum_goal_id = any(v_goals) and not (id = any(v_targets));
   if v_rest_after is distinct from v_rest_before then
     raise exception 'recovery: a lesson outside the approved set changed. Nothing kept.';
+  end if;
+
+  if v_hide_below_start then
+    select count(*) into v_leaked
+      from public.lessons l join rooted_private.recovery_20260925_inventory i on i.lesson_id = l.id
+     where i.action = any(v_classes)
+       and i.lesson_number < coalesce(i.start_at_lesson, 1)
+       and (l.queue_pinned or l.scheduled_date is not null);
+    if v_leaked > 0 then
+      raise exception 'recovery: % lessons below a starting lesson would still show. Nothing kept.', v_leaked;
+    end if;
   end if;
 
   select count(*) into v_dupes from (

@@ -1,4 +1,4 @@
-# Recovery plan: the 250 lessons falsely marked done on 2026-09-25
+# Recovery plan: the 259 lessons falsely marked done on 2026-09-25, 26 and 27
 
 Status: PLAN ONLY. Nothing here has run against production. Every production
 number below comes from `scripts/recovery-2026-09-25/inventory.sql`, a single
@@ -14,6 +14,56 @@ NULL` on every unfinished lesson whose `lesson_number <= current_lesson`, then
 forced `current_lesson` back to its old value. It touched no other column and
 no other row. The task is report-only as of 2026-09-28, and PR #130 adds a
 database guard that refuses this statement (verified on rooted-staging).
+
+## Update 2026-09-28 evening
+
+**Where it ran, and how often.** The statement came from the cloud routine "Rooted curriculum
+integrity check" (trig_01PG7xDBfP5Y2JFDikqqu3cf). The local scheduled task had been disabled since the
+09-24 migration, and the routine kept its own copy of the prompt. It ran the auto-heal three times:
+
+| Run | Fingerprint (completed_at) | Lessons still marked done | Families |
+|---|---|---:|---:|
+| 2026-09-25 15:11 UTC | 2026-09-24 15:11:35.834303+00 | 250 | 34 |
+| 2026-09-26 15:01 UTC | 2026-09-25 15:01:51.917494+00 | 2 | 1 |
+| 2026-09-27 15:02 UTC | 2026-09-26 15:02:34.471527+00 | 7 | 2 |
+
+The routine was **paused** on 2026-09-28 21:57 UTC; read back as `enabled: false`. Its saved prompt
+still contains the old instructions and must be replaced before it is re-enabled. The production
+completion guard (20260928205411) refuses the auto-heal statement either way.
+
+**The extra 9** (in `inventory.sql`, not reversed):
+- 6 in family `81ba0fc9`: an archived curriculum, lessons 112-117. Class `UNDO_archived`.
+- 3 in family `dae51dfe` (khaller33), all `REVIEW_slot_ambiguous` (reordered curricula):
+  - Handwriting Level 1 lesson 39.
+  - Math 2 lesson 5, which the family had deliberately **un-ticked** on 09-26 (`manual_uncomplete`)
+    before the routine re-completed it.
+  - Math 2 lesson 8, which the family had **moved to 2026-10-02** (`plan_move`, pinned) before the
+    routine marked it done.
+
+**Rule v2 for lessons below the starting lesson (Brittany, 2026-09-28).** Under an exact undo, 95 of
+the 98 below-start rows in the first batch would reappear as missed work, because they were pinned or
+dated in August. v2 undoes the completion and restores the slot, but also sets
+`queue_pinned = false, scheduled_date = NULL` on rows with `lesson_number < start_at_lesson`, so they
+stay hidden. The previous pin and date live in the backup table. `apply-template.sql` now does this by
+default (`v_hide_below_start`) and aborts if any below-start target would still show. **Rule v2 has not
+been rehearsed on staging yet.** Rehearse it before any production write.
+
+**Family-level preview, first batch (165 certain-slot rows, rule v2):**
+
+| Outcome | Lessons | Families |
+|---|---:|---:|
+| Below the starting lesson, kept hidden | 98 | 17 |
+| At or after the starting lesson, back as missed work (pinned there before 09-25, dated Aug 3 to Sep 3) | 47 | 8 |
+| Hidden behind the pointer (surface candidate, per-family decision) | 20 | 6 |
+| Future make-up | 0 | 0 |
+
+- 17 of the 25 families see nothing appear.
+- One family accounts for 28 of the 47 "back as missed" lessons, across three children, in curricula
+  where they have kept completing lessons since.
+- Per-family detail with emails: `scripts/recovery-2026-09-25/family-preview-2026-09-28.local.md`
+  (local only, not in git).
+
+Status: **no-go on applying**, per Brittany 2026-09-28.
 
 ## Inventory (production, read-only, 2026-09-28)
 
