@@ -1,15 +1,21 @@
--- NOT YET APPLIED to production.
--- Applied to rooted-staging (cvgqovweybggrqakhdtd) 2026-09-28 in two steps:
---   20260928201722 lessons_completion_needs_a_person
---   20260928201826 lessons_completion_needs_a_person_key_claims  (the
---                  service_role clause also requires the key's claims)
--- The final function body there is exactly this file's (md5 4c5e182a5325771883725e2b481525a5). Rehearsal:
--- supabase/tests/completion-needs-a-person.sql, 12/12 on staging.
--- On production apply it once, then rename this file to the version the
--- production ledger records (CLAUDE.md). Per CLAUDE.md
--- ("Migrations are applied by hand, never by a deploy"), merging this file
--- changes nothing in the live database. Rollback:
--- supabase/rollbacks/20260928200000_lessons_completion_needs_a_person_ROLLBACK.sql
+-- ALREADY APPLIED. DO NOT RE-RUN.
+--   production gvkbegvvmhcrmxdorctk: 20260928205411 lessons_completion_needs_a_person
+--     (2026-09-28 20:54 UTC; function only, the trigger already existed with
+--     the identical definition, so it was not dropped and recreated under
+--     live traffic)
+--   staging    cvgqovweybggrqakhdtd: 20260928201722 lessons_completion_needs_a_person
+--              + 20260928201826 lessons_completion_needs_a_person_key_claims
+-- The filename carries the PRODUCTION version (CLAUDE.md). Installed function
+-- md5 on both = 4c5e182a5325771883725e2b481525a5, identical to the body below.
+-- The error HINT inside the body names this file by its pre-apply name
+-- (20260928200000_...); it is kept verbatim so the body matches what is
+-- installed.
+-- Verified on production after applying, in a transaction that rolled back:
+-- a parent completion (role authenticated, the family's claims, the e2e test
+-- account) lands and moves the pointer; a postgres completion with no user is
+-- refused. Rehearsal: supabase/tests/completion-needs-a-person.sql, 12/12 on
+-- staging. Rollback:
+-- supabase/rollbacks/20260928205411_lessons_completion_needs_a_person_ROLLBACK.sql
 --
 -- ============================================================================
 -- A LESSON IS MARKED DONE ONLY BY A PERSON, OR BY REVIEWED CODE

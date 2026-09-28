@@ -10,7 +10,7 @@ import { gotoAppPage } from '../helpers/overlays';
 // family had finished, and nulled their queue_position. Families then saw a
 // lesson vanish from both screens and an empty slot below the pointer (the
 // 2026-09-28 report: Math With Confidence, Gather Round: Chemistry, Reason for
-// Handwriting K). supabase/migrations/20260928200000 now refuses any
+// Handwriting K). supabase/migrations/20260928205411 now refuses any
 // completion that comes from neither the family nor the service_role key;
 // supabase/tests/completion-needs-a-person.sql proves the refusal. This spec
 // proves the other half of a fail-closed guard: the parent's real action

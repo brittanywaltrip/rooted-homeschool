@@ -1,4 +1,4 @@
--- Assertion tests for 20260928200000_lessons_completion_needs_a_person.
+-- Assertion tests for 20260928205411_lessons_completion_needs_a_person.
 --
 -- Replays the 2026-09-25 incident on staging synthetic data, then checks every
 -- path that may legitimately mark a lesson done still can.

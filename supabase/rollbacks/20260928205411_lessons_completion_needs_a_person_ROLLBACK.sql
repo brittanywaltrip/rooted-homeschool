@@ -1,4 +1,4 @@
--- Rollback for 20260928200000_lessons_completion_needs_a_person.sql.
+-- Rollback for 20260928205411_lessons_completion_needs_a_person.sql.
 -- Restores the 20260907000000 body verbatim: only trigger depth > 1 is
 -- refused, so a top-level statement with no signed-in user can mark lessons
 -- done again. Verify afterwards: md5(prosrc) of

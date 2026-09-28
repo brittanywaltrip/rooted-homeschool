@@ -520,7 +520,7 @@ families with the same fingerprint, and also nulled their `queue_position`. It
 picked rows by `lesson_number <= current_lesson`, but `current_lesson` is
 MAX(`queue_position`), so after a Plan drag had swapped two lessons' slots it
 caught lessons the family had not finished and left an empty slot below the
-pointer. `20260928200000_lessons_completion_needs_a_person` now refuses any
+pointer. `20260928205411_lessons_completion_needs_a_person` now refuses any
 completion at depth 1 unless `auth.uid()` is the lesson's owner (the browser
 and every RPC the family calls), the caller is `service_role` (reviewed server
 code, scripts, e2e seeding), or the transaction first ran
