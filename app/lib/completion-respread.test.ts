@@ -363,3 +363,45 @@ test('the completion sources are parent sources, never the automatic one', () =>
   assert.equal(PARENT_RESPREAD_SOURCE.uncompletion, 'uncomplete_respread')
   assert.ok(!Object.values(PARENT_RESPREAD_SOURCE).includes('queue_resync' as never))
 })
+
+test('two separate completions on one day: the tail slips a day, then returns to its original dates; a re-run with no action writes nothing', async () => {
+  // The production shape of 2026-09-28 (5,757 completion_respread rows, 1,526
+  // lessons written twice, 900 of them back on their original date). Every
+  // reversal sat between two parent taps: first an OVERDUE lesson ticked
+  // today, which uses today's one slot, so the rest of the book moves one day
+  // later; then the next lesson ticked today as well, which catches the family
+  // up, so the rest moves back. Two correct answers to two different states,
+  // not an unstable recalculation.
+  const { goalRow, lessons } = goalFixture({ firstDay: -1 }) // lesson 3 was due yesterday, 4 today, 5 tomorrow
+  const { client, tables } = makeMemorySupabase({ curriculum_goals: [goalRow], vacation_blocks: [], lessons })
+  const dates = () => new Map(tables.lessons.filter((r) => !r.completed).map((r) => [r.lesson_number as number, r.scheduled_date as string]))
+  const original = dates()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const redate = () => resyncGoalsForParent(client as any, USER, [GOAL], PARENT_RESPREAD_SOURCE.completion)
+
+  // Tap 1: the overdue lesson 3, ticked today.
+  await complete(client, tables, 3, 'today', TODAY)
+  const first = await redate()
+  assert.equal(first.ok, true)
+  assert.deepEqual(disagreements(tables, []), [], 'Plan agrees with Today after tap 1')
+  const afterFirst = dates()
+  for (let n = 4; n <= 12; n++) {
+    assert.equal(afterFirst.get(n), ymd(new Date(new Date(`${original.get(n)}T12:00:00`).getTime() + 86_400_000)), `lesson ${n} one day later`)
+  }
+  assert.equal(first.written, 9, 'every open lesson moved once')
+
+  // Tap 2: lesson 4 ticked today too.
+  await complete(client, tables, 4, 'today', TODAY)
+  const second = await redate()
+  assert.equal(second.ok, true)
+  assert.deepEqual(disagreements(tables, []), [], 'Plan agrees with Today after tap 2')
+  const afterSecond = dates()
+  for (let n = 5; n <= 12; n++) assert.equal(afterSecond.get(n), original.get(n), `lesson ${n} back on its original date`)
+  assert.equal(second.written, 8)
+
+  // No action in between: the re-date is a fixed point.
+  const third = await redate()
+  assert.equal(third.ok, true)
+  assert.equal(third.written, 0, 'a re-date with nothing changed writes nothing')
+  assert.ok(noDayOverCap(tables))
+})
