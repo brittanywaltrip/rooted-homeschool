@@ -161,8 +161,14 @@ export async function runAudienceSync(deps: AudienceSyncDeps): Promise<AudienceS
     deps.loadActiveUserIds(),
   ]);
   if (!allContacts || !segment || !loadedFamilies || !active) {
-    fail("read", { error: "a list did not load; nothing was changed" });
-    deps.log("[cron/sync-audience] read failed, nothing changed");
+    const failed = [
+      !allContacts && "all contacts",
+      !segment && "segment contacts",
+      !loadedFamilies && "families",
+      !active && "activity",
+    ].filter(Boolean).join(", ");
+    fail("read", { error: `${failed} did not load; nothing was changed` });
+    deps.log(`[cron/sync-audience] read failed (${failed}), nothing changed`);
     return result;
   }
   result.audienceSize = segment.length;

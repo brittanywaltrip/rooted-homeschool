@@ -261,6 +261,8 @@ test("a failed read changes nothing", async () => {
   h.deps.listSegmentContacts = async () => null;
   const r = await runAudienceSync(h.deps);
   assert.equal(r.errors, 1);
+  assert.equal(r.failures[0].error, "segment contacts did not load; nothing was changed");
+  assert.equal(h.logs[0], "[cron/sync-audience] read failed (segment contacts), nothing changed");
   assert.deepEqual(h.writes, []);
   assert.deepEqual(h.profileWrites, []);
 });
