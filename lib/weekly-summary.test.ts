@@ -20,6 +20,7 @@ import {
   memoriesVariable,
   safeTimeZone,
   weeklySubject,
+  weeklyEmailLogType,
   weekWindow,
   WINBACK_QUIET_DAYS,
 } from "./weekly-summary.ts";
@@ -152,6 +153,16 @@ test("the dedup key is the Monday of the send's own week", () => {
   assert.equal(isoWeekStart(new Date("2026-09-21T15:00:00Z"), "America/Chicago"), "2026-09-21");
   assert.equal(isoWeekStart(new Date("2026-09-24T12:00:00Z"), "America/Chicago"), "2026-09-21");
   assert.equal(isoWeekStart(new Date("2026-09-28T15:00:00Z"), "America/Chicago"), "2026-09-28");
+});
+
+test("weekly email log keys obey the live unique user and type index", () => {
+  assert.equal(weeklyEmailLogType("2026-09-28"), "weekly_summary:2026-09-28");
+  assert.notEqual(weeklyEmailLogType("2026-09-28"), weeklyEmailLogType("2026-10-05"));
+  assert.throws(() => weeklyEmailLogType("not-a-date"));
+  const route = readFileSync(resolve(import.meta.dirname, "..", "app/api/cron/weekly-summary/route.ts"), "utf8");
+  assert.match(route, /\.in\('email_type', \[WEEKLY_EMAIL_TYPE, weeklyLogType\]\)/);
+  assert.match(route, /\.insert\(\{ user_id: userId, email_type: weeklyLogType \}\)/);
+  assert.match(route, /await paceSend\(\)/);
 });
 
 test("a broken timezone falls back to US Pacific, and a quiet week is lessons and memories both zero", () => {

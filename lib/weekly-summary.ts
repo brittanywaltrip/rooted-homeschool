@@ -19,6 +19,11 @@ export const WEEKLY_TODAY_URL = "https://www.rootedhomeschoolapp.com/dashboard";
 /** The quiet email's subject. The route sends it; the template carries a copy. */
 export const WEEKLY_QUIET_SUBJECT = "A quiet week is still a week";
 export const WEEKLY_EMAIL_TYPE = "weekly_summary";
+/** The live email_log index is unique by (user_id, email_type). Give each send week its own key. */
+export function weeklyEmailLogType(weekStart: string): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) throw new Error("Invalid weekly email log week");
+  return `${WEEKLY_EMAIL_TYPE}:${weekStart}`;
+}
 export const WINBACK_EMAIL_TYPE = "winback";
 /** A family who got a win-back this many days ago is left alone this Monday. */
 export const WINBACK_QUIET_DAYS = 7;

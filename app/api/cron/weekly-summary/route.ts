@@ -20,6 +20,7 @@ import {
   weekWindow,
   MAX_WEEKLY_SENDS_PER_RUN,
   WEEKLY_EMAIL_TYPE,
+  weeklyEmailLogType,
   WEEKLY_TODAY_URL,
   WINBACK_EMAIL_TYPE,
   WINBACK_QUIET_DAYS,
@@ -41,6 +42,8 @@ const CHUNK = 200
 // serially that is minutes for a big audience, and unbounded parallelism would
 // hammer PostgREST.
 const CONCURRENCY = 5
+// Resend permits 10 requests/second on this account. Leave room for other jobs.
+const SEND_SPACING_MS = 150
 const DAY_MS = 24 * 60 * 60 * 1000
 
 type LessonRow = { user_id: string | null; child_id: string | null; scheduled_date: string | null }
@@ -177,6 +180,7 @@ export async function GET(req: NextRequest) {
   const sentThisWeek = new Set<string>()
   const recentWinback = new Set<string>()
   const weekKey = isoWeekStart(now, 'UTC')
+  const weeklyLogType = weeklyEmailLogType(weekKey)
   const winbackSince = new Date(now.getTime() - WINBACK_QUIET_DAYS * DAY_MS).toISOString()
   for (let i = 0; i < userIds.length; i += CHUNK) {
     const slice = userIds.slice(i, i + CHUNK)
@@ -184,7 +188,7 @@ export async function GET(req: NextRequest) {
       supabase
         .from('email_log')
         .select('user_id')
-        .eq('email_type', WEEKLY_EMAIL_TYPE)
+        .in('email_type', [WEEKLY_EMAIL_TYPE, weeklyLogType])
         .gte('sent_at', `${weekKey}T00:00:00Z`)
         .in('user_id', slice),
       supabase
@@ -235,6 +239,16 @@ export async function GET(req: NextRequest) {
     if (sentThisWeek.has(id)) { skipped++; return false }
     return true
   })
+
+  // Reserve each send start synchronously, even while five families prepare in
+  // parallel. This prevents bursts of Resend 429s from the Monday job.
+  let nextSendAt = 0
+  async function paceSend(): Promise<void> {
+    const startAt = Math.max(Date.now(), nextSendAt)
+    nextSendAt = startAt + SEND_SPACING_MS
+    const waitMs = startAt - Date.now()
+    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs))
+  }
 
   await pool(prepared, async (userId) => {
     try {
@@ -330,6 +344,7 @@ export async function GET(req: NextRequest) {
     }
 
     const headers = buildUserListUnsubscribeHeaders(await ensureUnsubscribeToken(userId, supabase))
+    await paceSend()
     const result = isQuiet
       ? await sendResendTemplate(
           email,
@@ -365,7 +380,7 @@ export async function GET(req: NextRequest) {
     else full++
     const { error: logErr } = await supabase
       .from('email_log')
-      .insert({ user_id: userId, email_type: WEEKLY_EMAIL_TYPE })
+      .insert({ user_id: userId, email_type: weeklyLogType })
     if (logErr) {
       errors++
       logWriteFailures++
