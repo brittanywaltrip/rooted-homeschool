@@ -26,7 +26,11 @@ export async function GET(req: NextRequest) {
     .maybeSingle()
 
   if (error || !mem?.photo_url) {
-    return NextResponse.json({ ok: false, status: 0, checked_at: checkedAt, reason: 'no_photo' })
+    console.error('[health-check] photo fixture read failed:', error?.message ?? 'no photo fixture')
+    return NextResponse.json(
+      { ok: false, status: 0, checked_at: checkedAt, reason: error ? 'photo_read_failed' : 'no_photo' },
+      { status: 503 },
+    )
   }
 
   const url = mem.photo_url as string
@@ -53,5 +57,8 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: status === 200, status, checked_at: checkedAt })
+  return NextResponse.json(
+    { ok: status === 200, status, checked_at: checkedAt },
+    { status: status === 200 ? 200 : 503 },
+  )
 }
