@@ -157,3 +157,33 @@ Repeat run: aborted by the new guard (all 7 now HOLD_family_acted_on_row).
 
 Cleanup: the synthetic user, curricula, lessons, snapshots, inventory, and the helper functions and
 temporary triggers were all removed; 0 remain.
+
+## PRODUCTION APPLY: UNDO_restore_slot only (2026-09-29)
+
+Approved by Brittany: the 165 certain-slot lessons only, using apply-template.sql at 9236868, with
+hide-below-start on. The only edit to the script was `v_classes := array['UNDO_restore_slot']`.
+
+- **Inventory frozen:** 22:20:01 UTC, 258 rows. Counts matched the approval: restore_slot 165,
+  sign-off 12, archived 35, review 40, holds 6. The 165 lesson ids were identical to the approved
+  preview, across 25 families and 88 curricula.
+- **Applied:** 22:22:47 UTC. 165 rows written, and every built-in guard passed.
+- **Backups** (rooted_private; access revoked from public, anon and authenticated):
+  - `recovery_20260925_inventory`: the frozen inventory, 258 rows
+  - `recovery_20260925_backup`: the exact 258 inventory lessons before the apply
+  - `recovery_20260925_backup_curricula_lessons`: every lesson in the 88 curricula, 10,663 rows
+  - `recovery_20260925_backup_curricula`: the 88 curriculum rows
+
+Independent verification after the apply:
+- 165 of 165 undone and back in slot = lesson_number, unchanged outside the writable columns.
+- 98 below the starting lesson are unpinned with no date. 95 of them had a pin or date before;
+  the old values are in the backup.
+- 67 at or after the start kept their exact pin and date. 47 are back on Plan on past days (Aug 3
+  to Sep 3), 0 are dated today or later, and 20 pointer-hidden lessons are still hidden.
+- Pointers: 88 of 88 unchanged. Duplicate slots: 0. New lessons since the freeze: 0.
+- The other 10,498 lessons in those curricula are identical as whole rows, including all 1,081
+  of the families' own completions.
+- The other 93 inventory rows (sign-off, archived, review, hold) are identical as whole rows.
+- Family 1: 24 curricula, pointers and next lesson unchanged in all 24. 28 lessons are back on
+  their original pinned days (Aug 23, 25, 26), and none land on Today. Completed count 676 -> 648.
+- Family 8: next lesson unchanged, lesson 5 back on Aug 8 (pinned, same as before). Completed
+  count 210 -> 209.
