@@ -144,7 +144,7 @@ export async function POST(req: NextRequest) {
           continue;
         }
         archive.append(Buffer.from(await data.arrayBuffer()), {
-          name: `rooted-export/files/${bucket}/${encodeURIComponent(path.substring(userId.length + 1))}`,
+          name: `rooted-export/files/${bucket}/${path.substring(userId.length + 1).split("/").map(encodeURIComponent).join("/")}`,
         });
         fileCount++;
       } catch (error) {
