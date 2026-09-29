@@ -124,3 +124,36 @@ Notes:
   4. Check Today and Plan for Family 1 and one small family.
 - The inferred-slot (12), archived (35), review (40) and hold (6) groups each follow their own
   decision.
+
+## Guard rehearsal: settings changed between inventory and apply (2026-09-29)
+
+`apply-template.sql` now revalidates every approved lesson after taking the locks. It reclassifies
+each one from live data using the inventory's own rules, and requires each curriculum's
+start_at_lesson, archived flag and current_lesson to equal what the inventory recorded. Any
+difference aborts before a row is written. The "other lessons unchanged" check now compares whole
+rows (`to_jsonb`, every column including updated_at) instead of an md5 over 12 fields. Each approved
+lesson must also be unchanged outside the 6 columns the run writes.
+
+Rehearsed on rooted-staging against a new synthetic family with 4 curricula and 7 approved lessons
+covering all three UNDO classes. The staging function body matched the committed template (same
+hash with comments stripped). Every abort left the fixture byte-identical to its snapshot.
+
+| Change after the inventory | New template | Previous template |
+|---|---|---|
+| S1 starting lesson 5 -> 3 (committed separately first) | Aborted: start [5, 3] on 4 lessons | Aborted, but only by chance (pointer moved) |
+| S2 archived curriculum unarchived | Aborted: approved UNDO_archived, now UNDO_restore_slot | **Passed** (would write) |
+| S3a drag fills the slot a lesson would return to | Aborted: now needs sign-off, slot 5 | Aborted by the unique slot index |
+| S3b drag moves the one empty slot from 2 to 4 | Aborted: slot [2, 4] | Aborted by the unique slot index |
+| S3c drag elsewhere makes the curriculum drifted | Aborted: approved restore_slot, now sign-off | **Passed** (would write) |
+| S4 lesson re-logged as an extra | Aborted: now HOLD_relogged_as_extra | **Passed** (would write) |
+| S5 family ticks a later lesson, pointer 4 -> 6 | Aborted: pointer [4, 6] | **Passed** (would write) |
+| W1 side effect renames another lesson during the revert | Aborted: whole-row compare | **Passed** (title is outside the old hash) |
+| W2 side effect changes an approved lesson's own title | Aborted: outside writable columns | not checked |
+
+Clean run with nothing changed: 7 lessons written. Pointers unchanged, 0 duplicate slots, the 23
+other lessons identical as whole rows, and the approved lessons identical outside the writable
+columns. Below-start lessons were unpinned and undated, and the sign-off lesson went to slot 2.
+Repeat run: aborted by the new guard (all 7 now HOLD_family_acted_on_row).
+
+Cleanup: the synthetic user, curricula, lessons, snapshots, inventory, and the helper functions and
+temporary triggers were all removed; 0 remain.

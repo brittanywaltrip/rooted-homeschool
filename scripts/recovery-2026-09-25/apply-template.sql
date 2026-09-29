@@ -27,6 +27,11 @@
 --     completed, completed_at = that run's fingerprint, updated_at = that run's time,
 --     queue_position NULL. A row the family has touched since is skipped by
 --     construction and the count check then fails loudly.
+--   * after the locks are taken, every approved row is classified again from
+--     live data with the inventory's rules, and each curriculum's
+--     start_at_lesson, archived flag and current_lesson must equal the
+--     inventory's. Any difference (a settings change since the inventory)
+--     aborts before anything is written.
 --   * the number of rows written must equal the number approved.
 --   * every affected curriculum's current_lesson must be unchanged. The
 --     pointer is GREATEST(start_at_lesson - 1, MAX(completed slot)); the rows
@@ -34,7 +39,9 @@
 --     does, something is wrong and nothing is kept.
 --   * every OTHER lesson in those curricula (the family's own work, including
 --     everything they did after 2026-09-25) must be byte-identical before and
---     after, compared by an md5 over its state.
+--     after, compared as whole rows (to_jsonb, every column, updated_at
+--     included). Each approved row must also be identical apart from the
+--     columns this run writes.
 --   * no curriculum may end up with two lessons in one slot.
 --
 -- Un-completing is not blocked by lessons_block_server_side_completion, so no
@@ -71,6 +78,14 @@ declare
   v_ptr_after  jsonb;
   v_rest_before jsonb;
   v_rest_after  jsonb;
+  v_tgt_before  jsonb;
+  v_tgt_after   jsonb;
+  -- The only columns an approved row may change (updated_at is stamped by
+  -- lessons_set_updated_at).
+  v_writable text[] := array['completed', 'completed_at', 'queue_position',
+                             'queue_pinned', 'scheduled_date', 'updated_at'];
+  v_live_rows int;
+  v_drift    jsonb;
   v_dupes    int;
 begin
   if coalesce(array_length(v_classes, 1), 0) = 0 then
@@ -91,16 +106,97 @@ begin
 
   -- Lock the curricula first, then their lessons: the order every scheduler
   -- RPC takes, so a family action in flight waits instead of interleaving.
+  -- The FOR UPDATE on each curriculum also blocks a new lesson being inserted
+  -- into it (the insert's foreign key check needs a KEY SHARE lock on the
+  -- curriculum row), so the set of lessons cannot grow under us either.
   perform 1 from public.curriculum_goals where id = any(v_goals) order by id for update;
   perform 1 from public.lessons where curriculum_goal_id = any(v_goals) order by id for update;
 
+  -- Revalidate the approval against live data, now that nothing can move.
+  -- Every approved row is classified again with the inventory's own rules,
+  -- and each curriculum's starting lesson, archived flag and pointer must be
+  -- what the inventory recorded. A settings change between the inventory and
+  -- this run (a new starting lesson, an archive or unarchive, a drag that
+  -- fills or opens a slot, a lesson re-logged as an extra) aborts the whole
+  -- run: re-run inventory.sql and get the new counts approved instead.
+  with fps as (
+    select distinct run_fp from rooted_private.recovery_20260925_inventory
+  ),
+  g as (
+    select cg.id, cg.start_at_lesson, cg.archived, cg.current_lesson,
+      exists (select 1 from public.lessons x
+               where x.curriculum_goal_id = cg.id and x.queue_position is not null
+                 and x.queue_position <> x.lesson_number) as drifted,
+      (select array_agg(s order by s) from generate_series(1,
+          (select coalesce(max(x.queue_position), 0) from public.lessons x where x.curriculum_goal_id = cg.id)) s
+        where not exists (select 1 from public.lessons x
+                           where x.curriculum_goal_id = cg.id and x.queue_position = s)) as holes,
+      (select count(*) from public.lessons x
+        where x.curriculum_goal_id = cg.id and x.completed and x.queue_position is null
+          and x.completed_at in (select run_fp from fps)) as unslotted_affected
+      from public.curriculum_goals cg
+     where cg.id = any(v_goals)
+  ),
+  live as (
+    select i.lesson_id, i.action, i.start_at_lesson, i.goal_archived, i.current_lesson, i.eliminated_slot,
+      g.start_at_lesson as live_start, g.archived as live_archived, g.current_lesson as live_pointer,
+      case
+        when not (l.completed and l.completed_at = i.run_fp and l.updated_at = i.run_t
+                  and l.queue_position is null)                         then 'HOLD_family_acted_on_row'
+        when coalesce(l.hours, 0) > 0 or coalesce(l.minutes_spent, 0) > 0 then 'HOLD_carries_time'
+        when exists (select 1 from public.lessons x
+                      where x.curriculum_goal_id = l.curriculum_goal_id and x.lesson_number is null
+                        and x.completed and x.title ~* ('Lesson ' || l.lesson_number || '\M')
+                        and x.created_at > i.run_t)                      then 'HOLD_relogged_as_extra'
+        when g.archived                                                  then 'UNDO_archived'
+        when not g.drifted and not exists (select 1 from public.lessons x
+                      where x.curriculum_goal_id = l.curriculum_goal_id
+                        and x.queue_position = l.lesson_number)          then 'UNDO_restore_slot'
+        when g.drifted and g.unslotted_affected = 1
+             and coalesce(array_length(g.holes, 1), 0) = 1               then 'UNDO_restore_only_hole_SIGNOFF'
+        else                                                                  'REVIEW_slot_ambiguous'
+      end as live_action,
+      case when g.drifted and g.unslotted_affected = 1
+                and coalesce(array_length(g.holes, 1), 0) = 1 then g.holes[1] end as live_slot
+      from rooted_private.recovery_20260925_inventory i
+      join public.lessons l on l.id = i.lesson_id
+      join g on g.id = i.curriculum_goal_id
+     where i.action = any(v_classes)
+  )
+  select count(*),
+         jsonb_agg(jsonb_build_object(
+           'lesson', lesson_id,
+           'approved', action, 'now', live_action,
+           'start', jsonb_build_array(start_at_lesson, live_start),
+           'archived', jsonb_build_array(goal_archived, live_archived),
+           'pointer', jsonb_build_array(current_lesson, live_pointer),
+           'slot', jsonb_build_array(eliminated_slot, live_slot)))
+           filter (where live_action <> action
+                      or live_start is distinct from start_at_lesson
+                      or live_archived is distinct from goal_archived
+                      or live_pointer is distinct from current_lesson
+                      or (action = 'UNDO_restore_only_hole_SIGNOFF'
+                          and live_slot is distinct from eliminated_slot))
+    into v_live_rows, v_drift
+    from live;
+  if v_live_rows <> v_expected then
+    raise exception 'recovery: % of % approved lessons still exist in their curriculum. Nothing kept.', v_live_rows, v_expected;
+  end if;
+  if v_drift is not null then
+    raise exception 'recovery: % approved lessons no longer match the inventory (approved vs now): %. Re-run inventory.sql. Nothing kept.',
+      jsonb_array_length(v_drift), v_drift;
+  end if;
+
   select jsonb_object_agg(id, current_lesson) into v_ptr_before
     from public.curriculum_goals where id = any(v_goals);
-  select jsonb_object_agg(id, md5(row(completed, completed_at, queue_position, queue_pinned,
-                                      scheduled_date, date, scheduled_source, lesson_number,
-                                      skipped, hours, minutes_spent, notes)::text))
-    into v_rest_before
-    from public.lessons where curriculum_goal_id = any(v_goals) and not (id = any(v_targets));
+  -- Whole rows, every column, including updated_at: a trigger that touched
+  -- any other lesson in these curricula, even without changing a value a
+  -- screen reads, fails the run.
+  select jsonb_object_agg(l.id, to_jsonb(l)) into v_rest_before
+    from public.lessons l where l.curriculum_goal_id = any(v_goals) and not (l.id = any(v_targets));
+  -- The approved rows too, minus exactly the columns this run may write.
+  select jsonb_object_agg(l.id, to_jsonb(l) - v_writable) into v_tgt_before
+    from public.lessons l where l.id = any(v_targets);
 
   update public.lessons l
      set completed = false,
@@ -132,13 +228,16 @@ begin
     raise exception 'recovery: a curriculum pointer moved. before % after %. Nothing kept.', v_ptr_before, v_ptr_after;
   end if;
 
-  select jsonb_object_agg(id, md5(row(completed, completed_at, queue_position, queue_pinned,
-                                      scheduled_date, date, scheduled_source, lesson_number,
-                                      skipped, hours, minutes_spent, notes)::text))
-    into v_rest_after
-    from public.lessons where curriculum_goal_id = any(v_goals) and not (id = any(v_targets));
+  select jsonb_object_agg(l.id, to_jsonb(l)) into v_rest_after
+    from public.lessons l where l.curriculum_goal_id = any(v_goals) and not (l.id = any(v_targets));
   if v_rest_after is distinct from v_rest_before then
-    raise exception 'recovery: a lesson outside the approved set changed. Nothing kept.';
+    raise exception 'recovery: a lesson outside the approved set changed (whole-row compare). Nothing kept.';
+  end if;
+
+  select jsonb_object_agg(l.id, to_jsonb(l) - v_writable) into v_tgt_after
+    from public.lessons l where l.id = any(v_targets);
+  if v_tgt_after is distinct from v_tgt_before then
+    raise exception 'recovery: an approved lesson changed outside the columns this run writes. Nothing kept.';
   end if;
 
   if v_hide_below_start then
