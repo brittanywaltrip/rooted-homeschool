@@ -759,6 +759,10 @@ export default function SettingsPage() {
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+      const missing = Number(res.headers.get("X-Export-File-Missing") ?? "0");
+      if (missing > 0) {
+        setExportError(`${missing} file${missing === 1 ? "" : "s"} could not be downloaded. The ZIP is incomplete; open MISSING.txt inside it and contact support.`);
+      }
     } catch {
       setExportError("Export failed. Please try again.");
     }
@@ -1861,7 +1865,7 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium text-[#2d2926] mb-0.5">Close This School Year</p>
               <p className="text-xs text-[#7a6f65] leading-relaxed">
-                Archive this school year with a summary, grade advancement, and certificates. Your memories and yearbook are saved forever.
+                Archive this school year with a summary, grade advancement, and certificates. Your saved memories remain in your account, subject to your plan&apos;s access limits and account deletion.
               </p>
             </div>
           </div>
@@ -1999,7 +2003,7 @@ export default function SettingsPage() {
           <div>
             <p className="text-sm font-medium text-[#2d2926]">Export My Data</p>
             <p className="text-xs text-[#7a6f65] mt-0.5 leading-relaxed">
-              Download everything you&apos;ve added to Rooted, your memories, photos, children&apos;s info, and curriculum, as a ZIP file. Your memories are yours, always.
+              Download a ZIP of your family records, schedules, transcripts, yearbook content, and uploaded files. The ZIP contains raw data and files, not finished report or yearbook PDFs. Review it before relying on it as a backup.
             </p>
           </div>
           <button
