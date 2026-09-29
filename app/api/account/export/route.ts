@@ -4,6 +4,7 @@ import { selectAllRows } from "@/lib/supabase-all-rows";
 import { listUserFiles, USER_SCOPED_BUCKETS } from "@/lib/storage-cleanup";
 import archiver from "archiver";
 import { PassThrough } from "stream";
+import { randomUUID } from "node:crypto";
 
 // Only tables with an owner user_id and a stable id are listed here. Service
 // role bypasses RLS, so every query MUST keep the owner filter. Global catalogs,
@@ -211,14 +212,17 @@ export async function POST(req: NextRequest) {
 
   archive.finalize();
 
-  // Log the export
+  // email_log has a unique (user_id, email_type) index. A distinct key for
+  // each generated archive records repeated exports without suppressing later
+  // events. This records ZIP generation, not proof of browser download.
   try {
-    await supabaseAdmin.from("email_log").insert({
+    const { error: logError } = await supabaseAdmin.from("email_log").insert({
       user_id: userId,
-      email_type: "data_export",
+      email_type: `data_export:${randomUUID()}`,
     });
-  } catch {
-    // non-critical
+    if (logError) console.error("[export] event log insert failed for user", userId, logError);
+  } catch (error) {
+    console.error("[export] event logging threw for user", userId, error);
   }
 
   const readable = new ReadableStream({
