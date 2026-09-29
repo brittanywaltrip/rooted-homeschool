@@ -23,8 +23,8 @@
 -- the source. No other row is written.
 --
 -- Guards, any failure raises and rolls back everything:
---   * each target row must still be exactly as the statement left it:
---     completed, completed_at = fingerprint, updated_at = statement time,
+--   * each target row must still be exactly as its run left it:
+--     completed, completed_at = that run's fingerprint, updated_at = that run's time,
 --     queue_position NULL. A row the family has touched since is skipped by
 --     construction and the count check then fails loudly.
 --   * the number of rows written must equal the number approved.
@@ -54,9 +54,9 @@
 -- ── Step 1: the revert ─────────────────────────────────────────────────────
 do $recover$
 declare
-  -- The statement's fingerprint and run time (production values).
-  v_fp       timestamptz := '2026-09-24 15:11:35.834303+00';
-  v_run      timestamptz := '2026-09-25 15:11:35.834303+00';
+  -- Each row carries its own run's fingerprint (run_fp = completed_at the
+  -- statement wrote) and run time (run_t = updated_at it stamped) in the
+  -- frozen inventory: the routine ran three times (09-25, 09-26, 09-27).
   -- APPROVED CLASSES. Starts empty on purpose. Allowed values:
   --   'UNDO_restore_slot', 'UNDO_restore_only_hole_SIGNOFF', 'UNDO_archived'
   v_classes  text[] := array[]::text[];
@@ -118,8 +118,8 @@ begin
    where i.lesson_id = l.id
      and i.action = any(v_classes)
      and l.completed
-     and l.completed_at = v_fp
-     and l.updated_at = v_run
+     and l.completed_at = i.run_fp
+     and l.updated_at = i.run_t
      and l.queue_position is null;
   get diagnostics v_written = row_count;
   if v_written <> v_expected then

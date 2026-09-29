@@ -64,7 +64,7 @@ goal as (
    where g.id in (select curriculum_goal_id from f)
 ),
 r as (
-  select f.run_date, f.id as lesson_id, f.user_id, f.curriculum_goal_id, f.child_name, f.curriculum_name,
+  select f.run_date, f.run_t, f.run_fp, f.id as lesson_id, f.user_id, f.curriculum_goal_id, f.child_name, f.curriculum_name,
          f.lesson_number, f.queue_position, f.queue_pinned, f.scheduled_date, f.date,
          f.hours, f.minutes_spent, f.current_lesson, f.start_at_lesson, f.goal_archived,
          goal.max_real_done_slot, goal.later_work as goal_later_work, goal.drifted as goal_drifted,
