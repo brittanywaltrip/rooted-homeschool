@@ -33,12 +33,12 @@ export default function TermsPage() {
 
           <section>
             <h2 className="text-lg font-bold text-[#2d2926] mb-3">3. Subscriptions and Payments</h2>
-            <p className="leading-relaxed">Rooted Pro is an annual subscription. By subscribing, you agree to the following:</p>
+            <p className="leading-relaxed">Rooted+ offers monthly and annual subscriptions. The price, billing interval, and renewal terms are shown before you subscribe. By subscribing, you agree to the following:</p>
             <ul className="list-disc pl-5 mt-3 space-y-2 leading-relaxed">
-              <li><strong>Billing:</strong> You will be charged the annual subscription fee at the time of purchase. All payments are processed securely by Stripe.</li>
-              <li><strong>Auto-Renewal:</strong> Your subscription renews automatically each year on your billing anniversary date. We will send you a reminder email 7 days before your renewal date. You may cancel at any time in your account Settings before the renewal date to avoid being charged.</li>
-              <li><strong>Refunds:</strong> Annual subscriptions are non-refundable. To avoid being charged for the next year, cancel your subscription before your renewal date through your account Settings. If you have questions, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>.</li>
-              <li><strong>Cancellation:</strong> Canceling your subscription stops future renewals. You retain access to Pro features through the end of your current paid period.</li>
+              <li><strong>Billing:</strong> Your chosen monthly or annual subscription is charged at purchase and renews at its selected interval unless canceled. For purchases made on our website, Stripe processes the payment.</li>
+              <li><strong>Renewal and cancellation:</strong> You can manage a website subscription from Settings, which opens our billing portal. Cancel before the next renewal to stop future charges. If you subscribed through another provider, manage the subscription through that provider.</li>
+              <li><strong>Paid access:</strong> Canceling a paid subscription does not delete your account. Your paid access normally continues through the end of the current paid period, after which free-plan limits apply.</li>
+              <li><strong>Refund questions:</strong> If you have questions about a website charge, contact us at <a href="mailto:hello@rootedhomeschoolapp.com" className="text-[#5c7f63] hover:underline">hello@rootedhomeschoolapp.com</a>. For a purchase made through another provider, use that provider&apos;s refund process. Refunds are handled according to the applicable purchase terms and law.</li>
             </ul>
           </section>
 
