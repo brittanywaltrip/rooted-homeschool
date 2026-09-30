@@ -11,6 +11,7 @@
 -- What it does, per approved row, in ONE transaction:
 --   completed    true  -> false
 --   completed_at the statement's fingerprint -> NULL
+--   queue_position NULL -> unchanged, whatever the class (v_completion_only)
 --   queue_position NULL -> lesson_number (UNDO_restore_slot)
 --                       -> the one empty slot (UNDO_restore_only_hole_SIGNOFF)
 --                       -> stays NULL (UNDO_archived)
@@ -43,6 +44,10 @@
 --     included). Each approved row must also be identical apart from the
 --     columns this run writes.
 --   * no curriculum may end up with two lessons in one slot.
+--   * with v_completion_only: no slot is written (queue_position keeps its
+--     current NULL) and every target must still have none afterwards. The
+--     revalidation still requires each lesson's live classification, slot
+--     evidence and curriculum settings to match the frozen inventory.
 --   * with v_lesson_ids set: only those lessons are written; a listed id that
 --     is missing, duplicated or outside the approved classes aborts before any
 --     lock; and every inventory lesson NOT targeted, in any curriculum, must be
@@ -77,6 +82,12 @@ declare
   -- is never edited. Required whenever UNDO_restore_only_hole_SIGNOFF is
   -- approved, because that class is signed off lesson by lesson.
   v_lesson_ids uuid[] := null;
+  -- COMPLETION-ONLY. When true, approved lessons are un-completed but keep
+  -- the queue_position they have now (NULL for every row the statement
+  -- touched): no slot is written. It is a mode of this run, not a new class,
+  -- so the inventory's classification is unchanged. It requires v_lesson_ids,
+  -- and every target must still have no slot afterwards.
+  v_completion_only boolean := false;
   -- Keep lessons below the family's starting lesson hidden (Brittany, 2026-09-28).
   v_hide_below_start boolean := true;
   v_leaked   int;
@@ -100,6 +111,7 @@ declare
   v_bad_ids  jsonb;
   v_inv_rest_before jsonb;
   v_inv_rest_after  jsonb;
+  v_slotted  int;
 begin
   if coalesce(array_length(v_classes, 1), 0) = 0 then
     raise exception 'recovery: no classes approved; edit v_classes first';
@@ -111,6 +123,9 @@ begin
 
   if 'UNDO_restore_only_hole_SIGNOFF' = any(v_classes) and v_lesson_ids is null then
     raise exception 'recovery: UNDO_restore_only_hole_SIGNOFF needs an explicit v_lesson_ids list';
+  end if;
+  if v_completion_only and v_lesson_ids is null then
+    raise exception 'recovery: completion-only needs an explicit v_lesson_ids list';
   end if;
   if v_lesson_ids is not null then
     if coalesce(array_length(v_lesson_ids, 1), 0) = 0 then
@@ -242,11 +257,12 @@ begin
   update public.lessons l
      set completed = false,
          completed_at = null,
-         queue_position = case i.action
+         queue_position = case when v_completion_only then l.queue_position
+                          else case i.action
                             when 'UNDO_restore_slot' then i.lesson_number
                             when 'UNDO_restore_only_hole_SIGNOFF' then i.eliminated_slot
                             else null
-                          end,
+                          end end,
          queue_pinned = case when v_hide_below_start and i.lesson_number < coalesce(i.start_at_lesson, 1)
                              then false else l.queue_pinned end,
          scheduled_date = case when v_hide_below_start and i.lesson_number < coalesce(i.start_at_lesson, 1)
@@ -288,6 +304,14 @@ begin
      and not (l.id = any(v_targets));
   if v_inv_rest_after is distinct from v_inv_rest_before then
     raise exception 'recovery: an inventory lesson outside this run changed. Nothing kept.';
+  end if;
+
+  if v_completion_only then
+    select count(*) into v_slotted
+      from public.lessons l where l.id = any(v_targets) and l.queue_position is not null;
+    if v_slotted > 0 then
+      raise exception 'recovery: completion-only left % approved lessons with a slot. Nothing kept.', v_slotted;
+    end if;
   end if;
 
   if v_hide_below_start then
