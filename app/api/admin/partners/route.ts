@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { payoutMonth as commissionMonth } from "@/lib/payout-ledger";
 import { displayCommission } from "@/lib/commission";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
@@ -6,12 +7,6 @@ const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.co
 
 export const dynamic = "force-dynamic";
 
-// YYYY-MM key in UTC — matches to_char(created_at, 'YYYY-MM') closely enough
-// for the monthly ledger, and is internally consistent for earned vs paid vs
-// current-month comparisons (all derived the same way on the server).
-function ymUTC(d: Date): string {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -180,7 +175,7 @@ export async function GET(req: Request) {
   for (const r of convertedRefRows ?? []) {
     const code = (r.affiliate_code ?? "").toUpperCase();
     if (!code || !r.created_at) continue;
-    const m = ymUTC(new Date(r.created_at as string));
+    const m = commissionMonth(new Date(r.created_at as string));
     const amt = displayCommission({
       converted: true,
       commission_amount: (r as { commission_amount?: number | string | null }).commission_amount ?? null,
@@ -209,8 +204,8 @@ export async function GET(req: Request) {
   }
 
   const now = new Date();
-  const currentYear = now.getUTCFullYear();
-  const currentYM = ymUTC(now);
+  const currentYM = commissionMonth(now);
+  const currentYear = Number(currentYM.slice(0, 4));
 
   // Attach earned-vs-paid fields to each affiliate.
   for (const a of affiliates) {
