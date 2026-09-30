@@ -442,3 +442,109 @@ which is how the earlier repair left it.
 the 12. That needs either an explicit lesson-id allowlist in the script, or the 4 Family E rows
 re-marked as held in the frozen inventory, and a staging rehearsal of whichever is chosen. Re-freeze
 right before applying: Families F, I and J are actively using these curricula.
+
+## Tier 1 allowlist: 7 inferred-slot lessons (staging rehearsal, 2026-09-30)
+
+Nothing was written to production.
+
+**Tested commit: 038ae64** (`apply-template.sql`). It adds `v_lesson_ids uuid[] := null`:
+- NULL keeps the old whole-class behaviour, and a list narrows the run to exactly those lessons.
+- Approving `UNDO_restore_only_hole_SIGNOFF` without a list aborts.
+- A listed id that is missing from the inventory, duplicated, or under a class that isn't approved
+  aborts before any lock. So does an empty list.
+- Every inventory lesson the run does not target, in any curriculum, must be whole-row identical
+  before and after.
+- The script never writes the inventory, so the original classifications stay as they are (the
+  excluded five stay `UNDO_restore_only_hole_SIGNOFF` in the frozen table).
+
+**Allowlist for the production apply** (paste into `v_lesson_ids`, with
+`v_classes := array['UNDO_restore_only_hole_SIGNOFF']`):
+
+| Family | Curriculum | Lesson -> slot | Lesson id |
+|---|---|---|---|
+| F | twin A | 11 -> 10 | 162ab7fe-2357-4a90-9054-4e31e6f1ccae |
+| F | twin B | 11 -> 10 | e12f4763-1c28-445a-bbac-56987105921f |
+| G | twin A | 11 -> 10 | c3314d39-c45d-46ed-a202-af78a58530b0 |
+| G | twin B | 11 -> 10 | 7e03daaf-b9a2-40c0-a93a-0ddb5b9152f8 |
+| H | 1 | 6 -> 5 | d3cd303d-5721-4c61-99ce-0966c15d5274 |
+| I | 1 | 14 -> 13 | acc03397-96a4-4498-9278-7e4eaae6ef2e |
+| J | 1 | 13 -> 12 | 9c914f5a-ef7e-43a6-812e-29a0ac283f49 |
+
+```sql
+v_lesson_ids uuid[] := array[
+  '162ab7fe-2357-4a90-9054-4e31e6f1ccae', 'e12f4763-1c28-445a-bbac-56987105921f',
+  'c3314d39-c45d-46ed-a202-af78a58530b0', '7e03daaf-b9a2-40c0-a93a-0ddb5b9152f8',
+  'd3cd303d-5721-4c61-99ce-0966c15d5274', 'acc03397-96a4-4498-9278-7e4eaae6ef2e',
+  '9c914f5a-ef7e-43a6-812e-29a0ac283f49']::uuid[];
+```
+
+Excluded and left as classified: Family F lesson 9 (e98d941b-7f92-48e5-8255-926bf0670b36) and
+Family E's four (48f75cd9-df75-4f1b-9257-bbb5619473d5, ed8fe390-91f5-4306-8ff2-df9244a77f73,
+d285d379-4533-4764-8836-4f3d0b2b6e2b, 216fbfb6-c5ea-4d1d-b9ba-b0c033d80f5d).
+
+**Production re-check (read-only, after the rehearsal):** all 7 are still `SIGNOFF` in the frozen
+inventory, still match their fingerprint, sit in curricula with unchanged starting lessons,
+pointers and archived flags, and their target slot is still empty. None has recorded time, none is
+below its starting lesson, and none is pinned or dated.
+
+**Staging rehearsal.** A synthetic family had five curricula:
+- two listed curricula with the drag-swap shape, lesson 4 -> slot 3;
+- one unlisted curriculum with the same shape (stands in for Family E);
+- one unlisted own-number sign-off (stands in for F lesson 9);
+- one certain-slot lesson (a class that isn't approved).
+
+Later parent work came after the replayed damage: a completion with 25 minutes in S1 and a note in
+S2. The inventory was frozen with the committed `inventory.sql`, and the staging function body
+matched 038ae64 (hash b0e6184a..., 203 lines; the only difference is that `v_classes` and
+`v_lesson_ids` are parameters).
+
+| Test | Result |
+|---|---|
+| Sign-off class with no list | Aborted: "needs an explicit v_lesson_ids list" |
+| List with an id not in the inventory | Aborted, naming the id |
+| List with the certain-slot lesson (class not approved) | Aborted, naming it and its class |
+| Duplicated id / empty list | Aborted |
+| Stale: listed curriculum's starting lesson 1 -> 3 | Aborted: start [1, 3] |
+| Stale: a drag fills the listed lesson's empty slot | Aborted: slot [3, 7] |
+| Stale: listed lesson re-logged as an extra | Aborted: now HOLD_relogged_as_extra |
+| Stale: family ticks a later lesson (pointer 5 -> 6) | Aborted: pointer [5, 6] |
+| Change only to an UNLISTED curriculum | Did not block the listed run (passed inside a rolled-back test) |
+| Side effect touches an excluded lesson in another curriculum | Aborted: "an inventory lesson outside this run changed" |
+| Clean run | 2 written: both un-completed in slot 3, pins and dates unchanged |
+| Repeat run | Aborted: both now HOLD_family_acted_on_row |
+
+After every abort the fixture was byte-identical to its snapshot. After the clean run:
+- the 37 other lessons, including all three excluded inventory lessons (still completed with no
+  slot), were whole-row identical;
+- 5 of 5 pointers were unchanged, with 0 duplicate slots;
+- the parent completion (25 minutes) and the note were intact.
+
+Cleanup: user, curricula, lessons, snapshots, frozen inventory, functions and the temporary trigger
+were all removed; 0 remain.
+
+### Seven-lesson preview (hide-below-start on)
+
+| Family | Lessons | Today | Plan | Completed count | Report and PDF hours | Linked transcript |
+|---|---:|---|---|---|---|---|
+| F | 2 | no change | no change | 148 -> 146 | -1.0 h | none linked |
+| G | 2 | no change | no change | 148 -> 146 | -1.0 h | none linked |
+| H | 1 | no change | no change | 842 -> 841 | -0.5 h | none linked |
+| I | 1 | no change | no change | 816 -> 815 | -0.5 h | calculated course rounds to 8 h either way |
+| J | 1 | no change | no change | 150 -> 149 | -0.5 h | calculated course: next open writes 8 h instead of 9 |
+| **Total** | **7** | | | **-7** | **-3.5 h** | **-1 h, one course** |
+
+Each lesson goes into the empty slot just behind the lesson that was dragged, below the pointer,
+unpinned and undated. It stays hidden, and Today's next lesson doesn't change.
+
+**Remaining assumptions:**
+- **F and J.** No drag is recorded for the lesson now in slot N, because it predates the audit
+  (21 Sep). The support is the audit timing: the lesson's schedule entry was cleared within 25 to
+  200 ms of that lesson's completion. That alone shows the lesson sat behind it.
+- **Slotted before the auto-heal.** All 7 carry a scheduler source (`queue_resync` or
+  `catchup_spread`) and a projected date, which means they were in the queue. There is no direct
+  record of their queue_position before 09-25; no table records slot history.
+- **Queue order.** Restoring puts lesson N ahead of lesson N-1 in queue order. That is the order
+  the family's drag created, not book order. Both lessons are behind the pointer, so nothing on
+  Today or Plan changes.
+- **Re-freeze.** Re-freeze right before applying. Families F, I and J are active in these
+  curricula, and any change since the freeze aborts the run.
