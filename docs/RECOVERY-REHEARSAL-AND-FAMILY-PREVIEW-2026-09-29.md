@@ -187,3 +187,66 @@ Independent verification after the apply:
   their original pinned days (Aug 23, 25, 26), and none land on Today. Completed count 676 -> 648.
 - Family 8: next lesson unchanged, lesson 5 back on Aug 8 (pinned, same as before). Completed
   count 210 -> 209.
+
+## Review: the 35 archived-curriculum lessons (read-only, 2026-09-29)
+
+Nothing was written. This batch uses letters (Families A to D) so its labels don't collide with the
+numbered families above.
+
+Live eligibility, using the rules the guarded script applies after its locks:
+- 35 of 35 still match their run's fingerprint (completed_at, updated_at, no slot): 29 from the
+  09-25 run, 6 from 09-27.
+- 35 of 35 are still in archived curricula, and 35 of 35 carry no recorded time.
+- 0 have been re-logged as an extra, and no row has been edited since its run.
+- Every row is identical to the backup taken at 22:20 UTC, and each curriculum's starting lesson,
+  archived flag and pointer still match the frozen inventory. **Eligibility has not changed.**
+
+| Family | Curricula | Lessons | Below start | Completed count | Report hours (30 min estimate each) | Transcript (calculated hours) |
+|---|---:|---:|---:|---|---|---|
+| A | 2 | 17 | 17 (3 pinned) | 589 -> 572 | -8.5 h (Aug 7 to Sep 22) | two courses: 51 -> 46.5 h, 52 -> 48 h |
+| B | 1 | 10 | 10 | 639 -> 629 | -5.0 h (Sep 23 to Oct 8) | no linked course |
+| C | 1 | 6 | 0 | 225 -> 219 | -3.0 h (Sep 17, 20) | one course: 55 -> 52 h |
+| D | 1 | 2 | 2 | 587 -> 585 | -1.0 h (Sep 16, 17) | no linked course |
+| **Total** | **5** | **35** | **29** | **-35** | **-17.5 h** | **-11.5 h across 3 courses** |
+
+Why hours move although no time was logged: every completed lesson without recorded time counts as
+an estimated 30 minutes (lib/lesson-minutes.ts) in Reports, the progress-report PDF and linked
+transcript courses. The transcript rewrites a calculated course's hours the next time that page
+opens, so those three numbers change then, not at the moment of the reversal. Garden leaves drop
+by one per lesson. The Monday email counts by scheduled_date: only 3 of these rows have one (Aug 7,
+Sep 9 and 10), so no past or upcoming weekly email counted or would count them. Family B's lessons
+carry cache dates up to Oct 8, so today Reports show 10 "completed" lessons on days that haven't
+happened yet; the reversal removes them.
+
+What a completion-only reversal leaves unchanged:
+- **Pointers:** unchanged in all 5 curricula. None of these rows holds a slot, and the pointer after
+  the trigger recompute equals today's in every one.
+- **Queue slots:** unchanged. UNDO_archived writes no slot, and the rows stay without one.
+- **Dates:** unchanged. **Pins:** unchanged, with one exception: if hide-below-start stays on (the
+  script's default), Family A's 3 pinned below-start lessons lose their pin and date. That is not
+  visible today.
+- **Today and Plan:** no visible change. Today loads only unarchived curricula, and Plan hides
+  archived curricula's lessons. If a family ever unarchives, the 35 would be open lessons behind the
+  pointer with no slot, so nothing would be projected. With hide on, the 3 pinned ones stay hidden
+  too.
+
+Recommendation: approve all 35 (ids below), with hide-below-start **on**. With it off, those 3
+pinned lessons below the starting lesson would come back as missed on Plan if Family A unarchived,
+which rule v2 exists to prevent. Right before applying, re-freeze the inventory: rename the current
+table to `recovery_20260925_inventory_batch1` and create a fresh one, because the script's pointer
+check compares against the frozen values and Families A and C are still completing lessons in these
+curricula.
+
+Eligible ids (UNDO_archived, 35):
+07c14499-3ad4-476a-ab48-0b507a64770b, 120f5d6d-1e07-4009-bb1d-f75d043d457f, 228e949e-e5ad-479f-8ead-1d00c621ffbe,
+2636767c-ee46-4b44-b729-afe2232c278f, 2680f5d4-6134-4e9c-a4e9-5269e2db3d1c, 2c393549-982d-4abd-95c0-13500ed3a9f9,
+3fadc01b-7269-4e6e-9b31-5c059d7845c1, 3ff14b33-6ea5-4325-884b-635332976cef, 4329bcfb-7195-439f-bb0c-959efc8a9274,
+54a88867-4a56-4f94-8e09-23e6b291c553, 570293f0-15fb-45dd-997b-7d8e613a6508, 593e3140-20e6-49ad-b575-e947fbd4a484,
+60667dcf-6c17-451d-a66b-b4ce54b74ac0, 68bcfe9b-1ae5-4eea-8f83-a1de66c34449, 6b28526a-9d1f-4a39-b5c0-d3e49e384c2e,
+6c29a463-348a-47d5-bad1-4459a72b049a, 7a5165a0-8e48-4999-84d5-9a7b9cae2249, 7cc93656-f3e4-4b6a-a058-b86d9d57e077,
+86cdd046-669e-4d51-8c93-4167a41ffcc0, 8d9b40d6-97a4-4df8-9dd5-44c4a963bfc3, 94ec2873-c262-45cb-8576-6c74f3552dc1,
+9507fbea-a8ac-43e3-97b6-cf3b38cede62, 9bf366e4-11ab-4fed-9433-0d67605c7f5d, 9f9c75d5-e36e-49eb-b8bf-d273ba5e20c4,
+ae61131c-8d31-4bc7-b17a-45ce66adb8f4, b41bb91a-4269-43c2-ab4c-1d8c1ba57b92, bec3472c-b048-475b-97ce-9be97305ab93,
+c65abe96-971d-45e4-95fc-a9d8b99d7466, d25e356e-bc63-468d-9403-4e6d94b07e84, d27207ab-dd89-498e-a00e-adba0226f5ea,
+d838ba6e-e7cb-4a3e-b07b-9884924c4d21, de00b647-9569-4450-a5f4-46bb8fddb0b0, ecb68206-dde5-4772-beff-e03708db1458,
+ef01c1b9-7af9-43a1-bdea-340fc1b8008b, fa7b2e52-ba4a-4e3c-bf30-8b50c07381b0
