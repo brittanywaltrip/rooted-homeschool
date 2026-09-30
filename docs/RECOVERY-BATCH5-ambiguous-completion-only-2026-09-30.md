@@ -164,3 +164,54 @@ Held and untouched: group C's five (5072c4eb..., f38ed3cf..., d4bd38e1..., 7ff15
 597ac7cd...), Family E's four, and the six held lessons. Before applying:
 - Re-freeze the inventory (Families P and Q are active) into a new batch table, and back it up.
 - The run then re-checks everything, including Builder safety, under its locks.
+
+## PRODUCTION APPLY, batch five (2026-09-30)
+
+Approved: all 35 lessons above, including the 8 that return as unfinished on Plan. The script was
+apply-template.sql at **2c1a38d**; the only edits were
+`v_classes := array['REVIEW_slot_ambiguous']`, the exact 35-id `v_lesson_ids` and
+`v_completion_only := true`. Hide-below-start stayed on.
+
+**Before applying:**
+- **Earlier batches preserved:** the batch-four inventory was renamed to
+  `recovery_20260925_inventory_batch4` (51 rows). The batch-one to batch-three inventories and all
+  earlier backups are unchanged.
+- **Inventory refreshed and frozen:** 05:38:46 UTC, 50 rows: review 40, sign-off 4, holds 6.
+- **Approved set confirmed unchanged:**
+  - the 35 ids match this document exactly, and all 35 are `REVIEW_slot_ambiguous` in both the
+    batch-four and the new inventory;
+  - fingerprint intact, and starting lesson, pointer and archived flag unchanged;
+  - no recorded time;
+  - 26 below start plus 1 already hidden, and 8 visible on the approved dates;
+  - 0 Builder-exposed, and 17.5 estimated hours.
+
+**Applied:** 05:40:38 UTC. **35 rows written** in 14 curricula, and every built-in guard passed,
+including the post-lock Builder guard.
+
+**Batch-five backups** (rooted_private; access revoked from public, anon and authenticated):
+- `recovery_20260925_inventory`: the batch-five frozen inventory, 50 rows
+- `recovery_20260925_b5_backup`: all 50 inventory lessons before the apply
+- `recovery_20260925_b5_backup_curricula_lessons`: every lesson in the 14 curricula, 1,191 rows
+- `recovery_20260925_b5_backup_curricula`: the 14 curriculum rows
+
+**Verification after the apply:**
+- **The 35 reversals:** exactly 35 of the 50 inventory rows changed.
+  - All 35 are un-completed with `queue_position` still NULL. Nothing else on the rows changed, and
+    minutes and hours fields are kept.
+  - **Hidden:** the 26 below their start are now unpinned and undated. The one unpinned, undated
+    lesson at or after its start is unchanged.
+  - **Plan:** the 8 visible lessons kept their original pin and date: K Aug 20, Aug 22, Aug 20,
+    Aug 20, Sep 2; M Aug 23, Aug 24; P Sep 25.
+- **Curricula:** pointers, starting lessons and archived flags are unchanged in 14 of 14. There are
+  0 duplicate slots and 0 new lessons, and 0 targets are Builder-exposed after the run.
+- **Parent work:** the other 1,156 lessons in those curricula are identical as whole rows, including
+  all 130 of the families' own completions (66 with recorded time).
+- **Hours:** estimated report and PDF hours fell by exactly **17.5**. The 35 targets carried 0
+  recorded minutes, so **no recorded time was removed**.
+- **Excluded lessons:** the other 15 inventory lessons are identical as whole rows and still
+  completed: the 5 risky ambiguous lessons, Family E's 4, and the 6 held.
+- **Earlier repairs:** batches one (165), two (35), three (7) and four (1) are all intact, with 0
+  touched since their applies.
+
+Now 243 of the 258 are repaired. Still pending, untouched: 5 risky ambiguous lessons, Family E's 4
+and 6 held. The integrity routine is still paused, and no email was sent.
