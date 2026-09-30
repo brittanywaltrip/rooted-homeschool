@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
@@ -32,7 +32,22 @@ export default function AdminReviewsPage() {
   const [authed, setAuthed] = useState(false);
   const [reviews, setReviews] = useState<ReviewRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [filter, setFilter] = useState<"pending" | "approved" | "all">("pending");
+
+  const loadReviews = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { router.push("/login"); setLoading(false); return; }
+    const res = await fetch("/api/admin/reviews", {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    });
+    if (!res.ok) { setLoadError(true); setLoading(false); return; }
+    const data = await res.json();
+    if (Array.isArray(data)) setReviews(data);
+    setLoading(false);
+  }, [router]);
 
   useEffect(() => {
     (async () => {
@@ -42,22 +57,16 @@ export default function AdminReviewsPage() {
         return;
       }
       setAuthed(true);
-      loadReviews();
+      await loadReviews();
     })();
-  }, [router]);
-
-  async function loadReviews() {
-    setLoading(true);
-    const res = await fetch("/api/admin/reviews");
-    const data = await res.json();
-    if (Array.isArray(data)) setReviews(data);
-    setLoading(false);
-  }
+  }, [router, loadReviews]);
 
   async function toggleApproval(id: string, currentlyApproved: boolean) {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { router.push("/login"); return; }
     const res = await fetch("/api/admin/reviews", {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
       body: JSON.stringify({ id, approved: !currentlyApproved }),
     });
     if (res.ok) {
@@ -69,9 +78,11 @@ export default function AdminReviewsPage() {
 
   async function deleteReview(id: string) {
     if (!confirm("Delete this review permanently?")) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) { router.push("/login"); return; }
     const res = await fetch("/api/admin/reviews", {
       method: "DELETE",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
       body: JSON.stringify({ id }),
     });
     if (res.ok) {
@@ -124,6 +135,8 @@ export default function AdminReviewsPage() {
 
         {loading ? (
           <p className="text-center text-[#7a6f65] py-10">Loading...</p>
+        ) : loadError ? (
+          <p role="alert" className="text-center text-red-700 py-10">Reviews could not be loaded. Please refresh and try again.</p>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16 text-[#7a6f65]">
             {filter === "pending" ? "No pending reviews — all caught up!" : "No reviews found."}
