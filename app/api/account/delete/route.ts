@@ -186,6 +186,13 @@ export async function DELETE(req: NextRequest) {
     };
     await deleteRows("family_notifications");
 
+    // These owner-scoped tables have no auth/profile deletion cascade.
+    // Remove them explicitly rather than leaving private reflections or
+    // identifiable usage records behind after the login has disappeared.
+    await deleteRows("daily_reflections");
+    await deleteRows("child_ui_prefs");
+    await deleteRows("app_events");
+
     await deleteRows("memories");
 
     // ── 3. Delete lessons ───────────────────────────────────────
@@ -207,9 +214,9 @@ export async function DELETE(req: NextRequest) {
     // THIS IS THE STEP WHOSE ABSENCE BROKE ACCOUNT DELETION.
     //
     // History: vacation_blocks_user_id_fkey used to be ON DELETE
-    // NO ACTION, the single exception among the public tables that
-    // reference auth.users(id) (every other one is ON DELETE CASCADE
-    // and gets swept by step 10). Any user who had ever added one
+    // NO ACTION and prevented auth deletion; many other owner-linked
+    // tables cascade on auth/profile removal. Tables without such a
+    // cascade require explicit cleanup. Any user who had ever added one
     // break therefore hit a foreign-key violation at step 10:
     // supabaseAdmin.auth.admin.deleteUser failed, this route returned
     // 500, and the account was left in the worst possible state: all
@@ -219,7 +226,8 @@ export async function DELETE(req: NextRequest) {
     // 2026 (one vacation block, added May 3). She retried, got the
     // same 500, and signed back in on August 12 to an empty account.
     // 82 accounts held vacation blocks and would have failed the
-    // same way.
+    // same way. Other owner-scoped tables without a cascade are now explicitly
+    // removed above; never assume auth deletion covers every public table.
     //
     // The constraint has since been fixed: verified against the live
     // database on August 18, 2026, vacation_blocks_user_id_fkey is

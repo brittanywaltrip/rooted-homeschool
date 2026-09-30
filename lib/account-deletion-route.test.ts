@@ -16,6 +16,7 @@ const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.Modu
 
 function routeFixture(profileError: unknown = null, cancelFails = false, storageResults: SweepResult[] = [], deleteFailure?: string) {
   const events: string[] = [];
+  const deleteScopes: { table: string; column: string; id: string }[] = [];
   let status: "active" | "canceled" = "active";
   const subscriptions: DeletionSubscriptions = {
     async list() { events.push("billing:list"); return { data: [{ id: "sub_test", status }], has_more: false }; },
@@ -34,7 +35,16 @@ function routeFixture(profileError: unknown = null, cancelFails = false, storage
     from(table: string) {
       let deleting = false;
       const query = {
-        select() { return query; }, eq() { return query; }, order() { return query; }, limit() { return query; },
+        select() { return query; },
+        eq(column: string, id: string) {
+          if (deleting) {
+            assert.equal(id, "user_test", "every explicit deletion must use the authenticated owner");
+            assert.equal(column, table === "profiles" ? "id" : "user_id");
+            deleteScopes.push({ table, column, id });
+          }
+          return query;
+        },
+        order() { return query; }, limit() { return query; },
         async single() {
           events.push("profile:read");
           return { data: { stripe_customer_id: "cus_test", stripe_subscription_id: "sub_test" }, error: profileError };
@@ -75,6 +85,7 @@ function routeFixture(profileError: unknown = null, cancelFails = false, storage
   });
   return {
     events,
+    deleteScopes,
     setStorageResults: (results: SweepResult[]) => { storageResults = results; },
     run: () => exports.DELETE!({ headers: { get: () => "Bearer fixture" } }),
   };
@@ -145,5 +156,24 @@ test("auth deletion failure returns partial status and sends no success email", 
   assert.equal(response.status, 500);
   assert.equal(response.body.dataDeleted, true);
   assert.ok(f.events.includes("auth:delete"));
+  assert.ok(!f.events.includes("email:send"));
+});
+
+test("non-cascading family tables are explicitly deleted using the authenticated owner", async () => {
+  const f = routeFixture();
+  assert.equal((await f.run()).status, 200);
+  for (const table of ["daily_reflections", "child_ui_prefs", "app_events"]) {
+    assert.deepEqual(f.deleteScopes.find(scope => scope.table === table), { table, column: "user_id", id: "user_test" });
+    assert.ok(f.events.indexOf(`delete:${table}`) < f.events.indexOf("auth:delete"));
+  }
+});
+
+test("a reflection deletion error stops before profile/login removal and reports partial completion", async () => {
+  const f = routeFixture(null, false, [], "daily_reflections");
+  const response = await f.run();
+  assert.equal(response.status, 500);
+  assert.equal(response.body.dataDeleted, true);
+  assert.ok(!f.events.includes("delete:profiles"));
+  assert.ok(!f.events.includes("auth:delete"));
   assert.ok(!f.events.includes("email:send"));
 });

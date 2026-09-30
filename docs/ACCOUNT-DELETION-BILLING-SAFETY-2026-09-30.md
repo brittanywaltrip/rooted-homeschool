@@ -1,6 +1,6 @@
 # Account deletion billing and cleanup safeguards
 
-Draft local change, based on main commit 55689d0. Not deployed. No real account,
+Draft PR #133 change, based on main commit 55689d0. Not deployed. No real account,
 subscription, file, database row, or outbound email was changed by testing.
 
 ## Problem and change
@@ -37,13 +37,32 @@ button for that response and directs the family to support. Auth deletion failur
 likewise sends no success email. The goodbye email acknowledges retained
 administrative records and backups without inventing a retention period.
 
+## Live schema and billing evidence
+
+Read-only production schema checks confirmed that daily_reflections, child_ui_prefs
+and app_events have neither a user-owner cascade nor another foreign-key cascade.
+They are now explicitly deleted by authenticated user_id before profile/login
+removal. Tests assert each owner scope and verify that reflection-delete failure
+stops the operation. These tables and their uuid user_id columns also exist on staging.
+
+Aggregate-only production checks found one daily_reflections row and 424 app_events
+rows with a non-null owner ID absent from auth.users; child_ui_prefs had zero.
+No row contents were read, no cause was inferred and no historical cleanup was
+applied. A separate review must establish scope and retention obligations before
+historical writes. subject_goals does cascade through children/subjects.
+
+Read-only live Stripe lists returned zero subscription schedules and zero pending
+invoice items, each with has_more=false. This is current evidence, not an ongoing
+guarantee. Vercel denied team access (403), so this session cannot perform the
+rooted-staging deployment. CI waits for the exact head's staging deployment.
+
 ## Validation
 
-Thirty-three focused tests pass: profile errors, missing profile, free-account behavior,
+Thirty-five focused tests pass: profile errors, missing profile, free-account behavior,
 missing customer mapping, all subscription statuses and pages, a second-page
 failure before cancellation, partial cancellation retry, unconfirmed cancellation,
 an open subscription on the final read, missing stored subscription, malformed
-pagination, and seven actual-route tests covering billing order, preservation of
+pagination, and nine actual-route tests covering billing order, preservation of
 records/login on storage failure, cleanup retry, checked record deletion and auth
 deletion failure. Storage tests cover nested files, isolation, dry runs, removal
 failures and post-removal verification.
@@ -66,5 +85,8 @@ checks pass. No provider sandbox or deployed staging rehearsal has run yet.
 - Establish durable follow-up cleanup and verify backup retention before publishing
   deletion guarantees. This patch preserves the account for storage retry but does
   not add an automatic retry queue, atomic cross-provider deletion, a concurrent
-  write lock or automatic repair of historical partial deletions.
+  write lock or automatic repair of historical partial deletions. Audit/backup
+  retention (including lessons_resync_blocked and the historical backfill table),
+  reviews and resource reports that detach their owner rather than cascade, and
+  third-party analytics deletion still require review.
 - Keep Terms/Privacy changes in draft pending the broader evidence/legal review.
