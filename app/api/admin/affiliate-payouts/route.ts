@@ -127,7 +127,7 @@ export async function GET(req: Request) {
     const [affiliates, referrals, payments] = await Promise.all([
       readAllLedgerRows((offset, size) => supabaseAdmin.from("affiliates")
         .select("id, name, code, is_active, paypal_email, payment_method")
-        .eq("is_active", true).order("id").range(offset, offset + size - 1)),
+        .order("id").range(offset, offset + size - 1)),
       readAllLedgerRows((offset, size) => supabaseAdmin.from("referrals")
         .select("id, affiliate_code, converted, commission_amount, created_at")
         .eq("converted", true).order("id").range(offset, offset + size - 1)),
@@ -138,11 +138,12 @@ export async function GET(req: Request) {
     const now = new Date();
     const payouts = affiliates.map((affiliate) => ({
       name: affiliate.name,
+      is_active: affiliate.is_active,
       code: affiliate.code,
       paypal_email: affiliate.paypal_email ?? null,
       payment_method: affiliate.payment_method ?? null,
       ...buildPayoutSummary(affiliate.code, referrals, payments, now),
-    }));
+    })).filter(affiliate => affiliate.is_active || affiliate.commission_cents > 0 || affiliate.pending_cents > 0);
     return NextResponse.json({ payouts, as_of: now.toISOString(), source: "commission_ledger" },
       { headers: { "cache-control": "no-store" } });
   } catch {

@@ -212,7 +212,7 @@ export default function AdminPage() {
   const [reengageSent, setReengageSent] = useState(false);
 
   // Affiliate payouts
-  const [affiliatePayouts, setAffiliatePayouts] = useState<{ name: string; code: string; legacy_estimate_count: number; conversions_lifetime: number; lifetime_earned_cents: number; pending_cents: number; commission_cents: number; paypal_email: string | null; payment_method: string | null; lifetime_paid: number; last_paid_month: string | null; month_label: string }[]>([]);
+  const [affiliatePayouts, setAffiliatePayouts] = useState<{ name: string; code: string; is_active: boolean; legacy_estimate_count: number; conversions_lifetime: number; lifetime_earned_cents: number; pending_cents: number; commission_cents: number; paypal_email: string | null; payment_method: string | null; lifetime_paid: number; last_paid_month: string | null; month_label: string }[]>([]);
   const [payoutsLoading, setPayoutsLoading] = useState(false);
   const [payoutsError, setPayoutsError] = useState(false);
 
@@ -865,7 +865,7 @@ export default function AdminPage() {
             </div>
           ) : affiliatePayouts.length === 0 ? (
             <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-              <p className="text-sm text-[#7a6f65]">No active affiliates found.</p>
+              <p className="text-sm text-[#7a6f65]">No active partners or outstanding partner balances found.</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -878,6 +878,7 @@ export default function AdminPage() {
                     <div className="flex items-center gap-2 mb-3">
                       <span className="text-sm font-medium text-[#2d2926]">{aff.name}</span>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#e8e2d9] text-[#7a6f65]">{aff.code}</span>
+                      {!aff.is_active && <span className="text-[11px] text-amber-700">Inactive · balance outstanding</span>}
                     </div>
 
                     {/* Stats row */}

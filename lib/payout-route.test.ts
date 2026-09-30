@@ -8,12 +8,12 @@ import { buildPayoutSummary, readAllLedgerRows } from "./payout-ledger.ts";
 const require = createRequire(import.meta.url);
 const ts = require("typescript") as typeof import("typescript");
 
-function fixture(email: string | null, failedTable?: string) {
+function fixture(email: string | null, failedTable?: string, inactive = false, paid = true) {
   const reads: string[] = [];
   const data: Record<string, unknown[]> = {
-    affiliates: [{ id: "a", code: "TEST", name: "Test", paypal_email: null, payment_method: null }],
+    affiliates: [{ id: "a", code: "TEST", name: "Test", is_active: !inactive, paypal_email: null, payment_method: null }],
     referrals: [{ id: "r", affiliate_code: "TEST", converted: true, commission_amount: 7.8, created_at: "2026-08-01T12:00:00Z" }],
-    commission_payments: [{ id: "p", affiliate_code: "TEST", amount: 7.8, month: "2026-08" }],
+    commission_payments: paid ? [{ id: "p", affiliate_code: "TEST", amount: 7.8, month: "2026-08" }] : [],
   };
   const source = readFileSync(new URL("../app/api/admin/affiliate-payouts/route.ts", import.meta.url), "utf8");
   const exports: { GET?: (req: Request) => Promise<{ status: number; body: { payouts?: { commission_cents: number }[] } }> } = {};
@@ -66,3 +66,14 @@ for (const table of ["affiliates", "referrals", "commission_payments"]) {
     assert.equal(result.body.payouts, undefined);
   });
 }
+
+test("inactive partners with unpaid balances still have a payout card", async () => {
+  const result = await fixture("garfieldbrittany@gmail.com", undefined, true, false).run();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.payouts![0].commission_cents, 780);
+});
+test("inactive partners paid in full do not create empty payout cards", async () => {
+  const result = await fixture("garfieldbrittany@gmail.com", undefined, true, true).run();
+  assert.equal(result.status, 200);
+  assert.equal(result.body.payouts!.length, 0);
+});
