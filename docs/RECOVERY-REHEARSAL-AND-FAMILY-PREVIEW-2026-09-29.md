@@ -72,7 +72,11 @@ snapshots were deleted. 0 rows remain.
   curriculum's settings and never reads lesson dates (`app/lib/missed-work.ts`).
 - **Plan calendar:** a returning lesson reappears as unfinished on its original past day.
 - **Counts:** each undone completion lowers lesson counts (reports, weekly summary, garden leaves)
-  by one. Hours are unchanged; every lesson here carried 0 hours.
+  by one. ~~Hours are unchanged; every lesson here carried 0 hours.~~ **CORRECTED 2026-09-30:**
+  that was wrong. None of the 165 had recorded time, but a completed lesson with no recorded time
+  counts as an estimated 30 minutes (lib/lesson-minutes.ts), so the recovery removed 82.5
+  estimated hours from Reports and the progress-report PDF. See "Correction: estimated hours and
+  the 165" below.
 - **Kept hidden:** lessons below the family's starting lesson (rule v2) and the 20 pointer-hidden
   lessons in 6 other families (not in these 8).
 
@@ -250,3 +254,70 @@ ae61131c-8d31-4bc7-b17a-45ce66adb8f4, b41bb91a-4269-43c2-ab4c-1d8c1ba57b92, bec3
 c65abe96-971d-45e4-95fc-a9d8b99d7466, d25e356e-bc63-468d-9403-4e6d94b07e84, d27207ab-dd89-498e-a00e-adba0226f5ea,
 d838ba6e-e7cb-4a3e-b07b-9884924c4d21, de00b647-9569-4450-a5f4-46bb8fddb0b0, ecb68206-dde5-4772-beff-e03708db1458,
 ef01c1b9-7af9-43a1-bdea-340fc1b8008b, fa7b2e52-ba4a-4e3c-bf30-8b50c07381b0
+
+## Correction: estimated hours and the 165 (read-only, 2026-09-30)
+
+The preview above said the recovery would leave hours unchanged. That was wrong. Every one of the
+165 lessons had no recorded time (minutes_spent NULL, hours 0; none recorded as 0 minutes). Reports,
+the progress-report PDF and linked transcript courses all price such a lesson at an estimated 30
+minutes (lib/lesson-minutes.ts, `lessonMinutes`). So while the lessons were falsely completed (from
+the 09-25 run until 22:22 UTC 09-29), each one added 0.5 estimated hours, and the recovery took
+those hours back out. The recovery returned hours to where they were before the auto-heal. It did
+not remove any time a family recorded.
+
+Computed from the batch-one backup (`recovery_20260925_backup`, `..._backup_curricula_lessons`).
+Families are labelled R1 to R25 by hours removed. R1 is Family 1 and R25 is Family 8 from the
+preview above. Reports and PDF compute hours live from lessons, so this change took effect at the
+apply.
+
+| Family | Lessons | Shown on Plan | Report and PDF hours removed | Report days | Hours in affected curricula, before -> after |
+|---|---:|---:|---:|---|---|
+| R1 (Family 1) | 28 | 28 | 14.0 | Aug 23 to 26 | 297.5 -> 283.5 |
+| R2 | 18 | 0 | 9.0 | Sep 2 | 9.3 -> 0.3 |
+| R3 | 17 | 0 | 8.5 | Aug 11 to 14 | 31.3 -> 22.8 |
+| R4 | 10 | 5 | 5.0 | Aug 3 to 9 | 10.3 -> 5.3 |
+| R5 | 10 | 0 | 5.0 | Aug 22 to Sep 15 | 6.5 -> 1.5 |
+| R6 | 10 | 0 | 5.0 | Sep 15 to 18 | 25.5 -> 20.5 |
+| R7 | 9 | 0 | 4.5 | Aug 12 to 27 | 37.4 -> 32.9 |
+| R8 | 8 | 0 | 4.0 | Aug 10 | 17.0 -> 13.0 |
+| R9 | 8 | 3 | 4.0 | Aug 13 to 24 | 13.5 -> 9.5 |
+| R10 | 8 | 1 | 4.0 | Sep 3 | 19.3 -> 15.3 |
+| R11 | 7 | 0 | 3.5 | Aug 3 | 13.0 -> 9.5 |
+| R12 | 6 | 4 | 3.0 | Aug 20 to 25 | 13.0 -> 10.0 |
+| R13 | 4 | 0 | 2.0 | Aug 18 to Sep 16 | 18.7 -> 16.7 |
+| R14 | 3 | 0 | 1.5 | Sep 16 | 13.7 -> 12.2 |
+| R15 | 3 | 0 | 1.5 | Sep 6 | 6.0 -> 4.5 |
+| R16 | 3 | 3 | 1.5 | Aug 4 to 23 | 38.0 -> 36.5 |
+| R17 | 2 | 2 | 1.0 | Aug 24 | 14.3 -> 13.3 |
+| R18 | 2 | 0 | 1.0 | Aug 27 | 14.3 -> 13.3 |
+| R19 | 2 | 0 | 1.0 | Sep 25 to Oct 2 | 9.8 -> 8.8 |
+| R20 | 2 | 0 | 1.0 | Aug 18 to 23 | 6.1 -> 5.1 |
+| R21 | 1 | 0 | 0.5 | Sep 14 | 3.6 -> 3.1 |
+| R22 | 1 | 0 | 0.5 | Sep 14 | 5.0 -> 4.5 |
+| R23 | 1 | 0 | 0.5 | Sep 18 | 5.3 -> 4.8 |
+| R24 | 1 | 0 | 0.5 | Aug 17 | 10.0 -> 9.5 |
+| R25 (Family 8) | 1 | 1 | 0.5 | Aug 8 | 11.5 -> 11.0 |
+| **Total** | **165** | **47** | **82.5** | | |
+
+"Hours in affected curricula" is the estimated-plus-recorded total over the curricula that held
+recovered lessons, not the family's whole report. A report for a narrower date range moves only by
+the lessons dated inside it.
+
+**Linked transcripts:** 45 transcript courses link to curricula that held recovered lessons. None
+of them has had its stored hours written since Sep 15, before the first auto-heal run. So no stored
+transcript number ever absorbed the false completions, and none changed at the apply. The transcript
+page rewrites only `hours_source = 'calculated'` courses when it opens, rounding to whole hours
+(`hoursFromMinutes`). On the next open, 10 of those calculated courses will write a value lower than
+they would have without the recovery, 19 whole hours in total (R5 -5, R10 -3, R7 -4 over two
+courses, R6 -2, R17 -2 over two, R9 -2 over two, R4 -1). The other calculated courses round to the
+same number either way. Courses with hours_source NULL are never rewritten on page open, so the
+recovery does not change them. Many stored values already differ from the calculation for older
+reasons (the #96 hours_source work); that is unrelated to this recovery.
+
+**Who could have seen the inflated hours** (PostHog, 09-25 15:11 to 09-29 22:23 UTC): events were
+recorded for 11 of the 25 families. One (R22) opened Reports once. No transcript page views, and no
+`plan_pdf_downloaded` (the Reports-page PDF). The Plan-page PDF download is not tracked, and the 14
+families with no events cannot be ruled in or out.
+
+**The 35 archived lessons (next batch)** follow the same rule, as the review above already states:
+-17.5 report hours across 4 families. Hide-below-start stays on in the proposed batch.
