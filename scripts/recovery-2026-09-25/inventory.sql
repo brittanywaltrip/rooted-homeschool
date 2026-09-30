@@ -69,6 +69,9 @@ r as (
          f.hours, f.minutes_spent, f.current_lesson, f.start_at_lesson, f.goal_archived,
          goal.max_real_done_slot, goal.later_work as goal_later_work, goal.drifted as goal_drifted,
          f.updated_at = f.run_t as untouched,
+         -- The whole lesson row as it stood at the freeze. A held lesson may
+         -- only be recovered if it is still exactly this row (apply-template).
+         (select to_jsonb(l0) from public.lessons l0 where l0.id = f.id) as row_json,
          (coalesce(f.hours, 0) > 0 or coalesce(f.minutes_spent, 0) > 0) as carries_time,
          exists (select 1 from public.lessons x
                   where x.curriculum_goal_id = f.curriculum_goal_id and x.lesson_number is null

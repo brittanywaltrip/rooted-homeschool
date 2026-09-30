@@ -50,8 +50,11 @@
 --     Schedule Builder deletion as the curriculum will stand after the run
 --     (lesson_number <= the highest completed lesson_number that remains,
 --     skipped, or carrying notes or minutes); otherwise the run aborts.
+--   * HOLD_* classes may be approved only with v_completion_only and
+--     v_lesson_ids, and each listed held lesson must still be byte-identical
+--     to its frozen row (inventory row_json) with the statement's completion.
 --   * with v_completion_only: no slot is written (queue_position keeps its
---     current NULL) and every target must still have none afterwards. The
+--     current value) and every target must end with exactly the slot it had. The
 --     revalidation still requires each lesson's live classification, slot
 --     evidence and curriculum settings to match the frozen inventory.
 --   * with v_lesson_ids set: only those lessons are written; a listed id that
@@ -82,6 +85,9 @@ declare
   -- APPROVED CLASSES. Starts empty on purpose. Allowed values:
   --   'UNDO_restore_slot', 'UNDO_restore_only_hole_SIGNOFF', 'UNDO_archived',
   --   and 'REVIEW_slot_ambiguous' ONLY with v_completion_only and v_lesson_ids.
+  --   'HOLD_family_acted_on_row', 'HOLD_carries_time', 'HOLD_relogged_as_extra'
+  --   ONLY with v_completion_only and v_lesson_ids, and only while each listed
+  --   lesson is still byte-identical to its frozen row (inventory row_json).
   v_classes  text[] := array[]::text[];
   -- APPROVED LESSONS. NULL means every row of the approved classes. A list
   -- narrows the run to exactly these lesson ids, each of which must be in the
@@ -118,16 +124,26 @@ declare
   v_bad_ids  jsonb;
   v_inv_rest_before jsonb;
   v_inv_rest_after  jsonb;
-  v_slotted  int;
   v_builder_risk jsonb;
+  v_slots_before jsonb;
+  v_slots_after  jsonb;
+  v_held_changed jsonb;
 begin
   if coalesce(array_length(v_classes, 1), 0) = 0 then
     raise exception 'recovery: no classes approved; edit v_classes first';
   end if;
   if exists (select 1 from unnest(v_classes) c
               where c not in ('UNDO_restore_slot', 'UNDO_restore_only_hole_SIGNOFF', 'UNDO_archived',
-                              'REVIEW_slot_ambiguous')) then
-    raise exception 'recovery: only UNDO_* classes (and REVIEW_slot_ambiguous, completion-only) may be run; HOLD rows are never written here';
+                              'REVIEW_slot_ambiguous', 'HOLD_family_acted_on_row',
+                              'HOLD_carries_time', 'HOLD_relogged_as_extra')) then
+    raise exception 'recovery: unknown class in v_classes';
+  end if;
+  -- A held lesson carries later work (an edit, recorded time, a re-logged
+  -- extra), so it is only ever un-completed, keeping everything else, and
+  -- only when listed one by one.
+  if exists (select 1 from unnest(v_classes) c where c like 'HOLD\_%')
+     and not (v_completion_only and v_lesson_ids is not null) then
+    raise exception 'recovery: HOLD_* classes need v_completion_only = true and an explicit v_lesson_ids list';
   end if;
   -- An ambiguous slot is never guessed: those lessons may only be
   -- un-completed, with no slot written, and only when listed one by one.
@@ -284,8 +300,28 @@ begin
     end if;
   end if;
 
+  -- Held lessons: the row must still be exactly as frozen. Their normal
+  -- fingerprint (updated_at = run time) no longer holds by definition, so
+  -- this is what proves nothing has changed since the approval.
+  if exists (select 1 from unnest(v_classes) c where c like 'HOLD\_%') then
+    select jsonb_agg(i.lesson_id)
+      into v_held_changed
+      from rooted_private.recovery_20260925_inventory i
+      join public.lessons l on l.id = i.lesson_id
+     where i.lesson_id = any(v_targets)
+       and i.action like 'HOLD\_%'
+       and (i.row_json is null or to_jsonb(l) is distinct from i.row_json
+            or l.completed is not true or l.completed_at is distinct from i.run_fp);
+    if v_held_changed is not null then
+      raise exception 'recovery: held lessons changed since the freeze: %. Re-freeze and re-approve. Nothing kept.', v_held_changed;
+    end if;
+  end if;
+
   select jsonb_object_agg(id, current_lesson) into v_ptr_before
     from public.curriculum_goals where id = any(v_goals);
+  -- Every target's slot as it is now; completion-only must leave it as is.
+  select jsonb_object_agg(l.id, l.queue_position) into v_slots_before
+    from public.lessons l where l.id = any(v_targets);
   -- Whole rows, every column, including updated_at: a trigger that touched
   -- any other lesson in these curricula, even without changing a value a
   -- screen reads, fails the run.
@@ -321,8 +357,10 @@ begin
      and i.action = any(v_classes)
      and l.completed
      and l.completed_at = i.run_fp
-     and l.updated_at = i.run_t
-     and l.queue_position is null;
+     -- A held lesson was proven unchanged against its frozen row above; every
+     -- other lesson must still carry the statement's own fingerprint.
+     and (i.action like 'HOLD\_%'
+          or (l.updated_at = i.run_t and l.queue_position is null));
   get diagnostics v_written = row_count;
   if v_written <> v_expected then
     raise exception 'recovery: wrote % of % approved rows; a row changed since the inventory. Nothing kept.', v_written, v_expected;
@@ -354,11 +392,14 @@ begin
     raise exception 'recovery: an inventory lesson outside this run changed. Nothing kept.';
   end if;
 
+  -- Completion-only writes no slot: every target keeps exactly the slot it
+  -- had (NULL for the statement's own rows; a later repaired slot for a held
+  -- lesson).
   if v_completion_only then
-    select count(*) into v_slotted
-      from public.lessons l where l.id = any(v_targets) and l.queue_position is not null;
-    if v_slotted > 0 then
-      raise exception 'recovery: completion-only left % approved lessons with a slot. Nothing kept.', v_slotted;
+    select jsonb_object_agg(l.id, l.queue_position) into v_slots_after
+      from public.lessons l where l.id = any(v_targets);
+    if v_slots_after is distinct from v_slots_before then
+      raise exception 'recovery: completion-only changed a slot. before % after %. Nothing kept.', v_slots_before, v_slots_after;
     end if;
   end if;
 
