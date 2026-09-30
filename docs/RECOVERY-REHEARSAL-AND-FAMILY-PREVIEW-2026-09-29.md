@@ -548,3 +548,45 @@ unpinned and undated. It stays hidden, and Today's next lesson doesn't change.
   Today or Plan changes.
 - **Re-freeze.** Re-freeze right before applying. Families F, I and J are active in these
   curricula, and any change since the freeze aborts the run.
+
+## PRODUCTION APPLY, batch three: 7 Tier 1 inferred-slot lessons (2026-09-30)
+
+Approved by Brittany: the seven lessons in the reviewed allowlist. The script was apply-template.sql
+at **038ae64**, and the only edits were `v_classes := array['UNDO_restore_only_hole_SIGNOFF']` and
+the seven-id `v_lesson_ids` list. Hide-below-start stayed on.
+
+- **Earlier batches preserved:** the batch-two inventory was renamed to
+  `recovery_20260925_inventory_batch2` (93 rows). The batch-one inventory
+  (`..._inventory_batch1`, 258) and all batch-one and batch-two backups are unchanged.
+- **Inventory refreshed and frozen:** 02:57:30 UTC, 58 rows: sign-off 12, review 40, holds 6. All
+  seven approved ids were present as `SIGNOFF`, with the same proposed slot as the review and the
+  same pointer and starting lesson.
+- **Applied:** 02:58:27 UTC. **7 rows written** in 7 curricula for 5 families, and every built-in
+  guard passed.
+- **Batch-three backups** (rooted_private; access revoked from public, anon and authenticated):
+  - `recovery_20260925_inventory`: the batch-three frozen inventory, 58 rows
+  - `recovery_20260925_b3_backup`: all 58 inventory lessons before the apply
+  - `recovery_20260925_b3_backup_curricula_lessons`: every lesson in the 7 curricula, 784 rows
+  - `recovery_20260925_b3_backup_curricula`: the 7 curriculum rows
+
+Verification after the apply:
+- **The 7 reversals:** all un-completed and in the reviewed slot (11 -> 10 x4, 6 -> 5, 14 -> 13,
+  13 -> 12).
+  - Pins and dates are unchanged (all unpinned and undated, so they stay hidden behind the pointer).
+  - Minutes and hours fields are kept, and nothing else on the rows changed.
+- **Curricula:** pointers, starting lessons and archived flags are unchanged in 7 of 7. There are 0
+  duplicate slots, 0 empty slots left, and 0 new lessons.
+- **Parent work:** the other 777 lessons in those curricula are identical as whole rows, including
+  all 80 of the families' own completions (39 with recorded time).
+- **Excluded inferred-slot lessons:** all 5 (Family F lesson 9 and Family E's four) are identical as
+  whole rows and still classified `SIGNOFF`.
+- **Review and held:** the 40 review and 6 held lessons are identical as whole rows.
+- **Hours and counts:** the report and PDF correction is -3.5 estimated hours. Completed counts
+  match the preview: F 146, G 146, H 841, I 815, J 149. No transcript has been rewritten yet; J's
+  calculated course updates on its next page open.
+- **The earlier 200 repairs:**
+  - Batch one: 165 of 165 still undone in their slot, 0 touched since, 88 pointers unchanged.
+  - Batch two: 35 of 35 still undone, 0 touched since, 5 pointers unchanged.
+
+Now 207 of the 258 are repaired. Still pending, untouched: 5 inferred-slot (held), 40 review and
+6 held. The integrity routine is still paused.
