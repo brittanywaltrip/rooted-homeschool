@@ -141,3 +141,46 @@ proves them identical in every column.
 
 Untouched: the nine Builder-risk lessons (group C's five, Family E's four). The integrity routine
 is still paused.
+
+## Apply attempt, Option A (2026-09-30 19:02 UTC): STOPPED before any lesson write
+
+Approved: Option A's four lessons, script 96870ec, completion-only, with the instruction to stop
+without writing if anything had changed or the impact differed.
+
+**Done (no lesson written):**
+- Confirmed the committed script: unchanged since 96870ec, and its body hash equals the rehearsed
+  one (bcd03bf1..., 266 lines). The four ids are in this record.
+- Preserved the batch-five inventory as `recovery_20260925_inventory_batch5` (50 rows). The batch-one
+  to batch-four inventories and all earlier backups are unchanged.
+- Froze a fresh inventory with full-row snapshots at 19:02:54 UTC: `recovery_20260925_inventory`,
+  15 rows, all with `row_json`.
+- Took protected backups (access revoked from public, anon and authenticated):
+  - `recovery_20260925_b6_backup`: 15 rows
+  - `recovery_20260925_b6_backup_curricula_lessons`: 433 rows
+  - `recovery_20260925_b6_backup_curricula`: 4 rows
+
+**Differences found, so no write:**
+1. **Family R, curriculum 5c8888ad: the pointer moved from 34 to 35.** The family completed another
+   lesson after the review. Lesson 29's own row is unchanged. Its impact is the same: slot 29 stays
+   behind the pointer, and it returns to Plan unfinished on Sep 22.
+2. **Excluded Builder-risk lesson 597ac7cd (Family P, lesson 8) is now labelled
+   `UNDO_restore_only_hole_SIGNOFF` instead of `REVIEW_slot_ambiguous`.**
+   - Batch five un-completed lesson 5 in the same curriculum, so lesson 8 is now the only affected
+     lesson there, with one empty slot (6).
+   - Its row is byte-identical to the batch-five backup, and nothing in that curriculum has been
+     written since batch five.
+   - It stays excluded and untouched (not in the allowlist). The composition is now: review 4,
+     sign-off 5 (Family E's four plus this one), holds 6.
+
+**The four approved lessons, checked at the freeze:**
+- All four match their frozen row exactly, are unchanged since the batch-five backup, and carry the
+  statement's `completed_at`. Classes are unchanged (3 family-acted, 1 carries-time).
+- Pointers after un-completing equal the current ones (3, 6, 35, 19). None is Builder-exposed.
+- Reviewed impact unchanged:
+  - 3 past lessons back on Plan (Sep 17, Sep 22, Sep 22);
+  - completed -4;
+  - estimated hours -1.0;
+  - 60 recorded minutes leave Reports while staying stored on the rows.
+
+Re-running requires only a fresh approval. The run re-checks everything under its locks, and would
+compare against a new freeze taken immediately before.
