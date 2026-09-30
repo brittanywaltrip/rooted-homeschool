@@ -321,3 +321,42 @@ families with no events cannot be ruled in or out.
 
 **The 35 archived lessons (next batch)** follow the same rule, as the review above already states:
 -17.5 report hours across 4 families. Hide-below-start stays on in the proposed batch.
+
+## PRODUCTION APPLY, batch two: UNDO_archived only (2026-09-30)
+
+Approved by Brittany: the 35 archived-curriculum lessons listed in the review at 215ebf1, with
+hide-below-start on. The script was apply-template.sql at 9236868; the only edit was
+`v_classes := array['UNDO_archived']`.
+
+- **Batch one preserved:** the batch-one inventory was renamed to
+  `recovery_20260925_inventory_batch1` (258 rows, contents unchanged). The batch-one backups keep
+  their names.
+- **Inventory refreshed and frozen:** 02:05:15 UTC, 93 rows: archived 35, sign-off 12, review 40,
+  holds 6. The 35 archived ids were identical to the approved list, and all 35 rows were
+  byte-identical to the batch-one backup (untouched since the review).
+- **Applied:** 02:06:37 UTC. 35 rows written in 5 curricula for 4 families, and every built-in
+  guard passed.
+- **Batch-two backups** (rooted_private; access revoked from public, anon and authenticated):
+  - `recovery_20260925_inventory`: the batch-two frozen inventory, 93 rows
+  - `recovery_20260925_b2_backup`: all 93 inventory lessons before the apply
+  - `recovery_20260925_b2_backup_curricula_lessons`: every lesson in the 5 curricula, 648 rows
+  - `recovery_20260925_b2_backup_curricula`: the 5 curriculum rows
+
+Verification after the apply:
+- 35 of 35 are un-completed with no slot. They are unchanged outside the writable columns, and
+  minutes and hours are kept.
+- 29 below the starting lesson are now unpinned with no date. 3 of them had a pin or date before,
+  and the old values are in the backup. The 6 at or after the start kept their pin and date.
+- Pointers, archived flags and starting lessons are unchanged in 5 of 5 curricula. Duplicate slots:
+  0. New lessons: 0.
+- The other 613 lessons in those curricula are identical as whole rows, including all 396 of the
+  families' own completions (166 of them with recorded time).
+- The other 58 inventory rows (sign-off, review, hold) are identical as whole rows.
+- Completed counts match the review: A 572, B 629, C 219, D 585. Report and PDF hours fell by 17.5
+  estimated hours (A 8.5, B 5.0, C 3.0, D 1.0). No transcript course has been rewritten yet; the
+  three calculated courses (A x2, C) update on their next page open.
+- Batch one is intact: all 165 are still undone in their slot, 0 touched since, 98 below-start
+  still hidden, 67 pins and dates kept, 88 pointers unchanged, 0 duplicate slots, and the other
+  10,498 lessons unchanged.
+
+Still pending, untouched: sign-off 12, review 40, holds 6. The integrity routine is still paused.
