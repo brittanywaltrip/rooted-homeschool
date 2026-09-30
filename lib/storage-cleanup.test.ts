@@ -23,11 +23,39 @@ import {
   type StorageCapableClient,
 } from "./storage-cleanup.ts";
 
+test("verification catches a successful remove response that leaves the file behind", async () => {
+  const client: StorageCapableClient = {
+    storage: { from: () => ({
+      async list() { return { data: [{ name: "photo.jpg", id: "file" }], error: null }; },
+      async remove() { return { error: null }; },
+    }) },
+  };
+  const result = await sweepBucket(client, "memory-photos", "user");
+  assert.equal(result.found, 1);
+  assert.ok(result.errors.some(error => error.includes("remain after removal")));
+});
+
+test("verification catches a failed post-removal list", async () => {
+  let reads = 0;
+  const client: StorageCapableClient = {
+    storage: { from: () => ({
+      async list() {
+        reads++;
+        return reads === 1
+          ? { data: [{ name: "photo.jpg", id: "file" }], error: null }
+          : { data: null, error: { message: "verification unavailable" } };
+      },
+      async remove() { return { error: null }; },
+    }) },
+  };
+  assert.ok((await sweepBucket(client, "memory-photos", "user")).errors.some(error => error.includes("verification unavailable")));
+});
+
 const USER = "11111111-1111-4111-8111-111111111111";
 const OTHER_USER = "22222222-2222-4222-8222-222222222222";
 
 type FakeOpts = {
-  /** Buckets whose list() returns an error. */
+  /** Bucket or bucket/path whose list() returns an error. */
   listErrors?: Record<string, string>;
   /** Buckets whose remove() returns an error. */
   removeErrors?: Record<string, string>;
@@ -35,8 +63,8 @@ type FakeOpts = {
 
 /**
  * Minimal in-memory stand-in for Supabase storage. Files are held as full
- * paths ("<userId>/<filename>"), which is how production stores them: every
- * user-uploaded object is exactly one level deep.
+ * paths ("<userId>/<filename>" or nested paths). list() returns direct files
+ * and folder entries with null ids, as Supabase Storage does.
  */
 function makeStorage(
   initial: Record<string, string[]> = {},
@@ -55,16 +83,16 @@ function makeStorage(
         return {
           async list(prefix: string, options: { limit: number; offset: number }) {
             listCalls.push({ bucket, prefix, offset: options.offset, limit: options.limit });
-            const listErr = opts.listErrors?.[bucket];
+            const listErr = opts.listErrors?.[`${bucket}/${prefix}`] ?? opts.listErrors?.[bucket];
             if (listErr) return { data: null, error: { message: listErr } };
             const all = [...(buckets.get(bucket) ?? [])]
               .filter((p) => p.startsWith(`${prefix}/`))
-              // Only one level deep, matching the real layout.
-              .filter((p) => !p.slice(prefix.length + 1).includes("/"))
-              .sort();
+              .map((p) => p.slice(prefix.length + 1).split("/"))
+              .map((parts) => ({ name: parts[0], id: parts.length > 1 ? null : "file-id" }))
+              .filter((entry, i, entries) => entries.findIndex((other) => other.name === entry.name) === i)
+              .sort((a, b) => a.name.localeCompare(b.name));
             const page = all
-              .slice(options.offset, options.offset + options.limit)
-              .map((p) => ({ name: p.slice(prefix.length + 1), id: "file-id" }));
+              .slice(options.offset, options.offset + options.limit);
             return { data: page, error: null };
           },
           async remove(paths: string[]) {
@@ -141,6 +169,34 @@ test("listUserFiles skips .emptyFolderPlaceholder", async () => {
   const { paths } = await listUserFiles(client, "family-photos", USER);
 
   assert.deepEqual(paths, [`${USER}/family-1.jpg`]);
+});
+
+test("listUserFiles walks nested certificates and paginates subfolders without crossing families", async () => {
+  const certificates = Array.from({ length: 115 }, (_, i) => `${USER}/2026-2027/child-${i}.png`);
+  const { client, listCalls } = makeStorage({
+    "year-certificates": [
+      ...certificates,
+      `${USER}/2025-2026/child.png`,
+      `${USER}/2025-2026/archive/older.png`,
+      `${OTHER_USER}/2026-2027/private.png`,
+    ],
+  });
+  const result = await listUserFiles(client, "year-certificates", USER);
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.paths.sort(), [
+    ...certificates, `${USER}/2025-2026/child.png`, `${USER}/2025-2026/archive/older.png`,
+  ].sort());
+  assert.deepEqual(listCalls.filter((call) => call.prefix === `${USER}/2026-2027`).map((call) => call.offset), [0, 100]);
+  assert.ok(listCalls.every((call) => call.prefix.startsWith(USER)));
+});
+
+test("a failed nested listing is reported even when other folders succeed", async () => {
+  const { client } = makeStorage({
+    "year-certificates": [`${USER}/2025/cert.png`, `${USER}/2026/cert.png`],
+  }, { listErrors: { [`year-certificates/${USER}/2025`]: "temporary outage" } });
+  const result = await listUserFiles(client, "year-certificates", USER);
+  assert.deepEqual(result.paths, [`${USER}/2026/cert.png`]);
+  assert.match(result.errors[0], /2025.*temporary outage/);
 });
 
 // ── sweepBucket ──────────────────────────────────────────────────────────────
@@ -267,7 +323,7 @@ test("deleteAllUserStorage sweeps every bucket and leaves nothing behind", async
     "family-photos": [`${USER}/family-a.jpg`, `${USER}/family-b.jpg`],
     memories: [`${USER}/legacy.jpg`],
     "yearbook-covers": [`${USER}/cover.jpg`],
-    "year-certificates": [`${USER}/2026-cert.pdf`],
+    "year-certificates": [`${USER}/2026-2027/child.png`],
   });
 
   const results = await deleteAllUserStorage(client, USER);
