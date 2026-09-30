@@ -144,3 +144,47 @@ Recommendation:
   Builder-save exposure above.
 - **Family E lesson 6:** supported only with an explicit OK for the Plan change. Otherwise hold it
   and run the other four.
+
+## PRODUCTION APPLY, batch four: Family F lesson 9, completion-only (2026-09-30)
+
+Approved by Brittany: e98d941b-7f92-48e5-8255-926bf0670b36 only, conditional on unchanged
+eligibility. The script was apply-template.sql at **98eda88**, and the only edits were
+`v_classes := array['UNDO_restore_only_hole_SIGNOFF']`, `v_lesson_ids := array['e98d941b-...']`
+and `v_completion_only := true`. Hide-below-start stayed on. Family E's four were held.
+
+- **Earlier batches preserved:** the batch-three inventory was renamed to
+  `recovery_20260925_inventory_batch3` (58 rows). The batch-one and batch-two inventories and all
+  earlier backups are unchanged.
+- **Inventory refreshed and frozen:** 04:51:21 UTC, 51 rows: sign-off 5, review 40, holds 6.
+- **Conditions rechecked, all met:**
+  - still `SIGNOFF` with the same slot evidence (9);
+  - untouched since the run, with no slot;
+  - unpinned and undated, below start (9 < 17);
+  - hours 0 and minutes NULL, not re-logged;
+  - starting lesson 17 and pointer 26 unchanged;
+  - highest completed lesson 26 > 9, so it stays outside the Builder deletion path;
+  - 0 writes in the curriculum since batch three.
+- **Applied:** 04:52:20 UTC. **1 row written**, and every built-in guard passed.
+- **Batch-four backups** (rooted_private; access revoked from public, anon and authenticated):
+  - `recovery_20260925_inventory`: the batch-four frozen inventory, 51 rows
+  - `recovery_20260925_b4_backup`: all 51 inventory lessons before the apply
+  - `recovery_20260925_b4_backup_curricula_lessons`: every lesson in the curriculum, 120 rows
+  - `recovery_20260925_b4_backup_curricula`: the curriculum row
+
+Verification after the apply:
+- **The one reversal:** exactly 1 of the 51 inventory rows changed.
+  - Lesson 9 is un-completed with **queue_position still NULL**, still unpinned and undated.
+  - Nothing else on the row changed, and its minutes and hours fields are kept.
+- **Curriculum and parent work:** pointer (26), starting lesson and archived flag are unchanged.
+  The other 119 lessons are identical as whole rows, including all 24 of the family's own
+  completions (8 with recorded time). 0 duplicate slots, 0 new lessons, and the Builder floor is
+  still 26.
+- **Hours and counts:** -0.5 estimated report and PDF hours. Family F completed 146 -> 145. No
+  transcript is linked.
+- **Excluded and held:** the other 50 inventory rows are identical as whole rows with classes
+  unchanged (sign-off 4, review 40, holds 6). Family E's four are still completed and unchanged.
+- **Earlier repairs:** batch one 165 of 165, batch two 35 of 35 and batch three 7 of 7 are all
+  still in place, with 0 touched since.
+
+Now 208 of the 258 are repaired. Still pending, untouched: Family E's 4 (held), 40 review and
+6 held. The integrity routine is still paused.
