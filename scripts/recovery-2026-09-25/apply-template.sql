@@ -43,12 +43,16 @@
 --     included). Each approved row must also be identical apart from the
 --     columns this run writes.
 --   * no curriculum may end up with two lessons in one slot.
+--   * with v_lesson_ids set: only those lessons are written; a listed id that
+--     is missing, duplicated or outside the approved classes aborts before any
+--     lock; and every inventory lesson NOT targeted, in any curriculum, must be
+--     whole-row identical before and after.
 --
 -- Un-completing is not blocked by lessons_block_server_side_completion, so no
 -- completion attestation is needed or set.
 --
--- Usage: first freeze today's inventory (step 0), then edit v_classes, then
--- run the DO block. For a rehearsal, rehearsal.sql substitutes the staging
+-- Usage: first freeze today's inventory (step 0), then edit v_classes (and
+-- v_lesson_ids when approving individual lessons), then run the DO block. For a rehearsal, rehearsal.sql substitutes the staging
 -- fingerprint and run time.
 
 -- ── Step 0: freeze the inventory the approval was given against ────────────
@@ -67,6 +71,12 @@ declare
   -- APPROVED CLASSES. Starts empty on purpose. Allowed values:
   --   'UNDO_restore_slot', 'UNDO_restore_only_hole_SIGNOFF', 'UNDO_archived'
   v_classes  text[] := array[]::text[];
+  -- APPROVED LESSONS. NULL means every row of the approved classes. A list
+  -- narrows the run to exactly these lesson ids, each of which must be in the
+  -- frozen inventory under an approved class; the inventory's classification
+  -- is never edited. Required whenever UNDO_restore_only_hole_SIGNOFF is
+  -- approved, because that class is signed off lesson by lesson.
+  v_lesson_ids uuid[] := null;
   -- Keep lessons below the family's starting lesson hidden (Brittany, 2026-09-28).
   v_hide_below_start boolean := true;
   v_leaked   int;
@@ -87,6 +97,9 @@ declare
   v_live_rows int;
   v_drift    jsonb;
   v_dupes    int;
+  v_bad_ids  jsonb;
+  v_inv_rest_before jsonb;
+  v_inv_rest_after  jsonb;
 begin
   if coalesce(array_length(v_classes, 1), 0) = 0 then
     raise exception 'recovery: no classes approved; edit v_classes first';
@@ -96,10 +109,31 @@ begin
     raise exception 'recovery: only UNDO_* classes may be run; HOLD and REVIEW rows are never written here';
   end if;
 
+  if 'UNDO_restore_only_hole_SIGNOFF' = any(v_classes) and v_lesson_ids is null then
+    raise exception 'recovery: UNDO_restore_only_hole_SIGNOFF needs an explicit v_lesson_ids list';
+  end if;
+  if v_lesson_ids is not null then
+    if coalesce(array_length(v_lesson_ids, 1), 0) = 0 then
+      raise exception 'recovery: v_lesson_ids is empty';
+    end if;
+    if (select count(distinct x) from unnest(v_lesson_ids) x) <> array_length(v_lesson_ids, 1) then
+      raise exception 'recovery: v_lesson_ids lists a lesson twice';
+    end if;
+    select jsonb_agg(jsonb_build_object('lesson', x, 'inventory_action', i.action))
+      into v_bad_ids
+      from unnest(v_lesson_ids) x
+      left join rooted_private.recovery_20260925_inventory i on i.lesson_id = x
+     where i.lesson_id is null or not (i.action = any(v_classes));
+    if v_bad_ids is not null then
+      raise exception 'recovery: listed lessons are not in the inventory under an approved class: %', v_bad_ids;
+    end if;
+  end if;
+
   select array_agg(lesson_id), array_agg(distinct curriculum_goal_id), count(*)
     into v_targets, v_goals, v_expected
     from rooted_private.recovery_20260925_inventory
-   where action = any(v_classes);
+   where action = any(v_classes)
+     and (v_lesson_ids is null or lesson_id = any(v_lesson_ids));
   if v_expected = 0 then
     raise exception 'recovery: the approved classes select no rows';
   end if;
@@ -161,7 +195,7 @@ begin
       from rooted_private.recovery_20260925_inventory i
       join public.lessons l on l.id = i.lesson_id
       join g on g.id = i.curriculum_goal_id
-     where i.action = any(v_classes)
+     where i.lesson_id = any(v_targets)
   )
   select count(*),
          jsonb_agg(jsonb_build_object(
@@ -197,6 +231,13 @@ begin
   -- The approved rows too, minus exactly the columns this run may write.
   select jsonb_object_agg(l.id, to_jsonb(l) - v_writable) into v_tgt_before
     from public.lessons l where l.id = any(v_targets);
+  -- Every inventory lesson this run does NOT target (other classes, and any
+  -- approved-class lesson left off v_lesson_ids), wherever it lives: whole
+  -- rows, unchanged.
+  select jsonb_object_agg(l.id, to_jsonb(l)) into v_inv_rest_before
+    from public.lessons l
+   where l.id in (select lesson_id from rooted_private.recovery_20260925_inventory)
+     and not (l.id = any(v_targets));
 
   update public.lessons l
      set completed = false,
@@ -212,6 +253,7 @@ begin
                                then null else l.scheduled_date end
     from rooted_private.recovery_20260925_inventory i
    where i.lesson_id = l.id
+     and i.lesson_id = any(v_targets)
      and i.action = any(v_classes)
      and l.completed
      and l.completed_at = i.run_fp
@@ -240,10 +282,18 @@ begin
     raise exception 'recovery: an approved lesson changed outside the columns this run writes. Nothing kept.';
   end if;
 
+  select jsonb_object_agg(l.id, to_jsonb(l)) into v_inv_rest_after
+    from public.lessons l
+   where l.id in (select lesson_id from rooted_private.recovery_20260925_inventory)
+     and not (l.id = any(v_targets));
+  if v_inv_rest_after is distinct from v_inv_rest_before then
+    raise exception 'recovery: an inventory lesson outside this run changed. Nothing kept.';
+  end if;
+
   if v_hide_below_start then
     select count(*) into v_leaked
       from public.lessons l join rooted_private.recovery_20260925_inventory i on i.lesson_id = l.id
-     where i.action = any(v_classes)
+     where i.lesson_id = any(v_targets)
        and i.lesson_number < coalesce(i.start_at_lesson, 1)
        and (l.queue_pinned or l.scheduled_date is not null);
     if v_leaked > 0 then
