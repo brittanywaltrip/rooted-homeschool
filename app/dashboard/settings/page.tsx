@@ -7,6 +7,7 @@ import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout } from "lu
 import { supabase } from "@/lib/supabase";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import SignedImage from "@/components/SignedImage";
+import PartnerSharingGuide from "@/components/PartnerSharingGuide";
 import { useProfile } from "@/lib/profile-context";
 import { canShareFamily, getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { useIsNativeApp } from "@/lib/platform";
@@ -2351,6 +2352,7 @@ export default function SettingsPage() {
                       );
                     })()}
                   </div>
+                  <PartnerSharingGuide />
                   {/* Download cards */}
                   <div>
                     <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Download Your Cards</p>
@@ -2776,6 +2778,7 @@ export default function SettingsPage() {
               <p className="text-[10px] text-[#6366f1] text-center mt-2">Screenshot to share anywhere</p>
             </div>
 
+            <PartnerSharingGuide />
             {/* Download cards */}
             <div>
               <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Download Your Cards</p>
