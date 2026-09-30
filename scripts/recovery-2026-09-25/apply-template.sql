@@ -44,6 +44,12 @@
 --     included). Each approved row must also be identical apart from the
 --     columns this run writes.
 --   * no curriculum may end up with two lessons in one slot.
+--   * REVIEW_slot_ambiguous may be approved only together with
+--     v_completion_only and v_lesson_ids; HOLD rows are never written.
+--   * with v_completion_only, after the locks: every target must be safe from
+--     Schedule Builder deletion as the curriculum will stand after the run
+--     (lesson_number <= the highest completed lesson_number that remains,
+--     skipped, or carrying notes or minutes); otherwise the run aborts.
 --   * with v_completion_only: no slot is written (queue_position keeps its
 --     current NULL) and every target must still have none afterwards. The
 --     revalidation still requires each lesson's live classification, slot
@@ -74,7 +80,8 @@ declare
   -- statement wrote) and run time (run_t = updated_at it stamped) in the
   -- frozen inventory: the routine ran three times (09-25, 09-26, 09-27).
   -- APPROVED CLASSES. Starts empty on purpose. Allowed values:
-  --   'UNDO_restore_slot', 'UNDO_restore_only_hole_SIGNOFF', 'UNDO_archived'
+  --   'UNDO_restore_slot', 'UNDO_restore_only_hole_SIGNOFF', 'UNDO_archived',
+  --   and 'REVIEW_slot_ambiguous' ONLY with v_completion_only and v_lesson_ids.
   v_classes  text[] := array[]::text[];
   -- APPROVED LESSONS. NULL means every row of the approved classes. A list
   -- narrows the run to exactly these lesson ids, each of which must be in the
@@ -112,13 +119,20 @@ declare
   v_inv_rest_before jsonb;
   v_inv_rest_after  jsonb;
   v_slotted  int;
+  v_builder_risk jsonb;
 begin
   if coalesce(array_length(v_classes, 1), 0) = 0 then
     raise exception 'recovery: no classes approved; edit v_classes first';
   end if;
   if exists (select 1 from unnest(v_classes) c
-              where c not in ('UNDO_restore_slot', 'UNDO_restore_only_hole_SIGNOFF', 'UNDO_archived')) then
-    raise exception 'recovery: only UNDO_* classes may be run; HOLD and REVIEW rows are never written here';
+              where c not in ('UNDO_restore_slot', 'UNDO_restore_only_hole_SIGNOFF', 'UNDO_archived',
+                              'REVIEW_slot_ambiguous')) then
+    raise exception 'recovery: only UNDO_* classes (and REVIEW_slot_ambiguous, completion-only) may be run; HOLD rows are never written here';
+  end if;
+  -- An ambiguous slot is never guessed: those lessons may only be
+  -- un-completed, with no slot written, and only when listed one by one.
+  if 'REVIEW_slot_ambiguous' = any(v_classes) and not (v_completion_only and v_lesson_ids is not null) then
+    raise exception 'recovery: REVIEW_slot_ambiguous needs v_completion_only = true and an explicit v_lesson_ids list';
   end if;
 
   if 'UNDO_restore_only_hole_SIGNOFF' = any(v_classes) and v_lesson_ids is null then
@@ -234,6 +248,40 @@ begin
   if v_drift is not null then
     raise exception 'recovery: % approved lessons no longer match the inventory (approved vs now): %. Re-run inventory.sql. Nothing kept.',
       jsonb_array_length(v_drift), v_drift;
+  end if;
+
+  -- Schedule Builder guard (completion-only). planPhase2Rows (scheduler.ts)
+  -- deletes an open, unskipped lesson with a lesson_number above the
+  -- curriculum's completedFloor (the highest lesson_number among completed
+  -- rows) unless it carries work (non-blank notes, or minutes_spent set).
+  -- A slotless lesson gets no "behind the pointer" protection, and a pin
+  -- only protects it on saves that leave the schedule fields alone, so the
+  -- pin is not counted. On an existing curriculum the deleted lesson would
+  -- be gone (record history only backfills brand-new curricula). Recheck
+  -- from live data, under the locks, as the curriculum will stand after
+  -- this run (targets no longer completed), and refuse any exposed target.
+  if v_completion_only then
+    select jsonb_agg(jsonb_build_object('lesson', l.id, 'lesson_number', l.lesson_number,
+                                        'completed_floor_after', f.floor))
+      into v_builder_risk
+      from public.lessons l
+      cross join lateral (
+        select max(x.lesson_number) as floor
+          from public.lessons x
+         where x.curriculum_goal_id = l.curriculum_goal_id
+           and x.completed
+           and x.lesson_number is not null
+           and not (x.id = any(v_targets))) f
+     where l.id = any(v_targets)
+       and not l.skipped
+       and l.lesson_number is not null
+       and l.lesson_number > coalesce(f.floor, 0)
+       and coalesce(btrim(l.notes), '') = ''
+       and l.minutes_spent is null;
+    if v_builder_risk is not null then
+      raise exception 'recovery: % lessons would be exposed to Schedule Builder deletion once un-completed: %. Nothing kept.',
+        jsonb_array_length(v_builder_risk), v_builder_risk;
+    end if;
   end if;
 
   select jsonb_object_agg(id, current_lesson) into v_ptr_before
