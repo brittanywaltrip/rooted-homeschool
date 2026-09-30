@@ -360,3 +360,85 @@ Verification after the apply:
   10,498 lessons unchanged.
 
 Still pending, untouched: sign-off 12, review 40, holds 6. The integrity routine is still paused.
+
+## Review: the 12 inferred-slot lessons (read-only, 2026-09-30)
+
+Nothing was written. Families are labelled E to J so they don't collide with A to D (batch two).
+Source: the batch-two frozen inventory (`recovery_20260925_inventory`, 02:05 UTC) plus live data.
+
+**Rechecked live, all 12:**
+- Each still matches its 09-25 fingerprint, and no row has been edited since the run.
+- None has been re-logged as an extra, and none has recorded time (minutes NULL, hours 0).
+- Every curriculum's starting lesson, pointer and archived flag equal the frozen values. None is
+  archived.
+- Each curriculum has exactly one empty slot and exactly one unslotted affected lesson.
+
+**The shared shape (11 of 12):** lesson N lost its slot, lesson N-1 sits in slot N, and slot N-1 is
+the only empty slot. That is what a Plan drag leaves: the pre-#102 `move_lesson_to_date` swaps the
+two slots, the family ticks N-1, the pointer jumps to slot N, and the 09-25 statement completed N
+behind it and erased its slot. In every case the lesson in slot N has not been written since before
+the run (updated_at < run time), so it held slot N when the statement ran, and lesson N cannot have
+been in slot N.
+
+### Tier 1: strongly supported (7 lessons). Recommend.
+
+| Family | Curriculum | Lesson -> slot | Pre-damage evidence |
+|---|---|---|---|
+| F | twin curricula x2 | 11 -> 10 | On 09-22 13:38, the audit clears lesson 11's scheduled date within 0.2 s of lesson 10's completion in slot 11: the pointer passed an open lesson 11 sitting behind slot 11. One later write in each curriculum (a completion in its own numbered slot) cannot touch slot 10. |
+| G | twin curricula x2 | 11 -> 10 | On 09-22 01:10, lesson 10 is dragged (`plan_move`, pinned) onto lesson 11's day; lesson 11's scheduled date is cleared 14 s later. That is a recorded swap before the run. No writes since the run. |
+| H | 1 | 6 -> 5 | Lesson 5's pre-completion source was `plan_move` (a drag). On 09-24 13:33 its completion and the clearing of lesson 6's scheduled date are 0.4 s apart. No writes since the run. |
+| I | 1 | 14 -> 13 | Lesson 13's pre-completion source was `plan_move`. On 09-23 19:27, lesson 14 is cleared 0.4 s after lesson 13's completion. 485 later writes are date shifts and moves, all on rows in their own numbered slot. |
+| J | 1 | 13 -> 12 | On 09-22 18:58, lesson 13 is cleared within 25 ms of lesson 12's completion in slot 13. 107 later writes are all on rows in their own numbered slot. |
+
+Assumption: no drag is recorded for F's and J's slot-N lesson (it happened before the audit began
+on 09-21, or carried no date change). The support is the audit timing plus the single empty slot.
+Uncertainty is low.
+
+### Tier 2: supported by the own-number rule (1 lesson). Recommend, flagged.
+
+| Family | Lesson -> slot | Evidence |
+|---|---|---|
+| F | 9 -> 9 | The empty slot is the lesson's own number, with 8 in 8 and 10 in 10. The curriculum counts as "drifted" only because of a 24/25 swap the family made on 09-28/29. **Flag:** its source is `cleanup_sql` (an earlier repair), so it may already have had no slot before 09-25. It is below the starting lesson (9 < 17), so hide-below-start keeps it invisible either way. |
+
+### Tier 3: not sufficiently supported (4 lessons, Family E). Hold.
+
+Lessons 3 -> 2, 7 -> 6, 4 -> 3 and 6 -> 5 in four curricula. The shape matches (lesson N-1 was
+dragged, pinned `plan_move`, and completed on Aug 25; pointer = N; nothing written since the run).
+**But every one has source `cleanup_sql` and a pin on Aug 24.** That is the signature of the earlier
+phantom-repair step that pins "reverted rows the projector cannot place" (CLAUDE.md step 5), rows
+that typically had **no slot**. Everything predates the audit table (begins 09-21), so there is no
+record either way. If they were slotless before 09-25, the empty slot was a gap the auto-heal did
+not create, and restoring into it would make a placement that never existed.
+
+Options for E, your call:
+- **(a) Hold as is.**
+- **(b) Completion-only.** Undo the completion and leave the slot empty, which matches the
+  most likely pre-heal state. This needs a small template change and a rehearsal.
+
+The visible result is the same either way. Three are below their starting lesson and stay hidden.
+One (lesson 6, start 5) stays pinned on Aug 24 and reappears on Plan as unfinished on that day,
+which is how the earlier repair left it.
+
+### Preview for the recommended 8 (hide-below-start on)
+
+| Family | Lessons | Today | Plan | Completed count | Report and PDF hours | Linked transcript |
+|---|---:|---|---|---|---|---|
+| F | 3 | no change | no change (all hidden) | 148 -> 145 | -1.5 h | none linked |
+| G | 2 | no change | no change | 148 -> 146 | -1.0 h | none linked |
+| H | 1 | no change | no change | 842 -> 841 | -0.5 h | none linked |
+| I | 1 | no change | no change | 816 -> 815 | -0.5 h | 1 calculated course: rounds to 8 h either way |
+| J | 1 | no change | no change | 150 -> 149 | -0.5 h | 1 calculated course: next page open writes 8 h instead of 9 (stored value currently empty) |
+| **Total** | **8** | | | **-8** | **-4.0 h** | **-1 h, one course** |
+
+- **Today:** unchanged. Every restored slot is below the pointer and none is pinned for today or
+  later, so the next lesson and the pointer stay the same.
+- **Plan:** unchanged. The 7 at or after their start are unpinned with no scheduled date (they
+  stay hidden behind the pointer, like the 20 pointer-hidden lessons in batch one). The one below
+  its start is already unpinned and undated.
+- **Family E (held):** it would be 48 -> 44 completed and -2.0 h; its two calculated transcript
+  courses round the same either way.
+
+**Before an apply:** `apply-template.sql` approves a whole class, and the recommendation is 8 of
+the 12. That needs either an explicit lesson-id allowlist in the script, or the 4 Family E rows
+re-marked as held in the frozen inventory, and a staging rehearsal of whichever is chosen. Re-freeze
+right before applying: Families F, I and J are actively using these curricula.
