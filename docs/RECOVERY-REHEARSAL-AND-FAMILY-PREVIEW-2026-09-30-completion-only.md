@@ -45,8 +45,12 @@ live triggers):
   - **A Schedule Builder save deletes an unslotted open lesson** whose number is above the
     curriculum's highest completed lesson and that has no notes or minutes
     (`planPhase2Rows`, `scheduler.ts:2554+`).
-  - If the family then ticks "record history", the backfill re-creates lessons 1..pointer that no
-    longer exist as **completed** (`schedule/page.tsx:3070-3085`).
+  - ~~If the family then ticks "record history", the backfill re-creates lessons 1..pointer that no
+    longer exist as **completed**.~~ **Corrected 2026-09-30:** the record-history backfill runs only
+    for a brand-new curriculum (`historyRequested` needs `dbId == null`), so on an existing
+    curriculum a deleted lesson is simply gone, never re-created as completed. Also, deletion needs
+    the save to change that curriculum's schedule fields when the lesson is pinned, and any non-null
+    `minutes_spent` (not only a positive one) protects it.
 - Reports, the PDF, transcripts and the garden count completed rows only.
 - Production has **zero** open numbered lessons without a slot in active curricula today, so this
   would be a new shape, though every path above tolerates it.
@@ -133,8 +137,8 @@ Cleanup: all synthetic data, the frozen inventory and the functions were removed
   because it writes no slot. It matches the most likely pre-heal state for Family E (a pinned
   make-up with no slot), and it is always true that nobody completed these lessons.
 - **Builder-save exposure (Family E, all four):** once un-completed, a Builder save on those
-  curricula could delete the row. With "record history" ticked, the save could re-create it as
-  completed. Their current (falsely completed) state is not exposed this way. F lesson 9 is not
+  curricula could delete the row (see the correction above: it would not be re-created as
+  completed). Their current (falsely completed) state is not exposed this way. F lesson 9 is not
   exposed.
 - **Visible change:** E lesson 6 goes from done to missed on Aug 24.
 

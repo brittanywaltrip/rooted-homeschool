@@ -34,8 +34,9 @@ the code trace in `RECOVERY-REHEARSAL-AND-FAMILY-PREVIEW-2026-09-30-completion-o
   undated one appears nowhere.
 - **Pointer:** unchanged. The pointer is the highest completed slot, and none of these holds one.
 - **Schedule Builder:** a save deletes an unslotted open lesson whose number is above the
-  curriculum's highest completed lesson; with "record history" ticked, it can re-create it as
-  completed.
+  curriculum's highest completed lesson (unless it carries notes or minutes). ~~With "record
+  history" ticked, it can re-create it as completed.~~ **Corrected 2026-09-30:** record history only
+  backfills brand-new curricula, so on an existing curriculum a deleted lesson is just gone.
 
 ## The three groups
 
