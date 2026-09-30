@@ -184,3 +184,54 @@ without writing if anything had changed or the impact differed.
 
 Re-running requires only a fresh approval. The run re-checks everything under its locks, and would
 compare against a new freeze taken immediately before.
+
+## PRODUCTION APPLY, Option A (2026-09-30 19:29 UTC)
+
+Re-confirmed by Brittany for the same four ids. Family R's pointer of 35 was accepted as the new
+baseline, and Family P's lesson 597ac7cd stays excluded whatever its label. The script was
+apply-template.sql at **96870ec**; the only edits were
+`v_classes := array['HOLD_family_acted_on_row', 'HOLD_carries_time']`, the four-id `v_lesson_ids`
+and `v_completion_only := true`. Hide-below-start stayed on.
+
+**Before applying:**
+- **Stopped attempt preserved:** its inventory was renamed to
+  `recovery_20260925_inventory_batch6_stopped` (15 rows), and its backups keep their names
+  (`recovery_20260925_b6_backup*`). The batch-one to batch-five inventories and all earlier backups
+  are unchanged.
+- **Fresh freeze** with full-row snapshots at 19:28:22 UTC: `recovery_20260925_inventory`, 15 rows.
+- **Fresh backups** (access revoked from public, anon and authenticated):
+  - `recovery_20260925_b7_backup`: all 15 inventory lessons
+  - `recovery_20260925_b7_backup_curricula_lessons`: every lesson in the 4 curricula, 433 rows
+  - `recovery_20260925_b7_backup_curricula`: the 4 curriculum rows
+- **Checked against the stopped freeze:** all four targets are byte-identical, with the same classes
+  and pointers (3, 6, 35, 19). No excluded lesson changed.
+
+**Applied:** 19:29:45 UTC. **4 rows written**, and every built-in guard passed: the post-lock
+revalidation, the frozen-row check, the Builder guard, pointers, slots unchanged, and the whole-row
+checks.
+
+**Verification against the batch-seven backups:**
+- **The four targets:** exactly 4 of the 15 inventory rows changed, and on each only `completed`
+  (true -> false), `completed_at` (-> NULL) and the trigger-stamped `updated_at` changed.
+  - R L5: slot 5, pinned, Sep 17.
+  - R L29: slot 29, pinned, Sep 22.
+  - U L2: slot 2, pinned, Sep 22, minutes 30, hours 0.5.
+  - T L14: no slot, unpinned, undated, skipped, minutes 30, hours 0.5.
+- **Pointers:** 19, 35, 3, 6, all equal to the backup. The curriculum rows are unchanged apart from
+  `updated_at`. 0 duplicate slots, 0 new lessons.
+- **Parent work:** the other 429 lessons in those curricula are identical as whole rows, including
+  all 57 of the families' own completions (45 with recorded time) and Family R's later completion.
+- **Excluded lessons:** the other 11 inventory lessons are identical as whole rows and still
+  completed: Option B's two S lessons, and the nine Builder-risk lessons (Family E's four, the four
+  remaining ambiguous lessons, and 597ac7cd).
+- **Family S's genuine extras** ("Language Arts · Lesson 9", "Handwriting · Lesson 21") are
+  untouched: last written 09-27 when the family created them, and in curricula outside this run.
+- **Plan:** three lessons are back as unfinished on past days, each slotted behind its pointer
+  (Sep 17, Sep 22, Sep 22).
+- **Reports:** estimated hours fell by 1.0 (R's two lessons). **60 recorded minutes** (U 30, T 30)
+  no longer count in Reports, and **all 60 minutes are still stored** on the rows.
+- **Earlier batches intact, none touched since their applies:** one 165, two 35, three 7, four 1,
+  five 35.
+
+Now 247 of the 258 are repaired. Still pending and untouched: Option B's two lessons and the nine
+Builder-risk lessons. The integrity routine is still paused, and no family was contacted.
