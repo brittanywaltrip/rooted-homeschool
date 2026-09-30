@@ -325,6 +325,11 @@ export type Phase2CommitResult =
        */
       status: "stale" | "refused" | "invalid" | "failed" | "unavailable";
       reason: string;
+      /**
+       * The call itself failed in transit. The transaction may still have
+       * committed, so the caller must not treat this as "wrote nothing".
+       */
+      transport?: boolean;
     };
 
 /** PostgREST's "function not found": the migration is not on this database yet. */
@@ -360,7 +365,7 @@ export async function applyPhase2Commit(
     if (isMissingFunction(error as { code?: string })) {
       return { status: "unavailable", reason: "apply_builder_rebuild is not deployed on this database" };
     }
-    return { status: "failed", reason: (error as { message?: string }).message ?? "rpc error" };
+    return { status: "failed", reason: (error as { message?: string }).message ?? "rpc error", transport: true };
   }
   const res = (data ?? {}) as { status?: string; reason?: string; inserted?: number; redated?: number };
   if (res.status === "applied") {
