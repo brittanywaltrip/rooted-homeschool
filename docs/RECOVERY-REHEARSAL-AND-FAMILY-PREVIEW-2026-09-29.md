@@ -539,7 +539,7 @@ unpinned and undated. It stays hidden, and Today's next lesson doesn't change.
 **Remaining assumptions:**
 - **F and J.** No drag is recorded for the lesson now in slot N, because it predates the audit
   (21 Sep). The support is the audit timing: the lesson's schedule entry was cleared within 25 to
-  200 ms of that lesson's completion. That alone shows the lesson sat behind it.
+  450 ms of that lesson's completion. That alone shows the lesson sat behind it.
 - **Slotted before the auto-heal.** All 7 carry a scheduler source (`queue_resync` or
   `catchup_spread`) and a projected date, which means they were in the queue. There is no direct
   record of their queue_position before 09-25; no table records slot history.
