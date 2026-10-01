@@ -73,6 +73,8 @@ export type Phase2CommitPlan = {
   retire_keep_ids: string[];
   /** Kept rows the rebuild re-dates. */
   redates: { id: string; to: string }[];
+  /** One id per curriculum per save, so a re-sent call returns the first outcome. */
+  request_id?: string;
 };
 
 /** The goal fields a plan was made from, as apply_builder_rebuild compares them. */
@@ -314,7 +316,7 @@ export function validatePhase2End(a: {
 }
 
 export type Phase2CommitResult =
-  | { status: "applied"; inserted: number; redated: number }
+  | { status: "applied"; inserted: number; redated: number; replayed?: boolean }
   | {
       /**
        * stale: rows changed since they were read (retry re-reads and re-plans).
@@ -351,25 +353,40 @@ export async function applyPhase2Commit(
   a: {
     goalId: string;
     localDay: string;
-    expected: ReturnType<typeof phase2Expected>;
+    expected: ReturnType<typeof phase2Expected> & { current_lesson_after?: number; rows_after_settings?: unknown[] };
     plan: Phase2CommitPlan;
+    /**
+     * Scheduling settings this save changes. Written by apply_builder_rebuild
+     * in the same transaction as the lessons (20261001000000, five-argument
+     * form). A database without that form reports "unavailable" and writes
+     * nothing, rather than rebuilding lessons for settings it ignored.
+     */
+    settings?: Record<string, unknown>;
   },
 ): Promise<Phase2CommitResult> {
-  const { data, error } = await supabase.rpc("apply_builder_rebuild", {
+  const args: Record<string, unknown> = {
     p_goal_id: a.goalId,
     p_local_day: a.localDay,
     p_expected: a.expected,
     p_plan: a.plan,
-  });
+  };
+  if (a.settings) args.p_settings = a.settings;
+  let { data, error } = await supabase.rpc("apply_builder_rebuild", args);
+  // The response was lost, so the commit may or may not have landed. With a
+  // request id, the identical call answers that: the database returns the
+  // logged outcome if it committed, or judges the plan afresh if it did not.
+  if (error && a.plan.request_id && !isMissingFunction(error as { code?: string })) {
+    ({ data, error } = await supabase.rpc("apply_builder_rebuild", args));
+  }
   if (error) {
     if (isMissingFunction(error as { code?: string })) {
       return { status: "unavailable", reason: "apply_builder_rebuild is not deployed on this database" };
     }
     return { status: "failed", reason: (error as { message?: string }).message ?? "rpc error", transport: true };
   }
-  const res = (data ?? {}) as { status?: string; reason?: string; inserted?: number; redated?: number };
+  const res = (data ?? {}) as { status?: string; reason?: string; inserted?: number; redated?: number; replayed?: boolean };
   if (res.status === "applied") {
-    return { status: "applied", inserted: res.inserted ?? 0, redated: res.redated ?? 0 };
+    return { status: "applied", inserted: res.inserted ?? 0, redated: res.redated ?? 0, ...(res.replayed ? { replayed: true } : {}) };
   }
   const status = res.status === "stale" || res.status === "refused" || res.status === "invalid" ? res.status : "failed";
   return { status, reason: res.reason ?? "unknown" };

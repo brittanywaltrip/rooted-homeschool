@@ -25,8 +25,8 @@ import {
 import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, type PinnableRow, type PinnedSlot, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
-import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
-import { isDecidedNotApplied, markNotApplied, restorePatch, scheduleSnapshot, SCHEDULE_FIELDS, stillAsWrittenFilters, wasNotApplied, type ScheduleSnapshot } from "@/app/lib/builder-settings-restore";
+import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
+import { afterOrphanCleanup, changedSettings, isDecidedNotApplied, markNotApplied, pointerFor, restorePatch, scheduleSnapshot, SCHEDULE_FIELDS, stillAsWrittenFilters, wasNotApplied, type ScheduleSnapshot } from "@/app/lib/builder-settings-restore";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
@@ -2402,6 +2402,18 @@ function ScheduleBuilderPageInner() {
     // Each edited curriculum's scheduling settings as phase 1 found them and
     // as phase 1 wrote them.
     const scheduleBefore = new Map<string, { before: ScheduleSnapshot; written: ScheduleSnapshot; name: string }>();
+    // An existing curriculum's scheduling changes. Phase 1 does not write
+    // them: phase 2 hands them to apply_builder_rebuild, which writes them in
+    // the same transaction as the lessons, so both land or neither does.
+    const pendingSettings = new Map<string, { settings: ScheduleSnapshot; before: ScheduleSnapshot }>();
+    // One request id per curriculum for this save, reused by every retry, so a
+    // lost response can be answered by re-sending rather than re-applying.
+    const requestIds = new Map<string, string>();
+    const requestIdFor = (goalId: string) => {
+      let id = requestIds.get(goalId);
+      if (!id) { id = crypto.randomUUID(); requestIds.set(goalId, id); }
+      return id;
+    };
     try {
       // Each entry pairs a saved curriculum_goals row with the local Row it
       // came from. The lesson-generation pass below needs both the dbId (for
@@ -2510,8 +2522,12 @@ function ScheduleBuilderPageInner() {
               .eq("id", row.dbId)
               .single();
             if (beforeErr || !beforeRow) throw beforeErr ?? new Error(`Could not read goal ${row.dbId} before saving`);
+            const before = scheduleSnapshot(beforeRow as unknown as Record<string, unknown>);
+            const changed = changedSettings(before, scheduleSnapshot(updatePayload as Record<string, unknown>));
+            if (Object.keys(changed).length > 0) pendingSettings.set(row.dbId, { settings: changed, before });
+            for (const f of SCHEDULE_FIELDS) delete (updatePayload as Record<string, unknown>)[f];
             scheduleBefore.set(row.dbId, {
-              before: scheduleSnapshot(beforeRow as unknown as Record<string, unknown>),
+              before,
               written: scheduleSnapshot(updatePayload as Record<string, unknown>),
               name: capitalizeName(row.name.trim()),
             });
@@ -2726,8 +2742,22 @@ function ScheduleBuilderPageInner() {
         // value is the post-recompute current_lesson; for brand-new goals
         // it equals max(start_at_lesson - 1, 0). For UPDATE flows it can be
         // higher if the user has completed lessons past start_at_lesson.
-        const newCurrent = await recomputeCurrentLesson(supabase, goalId);
-        const currentLesson = newCurrent ?? Math.max(0, row.start_at_lesson - 1);
+        // With pending settings the pointer is computed, not written: it moves
+        // inside apply_builder_rebuild with the settings, by the same rule.
+        const pending = pendingSettings.get(goalId) ?? null;
+        let storedPointer: number | null = null;
+        type GoalBefore = { total_lessons: number | null; start_at_lesson: number | null; current_lesson: number };
+        let goalBefore: GoalBefore | null = null;
+        let newCurrent: number | null = null;
+        if (pending) {
+          const { data, error: goalBeforeErr } = await supabase
+            .from("curriculum_goals").select("total_lessons, start_at_lesson, current_lesson").eq("id", goalId).single();
+          if (goalBeforeErr || !data) throw goalBeforeErr ?? new Error(`Phase 2 could not read goal ${goalId}`);
+          goalBefore = data as GoalBefore;
+          storedPointer = goalBefore.current_lesson;
+        } else {
+          newCurrent = await recomputeCurrentLesson(supabase, goalId);
+        }
 
         if (!row.total_lessons || row.total_lessons <= 0) return;
         const { lessons_per_day, lessons_per_day_overrides, school_days } =
@@ -2773,7 +2803,7 @@ function ScheduleBuilderPageInner() {
           .select("id, lesson_number, queue_position, completed, completed_at, notes, minutes_spent, queue_pinned, skipped, scheduled_date, date, title", { count: "exact" })
           .eq("curriculum_goal_id", goalId);
         if (beforeRowsErr) throw beforeRowsErr;
-        const beforeRows = (beforeRowsData ?? []) as {
+        const actualBeforeRows = (beforeRowsData ?? []) as {
           id: string;
           lesson_number: number | null;
           queue_position: number | null;
@@ -2794,6 +2824,20 @@ function ScheduleBuilderPageInner() {
         // the Today reconciler's cross-goal fetch (see
         // reconcileGoalScheduleCache), so it gets checked rather than assumed.
         // The exact count comes back in the same round trip.
+        const found = goalBefore as GoalBefore | null;
+        if (pending && found) {
+          newCurrent = pointerFor({
+            startAtLesson: ("start_at_lesson" in pending.settings ? pending.settings.start_at_lesson : found.start_at_lesson) as number | null,
+            totalLessons: ("total_lessons" in pending.settings ? pending.settings.total_lessons : found.total_lessons) as number | null,
+            maxCompletedSlot: actualBeforeRows.reduce((m, r) => (r.completed && r.queue_position != null ? Math.max(m, r.queue_position) : m), 0),
+          });
+        }
+        const currentLesson = newCurrent ?? Math.max(0, row.start_at_lesson - 1);
+        // A raised pointer runs the orphan cleanup inside the commit; plan
+        // against the rows it will leave. The database checks it saw the same.
+        const beforeRows = pending && storedPointer != null
+          ? afterOrphanCleanup(actualBeforeRows, storedPointer, currentLesson)
+          : actualBeforeRows;
         if (beforeRowsCount != null && beforeRowsCount !== beforeRows.length) {
           throw new Error(
             `Phase 2 read ${beforeRows.length} of ${beforeRowsCount} lesson rows for goal ${goalId}; refusing to plan against a truncated snapshot`,
@@ -2894,6 +2938,75 @@ function ScheduleBuilderPageInner() {
         const dayStart = new Date(todayMid);
         const dayEnd = new Date(todayMid);
         dayEnd.setDate(dayEnd.getDate() + 1);
+        // One commit for this curriculum: its pending settings (if any) and the
+        // lesson plan, in apply_builder_rebuild's single transaction. These
+        // build its arguments and judge its verdict; nothing here writes.
+        const commitArgs = async (plan: Phase2CommitPlan): Promise<Parameters<typeof applyPhase2Commit>[1]> => {
+          let snapshot: Phase2GoalSnapshot;
+          if (pending) {
+            // The settings this save started from, not a fresh read. If this
+            // save's own earlier attempt already committed (a lost response),
+            // the database answers from its commit log; if another tab changed
+            // them, it reports the plan stale. Either way it decides, not us.
+            snapshot = { ...(pending.before as unknown as Phase2GoalSnapshot), current_lesson: storedPointer as number };
+          } else {
+            const { data: goalNow, error: goalNowErr } = await supabase
+              .from("curriculum_goals")
+              .select("total_lessons, current_lesson, start_at_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date")
+              .eq("id", goalId)
+              .single();
+            if (goalNowErr || !goalNow) throw goalNowErr ?? new Error(`Phase 2 could not re-read goal ${goalId}`);
+            snapshot = goalNow as Phase2GoalSnapshot;
+            if (snapshot.current_lesson !== currentLesson || snapshot.total_lessons !== row.total_lessons) {
+              // The plan was made from a different pointer or length: plan again.
+              throw markNotApplied(new Error(`Phase 2 plan for goal ${goalId} is stale (pointer or total moved)`));
+            }
+          }
+          const window = { dayStartIso: dayStart.toISOString(), dayEndIso: dayEnd.toISOString() };
+          const expected = phase2Expected({ goal: snapshot, rows: actualBeforeRows, ...window });
+          return {
+            goalId,
+            localDay: ymd(todayMid),
+            expected: pending
+              ? { ...expected, current_lesson_after: currentLesson, rows_after_settings: phase2Expected({ goal: snapshot, rows: beforeRows, ...window }).rows }
+              : expected,
+            plan: { ...plan, request_id: requestIdFor(goalId) },
+            ...(pending ? { settings: pending.settings as Record<string, unknown> } : {}),
+          };
+        };
+        const assertApplied: (committed: Phase2CommitResult) => asserts committed is Extract<Phase2CommitResult, { status: "applied" }> = (committed) => {
+          if (committed.status === "refused" || committed.status === "invalid") {
+            // Nothing was written. The database disagreed with a plan the page
+            // had already validated, which reproduces on every attempt.
+            throw markNotApplied(new ScheduleAssertionError(
+              `Lesson scheduling was refused before anything was written (${committed.reason}). Nothing about this curriculum changed.`,
+            ));
+          }
+          if (committed.status === "unavailable") {
+            // apply_builder_rebuild (or its settings form) is not on this
+            // database. Nothing was written: the release order puts the
+            // migration first.
+            captureSupabaseError(
+              "Curriculum save phase 2: apply_builder_rebuild is unavailable",
+              new Error(committed.reason),
+              { tags: { phase: "phase2_commit_unavailable", goal_id: goalId } },
+            );
+            throw markNotApplied(new Error(`Phase 2 commit unavailable: ${committed.reason}`));
+          }
+          if (committed.status !== "applied") {
+            // 'stale' or a failed transaction wrote nothing; a transport error
+            // is the one outcome that may still have committed.
+            const notApplied = new Error(`Phase 2 commit ${committed.status}: ${committed.reason}`);
+            throw isDecidedNotApplied(committed) ? markNotApplied(notApplied) : notApplied;
+          }
+        };
+        // A save that changes settings but no lessons still commits them,
+        // through the same transaction, before phase 2 returns early.
+        const commitSettingsOnly = async () => {
+          if (!pending) return;
+          const settingsOnly = await applyPhase2Commit(supabase, await commitArgs({ unpin_ids: [], makeup_ids: [], delete_ids: [], inserts: [], redates: [], retire_above: null, retire_keep_ids: [] }));
+          assertApplied(settingsOnly);
+        };
         const doneToday = countDoneToday(beforeRows, dayStart.toISOString(), dayEnd.toISOString());
         const upcoming = computeNextLessonsForGoal(
           goalConfig,
@@ -2903,7 +3016,7 @@ function ScheduleBuilderPageInner() {
           isNewGoal ? 0 : doneToday,
           holds,
         );
-        if (upcoming.length === 0) return;
+        if (upcoming.length === 0) { await commitSettingsOnly(); return; }
 
         /* ── PLAN ─────────────────────────────────────────────────────────────
          * Nothing between here and the COMMIT block below writes to the
@@ -3176,6 +3289,7 @@ function ScheduleBuilderPageInner() {
               reason: "invariant_21_untouched",
             },
           });
+          await commitSettingsOnly();
           return;
         }
 
@@ -3462,59 +3576,15 @@ function ScheduleBuilderPageInner() {
               unchanged: true,
             },
           });
+          await commitSettingsOnly();
           return;
         }
 
         // The goal as the database holds it now, sent back as the snapshot the
         // transaction compares under lock. Read, not reconstructed from the
         // builder row, so a difference can only mean something really changed.
-        const { data: goalNow, error: goalNowErr } = await supabase
-          .from("curriculum_goals")
-          .select("total_lessons, current_lesson, start_at_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date")
-          .eq("id", goalId)
-          .single();
-        if (goalNowErr || !goalNow) throw goalNowErr ?? new Error(`Phase 2 could not re-read goal ${goalId}`);
-        const snapshot = goalNow as Phase2GoalSnapshot;
-        if (snapshot.current_lesson !== currentLesson || snapshot.total_lessons !== row.total_lessons) {
-          // The plan was made from a different pointer or length: plan again.
-          throw markNotApplied(new Error(`Phase 2 plan for goal ${goalId} is stale (pointer or total moved)`));
-        }
-        const committed = await applyPhase2Commit(supabase, {
-          goalId,
-          localDay: ymd(todayMid),
-          expected: phase2Expected({
-            goal: snapshot,
-            rows: beforeRows,
-            dayStartIso: dayStart.toISOString(),
-            dayEndIso: dayEnd.toISOString(),
-          }),
-          plan: commitPlan,
-        });
-        if (committed.status === "refused" || committed.status === "invalid") {
-          // Nothing was written. The database disagreed with a plan the page
-          // had already validated, which reproduces on every attempt.
-          throw markNotApplied(new ScheduleAssertionError(
-            `Lesson scheduling was refused before anything was written (${committed.reason}). The curriculum saved, but lessons were not generated. Please contact support.`,
-          ));
-        }
-        if (committed.status === "unavailable") {
-          // The transaction is not on this database (the release order puts
-          // the migration first). Nothing was written, and there is no
-          // non-atomic fallback: the family is asked to save again.
-          captureSupabaseError(
-            "Curriculum save phase 2: apply_builder_rebuild is unavailable",
-            new Error(committed.reason),
-            { tags: { phase: "phase2_commit_unavailable", goal_id: goalId } },
-          );
-          throw markNotApplied(new Error(`Phase 2 commit unavailable: ${committed.reason}`));
-        }
-        if (committed.status !== "applied") {
-          // 'stale' (a row changed since it was read) or a failed transaction:
-          // nothing was written, and the retry re-reads and plans again.
-          // A transport error is the one outcome that may still have committed.
-          const notApplied = new Error(`Phase 2 commit ${committed.status}: ${committed.reason}`);
-          throw isDecidedNotApplied(committed) ? markNotApplied(notApplied) : notApplied;
-        }
+        const committed = await applyPhase2Commit(supabase, await commitArgs(commitPlan));
+        assertApplied(committed);
 
         // ── Count what the DATABASE wrote, not what we planned to write ─────
         // Goal 69e9b6b8 is logged as "inserted: 52, skipped: 0" and holds 51
@@ -3524,16 +3594,21 @@ function ScheduleBuilderPageInner() {
         const plannedInsertCount = commitPlan.inserts.length;
         const confirmedInsertCount = committed.inserted;
         if (confirmedInsertCount !== plannedInsertCount) {
-          console.error("[handleSave] insert landed short", {
-            goalId,
-            planned: plannedInsertCount,
-            confirmed: confirmedInsertCount,
-          });
-          captureSupabaseError(
-            "Curriculum save phase 2 inserted fewer rows than planned",
-            new Error(`Goal ${goalId}: ${confirmedInsertCount} of ${plannedInsertCount} planned rows`),
-            { tags: { phase: "phase2_insert_short", goal_id: goalId } },
-          );
+          // A replay reports the first attempt's counts, made from that
+          // attempt's plan, so a difference from this attempt's is expected.
+          if (!committed.replayed) {
+            console.error("[handleSave] insert landed short", {
+              goalId,
+              planned: plannedInsertCount,
+              confirmed: confirmedInsertCount,
+            });
+            captureSupabaseError(
+              "Curriculum save phase 2 inserted fewer rows than planned",
+              new Error(`Goal ${goalId}: ${confirmedInsertCount} of ${plannedInsertCount} planned rows`),
+              { tags: { phase: "phase2_insert_short", goal_id: goalId } },
+            );
+
+          }
         }
         const rebuiltUpdated = committed.redated;
 
@@ -3802,6 +3877,8 @@ function ScheduleBuilderPageInner() {
         // provably wrote no lessons, put back the scheduling settings phase 1
         // changed, but only while the row still holds what phase 1 wrote.
         for (const f of phase2Failures) {
+          // Settings that travel with the lessons were never written.
+          if (pendingSettings.has(f.goalId) && wasNotApplied(f.err)) restoredGoalIds.add(f.goalId);
           const snap = scheduleBefore.get(f.goalId);
           if (!snap || !wasNotApplied(f.err)) continue;
           const patch = restorePatch(snap.before, snap.written);
@@ -3961,14 +4038,18 @@ function ScheduleBuilderPageInner() {
           ? scheduleBefore.get(failedPhase2GoalId)?.name ?? "this curriculum"
           : null;
         if (restoredName) setPostSaveNotice(
-          `The new schedule for ${restoredName} didn't fit, so nothing about its days, pace or length changed. Its lessons are exactly as they were. Adjust the schedule and save again.`,
+          err instanceof ScheduleAssertionError
+            ? `The new schedule for ${restoredName} didn't fit, so nothing about its days, pace or length changed. Its lessons are exactly as they were. Adjust the schedule and save again.`
+            : `The new schedule for ${restoredName} couldn't be saved just now, so nothing about its days, pace or length changed. Its lessons are exactly as they were. Save again to finish.`,
         );
         else setPostSaveNotice(
           err instanceof ScheduleRefusedError
             ? `${err.message} Your other settings were saved. The lessons for this curriculum were not created.`
             : deterministic
               ? "Your curriculum settings were saved, but the lessons hit a conflict and did not generate. We've been notified. Email hello@rootedhomeschoolapp.com and we'll fix it for you."
-              : "Your curriculum settings were saved, but the lessons themselves did not generate. Tap Save again to finish. Nothing you entered was lost.",
+              : failedPhase2GoalId && pendingSettings.has(failedPhase2GoalId)
+                ? "We couldn't confirm whether your schedule change saved. Tap Save again: if it already saved, nothing is applied twice. Nothing you entered was lost."
+                : "Your curriculum settings were saved, but the lessons themselves did not generate. Tap Save again to finish. Nothing you entered was lost.",
         );
         // A refusal is the one deterministic failure with something to do
         // about it, so it keeps the draft and the leave-guard: the family
