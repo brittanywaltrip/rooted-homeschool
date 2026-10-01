@@ -2352,7 +2352,13 @@ export default function SettingsPage() {
                           const w = window.open('', '_blank');
                           if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
                           try {
-                            const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                            const { data: { session } } = await supabase.auth.getSession();
+                            if (!session) throw new Error('Sign in to download your card.');
+                            const res = await fetch(`/api/affiliate/cards?code=${encodeURIComponent(previewAffiliate.code)}`, {
+                              headers: { Authorization: `Bearer ${session.access_token}` },
+                              cache: 'no-store',
+                            });
+                            if (!res.ok) throw new Error('Could not load the card.');
                             const { cardHtml } = await res.json();
                             if (w && !w.closed) {
                               w.document.open();
@@ -2372,7 +2378,13 @@ export default function SettingsPage() {
                           const w = window.open('', '_blank');
                           if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
                           try {
-                            const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(previewAffiliate.name)}&code=${encodeURIComponent(previewAffiliate.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`);
+                            const { data: { session } } = await supabase.auth.getSession();
+                            if (!session) throw new Error('Sign in to download your card.');
+                            const res = await fetch(`/api/affiliate/cards?code=${encodeURIComponent(previewAffiliate.code)}`, {
+                              headers: { Authorization: `Bearer ${session.access_token}` },
+                              cache: 'no-store',
+                            });
+                            if (!res.ok) throw new Error('Could not load the card.');
                             const { shareHtml } = await res.json();
                             if (w && !w.closed) {
                               w.document.open();
@@ -2764,7 +2776,13 @@ export default function SettingsPage() {
                     const w = window.open('', '_blank');
                     if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
                     try {
-                      const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
+                      const { data: { session } } = await supabase.auth.getSession();
+                      if (!session) throw new Error('Sign in to download your card.');
+                      const res = await fetch(`/api/affiliate/cards?code=${encodeURIComponent(affiliateData.code)}`, {
+                        headers: { Authorization: `Bearer ${session.access_token}` },
+                        cache: 'no-store',
+                      });
+                      if (!res.ok) throw new Error('Could not load the card.');
                       const { cardHtml } = await res.json();
                       if (w && !w.closed) {
                         w.document.open();
@@ -2784,7 +2802,13 @@ export default function SettingsPage() {
                     const w = window.open('', '_blank');
                     if (w) w.document.write('<!DOCTYPE html><html><body style="font-family:system-ui;padding:24px;color:#7a6f65;text-align:center">Loading your card…</body></html>');
                     try {
-                      const res = await fetch(`/api/affiliate/cards?name=${encodeURIComponent(affiliateData.name)}&code=${encodeURIComponent(affiliateData.code)}&url=${encodeURIComponent(`rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`);
+                      const { data: { session } } = await supabase.auth.getSession();
+                      if (!session) throw new Error('Sign in to download your card.');
+                      const res = await fetch(`/api/affiliate/cards?code=${encodeURIComponent(affiliateData.code)}`, {
+                        headers: { Authorization: `Bearer ${session.access_token}` },
+                        cache: 'no-store',
+                      });
+                      if (!res.ok) throw new Error('Could not load the card.');
                       const { shareHtml } = await res.json();
                       if (w && !w.closed) {
                         w.document.open();
