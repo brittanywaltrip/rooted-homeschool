@@ -212,7 +212,7 @@ export default function AdminPage() {
   const [reengageSent, setReengageSent] = useState(false);
 
   // Affiliate payouts
-  const [affiliatePayouts, setAffiliatePayouts] = useState<{ name: string; code: string; redemptions_this_month: number; gross_this_month_cents: number; commission_cents: number; paypal_email: string | null; payment_method: string | null; lifetime_paid: number; last_paid_month: string | null; month_label: string }[]>([]);
+  const [affiliatePayouts, setAffiliatePayouts] = useState<{ name: string; code: string; is_active: boolean; legacy_estimate_count: number; conversions_lifetime: number; lifetime_earned_cents: number; pending_cents: number; commission_cents: number; paypal_email: string | null; payment_method: string | null; lifetime_paid: number; last_paid_month: string | null; month_label: string }[]>([]);
   const [payoutsLoading, setPayoutsLoading] = useState(false);
   const [payoutsError, setPayoutsError] = useState(false);
 
@@ -833,11 +833,11 @@ export default function AdminPage() {
           {payoutsLoading ? (
             <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-6 flex items-center gap-3">
               <div className="w-5 h-5 border-2 border-[#5c7f63] border-t-transparent rounded-full animate-spin" />
-              <span className="text-sm text-[#7a6f65]">Loading Stripe data…</span>
+              <span className="text-sm text-[#7a6f65]">Loading commission ledger…</span>
             </div>
           ) : payoutsError ? (
             <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-              <p className="text-sm text-red-500 mb-2">Could not load Stripe data</p>
+              <p className="text-sm text-red-500 mb-2">Could not load commission ledger</p>
               <button
                 onClick={async () => {
                   setPayoutsLoading(true);
@@ -865,57 +865,48 @@ export default function AdminPage() {
             </div>
           ) : affiliatePayouts.length === 0 ? (
             <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
-              <p className="text-sm text-[#7a6f65]">No active affiliates found.</p>
+              <p className="text-sm text-[#7a6f65]">No active partners or outstanding partner balances found.</p>
             </div>
           ) : (
             <div className="space-y-3">
               {affiliatePayouts.map((aff) => {
-                const gross = (aff.gross_this_month_cents / 100).toFixed(2);
+                const earned = (aff.lifetime_earned_cents / 100).toFixed(2);
                 const commission = (aff.commission_cents / 100).toFixed(2);
-                const nextMonth = new Date();
-                nextMonth.setMonth(nextMonth.getMonth() + 1);
-                const payoutDue = nextMonth.toLocaleDateString("en-US", { month: "long" }) + " 1";
                 return (
                   <div key={aff.code} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl px-5 py-4">
                     {/* Row 1: Name + code */}
                     <div className="flex items-center gap-2 mb-3">
                       <span className="text-sm font-medium text-[#2d2926]">{aff.name}</span>
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#e8e2d9] text-[#7a6f65]">{aff.code}</span>
+                      {!aff.is_active && <span className="text-[11px] text-amber-700">Inactive · balance outstanding</span>}
                     </div>
 
                     {/* Stats row */}
                     <div className="grid grid-cols-3 gap-3 mb-3">
                       <div className="bg-[#faf8f4] border border-[#e8e2d9] rounded-xl px-3 py-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Sales</p>
-                        <p className="text-lg font-bold text-[#2d2926] leading-none">{aff.redemptions_this_month}</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Conversions</p>
+                        <p className="text-lg font-bold text-[#2d2926] leading-none">{aff.conversions_lifetime}</p>
                       </div>
                       <div className="bg-[#faf8f4] border border-[#e8e2d9] rounded-xl px-3 py-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Gross</p>
-                        <p className="text-lg font-bold text-[#2d2926] leading-none">${gross}</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Earned total</p>
+                        <p className="text-lg font-bold text-[#2d2926] leading-none">${earned}</p>
                       </div>
                       <div className="bg-[#faf8f4] border border-[#e8e2d9] rounded-xl px-3 py-2">
-                        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Commission</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-widest text-[#b5aca4] mb-0.5">Payable now</p>
                         <p className="text-lg font-bold text-[#5c7f63] leading-none">${commission}</p>
                       </div>
                     </div>
 
-                    {/* Payout row, channel-aware */}
-                    {aff.paypal_email && (
-                      <div className="flex items-center gap-2 mb-2 text-sm text-[#7a6f65]">
-                        <span>Pay via {aff.payment_method || 'PayPal'} → {aff.paypal_email}</span>
-                        <span className="text-[#2d2926] font-medium">Send ${commission}</span>
-                        <button
-                          onClick={() => navigator.clipboard.writeText(commission)}
-                          className="text-[11px] px-2 py-0.5 rounded-lg bg-[#e8e2d9] hover:bg-[#d4cec5] text-[#7a6f65] transition-colors"
-                        >
-                          Copy
-                        </button>
+                    {aff.commission_cents > 0 && (
+                      <div className="mb-2 text-sm text-[#7a6f65]">
+                        <p>Payment method: {aff.payment_method || 'Confirm in partner roster'}</p>
+                        <Link href="/admin/partners" className="text-[#5c7f63] underline">Review payment details and record payment</Link>
                       </div>
                     )}
 
                     {/* Month label */}
                     <p className="text-xs text-[#b5aca4]">
-                      {aff.month_label} · Payout due {payoutDue}
+                      {aff.month_label} · Current-month pending: ${(aff.pending_cents / 100).toFixed(2)}
                     </p>
 
                     {/* Historical payout summary — read from commission_payments
@@ -938,9 +929,12 @@ export default function AdminPage() {
                       )}
                     </p>
 
-                    {/* Zero sales note */}
-                    {aff.redemptions_this_month === 0 && (
-                      <p className="text-xs text-[#b5aca4] mt-1">No sales this month</p>
+                    {aff.legacy_estimate_count > 0 && (
+                      <p role="alert" className="text-xs text-amber-800 mt-1">Includes {aff.legacy_estimate_count} legacy commission estimates. Verify before paying.</p>
+                    )}
+                    {/* Lifetime conversion note */}
+                    {aff.conversions_lifetime === 0 && (
+                      <p className="text-xs text-[#b5aca4] mt-1">No recorded conversions</p>
                     )}
                   </div>
                 );
