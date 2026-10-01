@@ -7,6 +7,8 @@ import { Pencil, Trash2, Check, X, Plus, GripVertical, Camera, Sprout } from "lu
 import { supabase } from "@/lib/supabase";
 import { signedPhotoUrl } from "@/lib/photo-url";
 import SignedImage from "@/components/SignedImage";
+import PartnerSharingGuide from "@/components/PartnerSharingGuide";
+import PartnerQrShareCard from "@/components/PartnerQrShareCard";
 import { useProfile } from "@/lib/profile-context";
 import { canShareFamily, getUserAccess, getTrialDaysLeft } from "@/lib/user-access";
 import { useIsNativeApp } from "@/lib/platform";
@@ -2306,21 +2308,7 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   {/* QR Code */}
-                  <div>
-                    <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your QR Code</p>
-                    <div className="flex justify-center">
-                      <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
-                        <img
-                          src={`/api/affiliate/qr?size=200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${previewAffiliate.code}`)}`}
-                          alt="Referral QR code"
-                          width={160}
-                          height={160}
-                          className="rounded-lg"
-                        />
-                      </div>
-                    </div>
-                    <p className="text-[10px] text-[#6366f1] text-center mt-2">Screenshot to share anywhere</p>
-                  </div>
+                  <PartnerQrShareCard code={previewAffiliate.code} />
                   {/* Earnings */}
                   <div>
                     <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your Earnings</p>
@@ -2351,6 +2339,7 @@ export default function SettingsPage() {
                       );
                     })()}
                   </div>
+                  <PartnerSharingGuide />
                   {/* Download cards */}
                   <div>
                     <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Download Your Cards</p>
@@ -2760,22 +2749,9 @@ export default function SettingsPage() {
             })()}
 
             {/* QR Code */}
-            <div>
-              <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Your QR Code</p>
-              <div className="flex justify-center">
-                <div className="bg-white border border-[#c7d2fe] rounded-2xl p-3">
-                  <img
-                    src={`/api/affiliate/qr?size=200&data=${encodeURIComponent(`https://rootedhomeschoolapp.com/?ref=${affiliateData.code}`)}`}
-                    alt="Referral QR code"
-                    width={160}
-                    height={160}
-                    className="rounded-lg"
-                  />
-                </div>
-              </div>
-              <p className="text-[10px] text-[#6366f1] text-center mt-2">Screenshot to share anywhere</p>
-            </div>
+            <PartnerQrShareCard code={affiliateData.code} />
 
+            <PartnerSharingGuide />
             {/* Download cards */}
             <div>
               <p className="text-xs font-semibold text-[#6366f1] uppercase tracking-widest mb-2">Download Your Cards</p>
