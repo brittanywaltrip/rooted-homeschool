@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { signedPhotoUrlsAdmin } from "@/lib/photo-url";
+import { signedPhotoUrlsAdmin } from "@/lib/photo-url-admin";
 
 /* ─── Shared types ──────────────────────────────────────────────────────────
    One feed shape used by the real family portal (token route), the session

@@ -7,7 +7,6 @@
 // return null on any failure so callers can fall back gracefully.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 function stripQuery(s: string): string {
   const i = s.indexOf("?");
@@ -86,22 +85,6 @@ export async function signedPhotoUrls(
     console.warn(`[photo-url] batch sign threw for ${bucket}: ${(err as Error).message}`);
     return paths.map(() => null);
   }
-}
-
-export async function signedPhotoUrlAdmin(
-  bucket: string,
-  urlOrPath: string,
-  expiresInSeconds = 3600
-): Promise<string | null> {
-  return signedPhotoUrl(getSupabaseAdmin(), bucket, urlOrPath, expiresInSeconds);
-}
-
-export async function signedPhotoUrlsAdmin(
-  bucket: string,
-  urlsOrPaths: string[],
-  expiresInSeconds = 3600
-): Promise<(string | null)[]> {
-  return signedPhotoUrls(getSupabaseAdmin(), bucket, urlsOrPaths, expiresInSeconds);
 }
 
 /**
