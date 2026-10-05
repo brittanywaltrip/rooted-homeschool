@@ -16,9 +16,12 @@
  *   - "saved" means the newest committed version was confirmed by the writer.
  *     A writer confirms by resolving; it reports failure by throwing.
  *   - A failed write is not retried by itself. The key stays "error" until the
- *     field is edited again, `retry(key)` runs, or `flush()` runs.
- *   - `flush()` writes everything that is waiting or failed, now, and reports
- *     which keys still failed. Navigation and "Save all changes" use it.
+ *     field is edited again, `retry(key)` runs, or something the mother tapped
+ *     calls `flush({ retryFailed: true })`.
+ *   - `flush()` writes everything waiting, now, and keeps going until nothing
+ *     is waiting or writing, so an edit typed while it awaits an older write is
+ *     part of the answer. Passive callers (leaving the page, backgrounding the
+ *     app) use the default, which never retries a failed field behind her back.
  *
  * The queue never holds the only copy of the text: the page's own state does.
  * The queue only decides what to write and what to say about it.
@@ -60,6 +63,11 @@ export type SaveQueueOptions = {
 
 export type FlushResult = { ok: boolean; failed: string[] };
 
+export type FlushOptions = {
+  /** Re-attempt fields that already failed, once. Only for an explicit tap. */
+  retryFailed?: boolean;
+};
+
 export type SaveQueue = {
   /** Debounced save: the edit is written `delayMs` after the last change. */
   schedule<T>(key: string, value: T, write: SaveWriter<T>, delayMs: number): void;
@@ -67,8 +75,12 @@ export type SaveQueue = {
   saveNow<T>(key: string, value: T, write: SaveWriter<T>): Promise<boolean>;
   /** Write the key's newest value again. Resolves true when confirmed. */
   retry(key: string): Promise<boolean>;
-  /** Write every waiting or failed key now and wait for every write. */
-  flush(): Promise<FlushResult>;
+  /**
+   * Write every waiting edit now and wait until nothing is waiting or writing,
+   * including edits made while it waits. ok only when every current edit is
+   * confirmed. Failed fields are retried only with `retryFailed`.
+   */
+  flush(options?: FlushOptions): Promise<FlushResult>;
   status(key: string): SaveState;
   error(key: string): unknown;
   failedKeys(): string[];
@@ -236,15 +248,26 @@ export function createSaveQueue(options: SaveQueueOptions = {}): SaveQueue {
       return confirmed(e, v);
     },
 
-    async flush() {
-      const waits: Promise<boolean>[] = [];
-      for (const e of entries.values()) {
-        commitPending(e);
-        if (e.failedVersion === e.version) e.failedVersion = 0;
-        if (e.savedVersion < e.version || e.inFlight) waits.push(confirmed(e, e.version));
+    async flush(flushOptions: FlushOptions = {}) {
+      let retryFailed = flushOptions.retryFailed ?? false;
+      // Pass after pass until one finds nothing to do. Awaiting a write yields
+      // to the page, and anything she types meanwhile belongs to this flush:
+      // returning ok with that edit still waiting is how navigation and Save
+      // all used to report success over unsaved words.
+      for (;;) {
+        const waits: Promise<void>[] = [];
+        for (const e of entries.values()) {
+          commitPending(e);
+          if (retryFailed && e.failedVersion === e.version) e.failedVersion = 0;
+          if (e.inFlight) waits.push(e.inFlight);
+          else if (e.savedVersion < e.version && e.failedVersion !== e.version) waits.push(drain(e));
+        }
+        // Once per flush. A field that fails again stays failed.
+        retryFailed = false;
+        notify();
+        if (waits.length === 0) break;
+        await Promise.all(waits);
       }
-      notify();
-      await Promise.all(waits);
       const failed = failedKeys();
       return { ok: failed.length === 0, failed };
     },

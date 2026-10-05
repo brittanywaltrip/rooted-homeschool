@@ -12,7 +12,10 @@
  * monthly_reflections, memories, profiles) is answered in the browser by
  * page.route and never reaches Supabase, so there is no fixture to seed and
  * nothing to clean up, and it cannot touch another session's data on the
- * shared e2e account. Reads are real.
+ * shared e2e account. Reads are real, with one change: the profile read is
+ * answered with yearbook_closed_at = null, so the editor is always editable
+ * and no check can skip because the account's yearbook happens to be closed.
+ * Device drafts live in each test's own browser context and die with it.
  */
 import { test, expect, type Page, type Route, type Request } from '@playwright/test'
 
@@ -47,6 +50,9 @@ async function interceptWrites(page: Page, mode: (w: Write) => Mode = () => 'ok'
 
   await page.route(/\/rest\/v1\/(yearbook_content|monthly_reflections|memories|profiles)(\?|$)/, async (route) => {
     const req = route.request()
+    if (req.method() === 'GET' && /\/rest\/v1\/profiles\?/.test(req.url()) && req.url().includes('yearbook_closed_at')) {
+      return keepYearbookOpen(route)
+    }
     if (req.method() === 'GET' || req.method() === 'HEAD') return route.continue()
     const table = new URL(req.url()).pathname.split('/').pop() ?? ''
     let body: Record<string, unknown> = {}
@@ -74,12 +80,28 @@ async function interceptWrites(page: Page, mode: (w: Write) => Mode = () => 'ok'
   }
 }
 
+/** The real profile row, with the yearbook reported open. Read only. */
+async function keepYearbookOpen(route: Route) {
+  const res = await route.fetch()
+  const json = await res.json()
+  const open = (row: Record<string, unknown>) => ({ ...row, yearbook_closed_at: null })
+  await route.fulfill({ response: res, json: Array.isArray(json) ? json.map(open) : open(json) })
+}
+
 async function openEditor(page: Page) {
+  // A reload or Back with unsaved words raises beforeunload. Accept it, as a
+  // mother choosing to leave would.
+  page.on('dialog', (d) => { void d.accept().catch(() => {}) })
   await page.goto(EDIT)
   const letter = page.locator(LETTER)
   await expect(letter).toBeVisible({ timeout: 30_000 })
-  test.skip(await letter.isDisabled(), 'the e2e account yearbook is closed (read only)')
+  await expect(letter, 'the editor must be editable; every check below runs, none skips').toBeEnabled()
   return letter
+}
+
+/** Device drafts for this browser context. */
+async function draftKeys(page: Page): Promise<string[]> {
+  return page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('rooted.yearbook-draft.v1|')))
 }
 
 test.describe('Yearbook editor saving', () => {
@@ -194,5 +216,96 @@ test.describe('Yearbook editor saving', () => {
     await month.fill(text)
     await expect(month.locator('xpath=..').getByRole('alert')).toContainText("Didn't save", { timeout: 10_000 })
     await expect(month).toHaveValue(text)
+  })
+
+  // Regression, review of PR #150: flush used to answer ok while an edit typed
+  // during a held save was still waiting, so the link navigated over it.
+  test('typing again while leaving holds the navigation until the newer text is confirmed', async ({ page }) => {
+    const net = await interceptWrites(page, (w) =>
+      w.table === 'yearbook_content' && w.body.content_type === 'letter_from_home' ? 'hold' : 'ok')
+    const letter = await openEditor(page)
+
+    await letter.fill('Dear')
+    await expect.poll(() => net.contentWrites('letter_from_home').length, { timeout: 10_000 }).toBe(1)
+    await page.getByRole('link', { name: /Back to yearbook/ }).click()
+
+    // Still on the page while "Dear" is held. She keeps typing.
+    await letter.fill('Dear future us')
+    await net.release(net.held[0])
+    await expect.poll(() => net.contentWrites('letter_from_home').length, { timeout: 10_000 }).toBe(2)
+    await page.waitForTimeout(1_000)
+    await expect(page, 'navigation waits for the newer text').toHaveURL(/\/yearbook\/edit/)
+    expect(net.contentWrites('letter_from_home')[1].body.content).toBe('Dear future us')
+
+    await net.release(net.held[0])
+    await expect(page).not.toHaveURL(/\/yearbook\/edit/, { timeout: 15_000 })
+  })
+
+  test('a reload before the save lands offers the words back, and restoring saves them', async ({ page }) => {
+    let hold = true
+    const net = await interceptWrites(page, (w) =>
+      w.table === 'yearbook_content' && w.body.content_type === 'letter_from_home' && hold ? 'hold' : 'ok')
+    const letter = await openEditor(page)
+    const serverLetter = await letter.inputValue()
+
+    const text = `Typed before a reload ${Date.now()}`
+    await letter.fill(text)
+    expect((await draftKeys(page)).length, 'the draft is written on the keystroke').toBe(1)
+    // The write is out and held, so leaving has nothing new to send: the only
+    // copy of the words that survives the reload is the device draft.
+    await expect.poll(() => net.contentWrites('letter_from_home').length, { timeout: 10_000 }).toBe(1)
+
+    hold = false
+    await page.reload()
+    await expect(page.locator(LETTER)).toBeVisible({ timeout: 30_000 })
+    const banner = page.getByRole('alert').filter({ hasText: "didn't reach your yearbook" })
+    await expect(banner).toContainText('1 change')
+    await expect(page.locator(LETTER), 'server content is not overwritten before she chooses').toHaveValue(serverLetter)
+
+    await banner.getByRole('button', { name: 'Restore my words' }).click()
+    await expect(page.locator(LETTER)).toHaveValue(text)
+    await expect(page.locator(LETTER).locator('xpath=..').getByText('✓ Saved')).toBeVisible({ timeout: 10_000 })
+    const writes = net.contentWrites('letter_from_home')
+    expect(writes[writes.length - 1].body.content).toBe(text)
+    await expect.poll(() => draftKeys(page), { timeout: 5_000 }).toEqual([])
+  })
+
+  test('browser Back after a failed save keeps a draft, offered on return; Discard leaves the server copy', async ({ page }) => {
+    await interceptWrites(page, (w) =>
+      w.table === 'yearbook_content' && w.body.content_type === 'letter_from_home' ? 'fail' : 'ok')
+    await page.goto('/dashboard/memories/yearbook/read')
+    const letter = await openEditor(page)
+    const serverLetter = await letter.inputValue()
+
+    const text = `Lost to the Back button ${Date.now()}`
+    await letter.fill(text)
+    await expect(letter.locator('xpath=..').getByRole('alert')).toContainText("Didn't save", { timeout: 10_000 })
+
+    await page.goBack()
+    await expect(page).not.toHaveURL(/\/yearbook\/edit/, { timeout: 15_000 })
+
+    await page.goto(EDIT)
+    const banner = page.getByRole('alert').filter({ hasText: "didn't reach your yearbook" })
+    await expect(banner).toBeVisible({ timeout: 30_000 })
+    await expect(page.locator(LETTER)).toHaveValue(serverLetter)
+
+    await banner.getByRole('button', { name: 'Discard' }).click()
+    await expect(banner).toHaveCount(0)
+    await expect(page.locator(LETTER)).toHaveValue(serverLetter)
+    expect(await draftKeys(page)).toEqual([])
+  })
+
+  test('when the browser refuses storage the page says so, and saving still works', async ({ page }) => {
+    await page.addInitScript(() => {
+      Storage.prototype.setItem = function () { throw new DOMException('blocked', 'SecurityError') }
+    })
+    const net = await interceptWrites(page)
+    const letter = await openEditor(page)
+
+    await expect(page.getByText("isn't keeping a backup copy")).toBeVisible()
+    const text = `No storage here ${Date.now()}`
+    await letter.fill(text)
+    await expect(letter.locator('xpath=..').getByText('✓ Saved')).toBeVisible({ timeout: 10_000 })
+    expect(net.contentWrites('letter_from_home')[0].body.content).toBe(text)
   })
 })

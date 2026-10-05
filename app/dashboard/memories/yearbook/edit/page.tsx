@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, useSyncExternalStore, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useState, useCallback, useRef, useSyncExternalStore, type ReactNode, type Dispatch, type SetStateAction, type PointerEvent as ReactPointerEvent } from "react";
 import { supabase } from "@/lib/supabase";
 import { currentKeyLast, getCurrentSchoolYear, resolveYearbookKey, yearbookContentYearFilter } from "@/app/lib/school-year";
 import { usePartner } from "@/lib/partner-context";
@@ -14,6 +14,7 @@ import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
 import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES } from "@/lib/yearbook-prompts";
 import { yearbookMonths, questionForMonth, monthLabel } from "@/lib/monthly-questions";
 import { createSaveQueue, type SaveQueue, type SaveState } from "@/lib/save-queue";
+import { openDraftStore, triageDrafts, type Draft, type DraftStore } from "@/lib/yearbook-drafts";
 import {
   DndContext,
   PointerSensor,
@@ -533,28 +534,116 @@ export default function YearbookEditPage() {
   const saveQueue = saveQueueRef.current;
   useSyncExternalStore(saveQueue.subscribe, saveQueue.getSnapshot, saveQueue.getSnapshot);
 
+  // ── Device drafts ───────────────────────────────────────────────────────────
+  // Each typed field is copied to this device on every keystroke and cleared
+  // once its write is confirmed (lib/yearbook-drafts.ts), so the browser Back
+  // button, a reload or "Leave without saving" cannot lose her words. Opened
+  // in the load effect, once the signed-in user and the yearbook key are known.
+  const draftsRef = useRef<DraftStore | null>(null);
+  const [draftsAvailable, setDraftsAvailable] = useState(true);
+  // Drafts from an earlier visit that differ from the server, offered back.
+  const [recoverable, setRecoverable] = useState<Draft[]>([]);
+
+  const noteDraft = useCallback((field: string, value: string) => {
+    const store = draftsRef.current;
+    if (!store) return;
+    if (!store.write(field, value)) setDraftsAvailable(false);
+    // Typing into a field supersedes the old draft offered for it.
+    setRecoverable((prev) => (prev.some((d) => d.field === field) ? prev.filter((d) => d.field !== field) : prev));
+  }, []);
+
+  // Only the confirmed text is cleared; a newer edit's draft stays.
+  const confirmDraft = useCallback((field: string, value: string) => {
+    draftsRef.current?.clearIfConfirmed(field, value);
+  }, []);
+
   /** Debounced save of a yearbook_content field. */
   const autosaveContent = useCallback((contentType: string, value: string, childId?: string, questionKey?: string) => {
     if (isReadOnly) return;
-    saveQueue.schedule(ck(contentType, childId, questionKey), value,
-      (v: string) => saveContent(contentType, v, childId, questionKey), AUTOSAVE_DELAY_MS);
-  }, [isReadOnly, saveQueue, saveContent]);
+    const key = ck(contentType, childId, questionKey);
+    noteDraft(key, value);
+    saveQueue.schedule(key, value, async (v: string) => {
+      await saveContent(contentType, v, childId, questionKey);
+      confirmDraft(key, v);
+    }, AUTOSAVE_DELAY_MS);
+  }, [isReadOnly, saveQueue, saveContent, noteDraft, confirmDraft]);
 
   /** Immediate save of a yearbook_content field. Resolves true once confirmed. */
   const saveContentNow = useCallback((contentType: string, value: string, childId?: string, questionKey?: string) => {
     if (isReadOnly) return Promise.resolve(true);
-    return saveQueue.saveNow(ck(contentType, childId, questionKey), value,
-      (v: string) => saveContent(contentType, v, childId, questionKey));
-  }, [isReadOnly, saveQueue, saveContent]);
+    const key = ck(contentType, childId, questionKey);
+    return saveQueue.saveNow(key, value, async (v: string) => {
+      await saveContent(contentType, v, childId, questionKey);
+      confirmDraft(key, v);
+    });
+  }, [isReadOnly, saveQueue, saveContent, confirmDraft]);
 
   function statusLine(key: string) {
     return <SaveStatus status={saveQueue.status(key)} onRetry={() => { void saveQueue.retry(key); }} />;
+  }
+
+  /** Put one device draft back in its field and save it like a fresh edit. */
+  function restoreDraft(d: Draft) {
+    const v = d.value;
+    if (d.field.startsWith("month:")) {
+      const month = d.field.slice("month:".length);
+      setMonthlyAnswers((prev) => ({ ...prev, [month]: v }));
+      saveMonthly(month, v);
+      return;
+    }
+    if (d.field.startsWith("art:")) {
+      const memoryId = d.field.slice("art:".length);
+      setDrawingCaptions((prev) => ({ ...prev, [memoryId]: v }));
+      saveDrawingCaption(memoryId, v);
+      return;
+    }
+    const [contentType, rawChild, rawKey] = d.field.split(":");
+    const childId = rawChild && rawChild !== "null" ? rawChild : undefined;
+    const questionKey = rawKey && rawKey !== "null" ? rawKey : undefined;
+    const setNested = (set: Dispatch<SetStateAction<Record<string, Record<string, string>>>>) => {
+      if (childId && questionKey) set((prev) => ({ ...prev, [childId]: { ...prev[childId], [questionKey]: v } }));
+    };
+    switch (contentType) {
+      case "letter_from_home": setLetter(v); break;
+      case "tiny_moments": setTinyMomentsText(v); break;
+      case "letter_favorite_caption": setFavCaption(v); break;
+      case "letter_favorite_location": setFavLocation(v); break;
+      case "letter_favorite_what": setFavWhat(v); break;
+      case "letter_favorite_why": setFavWhy(v); break;
+      case "family_name": setFamilyName(v); break;
+      case "school_year": setSchoolYear(v); break;
+      case "cover_subtitle": setCoverSubtitle(v); break;
+      case "letter_favorite_quote": setFavQuote(v); setQuoteMode(v.startsWith("text:") ? "type" : "pick"); break;
+      case "child_interview": setNested(setChildAnswers); break;
+      case "child_favorite": setNested(setFavoriteAnswers); break;
+      case "child_snapshot": setNested(setSnapshotAnswers); break;
+      case "child_never_forget": setNested(setNeverForgetAnswers); break;
+      case "child_open_when": setNested(setOpenWhenAnswers); break;
+      case "child_future_note": if (childId) setChildNotes((prev) => ({ ...prev, [childId]: v })); break;
+      case "adventure_categories": if (questionKey) setAdventureAnswers((prev) => ({ ...prev, [questionKey]: v })); break;
+      // Not a field this page writes: leave the draft where it is.
+      default: return;
+    }
+    autosaveContent(contentType, v, childId, questionKey);
+  }
+
+  function restoreAllDrafts() {
+    for (const d of recoverable) restoreDraft(d);
+    setRecoverable([]);
+  }
+
+  function discardAllDrafts() {
+    for (const d of recoverable) draftsRef.current?.discard(d.field);
+    setRecoverable([]);
   }
 
   // ── Leaving the page ────────────────────────────────────────────────────────
   // Typed text waits up to AUTOSAVE_DELAY_MS before it is written, so leaving
   // the page used to drop it. Each way out now writes what is waiting first.
   useEffect(() => {
+    // None of these passive exits retries a field that already failed: that
+    // stays failed, on screen and in its device draft, until she taps Try
+    // again (flush() without retryFailed). They only write what is waiting.
     // Closing the tab or reloading: start the writes and ask the browser to
     // confirm, since it will not wait for them.
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -610,8 +699,9 @@ export default function YearbookEditPage() {
     if (failedCount === 0 && saveAllStatus === "error") setSaveAllStatus("idle");
   }, [failedCount, saveAllStatus]);
 
+  // A tap on Try again is the one place failed fields are attempted again.
   const retryAll = useCallback(async () => {
-    const r = await saveQueue.flush();
+    const r = await saveQueue.flush({ retryFailed: true });
     if (r.ok && leaveBlocked) {
       const dest = leaveBlocked;
       setLeaveBlocked(null);
@@ -730,26 +820,32 @@ export default function YearbookEditPage() {
   // own queue key; the write is confirmed the same way as yearbook_content.
   const saveMonthly = useCallback((month: string, v: string) => {
     if (isReadOnly || !effectiveUserId) return;
-    saveQueue.schedule(`month:${month}`, v, async (val: string) => {
+    const key = `month:${month}`;
+    noteDraft(key, v);
+    saveQueue.schedule(key, v, async (val: string) => {
       const { data, error } = await supabase.from("monthly_reflections").upsert(
         { user_id: effectiveUserId, month, question: questionForMonth(month), answer: val.trim(), updated_at: new Date().toISOString() },
         { onConflict: "user_id,month" },
       ).select("month");
       if (error) throw error;
       if (!data || data.length === 0) throw new Error("Monthly answer save returned no row");
+      confirmDraft(key, val);
     }, AUTOSAVE_DELAY_MS);
-  }, [isReadOnly, effectiveUserId, saveQueue]);
+  }, [isReadOnly, effectiveUserId, saveQueue, noteDraft, confirmDraft]);
 
   // Debounced save for a Tiny Masterpieces caption, which lives on the memory.
   const saveDrawingCaption = useCallback((memoryId: string, v: string) => {
     if (isReadOnly) return;
-    saveQueue.schedule(`art:${memoryId}`, v, async (val: string) => {
+    const key = `art:${memoryId}`;
+    noteDraft(key, v);
+    saveQueue.schedule(key, v, async (val: string) => {
       const { data, error } = await supabase.from("memories").update({ caption: val }).eq("id", memoryId).select("id");
       if (error) throw error;
       // An update RLS filtered out reports no error and touches nothing.
       if (!data || data.length === 0) throw new Error("Caption save matched no memory");
+      confirmDraft(key, val);
     }, AUTOSAVE_DELAY_MS);
-  }, [isReadOnly, saveQueue]);
+  }, [isReadOnly, saveQueue, noteDraft, confirmDraft]);
 
   const onPhotoDragEnd = useCallback((e: DragEndEvent) => {
     if (isReadOnly) return;
@@ -943,6 +1039,27 @@ export default function YearbookEditPage() {
       }
       setMonthlyAnswers(mMap);
 
+      // Device drafts: words typed here that never reached the server. Offered,
+      // never applied by themselves, because the server may hold something
+      // newer from another device. A closed yearbook leaves them untouched.
+      const { data: { session } } = await supabase.auth.getSession();
+      const authUserId = session?.user?.id;
+      let store: DraftStore | null = null;
+      if (authUserId) {
+        store = openDraftStore(() => window.localStorage, { authUserId, familyUserId: effectiveUserId, yearbookKey: key });
+      }
+      draftsRef.current = store;
+      setDraftsAvailable(!!store?.available);
+      if (store?.available && !closedAt) {
+        const { offer, alreadySaved } = triageDrafts(store.list(), (field) => {
+          if (field.startsWith("month:")) return mMap[field.slice("month:".length)];
+          if (field.startsWith("art:")) return caps[field.slice("art:".length)];
+          return cMap[field];
+        });
+        for (const d of alreadySaved) store.discard(d.field);
+        setRecoverable(offer);
+      }
+
       setLoading(false);
     })();
   }, [effectiveUserId]);
@@ -1004,6 +1121,36 @@ export default function YearbookEditPage() {
             <p>Choose a theme and sections here, then add a cover photo or personal notes. Return to the Yearbook to see the pages together.</p>
           </div>
         </details>}
+
+        {!isReadOnly && recoverable.length > 0 && (
+          <div role="alert" className="rounded-2xl border border-[#e8d9b0] bg-[#fdf8ec] px-4 py-3.5 text-[13px] text-[#5c4a1f]">
+            <p className="font-medium">
+              {recoverable.length === 1 ? "1 change" : `${recoverable.length} changes`} you typed on this device didn&apos;t reach your yearbook.
+            </p>
+            <p className="text-[12px] mt-1 leading-relaxed">
+              {(() => {
+                const last = recoverable.map((d) => d.savedAt).filter(Boolean).sort().pop();
+                const when = last ? new Date(last).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+                return when ? `Last typed ${when}. ` : "";
+              })()}
+              Your yearbook stays as it is until you choose.
+            </p>
+            <div className="flex items-center gap-3 mt-2.5">
+              <button type="button" onClick={restoreAllDrafts} className="text-[12px] font-medium bg-[#2d5a3d] text-white px-3 py-1.5 rounded-lg">
+                Restore my words
+              </button>
+              <button type="button" onClick={discardAllDrafts} className="text-[12px] text-[#7a6f65] underline">
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!isReadOnly && !draftsAvailable && (
+          <p className="text-[11px] text-[#9a8f85] leading-snug">
+            This browser isn&apos;t keeping a backup copy of what you type, so wait for ✓ Saved before you leave this page.
+          </p>
+        )}
 
         {isReadOnly && (
           <div className="bg-[#faeeda] text-[#854F0B] rounded-xl p-4 text-sm">
@@ -1286,7 +1433,7 @@ export default function YearbookEditPage() {
           <label className="text-[13px] font-semibold text-[#2d2926] block mb-2">Family name</label>
           <input
             value={familyName}
-            onChange={(e) => setFamilyName(e.target.value)}
+            onChange={(e) => { setFamilyName(e.target.value); noteDraft(ck("family_name"), e.target.value); }}
             onBlur={() => { void saveContentNow("family_name", familyName); }}
             disabled={isReadOnly}
             placeholder="The Waltrip Family"
@@ -1300,7 +1447,7 @@ export default function YearbookEditPage() {
           <label className="text-[13px] font-semibold text-[#2d2926] block mb-2">School year</label>
           <input
             value={schoolYear}
-            onChange={(e) => setSchoolYear(e.target.value)}
+            onChange={(e) => { setSchoolYear(e.target.value); noteDraft(ck("school_year"), e.target.value); }}
             onBlur={() => { void saveContentNow("school_year", schoolYear); }}
             disabled={isReadOnly}
             placeholder="2025–2026"
@@ -1317,7 +1464,7 @@ export default function YearbookEditPage() {
           </p>
           <input
             value={coverSubtitle}
-            onChange={(e) => setCoverSubtitle(e.target.value)}
+            onChange={(e) => { setCoverSubtitle(e.target.value); noteDraft(ck("cover_subtitle"), e.target.value); }}
             onBlur={() => { void saveContentNow("cover_subtitle", coverSubtitle); }}
             disabled={isReadOnly}
             placeholder="A year of growing, wondering, and becoming."
@@ -1863,7 +2010,8 @@ export default function YearbookEditPage() {
             onClick={async () => {
               setSaveAllStatus("saving");
               // Anything still waiting on its debounce, or failed earlier, first.
-              await saveQueue.flush();
+              // This is a tap, so failed fields are attempted again.
+              await saveQueue.flush({ retryFailed: true });
               const writes: [string, string, string?, string?][] = [
                 ["cover_photo", coverPhotoUrl],
                 ["family_name", familyName],
@@ -1912,9 +2060,11 @@ export default function YearbookEditPage() {
               for (const [contentType, val, childId, questionKey] of writes) {
                 await saveContentNow(contentType, val, childId, questionKey);
               }
-              // The reader only opens when every field is confirmed. Otherwise
-              // stay here with the text, and say how many did not save.
-              if (saveQueue.failedKeys().length > 0) {
+              // Then everything typed while those were writing. The reader only
+              // opens when every current edit is confirmed. Otherwise stay here
+              // with the text, and say how many did not save.
+              const settled = await saveQueue.flush();
+              if (!settled.ok) {
                 setSaveAllStatus("error");
                 return;
               }
@@ -1938,6 +2088,7 @@ export default function YearbookEditPage() {
           <div role="alert" className="fixed bottom-24 sm:bottom-6 left-4 right-4 z-[60] mx-auto max-w-md rounded-xl border border-[#e8c9c9] bg-[#fdf6f6] px-4 py-3 shadow-lg">
             <p className="text-[12px] text-[#2d2926]">
               {failedCount === 1 ? "1 change didn't save." : `${failedCount} changes didn't save.`} Your words are still on this page.
+              {leaveBlocked && draftsAvailable && " If you leave, a copy stays on this device and you'll be offered it next time."}
             </p>
             <div className="flex items-center gap-3 mt-2">
               <button type="button" onClick={() => { void retryAll(); }} className="text-[12px] font-medium bg-[#2d5a3d] text-white px-3 py-1.5 rounded-lg">

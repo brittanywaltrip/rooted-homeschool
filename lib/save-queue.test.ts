@@ -248,7 +248,7 @@ test("flush waits for a write already in flight and then the newer one behind it
   assert.deepEqual(await flushed, { ok: true, failed: [] });
 });
 
-test("flush reports exactly which fields failed, and retries ones that had failed before", async () => {
+test("an explicit flush reports exactly which fields failed, and retries earlier failures once", async () => {
   const t = fakeTimers();
   const q = createSaveQueue({ ...t.opts });
   const w = controlledWriter();
@@ -260,7 +260,7 @@ test("flush reports exactly which fields failed, and retries ones that had faile
 
   q.schedule("letter", "Dear", w.write, DEBOUNCE);
   q.schedule("school_year", "2026-2027", w.write, DEBOUNCE);
-  const flushed = q.flush();
+  const flushed = q.flush({ retryFailed: true });
   await tick();
   // family_name (retried), letter, school_year
   assert.equal(w.calls.length, 4);
@@ -313,4 +313,90 @@ test("a key with no edits is idle and retrying it is a no-op", async () => {
   assert.equal(await q.retry("nothing"), true);
   assert.deepEqual(await q.flush(), { ok: true, failed: [] });
   q.dispose();
+});
+
+// Regression, review of PR #150: flush captured each field's version when it
+// started, so an edit typed while it awaited an older write was left waiting
+// on its debounce and flush still answered ok. Navigation and Save all both
+// trusted that answer.
+test("flush does not report ok while an edit typed during a held save is unwritten", async () => {
+  const t = fakeTimers();
+  const q = createSaveQueue({ ...t.opts });
+  const w = controlledWriter();
+
+  q.schedule("letter", "Dear", w.write, DEBOUNCE);
+  t.fire(DEBOUNCE);
+  assert.equal(w.calls.length, 1);
+
+  let result: { ok: boolean; failed: string[] } | null = null;
+  const flushed = q.flush().then((r) => { result = r; return r; });
+  await tick();
+
+  // She types again while "Dear" is still held on the wire.
+  q.schedule("letter", "Dear future us", w.write, DEBOUNCE);
+  w.calls[0].resolve();
+  await tick();
+
+  assert.equal(result, null, "flush has not answered while the newer text is unwritten");
+  assert.equal(w.calls.length, 2, "flush wrote the newer edit without waiting for its debounce");
+  assert.equal(w.calls[1].value, "Dear future us");
+  assert.equal(t.pending.size, 0, "no debounce left to fire a duplicate write");
+
+  w.calls[1].resolve();
+  assert.deepEqual(await flushed, { ok: true, failed: [] });
+  assert.equal(q.hasUnsaved(), false);
+});
+
+test("flush answers not-ok when the edit typed during a held save fails", async () => {
+  const t = fakeTimers();
+  const q = createSaveQueue({ ...t.opts });
+  const w = controlledWriter();
+
+  q.schedule("letter", "Dear", w.write, DEBOUNCE);
+  t.fire(DEBOUNCE);
+  const flushed = q.flush();
+  await tick();
+  q.schedule("letter", "Dear future us", w.write, DEBOUNCE);
+  w.calls[0].resolve();
+  await tick();
+  w.calls[1].reject(new Error("offline"));
+  assert.deepEqual(await flushed, { ok: false, failed: ["letter"] });
+});
+
+test("a passive flush writes waiting edits but never retries a failed field", async () => {
+  const t = fakeTimers();
+  const q = createSaveQueue({ ...t.opts });
+  const w = controlledWriter();
+
+  const first = q.saveNow("family_name", "The Garcias", w.write);
+  await tick();
+  w.calls[0].reject(new Error("offline"));
+  await first;
+
+  q.schedule("letter", "Dear", w.write, DEBOUNCE);
+  const flushed = q.flush();
+  await tick();
+  assert.deepEqual(w.calls.slice(1).map((c) => c.value), ["Dear"], "only the waiting edit was written");
+  w.calls[1].resolve();
+  assert.deepEqual(await flushed, { ok: false, failed: ["family_name"] });
+  assert.equal(q.status("family_name"), "error");
+});
+
+test("an explicit retrying flush tries a failed field once, not in a loop", async () => {
+  const t = fakeTimers();
+  const q = createSaveQueue({ ...t.opts });
+  const w = controlledWriter();
+
+  const first = q.saveNow("family_name", "The Garcias", w.write);
+  await tick();
+  w.calls[0].reject(new Error("offline"));
+  await first;
+
+  const flushed = q.flush({ retryFailed: true });
+  await tick();
+  assert.equal(w.calls.length, 2);
+  w.calls[1].reject(new Error("still offline"));
+  assert.deepEqual(await flushed, { ok: false, failed: ["family_name"] });
+  await tick();
+  assert.equal(w.calls.length, 2);
 });
