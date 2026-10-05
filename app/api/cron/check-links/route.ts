@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin as supabase } from "@/lib/supabase-admin";
 import { resendClient } from "@/lib/api-clients";
+import { linkCheckUrl } from "@/lib/link-check-url";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -29,7 +30,7 @@ async function checkUrl(url: string): Promise<{ status: number | null }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(linkCheckUrl(url), {
       method: "HEAD",
       signal: controller.signal,
       headers: { "User-Agent": BROWSER_UA },

@@ -1,0 +1,11 @@
+# Payout display correction — 2026-09-30
+
+The admin home previously totaled all Stripe charges and showed that historical commission as an amount to send, without subtracting recorded payments. It also labeled lifetime counts as monthly sales and could silently omit failed invoice reads.
+
+The replacement uses converted referral commission amounts and commission_payments, the same ledger sources as the partner roster. It reads every page, refuses partial reads or malformed records, computes in cents, subtracts all recorded payments, and separates closed-month payable from pending current-month earnings. Both admin endpoints now close the month at midnight America/Los_Angeles, including DST. Existing payment month strings are preserved. The previous roster used UTC; referrals within seven/eight hours of a boundary can appear in the prior Pacific month after this change.
+
+The cards show conversions, earned total, payable now and pending. They link to the partner roster to confirm payment destinations rather than displaying a possibly stale PayPal field as another channel's destination. Legacy null commission values retain the existing $6.63 fallback and get an explicit verification warning. This is ledger accounting, not a replacement for the independent Stripe/refund reconciliation before a payout. Refund-driven ledger corrections and conversion-time schema changes are outside this PR. Earnings remain dated by referrals.created_at, matching existing ledger semantics.
+
+Validation: 9 calculation/pagination tests, 5 route tests and 12 existing month tests pass (26 total). TypeScript and diff checks pass. Focused lint passes with one pre-existing img warning in app/admin/page.tsx. A fresh read-only production ledger sample run through the new helper yielded 13 partners, $53.32 earned, $53.32 recorded paid, $0 payable and zero legacy estimates. No production rows, Stripe settings, payment records or emails were changed.
+
+Staging gate: verify Admin cards and roster agree, anonymous/family GET refusal, already-paid balance zero, unpaid closed-month amount, pending current-month amount, read failure UI and legacy warning. Confirm payout destinations from the roster before payment. September closes at 2026-10-01T07:00:00Z; re-read ledger and Stripe after that cutoff. No deployment is claimed.

@@ -11,6 +11,7 @@
 //   - A PINNED branch must resolve to its pinned project, or the build fails.
 //   - A missing expectation on a pinned branch is a FAILURE, never a pass:
 //     an unset variable is what a misconfigured runner looks like.
+//   - Production requires Vercel production scope and explicit matching identity.
 //   - Resolving to production on a pinned branch is refused by ref, explicitly.
 //   - The URL and BOTH keys must name the same project.
 //   - No key material is ever printed, thrown, or written. Refs are not secrets.
@@ -24,6 +25,7 @@ import {
   projectRefFromSupabaseUrl,
   assertCredentialsBindToProject,
   EnvironmentIdentityError,
+  resolveEnvIdentity,
 } from "../lib/env-identity.ts";
 
 /** Branches that may ONLY ever build against the project named here. */
@@ -108,7 +110,13 @@ async function main() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const urlRef = projectRefFromSupabaseUrl(url);
 
-  if (urlRef === PRODUCTION_PROJECT_REF || required === PRODUCTION_PROJECT_REF) {
+  // A production build is deliberately different from a preview or a test.
+  // Both deployment scope and explicit database identity must agree; a label
+  // alone must never make a preview branch eligible for production.
+  const productionBuild = !pin && process.env.VERCEL_ENV === "production" &&
+    process.env.ROOTED_ENV === "production" && expected === PRODUCTION_PROJECT_REF &&
+    urlRef === PRODUCTION_PROJECT_REF;
+  if ((urlRef === PRODUCTION_PROJECT_REF || required === PRODUCTION_PROJECT_REF) && !productionBuild) {
     fail(
       "resolves_to_production",
       `This build resolves to the PRODUCTION project (${PRODUCTION_PROJECT_REF}). ` +
@@ -124,6 +132,15 @@ async function main() {
       "NEXT_PUBLIC_SUPABASE_URL does not name a Supabase project ref. A custom " +
         "domain is the production shape and is treated as production.",
     );
+  }
+  if (process.env.VERCEL_ENV === "production" || process.env.ROOTED_ENV === "production") {
+    try {
+      resolveEnvIdentity({ supabaseUrl: url, rootedEnv: process.env.ROOTED_ENV, expectedRef: required });
+      if (!productionBuild) fail("production_scope_mismatch", "Production builds require production deployment scope and database identity.");
+    } catch (err) {
+      if (err instanceof EnvironmentIdentityError) fail(err.code, err.message);
+      throw err;
+    }
   }
   say(`  NEXT_PUBLIC_SUPABASE_URL: project ${urlRef}`);
 
@@ -147,7 +164,7 @@ async function main() {
     await liveProbe(n, url, isService ? process.env.SUPABASE_SERVICE_ROLE_KEY : process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, isService);
   }
 
-  say(`OK: URL and both credentials name ${required}. Not production. Proceeding.`);
+  say(`OK: URL and both credentials name ${required}. ${productionBuild ? "Verified production build" : "Non-production build"}. Proceeding.`);
 }
 
 main().catch((err) => fail("unexpected", err?.message ?? String(err)));
