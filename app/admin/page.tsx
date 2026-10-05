@@ -6,6 +6,8 @@
 // update plan_type to 'refunded', subscription_status to 'refunded'.
 // Webhook handles all future paying members automatically.
 
+import { deferAuthWork } from "@/lib/defer-auth-work";
+
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -258,19 +260,26 @@ export default function AdminPage() {
 
   // Wait for Supabase to rehydrate session before checking admin access
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    let mounted = true;
+    let cancelWork: (() => void) | undefined;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'INITIAL_SESSION') {
         if (!session || !ADMIN_EMAILS.includes(session.user.email ?? '')) {
           router.replace('/dashboard');
           return;
         }
-        // Refresh the session to get a fresh access token
-        const { data: refreshed } = await supabase.auth.refreshSession();
-        const token = refreshed.session?.access_token ?? session.access_token;
-        await fetchData(token);
+        cancelWork = deferAuthWork(async () => {
+          const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+          if (!mounted) return;
+          if (refreshError || !refreshed.session) {
+            setError("Could not verify your session. Reload and try again.");
+            return;
+          }
+          await fetchData(refreshed.session.access_token);
+        }, () => { setRefreshing(false); setError("Failed to load admin data. Reload and try again."); });
       }
     });
-    return () => subscription.unsubscribe();
+    return () => { mounted = false; cancelWork?.(); subscription.unsubscribe(); };
   }, [router]);
 
   function copyEmails() {
