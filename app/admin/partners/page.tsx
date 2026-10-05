@@ -6,6 +6,7 @@ import Link from "next/link";
 import QRCode from "qrcode";
 import { supabase } from "@/lib/supabase";
 import { formatCurrency } from "@/lib/commission";
+import { payoutMonth } from "@/lib/payout-ledger";
 
 const ADMIN_EMAILS = ["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"];
 
@@ -39,8 +40,10 @@ interface Affiliate {
 }
 
 interface PayoutSummary {
-  payout_month: string; // YYYY-MM being covered (the current month)
+  payout_month: string; // Current Pacific earning month for pending amounts
   total_due: number;
+  pending_total: number;
+  legacy_estimate_count: number;
   per_affiliate: {
     code: string; name: string; amount: number;
     payment_method: string | null; payment_notes: string | null;
@@ -102,6 +105,7 @@ export default function AdminPartnersPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [payoutSummary, setPayoutSummary] = useState<PayoutSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   // Expanded roster row
   const [expandedCode, setExpandedCode] = useState<string | null>(null);
@@ -149,14 +153,26 @@ export default function AdminPartnersPage() {
   const [expandedAppId, setExpandedAppId] = useState<string | null>(null);
 
   const loadData = useCallback(async (accessToken: string) => {
-    const res = await fetch("/api/admin/partners", { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!res.ok) return;
-    const json = await res.json();
-    setAffiliates(json.affiliates ?? []);
-    setReferrals(json.referrals ?? []);
-    setPayments(json.payments ?? []);
-    setApplications(json.applications ?? []);
-    setPayoutSummary(json.payout_summary ?? null);
+    setLoading(true);
+    setLoadError(false);
+    try {
+      const res = await fetch("/api/admin/partners", { headers: { Authorization: `Bearer ${accessToken}` }, cache: "no-store" });
+      if (!res.ok) throw new Error("Partner ledger unavailable");
+      const json = await res.json();
+      if (!Array.isArray(json.affiliates) || !Array.isArray(json.referrals) ||
+          !Array.isArray(json.payments) || !Array.isArray(json.applications) || !json.payout_summary) {
+        throw new Error("Incomplete partner response");
+      }
+      setAffiliates(json.affiliates);
+      setReferrals(json.referrals);
+      setPayments(json.payments);
+      setApplications(json.applications);
+      setPayoutSummary(json.payout_summary);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -166,6 +182,7 @@ export default function AdminPartnersPage() {
       setAuthed(true);
       const { data: { session } } = await supabase.auth.getSession();
       if (session) { setToken(session.access_token); await loadData(session.access_token); }
+      else setLoadError(true);
       setLoading(false);
     })();
   }, [router, loadData]);
@@ -403,6 +420,19 @@ export default function AdminPartnersPage() {
     );
   }
 
+  if (loadError) {
+    return (
+      <div className="min-h-screen bg-[#2d3e30] flex items-center justify-center px-4">
+        <div className="bg-[#fefcf9] rounded-2xl p-6 max-w-md">
+          <h1 className="font-semibold text-[#2d2926]">Partner balances unavailable</h1>
+          <p className="text-sm text-[#7a6f65] mt-2">Could not load the complete partner ledger. Please retry before recording a payment.</p>
+          <button onClick={() => loadData(token)} className="mt-4 px-4 py-2 rounded-xl bg-[#5c7f63] text-white text-sm">Retry</button>
+          <Link href="/admin" className="ml-4 text-sm text-[#5c7f63]">Back to admin</Link>
+        </div>
+      </div>
+    );
+  }
+
   // "Owed" in the summary card = total currently-overdue balance across
   // partners (completed-month earnings not yet paid).
   const netOwed = affiliates.reduce((s, a) => s + a.owed_now, 0);
@@ -437,7 +467,7 @@ export default function AdminPartnersPage() {
           <StatCard label="Active" value={affiliates.filter((a) => a.is_active).length} />
           <StatCard label="Clicks" value={affiliates.reduce((s, a) => s + (a.clicks ?? 0), 0)} />
           <StatCard label="Pending" value={pendingApps.length} highlight={pendingApps.length > 0} />
-          <StatCard label="Conversions" value={referrals.filter((r) => r.converted).length} />
+          <StatCard label="Conversions" value={affiliates.reduce((total, a) => total + a.paying_customers, 0)} />
           <StatCard label="Owed" value={formatCurrency(netOwed)} />
         </div>
 
@@ -448,13 +478,19 @@ export default function AdminPartnersPage() {
             <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-5">
               <div className="flex items-center justify-between gap-3">
                 <h2 className="text-base font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
-                  {nextPayoutLabel(payoutSummary.payout_month)} Payout
+                  Payable now
                 </h2>
                 <span className="text-lg font-bold text-[#2d2926]">{formatCurrency(payoutSummary.total_due)}</span>
               </div>
               <p className="text-[11px] text-[#7a6f65] mt-0.5 mb-3">
-                Next payout, covering {formatMonthYM(payoutSummary.payout_month)} earnings
+                Unpaid commissions from closed months · Pacific time
               </p>
+              <p className="text-[11px] text-[#7a6f65] mb-3">
+                Current-month pending: {formatCurrency(payoutSummary.pending_total)} · eligible {nextPayoutLabel(payoutSummary.payout_month)}
+              </p>
+              {payoutSummary.legacy_estimate_count > 0 && (
+                <p className="text-xs text-amber-700 mb-3">{payoutSummary.legacy_estimate_count} commission(s) use legacy estimates. Review recorded amounts before paying.</p>
+              )}
               {payoutSummary.per_affiliate.length === 0 ? (
                 <div className="flex items-center gap-2 text-sm font-medium text-[#4a7c59]">
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="shrink-0">
@@ -1307,11 +1343,10 @@ function formatMonthYM(ym: string): string {
   return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
 }
 
-// Current earning month (YYYY-MM, UTC) — matches the server's currentYM so
+// Current earning month (YYYY-MM, Pacific) — matches the server's currentYM so
 // completed-vs-current comparisons line up.
 function clientCurrentYM(): string {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return payoutMonth(new Date());
 }
 
 function roundCents(n: number): number {

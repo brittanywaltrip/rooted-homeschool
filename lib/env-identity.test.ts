@@ -49,10 +49,10 @@ test("a project ref is parsed from a supabase.co URL", () => {
   assert.equal(projectRefFromSupabaseUrl(url(PRODUCTION_PROJECT_REF)), PRODUCTION_PROJECT_REF);
 });
 
-test("a custom auth domain yields NO ref rather than a wrong one", () => {
+test("the exact production alias resolves, while unknown domains fail closed", () => {
   // Production serves auth from auth.rootedhomeschoolapp.com. A naive
   // subdomain parse returns "auth" and would conclude "not production".
-  assert.equal(projectRefFromSupabaseUrl("https://auth.rootedhomeschoolapp.com"), null);
+  assert.equal(projectRefFromSupabaseUrl("https://auth.rootedhomeschoolapp.com"), PRODUCTION_PROJECT_REF);
   assert.equal(projectRefFromSupabaseUrl("not a url"), null);
   assert.equal(projectRefFromSupabaseUrl(undefined), null);
   assert.equal(projectRefFromSupabaseUrl(""), null);
@@ -60,7 +60,7 @@ test("a custom auth domain yields NO ref rather than a wrong one", () => {
 
 test("an unresolvable ref is a refusal, never a pass", () => {
   assert.equal(
-    codeOf(() => resolveEnvIdentity({ ...stagingOk, supabaseUrl: "https://auth.rootedhomeschoolapp.com" })),
+    codeOf(() => resolveEnvIdentity({ ...stagingOk, supabaseUrl: "https://unknown.example.com" })),
     "unresolvable_project_ref",
   );
 });
@@ -284,7 +284,7 @@ test("a missing credential fails closed", () => {
   );
 });
 
-test("the production custom domain is refused as an unresolvable ref", () => {
+test("the production custom domain refuses staging credentials", () => {
   assert.throws(
     () =>
       assertCredentialsBindToProject({
@@ -323,4 +323,32 @@ test("no error message from a binding failure contains key material", () => {
     assert.ok(!msg.includes(secret), "message must not contain the key");
     assert.ok(!msg.includes("eyJ"), "message must not contain any JWT fragment");
   }
+});
+
+
+test("production alias cannot be used for test writes", () => {
+  assert.equal(codeOf(() => assertSafeForTestWrites({
+    supabaseUrl: "https://auth.rootedhomeschoolapp.com", rootedEnv: "production",
+    expectedRef: PRODUCTION_PROJECT_REF,
+  }, "alias regression")), "production_forbidden");
+  assert.equal(codeOf(() => assertSafeForTestWrites({
+    supabaseUrl: "https://auth.rootedhomeschoolapp.com", rootedEnv: "staging",
+    expectedRef: PRODUCTION_PROJECT_REF,
+  }, "alias regression")), "env_label_mismatch");
+});
+
+test("lookalikes, ports, credentials and insecure aliases are not recognized", () => {
+  for (const value of ["https://auth.rootedhomeschoolapp.com.evil.example",
+    "https://auth.rootedhomeschoolapp.com:8443", "http://auth.rootedhomeschoolapp.com",
+    "https://user:pass@auth.rootedhomeschoolapp.com"]) {
+    assert.equal(projectRefFromSupabaseUrl(value), null);
+  }
+});
+
+test("production alias health still requires explicit environment settings", () => {
+  const base = { supabaseUrl: "https://auth.rootedhomeschoolapp.com" };
+  assert.equal(publicEnvIdentity(base).ok, false);
+  assert.equal(publicEnvIdentity(base).projectRef, PRODUCTION_PROJECT_REF);
+  assert.equal(publicEnvIdentity({ ...base, expectedRef: PRODUCTION_PROJECT_REF }).error, "missing_rooted_env");
+  assert.equal(publicEnvIdentity({ ...base, expectedRef: PRODUCTION_PROJECT_REF, rootedEnv: "production" }).ok, true);
 });
