@@ -10597,7 +10597,9 @@ test('small copy and UX fixes: extra-lessons window, photo warning, derived titl
   //     through the one shared rule (lib/lesson-minutes.ts, tested there).
   const years = stripComments(loadRepoFile('app/dashboard/years/page.tsx'))
   assert.match(years, /const minutes = sumLessonMinutes\(rows\)\.minutes;/)
-  assert.match(stripComments(loadRepoFile('app/dashboard/reports/page.tsx')), /sumLessonMinutes\(completedLessons\)\.minutes \/ 60/)
+  const reportsTime = stripComments(loadRepoFile('app/dashboard/reports/page.tsx'));
+  assert.match(reportsTime, /const lessonTimeSummary = sumLessonMinutes\(completedLessons\)/);
+  assert.match(reportsTime, /const lessonHours = lessonTimeSummary\.minutes \/ 60/)
 })
 
 // ── Invariant 16 for a batch: bulk Mark all done asks once ───────────────────

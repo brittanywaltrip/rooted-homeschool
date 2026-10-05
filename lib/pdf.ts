@@ -1,3 +1,4 @@
+import { ESTIMATED_MINUTES_PER_LESSON } from "./lesson-minutes";
 /**
  * Shared PDF generation utility using jsPDF direct drawing.
  * No html2canvas — all content drawn via jsPDF API.
@@ -203,8 +204,8 @@ export function generateProgressReport(doc: jsPDF, data: ReportData) {
 
   y += 0.7;
   doc.setFontSize(7);
-  setColor(doc, C.light);
-  txt(doc,"* Hours marked with an asterisk are estimated from default lesson time settings.", MX, y);
+  setColor(doc, C.muted);
+  txt(doc,`* Estimated entries use ${ESTIMATED_MINUTES_PER_LESSON} minutes per lesson with no recorded time; totals include them.`, MX, y);
   y += 0.15;
 
   // Curriculum / Activity breakdown
