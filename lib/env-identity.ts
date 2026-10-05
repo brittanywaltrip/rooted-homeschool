@@ -44,14 +44,21 @@ export class EnvironmentIdentityError extends Error {
  * Handles the custom-domain case explicitly: production serves auth from
  * https://auth.rootedhomeschoolapp.com, NOT <ref>.supabase.co, so a naive
  * subdomain parse returns "auth" and a caller could conclude it is not
- * production. Returning null for an unrecognised host is the safe answer,
+ * production. The exact verified alias maps to PRODUCTION_PROJECT_REF.
+ * Returning null for an unrecognised host is the safe answer,
  * because every caller below treats null as a failure.
  */
 export function projectRefFromSupabaseUrl(url: string | undefined | null): string | null {
   if (!url) return null;
   let host: string;
   try {
-    host = new URL(url).host;
+    const parsed = new URL(url);
+    // Exact production alias. DNS CNAME verified 2026-09-30 against the
+    // canonical production ref. Never derive an alias from expectedRef.
+    // Recognizing production here still makes every test-write gate refuse it.
+    if (parsed.origin === "https://auth.rootedhomeschoolapp.com" &&
+        !parsed.username && !parsed.password) return PRODUCTION_PROJECT_REF;
+    host = parsed.host;
   } catch {
     return null;
   }
@@ -79,8 +86,8 @@ export interface EnvIdentity {
  * Resolve and validate the environment identity, or throw.
  *
  * Every branch here is a refusal a real incident would otherwise have allowed:
- * an unset expectation (a fresh CI runner), a URL that does not name a ref (a
- * custom domain), an env label that disagrees with the database it is pointed
+ * an unset expectation (a fresh CI runner), a URL that does not name a ref (an
+ * unknown custom domain), an env label that disagrees with the database it is pointed
  * at (a half-finished migration of env vars), and the recovery project (an
  * incident artefact nobody should be testing against).
  */
