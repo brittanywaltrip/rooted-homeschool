@@ -123,7 +123,7 @@ test("planner and pre-save check agree on capacity for every shape (pace changes
 test("every projecting surface reads the same rule", () => {
   const src = readFileSync(new URL("./scheduler.ts", import.meta.url), "utf8");
   assert.match(src, /\.or\("queue_pinned\.eq\.true,skipped\.eq\.true,and\(queue_position\.is\.null,scheduled_date\.not\.is\.null\)"\)/, "loadPinsByGoal reads unslotted dated rows");
-  assert.match(src, /const pins: QueueHold\[\] = \[\.\.\.skippedSlotsFromRows\(rows\), \.\.\.dayHoldsFromRows\(rows, goal\.id\)\];/, "the page-load reconciler leaves room for them");
+  assert.match(src, /const pins: QueueHold\[\] = \[\s*\.\.\.skippedSlotsFromRows\(rows\),\s*\.\.\.dayHoldsFromRows\(rows, goal\.id\),\s*\.\.\.doneTodayHolds\(done\.unslotted, toDateStr\(today\)\),\s*\];/, "the page-load reconciler leaves room for them, and for unslotted lessons finished today");
   assert.match(src, /const holds: QueueHold\[\] = \[\.\.\.skippedSlotsFromRows\(rows\), \.\.\.dayHoldsFromRows\(rows, goal\.id\)\];/, "the parent re-spread leaves room for them");
   assert.match(src, /const holds: QueueHold\[\] = \[\.\.\.pins, \.\.\.skippedSlots, \.\.\.dayHolds\];/, "the Builder plans around them");
 });

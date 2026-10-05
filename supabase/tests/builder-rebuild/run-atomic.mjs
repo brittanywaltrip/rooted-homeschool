@@ -14,7 +14,7 @@ try {
   const sql = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
   await db.exec(sql('./stub.sql').replace('create extension if not exists pgcrypto;', '-- Built-in gen_random_uuid.'));
   await db.exec(sql('./live-triggers.sql'));
-  const migrations = readdirSync(new URL('../../migrations/', import.meta.url)).filter(n => n.includes('apply_builder_rebuild')).sort();
+  const migrations = readdirSync(new URL('../../migrations/', import.meta.url)).filter(n => n.includes('apply_builder_rebuild') || n.includes('reopen_lesson')).sort();
   for (const name of migrations) await db.exec(sql(`../../migrations/${name}`));
   console.log(`loaded ${migrations.length} migrations, last ${migrations.at(-1)}`);
   await db.exec(sql('./unslotted.sql'));
@@ -62,6 +62,17 @@ try {
   await db.exec(sql(`../../migrations/${migs[0]}`));
   assert.deepEqual(await md5s(), after);
   console.log(`PASS rollback restores the live bodies and the migration re-applies (trigger ${after.trg}, rebuild ${after.rpc})`);
+  await db.exec(sql('./reopen-in-place.sql'));
+  const reopen = (await db.query('select label from reopen_checks order by label')).rows;
+  for (const r of reopen) console.log('  ok', r.label);
+  console.log(`PASS ${reopen.length} reopen-in-place assertions`);
+  const reopenMd5 = async () => (await db.query("select md5(prosrc) h, prosecdef, proconfig from pg_proc where proname='reopen_lesson'")).rows[0];
+  const reopenAfter = await reopenMd5();
+  await db.exec(sql('../../rollbacks/reopen_lesson_in_place.sql'));
+  assert.deepEqual(await reopenMd5(), { h: '9611a68a4e546de9501312f90e87c482', prosecdef: true, proconfig: ['search_path=pg_catalog, pg_temp'] });
+  await db.exec(sql(`../../migrations/${readdirSync(new URL('../../migrations/', import.meta.url)).find(n => n.includes('reopen_lesson_in_place'))}`));
+  assert.deepEqual(await reopenMd5(), reopenAfter);
+  console.log(`PASS reopen rollback restores the production body and the migration re-applies (${reopenAfter.h})`);
 } catch (err) {
   console.error({ message: err.message, where: err.where, detail: err.detail });
   process.exitCode = 1;

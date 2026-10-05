@@ -337,10 +337,11 @@ async function planGoalResync(
   supabase: SupabaseClient,
   goal: CurriculumGoalConfig,
   vacationBlocks: VacationBlock[],
-  completedTodayCount: number,
+  completedToday: number | DoneTodaySplit,
   today: Date,
   caller: string,
 ): Promise<GoalResyncPlan> {
+  const done = normalizeDoneToday(completedToday);
   // Load the tail FIRST so the projection can be pin-aware. The pinned rows
   // are both an input to the projection (they hold their dates and consume
   // capacity) and excluded from the write set (planProjectedDateWrites skips
@@ -367,7 +368,11 @@ async function planGoalResync(
   // does (see SkippedSlot).
   // Day holds too (see DayHold): the cache must leave room on the days an
   // unslotted lesson holds, or it re-stacks what the Builder spread out.
-  const pins: QueueHold[] = [...skippedSlotsFromRows(rows), ...dayHoldsFromRows(rows, goal.id)];
+  const pins: QueueHold[] = [
+    ...skippedSlotsFromRows(rows),
+    ...dayHoldsFromRows(rows, goal.id),
+    ...doneTodayHolds(done.unslotted, toDateStr(today)),
+  ];
   for (const r of rows) {
     if (!r.queue_pinned || r.skipped) continue;
     if (r.queue_position == null || !r.scheduled_date) continue;
@@ -379,7 +384,7 @@ async function planGoalResync(
     today,
     3650,
     vacationBlocks,
-    completedTodayCount,
+    done.slotted,
     pins,
   );
   if (projected.length === 0) return { ok: false, reason: "nothing_projected" };
@@ -424,7 +429,7 @@ export async function reconcileGoalScheduleCache(
   supabase: SupabaseClient,
   goal: CurriculumGoalConfig,
   vacationBlocks: VacationBlock[],
-  completedTodayCount: number = 0,
+  completedTodayCount: number | DoneTodaySplit = 0,
   today: Date = new Date(),
 ): Promise<void> {
   // Redundant with the gate inside syncProjectedScheduledDates by design: it
@@ -666,7 +671,7 @@ export async function resyncGoalForParent(
   supabase: SupabaseClient,
   goal: CurriculumGoalConfig,
   vacationBlocks: VacationBlock[],
-  opts: { source: ParentRespreadSource; today?: Date; completedTodayCount?: number },
+  opts: { source: ParentRespreadSource; today?: Date; completedTodayCount?: number | DoneTodaySplit },
 ): Promise<ParentReprojectResult> {
   const plan = await planGoalResync(
     supabase, goal, vacationBlocks, opts.completedTodayCount ?? 0, opts.today ?? new Date(), "resyncGoalForParent",
@@ -715,7 +720,7 @@ export async function resyncGoalsForParent(
     supabase.from("vacation_blocks").select("start_date, end_date").eq("user_id", userId),
     supabase
       .from("lessons")
-      .select("curriculum_goal_id")
+      .select("curriculum_goal_id, queue_position")
       .eq("user_id", userId)
       .in("curriculum_goal_id", goalIds)
       .eq("completed", true)
@@ -726,17 +731,19 @@ export async function resyncGoalsForParent(
   // failure like the other two reads, not a zero.
   if (goalErr || vacErr || doneErr || !goalRows) return { ok: false, written: 0, failedGoals: [...goalIds] };
   const vacations = ((vacRows ?? []) as VacationBlock[]).map((b) => ({ start_date: b.start_date, end_date: b.end_date }));
-  const doneToday = new Map<string, number>();
-  for (const r of (doneRows ?? []) as { curriculum_goal_id: string | null }[]) {
-    if (r.curriculum_goal_id) doneToday.set(r.curriculum_goal_id, (doneToday.get(r.curriculum_goal_id) ?? 0) + 1);
+  const doneRowsByGoal = new Map<string, { queue_position: number | null }[]>();
+  for (const r of (doneRows ?? []) as { curriculum_goal_id: string | null; queue_position: number | null }[]) {
+    if (!r.curriculum_goal_id) continue;
+    doneRowsByGoal.set(r.curriculum_goal_id, [...(doneRowsByGoal.get(r.curriculum_goal_id) ?? []), r]);
   }
+  const doneToday = new Map<string, DoneTodaySplit>([...doneRowsByGoal].map(([gid, rs]) => [gid, splitDoneToday(rs)]));
   const configs = (goalRows as unknown as GoalConfigRow[]).map(toGoalConfig);
   const failedGoals = goalIds.filter((id) => !configs.some((c) => c.id === id));
   let written = 0;
   for (const config of configs) {
     const r = await resyncGoalForParent(supabase, config, vacations, {
       source,
-      completedTodayCount: doneToday.get(config.id) ?? 0,
+      completedTodayCount: doneToday.get(config.id) ?? { slotted: 0, unslotted: 0 },
     });
     written += r.written;
     if (!r.ok) failedGoals.push(config.id);
@@ -769,7 +776,7 @@ export async function planDailyReconcile(
   supabase: SupabaseClient,
   goal: CurriculumGoalConfig,
   vacationBlocks: VacationBlock[],
-  completedTodayCount: number,
+  completedTodayCount: number | DoneTodaySplit,
   today: Date,
 ): Promise<DailyReconcilePlan> {
   const plan = await planGoalResync(supabase, goal, vacationBlocks, completedTodayCount, today, "planDailyReconcile");
@@ -1795,6 +1802,44 @@ export function dayHoldsFromRows(rows: PinnableRow[], goalId?: string): DayHold[
     out.push({ date: r.scheduled_date, occupies: true });
   }
   return out;
+}
+
+/**
+ * Today's completions for one curriculum, split the way the projector needs
+ * them. A completed QUEUE lesson is shown back on today by the first-day
+ * rewind (computeNextLessonsForGoal's completedTodayCount). A completed lesson
+ * with NO queue slot has no slot to rewind onto: counted there, the rewind
+ * walked back onto an earlier lesson and Today showed it as done today, beside
+ * the lesson that really was. It still spent one of today's lessons, so it is a
+ * day hold on today instead (doneTodayHolds). Together the two equal the
+ * "done today" apply_builder_rebuild subtracts.
+ *
+ * A row whose queue_position was not read counts as a queue lesson, which is
+ * exactly the old behavior.
+ */
+export interface DoneTodaySplit {
+  slotted: number;
+  unslotted: number;
+}
+
+export function splitDoneToday(rows: readonly { queue_position?: number | null }[]): DoneTodaySplit {
+  let slotted = 0, unslotted = 0;
+  for (const r of rows) {
+    if (r.queue_position === null) unslotted++;
+    else slotted++;
+  }
+  return { slotted, unslotted };
+}
+
+/** Accepts the legacy count (every completion treated as a queue lesson) or a split. */
+export function normalizeDoneToday(done: number | DoneTodaySplit | undefined): DoneTodaySplit {
+  if (done == null) return { slotted: 0, unslotted: 0 };
+  return typeof done === "number" ? { slotted: done, unslotted: 0 } : done;
+}
+
+/** One day hold on `todayYmd` per unslotted lesson completed today. */
+export function doneTodayHolds(unslotted: number, todayYmd: string): DayHold[] {
+  return Array.from({ length: Math.max(0, unslotted) }, () => ({ date: todayYmd, occupies: true as const }));
 }
 
 /** Pins, skips and day holds together, the shape every projecting surface passes. */
@@ -2949,6 +2994,8 @@ export function finishDateFromNextLesson(a: {
   vacations?: VacationBlock[];
   /** Skipped queue slots (Invariant 22): they take no day, so the finish moves in. */
   skippedSlots?: readonly number[];
+  /** Days already holding an unslotted lesson (DayHold): they have less room, so the finish moves out. */
+  dayHolds?: readonly DayHold[];
 }): Date | null {
   if (a.totalLessons <= 0) return null;
   if (a.currentLesson >= a.totalLessons) return null;
@@ -2964,7 +3011,7 @@ export function finishDateFromNextLesson(a: {
     new Date(`${a.fromYmd}T00:00:00`),
     a.vacations,
     0,
-    (a.skippedSlots ?? []).map((slot) => ({ slot, skipped: true as const })),
+    [...(a.skippedSlots ?? []).map((slot) => ({ slot, skipped: true as const })), ...(a.dayHolds ?? [])],
   );
 }
 

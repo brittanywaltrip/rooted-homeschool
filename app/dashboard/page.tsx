@@ -16,9 +16,10 @@ import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/
 import { useSessionUser } from "@/lib/session-context";
 import { checkAndAwardBadges } from "@/lib/badges";
 import { onLogAction } from "@/app/lib/onLogAction";
-import { recomputeCurrentLesson, resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, loadPinsByGoal, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { recomputeCurrentLesson, resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE, toDateStr, buildLessonDateSnapshot, createInFlightGate, computeTodayLessons, computeGapLessonsForGoal, computeNextLessonsForGoal, reconcileGoalScheduleCache, loadPinsByGoal, splitDoneToday, doneTodayHolds, isSkippedSlot, toGoalConfig, mostRecentSchoolDayBefore, resolvePriorLessonDay, GOAL_CONFIG_COLUMNS, type GoalConfigRow, type QueueHold, type LessonDateSnapshot, type InFlightGate, type CurriculumGoalConfig, type ProjectedLesson, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import {
   completeLessonOnDate,
+  completesInPlace,
   buildCompletionPayload,
   needsDateChoice,
   type CompletionChoice,
@@ -93,6 +94,8 @@ type Lesson = {
   curriculum_goals?: { subject_label: string | null } | null;
   curriculum_goal_id?: string | null;
   lesson_number?: number | null;
+  /** null for a curriculum lesson with no queue slot (completesInPlace). */
+  queue_position?: number | null;
   icon_emoji?: string | null;
   notes?: string | null;
   scheduled_date?: string | null;
@@ -609,7 +612,7 @@ function TodayPageInner() {
   };
   const [completionChoice, setCompletionChoice] = useState<PendingCompletion | null>(null);
   const [completionToast, setCompletionToast] = useState<
-    (PendingCompletion & { message: string }) | null
+    (PendingCompletion & { message: string; inPlace?: boolean }) | null
   >(null);
   const completionToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rescheduleUndoSnapshotRef = useRef<RescheduleUndoToast | null>(null);
@@ -1179,7 +1182,7 @@ function TodayPageInner() {
       // pulling the next lesson into today.
       supabase
         .from("lessons")
-        .select("curriculum_goal_id")
+        .select("curriculum_goal_id, queue_position")
         .eq("user_id", effectiveUserId)
         .eq("completed", true)
         .gte("completed_at", todayStartIso)
@@ -1390,11 +1393,20 @@ function TodayPageInner() {
     // completedToday + 1) so completed cards stay visible and the queue
     // doesn't roll a new lesson onto today every time mom marks one
     // complete.
+    //
+    // Queue lessons only. A lesson with no queue slot that was finished today
+    // still spends one of today's lessons, but as a day hold on today (added to
+    // the holds below), not through the rewind: it has no slot to rewind onto,
+    // and counting it there showed an earlier lesson as done today (see
+    // splitDoneToday). Its own card is on the list (unslottedTodayResult).
     const completedTodayPerGoal = new Map<string, number>();
-    for (const row of (completedTodayResult.data ?? []) as { curriculum_goal_id: string | null }[]) {
+    const unslottedDoneTodayPerGoal = new Map<string, number>();
+    for (const row of (completedTodayResult.data ?? []) as { curriculum_goal_id: string | null; queue_position: number | null }[]) {
       const gid = row.curriculum_goal_id;
       if (!gid) continue;
-      completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
+      const split = splitDoneToday([row]);
+      if (split.slotted) completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
+      if (split.unslotted) unslottedDoneTodayPerGoal.set(gid, (unslottedDoneTodayPerGoal.get(gid) ?? 0) + 1);
     }
     setCompletedTodayPerGoal(completedTodayPerGoal);
     // Manual placements (see PinnedSlot in scheduler.ts). Loaded before the
@@ -1403,6 +1415,9 @@ function TodayPageInner() {
     // surface reads the same pin set, which is what keeps Today, Upcoming and
     // the Plan calendar from disagreeing after a manual move.
     const pinsByGoal = await loadPinsByGoal(supabase, effectiveUserId);
+    for (const [gid, n] of unslottedDoneTodayPerGoal) {
+      pinsByGoal.set(gid, [...(pinsByGoal.get(gid) ?? []), ...doneTodayHolds(n, today)]);
+    }
     setPinsByGoal(pinsByGoal);
     const projected: ProjectedLesson[] = computeTodayLessons(goalConfigs, new Date(), vacationBlocks, completedTodayPerGoal, pinsByGoal);
 
@@ -1451,7 +1466,7 @@ function TodayPageInner() {
     // shape resolveCustomLessonGoalLink exists to prevent. Continuations are the
     // one sanctioned instance of it, so they get their own query here rather
     // than either existing filter being widened.
-    const [projectedRowsResult, oneOffRowsResult, continuationRowsResult] = await Promise.all([
+    const [projectedRowsResult, oneOffRowsResult, continuationRowsResult, unslottedTodayResult] = await Promise.all([
       projectedGoalIds.length > 0
         ? supabase
             .from("lessons")
@@ -1472,6 +1487,19 @@ function TodayPageInner() {
         .eq("user_id", effectiveUserId)
         .eq("scheduled_source", "continuation")
         .or(`date.eq.${today},scheduled_date.eq.${today}`),
+      // Curriculum lessons with no queue slot that hold one of today's
+      // lessons: unfinished and dated today, or finished today. The projector
+      // spends today's capacity on exactly these (DayHold, doneTodayHolds), so
+      // each must be on the list or today would show fewer lessons with
+      // nothing in their place. Plan shows the same rows on their day. They
+      // carry no slot and are never matched to one.
+      supabase
+        .from("lessons")
+        .select("id, title, completed, child_id, hours, minutes_spent, subjects(name, color), curriculum_goals(subject_label), curriculum_goal_id, lesson_number, queue_position, notes, scheduled_date, date, is_backfill, skipped")
+        .eq("user_id", effectiveUserId)
+        .not("curriculum_goal_id", "is", null)
+        .is("queue_position", null)
+        .or(`and(completed.eq.false,scheduled_date.eq.${today}),and(completed.eq.true,completed_at.gte."${todayStartIso}",completed_at.lt."${tomorrowStartIso}")`),
     ]);
     // Reconcile each goal's cached scheduled_date with the projector, one
     // goal at a time. Per goal (not a cross-goal cartesian fetch) because the
@@ -1487,7 +1515,7 @@ function TodayPageInner() {
           supabase,
           goal,
           vacationBlocks,
-          completedTodayPerGoal.get(goal.id) ?? 0,
+          { slotted: completedTodayPerGoal.get(goal.id) ?? 0, unslotted: unslottedDoneTodayPerGoal.get(goal.id) ?? 0 },
         ),
       ),
     );
@@ -1525,6 +1553,10 @@ function TodayPageInner() {
       const merged = [
         ...((oneOffRowsResult.data ?? []) as unknown as LoadedLessonRow[]),
         ...((continuationRowsResult.data ?? []) as unknown as LoadedLessonRow[]),
+        // Skips take no day, and a lesson of an archived curriculum is not on
+        // Today; both filtered here rather than with a second .or().
+        ...((unslottedTodayResult.data ?? []) as unknown as (LoadedLessonRow & { skipped: boolean | null })[])
+          .filter((r) => !r.skipped && r.curriculum_goal_id != null && goalById.has(r.curriculum_goal_id)),
       ];
       const seen = new Set<string>();
       return merged.filter((r) => {
@@ -2532,7 +2564,7 @@ function TodayPageInner() {
         ? { minutes_spent: args.minutes, hours: args.minutes / 60.0 }
         : undefined;
 
-    const { error } = await completeLessonOnDate(supabase, {
+    const { error, filedDate, inPlace } = await completeLessonOnDate(supabase, {
       lessonId: lesson.id,
       dateStr,
       choice,
@@ -2550,13 +2582,13 @@ function TodayPageInner() {
       return false;
     }
 
+    // A lesson completed in place keeps its own dates (completesInPlace).
     const updatedLessons = lessons.map((l) =>
       l.id === lesson.id
         ? {
             ...l,
             completed: true,
-            scheduled_date: dateStr,
-            date: dateStr,
+            ...(inPlace ? {} : { scheduled_date: filedDate, date: filedDate }),
             ...(args.minutes != null
               ? { minutes_spent: args.minutes, hours: args.minutes / 60.0 }
               : {}),
@@ -2609,9 +2641,10 @@ function TodayPageInner() {
     // on the same lesson so a wrong day is one tap from right.
     if (!args.silent) {
       setCompletionToast({
-        message: `Logged for ${completionLabelDate(dateStr)}`,
+        message: `Logged for ${completionLabelDate(filedDate)}`,
+        inPlace,
         lesson,
-        plannedDate: dateStr,
+        plannedDate: filedDate,
         minutes: args.minutes ?? null,
         surface,
       });
@@ -2631,6 +2664,18 @@ function TodayPageInner() {
     minutes?: number | null;
   }) {
     const plannedDate = args.lesson.scheduled_date ?? args.lesson.date ?? null;
+    // A curriculum lesson with no queue slot is filed under its own day and
+    // never moved, so there is no day to choose (completesInPlace).
+    if (completesInPlace(args.lesson) && args.lesson.scheduled_date) {
+      await runCompletion({
+        lesson: args.lesson,
+        dateStr: args.lesson.scheduled_date,
+        choice: args.lesson.scheduled_date === today ? "today" : "planned",
+        surface: args.surface,
+        minutes: args.minutes ?? null,
+      });
+      return;
+    }
     if (needsDateChoice(plannedDate, today)) {
       setCompletionChoice({
         lesson: args.lesson,
@@ -2894,7 +2939,7 @@ function TodayPageInner() {
         .eq("user_id", effectiveUserId),
       supabase
         .from("lessons")
-        .select("curriculum_goal_id")
+        .select("curriculum_goal_id, queue_position")
         .eq("user_id", effectiveUserId)
         .eq("completed", true)
         .gte("completed_at", todayStartIso)
@@ -2908,10 +2953,12 @@ function TodayPageInner() {
     // so the future pool starts at the correct lesson_number. Without
     // this, "Log extras" would offer current_lesson + 2 onwards (the
     // un-fixed projection) and skip a lesson the user hasn't done.
+    // Queue lessons only; unslotted ones finished today are already day holds
+    // in pinsByGoal (see loadData and splitDoneToday).
     const completedTodayPerGoal = new Map<string, number>();
-    for (const row of (completedTodayRaw ?? []) as { curriculum_goal_id: string | null }[]) {
+    for (const row of (completedTodayRaw ?? []) as { curriculum_goal_id: string | null; queue_position: number | null }[]) {
       const gid = row.curriculum_goal_id;
-      if (!gid) continue;
+      if (!gid || !splitDoneToday([row]).slotted) continue;
       completedTodayPerGoal.set(gid, (completedTodayPerGoal.get(gid) ?? 0) + 1);
     }
 
@@ -7030,6 +7077,9 @@ function TodayPageInner() {
             <p className="flex-1 text-[13px] font-medium leading-snug min-w-0">
               {completionToast.message}
             </p>
+            {/* A lesson with no queue slot is filed under its own day, so
+                there is no other day to change it to (completesInPlace). */}
+            {!completionToast.inPlace && (
             <button
               type="button"
               onClick={() => {
@@ -7047,6 +7097,7 @@ function TodayPageInner() {
             >
               Change
             </button>
+            )}
           </div>
         </div>
       )}

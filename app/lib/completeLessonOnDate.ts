@@ -171,8 +171,39 @@ export interface CompleteLessonArgs {
 }
 
 export interface CompleteLessonResult {
-  payload: CompletionPayload;
+  /** What was written for a queue lesson; null when completed in place. */
+  payload: CompletionPayload | null;
+  /** The day the completion is filed under, as stored on the row. */
+  filedDate: string;
+  /** True for a curriculum lesson with no queue slot (completesInPlace). */
+  inPlace: boolean;
   error: { message: string } | null;
+}
+
+/**
+ * A curriculum lesson with no queue slot is completed WHERE IT STANDS.
+ *
+ * Its date is the only placement it has (the projector never places it), so a
+ * completion must not move it, and its pin and source are the family's own
+ * record of how it got there. Reopening it restores exactly the same row
+ * (reopen_lesson, 20261006000000). Completion therefore writes `completed` and
+ * `completed_at` and nothing else: no date, no source, no pin, no backfill flag,
+ * and never a queue slot. It is filed under its own day, so there is nothing to
+ * choose and the date chooser is not shown for it.
+ *
+ * One-off lessons (no curriculum) keep the ordinary rule.
+ */
+export function completesInPlace(lesson: {
+  curriculum_goal_id?: string | null;
+  queue_position?: number | null;
+  scheduled_date?: string | null;
+}): boolean {
+  return !!lesson.curriculum_goal_id && lesson.queue_position === null && !!lesson.scheduled_date;
+}
+
+/** completed_at for an in-place completion filed under `filedDate`, by the same rule as buildCompletionPayload's "planned". */
+export function inPlaceCompletedAt(filedDate: string, todayStr: string, now: Date = new Date()): string {
+  return filedDate >= todayStr ? now.toISOString() : `${filedDate}T12:00:00Z`;
 }
 
 /**
@@ -187,6 +218,41 @@ export async function completeLessonOnDate(
   supabase: SupabaseClient,
   args: CompleteLessonArgs,
 ): Promise<CompleteLessonResult> {
+  // Decided from the stored row, not the caller's copy of it, so a stale screen
+  // can never move or unpin a lesson that has no queue slot.
+  const { data: stored, error: readErr } = await supabase
+    .from("lessons")
+    .select("curriculum_goal_id, queue_position, scheduled_date")
+    .eq("id", args.lessonId)
+    .maybeSingle();
+  if (readErr) return { payload: null, filedDate: args.dateStr, inPlace: false, error: readErr };
+  const row = stored as { curriculum_goal_id: string | null; queue_position: number | null; scheduled_date: string | null } | null;
+  if (row && completesInPlace(row)) {
+    const filedDate = row.scheduled_date as string;
+    const completedAt = inPlaceCompletedAt(filedDate, args.todayStr, args.now);
+    // Conditional on the row still being unslotted on that day: if it changed
+    // since the read, nothing is written and the caller is told.
+    const { data: written, error } = await supabase
+      .from("lessons")
+      .update({ ...(args.extra ?? {}), completed: true, completed_at: completedAt })
+      .eq("id", args.lessonId)
+      .is("queue_position", null)
+      .eq("scheduled_date", filedDate)
+      .select("id");
+    if (error) return { payload: null, filedDate, inPlace: true, error };
+    if (!written || written.length !== 1) {
+      return { payload: null, filedDate, inPlace: true, error: { message: "lesson changed before it could be completed" } };
+    }
+    const choice: CompletionChoice = filedDate === args.todayStr ? "today" : "planned";
+    args.track?.({
+      lesson_number: args.lessonNumber ?? null,
+      subject_label: args.subjectLabel ?? null,
+      lesson_date: filedDate,
+      date_choice: choice,
+      surface: args.surface,
+    });
+    return { payload: null, filedDate, inPlace: true, error: null };
+  }
   const payload = buildCompletionPayload({
     dateStr: args.dateStr,
     choice: args.choice,
@@ -198,7 +264,7 @@ export async function completeLessonOnDate(
     .from("lessons")
     .update({ ...(args.extra ?? {}), ...payload })
     .eq("id", args.lessonId);
-  if (error) return { payload, error };
+  if (error) return { payload, filedDate: payload.date, inPlace: false, error };
   args.track?.(
     buildLessonCompletedEvent({
       payload,
@@ -208,7 +274,7 @@ export async function completeLessonOnDate(
       subjectLabel: args.subjectLabel,
     }),
   );
-  return { payload, error: null };
+  return { payload, filedDate: payload.date, inPlace: false, error: null };
 }
 
 /**

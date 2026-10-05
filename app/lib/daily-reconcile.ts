@@ -18,7 +18,7 @@
 // same rules as Today and the parent re-dates (resyncGoalsForParent).
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { planDailyReconcile, toGoalConfig, type GoalConfigRow, type VacationBlock } from "./scheduler.ts";
+import { planDailyReconcile, splitDoneToday, toGoalConfig, type DoneTodaySplit, type GoalConfigRow, type VacationBlock } from "./scheduler.ts";
 import { addDays, startOfDayInTzAsUtc, ymdInTz } from "./timezone.ts";
 
 export type ReconcileStatus =
@@ -88,17 +88,18 @@ export async function reconcileForDay(
     const vacations = ((vac ?? []) as VacationBlock[]).map((v) => ({ start_date: v.start_date, end_date: v.end_date }));
     return { goals: goals as unknown as RawGoal[], vacations };
   };
-  const doneTodayFor = async (goalId: string): Promise<number | null> => {
+  const doneTodayFor = async (goalId: string): Promise<DoneTodaySplit | null> => {
     const { data, error } = await supabase
       .from("lessons")
-      .select("id")
+      .select("id, queue_position")
       .eq("user_id", userId)
       .eq("curriculum_goal_id", goalId)
       .eq("completed", true)
       .gte("completed_at", dayStart)
       .lt("completed_at", dayEnd);
     if (error || !data) return null;
-    return (data as unknown[]).length;
+    // Queue lessons rewind onto today; unslotted ones hold today (splitDoneToday).
+    return splitDoneToday(data as { queue_position: number | null }[]);
   };
 
   let shared = await loadShared();
@@ -125,7 +126,8 @@ export async function reconcileForDay(
           vacations: shared.vacations.map((v) => [v.start_date, v.end_date]),
           pins: plan.pins,
           skipped: plan.skipped,
-          done_today: doneToday,
+          // apply_daily_reconcile checks every completion today, slotted or not.
+          done_today: doneToday.slotted + doneToday.unslotted,
           day_start: dayStart,
           day_end: dayEnd,
         },

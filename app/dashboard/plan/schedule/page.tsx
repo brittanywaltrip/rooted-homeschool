@@ -22,7 +22,7 @@ import {
   withSameCountEveryDay,
   type PerDayShape,
 } from "@/app/lib/builder-pace";
-import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, dayHoldsFromRows, type PinnableRow, type PinnedSlot, type DayHold, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, dayHoldsFromRows, splitDoneToday, doneTodayHolds, type PinnableRow, type PinnedSlot, type DayHold, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
@@ -900,7 +900,7 @@ function rowScheduleFor(
   // The next QUEUE lesson: a lesson already done today (shown back on today)
   // and a make-up (Invariant 23) both sit at or below the pointer and are not it.
   const nextQueued = projected.find((p) => p.lesson_number > previewCurrent);
-  const pace = calcPace(row, today, nextQueued?.date, vacations, skippedSlots);
+  const pace = calcPace(row, today, nextQueued?.date, vacations, skippedSlots, goalDayHolds);
   return {
     branch,
     history,
@@ -936,6 +936,7 @@ function calcPace(
   fromYmd?: string,
   vacations: SchedVacationBlock[] = [],
   skippedSlots: readonly number[] = [],
+  dayHolds: readonly DayHold[] = [],
 ): Pace | null {
   if (row.type !== "curriculum") return null;
   if (!row.total_lessons || row.total_lessons <= 0) return null;
@@ -960,6 +961,9 @@ function calcPace(
     // the month quoted for it too.
     vacations,
     skippedSlots,
+    // Days an unslotted lesson already holds have less room (DayHold), so the
+    // finish month is the one the preview and the save will actually reach.
+    dayHolds,
   });
   if (!finish) return null;
   return {
@@ -1443,7 +1447,7 @@ function ScheduleBuilderPageInner() {
             .eq("completed", false),
           supabase
             .from("lessons")
-            .select("curriculum_goal_id")
+            .select("curriculum_goal_id, queue_position")
             .eq("user_id", effectiveUserId)
             .eq("completed", true)
             .gte("completed_at", today.toISOString())
@@ -1490,9 +1494,16 @@ function ScheduleBuilderPageInner() {
             holds.push(...dayHoldsFromRows([r], goalId));
             dayHoldsByGoal.set(goalId, holds);
           }
+          // Queue lessons through the rewind, unslotted ones as holds on today
+          // (splitDoneToday), exactly as the save plans.
           const doneTodayByGoal = new Map<string, number>();
-          for (const r of (doneTodayResp.data ?? []) as { curriculum_goal_id: string | null }[]) {
-            if (r.curriculum_goal_id) doneTodayByGoal.set(r.curriculum_goal_id, (doneTodayByGoal.get(r.curriculum_goal_id) ?? 0) + 1);
+          for (const r of (doneTodayResp.data ?? []) as { curriculum_goal_id: string | null; queue_position: number | null }[]) {
+            if (!r.curriculum_goal_id) continue;
+            if (splitDoneToday([r]).slotted) {
+              doneTodayByGoal.set(r.curriculum_goal_id, (doneTodayByGoal.get(r.curriculum_goal_id) ?? 0) + 1);
+            } else {
+              dayHoldsByGoal.set(r.curriculum_goal_id, [...(dayHoldsByGoal.get(r.curriculum_goal_id) ?? []), ...doneTodayHolds(1, ymd(today))]);
+            }
           }
           setPreviewLive({ pinsByGoal, dayHoldsByGoal, doneTodayByGoal });
         }
@@ -3017,13 +3028,19 @@ function ScheduleBuilderPageInner() {
           assertApplied(settingsOnly);
         };
         const doneToday = countDoneToday(beforeRows, dayStart.toISOString(), dayEnd.toISOString());
+        // The projector takes today's finished QUEUE lessons through its rewind
+        // and the finished unslotted ones as holds on today (splitDoneToday);
+        // the pre-save check below subtracts all of them, as the database does.
+        const doneTodaySplit = splitDoneToday(
+          beforeRows.filter((r) => countDoneToday([r], dayStart.toISOString(), dayEnd.toISOString()) === 1),
+        );
         const upcoming = computeNextLessonsForGoal(
           goalConfig,
           forwardAnchor,
           3650,
           vacations,
-          isNewGoal ? 0 : doneToday,
-          holds,
+          isNewGoal ? 0 : doneTodaySplit.slotted,
+          isNewGoal ? holds : [...holds, ...doneTodayHolds(doneTodaySplit.unslotted, ymd(todayMid))],
         );
         if (upcoming.length === 0) { await commitSettingsOnly(); return; }
 
