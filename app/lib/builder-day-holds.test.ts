@@ -138,3 +138,16 @@ test("the post-save monitor counts an unslotted lesson as room taken, never as a
     plan: { unpin_ids: [], makeup_ids: [], delete_ids: [], inserts: [], redates: [], retire_above: null, retire_keep_ids: [] } });
   assert.deepEqual(seen.overCapacity, []);
 });
+
+test("no-op check: family-placed unslotted lessons alone never force a rebuild; a queue lesson on their full day does", async () => {
+  const { isPhase2NoOp } = await import("./scheduler.ts");
+  const row = (id: string, n: number | null, slot: number | null, day: number, extra: Record<string, unknown> = {}) =>
+    ({ id, lesson_number: n, queue_position: slot, completed: false, queue_pinned: false, skipped: false, scheduled_date: ymd(day), date: ymd(day), ...extra });
+  const base = { deletedIds: new Set<string>(), workRowIds: new Set<string>(), toInsert: [], histToInsertCount: 0, projDateBySlot: new Map<number, string>(), releasesPins: false, totalLessons: 20, todayYmd: ymd(0), perDayAllowed: () => 1 };
+  // Two unslotted lessons the family put on one one-a-day day, queue lessons elsewhere.
+  const familyOverload = [row("u1", 5, null, 3), row("u2", 6, null, 3, { notes: "" }), row("q7", 7, 7, 0), row("q8", 8, 8, 4)];
+  assert.equal(isPhase2NoOp({ ...base, beforeRows: familyOverload }).noop, true);
+  // A queue lesson stored on a day an unslotted lesson already fills is the scheduler's overfill.
+  const stacked = [row("u1", 5, null, 1), row("q7", 7, 7, 1)];
+  assert.deepEqual(isPhase2NoOp({ ...base, beforeRows: stacked }), { noop: false, reason: `${ymd(1)} holds 2 lessons` });
+});

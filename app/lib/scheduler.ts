@@ -2749,13 +2749,25 @@ export function isPhase2NoOp(a: Phase2NoOpArgs): { noop: boolean; reason: string
     if (d.scheduled_date !== t.scheduled_date || d.date !== t.date) return { noop: false, reason: `lesson ${t.lesson_number} moves` };
     if (d.title != null && d.title !== t.title) return { noop: false, reason: `lesson ${t.lesson_number} is retitled` };
   }
+  // Queue lessons the scheduler placed, against the room the day has left
+  // after the lessons with no queue slot (DayHold). Those are the family's
+  // placements: a rebuild never moves them, so a day they overfill on their
+  // own is not a reason to rebuild, and rebuilding for it repeated on every
+  // save. Pins stay exempt, as before.
   const perDate = new Map<string, number>();
+  const heldByDate = new Map<string, number>();
   for (const r of a.beforeRows) {
-    if (r.completed || r.queue_pinned || r.skipped || !r.scheduled_date || r.scheduled_date < a.todayYmd) continue;
+    if (r.completed || r.skipped || !r.scheduled_date || r.scheduled_date < a.todayYmd) continue;
+    if (r.queue_position == null) {
+      heldByDate.set(r.scheduled_date, (heldByDate.get(r.scheduled_date) ?? 0) + 1);
+      continue;
+    }
+    if (r.queue_pinned) continue;
     perDate.set(r.scheduled_date, (perDate.get(r.scheduled_date) ?? 0) + 1);
   }
   for (const [ymd, n] of perDate) {
-    if (n > a.perDayAllowed(ymd)) return { noop: false, reason: `${ymd} holds ${n} lessons` };
+    const held = heldByDate.get(ymd) ?? 0;
+    if (n > Math.max(0, a.perDayAllowed(ymd) - held)) return { noop: false, reason: `${ymd} holds ${n + held} lessons` };
   }
   return { noop: true, reason: "schedule already matches the projector" };
 }
