@@ -3753,9 +3753,12 @@ function ScheduleBuilderPageInner() {
             scheduled_date: r.scheduled_date,
             notes: null,
             minutes_spent: null,
-            // Every unpinned unfinished row counts as scheduler-placed here:
-            // the strictest reading of Invariant 2 on what is actually stored.
-            placed: !(r.queue_pinned ?? false),
+            // Every unpinned unfinished queue row counts as scheduler-placed
+            // here: the strictest reading of Invariant 2 on what is actually
+            // stored. A lesson with no queue slot is never placed by the
+            // scheduler; it only takes room on its day (DayHold), so a family
+            // that put two of them on one day is not reported as a breach.
+            placed: !(r.queue_pinned ?? false) && r.queue_position != null,
             inserted: false,
           }));
           const seen = validatePhase2End({

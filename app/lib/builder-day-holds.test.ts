@@ -127,3 +127,14 @@ test("every projecting surface reads the same rule", () => {
   assert.match(src, /const holds: QueueHold\[\] = \[\.\.\.skippedSlotsFromRows\(rows\), \.\.\.dayHoldsFromRows\(rows, goal\.id\)\];/, "the parent re-spread leaves room for them");
   assert.match(src, /const holds: QueueHold\[\] = \[\.\.\.pins, \.\.\.skippedSlots, \.\.\.dayHolds\];/, "the Builder plans around them");
 });
+
+test("the post-save monitor counts an unslotted lesson as room taken, never as a scheduler placement", () => {
+  const page = readFileSync(new URL("../dashboard/plan/schedule/page.tsx", import.meta.url), "utf8");
+  assert.match(page, /placed: !\(r\.queue_pinned \?\? false\) && r\.queue_position != null,/);
+  // Two family-placed unslotted lessons on a one-a-day day: no breach under that rule.
+  const day = ymd(3);
+  const end: Phase2EndRow[] = ["a", "b"].map((id) => ({ id, lesson_number: null, queue_position: null, completed: false, queue_pinned: false, skipped: false, scheduled_date: day, notes: null, minutes_spent: null, placed: false, inserted: false }));
+  const seen = validatePhase2End({ beforeRows: [], endRows: end, todayYmd: ymd(0), doneToday: 0, currentLesson: 0, perDayAllowed: () => 1,
+    plan: { unpin_ids: [], makeup_ids: [], delete_ids: [], inserts: [], redates: [], retire_above: null, retire_keep_ids: [] } });
+  assert.deepEqual(seen.overCapacity, []);
+});
