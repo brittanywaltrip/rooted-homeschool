@@ -1,5 +1,6 @@
 -- Synthetic-only assertions for 20261001000000 (settings and lessons commit
--- together). Load stub.sql, all Builder migrations and unslotted.sql first.
+-- together). Load stub.sql, live-triggers.sql, all Builder migrations and
+-- unslotted.sql first.
 -- No production connection or customer ids.
 create temporary table atomic_checks (label text primary key);
 create function pg_temp.check(ok boolean, label text) returns void language plpgsql as $$
@@ -8,29 +9,8 @@ begin
   insert into atomic_checks values (label);
 end $$;
 
--- The production triggers a settings write can fire (copied from the live
--- definitions): the empty school_days guard and the orphan cleanup that runs
--- when current_lesson rises.
-create function public.enforce_curriculum_school_days_nonempty() returns trigger language plpgsql as $$
-begin
-  if new.school_days is null or cardinality(new.school_days) = 0 then new.school_days := array['Mon','Tue','Wed','Thu','Fri']; end if;
-  return new;
-end $$;
-create trigger curriculum_goals_school_days_guard before insert or update on public.curriculum_goals
-  for each row execute function public.enforce_curriculum_school_days_nonempty();
-create function public.curriculum_goals_cleanup_orphans_trg() returns trigger language plpgsql as $$
-begin
-  if current_setting('rooted.skip_orphan_cleanup', true) = 'true' then return new; end if;
-  if new.current_lesson > old.current_lesson then
-    perform set_config('rooted.skip_orphan_cleanup', 'true', true);
-    update public.lessons set scheduled_date = null
-     where curriculum_goal_id = new.id and completed = false and scheduled_date is not null and queue_pinned = false
-       and lesson_number is not null and lesson_number <= new.current_lesson and (notes is null or notes = '');
-  end if;
-  return new;
-end $$;
-create trigger trg_curriculum_goals_cleanup_orphans after update of current_lesson on public.curriculum_goals
-  for each row when (new.current_lesson is distinct from old.current_lesson) execute function public.curriculum_goals_cleanup_orphans_trg();
+-- The production triggers a settings write can fire are in live-triggers.sql,
+-- loaded before the migrations.
 
 -- Six lessons: 1 done (slot 1), 2 unslotted pinned past, 3..6 forward slots 3..6.
 create function pg_temp.reset_atomic() returns void language plpgsql as $$

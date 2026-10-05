@@ -43,3 +43,13 @@ No app dependency was added. The harness creates only an in-memory database. It 
 7. Only then prepare a fresh completion-only preview for the remaining risk lessons, with separate decisions for the Oct 2 lesson and Option B. Rehearse that recovery script and re-freeze immediately before any approved apply.
 
 No production database change, customer contact, routine enablement, or recovery apply was made while preparing this patch.
+
+## Follow-up: dates of unslotted lessons when the pointer rises (20261005000000)
+
+The guard above protects unslotted rows from the rebuild's own writes. One path still changed them: the orphan cleanup trigger (`trg_curriculum_goals_cleanup_orphans`) cleared `scheduled_date` on every unfinished, unpinned, note-free lesson at or below a raised `current_lesson`, with or without a queue slot. Raising the starting lesson in the Builder (and any other pointer rise) therefore removed the date a family had chosen for an unslotted lesson. Its pin, notes and minutes were never touched.
+
+- The cleanup now adds `queue_position IS NOT NULL`. Slotted orphans are released exactly as before; unslotted lessons keep every column.
+- The five-argument `apply_builder_rebuild` compares unslotted rows against the snapshot taken before its settings write, so a settings write that changes one is refused and rolled back.
+- The Builder's prediction (`afterOrphanCleanup`) applies the same rule. A test checks the client rule against the migration text.
+
+Release: migration first, then the client. Between the two, an old client saving a raised starting lesson for a goal that has an unslotted, unpinned, dated, note-free lesson at or below the new pointer gets a stale refusal with nothing written. Rollback: client first, then `supabase/rollbacks/apply_builder_rebuild_unslotted_dates.sql`, which restores the exact previous bodies (trigger md5 `1f0dc993d0b17dea8d9aa086cb449128`, rebuild md5 `cd42d97e39e060c98cf3e610c33bcbf5`).

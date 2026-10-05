@@ -101,17 +101,19 @@ export function pointerFor(a: { startAtLesson: number | null; totalLessons: numb
   return a.totalLessons != null ? Math.min(value, a.totalLessons) : value;
 }
 
-type CleanupRow = { completed: boolean; scheduled_date: string | null; queue_pinned: boolean | null; lesson_number: number | null; notes: string | null };
+type CleanupRow = { completed: boolean; scheduled_date: string | null; queue_pinned: boolean | null; lesson_number: number | null; queue_position: number | null; notes: string | null };
 
 /**
  * The rows the orphan cleanup trigger leaves when the pointer rises from
  * `from` to `to` (trg_curriculum_goals_cleanup_orphans). The plan is made
- * against these, and the database checks it saw the same.
+ * against these, and the database checks it saw the same. Only slotted rows
+ * are released (20261005000000): a lesson with no queue slot keeps the date
+ * the family gave it.
  */
 export function afterOrphanCleanup<R extends CleanupRow>(rows: readonly R[], from: number, to: number): R[] {
   if (!(to > from)) return rows.slice();
   return rows.map((r) =>
-    !r.completed && r.scheduled_date != null && !(r.queue_pinned ?? false) && r.lesson_number != null &&
+    !r.completed && r.scheduled_date != null && r.queue_position != null && !(r.queue_pinned ?? false) && r.lesson_number != null &&
     r.lesson_number <= to && (r.notes == null || r.notes === "")
       ? { ...r, scheduled_date: null }
       : r,

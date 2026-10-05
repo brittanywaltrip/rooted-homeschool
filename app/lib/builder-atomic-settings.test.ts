@@ -22,12 +22,35 @@ test("the pointer follows the database rule", () => {
 });
 
 test("the orphan cleanup prediction mirrors the trigger", () => {
-  const row = (n: number, extra: Record<string, unknown> = {}) => ({ id: `r${n}`, lesson_number: n, completed: false, scheduled_date: "2026-10-05", queue_pinned: false, notes: null, ...extra });
+  const row = (n: number, extra: Record<string, unknown> = {}) => ({ id: `r${n}`, lesson_number: n, queue_position: n as number | null, completed: false, scheduled_date: "2026-10-05", queue_pinned: false, notes: null, ...extra });
   const rows = [row(3), row(4, { queue_pinned: true }), row(5, { notes: "parent" }), row(6, { completed: true }), row(7, { scheduled_date: null }), row(8), row(9)];
   const after = afterOrphanCleanup(rows, 5, 8);
   assert.deepEqual(after.map((r) => r.scheduled_date), [null, "2026-10-05", "2026-10-05", "2026-10-05", null, null, "2026-10-05"]);
   assert.deepEqual(afterOrphanCleanup(rows, 8, 8), rows, "a pointer that does not rise runs no cleanup");
   assert.equal(rows[0].scheduled_date, "2026-10-05", "the input rows are not mutated");
+});
+
+test("a lesson with no queue slot keeps its date when the pointer rises", () => {
+  const row = (n: number, extra: Record<string, unknown> = {}) => ({ id: `r${n}`, lesson_number: n, queue_position: n as number | null, completed: false, scheduled_date: "2026-10-05", queue_pinned: false, notes: null, minutes_spent: null as number | null, ...extra });
+  const rows = [
+    row(2, { queue_position: null, minutes_spent: 20 }),
+    row(3, { queue_position: null, notes: "" }),
+    row(4),
+  ];
+  const after = afterOrphanCleanup(rows, 1, 6);
+  assert.deepEqual(after[0], rows[0], "unslotted lesson with minutes: unchanged");
+  assert.deepEqual(after[1], rows[1], "unslotted plan-move lesson: unchanged");
+  assert.equal(after[2].scheduled_date, null, "the slotted orphan is still released");
+});
+
+test("the prediction and the migration use the same rule", () => {
+  const mig = readFileSync(new URL("../../supabase/migrations/20261005000000_apply_builder_rebuild_unslotted_dates.sql", import.meta.url), "utf8");
+  const trigger = mig.slice(mig.indexOf("create or replace function public.curriculum_goals_cleanup_orphans_trg()"), mig.indexOf("$function$;"));
+  for (const condition of ["completed = false", "scheduled_date IS NOT NULL", "queue_position IS NOT NULL", "queue_pinned = false", "lesson_number IS NOT NULL", "lesson_number <= NEW.current_lesson", "(notes IS NULL OR notes = '')"]) {
+    assert.ok(trigger.includes(condition), `trigger keeps: ${condition}`);
+  }
+  assert.ok(/security definer\n set search_path = public, pg_temp/.test(trigger), "trigger keeps its security definer and search path");
+  assert.ok(!mig.includes("as the settings left them"), "the rebuild no longer re-reads unslotted rows after its settings write");
 });
 
 const plan: Phase2CommitPlan = { unpin_ids: [], makeup_ids: [], delete_ids: [], inserts: [], redates: [], retire_above: null, retire_keep_ids: [] };

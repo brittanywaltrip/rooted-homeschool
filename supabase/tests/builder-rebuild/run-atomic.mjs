@@ -1,7 +1,8 @@
 // Local synthetic PostgreSQL rehearsal of 20261001000000 without a server.
 // Pass the absolute path to an independently installed @electric-sql/pglite/dist/index.js.
 // Runs the 20260930200903 assertions against the new function first, then the
-// atomic settings assertions. No app dependency or remote database is used.
+// atomic settings assertions, then the 20261005000000 unslotted-date
+// assertions and a rollback round trip. No app dependency or remote database is used.
 import { readFileSync, readdirSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -12,6 +13,7 @@ const db = new PGlite();
 try {
   const sql = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
   await db.exec(sql('./stub.sql').replace('create extension if not exists pgcrypto;', '-- Built-in gen_random_uuid.'));
+  await db.exec(sql('./live-triggers.sql'));
   const migrations = readdirSync(new URL('../../migrations/', import.meta.url)).filter(n => n.includes('apply_builder_rebuild')).sort();
   for (const name of migrations) await db.exec(sql(`../../migrations/${name}`));
   console.log(`loaded ${migrations.length} migrations, last ${migrations.at(-1)}`);
@@ -21,6 +23,10 @@ try {
   const rows = (await db.query('select label from atomic_checks order by label')).rows;
   for (const r of rows) console.log('  ok', r.label);
   console.log(`PASS ${rows.length} atomic settings assertions`);
+  await db.exec(sql('./unslotted-dates.sql'));
+  const dates = (await db.query('select label from dates_checks order by label')).rows;
+  for (const r of dates) console.log('  ok', r.label);
+  console.log(`PASS ${dates.length} unslotted date assertions`);
   const assert = (await import('node:assert/strict')).default;
   await db.query("select pg_temp.reset_atomic()");
   const [{ e }] = (await db.query("select pg_temp.expected_now() || jsonb_build_object('current_lesson_after', 1, 'rows_after_settings', pg_temp.rows_now()) e")).rows;
@@ -43,6 +49,19 @@ try {
   const log = (await db.query("select has_table_privilege('authenticated','rooted_private.builder_commit_log','select') s")).rows[0].s;
   assert.equal(log, false);
   console.log('PASS the commit log is not readable by families');
+  // Rollback round trip: the rollback restores the exact live bodies, and the
+  // migration re-applies cleanly over them.
+  const md5s = async () => (await db.query("select (select md5(prosrc) from pg_proc where proname='curriculum_goals_cleanup_orphans_trg') trg, (select md5(prosrc) from pg_proc where oid='public.apply_builder_rebuild(uuid,date,jsonb,jsonb,jsonb)'::regprocedure) rpc")).rows[0];
+  const after = await md5s();
+  const trgAttrs = async () => (await db.query("select prosecdef, proconfig from pg_proc where proname='curriculum_goals_cleanup_orphans_trg'")).rows[0];
+  assert.deepEqual(await trgAttrs(), { prosecdef: true, proconfig: ['search_path=public, pg_temp'] });
+  await db.exec(sql('../../rollbacks/apply_builder_rebuild_unslotted_dates.sql'));
+  assert.deepEqual(await md5s(), { trg: '1f0dc993d0b17dea8d9aa086cb449128', rpc: 'cd42d97e39e060c98cf3e610c33bcbf5' });
+  assert.deepEqual(await trgAttrs(), { prosecdef: true, proconfig: ['search_path=public, pg_temp'] });
+  const migs = readdirSync(new URL('../../migrations/', import.meta.url)).filter(n => n.includes('unslotted_dates'));
+  await db.exec(sql(`../../migrations/${migs[0]}`));
+  assert.deepEqual(await md5s(), after);
+  console.log(`PASS rollback restores the live bodies and the migration re-applies (trigger ${after.trg}, rebuild ${after.rpc})`);
 } catch (err) {
   console.error({ message: err.message, where: err.where, detail: err.detail });
   process.exitCode = 1;
