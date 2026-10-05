@@ -365,7 +365,9 @@ async function planGoalResync(
   // Skips are loaded alongside pins and travel in the same array, so the
   // projection steps over a skipped slot here exactly as every read surface
   // does (see SkippedSlot).
-  const pins: QueueHold[] = skippedSlotsFromRows(rows);
+  // Day holds too (see DayHold): the cache must leave room on the days an
+  // unslotted lesson holds, or it re-stacks what the Builder spread out.
+  const pins: QueueHold[] = [...skippedSlotsFromRows(rows), ...dayHoldsFromRows(rows, goal.id)];
   for (const r of rows) {
     if (!r.queue_pinned || r.skipped) continue;
     if (r.queue_position == null || !r.scheduled_date) continue;
@@ -462,7 +464,7 @@ export function projectionOverCap(
   // which of these pins to place, so this set can never disagree with what
   // came back in `projected`.
   const pinnedSlots = new Set(
-    pins.filter((p) => !isSkippedSlot(p) && isPinProjectable(p, goal)).map((p) => p.slot),
+    pins.filter((p): p is PinnedSlot => isPinnedSlot(p) && isPinProjectable(p, goal)).map((p) => p.slot),
   );
   const perDate = new Map<string, number>();
   for (const p of projected) {
@@ -837,7 +839,7 @@ export async function reprojectGoalForParent(
 
   // The pins that survive this operation: skips always, plus the rows the
   // caller is deliberately keeping pinned (the lesson a cascade just moved).
-  const holds: QueueHold[] = skippedSlotsFromRows(rows);
+  const holds: QueueHold[] = [...skippedSlotsFromRows(rows), ...dayHoldsFromRows(rows, goal.id)];
   for (const r of rows) {
     if (!r.queue_pinned || r.skipped || !keep.has(r.id)) continue;
     if (r.queue_position == null || !r.scheduled_date) continue;
@@ -1608,11 +1610,37 @@ export interface SkippedSlot {
   skipped: true;
 }
 
+/**
+ * A day already holding an unfinished lesson that has no queue slot: a lesson
+ * the family moved or kept off the queue (a plan move, a recovered or reopened
+ * lesson, a continuation). The projector never places it, but it is work on
+ * that day, so it spends one of the day's lessons exactly as a pin does and
+ * the queue never stacks a fresh lesson on top of it.
+ *
+ * This is the rule apply_builder_rebuild and the Builder's pre-save check
+ * (validatePhase2End) already apply: every unfinished, unskipped lesson dated
+ * on a day counts against that day, whatever its slot or pin. Without it the
+ * projector packed new lessons onto those days and the save was refused.
+ */
+export interface DayHold {
+  date: string;
+  occupies: true;
+}
+
 /** What a projector call is told about hand-made decisions on a goal's queue. */
-export type QueueHold = PinnedSlot | SkippedSlot;
+export type QueueHold = PinnedSlot | SkippedSlot | DayHold;
 
 export function isSkippedSlot(h: QueueHold): h is SkippedSlot {
   return (h as SkippedSlot).skipped === true;
+}
+
+export function isDayHold(h: QueueHold): h is DayHold {
+  return (h as DayHold).occupies === true;
+}
+
+/** A pin on a queue slot: neither a skip nor a day hold. */
+export function isPinnedSlot(h: QueueHold): h is PinnedSlot {
+  return !isSkippedSlot(h) && !isDayHold(h);
 }
 
 /**
@@ -1746,9 +1774,32 @@ export function skippedSlotsFromRows(rows: PinnableRow[], goalId?: string): Skip
   return out;
 }
 
-/** Pins and skips together, the shape every projecting surface passes. */
+/**
+ * Derive the day holds from lesson rows (see DayHold). A row contributes iff it
+ * is incomplete, not skipped, is not a one-off (curriculum_goal_id null), has NO queue slot and
+ * has a scheduled_date, pinned or not. The slot test is strict (=== null): a
+ * caller that did not select queue_position must not have every row read as
+ * unslotted. scheduled_date only, never the history `date` column, because the
+ * capacity rule in apply_builder_rebuild reads scheduled_date.
+ */
+export function dayHoldsFromRows(rows: PinnableRow[], goalId?: string): DayHold[] {
+  const out: DayHold[] = [];
+  for (const r of rows) {
+    if (r.completed || r.skipped) continue;
+    // null is a one-off lesson with no curriculum. Absent (undefined) means the
+    // caller read one curriculum's rows without selecting the column.
+    if (r.curriculum_goal_id === null) continue;
+    if (goalId !== undefined && r.curriculum_goal_id !== undefined && r.curriculum_goal_id !== goalId) continue;
+    if (r.queue_position !== null) continue;
+    if (!r.scheduled_date) continue;
+    out.push({ date: r.scheduled_date, occupies: true });
+  }
+  return out;
+}
+
+/** Pins, skips and day holds together, the shape every projecting surface passes. */
 export function queueHoldsFromRows(rows: PinnableRow[], goalId?: string): QueueHold[] {
-  return [...pinsFromRows(rows, goalId), ...skippedSlotsFromRows(rows, goalId)];
+  return [...pinsFromRows(rows, goalId), ...skippedSlotsFromRows(rows, goalId), ...dayHoldsFromRows(rows, goalId)];
 }
 
 /**
@@ -1758,8 +1809,9 @@ export function queueHoldsFromRows(rows: PinnableRow[], goalId?: string): QueueH
  * manually-moved lesson sits or which lessons the family skipped.
  *
  * Cheap by construction: only rows the user actually moved or skipped match
- * (31 pinned rows across the whole production database on 2026-07-30), so this
- * is a narrow read, not a tail scan. Never throws. On error it returns an
+ * (31 pinned rows across the whole production database on 2026-07-30), plus
+ * dated lessons with no queue slot (DayHold; 9 rows on production on
+ * 2026-10-05, all in the past), so this is a narrow read, not a tail scan. Never throws. On error it returns an
  * empty map, which degrades to exactly the pre-pin projection rather than
  * failing the page load.
  */
@@ -1772,7 +1824,7 @@ export async function loadPinsByGoal(
       .from("lessons")
       .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned, skipped")
       .eq("user_id", userId)
-      .or("queue_pinned.eq.true,skipped.eq.true")
+      .or("queue_pinned.eq.true,skipped.eq.true,and(queue_position.is.null,scheduled_date.not.is.null)")
       .eq("completed", false);
     if (error || !data) {
       if (error) {
@@ -2232,8 +2284,15 @@ export function computeNextLessonsForGoal(
   }
   const pinDateBySlot = new Map<number, string>();
   const used = new Map<string, number>();
+  // Day holds (see DayHold): an unslotted lesson dated in the window spends
+  // one of its day's lessons. It is never emitted; it only takes room.
   for (const p of pins) {
-    if (isSkippedSlot(p) || skippedSlots.has(p.slot)) continue;
+    if (!isDayHold(p)) continue;
+    if (p.date < fromDateStr || p.date >= endDateStr) continue;
+    used.set(p.date, (used.get(p.date) ?? 0) + 1);
+  }
+  for (const p of pins) {
+    if (!isPinnedSlot(p) || skippedSlots.has(p.slot)) continue;
     // isPinProjectable is the one definition of "the projector places this
     // pin" — the Schedule Builder's phase 2 guard reads the same helper.
     if (!isPinProjectable(p, goal)) continue;
@@ -2249,7 +2308,7 @@ export function computeNextLessonsForGoal(
   const makeUps: ProjectedLesson[] = [];
   const makeUpSlots = new Set<number>();
   for (const p of pins) {
-    if (isSkippedSlot(p) || skippedSlots.has(p.slot)) continue;
+    if (!isPinnedSlot(p) || skippedSlots.has(p.slot)) continue;
     if (!isMakeUpPin(p, goal, fromDateStr)) continue;
     if (p.date >= endDateStr || makeUpSlots.has(p.slot)) continue;
     makeUpSlots.add(p.slot);
@@ -2604,7 +2663,11 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
     skippedRows.map((r) => ({ ...r, curriculum_goal_id: goalId })),
     goalId,
   );
-  const holds: QueueHold[] = [...pins, ...skippedSlots];
+  // Unslotted lessons keep their dates (they are held back below), so each one
+  // spends its day's capacity in the projection, exactly as validatePhase2End
+  // and apply_builder_rebuild count it (see DayHold).
+  const dayHolds = dayHoldsFromRows(beforeRows.map((r) => ({ ...r, curriculum_goal_id: goalId })), goalId);
+  const holds: QueueHold[] = [...pins, ...skippedSlots, ...dayHolds];
   const projectableSkippedSlots = skippedSlots
     .filter((h) => isPinProjectable(h, { current_lesson: args.currentLesson, total_lessons: args.totalLessons }))
     .map((h) => h.slot);

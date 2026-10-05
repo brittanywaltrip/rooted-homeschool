@@ -10687,8 +10687,10 @@ test('builder preview: skips are loaded once and handed to every schedule line',
   assert.match(src, /\.from\("lessons"\)\s*\.select\("curriculum_goal_id, queue_position, completed, skipped"\)\s*\.eq\("user_id", effectiveUserId\)\s*\.eq\("skipped", true\)/)
   assert.match(src, /skippedSlotsFromRows\(\[r\], goalId\)/, 'the derivation planPhase2Rows uses')
   assert.match(src, /rowScheduleFor\(r, today, todayStr, vacations, skippedByGoal, previewLive\)/)
-  // Invariant 23: pins (make-ups included) and today's completions reach the preview too.
-  assert.match(src, /\.eq\("queue_pinned", true\)\s*\.eq\("completed", false\)/)
+  // Invariant 23: pins (make-ups included) and today's completions reach the preview too,
+  // and so do dated lessons with no queue slot, which hold their day (DayHold).
+  assert.match(src, /\.or\("queue_pinned\.eq\.true,and\(queue_position\.is\.null,scheduled_date\.not\.is\.null\)"\)\s*\.eq\("completed", false\)/)
+  assert.match(src, /\.\.\.keptPins, \.\.\.goalDayHolds\]/, 'the preview projects around the days unslotted lessons hold')
   assert.match(src, /doneTodayHere,\s*\[\.\.\.skippedSlots\.map/)
   assert.match(src, /nextLesson: builderNextLesson\(branch === "fresh" \? 1 : nextLesson, skippedSlots, row\.total_lessons\)/)
   assert.match(src, /const nextQueued = projected\.find\(\(p\) => p\.lesson_number > previewCurrent\);/)

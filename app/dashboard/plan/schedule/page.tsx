@@ -22,7 +22,7 @@ import {
   withSameCountEveryDay,
   type PerDayShape,
 } from "@/app/lib/builder-pace";
-import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, type PinnableRow, type PinnedSlot, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, dayHoldsFromRows, type PinnableRow, type PinnedSlot, type DayHold, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
@@ -734,8 +734,9 @@ function rowScheduleFor(
    */
   live: {
     pinsByGoal: ReadonlyMap<string, readonly PinnedSlot[]>;
+    dayHoldsByGoal: ReadonlyMap<string, readonly DayHold[]>;
     doneTodayByGoal: ReadonlyMap<string, number>;
-  } = { pinsByGoal: new Map(), doneTodayByGoal: new Map() },
+  } = { pinsByGoal: new Map(), dayHoldsByGoal: new Map(), doneTodayByGoal: new Map() },
 ): RowSchedule | null {
   if (row.type !== "curriculum") return null;
   // Ask the ROW, not compactCurriculumPerDay: that helper falls back to Mon-Fri
@@ -874,6 +875,8 @@ function rowScheduleFor(
   // A schedule change releases the live queue's pins but never a make-up.
   const goalPins = row.dbId ? (live.pinsByGoal.get(row.dbId) ?? []) : [];
   const keptPins = scheduleFieldsChangedForRow(row) ? goalPins.filter((p) => p.slot <= previewCurrent) : goalPins;
+  // Unslotted lessons keep their dates through any save, so they always hold their day.
+  const goalDayHolds = row.dbId ? (live.dayHoldsByGoal.get(row.dbId) ?? []) : [];
   const doneTodayHere = !isNew && row.dbId ? (live.doneTodayByGoal.get(row.dbId) ?? 0) : 0;
   const projected = computeNextLessonsForGoal(
     {
@@ -889,7 +892,7 @@ function rowScheduleFor(
     3650,
     vacations,
     doneTodayHere,
-    [...skippedSlots.map((slot) => ({ slot, skipped: true as const })), ...keptPins],
+    [...skippedSlots.map((slot) => ({ slot, skipped: true as const })), ...keptPins, ...goalDayHolds],
   );
 
   // The pace anchor is the next lesson's own date, so the finish month counts
@@ -1342,8 +1345,9 @@ function ScheduleBuilderPageInner() {
   const [skippedByGoal, setSkippedByGoal] = useState<ReadonlyMap<string, readonly number[]>>(new Map());
   const [previewLive, setPreviewLive] = useState<{
     pinsByGoal: ReadonlyMap<string, readonly PinnedSlot[]>;
+    dayHoldsByGoal: ReadonlyMap<string, readonly DayHold[]>;
     doneTodayByGoal: ReadonlyMap<string, number>;
-  }>({ pinsByGoal: new Map(), doneTodayByGoal: new Map() });
+  }>({ pinsByGoal: new Map(), dayHoldsByGoal: new Map(), doneTodayByGoal: new Map() });
   // What this family has typed before, newest first, for the two suggestion
   // lists. Read once with the rest of the builder; no new table.
   const [ownCurriculumNames, setOwnCurriculumNames] = useState<string[]>([]);
@@ -1428,13 +1432,14 @@ function ScheduleBuilderPageInner() {
             .eq("user_id", effectiveUserId)
             .eq("skipped", true)
             .eq("completed", false),
-          // Pins (make-ups included) and today's completions, for the preview
-          // only: the save reads both from the goal's own rows.
+          // Pins (make-ups included), dated lessons with no queue slot (they
+          // hold their day, see DayHold) and today's completions, for the
+          // preview only: the save reads all three from the goal's own rows.
           supabase
             .from("lessons")
             .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned, skipped")
             .eq("user_id", effectiveUserId)
-            .eq("queue_pinned", true)
+            .or("queue_pinned.eq.true,and(queue_position.is.null,scheduled_date.not.is.null)")
             .eq("completed", false),
           supabase
             .from("lessons")
@@ -1474,18 +1479,22 @@ function ScheduleBuilderPageInner() {
         }
         if (!pinnedResp.error && !doneTodayResp.error) {
           const pinsByGoal = new Map<string, PinnedSlot[]>();
+          const dayHoldsByGoal = new Map<string, DayHold[]>();
           for (const r of (pinnedResp.data ?? []) as PinnableRow[]) {
             const goalId = r.curriculum_goal_id;
             if (!goalId) continue;
             const list = pinsByGoal.get(goalId) ?? [];
             list.push(...pinsFromRows([r], goalId));
             pinsByGoal.set(goalId, list);
+            const holds = dayHoldsByGoal.get(goalId) ?? [];
+            holds.push(...dayHoldsFromRows([r], goalId));
+            dayHoldsByGoal.set(goalId, holds);
           }
           const doneTodayByGoal = new Map<string, number>();
           for (const r of (doneTodayResp.data ?? []) as { curriculum_goal_id: string | null }[]) {
             if (r.curriculum_goal_id) doneTodayByGoal.set(r.curriculum_goal_id, (doneTodayByGoal.get(r.curriculum_goal_id) ?? 0) + 1);
           }
-          setPreviewLive({ pinsByGoal, doneTodayByGoal });
+          setPreviewLive({ pinsByGoal, dayHoldsByGoal, doneTodayByGoal });
         }
         // Non-fatal for the same reason: without it the shared list still
         // suggests, it just does not know this family yet.
