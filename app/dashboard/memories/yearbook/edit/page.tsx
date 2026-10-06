@@ -9,12 +9,14 @@ import { capitalizeChildNames } from "@/lib/utils";
 import { signedPhotoUrl, coverBucketFor } from "@/lib/photo-url";
 import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS, COVER_MAX_DIMENSION, type PhotoStage } from "@/lib/photo-pipeline";
 import { clampFocal } from "@/lib/focal-point";
-import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
+import { orderPhotos } from "@/lib/photo-order";
 import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
 import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES } from "@/lib/yearbook-prompts";
 import { yearbookMonths, questionForMonth, monthLabel } from "@/lib/monthly-questions";
 import { createSaveQueue, type SaveQueue, type SaveState } from "@/lib/save-queue";
 import { openDraftStore, triageDrafts, type Draft, type DraftStore } from "@/lib/yearbook-drafts";
+import { saveSettingKey, profileSettingsDb } from "@/lib/yearbook-settings-save";
+import { reorderWithinGroup, writePageOrders } from "@/lib/yearbook-photo-saves";
 import {
   DndContext,
   PointerSensor,
@@ -23,7 +25,7 @@ import {
   closestCenter,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, rectSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { SortableContext, useSortable, rectSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import SignedImage from "@/components/SignedImage";
 import Link from "next/link";
@@ -85,6 +87,29 @@ const INTERVIEW_QUESTIONS = YEAR_END_QUESTIONS;
 // How long a typed field waits after the last keystroke before it is written.
 const AUTOSAVE_DELAY_MS = 800;
 
+// A tap on a theme, a section toggle, Feature/Hide or a photo drag waits this
+// long, so a quick run of taps becomes one write of the final choice.
+const CHOICE_DELAY_MS = 300;
+
+type YearbookSettings = {
+  show_letter: boolean;
+  show_year_in_numbers: boolean;
+  show_child_chapters: boolean;
+  show_favorite_things: boolean;
+  show_books_section: boolean;
+  show_family_chapter: boolean;
+  theme?: string;
+};
+const DEFAULT_YB_SETTINGS: YearbookSettings = {
+  show_letter: true,
+  show_year_in_numbers: true,
+  show_child_chapters: true,
+  show_favorite_things: true,
+  show_books_section: true,
+  show_family_chapter: true,
+  theme: "garden",
+};
+
 // "Saved" is shown only once the write is confirmed (lib/save-queue.ts). A
 // failed field keeps the mother's text in the box and offers Try again.
 function SaveStatus({ status, onRetry }: { status: SaveState; onRetry?: () => void }) {
@@ -131,14 +156,16 @@ function RepositionModal({
   memoryActions?: {
     featured: boolean;
     hidden: boolean;
-    onToggleFeatured: () => Promise<void>;
-    onToggleHidden: () => Promise<void>;
+    onToggleFeatured: () => void;
+    onToggleHidden: () => void;
+    /** The save status line for each, from the page's save queue. */
+    featuredStatus?: ReactNode;
+    hiddenStatus?: ReactNode;
   } | null;
 }) {
   const [focal, setFocal] = useState<Focal>(initialFocal ?? { x: 0.5, y: 0.5 });
   const [saving, setSaving] = useState(false);
   const [commitFailed, setCommitFailed] = useState(false);
-  const [actionBusy, setActionBusy] = useState(false);
   const frameRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ sx: number; sy: number; fx: number; fy: number } | null>(null);
 
@@ -169,10 +196,6 @@ function RepositionModal({
     try { await onCommit(f); } catch { setCommitFailed(true); } finally { setSaving(false); }
   };
 
-  const runAction = async (fn: () => Promise<void>) => {
-    setActionBusy(true);
-    try { await fn(); } finally { setActionBusy(false); }
-  };
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4" onClick={onCancel}>
@@ -213,8 +236,7 @@ function RepositionModal({
           <div className="mt-3 space-y-2">
             <button
               type="button"
-              onClick={() => runAction(memoryActions.onToggleFeatured)}
-              disabled={actionBusy}
+              onClick={memoryActions.onToggleFeatured}
               className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-[12px] disabled:opacity-50 ${
                 memoryActions.featured ? "border-[#5c7f63] bg-[#eef3e6] text-[var(--g-deep)]" : "border-[#e8e3dc] text-[#2d2926]"
               }`}
@@ -222,10 +244,10 @@ function RepositionModal({
               <span>⭐ Feature: its own full page</span>
               <span className="text-[11px]">{memoryActions.featured ? "On" : "Off"}</span>
             </button>
+            {memoryActions.featuredStatus}
             <button
               type="button"
-              onClick={() => runAction(memoryActions.onToggleHidden)}
-              disabled={actionBusy}
+              onClick={memoryActions.onToggleHidden}
               className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-[12px] disabled:opacity-50 ${
                 memoryActions.hidden ? "border-[#c98a8a] bg-[#f6ecec] text-[#9a4a4a]" : "border-[#e8e3dc] text-[#2d2926]"
               }`}
@@ -233,6 +255,7 @@ function RepositionModal({
               <span>{memoryActions.hidden ? "Hidden from book" : "Hide from book"}</span>
               <span className="text-[11px]">{memoryActions.hidden ? "Hidden" : "Visible"}</span>
             </button>
+            {memoryActions.hiddenStatus}
             {memoryActions.hidden && (
               <p className="text-[10px] text-[#9a8f85]">This photo won&apos;t appear in the yearbook.</p>
             )}
@@ -309,6 +332,7 @@ function SortablePhoto({
     <button
       ref={setNodeRef}
       type="button"
+      data-photo-id={id}
       style={style}
       onClick={onTap}
       disabled={disabled}
@@ -470,24 +494,6 @@ export default function YearbookEditPage() {
   const [leaveBlocked, setLeaveBlocked] = useState<string | null>(null);
 
   // Section settings
-  type YearbookSettings = {
-    show_letter: boolean;
-    show_year_in_numbers: boolean;
-    show_child_chapters: boolean;
-    show_favorite_things: boolean;
-    show_books_section: boolean;
-    show_family_chapter: boolean;
-    theme?: string;
-  };
-  const DEFAULT_YB_SETTINGS: YearbookSettings = {
-    show_letter: true,
-    show_year_in_numbers: true,
-    show_child_chapters: true,
-    show_favorite_things: true,
-    show_books_section: true,
-    show_family_chapter: true,
-    theme: "garden",
-  };
   const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
 
   // ── Content key helper ──────────────────────────────────────────────────────
@@ -782,39 +788,60 @@ export default function YearbookEditPage() {
     setReposTarget(null);
   }, [reposTarget, isReadOnly, saveContentNow]);
 
-  // ── Reorder photos within a chapter → normalized 0..n page_order ────────────
-  const groupKeyOfId = useCallback((id: string): string | null => {
-    for (const [gk, ids] of Object.entries(repoOrder)) {
-      if (ids.includes(id)) return gk;
-    }
-    return null;
-  }, [repoOrder]);
-
   // ── Feature a photo (own full-bleed page) ───────────────────────────────────
-  const toggleFeatured = useCallback(async (id: string) => {
+  // Her choice shows at once and stays shown if the write fails, with Try
+  // again; rapid taps become one write of the last choice (lib/save-queue.ts).
+  const toggleFeatured = useCallback((id: string) => {
     if (isReadOnly) return;
-    let next = false;
+    const next = !featuredSet.has(id);
     setFeaturedSet((prev) => {
       const s = new Set(prev);
-      next = !s.has(id);
       if (next) s.add(id); else s.delete(id);
       return s;
     });
-    await supabase.from("memories").update({ featured: next }).eq("id", id);
-  }, [isReadOnly]);
+    saveQueue.schedule(`featured:${id}`, next, async (v: boolean) => {
+      const { data, error } = await supabase.from("memories").update({ featured: v }).eq("id", id).select("id");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Feature setting matched no memory");
+    }, CHOICE_DELAY_MS);
+  }, [isReadOnly, featuredSet, saveQueue]);
 
   // ── Hide a photo from the book (toggles include_in_book) ────────────────────
-  const toggleHidden = useCallback(async (id: string) => {
+  const toggleHidden = useCallback((id: string) => {
     if (isReadOnly) return;
-    let nextHidden = false;
+    const nextHidden = !hiddenSet.has(id);
     setHiddenSet((prev) => {
       const s = new Set(prev);
-      nextHidden = !s.has(id);
       if (nextHidden) s.add(id); else s.delete(id);
       return s;
     });
-    await supabase.from("memories").update({ include_in_book: !nextHidden }).eq("id", id);
-  }, [isReadOnly]);
+    saveQueue.schedule(`hidden:${id}`, nextHidden, async (hidden: boolean) => {
+      const { data, error } = await supabase.from("memories").update({ include_in_book: !hidden }).eq("id", id).select("id");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Hide setting matched no memory");
+    }, CHOICE_DELAY_MS);
+  }, [isReadOnly, hiddenSet, saveQueue]);
+
+  // ── Theme and section toggles (profiles.yearbook_settings) ──────────────────
+  // Choices not yet confirmed, laid over what the database returns so a
+  // confirmation for one key never flips another control back while its own
+  // save is still on the way.
+  const settingsIntentRef = useRef<Record<string, unknown>>({});
+  const saveSetting = useCallback((key: keyof YearbookSettings, value: YearbookSettings[keyof YearbookSettings]) => {
+    if (isReadOnly || !effectiveUserId) return;
+    settingsIntentRef.current[key] = value;
+    setYbSettings((prev) => ({ ...prev, [key]: value }));
+    const db = profileSettingsDb(supabase, effectiveUserId);
+    saveQueue.schedule(`setting:${key}`, value, async (v: unknown) => {
+      // Only this key changes, merged onto what is stored now, so another
+      // control or another tab is never overwritten (lib/yearbook-settings-save.ts).
+      const stored = await saveSettingKey(db, key, v);
+      if (settingsIntentRef.current[key] === v) delete settingsIntentRef.current[key];
+      setYbSettings({ ...DEFAULT_YB_SETTINGS, ...(stored as Partial<YearbookSettings>), ...(settingsIntentRef.current as Partial<YearbookSettings>) });
+      // The layout's shared profile (Today's page count) follows the confirmed value.
+      void refreshProfile();
+    }, CHOICE_DELAY_MS);
+  }, [isReadOnly, effectiveUserId, saveQueue, refreshProfile]);
 
   // Debounced upsert for a One Question a Month answer. Its own table, so its
   // own queue key; the write is confirmed the same way as yearbook_content.
@@ -847,29 +874,23 @@ export default function YearbookEditPage() {
     }, AUTOSAVE_DELAY_MS);
   }, [isReadOnly, saveQueue, noteDraft, confirmDraft]);
 
+  // ── Reorder photos within a chapter → normalized 0..n page_order ────────────
+  // The decision is made here, outside any state updater, and the write goes
+  // through the queue: the chapter's whole order is rewritten and confirmed row
+  // by row, a newer drag is written after an older one, and a failure keeps
+  // the order she chose on screen with Try again.
   const onPhotoDragEnd = useCallback((e: DragEndEvent) => {
-    if (isReadOnly) return;
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const activeId = String(active.id);
-    const overId = String(over.id);
-    const gk = groupKeyOfId(activeId);
-    // Reordering stays within a chapter; ignore drops onto another group.
-    if (!gk || gk !== groupKeyOfId(overId)) return;
-    setRepoOrder((prev) => {
-      const ids = prev[gk] ?? [];
-      const oldI = ids.indexOf(activeId);
-      const newI = ids.indexOf(overId);
-      if (oldI < 0 || newI < 0) return prev;
-      const next = arrayMove(ids, oldI, newI);
-      void Promise.all(
-        normalizedPageOrders(next).map(({ id, page_order }) =>
-          supabase.from("memories").update({ page_order }).eq("id", id),
-        ),
-      );
-      return { ...prev, [gk]: next };
-    });
-  }, [isReadOnly, groupKeyOfId]);
+    if (isReadOnly || !e.over) return;
+    const moved = reorderWithinGroup(repoOrder, String(e.active.id), String(e.over.id));
+    if (!moved) return;
+    setRepoOrder((prev) => ({ ...prev, [moved.group]: moved.ids }));
+    saveQueue.schedule(`order:${moved.group}`, moved.ids, (ids: string[]) =>
+      writePageOrders(ids, async (id, pageOrder) => {
+        const { data, error } = await supabase.from("memories").update({ page_order: pageOrder }).eq("id", id).select("id");
+        if (error) throw error;
+        if (!data || data.length === 0) throw new Error("Photo order matched no memory");
+      }), CHOICE_DELAY_MS);
+  }, [isReadOnly, repoOrder, saveQueue]);
 
   // ── Load data ───────────────────────────────────────────────────────────────
 
@@ -1187,15 +1208,7 @@ export default function YearbookEditPage() {
                 <button
                   key={opt.key}
                   type="button"
-                  onClick={async () => {
-                    if (isReadOnly) return;
-                    const next = { ...ybSettings, theme: opt.key };
-                    setYbSettings(next);
-                    if (effectiveUserId) {
-                      await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
-        void refreshProfile();
-                    }
-                  }}
+                  onClick={() => saveSetting("theme", opt.key)}
                   disabled={isReadOnly}
                   className={`rounded-xl border-2 p-1.5 text-left transition-colors disabled:opacity-60 ${
                     selected ? "border-[#5c7f63]" : "border-[#e8e3dc] hover:border-[#cdd9bf]"
@@ -1218,6 +1231,7 @@ export default function YearbookEditPage() {
               );
             })}
           </div>
+          {statusLine("setting:theme")}
         </div>
 
         {/* ── Sections ────────────────────────────────────────── */}
@@ -1235,17 +1249,11 @@ export default function YearbookEditPage() {
               { key: "show_books_section" as const, emoji: "📚", label: "Books sections" },
               { key: "show_family_chapter" as const, emoji: "👨‍👩‍👧", label: "Our family chapter" },
             ]).map((item) => (
+              <div key={item.key}>
               <button
-                key={item.key}
-                onClick={async () => {
-                  if (isReadOnly) return;
-                  const next = { ...ybSettings, [item.key]: !ybSettings[item.key] };
-                  setYbSettings(next);
-                  if (effectiveUserId) {
-                    await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
-        void refreshProfile();
-                  }
-                }}
+                type="button"
+                aria-pressed={ybSettings[item.key]}
+                onClick={() => saveSetting(item.key, !ybSettings[item.key])}
                 disabled={isReadOnly}
                 className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-[#f0ede8] transition-colors disabled:opacity-60"
               >
@@ -1265,6 +1273,8 @@ export default function YearbookEditPage() {
                   />
                 </div>
               </button>
+              {statusLine(`setting:${item.key}`)}
+              </div>
             ))}
           </div>
         </div>
@@ -1403,6 +1413,7 @@ export default function YearbookEditPage() {
                           })}
                         </div>
                       </SortableContext>
+                      {statusLine(`order:${g.key}`)}
                     </div>
                   ))}
                 </DndContext>
@@ -1424,6 +1435,8 @@ export default function YearbookEditPage() {
               hidden: hiddenSet.has(reposTarget.id),
               onToggleFeatured: () => toggleFeatured(reposTarget.id),
               onToggleHidden: () => toggleHidden(reposTarget.id),
+              featuredStatus: statusLine(`featured:${reposTarget.id}`),
+              hiddenStatus: statusLine(`hidden:${reposTarget.id}`),
             } : null}
           />
         )}
