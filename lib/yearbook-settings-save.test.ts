@@ -6,17 +6,32 @@ import assert from "node:assert/strict";
 
 import { saveSettingKey, sameSettings, SettingsConflictError, type SettingsDb, type SettingsRecord } from "./yearbook-settings-save.ts";
 
-/** A stored settings object with compare-and-swap, and hooks to interfere. */
+/**
+ * A stored settings object with compare-and-swap, and hooks to interfere.
+ * It also offers an unconditional `write`, which saveSettingKey must never
+ * call: the old fallback did, and the regression test below shows what that
+ * cost.
+ */
 function fakeDb(initial: SettingsRecord | null) {
   let stored: SettingsRecord | null = initial ? { ...initial } : null;
   const log: string[] = [];
   let beforeSwap: (() => void) | null = null;
+  let afterRead: ((n: number) => void) | null = null;
+  let reads = 0;
+  let swapMisses = 0;
   let swapNeverMatches = false;
-  const db: SettingsDb = {
-    async read() { log.push("read"); return stored ? { ...stored } : null; },
+  const db: SettingsDb & { write(next: SettingsRecord): Promise<SettingsRecord> } = {
+    async read() {
+      log.push("read");
+      reads++;
+      const out = stored ? { ...stored } : null;
+      afterRead?.(reads);
+      return out;
+    },
     async swap(expected, next) {
       log.push("swap");
       if (beforeSwap) { const f = beforeSwap; beforeSwap = null; f(); }
+      if (swapMisses > 0) { swapMisses--; return null; }
       if (swapNeverMatches || !sameSettings(stored, expected)) return null;
       stored = { ...next };
       return { ...stored };
@@ -29,6 +44,10 @@ function fakeDb(initial: SettingsRecord | null) {
     get stored() { return stored; },
     set stored(v: SettingsRecord | null) { stored = v; },
     interfereOnce(f: () => void) { beforeSwap = f; },
+    /** Runs right after the n-th read returns its snapshot. */
+    onRead(f: (n: number) => void) { afterRead = f; },
+    /** The next `n` swaps match nothing although nothing changed. */
+    missSwaps(n: number) { swapMisses = n; },
     breakSwapFilter() { swapNeverMatches = true; },
   };
 }
@@ -53,7 +72,7 @@ test("another tab saving in between is kept, not overwritten with a stale copy",
   f.interfereOnce(() => { f.stored = { theme: "garden", show_letter: false }; });
   await saveSettingKey(f.db, "theme", "gallery");
   assert.deepEqual(f.stored, { theme: "gallery", show_letter: false });
-  assert.deepEqual(f.log, ["read", "swap", "read", "read", "swap"]);
+  assert.deepEqual(f.log, ["read", "swap", "read", "swap"]);
 });
 
 test("the value already stored is confirmed without a write", async () => {
@@ -63,12 +82,34 @@ test("the value already stored is confirmed without a write", async () => {
   assert.deepEqual(f.log, ["read"]);
 });
 
-test("a filter that never matches still saves when a re-read proves nothing changed", async () => {
+// Regression, review of #151: after a guarded write matched nothing, the old
+// code re-read, saw the stored object unchanged, and wrote unconditionally.
+// Another tab saving between that re-read and the plain write was erased.
+test("another tab saving after the re-read is kept: no unconditional write ever happens", async () => {
+  const f = fakeDb({ theme: "garden", show_letter: true, show_books_section: true });
+  // The first guarded write misses although nothing changed (the case the old
+  // fallback was for). Right after the re-read that follows it, the other tab
+  // turns the books section off.
+  f.missSwaps(1);
+  f.onRead((n) => {
+    if (n === 2) f.stored = { ...(f.stored ?? {}), show_books_section: false };
+  });
+
+  await saveSettingKey(f.db, "theme", "gallery");
+
+  assert.deepEqual(f.stored, { theme: "gallery", show_letter: true, show_books_section: false },
+    "the other tab's choice survives");
+  assert.equal(f.log.includes("write"), false, "never an unconditional write");
+  assert.deepEqual(f.log, ["read", "swap", "read", "swap", "read", "swap"]);
+});
+
+test("a guard that never confirms ends in a retryable conflict and changes nothing", async () => {
   const f = fakeDb({ theme: "garden", show_letter: false });
   f.breakSwapFilter();
-  await saveSettingKey(f.db, "theme", "gallery");
-  assert.deepEqual(f.stored, { theme: "gallery", show_letter: false });
-  assert.deepEqual(f.log, ["read", "swap", "read", "write"]);
+  await assert.rejects(saveSettingKey(f.db, "theme", "gallery"), SettingsConflictError);
+  assert.deepEqual(f.stored, { theme: "garden", show_letter: false });
+  assert.equal(f.log.includes("write"), false);
+  assert.equal(f.log.filter((l) => l === "swap").length, 4, "bounded: four guarded attempts");
 });
 
 test("settings that keep changing elsewhere end in a conflict error, not a stale overwrite", async () => {

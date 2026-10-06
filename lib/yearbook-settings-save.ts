@@ -13,11 +13,12 @@
  * condition that the stored object is still what was read (compare and swap).
  * If another save got in between, read again and repeat.
  *
- * If the conditional write matches nothing but a re-read shows the stored object
- * did not change, the condition itself is the problem, not a competing save.
- * Then a plain write of the merged object is just as safe as the conditional one
- * would have been, and the setting still saves. That keeps a filter quirk from
- * turning every toggle into "Didn't save".
+ * Every write is guarded. There is deliberately no unconditional fallback:
+ * "the stored object looked unchanged on a re-read" does not make a plain write
+ * safe, because another tab can save between that re-read and the write, and
+ * the plain write would then erase its choice. When the guarded attempts cannot
+ * confirm the save, the caller gets SettingsConflictError, which the editor
+ * shows as "Didn't save" with Try again.
  *
  * Pure: the database is injected, so node --test can exercise every branch.
  * (profileSettingsDb below is the real adapter; its import is type-only.)
@@ -36,8 +37,6 @@ export type SettingsDb = {
    * an error.
    */
   swap(expected: SettingsRecord | null, next: SettingsRecord): Promise<SettingsRecord | null>;
-  /** Unconditional write. Resolves the stored object; throws unless one row was written. */
-  write(next: SettingsRecord): Promise<SettingsRecord>;
 };
 
 export class SettingsConflictError extends Error {
@@ -80,9 +79,8 @@ export async function saveSettingKey(
     const next = { ...(current ?? {}), [key]: value };
     const written = await db.swap(current, next);
     if (written) return written;
-    const again = await db.read();
-    if (sameSettings(again, current)) return db.write(next);
-    // Someone else saved in between. Go round with what they stored.
+    // The guard matched nothing: someone else saved in between (or the
+    // stored object changed shape). Go round, reading what is stored now.
   }
   throw new SettingsConflictError();
 }
@@ -113,12 +111,6 @@ export function profileSettingsDb(client: SupabaseClient, userId: string): Setti
       const { data, error } = await guarded.select("yearbook_settings");
       if (error) throw error;
       if (!data || data.length === 0) return null;
-      return asSettings((data[0] as { yearbook_settings?: unknown }).yearbook_settings) ?? next;
-    },
-    async write(next) {
-      const { data, error } = await client.from("profiles").update({ yearbook_settings: next }).eq("id", userId).select("yearbook_settings");
-      if (error) throw error;
-      if (!data || data.length !== 1) throw new Error("Yearbook settings save matched no profile");
       return asSettings((data[0] as { yearbook_settings?: unknown }).yearbook_settings) ?? next;
     },
   };
