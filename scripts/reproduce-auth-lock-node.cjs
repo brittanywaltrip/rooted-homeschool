@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- plain CommonJS script, not app code */
 // Controlled LockManager rejection test of actual published SDK functions.
 // This does not replace a browser or signed-in staging integration test.
 const vm = require('node:vm');

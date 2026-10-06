@@ -60,7 +60,15 @@ export default function ResourceReportSheet({ target, initialReason, onClose, on
         return;
       }
 
-      const row =
+      // Annotated so the newer postgrest-js insert typing accepts both shapes
+      // instead of inferring the row type from the first branch alone.
+      const row: {
+        user_id: string;
+        mailbox_listing_id: string | null;
+        resource_id: string | null;
+        reason: typeof reason;
+        note: string | null;
+      } =
         target.kind === "mailbox"
           ? { user_id: user.id, mailbox_listing_id: target.listingId, resource_id: null, reason, note: note.trim() || null }
           : { user_id: user.id, resource_id: target.resourceId, mailbox_listing_id: null, reason, note: note.trim() || null };

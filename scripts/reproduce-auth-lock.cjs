@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- plain CommonJS script, not app code */
 // Runs the published SDK lock implementation in two Chromium tabs on localhost.
 // No account, credential, Supabase request, or application data is involved.
 const { chromium } = require('@playwright/test');
