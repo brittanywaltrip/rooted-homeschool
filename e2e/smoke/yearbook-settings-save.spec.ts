@@ -170,6 +170,11 @@ const sectionRow = (page: Page, label: string) => sectionToggle(page, label).loc
 const tile = (page: Page, id: string) => page.locator(`[data-photo-id="${id}"]`)
 
 async function drag(page: Page, fromId: string, toId: string) {
+  // page.mouse does not scroll, and the photos sit below the fold: bring the
+  // row into view first or the pointer lands on whatever covers those
+  // coordinates and dnd-kit never starts a drag.
+  // Centred, so no fixed header or notice sits over it.
+  await tile(page, fromId).evaluate((el) => el.scrollIntoView({ block: 'center', inline: 'center' }))
   const a = await tile(page, fromId).boundingBox()
   const b = await tile(page, toId).boundingBox()
   if (!a || !b) throw new Error('photo tile not laid out')
