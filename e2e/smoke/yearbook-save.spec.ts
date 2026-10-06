@@ -105,6 +105,15 @@ async function draftKeys(page: Page): Promise<string[]> {
 }
 
 test.describe('Yearbook editor saving', () => {
+  // A route callback can still be fetching (refreshProfile after a confirmed
+  // save, or the reader's first read after navigating) when the test ends and
+  // the page closes. Without this Playwright reports "route.fetch: Target page,
+  // context or browser has been closed" as a failure of a test whose
+  // assertions all passed.
+  test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+  })
+
   test('a refused write never shows Saved, keeps the text, and Try again saves it', async ({ page }) => {
     let failing = true
     const net = await interceptWrites(page, (w) =>

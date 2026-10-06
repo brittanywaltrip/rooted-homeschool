@@ -190,6 +190,15 @@ async function tileOrder(page: Page): Promise<string[]> {
 }
 
 test.describe('Yearbook editor choices', () => {
+  // A route callback can still be fetching (refreshProfile after a confirmed
+  // save, or the reader's first read after navigating) when the test ends and
+  // the page closes. Without this Playwright reports "route.fetch: Target page,
+  // context or browser has been closed" as a failure of a test whose
+  // assertions all passed.
+  test.afterEach(async ({ page }) => {
+    await page.unrouteAll({ behavior: 'ignoreErrors' })
+  })
+
   test('a theme that fails to save keeps the chosen theme, says so, and Try again saves only the theme', async ({ page }) => {
     const net = await fakeYearbook(page, { settings: { theme: 'garden', show_letter: false }, settingsMode: (_w, n) => (n === 1 ? 'fail' : 'ok') })
     await openEditor(page)
