@@ -373,7 +373,12 @@ function routeSource(): string {
 function paymentFailedBranch(src: string): string {
   const start = src.indexOf("if (event.type === 'invoice.payment_failed')");
   assert.ok(start > 0, "payment_failed branch not found");
-  const end = src.indexOf("return NextResponse.json({ received: true })", start);
+  // The branch ends at the next event branch or the route's final return,
+  // whichever comes first, so a later handler's writes are never attributed to
+  // this one and this one's writes can never hide behind a later handler.
+  const finalReturn = src.indexOf("return NextResponse.json({ received: true })", start);
+  const nextBranch = src.indexOf("if (event.type ===", start + 1);
+  const end = nextBranch > start && nextBranch < finalReturn ? nextBranch : finalReturn;
   assert.ok(end > start, "branch end not found");
   return src.slice(start, end);
 }
@@ -394,12 +399,19 @@ test("IDENTITY: the payment_failed branch never resolves a family by email or na
   assert.ok(branch.includes("loadLinkedProfile("), "deterministic lookup missing");
 });
 
-test("RECOVERY: no invoice.payment_succeeded handler was added", () => {
-  // Recovery self-heals through customer.subscription.updated, which is already
-  // enabled and rewrites the billing dates from proven paid evidence. Adding an
-  // event purely for observability would have been scope we were told to avoid.
+test("RECOVERY: a paid invoice is handled once, by invoice.paid only", () => {
+  // This test used to say recovery self-heals through
+  // customer.subscription.updated. Production disproved that on 2026-09-26: a
+  // renewal's update arrives BEFORE Stripe collects, so it correctly stores the
+  // old term, and nothing fired after the money landed. invoice.paid now records
+  // the renewed term (lib/invoice-paid.ts).
+  //
+  // The safeguard this test exists for still stands: invoice.payment_succeeded
+  // fires for the same payment, so handling both would process one payment
+  // twice. Exactly one of them may be handled.
   const src = routeSource();
-  assert.ok(!src.includes("invoice.payment_succeeded"), "an unnecessary event handler was added");
+  assert.ok(!src.includes("invoice.payment_succeeded"), "a second handler for the same payment was added");
+  assert.ok(src.includes("event.type === 'invoice.paid'"), "the paid-invoice handler is missing");
 });
 
 test("RECOVERY: subscription.updated still treats past_due as active", () => {
