@@ -128,8 +128,11 @@ test.describe('Yearbook settings: live jsonb guard on rooted-staging', () => {
         restoreError = e
         console.error(`[yearbook-settings-live] RESTORE FAILED. Put this back by hand: ${JSON.stringify(original)}`, e)
       }
-      await a.client.auth.signOut().catch(() => {})
-      await b.client.auth.signOut().catch(() => {})
+      // scope 'local' ONLY. supabase-js signOut() defaults to 'global', which
+      // revokes every session of rooted.e2e, including the one the rest of the
+      // suite is running on: on dc5a861 that logged out every spec after this one.
+      await a.client.auth.signOut({ scope: 'local' }).catch(() => {})
+      await b.client.auth.signOut({ scope: 'local' }).catch(() => {})
     }
     expect(restoreError, `RESTORE FAILED; original yearbook_settings was ${JSON.stringify(original)}`).toBeNull()
   })
