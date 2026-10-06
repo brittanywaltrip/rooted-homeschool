@@ -20,7 +20,7 @@
 import { test, expect, type Page, type Route, type Request } from '@playwright/test'
 
 const EDIT = '/dashboard/memories/yearbook/edit'
-const LETTER = 'textarea[placeholder="Dear future us…"]'
+const LETTER = 'textarea[placeholder="Dear Future Us…"]'
 
 type Mode = 'ok' | 'fail' | 'hold'
 
