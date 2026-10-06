@@ -2579,6 +2579,9 @@ function TodayPageInner() {
     });
     if (error) {
       showCaptureToast("Couldn't log that, try again.", null);
+      // Moved, pinned, skipped or deleted in another tab since this list
+      // loaded: nothing was written. Show where it is now before another tap.
+      if (error.code === "placement_changed" || error.code === "not_found") await loadData();
       return false;
     }
 

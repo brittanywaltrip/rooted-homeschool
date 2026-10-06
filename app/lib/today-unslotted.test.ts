@@ -9,7 +9,7 @@ import {
   splitDoneToday,
   type CurriculumGoalConfig,
 } from "./scheduler.ts";
-import { completeLessonOnDate, completesInPlace, inPlaceCompletedAt } from "./completeLessonOnDate.ts";
+import { completeLessonOnDate, completesInPlace, completionTimeFields, inPlaceCompletedAt } from "./completeLessonOnDate.ts";
 import { validatePhase2End, type Phase2EndRow } from "./phase2-commit.ts";
 
 // Lessons with no queue slot that hold one of today's lessons are shown on
@@ -83,9 +83,13 @@ function fakeClient(stored: Record<string, unknown> | null, writtenRows: unknown
   return { calls, client: client as never };
 }
 
-test("completeLessonOnDate writes only the completion for an unslotted lesson, conditioned on it still being unslotted on that day", async () => {
+const UNSLOTTED = { curriculum_goal_id: "g", queue_position: null, scheduled_date: "2026-10-05", queue_pinned: true, skipped: false };
+const QUEUED = { curriculum_goal_id: "g", queue_position: 4, scheduled_date: "2026-10-05", queue_pinned: false, skipped: false };
+const filters = (c: Call) => c.ops.filter((o) => o[0] === "is" || o[0] === "eq");
+
+test("completeLessonOnDate writes only the completion for an unslotted lesson, conditioned on its whole placement", async () => {
   const events: unknown[] = [];
-  const f = fakeClient({ curriculum_goal_id: "g", queue_position: null, scheduled_date: "2026-10-05" });
+  const f = fakeClient(UNSLOTTED);
   const r = await completeLessonOnDate(f.client, {
     lessonId: "l2", dateStr: "2026-10-09", choice: "picked", todayStr: "2026-10-05", surface: "today",
     extra: { minutes_spent: 20, hours: 20 / 60 }, now: new Date("2026-10-05T18:00:00Z"), track: (e) => events.push(e),
@@ -96,25 +100,61 @@ test("completeLessonOnDate writes only the completion for an unslotted lesson, c
   const write = f.calls[1];
   assert.deepEqual(write.ops.find((o) => o[0] === "update")?.[1], { minutes_spent: 20, hours: 20 / 60, completed: true, completed_at: "2026-10-05T18:00:00.000Z" },
     "no date, no source, no pin, no backfill flag, never a queue slot");
-  assert.deepEqual(write.ops.filter((o) => o[0] === "is" || o[0] === "eq"), [["eq", "id", "l2"], ["is", "queue_position", null], ["eq", "scheduled_date", "2026-10-05"]]);
+  assert.deepEqual(filters(write), [["eq", "id", "l2"], ["eq", "curriculum_goal_id", "g"], ["is", "queue_position", null], ["eq", "scheduled_date", "2026-10-05"], ["eq", "queue_pinned", true], ["eq", "skipped", false]]);
+  assert.deepEqual(write.ops.find((o) => o[0] === "select"), ["select", "id"], "the write reports what it updated");
   assert.deepEqual(events, [{ lesson_number: null, subject_label: null, lesson_date: "2026-10-05", date_choice: "today", surface: "today" }]);
 });
 
-test("completeLessonOnDate: a row that changed before the write is not completed, and nothing is tracked", async () => {
+test("completeLessonOnDate: only minutes_spent and hours ever travel with a completion", async () => {
+  const stray = { minutes_spent: 15, hours: 0.25, notes: "x", scheduled_date: "2026-12-25", queue_position: 9, queue_pinned: false, scheduled_source: "evil", completed: false } as never;
+  for (const stored of [UNSLOTTED, QUEUED]) {
+    const f = fakeClient(stored);
+    await completeLessonOnDate(f.client, { lessonId: "l", dateStr: "2026-10-05", choice: "today", todayStr: "2026-10-05", surface: "today", extra: stray, now: new Date("2026-10-05T18:00:00Z") });
+    const payload = f.calls[1].ops.find((o) => o[0] === "update")?.[1] as Record<string, unknown>;
+    assert.equal(payload.minutes_spent, 15);
+    assert.equal(payload.hours, 0.25);
+    assert.equal("notes" in payload, false);
+    assert.equal(payload.completed, true, "the completion itself always wins");
+    if (stored === UNSLOTTED) assert.deepEqual(Object.keys(payload).sort(), ["completed", "completed_at", "hours", "minutes_spent"]);
+    else assert.equal(payload.scheduled_date, "2026-10-05", "a queue lesson takes the date rule, never a passed-in date");
+  }
+  assert.deepEqual(completionTimeFields({ minutes_spent: "30", hours: null, notes: "x" }), { hours: null }, "wrong types are dropped too");
+  assert.deepEqual(completionTimeFields(undefined), {});
+});
+
+test("completeLessonOnDate: a missing lesson is refused before anything is written", async () => {
   const events: unknown[] = [];
-  const f = fakeClient({ curriculum_goal_id: "g", queue_position: null, scheduled_date: "2026-10-05" }, []);
-  const r = await completeLessonOnDate(f.client, { lessonId: "l2", dateStr: "2026-10-05", choice: "today", todayStr: "2026-10-05", surface: "plan", track: (e) => events.push(e) });
-  assert.ok(r.error);
+  const f = fakeClient(null);
+  const r = await completeLessonOnDate(f.client, { lessonId: "gone", dateStr: "2026-10-05", choice: "today", todayStr: "2026-10-05", surface: "plan", track: (e) => events.push(e) });
+  assert.equal(r.error?.code, "not_found");
+  assert.equal(f.calls.length, 1, "only the read ran");
   assert.deepEqual(events, []);
 });
 
-test("completeLessonOnDate: a queue lesson keeps the ordinary payload", async () => {
-  const f = fakeClient({ curriculum_goal_id: "g", queue_position: 4, scheduled_date: "2026-10-05" });
+test("completeLessonOnDate: a placement change between read and write refuses either path, and nothing is tracked", async () => {
+  for (const stored of [UNSLOTTED, QUEUED]) {
+    const events: unknown[] = [];
+    const f = fakeClient(stored, []);
+    const r = await completeLessonOnDate(f.client, { lessonId: "l", dateStr: "2026-10-05", choice: "today", todayStr: "2026-10-05", surface: "today", track: (e) => events.push(e) });
+    assert.equal(r.error?.code, "placement_changed");
+    assert.deepEqual(events, []);
+  }
+  // More than one row reported is not "exactly one" either.
+  const f = fakeClient(QUEUED, [{ id: "a" }, { id: "b" }]);
+  const r = await completeLessonOnDate(f.client, { lessonId: "l", dateStr: "2026-10-05", choice: "today", todayStr: "2026-10-05", surface: "today" });
+  assert.equal(r.error?.code, "placement_changed");
+});
+
+test("completeLessonOnDate: a queue lesson keeps the ordinary payload, conditioned on the placement it was read with", async () => {
+  const f = fakeClient(QUEUED);
   const r = await completeLessonOnDate(f.client, { lessonId: "l4", dateStr: "2026-10-05", choice: "today", todayStr: "2026-10-05", surface: "today", now: new Date("2026-10-05T18:00:00Z") });
   assert.equal(r.inPlace, false);
-  const payload = f.calls[1].ops.find((o) => o[0] === "update")?.[1] as Record<string, unknown>;
+  assert.equal(r.error, null);
+  const write = f.calls[1];
+  const payload = write.ops.find((o) => o[0] === "update")?.[1] as Record<string, unknown>;
   assert.equal(payload.scheduled_source, "completion_today");
   assert.equal(payload.date, "2026-10-05");
+  assert.deepEqual(filters(write), [["eq", "id", "l4"], ["eq", "curriculum_goal_id", "g"], ["eq", "queue_position", 4], ["eq", "scheduled_date", "2026-10-05"], ["eq", "queue_pinned", false], ["eq", "skipped", false]]);
 });
 
 test("Builder finish estimate counts the days unslotted lessons hold", () => {
@@ -132,8 +172,10 @@ test("Today, Plan and the Builder are wired to the same rules", () => {
   assert.match(today, /pinsByGoal\.set\(gid, \[\.\.\.\(pinsByGoal\.get\(gid\) \?\? \[\]\), \.\.\.doneTodayHolds\(n, today\)\]\);/, "finished-today unslotted lessons hold today in every Today projection");
   assert.match(today, /if \(completesInPlace\(args\.lesson\) && args\.lesson\.scheduled_date\) \{/, "no date chooser for a lesson completed in place");
   assert.match(today, /\{!completionToast\.inPlace && \(/, "no Change for a lesson completed in place");
+  assert.match(today, /if \(error\.code === "placement_changed" \|\| error\.code === "not_found"\) await loadData\(\);/, "Today reloads after a refused completion");
   const plan = read("../components/PlanV2/usePlanLessonActions.ts");
   assert.match(plan, /completesInPlace\(lesson as/);
+  assert.match(plan, /if \(error\.code === "placement_changed" \|\| error\.code === "not_found"\) onScheduleRedated\?\.\(\);/, "Plan reloads after a refused completion");
   assert.match(read("../components/PlanV2/usePlanV2Data.ts"), /lesson_number, queue_position, completed/, "Plan reads queue_position");
   const builder = read("../dashboard/plan/schedule/page.tsx");
   assert.match(builder, /\.select\("curriculum_goal_id, queue_position"\)/, "the preview splits today's completions");

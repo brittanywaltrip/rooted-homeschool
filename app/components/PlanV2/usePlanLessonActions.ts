@@ -151,6 +151,9 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
         const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: false });
         setLessons(prev => prev.map(revert));
         setMonthLessons(prev => prev.map(revert));
+        // Moved, pinned, skipped or deleted elsewhere since Plan loaded:
+        // nothing was written, so reload to show where it is now.
+        if (error.code === "placement_changed" || error.code === "not_found") onScheduleRedated?.();
         throw new Error(error.message);
       }
       // The stored row decides (completesInPlace): a row loaded without its
@@ -180,7 +183,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     } finally {
       inFlightRef.current.delete(id);
     }
-  }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted, redateAfter]);
+  }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted, redateAfter, onScheduleRedated]);
 
   const toggleLesson = useCallback(async (id: string, current: boolean): Promise<boolean> => {
     if (inFlightRef.current.has(id)) return false;
