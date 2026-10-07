@@ -22,7 +22,7 @@ import {
   withSameCountEveryDay,
   type PerDayShape,
 } from "@/app/lib/builder-pace";
-import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, dayHoldsFromRows, splitDoneToday, doneTodayHolds, type PinnableRow, type PinnedSlot, type DayHold, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, dayHoldsFromRows, splitDoneToday, doneTodayHolds, type PinnableRow, type PinnedSlot, type DayHold, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, loadReservationRows, reservedSlotsFromRows, type ReservationRow, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
@@ -737,6 +737,14 @@ function rowScheduleFor(
     dayHoldsByGoal: ReadonlyMap<string, readonly DayHold[]>;
     doneTodayByGoal: ReadonlyMap<string, number>;
   } = { pinsByGoal: new Map(), dayHoldsByGoal: new Map(), doneTodayByGoal: new Map() },
+  /**
+   * The family's lessons with no queue slot and the rows holding those numbers
+   * as slots (loadReservationRows). The preview reserves each unslotted
+   * lesson's own slot against the pointer THIS row's typed next lesson implies,
+   * which is the pointer the save plans against, so the lesson the preview
+   * names next is the lesson the save puts there (see reservedSlotsFromRows).
+   */
+  reservationRows: readonly ReservationRow[] = [],
 ): RowSchedule | null {
   if (row.type !== "curriculum") return null;
   // Ask the ROW, not compactCurriculumPerDay: that helper falls back to Mon-Fri
@@ -749,7 +757,13 @@ function rowScheduleFor(
 
   const branch = whereBranchFor(row, todayStr);
   const nextLesson = Math.max(1, row.start_at_lesson);
-  const skippedSlots = row.dbId ? (skippedByGoal.get(row.dbId) ?? []) : [];
+  const goalId = row.dbId;
+  const skippedSlots = goalId
+    ? [
+        ...(skippedByGoal.get(goalId) ?? []),
+        ...reservedSlotsFromRows(reservationRows.filter((r) => r.curriculum_goal_id === goalId), nextLesson - 1, goalId).map((h) => h.slot),
+      ]
+    : [];
 
   // Same predicate the Invariant 21 pre-flight and the derived-date sync use,
   // so all three agree on what "this save is asking about" means. An untouched
@@ -1347,6 +1361,7 @@ function ScheduleBuilderPageInner() {
   const [vacations, setVacations] = useState<SchedVacationBlock[]>([]);
   // Skipped queue slots per saved goal, for the preview (Invariant 22).
   const [skippedByGoal, setSkippedByGoal] = useState<ReadonlyMap<string, readonly number[]>>(new Map());
+  const [reservationRows, setReservationRows] = useState<readonly ReservationRow[]>([]);
   const [previewLive, setPreviewLive] = useState<{
     pinsByGoal: ReadonlyMap<string, readonly PinnedSlot[]>;
     dayHoldsByGoal: ReadonlyMap<string, readonly DayHold[]>;
@@ -1481,6 +1496,12 @@ function ScheduleBuilderPageInner() {
           }
           setSkippedByGoal(byGoal);
         }
+        // Non-fatal and fail-closed (loadReservationRows): without it the
+        // preview reserves nothing, which is how it read before reservations.
+        // The save reads the same rule from the goal's own rows.
+        const reservation = await loadReservationRows(supabase, { userId: effectiveUserId });
+        if (cancelled) return;
+        setReservationRows(reservation ?? []);
         if (!pinnedResp.error && !doneTodayResp.error) {
           const pinsByGoal = new Map<string, PinnedSlot[]>();
           const dayHoldsByGoal = new Map<string, DayHold[]>();
@@ -1867,11 +1888,11 @@ function ScheduleBuilderPageInner() {
     const out = new Map<string, RowSchedule>();
     for (const r of rows) {
       if (r.type !== "curriculum" || r.pendingDelete) continue;
-      const sched = rowScheduleFor(r, today, todayStr, vacations, skippedByGoal, previewLive);
+      const sched = rowScheduleFor(r, today, todayStr, vacations, skippedByGoal, previewLive, reservationRows);
       if (sched) out.set(r.localId, sched);
     }
     return out;
-  }, [rows, today, todayStr, vacations, skippedByGoal, previewLive]);
+  }, [rows, today, todayStr, vacations, skippedByGoal, previewLive, reservationRows]);
 
   // ── The derived start date is written back onto the row ──────────────────
   //
@@ -3989,7 +4010,7 @@ function ScheduleBuilderPageInner() {
         }
         // The earliest forward-scheduled lesson across everything just saved.
         const firstDates = createdRows
-          .map((r) => rowScheduleFor(r, today, todayStr, vacations, skippedByGoal, previewLive)?.nextLessonDate)
+          .map((r) => rowScheduleFor(r, today, todayStr, vacations, skippedByGoal, previewLive, reservationRows)?.nextLessonDate)
           .filter((d): d is string => !!d)
           .sort();
         // The screen has to be full-bleed, and everything under app/dashboard

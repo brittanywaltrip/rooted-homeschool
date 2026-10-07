@@ -123,9 +123,13 @@ test("planner and pre-save check agree on capacity for every shape (pace changes
 test("every projecting surface reads the same rule", () => {
   const src = readFileSync(new URL("./scheduler.ts", import.meta.url), "utf8");
   assert.match(src, /\.or\("queue_pinned\.eq\.true,skipped\.eq\.true,and\(queue_position\.is\.null,scheduled_date\.not\.is\.null\)"\)/, "loadPinsByGoal reads unslotted dated rows");
-  assert.match(src, /const pins: QueueHold\[\] = \[\s*\.\.\.skippedSlotsFromRows\(rows\),\s*\.\.\.dayHoldsFromRows\(rows, goal\.id\),\s*\.\.\.doneTodayHolds\(done\.unslotted, toDateStr\(today\)\),\s*\];/, "the page-load reconciler leaves room for them, and for unslotted lessons finished today");
-  assert.match(src, /const holds: QueueHold\[\] = \[\.\.\.skippedSlotsFromRows\(rows\), \.\.\.dayHoldsFromRows\(rows, goal\.id\)\];/, "the parent re-spread leaves room for them");
-  assert.match(src, /const holds: QueueHold\[\] = \[\.\.\.pins, \.\.\.skippedSlots, \.\.\.dayHolds\];/, "the Builder plans around them");
+  // Each also steps over an unslotted lesson's own slot (reservedSlotsFromRows).
+  assert.match(src, /const pins: QueueHold\[\] = \[\s*\.\.\.skippedSlotsFromRows\(rows\),\s*\.\.\.\(await loadReservedSlotsForGoal\(supabase, goal\)\),\s*\.\.\.dayHoldsFromRows\(rows, goal\.id\),\s*\.\.\.doneTodayHolds\(done\.unslotted, toDateStr\(today\)\),\s*\];/, "the page-load reconciler leaves room for them, and for unslotted lessons finished today");
+  assert.match(src, /const holds: QueueHold\[\] = \[\s*\.\.\.skippedSlotsFromRows\(rows\),\s*\.\.\.\(await loadReservedSlotsForGoal\(supabase, goal\)\),\s*\.\.\.dayHoldsFromRows\(rows, goal\.id\),\s*\];/, "the parent re-spread leaves room for them");
+  assert.match(src, /const holds: QueueHold\[\] = \[\.\.\.pins, \.\.\.skippedSlots, \.\.\.reservedSlots, \.\.\.dayHolds\];/, "the Builder plans around them");
+  assert.match(src, /for \(const \[goalId, reserved\] of reservedSlotsByGoal\(reservationRows, \(id\) => pointer\.get\(id\)\)\)/, "loadPinsByGoal hands every read surface the reserved slots");
+  const recal = readFileSync(new URL("./recalibrate.ts", import.meta.url), "utf8");
+  assert.match(recal, /\[\.\.\.queueHoldsFromRows\(rows\), \.\.\.\(await loadReservedSlotsForGoal\(supabase, cfg\)\)\]/, "recalibration too");
 });
 
 test("the post-save monitor counts an unslotted lesson as room taken, never as a scheduler placement", () => {

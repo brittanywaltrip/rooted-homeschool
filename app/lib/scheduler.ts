@@ -368,8 +368,11 @@ async function planGoalResync(
   // does (see SkippedSlot).
   // Day holds too (see DayHold): the cache must leave room on the days an
   // unslotted lesson holds, or it re-stacks what the Builder spread out.
+  // Reserved slots too (see reservedSlotsFromRows), or the cache dates an
+  // unslotted lesson's own slot, which no row holds.
   const pins: QueueHold[] = [
     ...skippedSlotsFromRows(rows),
+    ...(await loadReservedSlotsForGoal(supabase, goal)),
     ...dayHoldsFromRows(rows, goal.id),
     ...doneTodayHolds(done.unslotted, toDateStr(today)),
   ];
@@ -846,7 +849,11 @@ export async function reprojectGoalForParent(
 
   // The pins that survive this operation: skips always, plus the rows the
   // caller is deliberately keeping pinned (the lesson a cascade just moved).
-  const holds: QueueHold[] = [...skippedSlotsFromRows(rows), ...dayHoldsFromRows(rows, goal.id)];
+  const holds: QueueHold[] = [
+    ...skippedSlotsFromRows(rows),
+    ...(await loadReservedSlotsForGoal(supabase, goal)),
+    ...dayHoldsFromRows(rows, goal.id),
+  ];
   for (const r of rows) {
     if (!r.queue_pinned || r.skipped || !keep.has(r.id)) continue;
     if (r.queue_position == null || !r.scheduled_date) continue;
@@ -1615,6 +1622,12 @@ export interface PinnedSlot {
 export interface SkippedSlot {
   slot: number;
   skipped: true;
+  /**
+   * Set when the slot is held open for a lesson with no queue slot rather than
+   * skipped by the family (see reservedSlotsFromRows). Stepped over exactly
+   * like a skip, but only above the pointer.
+   */
+  reserved?: true;
 }
 
 /**
@@ -1782,6 +1795,50 @@ export function skippedSlotsFromRows(rows: PinnableRow[], goalId?: string): Skip
 }
 
 /**
+ * The slots held open for lessons with no queue slot.
+ *
+ * A lesson keeps its lesson NUMBER when it loses its slot (a plan move, an
+ * orphan strip, a lesson kept off the queue). Its own slot is then empty, and
+ * if the queue treats that slot as a lesson to place, two things go wrong: the
+ * projector dates a slot no row holds, and the Builder's rebuild zips the
+ * missing lesson numbers onto the free slots in order, so every later lesson
+ * slides down one slot. "What lesson are you on next?" names a slot, so after
+ * that it picked the lesson after the one the family typed.
+ *
+ * So the slot whose number belongs to an unslotted lesson is reserved, and
+ * every projector steps over it as it steps over a skip. The lesson itself is
+ * never given that slot (or any other): it keeps its own date, which the day
+ * hold already counts.
+ *
+ * Reserved only when ALL of these hold, so a reservation can never hide a
+ * lesson that is really there:
+ *   - the row belongs to a curriculum and has a lesson_number;
+ *   - that number is above `currentLesson` (the queue has not passed it);
+ *   - no row in `rows` holds that queue_position. In a reordered queue another
+ *     lesson may sit in the slot, and then it is that lesson's slot.
+ * `rows` must therefore be every row of the goal that holds a slot above the
+ * pointer (loadReservedSlotsByGoal and planPhase2Rows both pass that).
+ * Completed and skipped unslotted lessons count too: either way their number
+ * is not one the queue should date again.
+ */
+export function reservedSlotsFromRows(
+  rows: readonly { curriculum_goal_id?: string | null; lesson_number?: number | null; queue_position?: number | null }[],
+  currentLesson: number,
+  goalId?: string,
+): SkippedSlot[] {
+  const mine = rows.filter((r) => r.curriculum_goal_id !== null && (goalId === undefined || r.curriculum_goal_id === undefined || r.curriculum_goal_id === goalId));
+  const held = new Set<number>();
+  for (const r of mine) if (r.queue_position != null) held.add(r.queue_position);
+  const out = new Set<number>();
+  for (const r of mine) {
+    if (r.queue_position !== null || r.lesson_number == null) continue;
+    if (r.lesson_number <= currentLesson || held.has(r.lesson_number)) continue;
+    out.add(r.lesson_number);
+  }
+  return [...out].sort((a, b) => a - b).map((slot) => ({ slot, skipped: true as const, reserved: true as const }));
+}
+
+/**
  * Derive the day holds from lesson rows (see DayHold). A row contributes iff it
  * is incomplete, not skipped, is not a one-off (curriculum_goal_id null), has NO queue slot and
  * has a scheduled_date, pinned or not. The slot test is strict (=== null): a
@@ -1860,6 +1917,85 @@ export function queueHoldsFromRows(rows: PinnableRow[], goalId?: string): QueueH
  * empty map, which degrades to exactly the pre-pin projection rather than
  * failing the page load.
  */
+/** A row as the reservation rule reads it (see reservedSlotsFromRows). */
+export type ReservationRow = { curriculum_goal_id: string; lesson_number: number | null; queue_position: number | null };
+
+/** PostgREST answers at most this many rows; a full page may be a truncated one. */
+const RESERVATION_READ_CAP = 1000;
+
+/**
+ * The rows reservedSlotsFromRows needs, for one family or one curriculum: every
+ * curriculum lesson with no queue slot, plus every row that holds one of those
+ * lessons' numbers as its slot. Nothing else is needed to decide occupancy.
+ *
+ * Fails CLOSED: on a read error, or a page that may have been truncated, it
+ * returns null and callers reserve nothing. Reserving too little leaves the
+ * projection as it was before reservations existed; reserving a slot another
+ * lesson holds would hide that lesson, so that is the error never risked.
+ */
+export async function loadReservationRows(
+  supabase: SupabaseClient,
+  scope: { userId: string } | { goalId: string },
+): Promise<ReservationRow[] | null> {
+  try {
+    const read = () => {
+      const q = supabase.from("lessons").select("curriculum_goal_id, lesson_number, queue_position");
+      return "userId" in scope ? q.eq("user_id", scope.userId) : q.eq("curriculum_goal_id", scope.goalId);
+    };
+    const { data: open, error } = await read()
+      .is("queue_position", null)
+      .not("lesson_number", "is", null)
+      .not("curriculum_goal_id", "is", null);
+    if (error || !open) {
+      if (error) captureSupabaseError("loadReservationRows: unslotted read failed", error, { extra: { scope } });
+      return null;
+    }
+    if (open.length >= RESERVATION_READ_CAP) return null;
+    if (open.length === 0) return [];
+    const numbers = [...new Set((open as ReservationRow[]).map((r) => r.lesson_number as number))];
+    const { data: holders, error: holdErr } = await read()
+      .in("queue_position", numbers)
+      .not("curriculum_goal_id", "is", null);
+    if (holdErr || !holders) {
+      if (holdErr) captureSupabaseError("loadReservationRows: slot read failed", holdErr, { extra: { scope } });
+      return null;
+    }
+    if (holders.length >= RESERVATION_READ_CAP) return null;
+    return [...(open as ReservationRow[]), ...(holders as ReservationRow[])];
+  } catch (err) {
+    captureSupabaseError("loadReservationRows failed", err, { extra: { scope } });
+    return null;
+  }
+}
+
+/** Reserved slots per curriculum, each judged against that curriculum's pointer. */
+export function reservedSlotsByGoal(
+  rows: readonly ReservationRow[] | null,
+  pointerOf: (goalId: string) => number | undefined,
+): Map<string, SkippedSlot[]> {
+  const out = new Map<string, SkippedSlot[]>();
+  if (!rows) return out;
+  const byGoal = new Map<string, ReservationRow[]>();
+  for (const r of rows) byGoal.set(r.curriculum_goal_id, [...(byGoal.get(r.curriculum_goal_id) ?? []), r]);
+  for (const [goalId, list] of byGoal) {
+    const pointer = pointerOf(goalId);
+    // An unknown pointer reserves nothing rather than guessing one.
+    if (pointer === undefined) continue;
+    const reserved = reservedSlotsFromRows(list, pointer, goalId);
+    if (reserved.length > 0) out.set(goalId, reserved);
+  }
+  return out;
+}
+
+/** loadReservationRows + reservedSlotsByGoal for one curriculum whose pointer the caller holds. */
+export async function loadReservedSlotsForGoal(
+  supabase: SupabaseClient,
+  goal: { id: string; current_lesson: number },
+): Promise<SkippedSlot[]> {
+  const rows = await loadReservationRows(supabase, { goalId: goal.id });
+  return reservedSlotsByGoal(rows, (id) => (id === goal.id ? goal.current_lesson : undefined)).get(goal.id) ?? [];
+}
+
 export async function loadPinsByGoal(
   supabase: SupabaseClient,
   userId: string,
@@ -1879,7 +2015,28 @@ export async function loadPinsByGoal(
       }
       return new Map();
     }
-    return pinsByGoalFromRows(data as PinnableRow[]);
+    const out = pinsByGoalFromRows(data as PinnableRow[]);
+    // Reserved slots (see reservedSlotsFromRows) travel with the skips, so
+    // Today, Plan, the calendar, the schedule view, missed work and Today's
+    // next-row heal all step over an unslotted lesson's own slot. Each goal is
+    // judged against its own pointer, read only for goals that need it.
+    const reservationRows = await loadReservationRows(supabase, { userId });
+    if (reservationRows && reservationRows.length > 0) {
+      const goalIds = [...new Set(reservationRows.map((r) => r.curriculum_goal_id))];
+      const { data: goals, error: goalErr } = await supabase
+        .from("curriculum_goals")
+        .select("id, current_lesson")
+        .in("id", goalIds);
+      if (goalErr) {
+        captureSupabaseError("loadPinsByGoal: pointer read failed", goalErr, { extra: { fn: "loadPinsByGoal", userId } });
+      } else {
+        const pointer = new Map((goals ?? []).map((g: { id: string; current_lesson: number }) => [g.id, g.current_lesson]));
+        for (const [goalId, reserved] of reservedSlotsByGoal(reservationRows, (id) => pointer.get(id))) {
+          out.set(goalId, [...(out.get(goalId) ?? []), ...reserved]);
+        }
+      }
+    }
+    return out;
   } catch (err) {
     captureSupabaseError("loadPinsByGoal failed", err, {
       extra: { fn: "loadPinsByGoal", userId },
@@ -2325,7 +2482,10 @@ export function computeNextLessonsForGoal(
   // capacity, and the queue steps over its number (see SkippedSlot).
   const skippedSlots = new Set<number>();
   for (const p of pins) {
-    if (isSkippedSlot(p)) skippedSlots.add(p.slot);
+    // A reserved slot (see reservedSlotsFromRows) only counts ahead of the
+    // pointer: one the queue has passed could otherwise shift the first-day
+    // rewind over a slot that was never a lesson done today.
+    if (isSkippedSlot(p) && !(p.reserved && p.slot <= goal.current_lesson)) skippedSlots.add(p.slot);
   }
   const pinDateBySlot = new Map<number, string>();
   const used = new Map<string, number>();
@@ -2712,8 +2872,14 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
   // spends its day's capacity in the projection, exactly as validatePhase2End
   // and apply_builder_rebuild count it (see DayHold).
   const dayHolds = dayHoldsFromRows(beforeRows.map((r) => ({ ...r, curriculum_goal_id: goalId })), goalId);
-  const holds: QueueHold[] = [...pins, ...skippedSlots, ...dayHolds];
-  const projectableSkippedSlots = skippedSlots
+  // An unslotted lesson's own slot is held open (see reservedSlotsFromRows):
+  // the projector steps over it and planPhase2LessonInserts counts it in the
+  // number range, so lesson N is re-created in slot N, never slid down into
+  // the unslotted lesson's slot. beforeRows is every row of the goal, so the
+  // occupancy test is complete.
+  const reservedSlots = reservedSlotsFromRows(beforeRows.map((r) => ({ ...r, curriculum_goal_id: goalId })), args.currentLesson, goalId);
+  const holds: QueueHold[] = [...pins, ...skippedSlots, ...reservedSlots, ...dayHolds];
+  const projectableSkippedSlots = [...skippedSlots, ...reservedSlots]
     .filter((h) => isPinProjectable(h, { current_lesson: args.currentLesson, total_lessons: args.totalLessons }))
     .map((h) => h.slot);
 
