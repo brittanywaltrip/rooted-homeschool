@@ -13,6 +13,7 @@ import { capitalizeName } from "@/lib/utils";
 import { normalizeAffiliateCode } from "@/lib/referrals";
 import { readShareSource, shareSourceEventProps, SHARE_SOURCE_STORAGE_KEY } from "@/lib/resource-share";
 import { posthog } from "@/lib/posthog";
+import DiscoverySourceQuestion from "@/app/components/DiscoverySourceQuestion";
 import RootedCelebration from "@/app/components/RootedCelebration";
 
 /**
@@ -365,6 +366,8 @@ function CelebrationStep({
         >
           I&apos;ll explore on my own
         </button>
+
+        <DiscoverySourceQuestion />
 
         <div className="mt-12 flex flex-col items-center">
           <p className="text-[12px] tracking-[2px] uppercase mb-4" style={{ color: "rgba(255,255,255,0.45)" }}>
