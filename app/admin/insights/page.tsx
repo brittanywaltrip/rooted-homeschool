@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { createSupabaseBrowserClient } from '@/lib/supabase-browser';
 
-type Insights = { rows: { id: string; email: string; signupAt: string; firstPaidAt: string; daysToUpgrade: number | null; discoverySource: string }[]; medianDays: number | null; generatedAt: string };
-const date = (value: string) => new Date(value).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: 'short', day: 'numeric' });
+type Insights = { rows: { id: string; email: string; signupAt: string; firstPaidAt: string | null; daysToUpgrade: number | null; discoverySource: string }[]; medianDays: number | null; generatedAt: string };
+const date = (value: string | null) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', year: 'numeric', month: 'short', day: 'numeric' }) : 'Unknown';
 export default function SignupUpgradeInsightsPage() {
   const [data, setData] = useState<Insights | null>(null);
   const [error, setError] = useState('');
@@ -29,7 +29,7 @@ export default function SignupUpgradeInsightsPage() {
     <p className="text-xs text-[#7a6f65]">Historical upgrades include later cancellations and refunds. Complimentary and test accounts are excluded. App-store payments, gifts and unmatched Stripe customers are outside this view. Dates use Pacific time.</p>
     {loading ? <p role="status">Loading insights…</p> : error ? <div role="alert"><p>{error}</p><button onClick={() => void load()} className="mt-3 rounded-xl bg-[#2D5A3D] px-4 py-2 text-white">Retry</button></div> : data ? <>
       <div className="flex flex-wrap gap-6 rounded-2xl border p-5"><p><strong>{data.rows.length}</strong> matched historical upgrades</p><p>Median time to upgrade: <strong>{data.medianDays === null ? 'Unknown' : `${data.medianDays} days`}</strong></p></div>
-      <div className="overflow-x-auto"><table className="w-full text-left text-sm"><caption className="pb-3 text-left">Families ordered by their first paid upgrade</caption><thead><tr>{['Family account', 'Signed up', 'First paid upgrade', 'Days before upgrade', 'Discovery source'].map(h => <th scope="col" key={h} className="border-b p-3">{h}</th>)}</tr></thead><tbody>{data.rows.map(r => <tr key={r.id}><td className="border-b p-3">{r.email}</td><td className="border-b p-3">{date(r.signupAt)}</td><td className="border-b p-3">{date(r.firstPaidAt)}</td><td className="border-b p-3">{r.daysToUpgrade ?? 'Unknown'}</td><td className="border-b p-3">{r.discoverySource}</td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full text-left text-sm"><caption className="pb-3 text-left">Families ordered by their first paid upgrade; unknown dates appear last and do not count toward the median.</caption><thead><tr>{['Family account', 'Signed up', 'First paid upgrade', 'Days before upgrade', 'Discovery source'].map(h => <th scope="col" key={h} className="border-b p-3">{h}</th>)}</tr></thead><tbody>{data.rows.map(r => <tr key={r.id}><td className="border-b p-3">{r.email}</td><td className="border-b p-3">{date(r.signupAt)}</td><td className="border-b p-3">{date(r.firstPaidAt)}</td><td className="border-b p-3">{r.daysToUpgrade ?? 'Unknown'}</td><td className="border-b p-3">{r.discoverySource}</td></tr>)}</tbody></table></div>
       {data.rows.length === 0 ? <p>No matched paid upgrades found.</p> : null}
       <p className="text-xs">Checked {new Date(data.generatedAt).toLocaleString('en-US', { timeZone: 'America/Los_Angeles' })} Pacific.</p>
     </> : null}

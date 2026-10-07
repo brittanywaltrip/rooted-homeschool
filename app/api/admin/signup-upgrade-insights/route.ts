@@ -51,10 +51,10 @@ export async function GET(req: Request) {
     const rows = users.filter(u => !exclusions.excludedFromRealFamilies.has(u.id) && !exclusions.excludedFromPaying.has(u.id)).flatMap(u => {
       const customer = profilesById.get(u.id)?.stripe_customer_id;
       if (!customer || customerCounts.get(customer) !== 1) return [];
-      const paid = payments.get(customer);
-      if (!paid) return [];
-      return [{ id: u.id, email: u.email ?? '', signupAt: u.created_at, firstPaidAt: new Date(paid * 1000).toISOString(), daysToUpgrade: daysToUpgrade(u.created_at, paid), discoverySource: discoveryLabel(u.user_metadata.rooted_discovery_source) }];
-    }).sort((a, b) => b.firstPaidAt.localeCompare(a.firstPaidAt));
+      if (!payments.has(customer)) return [];
+      const paid = payments.get(customer) ?? null;
+      return [{ id: u.id, email: u.email ?? '', signupAt: u.created_at, firstPaidAt: paid === null ? null : new Date(paid * 1000).toISOString(), daysToUpgrade: daysToUpgrade(u.created_at, paid), discoverySource: discoveryLabel(u.user_metadata.rooted_discovery_source) }];
+    }).sort((a, b) => (b.firstPaidAt ?? '').localeCompare(a.firstPaidAt ?? ''));
     const days = rows.flatMap(r => r.daysToUpgrade === null ? [] : [r.daysToUpgrade]).sort((a, b) => a - b);
     const middle = Math.floor(days.length / 2);
     const medianDays = days.length ? days.length % 2 ? days[middle] : (days[middle - 1] + days[middle]) / 2 : null;

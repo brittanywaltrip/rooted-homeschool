@@ -8,7 +8,7 @@ Prepared on main b9904b6. Separate from scheduler #146; stage after the schedule
 - Historical upgrade timing uses Stripe invoice `status_transitions.paid_at`, not subscription creation, profile creation or latest renewal. Paid invoices are fully paginated. Later cancellations/refunds remain historical first upgrades; this is not revenue or active subscription reporting.
 - Match by saved Stripe customer ID; duplicate ownership is omitted rather than inferred. Unmatched, gifted and app-store purchases are outside this view. The existing founder/test/comped exclusions are reused.
 - Auth users, profiles and comped affiliates are fully paginated; source failures return 503 instead of incomplete successful statistics. Responses are private/no-store.
-- Median includes only nonnegative known durations. Missing/impossible dates remain Unknown; no zero guess.
+- Median includes only nonnegative known durations. Missing/impossible dates remain Unknown; no zero guess. Any qualifying subscription payment with a missing/invalid paid timestamp makes that customer's first-paid date unknown, because it might precede the dated payments. The matched account stays visible, with unknown dates last and excluded from the median.
 - The optional discovery question sits below the existing completion/navigation actions after onboarding. It adds no step and no requirement. A separate authenticated route validates a closed list, saves only the authenticated account's `rooted_discovery_source` Auth metadata and sends no email. It never writes referral, commission, billing, profile or scheduler state.
 - Discovery source is explicitly self-reported and user-editable, not verified attribution. Unknown is the default for existing accounts. No historical source backfill or inferred partner attribution.
 
@@ -21,9 +21,15 @@ Auth metadata is used only for a simple optional answer; not authorization. Acco
 ## Local validation
 
 - Full main-based suite plus first 10 new tests: 2063 tests, 2055 pass, 0 fail, 8 environment-gated skips.
-- All 13 new tests pass, including three additional tests for the actual discovery save route.
+- All 20 feature tests pass, including actual discovery/admin routes, >1000-row pagination for all three Supabase sources, later-page failures (including Stripe), and undated-payment handling in both invoice orders.
 - TypeScript and focused new-file lint pass.
-- Local production build blocked by unavailable Google Fonts downloads (existing app/layout.tsx font imports). No successful build or browser/staging verification claimed.
+- Local production build blocked by unavailable Google Fonts downloads (existing app/layout.tsx font imports). Vercel reported a successful preview build on original remote head `25dbe1b5e9adf730a5772c3708c2d24857440aff`; that is not staging verification or proof for later revisions.
+
+## CI / staging status
+
+Draft PR #155 is separate from scheduler #146. Initial smoke run `37684699063` failed during deployment discovery: no successful exact-commit `rooted-staging` deployment was found within 12 minutes. The browser smoke tests never started. Do not relax the staging identity checks or run tests against the ordinary preview as a workaround.
+
+Vercel's connector returned 403 for the explicit Rooted team scope `brittanywaltrips-projects`. No authenticated Vercel CLI is available in this workspace. Deployment inspection and staging verification remain blocked by that access; no production deployment was attempted.
 
 ## Required staging checks
 

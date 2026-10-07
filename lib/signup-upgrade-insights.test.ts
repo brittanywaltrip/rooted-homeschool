@@ -25,11 +25,19 @@ test('unknown and untrusted discovery answers do not become inferred attribution
   assert.equal(discoveryLabel('facebook'), 'Facebook');
   for (const value of [null, undefined, '', 'constructor', 'toString', '<script>']) assert.equal(discoveryLabel(value), 'Unknown');
 });
+test('undated positive payments keep first-upgrade timing unknown regardless of invoice order', () => {
+  const undated = { ...invoice(), status_transitions: { paid_at: null } };
+  for (const invoices of [[undated, invoice()], [invoice(), undated]]) {
+    assert.equal(firstPayments(invoices).get('cus_family'), null);
+  }
+  for (const paid of [NaN, Infinity, -1]) assert.equal(firstPayments([invoice(paid)]).get('cus_family'), null);
+  assert.equal(daysToUpgrade('2026-09-01', Infinity), null);
+});
 
-function routeFixture(email = 'garfieldbrittany@gmail.com', fail?: string, duplicate = false) {
+function routeFixture(email = 'garfieldbrittany@gmail.com', fail?: string, duplicate = false, options: { paginated?: boolean; lateFailure?: string; invoices?: PaidInvoiceEvidence[] } = {}) {
   const source = readFileSync(new URL('../app/api/admin/signup-upgrade-insights/route.ts', import.meta.url), 'utf8');
   const reads: string[] = [];
-  const exports: { GET?: (req: Request) => Promise<{ status: number; body: { rows?: { daysToUpgrade: number }[] } }> } = {};
+  const exports: { GET?: (req: Request) => Promise<{ status: number; body: { medianDays?: number | null; rows?: { daysToUpgrade: number | null; firstPaidAt: string | null }[] } }> } = {};
   const tables: Record<string, unknown[]> = { profiles: [{ id: 'family', stripe_customer_id: 'cus_family' }, ...(duplicate ? [{ id: 'other', stripe_customer_id: 'cus_family' }] : [])], affiliates: [] };
   runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, {
     exports, Date, process: { env: { STRIPE_SECRET_KEY: 'fake' } },
@@ -37,10 +45,19 @@ function routeFixture(email = 'garfieldbrittany@gmail.com', fail?: string, dupli
       if (name === 'next/server') return { NextResponse: { json: (body: unknown, opts?: { status: number }) => ({ body, status: opts?.status ?? 200 }) } };
       if (name === '@/lib/signup-upgrade-insights') return { daysToUpgrade, discoveryLabel, firstPayments };
       if (name === '@/lib/admin/excluded-user-ids') return { buildExclusions };
-      if (name === 'stripe') return { default: class { invoices = { list: async function* () { if (fail === 'stripe') throw Error('stripe failed'); yield invoice(); } }; } };
+      if (name === 'stripe') return { default: class { invoices = { list: async function* () { if (fail === 'stripe') throw Error('stripe failed'); yield* options.invoices ?? [invoice()]; if (options.lateFailure === 'stripe') throw Error('later invoice page failed'); } }; } };
       if (name === '@/lib/supabase-admin') return { supabaseAdmin: {
-        auth: { getUser: async () => ({ data: { user: { email } }, error: null }), admin: { listUsers: async () => ({ data: { users: [{ id: 'family', email: 'family@example.invalid', created_at: '2026-09-10T12:50:43Z', user_metadata: {} }] }, error: fail === 'auth' ? Error('auth failed') : null }) } },
-        from: (table: string) => { reads.push(table); const q = { select: () => q, eq: () => q, order: () => q, range: async () => ({ data: tables[table], error: fail === table ? Error('read failed') : null }) }; return q; },
+        auth: { getUser: async () => ({ data: { user: { email } }, error: null }), admin: { listUsers: async ({ page }: { page: number }) => {
+          reads.push(`auth:${page}`);
+          const family = { id: 'family', email: 'family@example.invalid', created_at: '2026-09-10T12:50:43Z', user_metadata: {} };
+          const users = options.paginated && page === 1 ? Array.from({ length: 1000 }, (_, i) => ({ ...family, id: `filler-${i}` })) : [family];
+          return { data: { users }, error: fail === 'auth' || (page > 1 && options.lateFailure === 'auth') ? Error('auth failed') : null };
+        } } },
+        from: (table: string) => { const q = { select: () => q, eq: () => q, order: () => q, range: async (offset: number, end: number) => {
+          reads.push(`${table}:${offset}-${end}`);
+          const data = options.paginated && offset === 0 ? Array.from({ length: 1000 }, (_, i) => table === 'profiles' ? { id: `filler-${i}`, stripe_customer_id: null } : { user_id: `comped-${i}` }) : tables[table];
+          return { data, error: fail === table || (offset > 0 && options.lateFailure === table) ? Error('read failed') : null };
+        } }; return q; },
       } };
       throw Error(name);
     },
@@ -57,6 +74,19 @@ test('admin endpoint joins verified customer ownership to signup and payment', a
 });
 for (const failure of ['auth', 'profiles', 'affiliates', 'stripe']) test(`${failure} failure refuses partial insights`, async () => { assert.equal((await routeFixture(undefined, failure).run()).status, 503); });
 test('ambiguous customer ownership is not attributed to either family', async () => { assert.equal((await routeFixture(undefined, undefined, true).run()).body.rows?.length, 0); });
+test('admin endpoint reads beyond 1000 users, profiles and affiliates before matching upgrades', async () => {
+  const f = routeFixture(undefined, undefined, false, { paginated: true });
+  const r = await f.run(); assert.equal(r.status, 200); assert.equal(r.body.rows?.length, 1); assert.equal(r.body.rows?.[0].daysToUpgrade, 27);
+  assert.deepEqual(f.reads, ['auth:1', 'auth:2', 'profiles:0-999', 'profiles:1000-1999', 'affiliates:0-999', 'affiliates:1000-1999']);
+});
+for (const lateFailure of ['auth', 'profiles', 'affiliates', 'stripe']) test(`later ${lateFailure} page failure refuses partial insights`, async () => {
+  const r = await routeFixture(undefined, undefined, false, { paginated: true, lateFailure }).run();
+  assert.equal(r.status, 503); assert.equal(r.body.rows, undefined);
+});
+test('matched undated payment remains visible as unknown and is excluded from median', async () => {
+  const r = await routeFixture(undefined, undefined, false, { invoices: [invoice(), { ...invoice(), status_transitions: { paid_at: null } }] }).run();
+  assert.equal(r.status, 200); assert.equal(r.body.rows?.length, 1); assert.equal(r.body.rows?.[0].firstPaidAt, null); assert.equal(r.body.rows?.[0].daysToUpgrade, null); assert.equal(r.body.medianDays, null);
+});
 
 function discoveryFixture(authenticated = true, writeFails = false) {
   const source = readFileSync(new URL('../app/api/account/discovery-source/route.ts', import.meta.url), 'utf8');
