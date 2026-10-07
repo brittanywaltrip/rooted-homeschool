@@ -412,6 +412,7 @@ export default function AdminPage() {
       <div className="max-w-4xl mx-auto px-5 py-8 space-y-10">
 
         {/* Quick Links */}
+        <Link href="/admin/insights" className="block rounded-2xl border border-[#e8e2d9] bg-[#fefcf9] px-5 py-4 text-sm font-semibold text-[#2D5A3D]">Signup &amp; Upgrade Insights →</Link>
         <div className="space-y-3">
           <Link
             href="/admin/resources"
