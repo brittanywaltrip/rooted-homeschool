@@ -14,6 +14,7 @@ pg_ctl -D "$R/data" -o "-c listen_addresses=127.0.0.1 -c unix_socket_directories
 q(){ psql -X -q -At -v ON_ERROR_STOP=1 -d br "$@"; }
 psql -X -q -c "create database br" postgres
 q -f "$S/stub.sql" >/dev/null
+q -f "$S/live-triggers.sql" >/dev/null
 for MIG in $MIGS; do q -f "$MIG" >/dev/null && echo "migration applied: $(basename "$MIG")"; done
 FAILS=0
 check(){ if echo "$2" | grep -Eq -- "$3"; then echo "PASS $1 -> $2"; else echo "FAIL $1 -> $2   (expected /$3/)"; FAILS=$((FAILS+1)); fi; }
@@ -138,5 +139,8 @@ q -c "create function public._boom2() returns trigger language plpgsql as \$b\$ 
 check "T22 make-up write fails"         "$(reopen "$(L 5)")   $(row "$(L 5)")" 'injected make-up failure.*"failed".*done/unpinned/wizard_create/.*/min=30/ptr=5'
 q -c "drop trigger _boom2 on public.lessons; drop function public._boom2();"
 
+q -f "$S/unslotted.sql" >/dev/null && echo "PASS unslotted SQL assertions" || FAILS=$((FAILS+1))
+q -f "$S/atomic.sql" >/dev/null && echo "PASS atomic settings SQL assertions" || FAILS=$((FAILS+1))
+q -f "$S/unslotted-dates.sql" >/dev/null && echo "PASS unslotted date SQL assertions" || FAILS=$((FAILS+1))
 pg_ctl -D "$R/data" stop -m fast >/dev/null
 echo "failures: $FAILS"; exit $FAILS

@@ -8340,7 +8340,7 @@ test('the Schedule Builder wires all three fixes into phase 2 itself', () => {
   )
   assert.match(
     phase2,
-    /computeNextLessonsForGoal\(\s*goalConfig,\s*forwardAnchor,\s*3650,\s*vacations,\s*isNewGoal \? 0 : doneToday,\s*holds,\s*\)/,
+    /computeNextLessonsForGoal\(\s*goalConfig,\s*forwardAnchor,\s*3650,\s*vacations,\s*isNewGoal \? 0 : doneTodaySplit\.slotted,\s*isNewGoal \? holds : \[\.\.\.holds, \.\.\.doneTodayHolds\(doneTodaySplit\.unslotted, ymd\(todayMid\)\)\],\s*\)/,
     'the forward projection reads the anchor, and lessons done today count against an existing goal\'s today',
   )
 
@@ -9633,7 +9633,7 @@ test('the builder anchors its pace at the next lesson date', () => {
   assert.match(calcPace, /vacations,/, 'and it honours the family\'s breaks')
   assert.match(
     src,
-    /calcPace\(row, today, nextQueued\?\.date, vacations(, skippedSlots)?\)/,
+    /calcPace\(row, today, nextQueued\?\.date, vacations(, skippedSlots(, goalDayHolds)?)?\)/,
     'anchored at the next lesson, with breaks (and the goal\'s skips, Invariant 22)',
   )
   // One computation, read by both surfaces. Computing it again in the row card
@@ -10531,7 +10531,7 @@ test('builder rebuild: the Schedule Builder runs those same pieces', () => {
   assert.match(phase2, /queue_pinned, skipped, scheduled_date, date, title", \{ count: "exact" \}/, 'phase 2 reads skipped')
   assert.match(phase2, /completed_at, notes, minutes_spent/, 'phase 2 reads completed_at, to count lessons done today')
   assert.match(phase2, /\} = planPhase2Rows\(\{/)
-  assert.match(phase2, /computeNextLessonsForGoal\(\s*goalConfig,\s*forwardAnchor,\s*3650,\s*vacations,\s*isNewGoal \? 0 : doneToday,\s*holds,\s*\)/)
+  assert.match(phase2, /computeNextLessonsForGoal\(\s*goalConfig,\s*forwardAnchor,\s*3650,\s*vacations,\s*isNewGoal \? 0 : doneTodaySplit\.slotted,\s*isNewGoal \? holds : \[\.\.\.holds, \.\.\.doneTodayHolds\(doneTodaySplit\.unslotted, ymd\(todayMid\)\)\],\s*\)/)
   assert.match(phase2, /skippedSlots: projectableSkippedSlots,/)
   assert.match(phase2, /\} = planPhase2Commit\(\{/)
   const commit = stripComments(loadRepoFile('app/lib/phase2-commit.ts'))
@@ -10686,13 +10686,17 @@ test('builder preview: skips are loaded once and handed to every schedule line',
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   assert.match(src, /\.from\("lessons"\)\s*\.select\("curriculum_goal_id, queue_position, completed, skipped"\)\s*\.eq\("user_id", effectiveUserId\)\s*\.eq\("skipped", true\)/)
   assert.match(src, /skippedSlotsFromRows\(\[r\], goalId\)/, 'the derivation planPhase2Rows uses')
-  assert.match(src, /rowScheduleFor\(r, today, todayStr, vacations, skippedByGoal, previewLive\)/)
-  // Invariant 23: pins (make-ups included) and today's completions reach the preview too.
-  assert.match(src, /\.eq\("queue_pinned", true\)\s*\.eq\("completed", false\)/)
+  assert.match(src, /rowScheduleFor\(r, today, todayStr, vacations, skippedByGoal, previewLive, reservationRows\)/)
+  // Reserved slots (reservedSlotsFromRows) join the skips, against the pointer this row's typed next lesson implies.
+  assert.match(src, /reservedSlotsFromRows\(reservationRows\.filter\(\(r\) => r\.curriculum_goal_id === goalId\), nextLesson - 1, goalId\)/)
+  // Invariant 23: pins (make-ups included) and today's completions reach the preview too,
+  // and so do dated lessons with no queue slot, which hold their day (DayHold).
+  assert.match(src, /\.or\("queue_pinned\.eq\.true,and\(queue_position\.is\.null,scheduled_date\.not\.is\.null\)"\)\s*\.eq\("completed", false\)/)
+  assert.match(src, /\.\.\.keptPins, \.\.\.goalDayHolds\]/, 'the preview projects around the days unslotted lessons hold')
   assert.match(src, /doneTodayHere,\s*\[\.\.\.skippedSlots\.map/)
   assert.match(src, /nextLesson: builderNextLesson\(branch === "fresh" \? 1 : nextLesson, skippedSlots, row\.total_lessons\)/)
   assert.match(src, /const nextQueued = projected\.find\(\(p\) => p\.lesson_number > previewCurrent\);/)
-  assert.match(src, /calcPace\(row, today, nextQueued\?\.date, vacations, skippedSlots\)/)
+  assert.match(src, /calcPace\(row, today, nextQueued\?\.date, vacations, skippedSlots, goalDayHolds\)/, 'the finish estimate counts the days unslotted lessons hold')
   assert.equal((src.match(/nextLesson: sched\.nextLesson,/g) ?? []).length, 4, 'both stored-progress lines and both next-lesson lines read the stepped lesson')
 })
 
