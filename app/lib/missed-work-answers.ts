@@ -124,11 +124,24 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
           choice: row.choice,
           todayStr: d.todayStr,
           surface: "recovery",
+          onlyIfIncomplete: true,
           lessonNumber: row.lesson_number,
           subjectLabel: goal?.subject_label ?? null,
           track: (event) => d.track("lesson_completed", event as unknown as Record<string, unknown>),
         });
-        if (result.error) throw result.error;
+        if (result.error) {
+          // Another tab may have completed it after our lookup, or after the
+          // helper read. Confirm that winner; never re-date it or emit another
+          // completion event. Other errors and uncompleted rows remain failures.
+          if (result.error.code !== "already_completed" && result.error.code !== "placement_changed") throw result.error;
+          const { data: winner, error: winnerError } = await d.supabase
+            .from("lessons").select("id, completed")
+            .eq("id", existing.id).eq("user_id", d.userId)
+            .eq("curriculum_goal_id", row.goal_id).eq("queue_position", row.lesson_number)
+            .maybeSingle();
+          if (winnerError) throw winnerError;
+          if (!winner?.completed) throw result.error;
+        }
         completedCount++;
         continue;
       }

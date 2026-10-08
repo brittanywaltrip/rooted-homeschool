@@ -41,3 +41,16 @@ export function resolveBuilderEdits(baseline: EditBaseline | undefined, form: Re
   }
   return { patch, merged: { ...current, ...patch } };
 }
+
+/** Client guard only: the RPC must validate these under its lock to close the
+ * interval AFTER this read. Include our own metadata patch in planned. */
+export function builderPlanDependenciesMatch(planned: Record<string, unknown>, current: Record<string, unknown>): boolean {
+  return !current.archived && current.completed_at == null &&
+    ["child_id", "curriculum_name", "subject_label", "default_minutes"].every(key => sameSetting(planned[key], current[key])) &&
+    sameSetting(databaseTime(planned.scheduled_start_time), databaseTime(current.scheduled_start_time));
+}
+
+// PostgreSQL returns seconds for time columns; the form may send only HH:MM.
+function databaseTime(value: unknown): unknown {
+  return typeof value === "string" && /^\d{2}:\d{2}$/.test(value) ? `${value}:00` : value;
+}

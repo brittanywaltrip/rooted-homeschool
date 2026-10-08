@@ -26,7 +26,7 @@ import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, 
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
-import { resolveBuilderEdits, type EditBaseline } from "@/app/lib/builder-edit-intent";
+import { resolveBuilderEdits, builderPlanDependenciesMatch, type EditBaseline } from "@/app/lib/builder-edit-intent";
 import { afterOrphanCleanup, changedSettings, isDecidedNotApplied, markNotApplied, pointerFor, restorePatch, scheduleSnapshot, SCHEDULE_FIELDS, stillAsWrittenFilters, wasNotApplied, type ScheduleSnapshot } from "@/app/lib/builder-settings-restore";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
@@ -3050,6 +3050,20 @@ function ScheduleBuilderPageInner() {
         // lesson plan, in apply_builder_rebuild's single transaction. These
         // build its arguments and judge its verdict; nothing here writes.
         const commitArgs = async (plan: Phase2CommitPlan): Promise<Parameters<typeof applyPhase2Commit>[1]> => {
+          // Check lifecycle and lesson-construction metadata for BOTH branches.
+          // This is a client guard; it cannot lock out changes after this read.
+          const { data: goalNow, error: goalNowErr } = await supabase
+            .from("curriculum_goals")
+            .select("total_lessons, current_lesson, start_at_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date, archived, completed_at, child_id, curriculum_name, subject_label, default_minutes, scheduled_start_time")
+            .eq("id", goalId)
+            .single();
+          if (goalNowErr || !goalNow) throw goalNowErr ?? new Error(`Phase 2 could not re-read goal ${goalId}`);
+          const dependencies = freshGoals.has(goalId)
+            ? { ...freshGoals.get(goalId)!, ...editPatches.get(goalId) }
+            : curriculumEditableValues(row);
+          if (!builderPlanDependenciesMatch(dependencies, goalNow)) {
+            throw markNotApplied(new Error("This curriculum changed while saving. Reload the Builder and review its child, status and settings before saving."));
+          }
           let snapshot: Phase2GoalSnapshot;
           if (pending) {
             // The settings this save started from, not a fresh read. If this
@@ -3058,12 +3072,6 @@ function ScheduleBuilderPageInner() {
             // them, it reports the plan stale. Either way it decides, not us.
             snapshot = { ...(pending.before as unknown as Phase2GoalSnapshot), current_lesson: storedPointer as number };
           } else {
-            const { data: goalNow, error: goalNowErr } = await supabase
-              .from("curriculum_goals")
-              .select("total_lessons, current_lesson, start_at_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date")
-              .eq("id", goalId)
-              .single();
-            if (goalNowErr || !goalNow) throw goalNowErr ?? new Error(`Phase 2 could not re-read goal ${goalId}`);
             snapshot = goalNow as Phase2GoalSnapshot;
             const plannedFrom = freshGoals.get(goalId);
             if (snapshot.current_lesson !== currentLesson || snapshot.total_lessons !== row.total_lessons ||

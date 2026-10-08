@@ -1631,3 +1631,21 @@ siblings, deliberate conflicts, drafts, repeated saves and pace agreement.
 against the filtering memory client, including partial failure and retry. These
 are not substitutes for full two-session database/browser integration. Historical
 lesson disappearance and final-row SQL validation remain separate open work.
+
+
+### Local concurrency follow-up (not release clearance)
+
+Recovery passes `onlyIfIncomplete` to the completion writer. Its update includes
+`completed = false` atomically with the placement guards. An already completed
+row or a lost conditional write is counted only after recovery confirms the
+same owner's goal/slot is completed; its recorded date, timestamp and hours are
+preserved, with no duplicate completion event. A failed confirmation remains a
+partial failure. Other surfaces retain deliberate completion-date edits.
+
+Builder re-reads lifecycle and lesson-construction metadata before either kind
+of phase-two commit, including pending settings, and refuses changed dependencies.
+**This client check is not transactional protection:** archival or metadata may
+still change after this read. The current RPC expected-goal contract omits those
+fields. Release remains on hold pending separately authorized locked RPC
+validation. Child mismatch is expected to reject/roll back via the existing
+child-match trigger; that is a failed save, not evidence of corrupted records.

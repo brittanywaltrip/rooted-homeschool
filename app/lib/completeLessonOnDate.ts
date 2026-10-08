@@ -151,6 +151,8 @@ export function buildLessonCompletedEvent(args: {
 }
 
 export interface CompleteLessonArgs {
+  /** Recovery must preserve another tab's completed record. */
+  onlyIfIncomplete?: boolean;
   lessonId: string;
   dateStr: string;
   choice: CompletionChoice;
@@ -198,9 +200,10 @@ type StoredPlacement = {
   scheduled_date: string | null;
   queue_pinned: boolean | null;
   skipped: boolean | null;
+  completed?: boolean | null;
 };
 
-export type CompletionErrorCode = "not_found" | "placement_changed";
+export type CompletionErrorCode = "not_found" | "placement_changed" | "already_completed";
 
 export interface CompleteLessonResult {
   /** What was written for a queue lesson; null when completed in place. */
@@ -255,7 +258,7 @@ export async function completeLessonOnDate(
   // can never move or unpin a lesson that has no queue slot.
   const { data: stored, error: readErr } = await supabase
     .from("lessons")
-    .select("curriculum_goal_id, queue_position, scheduled_date, queue_pinned, skipped")
+    .select("curriculum_goal_id, queue_position, scheduled_date, queue_pinned, skipped, completed")
     .eq("id", args.lessonId)
     .maybeSingle();
   if (readErr) return { payload: null, filedDate: args.dateStr, inPlace: false, error: readErr };
@@ -263,6 +266,16 @@ export async function completeLessonOnDate(
   if (!row) {
     return { payload: null, filedDate: args.dateStr, inPlace: false, error: { message: "lesson not found", code: "not_found" } };
   }
+  if (args.onlyIfIncomplete && row.completed) {
+    return { payload: null, filedDate: row.scheduled_date ?? args.dateStr, inPlace: completesInPlace(row),
+      error: { message: "lesson was already completed", code: "already_completed" } };
+  }
+  // This predicate is evaluated with the UPDATE, not just in the read above.
+  // Deliberate date changes on other surfaces retain their existing behavior.
+  const update = (payload: Record<string, unknown>) => {
+    const query = supabase.from("lessons").update(payload).eq("id", args.lessonId);
+    return args.onlyIfIncomplete ? query.eq("completed", false) : query;
+  };
   const time = completionTimeFields(args.extra);
   const changed = { message: "lesson changed before it could be completed", code: "placement_changed" as const };
 
@@ -270,7 +283,7 @@ export async function completeLessonOnDate(
     const filedDate = row.scheduled_date as string;
     const completedAt = inPlaceCompletedAt(filedDate, args.todayStr, args.now);
     const { data: written, error } = await guardPlacement(
-      supabase.from("lessons").update({ ...time, completed: true, completed_at: completedAt }).eq("id", args.lessonId),
+      update({ ...time, completed: true, completed_at: completedAt }),
       row,
     ).select("id");
     if (error) return { payload: null, filedDate, inPlace: true, error };
@@ -294,7 +307,7 @@ export async function completeLessonOnDate(
   });
   // Payload last: the time fields never carry the date rule.
   const { data: written, error } = await guardPlacement(
-    supabase.from("lessons").update({ ...time, ...payload }).eq("id", args.lessonId),
+    update({ ...time, ...payload }),
     row,
   ).select("id");
   if (error) return { payload, filedDate: payload.date, inPlace: false, error };

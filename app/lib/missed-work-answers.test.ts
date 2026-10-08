@@ -91,3 +91,75 @@ test("missing child and unconfirmed insert both fail without a full-success coun
     assert.equal(f.events.filter(e => e === "lesson_completed").length,0);
   }
 });
+
+for (const boundary of ["before helper read", "after helper read"] as const) {
+  test(`competing completion ${boundary} keeps its date, timestamp, hours and truthful count`, async () => {
+    const f = setup();
+    const from = f.client.from.bind(f.client);
+    let winner: Record<string, unknown> | undefined;
+    const completeElsewhere = () => {
+      Object.assign(f.tables.lessons[0], {completed:true, completed_at:"2026-10-07T12:00:00Z",
+        date:"2026-10-07", scheduled_date:"2026-10-07", queue_pinned:true});
+      winner = {...f.tables.lessons[0]};
+    };
+    f.deps.supabase = {...f.client, from(table: string) {
+      const base = from(table);
+      return {...base,
+        select(cols: string) {
+          if (!winner && boundary === "before helper read" && table === "lessons" && cols.startsWith("curriculum_goal_id, queue_position")) completeElsewhere();
+          return base.select(cols);
+        },
+        update(payload: Record<string, unknown>) {
+          if (!winner && boundary === "after helper read" && table === "lessons" && payload.completed === true) completeElsewhere();
+          return base.update(payload);
+        },
+      };
+    }} as never;
+    assert.deepEqual(await answerMissedYes(f.deps, rows), {completedCount:2});
+    assert.ok(winner); assert.deepEqual(f.tables.lessons[0], winner);
+    assert.equal(f.events.filter(e => e === "lesson_completed").length, 1);
+  });
+}
+
+test("competing completion with unchanged placement still preserves timestamp and time", async () => {
+  const f = setup(); const from = f.client.from.bind(f.client);
+  let winner: Record<string, unknown> | undefined;
+  f.deps.supabase = {...f.client, from(table: string) {
+    const base = from(table);
+    return {...base, update(payload: Record<string, unknown>) {
+      if (!winner && table === "lessons" && payload.completed === true) {
+        Object.assign(f.tables.lessons[0], {completed:true,completed_at:"2026-10-05T19:22:00Z",minutes_spent:43,hours:43/60});
+        winner={...f.tables.lessons[0]};
+      }
+      return base.update(payload);
+    }};
+  }} as never;
+  assert.deepEqual(await answerMissedYes(f.deps, rows), {completedCount:2});
+  assert.deepEqual(f.tables.lessons[0],winner);
+  assert.equal(f.events.filter(e => e === "lesson_completed").length,1);
+});
+
+test("failed winner re-read remains partial failure, never a confirmed completion", async () => {
+  const f=setup(); const from=f.client.from.bind(f.client); let confirming=false;
+  f.deps.supabase={...f.client,from(table:string){
+    const base=from(table);
+    return {...base,update(payload:Record<string,unknown>){
+      if(table === "lessons" && payload.completed === true){
+        confirming=true;
+        const q={eq:()=>q,is:()=>q,select:async()=>({data:[],error:null})};return q;
+      }
+      return base.update(payload);
+    },select(cols:string){
+      if(confirming && table === "lessons" && cols === "id, completed"){
+        const q={eq:()=>q,maybeSingle:async()=>({data:null,error:{message:"winner read failed"}})};return q;
+      }
+      return base.select(cols);
+    }};
+  }} as never;
+  await assert.rejects(answerMissedYes(f.deps,rows),(error:unknown)=>{
+    assert.ok(error instanceof MissedCompletionError); assert.equal(error.completedCount,0);
+    assert.equal((error.cause as {message:string}).message,"winner read failed");return true;
+  });
+  assert.deepEqual(f.tables.lessons.map(r=>r.completed),[false,false]);
+  assert.equal(f.events.filter(e=>e === "lesson_completed").length,0);
+});
