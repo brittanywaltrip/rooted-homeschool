@@ -54,8 +54,22 @@ export async function markCatchupAnswered(d: Pick<MissedAnswerDeps, "supabase" |
   }
 }
 
+export class MissedCompletionError extends Error {
+  readonly completedCount: number;
+  readonly requestedCount: number;
+  constructor(completedCount: number, requestedCount: number, cause: unknown) {
+    super(`${completedCount} of ${requestedCount} selected lessons confirmed done. The rest could not be confirmed. Your recorded work is safe. Close and reopen this review to refresh the lessons, then try again.`, { cause });
+    this.name = "MissedCompletionError";
+    this.completedCount = completedCount;
+    this.requestedCount = requestedCount;
+  }
+}
+
+export type MissedAnswerResult = { completedCount: number };
+
 /** "Yes": record the rows left checked. Throws when something did not land. */
-export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]): Promise<void> {
+export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]): Promise<MissedAnswerResult> {
+  let completedCount = 0;
   // Unchecking is an answer, so act on it. Goals the family left something
   // unchecked on are settled through the SAME helper "No, reschedule them"
   // uses: those lessons move ahead in the plan and stop being offered as
@@ -67,7 +81,6 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
     goalIds: offeredGoalIds,
     written: rows,
   });
-  await markCatchupAnswered(d, reschedGoalIds);
   const offeredCount = offeredGoalIds.reduce(
     (n, id) => n + (d.entriesByGoal.get(id) ?? []).length,
     0,
@@ -78,141 +91,155 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
     goals_rescheduled: reschedGoalIds.length,
   });
 
-  // Only the rows the family left checked, each on the date they saw. A row
-  // they unchecked is not written and is not rescheduled either: it stays
-  // exactly as it was, and "No, reschedule them" is the way to move it.
+  // Only the rows the family left checked are completed, each on the date
+  // they saw. Settle unchecked work only after every completion is confirmed.
   //
   // choice is "planned" when the date is the gap day we proposed and
   // "picked" when they changed it, so the record says whose date it was.
   const goalIds = Array.from(new Set(rows.map((r) => r.goal_id)));
 
-  for (const row of rows) {
-    // Match by (curriculum_goal_id, queue_position): the projection emits
-    // queue slot indices (see ProjectedLesson), and queue_position is the
-    // column Today already matches projection slots against. Rows are
-    // pre-generated at creation; a missing one falls through to an insert.
-    const { data: existing } = await d.supabase
-      .from("lessons")
-      .select("id")
-      .eq("user_id", d.userId)
-      .eq("curriculum_goal_id", row.goal_id)
-      .eq("queue_position", row.lesson_number)
-      .maybeSingle();
+  try {
+    for (const row of rows) {
+      // Match by (curriculum_goal_id, queue_position): the projection emits
+      // queue slot indices (see ProjectedLesson), and queue_position is the
+      // column Today already matches projection slots against. Rows are
+      // pre-generated at creation; a missing one falls through to an insert.
+      const { data: existing, error: lookupError } = await d.supabase
+        .from("lessons")
+        .select("id, completed")
+        .eq("user_id", d.userId)
+        .eq("curriculum_goal_id", row.goal_id)
+        .eq("queue_position", row.lesson_number)
+        .maybeSingle();
 
-    const goal = d.goals.find((g) => g.id === row.goal_id);
+      if (lookupError) throw lookupError;
+      // A retry must not re-date a completion that already landed.
+      if (existing?.completed) { completedCount++; continue; }
+      const goal = d.goals.find((g) => g.id === row.goal_id);
 
-    if (existing) {
-      await completeLessonOnDate(d.supabase, {
-        lessonId: (existing as { id: string }).id,
-        dateStr: row.date,
-        choice: row.choice,
-        todayStr: d.todayStr,
-        surface: "recovery",
-        lessonNumber: row.lesson_number,
-        subjectLabel: goal?.subject_label ?? null,
-        track: (event) => d.track("lesson_completed", event as unknown as Record<string, unknown>),
-      });
-      continue;
-    }
+      if (existing) {
+        const result = await completeLessonOnDate(d.supabase, {
+          lessonId: (existing as { id: string }).id,
+          dateStr: row.date,
+          choice: row.choice,
+          todayStr: d.todayStr,
+          surface: "recovery",
+          lessonNumber: row.lesson_number,
+          subjectLabel: goal?.subject_label ?? null,
+          track: (event) => d.track("lesson_completed", event as unknown as Record<string, unknown>),
+        });
+        if (result.error) throw result.error;
+        completedCount++;
+        continue;
+      }
 
-    const goalRow = await d.supabase
-      .from("curriculum_goals")
-      .select("child_id, subject_label, default_minutes")
-      .eq("id", row.goal_id)
-      .maybeSingle();
-    if (goalRow.error) {
-      captureSupabaseError("Missed-lesson recovery: goal read failed", goalRow.error, {
-        tags: { fn: "acceptMissedRecovery" },
-        extra: { goalId: row.goal_id },
-      });
-    }
-    // child_id MUST come from the goal. Pre-fix this silently fell back to
-    // null when the SELECT failed or returned nothing, inserting a lesson
-    // with no child on a goal that has one (drift F: 6 prod rows across 3
-    // families, created Jul 9-27). A lesson row with no child never renders
-    // under a kid on Today or Plan and never reaches that child's
-    // transcript, so a silent null is worse than a skipped row.
-    //
-    // Three independent sources, in order, because production kept hitting
-    // "no child_id resolvable" on goals whose row genuinely has one:
-    //   1. the goal object already in memory (missedGoals carries child_id
-    //      from loadData's curriculum_goals select),
-    //   2. the per-entry SELECT above,
-    //   3. a narrow retry that reads child_id alone, covering a transient
-    //      failure of the wider select.
-    // Only when all three come back empty do we skip the insert.
-    let childId =
-      goal?.child_id ??
-      (goalRow.data as { child_id?: string | null } | null)?.child_id ??
-      null;
-    if (!childId) {
-      const retry = await d.supabase
+      const goalRow = await d.supabase
         .from("curriculum_goals")
-        .select("child_id")
+        .select("child_id, subject_label, default_minutes")
         .eq("id", row.goal_id)
         .maybeSingle();
-      if (retry.error) {
-        captureSupabaseError("Missed-lesson recovery: child_id retry failed", retry.error, {
+      if (goalRow.error) {
+        captureSupabaseError("Missed-lesson recovery: goal read failed", goalRow.error, {
           tags: { fn: "acceptMissedRecovery" },
           extra: { goalId: row.goal_id },
         });
       }
-      childId = (retry.data as { child_id?: string | null } | null)?.child_id ?? null;
-    }
-    if (!childId) {
-      Sentry.captureMessage(
-        `Missed-lesson recovery: no child_id resolvable for goal ${row.goal_id}; skipping insert`,
-        { level: "error", tags: { fn: "acceptMissedRecovery" } },
-      );
-      continue;
-    }
-    // curriculum_goals has no subject_id column, only subject_label. The
-    // real id comes from matching that label against the already-loaded
-    // subjects state, same case-insensitive lookup saveEdit() uses.
-    const goalSubjectLabel = (goalRow.data as { subject_label?: string | null } | null)?.subject_label ?? null;
-    const matchedSubject = goalSubjectLabel?.trim()
-      ? d.subjects.find((s) => s.name.toLowerCase() === goalSubjectLabel.trim().toLowerCase())
-      : undefined;
-    const defaultMinutes =
-      (goalRow.data as { default_minutes?: number | null } | null)?.default_minutes ?? 30;
-    // Same completion shape as the update branch above; the helper cannot be
-    // used for a row that does not exist yet, so the payload is spread last
-    // so the date rule wins over anything above it.
-    const insertPayload = buildCompletionPayload({
-      dateStr: row.date,
-      choice: row.choice,
-      todayStr: d.todayStr,
-    });
-    const { error: insertErr } = await d.supabase.from("lessons").insert({
-      user_id: d.userId,
-      curriculum_goal_id: row.goal_id,
-      lesson_number: row.lesson_number,
-      queue_position: row.lesson_number,
-      title: `${goal?.subject_label ?? goal?.curriculum_name ?? "Lesson"}: Lesson ${row.lesson_number}`,
-      child_id: childId,
-      subject_id: matchedSubject?.id ?? null,
-      minutes_spent: defaultMinutes,
-      hours: defaultMinutes / 60,
-      ...insertPayload,
-    });
-    if (insertErr) {
-      captureSupabaseError("Missed-lesson recovery: insert failed", insertErr, {
-        tags: { fn: "acceptMissedRecovery" },
-        extra: { goalId: row.goal_id, slot: row.lesson_number },
+      // child_id MUST come from the goal. Pre-fix this silently fell back to
+      // null when the SELECT failed or returned nothing, inserting a lesson
+      // with no child on a goal that has one (drift F: 6 prod rows across 3
+      // families, created Jul 9-27). A lesson row with no child never renders
+      // under a kid on Today or Plan and never reaches that child's
+      // transcript, so a silent null is worse than a skipped row.
+      //
+      // Three independent sources, in order, because production kept hitting
+      // "no child_id resolvable" on goals whose row genuinely has one:
+      //   1. the goal object already in memory (missedGoals carries child_id
+      //      from loadData's curriculum_goals select),
+      //   2. the per-entry SELECT above,
+      //   3. a narrow retry that reads child_id alone, covering a transient
+      //      failure of the wider select.
+      // Only when all three come back empty do we skip the insert.
+      let childId =
+        goal?.child_id ??
+        (goalRow.data as { child_id?: string | null } | null)?.child_id ??
+        null;
+      if (!childId) {
+        const retry = await d.supabase
+          .from("curriculum_goals")
+          .select("child_id")
+          .eq("id", row.goal_id)
+          .maybeSingle();
+        if (retry.error) {
+          captureSupabaseError("Missed-lesson recovery: child_id retry failed", retry.error, {
+            tags: { fn: "acceptMissedRecovery" },
+            extra: { goalId: row.goal_id },
+          });
+        }
+        childId = (retry.data as { child_id?: string | null } | null)?.child_id ?? null;
+      }
+      if (!childId) {
+        Sentry.captureMessage(
+          `Missed-lesson recovery: no child_id resolvable for goal ${row.goal_id}; skipping insert`,
+          { level: "error", tags: { fn: "acceptMissedRecovery" } },
+        );
+        throw new Error("Could not identify the child for this lesson");
+      }
+      // curriculum_goals has no subject_id column, only subject_label. The
+      // real id comes from matching that label against the already-loaded
+      // subjects state, same case-insensitive lookup saveEdit() uses.
+      const goalSubjectLabel = (goalRow.data as { subject_label?: string | null } | null)?.subject_label ?? null;
+      const matchedSubject = goalSubjectLabel?.trim()
+        ? d.subjects.find((s) => s.name.toLowerCase() === goalSubjectLabel.trim().toLowerCase())
+        : undefined;
+      const defaultMinutes =
+        (goalRow.data as { default_minutes?: number | null } | null)?.default_minutes ?? 30;
+      // Same completion shape as the update branch above; the helper cannot be
+      // used for a row that does not exist yet, so the payload is spread last
+      // so the date rule wins over anything above it.
+      const insertPayload = buildCompletionPayload({
+        dateStr: row.date,
+        choice: row.choice,
+        todayStr: d.todayStr,
       });
-      continue;
+      const { data: inserted, error: insertErr } = await d.supabase.from("lessons").insert({
+        user_id: d.userId,
+        curriculum_goal_id: row.goal_id,
+        lesson_number: row.lesson_number,
+        queue_position: row.lesson_number,
+        title: `${goal?.subject_label ?? goal?.curriculum_name ?? "Lesson"}: Lesson ${row.lesson_number}`,
+        child_id: childId,
+        subject_id: matchedSubject?.id ?? null,
+        minutes_spent: defaultMinutes,
+        hours: defaultMinutes / 60,
+        ...insertPayload,
+      }).select("id");
+      if (insertErr || inserted?.length !== 1) {
+        captureSupabaseError("Missed-lesson recovery: insert failed", insertErr, {
+          tags: { fn: "acceptMissedRecovery" },
+          extra: { goalId: row.goal_id, slot: row.lesson_number },
+        });
+        throw insertErr ?? new Error("Completion insert was not confirmed");
+      }
+      completedCount++;
+      d.track("lesson_completed", {
+        lesson_number: row.lesson_number,
+        subject_label: goalSubjectLabel,
+        lesson_date: insertPayload.date,
+        date_choice: row.choice,
+        surface: "recovery" as const,
+      });
     }
-    d.track("lesson_completed", {
-      lesson_number: row.lesson_number,
-      subject_label: goalSubjectLabel,
-      lesson_date: insertPayload.date,
-      date_choice: row.choice,
-      surface: "recovery" as const,
-    });
+
+  } catch (err) {
+    // No rollback of recorded work, no answer marker or re-spread that could
+    // hide the failed rows. Callers reload and keep the review open.
+    throw new MissedCompletionError(completedCount, rows.length, err);
   }
 
   for (const goalId of goalIds) {
-    await recomputeCurrentLesson(d.supabase, goalId);
+    if (await recomputeCurrentLesson(d.supabase, goalId) == null) {
+      throw new Error("Your lessons were saved, but progress could not be refreshed. Close and reopen this review, then try again.");
+    }
   }
 
   // Move the offered goals' remaining lessons to their new days, as the
@@ -224,6 +251,8 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
   if (!moved.ok) {
     throw new Error("Your lessons were saved, but some upcoming ones couldn't be moved to their new days. Try again.");
   }
+  await markCatchupAnswered(d, reschedGoalIds);
+  return { completedCount };
 }
 
 /**

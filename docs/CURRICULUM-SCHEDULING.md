@@ -1601,3 +1601,33 @@ year.
 ---
 
 *This doc is alive. When you find a new bug pattern, add it. When you write a new test, add it. When you discover a new invariant, document it. Keep it next to the code.*
+
+
+### Builder stale forms and recovery write confirmation (isolated follow-up to PR146)
+
+The Builder records both the stored values and their loaded form representation.
+Before any save writes, `resolveBuilderEdits` derives intent from that original
+form, refuses conflicting edits to changed fields, and merges untouched settings
+from a fresh owner-scoped read. Flat pace and its override map are checked as one
+control. The merged row feeds the history pre-flight and phase-2 planner; its
+fresh schedule snapshot is the pin-preservation baseline. A no-patch sibling also
+refuses if any scheduling input changes after that refresh. PR146's atomic
+settings-and-lessons transaction remains the final concurrency guard. Successful
+per-goal saves advance the form baseline so a second save is a new edit.
+Restored drafts keep their original baseline; older drafts without one fail
+closed and ask the family to copy their edits before discarding the old draft.
+
+Recovery Yes checks every completion result and confirms insert representations.
+A failed lookup, missing row, changed placement or unconfirmed write stops the
+batch with the count confirmed so far, before recording an answer or re-spreading.
+Already recorded completions stay recorded; a retry skips them without changing
+their date or time. Today and Plan reload after failure, keep the review open,
+and reserve success notices for the confirmed count returned on success.
+
+Tests: `builder-edit-intent.test.ts` executes the page's actual row adapters and
+pre-write refresh with synthetic reads, then the real projector. It covers stale
+siblings, deliberate conflicts, drafts, repeated saves and pace agreement.
+`missed-work-answers.test.ts` calls the real recovery writer and completion helper
+against the filtering memory client, including partial failure and retry. These
+are not substitutes for full two-session database/browser integration. Historical
+lesson disappearance and final-row SQL validation remain separate open work.

@@ -55,7 +55,7 @@ test("the Schedule Builder restores only after write-free failures and keeps the
   assert.match(src, /throw markNotApplied\(new ScheduleAssertionError\(\n\s+`Lesson scheduling was refused before anything was written \(\$\{committed\.reason\}\)/);
   assert.match(src, /throw isDecidedNotApplied\(committed\) \? markNotApplied\(notApplied\) : notApplied;/);
   // The restore reads the row as phase 1 found it and matches it as written.
-  assert.match(src, /\.select\(SCHEDULE_FIELDS\.join\(", "\)\)/);
+  assert.match(src, /const before = scheduleSnapshot\(\{ \.\.\.freshGoals\.get\(row\.dbId\)! \}\)/);
   assert.match(src, /if \(!snap \|\| !wasNotApplied\(f\.err\)\) continue;/);
   assert.match(src, /stillAsWrittenFilters\(snap\.written, patch\)/);
   // A restored curriculum keeps the family's draft.

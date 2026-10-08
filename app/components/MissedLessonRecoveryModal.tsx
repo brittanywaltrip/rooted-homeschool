@@ -54,6 +54,8 @@ function Spinner({ dark = false }: { dark?: boolean }) {
 
 /** One sentence for the family, with the error's own words when it has any. */
 function failureReason(err: unknown, lead: string): string {
+  // Recovery already supplies the confirmed count and the precise next step.
+  if (err instanceof Error && err.name === "MissedCompletionError") return err.message;
   const detail =
     err instanceof Error && err.message.trim()
       ? err.message.trim()

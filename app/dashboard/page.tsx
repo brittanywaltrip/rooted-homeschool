@@ -2422,10 +2422,11 @@ function TodayPageInner() {
     // state; this handler's job is to not hide it early and to throw when
     // something goes wrong so the modal can say why and re-enable the button.
     // Nothing about what is written, or the order, changes below.
+    let completedCount = 0;
     try {
       // What is written, and in what order, lives in
       // app/lib/missed-work-answers.ts so Plan answers the same way.
-      await answerMissedYes(missedAnswerDeps(), rows);
+      ({ completedCount } = await answerMissedYes(missedAnswerDeps(), rows));
     } catch (err) {
       Sentry.captureException(err, { tags: { fn: "acceptMissedRecovery" } });
       // Some rows may already be written, so Today must show what landed
@@ -2437,7 +2438,7 @@ function TodayPageInner() {
 
     // Every write is in. Only now does the sheet go, with the count.
     setShowMissedRecovery(false);
-    setRecoveryToast(rows.length);
+    setRecoveryToast(completedCount);
     setTimeout(() => setRecoveryToast(null), 2500);
 
     // Regression guard: loadData first, then refreshTodayStory.

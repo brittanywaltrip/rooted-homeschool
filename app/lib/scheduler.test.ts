@@ -7693,7 +7693,7 @@ test('catch-up: the page keeps the sheet open until every write has landed', () 
   const lastRecompute = body.lastIndexOf('recomputeCurrentLesson(')
   const close = body.lastIndexOf('setShowMissedRecovery(false)')
   assert.ok(close > lastRecompute, 'it closes after the last write')
-  assert.ok(/setRecoveryToast\(rows\.length\)/.test(body), 'and toasts the count')
+  assert.ok(/setRecoveryToast\(completedCount\)/.test(body), 'and toasts the count')
   assert.ok(/throw err/.test(body), 'a failure reaches the modal')
   // Regression guard: both refreshes still awaited on the way out.
   const tail = body.slice(close)
@@ -9847,7 +9847,9 @@ test('a stale Schedule Builder tab or draft cannot write an old starting lesson 
 
   // The UPDATE sends start_at_lesson only when this session changed it.
   const save = extractFunctionBody(src, /async function handleSave\s*\(/)
-  assert.match(save, /const updatePayload: Partial<typeof payload> = \{ \.\.\.payload \};\s*if \(!startAtLessonTouched\(row\)\) delete updatePayload\.start_at_lesson;/)
+  assert.match(save, /if \(!startAtLessonTouched\(row\) && row\._editBaseline\) form\.start_at_lesson = row\._editBaseline\.form\.start_at_lesson;/)
+  assert.match(save, /resolveBuilderEdits\(row\._editBaseline, form, \{ \.\.\.current \}\)/)
+  assert.match(save, /const updatePayload = \{ \.\.\.editPatches\.get\(row\.dbId\) \};/)
   assert.match(save, /\.from\("curriculum_goals"\)\s*\.update\(updatePayload\)/)
   assert.doesNotMatch(save, /\.from\("curriculum_goals"\)\s*\.update\(payload\)/, 'no UPDATE sends the unguarded payload')
 

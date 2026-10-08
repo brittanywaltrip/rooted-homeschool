@@ -26,6 +26,7 @@ import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, 
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
+import { resolveBuilderEdits, type EditBaseline } from "@/app/lib/builder-edit-intent";
 import { afterOrphanCleanup, changedSettings, isDecidedNotApplied, markNotApplied, pointerFor, restorePatch, scheduleSnapshot, SCHEDULE_FIELDS, stillAsWrittenFilters, wasNotApplied, type ScheduleSnapshot } from "@/app/lib/builder-settings-restore";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
@@ -152,6 +153,7 @@ type Row = {
   // re-spread of THIS goal from a sibling goal that is only along for the ride.
   // Null for never-saved rows (nothing to compare against). See
   // scheduleFieldsChangedForRow + the pin-preservation block in phase 2.
+  _editBaseline?: EditBaseline;
   _originalSchedule: {
     lessons_per_day: number | null;
     lessons_per_day_overrides: Record<string, number> | null;
@@ -286,6 +288,31 @@ function blankRow(child_id: string, type: RowType): Row {
   };
 }
 
+/** The fields edited by the curriculum card, in their persisted shape. */
+function curriculumEditableValues(row: Row): Record<string, unknown> {
+  return {
+    child_id: row.child_id,
+    curriculum_name: capitalizeName(row.name.trim()),
+    subject_label: row.subject.trim() || null,
+    total_lessons: row.total_lessons,
+    ...compactCurriculumPerDay(row),
+    start_date: row.start_date,
+    start_at_lesson: clampStartAtLesson(row.start_at_lesson, row.total_lessons ?? 0),
+    default_minutes: row.minutes_per_lesson ?? 30,
+    scheduled_start_time: row.scheduled_start_time,
+  };
+}
+
+/** Advance only confirmed values, retaining raw untouched database values. */
+function settledCurriculumRow(row: Row, goalId: string, stored: Record<string, unknown>): Row {
+  return {
+    ...row, dbId: goalId, previouslySavedAs: "curriculum_goals",
+    start_at_lesson_initial: row.start_at_lesson,
+    _originalSchedule: { ...row._originalSchedule!, ...scheduleSnapshot(stored) } as Row["_originalSchedule"],
+    _editBaseline: { stored, form: curriculumEditableValues(row) },
+  };
+}
+
 function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
   const schoolDays = (g.school_days ?? []) as string[];
   const overrides = g.lessons_per_day_overrides ?? null;
@@ -329,7 +356,7 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
   const seedFromCurrent = Math.max(1, (g.current_lesson ?? 0) + 1);
   const seedFromStartAt = Math.max(1, g.start_at_lesson ?? 1);
   const startAtLesson = Math.max(seedFromCurrent, seedFromStartAt);
-  return {
+  const row: Row = {
     localId: newLocalId(),
     dbId: g.id,
     previouslySavedAs: "curriculum_goals",
@@ -369,6 +396,8 @@ function rowFromCurriculumGoal(g: CurriculumGoalDbRow): Row {
     _legacyActivityDays: [],
     _legacyActivityChildIds: [],
   };
+  row._editBaseline = { stored: { ...g }, form: curriculumEditableValues(row) };
+  return row;
 }
 
 function rowFromActivity(a: ActivityDbRow, anchorChildId: string): Row {
@@ -1159,6 +1188,7 @@ function carryDbFieldsOntoDraftRow(draftRow: Row, freshRow: Row): Row {
     scheduled_start_time: draftRow.scheduled_start_time ?? freshRow.scheduled_start_time,
     _dbCurrentLesson: freshRow._dbCurrentLesson,
     _originalSchedule: freshRow._originalSchedule,
+    _editBaseline: draftRow._editBaseline,
     _legacyTargetDate: freshRow._legacyTargetDate,
     _legacyIconEmoji: freshRow._legacyIconEmoji,
     _legacyActivityFrequency: freshRow._legacyActivityFrequency,
@@ -2037,7 +2067,9 @@ function ScheduleBuilderPageInner() {
   }
 
   // ── Save flow ────────────────────────────────────────────────────────────
+  const builderRows = rows;
   async function handleSave() {
+    let rows = builderRows;
     if (saveGate.isBusy() || saving || !effectiveUserId) return;
     if (!allValid) return;
     if (!saveGate.tryEnter()) return;
@@ -2065,6 +2097,44 @@ function ScheduleBuilderPageInner() {
       // after the user fixes the name should not be locked out.
       saveGate.exit();
     };
+
+    // Resolve every existing curriculum before ANY write or history check.
+    // Phase 2 must plan with these same merged values, including siblings.
+    const freshGoals = new Map<string, CurriculumGoalDbRow>();
+    const editPatches = new Map<string, Record<string, unknown>>();
+    try {
+      rows = await Promise.all(rows.map(async (row) => {
+        if (row.type !== "curriculum" || row.previouslySavedAs !== "curriculum_goals" || !row.dbId || row.pendingDelete || row.readOnly) return row;
+        const { data, error } = await supabase.from("curriculum_goals")
+          .select("id, child_id, curriculum_name, subject_label, total_lessons, current_lesson, lessons_per_day, lessons_per_day_overrides, school_days, start_date, start_at_lesson, default_minutes, target_date, icon_emoji, scheduled_start_time, archived, completed_at")
+          .eq("id", row.dbId).eq("user_id", effectiveUserId).single();
+        if (error || !data) throw error ?? new Error(`Could not refresh ${row.name}. Reload and try again.`);
+        const current = data as CurriculumGoalDbRow;
+        if (current.archived || current.completed_at) throw new Error(`${row.name} changed since this tab opened. Reload the Builder before saving.`);
+        const form = curriculumEditableValues(row);
+        // This control displays progress, not the stored pointer floor.
+        if (!startAtLessonTouched(row) && row._editBaseline) form.start_at_lesson = row._editBaseline.form.start_at_lesson;
+        const { patch, merged } = resolveBuilderEdits(row._editBaseline, form, { ...current });
+        freshGoals.set(row.dbId, current);
+        editPatches.set(row.dbId, patch);
+        const fresh = rowFromCurriculumGoal(current);
+        const resolved = rowFromCurriculumGoal(merged as CurriculumGoalDbRow);
+        return {
+          ...row,
+          name: resolved.name, subject: resolved.subject, child_id: resolved.child_id,
+          total_lessons: resolved.total_lessons, start_date: resolved.start_date,
+          active_days: resolved.active_days, per_day_counts: resolved.per_day_counts,
+          minutes_per_lesson: resolved.minutes_per_lesson, scheduled_start_time: resolved.scheduled_start_time,
+          start_at_lesson: "start_at_lesson" in patch ? Number(patch.start_at_lesson) : resolved.start_at_lesson,
+          start_at_lesson_initial: fresh.start_at_lesson_initial,
+          _dbCurrentLesson: fresh._dbCurrentLesson, _originalSchedule: fresh._originalSchedule,
+          _editBaseline: fresh._editBaseline,
+        };
+      }));
+    } catch (err) {
+      dupReleaseAndExit(err instanceof Error ? err.message : "Could not refresh your settings. Reload and try again.");
+      return;
+    }
 
     const newCurriculumRows = rows.filter(
       (r) =>
@@ -2555,28 +2625,24 @@ function ScheduleBuilderPageInner() {
             // back: the pointer falls to 10 and phase 2 deletes and regenerates
             // lessons 11 to 18. The move silently undone. An untouched number
             // is left as the database has it.
-            const updatePayload: Partial<typeof payload> = { ...payload };
-            if (!startAtLessonTouched(row)) delete updatePayload.start_at_lesson;
-            const { data: beforeRow, error: beforeErr } = await supabase
-              .from("curriculum_goals")
-              .select(SCHEDULE_FIELDS.join(", "))
-              .eq("id", row.dbId)
-              .single();
-            if (beforeErr || !beforeRow) throw beforeErr ?? new Error(`Could not read goal ${row.dbId} before saving`);
-            const before = scheduleSnapshot(beforeRow as unknown as Record<string, unknown>);
-            const changed = changedSettings(before, scheduleSnapshot(updatePayload as Record<string, unknown>));
+            const updatePayload = { ...editPatches.get(row.dbId) };
+            const before = scheduleSnapshot({ ...freshGoals.get(row.dbId)! });
+            const changed = changedSettings(before, scheduleSnapshot(updatePayload));
             if (Object.keys(changed).length > 0) pendingSettings.set(row.dbId, { settings: changed, before });
             for (const f of SCHEDULE_FIELDS) delete (updatePayload as Record<string, unknown>)[f];
-            scheduleBefore.set(row.dbId, {
-              before,
-              written: scheduleSnapshot(updatePayload as Record<string, unknown>),
-              name: capitalizeName(row.name.trim()),
-            });
-            const { error } = await supabase
-              .from("curriculum_goals")
-              .update(updatePayload)
-              .eq("id", row.dbId);
-            if (error) throw error;
+            scheduleBefore.set(row.dbId, { before, written: {}, name: row.name });
+            if (Object.keys(updatePayload).length > 0) {
+              // Metadata is also an intent patch, guarded against a change
+              // between the fresh read and this write. Never resend a full row.
+              let query = supabase.from("curriculum_goals").update(updatePayload)
+                .eq("id", row.dbId).eq("user_id", effectiveUserId);
+              for (const key of Object.keys(updatePayload)) {
+                const expected = row._editBaseline!.stored[key];
+                query = expected == null ? query.is(key, null) : query.eq(key, expected);
+              }
+              const { data: written, error } = await query.select("id");
+              if (error || written?.length !== 1) throw error ?? new Error(`${row.name} changed while saving. Reload the Builder and review your edits.`);
+            }
             localCurriculumIds.add(row.dbId);
             saved = { id: row.dbId, row };
           } else if (row.previouslySavedAs === "activities" && row.dbId) {
@@ -2701,7 +2767,8 @@ function ScheduleBuilderPageInner() {
         setRows((prev) =>
           prev.map((r) => {
             const landed = landedNewGoals.find((l) => l.localId === r.localId);
-            return landed ? { ...r, dbId: landed.id, previouslySavedAs: "curriculum_goals" as const } : r;
+            return landed ? { ...r, dbId: landed.id, previouslySavedAs: "curriculum_goals" as const,
+              _editBaseline: { stored: curriculumEditableValues(r), form: curriculumEditableValues(r) } } : r;
           }),
         );
       }
@@ -2998,9 +3065,11 @@ function ScheduleBuilderPageInner() {
               .single();
             if (goalNowErr || !goalNow) throw goalNowErr ?? new Error(`Phase 2 could not re-read goal ${goalId}`);
             snapshot = goalNow as Phase2GoalSnapshot;
-            if (snapshot.current_lesson !== currentLesson || snapshot.total_lessons !== row.total_lessons) {
+            const plannedFrom = freshGoals.get(goalId);
+            if (snapshot.current_lesson !== currentLesson || snapshot.total_lessons !== row.total_lessons ||
+                (plannedFrom && Object.keys(changedSettings(scheduleSnapshot({ ...plannedFrom }), scheduleSnapshot({ ...snapshot }))).length > 0)) {
               // The plan was made from a different pointer or length: plan again.
-              throw markNotApplied(new Error(`Phase 2 plan for goal ${goalId} is stale (pointer or total moved)`));
+              throw markNotApplied(new Error(`Phase 2 plan for goal ${goalId} is stale (progress or scheduling settings moved)`));
             }
           }
           const window = { dayStartIso: dayStart.toISOString(), dayEndIso: dayEnd.toISOString() };
@@ -3843,6 +3912,11 @@ function ScheduleBuilderPageInner() {
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
             await applyPhase2ForGoal(goalId, row);
+            const stored = freshGoals.has(goalId)
+              ? { ...freshGoals.get(goalId)!, ...editPatches.get(goalId) }
+              : curriculumEditableValues(row);
+            const settledRow = settledCurriculumRow(row, goalId, stored);
+            setRows((prev) => prev.map((r) => r.localId === row.localId ? settledRow : r));
             lastErr = null;
             break;
           } catch (err) {
