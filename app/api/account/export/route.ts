@@ -1,39 +1,59 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { selectAllRowsResult } from "@/lib/supabase-all-rows";
+import { selectAllRows } from "@/lib/supabase-all-rows";
+import { listUserFiles, USER_SCOPED_BUCKETS } from "@/lib/storage-cleanup";
 import archiver from "archiver";
 import { PassThrough } from "stream";
+import { randomUUID } from "node:crypto";
 
-// Supabase public-bucket URLs can appear in several shapes depending on
-// whether they came from getPublicUrl() today vs older code paths. Parse
-// the path that follows a known marker for the given bucket and strip any
-// cache-busting query string. Returns null when the URL doesn't reference
-// the target bucket — the caller should flag this so we notice stale data.
-function extractStoragePath(url: string, bucket: string): string | null {
-  if (!url) return null;
-  const markers = [
-    `/storage/v1/object/public/${bucket}/`,
-    `/storage/v1/object/${bucket}/`,
-    `/object/public/${bucket}/`,
-    `/object/${bucket}/`,
-  ];
-  for (const marker of markers) {
-    const idx = url.indexOf(marker);
-    if (idx === -1) continue;
-    let path = url.substring(idx + marker.length);
-    const qIdx = path.indexOf("?");
-    if (qIdx !== -1) path = path.substring(0, qIdx);
-    return path;
+// Only tables with an owner user_id and a stable id are listed here. Service
+// role bypasses RLS, so every query MUST keep the owner filter. Global catalogs,
+// billing/operational logs, and child tables without user_id need separate
+// handling; they must never be fetched without an ownership predicate.
+const FAMILY_TABLES = [
+  "children", "memories", "lessons", "subjects", "curriculum_goals",
+  "daily_reflections", "activities", "activity_logs", "appointments",
+  "badges", "child_absences", "family_invites", "family_notifications",
+  "lists", "list_items", "mailbox_progress", "monthly_reflections",
+  "school_year_archives", "school_years", "transcript_courses",
+  "transcript_settings", "vacation_blocks", "year_archive_certificates",
+  "yearbook_content", "attendance", "child_ui_prefs", "earned_awards",
+  "lesson_overrides", "schedule_items", "schedule_transactions",
+  "subject_goals", "user_badges",
+] as const;
+
+type ExportRow = Record<string, unknown>;
+
+async function readFamilyTable(table: (typeof FAMILY_TABLES)[number], userId: string) {
+  try {
+    return await selectAllRows<ExportRow>((from, to) =>
+      supabaseAdmin.from(table).select("*").eq("user_id", userId).order("id").range(from, to),
+    );
+  } catch (error) {
+    throw new Error(`Export read failed for ${table}: ${error instanceof Error ? error.message : String(error)}`);
   }
-  return null;
 }
 
-function extFromPath(path: string, fallback = "jpg"): string {
-  const lastSlash = path.lastIndexOf("/");
-  const tail = lastSlash === -1 ? path : path.substring(lastSlash + 1);
-  const dotIdx = tail.lastIndexOf(".");
-  if (dotIdx === -1 || dotIdx === tail.length - 1) return fallback;
-  return tail.substring(dotIdx + 1).toLowerCase();
+// These tables have no user_id; the IDs come exclusively from the authenticated
+// family's already-filtered parent rows. Chunking keeps .in() URLs bounded.
+async function readOwnedChildren(
+  table: "appointment_exceptions" | "memory_comments" | "memory_reactions",
+  parentColumn: "appointment_id" | "memory_id",
+  parentRows: ExportRow[],
+) {
+  const ids = parentRows.map((row) => row.id).filter((id): id is string => typeof id === "string");
+  const results: ExportRow[] = [];
+  for (let offset = 0; offset < ids.length; offset += 100) {
+    const chunk = ids.slice(offset, offset + 100);
+    try {
+      results.push(...await selectAllRows<ExportRow>((from, to) =>
+        supabaseAdmin.from(table).select("*").in(parentColumn, chunk).order("id").range(from, to),
+      ));
+    } catch (error) {
+      throw new Error(`Export read failed for ${table}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return results;
 }
 
 export async function POST(req: NextRequest) {
@@ -51,150 +71,91 @@ export async function POST(req: NextRequest) {
   const userId = user.id;
   console.log("[export] starting export for user", userId);
 
-  // Fetch all user data in parallel
-  const [profiles, children, memories, lessons, subjects, curriculum, reflections] =
-    await Promise.all([
-      supabaseAdmin.from("profiles").select("*").eq("id", userId),
-      supabaseAdmin.from("children").select("*").eq("user_id", userId),
-      supabaseAdmin.from("memories").select("*").eq("user_id", userId),
-      // Paged. This is the family's copy of her own record; handing her the
-      // first 1,000 lessons and calling it an export would be worse than
-      // failing. See lib/supabase-all-rows.ts.
-      selectAllRowsResult((from, to) =>
-        supabaseAdmin.from("lessons").select("*").eq("user_id", userId).order("id").range(from, to)),
-      supabaseAdmin.from("subjects").select("*").eq("user_id", userId),
-      supabaseAdmin.from("curriculum_goals").select("*").eq("user_id", userId),
-      supabaseAdmin.from("daily_reflections").select("*").eq("user_id", userId),
+  // Never return a plausible-looking ZIP with empty files after a database
+  // read error. Each table is paged with a stable unique order.
+  let profileRows: ExportRow[];
+  let tableRows: ExportRow[][];
+  try {
+    const [profileResult, ...familyResults] = await Promise.all([
+      supabaseAdmin.from("profiles").select("*").eq("id", userId).single(),
+      ...FAMILY_TABLES.map((table) => readFamilyTable(table, userId)),
     ]);
+    if (profileResult.error || !profileResult.data) {
+      throw new Error(`Export profile read failed: ${profileResult.error?.message ?? "profile missing"}`);
+    }
+    profileRows = [profileResult.data as ExportRow];
+    tableRows = familyResults as ExportRow[][];
+  } catch (error) {
+    console.error("[export] database read failed for user", userId, error);
+    return NextResponse.json({ error: "Export could not be completed. Please try again or contact support." }, { status: 503 });
+  }
+
+  const byTable = Object.fromEntries(FAMILY_TABLES.map((table, index) => [table, tableRows[index]])) as Record<(typeof FAMILY_TABLES)[number], ExportRow[]>;
+  let relatedRows: Record<string, ExportRow[]>;
+  try {
+    const [exceptions, comments, reactions] = await Promise.all([
+      readOwnedChildren("appointment_exceptions", "appointment_id", byTable.appointments),
+      readOwnedChildren("memory_comments", "memory_id", byTable.memories),
+      readOwnedChildren("memory_reactions", "memory_id", byTable.memories),
+    ]);
+    relatedRows = { appointment_exceptions: exceptions, memory_comments: comments, memory_reactions: reactions };
+  } catch (error) {
+    console.error("[export] related data read failed for user", userId, error);
+    return NextResponse.json({ error: "Export could not be completed. Please try again or contact support." }, { status: 503 });
+  }
+  const memories = byTable.memories;
+  const reflections = byTable.daily_reflections;
+
+  // The family folder is authoritative even when a row contains an old signed
+  // URL, or a file has no surviving row. An incomplete listing cannot support
+  // a truthful "all files" export, so fail before creating the archive.
+  const filesByBucket: Array<{ bucket: string; paths: string[] }> = [];
+  for (const bucket of USER_SCOPED_BUCKETS) {
+    const { paths, errors } = await listUserFiles(supabaseAdmin, bucket, userId);
+    if (errors.length) {
+      console.error("[export] file listing failed for user", userId, bucket, errors);
+      return NextResponse.json({ error: "Export could not list all files. Please try again or contact support." }, { status: 503 });
+    }
+    filesByBucket.push({ bucket, paths });
+  }
 
   const archive = archiver("zip", { zlib: { level: 5 } });
   const passthrough = new PassThrough();
   archive.pipe(passthrough);
 
-  archive.append(JSON.stringify(profiles.data ?? [], null, 2), {
+  archive.append(JSON.stringify(profileRows, null, 2), {
     name: "rooted-export/family.json",
   });
-  archive.append(JSON.stringify(children.data ?? [], null, 2), {
-    name: "rooted-export/children.json",
-  });
-  archive.append(JSON.stringify(memories.data ?? [], null, 2), {
-    name: "rooted-export/memories.json",
-  });
-  archive.append(JSON.stringify(lessons.data ?? [], null, 2), {
-    name: "rooted-export/lessons.json",
-  });
-  archive.append(JSON.stringify(subjects.data ?? [], null, 2), {
-    name: "rooted-export/subjects.json",
-  });
-  archive.append(JSON.stringify(curriculum.data ?? [], null, 2), {
-    name: "rooted-export/curriculum.json",
-  });
-  archive.append(JSON.stringify(reflections.data ?? [], null, 2), {
-    name: "rooted-export/reflections.json",
-  });
-
-  const memoriesWithPhotos = (memories.data ?? []).filter(
-    (m: { photo_url?: string | null }) => m.photo_url,
-  );
+  for (const table of FAMILY_TABLES) {
+    const filename = table === "curriculum_goals" ? "curriculum" : table === "daily_reflections" ? "reflections" : table;
+    archive.append(JSON.stringify(byTable[table], null, 2), { name: `rooted-export/${filename}.json` });
+  }
+  for (const [table, rows] of Object.entries(relatedRows)) {
+    archive.append(JSON.stringify(rows, null, 2), { name: `rooted-export/${table}.json` });
+  }
 
   const missingLines: string[] = [];
-  let photoCount = 0;
-  let photoMissing = 0;
-
-  for (const memory of memoriesWithPhotos) {
-    const url = memory.photo_url as string;
-    const storagePath = extractStoragePath(url, "memory-photos");
-
-    if (!storagePath) {
-      photoMissing++;
-      const reason = `url did not match memory-photos bucket (url=${url.slice(0, 120)}…)`;
-      console.log(
-        `[export] photo ${memory.id} → path="<unparseable>" → result=FAIL: ${reason}`,
-      );
-      missingLines.push(
-        `memory ${memory.id} (date=${memory.date ?? "?"}): ${reason}`,
-      );
-      continue;
-    }
-
-    try {
-      const { data: fileData, error: fileErr } = await supabaseAdmin.storage
-        .from("memory-photos")
-        .download(storagePath);
-
-      console.log(
-        `[export] photo ${memory.id} → path="${storagePath}" → result=${
-          fileData ? "OK" : `FAIL: ${fileErr?.message ?? "empty download body"}`
-        }`,
-      );
-
-      if (!fileData) {
-        photoMissing++;
-        missingLines.push(
-          `memory ${memory.id} (date=${memory.date ?? "?"}, path=${storagePath}): ${fileErr?.message ?? "empty download body"}`,
-        );
-        continue;
-      }
-
-      const buffer = Buffer.from(await fileData.arrayBuffer());
-      const ext = extFromPath(storagePath, "jpg");
-      archive.append(buffer, {
-        name: `rooted-export/photos/${memory.id}.${ext}`,
-      });
-      photoCount++;
-    } catch (err) {
-      photoMissing++;
-      const message = err instanceof Error ? err.message : String(err);
-      console.log(
-        `[export] photo ${memory.id} → path="${storagePath}" → result=FAIL: ${message}`,
-      );
-      missingLines.push(
-        `memory ${memory.id} (date=${memory.date ?? "?"}, path=${storagePath}): ${message}`,
-      );
-    }
-  }
-
-  // Family photo — separate bucket (family-photos).
-  const profile = (profiles.data ?? [])[0] as { family_photo_url?: string | null } | undefined;
-  const familyPhotoUrl = profile?.family_photo_url ?? null;
-  let familyPhotoIncluded = false;
-  if (familyPhotoUrl) {
-    const storagePath = extractStoragePath(familyPhotoUrl, "family-photos");
-    if (!storagePath) {
-      const reason = `url did not match family-photos bucket (url=${familyPhotoUrl.slice(0, 120)}…)`;
-      console.log(`[export] family-photo → path="<unparseable>" → result=FAIL: ${reason}`);
-      missingLines.push(`family photo: ${reason}`);
-    } else {
+  let fileCount = 0;
+  for (const { bucket, paths } of filesByBucket) {
+    for (const path of paths) {
       try {
-        const { data: fileData, error: fileErr } = await supabaseAdmin.storage
-          .from("family-photos")
-          .download(storagePath);
-        console.log(
-          `[export] family-photo → path="${storagePath}" → result=${
-            fileData ? "OK" : `FAIL: ${fileErr?.message ?? "empty download body"}`
-          }`,
-        );
-        if (fileData) {
-          const buffer = Buffer.from(await fileData.arrayBuffer());
-          const ext = extFromPath(storagePath, "jpg");
-          archive.append(buffer, { name: `rooted-export/family-photo.${ext}` });
-          familyPhotoIncluded = true;
-        } else {
-          missingLines.push(
-            `family photo (path=${storagePath}): ${fileErr?.message ?? "empty download body"}`,
-          );
+        const { data, error } = await supabaseAdmin.storage.from(bucket).download(path);
+        if (error || !data) {
+          missingLines.push(`${bucket}/${path}: ${error?.message ?? "empty download body"}`);
+          continue;
         }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        console.log(`[export] family-photo → path="${storagePath}" → result=FAIL: ${message}`);
-        missingLines.push(`family photo (path=${storagePath}): ${message}`);
+        archive.append(Buffer.from(await data.arrayBuffer()), {
+          name: `rooted-export/files/${bucket}/${path.substring(userId.length + 1).split("/").map(encodeURIComponent).join("/")}`,
+        });
+        fileCount++;
+      } catch (error) {
+        missingLines.push(`${bucket}/${path}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
   }
 
-  const memoriesCount = (memories.data ?? []).length;
-  const memoriesWithPhotoCount = memoriesWithPhotos.length;
-  const reflectionsCount = (reflections.data ?? []).length;
+  const memoriesCount = memories.length;
+  const reflectionsCount = reflections.length;
   const dateStr = new Date().toISOString().split("T")[0];
 
   const readme = [
@@ -202,21 +163,15 @@ export async function POST(req: NextRequest) {
     `Generated: ${new Date().toISOString()}`,
     `User ID: ${userId}`,
     ``,
-    `This archive is your complete personal copy of everything Rooted has`,
-    `stored on your behalf. All JSON files are raw row dumps; photos live`,
-    `in /photos and are named by memory id. Your family portrait is at`,
-    `/family-photo.* (if you uploaded one).`,
+    `This archive includes the records and files listed below; it is not`,
+    `a complete copy of every kind of data in Rooted. JSON files are raw`,
+    `row dumps. Family-owned uploaded files are in /files/<bucket>/.`,
     ``,
     `Contents`,
-    `  • family.json          your profile row(s)`,
-    `  • children.json        children list (active + archived)`,
-    `  • memories.json        every memory row with metadata`,
-    `  • lessons.json         every lesson row with completion + notes`,
-    `  • subjects.json        subjects you've defined`,
-    `  • curriculum.json      curriculum goals`,
-    `  • reflections.json     daily reflections`,
-    `  • photos/              memory photos, named {memory_id}.{ext}`,
-    `  • family-photo.*       family portrait (if set)`,
+    `  • family.json          your profile row`,
+    ...FAMILY_TABLES.map((table) => `  • ${table === "curriculum_goals" ? "curriculum" : table === "daily_reflections" ? "reflections" : table}.json`),
+    ...Object.keys(relatedRows).map((table) => `  • ${table}.json`),
+    `  • files/               files found in the five family storage buckets`,
     `  • MISSING.txt          present only if one or more files failed`,
     `                          to download from storage; see that file`,
     `                          for details and email`,
@@ -224,11 +179,10 @@ export async function POST(req: NextRequest) {
     `                          investigate.`,
     ``,
     `Summary`,
-    `  ${memoriesCount} memories (${memoriesWithPhotoCount} with photos)`,
-    `  ${photoCount} photos successfully exported`,
-    `  ${photoMissing} photo${photoMissing === 1 ? "" : "s"} missing (see MISSING.txt)`,
+    `  ${memoriesCount} memories`,
+    `  ${fileCount} uploaded files exported`,
+    `  ${missingLines.length} listed file(s) failed to download (see MISSING.txt)`,
     `  ${reflectionsCount} daily reflections`,
-    `  family photo: ${familyPhotoIncluded ? "yes" : familyPhotoUrl ? "no (failed, see MISSING.txt)" : "not set"}`,
     ``,
   ].join("\n");
   archive.append(readme, { name: "rooted-export/README.txt" });
@@ -239,10 +193,8 @@ export async function POST(req: NextRequest) {
       `Generated: ${new Date().toISOString()}`,
       `User ID: ${userId}`,
       ``,
-      `Each line is one item the server couldn't fetch from Supabase`,
-      `Storage. Reasons are usually: the file was deleted in storage but`,
-      `the DB row still references it, the url shape changed and our`,
-      `parser didn't match, or Storage returned an error.`,
+      `Each line is a listed file the server could not download from`,
+      `Supabase Storage. The archive is incomplete.`,
       ``,
       `Please email this list to hello@rootedhomeschoolapp.com so we can`,
       `investigate and either recover the files or fix the broken`,
@@ -255,19 +207,22 @@ export async function POST(req: NextRequest) {
   }
 
   console.log(
-    `[export] summary userId=${userId} memories=${memoriesCount} photoOK=${photoCount} photoMissing=${photoMissing} reflections=${reflectionsCount} familyPhoto=${familyPhotoIncluded ? "yes" : "no"}`,
+    `[export] summary userId=${userId} memories=${memoriesCount} files=${fileCount} missing=${missingLines.length} reflections=${reflectionsCount}`,
   );
 
   archive.finalize();
 
-  // Log the export
+  // email_log has a unique (user_id, email_type) index. A distinct key for
+  // each generated archive records repeated exports without suppressing later
+  // events. This records ZIP generation, not proof of browser download.
   try {
-    await supabaseAdmin.from("email_log").insert({
+    const { error: logError } = await supabaseAdmin.from("email_log").insert({
       user_id: userId,
-      email_type: "data_export",
+      email_type: `data_export:${randomUUID()}`,
     });
-  } catch {
-    // non-critical
+    if (logError) console.error("[export] event log insert failed for user", userId, logError);
+  } catch (error) {
+    console.error("[export] event logging threw for user", userId, error);
   }
 
   const readable = new ReadableStream({
@@ -283,8 +238,8 @@ export async function POST(req: NextRequest) {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="rooted-memories-${dateStr}.zip"`,
       "X-Export-Memory-Count": String(memoriesCount),
-      "X-Export-Photo-Count": String(photoCount),
-      "X-Export-Photo-Missing": String(photoMissing),
+      "X-Export-File-Count": String(fileCount),
+      "X-Export-File-Missing": String(missingLines.length),
     },
   });
 }
