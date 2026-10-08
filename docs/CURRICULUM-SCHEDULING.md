@@ -1644,8 +1644,16 @@ partial failure. Other surfaces retain deliberate completion-date edits.
 
 Builder re-reads lifecycle and lesson-construction metadata before either kind
 of phase-two commit, including pending settings, and refuses changed dependencies.
-**This client check is not transactional protection:** archival or metadata may
-still change after this read. The current RPC expected-goal contract omits those
-fields. Release remains on hold pending separately authorized locked RPC
-validation. Child mismatch is expected to reject/roll back via the existing
-child-match trigger; that is a failed save, not evidence of corrupted records.
+The prepared `20261008000000_apply_builder_rebuild_goal_guard.sql` migration
+adds the same dependencies to validation under the RPC's goal lock, before any
+new settings or lesson writes. Until that migration is separately approved and
+installed, a client check alone does not close the post-read race. New requests
+use an explicit guard contract; old clients fail closed and must reload. Both
+RPC overloads keep committed-request replay before lifecycle/contract rejection.
+The client also replays an uncertain issued request before another outer-retry
+read, preserving uncertainty if responses remain lost.
+
+See `BUILDER-GOAL-GUARD-ROLLOUT.md` for the exact compatibility matrix, safe pause,
+known-race restoration and verification limits. This is a per-goal boundary:
+phase-one metadata, other goals and vacation changes are not one transaction.
+Historical disappearance and final-row SQL validation remain separate work.

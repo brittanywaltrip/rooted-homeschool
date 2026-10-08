@@ -25,7 +25,7 @@ import {
 import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, dayHoldsFromRows, splitDoneToday, doneTodayHolds, type PinnableRow, type PinnedSlot, type DayHold, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, loadReservationRows, reservedSlotsFromRows, type ReservationRow, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
-import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
+import { applyPhase2Commit, countDoneToday, phase2Expected, withBuilderGoalGuard, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
 import { resolveBuilderEdits, builderPlanDependenciesMatch, type EditBaseline } from "@/app/lib/builder-edit-intent";
 import { afterOrphanCleanup, changedSettings, isDecidedNotApplied, markNotApplied, pointerFor, restorePatch, scheduleSnapshot, SCHEDULE_FIELDS, stillAsWrittenFilters, wasNotApplied, type ScheduleSnapshot } from "@/app/lib/builder-settings-restore";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
@@ -1228,6 +1228,9 @@ class ScheduleRefusedError extends ScheduleAssertionError {
     this.name = "ScheduleRefusedError";
   }
 }
+
+/** A concurrent change or rollout boundary requires review, not another plan. */
+class ScheduleConflictError extends ScheduleRefusedError {}
 
 /**
  * Invariant 21 fired in phase 2, which should now be impossible.
@@ -2519,6 +2522,9 @@ function ScheduleBuilderPageInner() {
     const pendingSettings = new Map<string, { settings: ScheduleSnapshot; before: ScheduleSnapshot }>();
     // One request id per curriculum for this save, reused by every retry, so a
     // lost response can be answered by re-sending rather than re-applying.
+    // Retain the EXACT issued request until the server confirms its outcome.
+    // An outer retry must replay before re-reading or rejecting newer metadata.
+    const uncertainCommits = new Map<string, () => Promise<Phase2CommitResult>>();
     const requestIds = new Map<string, string>();
     const requestIdFor = (goalId: string) => {
       let id = requestIds.get(goalId);
@@ -3062,7 +3068,7 @@ function ScheduleBuilderPageInner() {
             ? { ...freshGoals.get(goalId)!, ...editPatches.get(goalId) }
             : curriculumEditableValues(row);
           if (!builderPlanDependenciesMatch(dependencies, goalNow)) {
-            throw markNotApplied(new Error("This curriculum changed while saving. Reload the Builder and review its child, status and settings before saving."));
+            throw markNotApplied(new ScheduleConflictError("This curriculum changed while saving. Reload the Builder and review its child, status and settings before saving."));
           }
           let snapshot: Phase2GoalSnapshot;
           if (pending) {
@@ -3081,7 +3087,7 @@ function ScheduleBuilderPageInner() {
             }
           }
           const window = { dayStartIso: dayStart.toISOString(), dayEndIso: dayEnd.toISOString() };
-          const expected = phase2Expected({ goal: snapshot, rows: actualBeforeRows, ...window });
+          const expected = withBuilderGoalGuard(phase2Expected({ goal: snapshot, rows: actualBeforeRows, ...window }), dependencies);
           return {
             goalId,
             localDay: ymd(todayMid),
@@ -3093,6 +3099,18 @@ function ScheduleBuilderPageInner() {
           };
         };
         const assertApplied: (committed: Phase2CommitResult) => asserts committed is Extract<Phase2CommitResult, { status: "applied" }> = (committed) => {
+          if (committed.status === "stale" ||
+              (committed.status === "invalid" && committed.reason === "client_upgrade_required") ||
+              (committed.status === "refused" && committed.reason === "builder_paused")) {
+            const message = committed.reason === "builder_paused"
+              ? "Lesson scheduling is temporarily paused. Keep your edits and try again later."
+              : committed.reason === "client_upgrade_required"
+                ? "This Builder needs an update before lessons can be saved. Reload the Builder and review your edits. If this continues, contact support."
+                : "This curriculum changed while saving. Reload the Builder and review your edits before saving again.";
+            // Only this RPC is known not to have applied; phase-one metadata
+            // or another curriculum may already have saved successfully.
+            throw markNotApplied(new ScheduleConflictError(message));
+          }
           if (committed.status === "refused" || committed.status === "invalid") {
             // Nothing was written. The database disagreed with a plan the page
             // had already validated, which reproduces on every attempt.
@@ -3118,11 +3136,25 @@ function ScheduleBuilderPageInner() {
             throw isDecidedNotApplied(committed) ? markNotApplied(notApplied) : notApplied;
           }
         };
+        const commitPhase2 = async (plan: Phase2CommitPlan): Promise<Phase2CommitResult> => {
+          const args = await commitArgs(plan);
+          const attempt = async (): Promise<Phase2CommitResult> => {
+            // Retain uncertainty even if the transport throws instead of
+            // returning an error object. Only a server verdict can clear it.
+            uncertainCommits.set(goalId, attempt);
+            const result = await applyPhase2Commit(supabase, args);
+            if (result.status === "applied" || isDecidedNotApplied(result)) uncertainCommits.delete(goalId);
+            else uncertainCommits.set(goalId, attempt);
+            assertApplied(result);
+            return result;
+          };
+          return attempt();
+        };
         // A save that changes settings but no lessons still commits them,
         // through the same transaction, before phase 2 returns early.
         const commitSettingsOnly = async () => {
           if (!pending) return;
-          const settingsOnly = await applyPhase2Commit(supabase, await commitArgs({ unpin_ids: [], makeup_ids: [], delete_ids: [], inserts: [], redates: [], retire_above: null, retire_keep_ids: [] }));
+          const settingsOnly = await commitPhase2({ unpin_ids: [], makeup_ids: [], delete_ids: [], inserts: [], redates: [], retire_above: null, retire_keep_ids: [] });
           assertApplied(settingsOnly);
         };
         const doneToday = countDoneToday(beforeRows, dayStart.toISOString(), dayEnd.toISOString());
@@ -3707,7 +3739,7 @@ function ScheduleBuilderPageInner() {
         // The goal as the database holds it now, sent back as the snapshot the
         // transaction compares under lock. Read, not reconstructed from the
         // builder row, so a difference can only mean something really changed.
-        const committed = await applyPhase2Commit(supabase, await commitArgs(commitPlan));
+        const committed = await commitPhase2(commitPlan);
         assertApplied(committed);
 
         // ── Count what the DATABASE wrote, not what we planned to write ─────
@@ -3919,7 +3951,9 @@ function ScheduleBuilderPageInner() {
         let lastErr: unknown = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
-            await applyPhase2ForGoal(goalId, row);
+            const replay = uncertainCommits.get(goalId);
+            if (replay) await replay();
+            else await applyPhase2ForGoal(goalId, row);
             const stored = freshGoals.has(goalId)
               ? { ...freshGoals.get(goalId)!, ...editPatches.get(goalId) }
               : curriculumEditableValues(row);
@@ -4169,7 +4203,13 @@ function ScheduleBuilderPageInner() {
         const restoredName = failedPhase2GoalId && restoredGoalIds.has(failedPhase2GoalId)
           ? scheduleBefore.get(failedPhase2GoalId)?.name ?? "this curriculum"
           : null;
-        if (restoredName) setPostSaveNotice(
+        if (failedPhase2GoalId && uncertainCommits.has(failedPhase2GoalId)) setPostSaveNotice(
+          "We couldn't confirm whether this schedule saved. Keep your edits, reload the Builder and review the current schedule before trying again. Other settings may already have saved.",
+        );
+        else if (err instanceof ScheduleConflictError) setPostSaveNotice(
+          `${err.message} Other settings may already have saved. Keep a copy of your edits before reloading.`,
+        );
+        else if (restoredName) setPostSaveNotice(
           err instanceof ScheduleAssertionError
             ? `The new schedule for ${restoredName} didn't fit, so nothing about its days, pace or length changed. Its lessons are exactly as they were. Adjust the schedule and save again.`
             : `The new schedule for ${restoredName} couldn't be saved just now, so nothing about its days, pace or length changed. Its lessons are exactly as they were. Save again to finish.`,

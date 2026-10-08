@@ -147,6 +147,26 @@ export function phase2Expected(a: {
   };
 }
 
+/** Opt the Builder into locked dependency validation. Extra goal keys also
+ * make an older RPC fail its exact goal comparison instead of ignoring them. */
+export function withBuilderGoalGuard(expected: ReturnType<typeof phase2Expected>, dependencies: Record<string, unknown>) {
+  const time = dependencies.scheduled_start_time;
+  return {
+    ...expected,
+    builder_guard_version: 1,
+    goal: {
+      ...expected.goal,
+      archived: dependencies.archived ?? false,
+      completed_at: dependencies.completed_at ?? null,
+      child_id: dependencies.child_id ?? null,
+      curriculum_name: dependencies.curriculum_name ?? null,
+      subject_label: dependencies.subject_label ?? null,
+      default_minutes: dependencies.default_minutes ?? null,
+      scheduled_start_time: typeof time === "string" && /^\d{2}:\d{2}$/.test(time) ? `${time}:00` : time ?? null,
+    },
+  };
+}
+
 /** A row in the simulated end state. `placed` = this plan decided its date. */
 export type Phase2EndRow = {
   id: string;

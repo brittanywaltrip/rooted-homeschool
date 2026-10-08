@@ -7967,7 +7967,7 @@ test('big families: the no-op decision runs before the first phase-2 write, logs
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
   const verdict = body.indexOf('const verdict = isPhase2NoOp({')
-  const firstWrite = body.indexOf('const committed = await applyPhase2Commit(')
+  const firstWrite = body.indexOf('const committed = await commitPhase2(')
   assert.ok(verdict !== -1 && firstWrite !== -1 && verdict < firstWrite, 'the no-op check runs before the first phase-2 write')
   const skip = body.slice(verdict, firstWrite)
   assert.match(skip, /type: "schedule\.rebuilt"/, 'Invariant 18: a rebuild that writes nothing still logs')
@@ -8353,7 +8353,7 @@ test('the Schedule Builder wires all three fixes into phase 2 itself', () => {
     'a claimed row throws the backstop; an untouched sibling is reported, not thrown',
   )
   const refusalAt = phase2.indexOf('historyBackfillRefusal({')
-  const firstWrite = phase2.indexOf('const committed = await applyPhase2Commit(')
+  const firstWrite = phase2.indexOf('const committed = await commitPhase2(')
   assert.ok(
     refusalAt !== -1 && firstWrite !== -1 && refusalAt < firstWrite,
     'the refusal is decided in PLAN, before phase 2 writes anything',
@@ -9149,7 +9149,7 @@ test('an unclaimed short goal is left alone, not rebuilt without the part that d
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
   const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
   const bail = phase2.indexOf('if (unclaimedShortfall)')
-  const firstWrite = phase2.indexOf('const committed = await applyPhase2Commit(')
+  const firstWrite = phase2.indexOf('const committed = await commitPhase2(')
   const floorDelete = phase2.indexOf('} = planPhase2Commit({')
   assert.ok(bail !== -1, 'the bail-out exists')
   assert.ok(bail < firstWrite, 'it returns before the first phase-2 write')
@@ -10053,7 +10053,7 @@ test('the builder confirms what the database wrote and refuses a short batch', (
   // The pure coverage check runs before the first destructive call.
   const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
   const coverage = phase2.indexOf('uncoveredProjectedSlots({')
-  const firstWrite = phase2.indexOf('const committed = await applyPhase2Commit(')
+  const firstWrite = phase2.indexOf('const committed = await commitPhase2(')
   assert.ok(coverage !== -1 && coverage < firstWrite, 'coverage is checked in PLAN, before any write')
   // And it REPORTS rather than refusing. A surviving row can hold a
   // lesson_number inside the projected range with its slot outside it (a stale
