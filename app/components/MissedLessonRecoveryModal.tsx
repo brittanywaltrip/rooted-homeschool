@@ -60,7 +60,7 @@ function failureReason(err: unknown, lead: string): string {
       : typeof err === "string" && err.trim()
         ? err.trim()
         : "";
-  return detail ? `${lead}: ${detail}. Try again.` : `${lead}. Check your connection and try again.`;
+  return detail ? `${lead}: ${detail}` : `${lead}. Check your connection and try again.`;
 }
 
 export type MissedGoal = {

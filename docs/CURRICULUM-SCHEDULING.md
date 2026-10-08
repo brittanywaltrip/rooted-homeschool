@@ -666,6 +666,19 @@ would have been due on past school days since each curriculum's last completion
 family last answered for it (`catchup_answered_on`). It projects from the
 curriculum's settings and reads no lesson dates.
 
+The projected number is a queue slot, not always the book lesson number. Before
+"Yes" writes any completion or records an answer, `answerMissedYes` checks
+every selected slot again. A completed, skipped or hand-placed row, a read
+failure, or a row whose book number differs from the projected slot stops the
+answer. The family can mark a reordered lesson directly from Plan. This keeps
+an open prompt from rewriting a lesson finished or moved in another tab.
+The final completion update repeats those conditions and requires one returned
+row, closing the gap between the read and the write. A missing slot is also
+checked by book lesson number before any insert, and write failures stop the
+answer. The catch-up answer is recorded only after completions and the parent
+re-date succeed; a failed partial operation leaves the review open for a fresh
+load rather than claiming the family finished everything.
+
 Those projected entries carry queue slots, which can differ from the saved
 book lesson numbers after a manual reorder. A curriculum with custom unit
 wording therefore shows "Planned work" in the missed-work banner, review sheet
@@ -696,7 +709,9 @@ closed until tapped, then confirms dismissing it writes no completion or answer.
   no break: Today never showed it and the next reconciliation undid it. A
   family pausing adds a break, which both honour; the missed banner links to it.
 
-**Test case:** `app/lib/missed-work.test.ts`; push-back vs break in
+**Test case:** `app/lib/missed-work.test.ts` includes stale-completion,
+reordered-slot and hand-placement refusals before any answer is written;
+push-back vs break in
 `app/lib/daily-reconcile.test.ts`.
 
 ---
