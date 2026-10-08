@@ -4,245 +4,51 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Check } from "lucide-react";
 import { useIsNativeApp } from "@/lib/platform";
+import { GROWTH_STAGES, getGrowthStage } from "@/app/lib/garden-stages";
+import { TOUR_FEATURES as FEATURES, type FeatureId } from "./features";
 
-// ─── Feature Data (preserving best copy from original tour) ──────────────────
-
-type FeatureId = "memories" | "today" | "plan" | "garden" | "reports" | "resources" | "yearbook";
-
-const FEATURES: {
-  id: FeatureId;
-  label: string;
-  emoji: string;
-  headline: string;
-  sub: string;
-  bullets: string[];
-  note: string;
-}[] = [
-  {
-    id: "memories",
-    label: "Memories",
-    emoji: "📸",
-    headline: "Capture every learning moment",
-    sub: "The years go by so fast. Rooted helps you hold onto them: photos, quotes, books, and moments you'd otherwise forget.",
-    bullets: [
-      "Save photos, field trip moments, and little things they said, it takes 10 seconds",
-      "Build a book log as you go, a record of everything they've ever read",
-      "Share a private link with grandparents, aunts, uncles, and cousins, no app needed",
-    ],
-    note: "Shareable link, no app download needed 🔗",
-  },
-  {
-    id: "today",
-    label: "Today",
-    emoji: "☀️",
-    headline: "Your daily command center",
-    sub: "Know exactly what to teach each morning, no guessing, no planning stress.",
-    bullets: [
-      "See exactly what's planned for today, lesson by lesson, in order",
-      "Check off lessons with one tap, each one grows your child's garden tree",
-      "Smart Finish Line shows if you're on track to finish your curriculum on time",
-    ],
-    note: "Every lesson earns a leaf 🍃",
-  },
-  {
-    id: "plan",
-    label: "Plan",
-    emoji: "📅",
-    headline: "Curriculum that plans itself",
-    sub: "Tell Rooted your goal date and school days, it builds the whole schedule.",
-    bullets: [
-      "Auto-schedules your entire curriculum, just enter your lessons and goal date",
-      "Pick your school days: any combination Mon–Sun that fits your family",
-      "Reschedule instantly if you get ahead or fall behind, one tap to recalculate",
-    ],
-    note: "Lessons auto-schedule to your school days 📆",
-  },
-  {
-    id: "garden",
-    label: "Garden",
-    emoji: "🌳",
-    headline: "A living reward for every lesson",
-    sub: "The most motivating progress tracker your kids will actually care about.",
-    bullets: [
-      "Every completed lesson earns your child a leaf toward their growing tree",
-      "Watch their tree grow: Seed → Sprout → Sapling → Growing → Thriving",
-      "Kids race to finish lessons just to see their tree grow, it actually works",
-    ],
-    note: "200+ lessons to reach Thriving 🌳",
-  },
-  {
-    id: "reports",
-    label: "Reports",
-    emoji: "📋",
-    headline: "See how far they've come",
-    sub: "At the end of a homeschool year it's easy to wonder, did we do enough? Rooted answers that beautifully.",
-    bullets: [
-      "Every lesson logged becomes part of a beautiful record, print it, share it, or save it forever",
-      "Share a PDF with grandparents showing exactly what your kids learned this year",
-    ],
-    note: "A keepsake and a progress record, all in one 🌿",
-  },
-  {
-    id: "resources",
-    label: "Resources",
-    emoji: "📚",
-    headline: "Curated resources, just for you",
-    sub: "Free picks filtered for your state, zero prep required.",
-    bullets: [
-      "Free picks: textbooks, activities, and virtual field trips",
-      "Filtered for your state's requirements automatically",
-      "Field trips, printables, and zero-prep activities ready to use today",
-    ],
-    note: "Works for all 50 states, always free 🗺️",
-  },
-  {
-    id: "yearbook",
-    label: "Yearbook",
-    emoji: "📖",
-    headline: "Your family yearbook",
-    sub: "Every win, quote, and book fills your yearbook automatically as you go. Add photos you love. At year-end, flip through a beautiful book, with your letter, each child\u2019s chapter and interview, and messages from family.",
-    bullets: [
-      "📖 Wins, quotes & books added automatically",
-      "📸 Bookmark any photo to add it",
-      "✍️ Each child gets their own chapter with interview Q&A",
-      "💌 Family can leave messages, you approve what appears",
-    ],
-    note: "Builds itself all year, flip through it any time 📖",
-  },
-];
-
-// ─── Mockup Components ───────────────────────────────────────────────────────
-
-function MockupShell({ title, dot, children }: { title: string; dot: string; children: React.ReactNode }) {
+// These are illustrative examples, not screenshots or connected family data.
+function MockupShell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-[#f8f7f4] rounded-2xl overflow-hidden shadow-xl border border-[#e8e2d9] text-left select-none">
-      <div className="bg-[#fefcf9] border-b border-[#e8e2d9] px-4 py-2.5 flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dot }} />
-        <span className="text-xs font-semibold text-[#2d2926]">{title}</span>
+    <figure className="bg-[var(--background)] rounded-2xl overflow-hidden shadow-xl border border-[var(--color-warm-border)] text-left">
+      <div className="bg-[var(--color-warm-card)] border-b border-[var(--color-warm-border)] px-4 py-3 flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-[var(--g-accent)]" aria-hidden="true" />
+        <span className="text-sm font-medium text-[var(--foreground)]">{title}</span>
       </div>
-      {children}
+      <div className="p-4 sm:p-5 space-y-3">{children}</div>
+      <figcaption className="border-t border-[var(--color-warm-border)] px-4 py-3 text-xs text-[var(--color-text-muted)]">
+        Illustrative preview with fictional details. The app layout may differ.
+      </figcaption>
+    </figure>
+  );
+}
+
+function PreviewCard({ title, detail, emoji }: { title: string; detail: string; emoji: string }) {
+  return (
+    <div className="bg-[var(--color-warm-card)] border border-[var(--color-warm-border)] rounded-xl flex items-start gap-3 px-3 py-3">
+      <span className="text-xl shrink-0" aria-hidden="true">{emoji}</span>
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-[var(--foreground)]">{title}</p>
+        <p className="text-xs text-[var(--color-text-muted)] mt-1 leading-relaxed">{detail}</p>
+      </div>
     </div>
   );
 }
 
 function TodayMockup() {
   return (
-    <MockupShell title="Today" dot="#5c7f63">
-      <div className="p-4 space-y-3">
-        <div>
-          <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Tuesday, March 17</p>
-          <p className="text-sm font-bold text-[#2d2926]">Good morning, Parker Family! 👋</p>
-        </div>
-        <div className="bg-gradient-to-br from-[#e8f5ea] to-[#d4ead6] rounded-xl p-3 flex gap-3 items-center">
-          <div className="text-3xl">🌿</div>
-          <div className="flex-1">
-            <p className="text-[10px] font-bold text-[#5c7f63] uppercase tracking-widest">Sapling</p>
-            <p className="text-xs font-semibold text-[#2d2926]">Growing strong</p>
-            <div className="mt-1.5 h-1.5 bg-white/50 rounded-full overflow-hidden">
-              <div className="h-full w-3/5 bg-[#5c7f63] rounded-full" />
-            </div>
-          </div>
-          <span className="text-xs font-bold text-[#5c7f63] bg-white/60 px-1.5 py-0.5 rounded-full">31 🍃</span>
-        </div>
-        <div className="space-y-1.5">
-          {[
-            { done: true,  subject: "Math",    title: "Fractions worksheet" },
-            { done: true,  subject: "Reading", title: "Charlotte's Web ch. 5" },
-            { done: false, subject: "Science", title: "Leaf classification" },
-          ].map((l) => (
-            <div key={l.title} className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs ${
-              l.done ? "bg-[#f0f7f1] border-[#c2dbc5]" : "bg-white border-[#e8e2d9]"
-            }`}>
-              <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                l.done ? "bg-[#5c7f63] border-[#5c7f63]" : "border-[#c8bfb5]"
-              }`}>
-                {l.done && <span className="text-[6px] text-white font-bold">✓</span>}
-              </div>
-              <span className={`font-medium truncate ${l.done ? "line-through text-[#7a9e7e]" : "text-[#2d2926]"}`}>{l.title}</span>
-              <span className="ml-auto text-[#b5aca4] shrink-0">{l.subject}</span>
-            </div>
+    <MockupShell title="Today">
+      <p className="text-sm text-[var(--color-text-muted)]">Tuesday, October 6 · Emma&apos;s day</p>
+      <PreviewCard emoji="✓" title="Math · Lesson 18" detail="Completed · 30 minutes recorded" />
+      <PreviewCard emoji="📖" title="Reading · Chapter 5" detail="Ready when you are" />
+      <div className="rounded-xl bg-[#e8f0e9] p-4">
+        <p className="text-sm font-medium text-[var(--g-brand)]">How long did you spend?</p>
+        <div className="flex flex-wrap gap-2 mt-3" aria-label="Example minute choices">
+          {[15, 30, 45, 60].map((minutes) => (
+            <span key={minutes} className={`rounded-lg px-3 py-2 text-xs ${minutes === 30 ? "bg-[var(--g-accent)] text-white" : "bg-white text-[#5c5248]"}`}>{minutes} min</span>
           ))}
         </div>
-      </div>
-    </MockupShell>
-  );
-}
-
-function GardenMockup() {
-  return (
-    <MockupShell title="Garden" dot="#7a9e7e">
-      <div className="relative overflow-hidden" style={{ background: "linear-gradient(180deg, #e8f4fc 0%, #93c9e8 35%, #72b8e0 65%, #c8e8d0 100%)", height: 130 }}>
-        <div className="absolute top-2 right-3" style={{ width: 28, height: 28 }}>
-          <div className="absolute inset-0 rounded-full" style={{ background: "#fef3c7", transform: "scale(1.8)", opacity: 0.5 }} />
-          <div className="absolute inset-0 rounded-full" style={{ background: "#f9d77e" }} />
-        </div>
-        <span className="absolute text-sm" style={{ top: "35%", left: "42%" }}>🦋</span>
-        <div className="absolute bottom-0 left-0 right-0" style={{ height: 40, background: "#a8c898", borderRadius: "60% 60% 0 0" }} />
-        <div className="absolute bottom-0 left-0 right-0" style={{ height: 28, background: "#7aaa78", borderRadius: "50% 50% 0 0" }} />
-        {[{ x: "28%", label: "Zoe" }, { x: "62%", label: "Emma" }].map((t) => (
-          <div key={t.label} className="absolute text-center" style={{ bottom: "22%", left: t.x, transform: "translateX(-50%)" }}>
-            <div style={{ fontSize: 28 }}>🌳</div>
-            <span className="text-[9px] font-bold bg-white/80 px-1.5 py-0.5 rounded-full text-[#2d2926]">{t.label}</span>
-          </div>
-        ))}
-      </div>
-      <div className="p-3">
-        <div className="flex items-center justify-between bg-[#e8f5ea] rounded-xl px-3 py-2">
-          <div>
-            <p className="text-[10px] text-[#5c7f63] font-bold uppercase tracking-widest">Parker Family · Thriving</p>
-            <p className="text-xs text-[#2d2926]">200 leaves earned</p>
-          </div>
-          <div className="flex gap-1">
-            {["⭐","🌱","🍃","🌳"].map((b) => (
-              <span key={b} className="text-sm">{b}</span>
-            ))}
-          </div>
-        </div>
-      </div>
-    </MockupShell>
-  );
-}
-
-function ReportMockup() {
-  return (
-    <MockupShell title="Reports" dot="#8b6f47">
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Zoe&apos;s Progress Report</p>
-            <p className="text-[10px] text-[#7a6f65]">Aug 1 – Mar 17, 2026</p>
-          </div>
-          <div className="flex items-center gap-1 text-[10px] bg-[#5c7f63] text-white px-2 py-1 rounded-lg">
-            🖨️ Print
-          </div>
-        </div>
-        <div className="grid grid-cols-4 gap-1.5">
-          {[
-            { label: "Lessons", value: "53" },
-            { label: "Hours",   value: "26h" },
-            { label: "Books",   value: "8" },
-            { label: "Subjects",value: "4" },
-          ].map(({ label, value }) => (
-            <div key={label} className="text-center bg-[#f0ede8] rounded-lg py-2">
-              <p className="text-sm font-bold text-[#2d2926]">{value}</p>
-              <p className="text-[8px] text-[#7a6f65]">{label}</p>
-            </div>
-          ))}
-        </div>
-        <div className="space-y-1.5">
-          {[
-            { subject: "Math",    pct: 90, color: "#5c7f63" },
-            { subject: "Reading", pct: 70, color: "#4a7a8a" },
-            { subject: "Science", pct: 45, color: "#8b6f47" },
-          ].map((s) => (
-            <div key={s.subject} className="flex items-center gap-2">
-              <span className="text-[9px] w-12 text-[#7a6f65]">{s.subject}</span>
-              <div className="flex-1 h-1.5 bg-[#f0ede8] rounded-full overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${s.pct}%`, backgroundColor: s.color }} />
-              </div>
-            </div>
-          ))}
-        </div>
+        <p className="text-xs text-[#5c5248] mt-3">Confirm the time that fits your lesson.</p>
       </div>
     </MockupShell>
   );
@@ -250,165 +56,153 @@ function ReportMockup() {
 
 function PlanMockup() {
   return (
-    <MockupShell title="Plan" dot="#5c7f63">
-      <div className="p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-sm font-bold text-[#2d2926]">📅 Week of March 17–21</p>
-          <span className="text-[10px] bg-[#e8f0e9] text-[var(--g-deep)] px-2 py-0.5 rounded-full font-semibold">Auto-scheduled ✓</span>
-        </div>
-        <div className="grid grid-cols-5 gap-1.5">
-          {[
-            { day: "Mon", items: [{ label: "Math", bg: "#e8f0e9", text: "var(--g-deep)" }, { label: "History", bg: "#fef0e4", text: "#7a4a1a" }] },
-            { day: "Tue", items: [{ label: "Reading", bg: "#e4f0f4", text: "#1a4a5a" }, { label: "Science", bg: "#f0e8f4", text: "#4a2a5a" }] },
-            { day: "Wed", items: [{ label: "Math", bg: "#e8f0e9", text: "var(--g-deep)" }, { label: "Writing", bg: "#fce8ec", text: "#7a2a36" }] },
-            { day: "Thu", items: [{ label: "Reading", bg: "#e4f0f4", text: "#1a4a5a" }, { label: "History", bg: "#fef0e4", text: "#7a4a1a" }] },
-            { day: "Fri", items: [{ label: "Math", bg: "#e8f0e9", text: "var(--g-deep)" }, { label: "Science", bg: "#f0e8f4", text: "#4a2a5a" }] },
-          ].map((col) => (
-            <div key={col.day} className="space-y-1.5">
-              <div className="text-center text-[10px] font-bold text-[#7a6f65] uppercase tracking-wide">{col.day}</div>
-              {col.items.map((item) => (
-                <div key={item.label + col.day} className="rounded-lg px-1 py-2 text-[10px] font-semibold text-center leading-tight" style={{ backgroundColor: item.bg, color: item.text }}>
-                  {item.label}
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl p-3 space-y-2">
-          <p className="text-[11px] font-semibold text-[#2d2926]">🌿 Finish Line, pacing this week</p>
-          {[
-            { label: "Math, Saxon 5/4", pct: 68 },
-            { label: "All About Reading", pct: 55 },
-          ].map((item) => (
-            <div key={item.label} className="space-y-1">
-              <span className="text-[11px] font-medium text-[#2d2926]">{item.label}</span>
-              <div className="w-full bg-[#e8e2d9] rounded-full h-1.5">
-                <div className="bg-[#5c7f63] h-1.5 rounded-full" style={{ width: `${item.pct}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
+    <MockupShell title="Plan">
+      <p className="text-sm font-medium text-[var(--foreground)]">Schedule builder · Math</p>
+      <dl className="grid grid-cols-2 gap-3 text-sm rounded-xl bg-white border border-[var(--color-warm-border)] p-3">
+        {[
+          ["School days", "Mon, Wed, Fri"],
+          ["Lessons a day", "1"],
+          ["Total lessons", "120"],
+          ["Next lesson", "18"],
+        ].map(([label, value]) => (
+          <div key={label}><dt className="text-xs text-[var(--color-text-muted)]">{label}</dt><dd className="mt-1 text-[var(--foreground)]">{value}</dd></div>
+        ))}
+      </dl>
+      <PreviewCard emoji="📅" title="Plan this week" detail="Choose your own lessons and the days to do them." />
+      <PreviewCard emoji="🌿" title="A change of plans" detail="Move a lesson, add a break, or shift unfinished manually planned days." />
+    </MockupShell>
+  );
+}
+
+function GardenMockup() {
+  const leaves = 31;
+  const stage = getGrowthStage(leaves);
+  return (
+    <MockupShell title="Garden">
+      <div className="text-center rounded-xl py-5 bg-gradient-to-b from-[#e8f4fc] to-[#d4ead6]">
+        <span className="text-5xl" aria-hidden="true">{stage.emoji}</span>
+        <p className="text-sm font-medium text-[var(--g-brand)] mt-3">Emma · {stage.name}</p>
+        <p className="text-xs text-[#5c5248] mt-1">{leaves} leaves this school year</p>
       </div>
+      <ol className="grid grid-cols-2 gap-2">
+        {GROWTH_STAGES.map((growth) => (
+          <li key={growth.name} className="rounded-lg bg-white px-2.5 py-2 text-xs text-[#5c5248]">
+            <span aria-hidden="true">{growth.emoji}</span> {growth.name} · {growth.min}
+          </li>
+        ))}
+      </ol>
     </MockupShell>
   );
 }
 
 function MemoriesMockup() {
   return (
-    <div
-      className="bg-white rounded-3xl shadow-2xl border border-[#e8e2d9] overflow-hidden w-full max-w-sm select-none"
-      style={{ boxShadow: "0 24px 60px rgba(92, 127, 99, 0.12), 0 4px 16px rgba(0,0,0,0.06)" }}
-    >
-      <div className="bg-[#fefcf9] border-b border-[#e8e2d9] px-4 py-3 flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-[#d4956a]" />
-        <span className="text-xs font-semibold text-[#2d2926]">Memories</span>
-        <span className="ml-auto text-[10px] text-[#b5aca4]">March 2026</span>
-      </div>
-      <div className="p-4 space-y-3">
-        <div className="rounded-2xl overflow-hidden border border-[#e8e2d9]">
-          <div className="h-28 flex items-center justify-center text-4xl" style={{ background: "linear-gradient(135deg, #c8e8d0 0%, #a8d4b8 100%)" }}>
-            🦋
-          </div>
-          <div className="bg-white px-3 py-2.5">
-            <p className="text-xs font-semibold text-[#2d2926]">Butterfly lifecycle, backyard science!</p>
-            <p className="text-[10px] text-[#b5aca4] mt-0.5">March 14 · Science</p>
-          </div>
-        </div>
-        <div className="bg-[#fef9f0] border border-[#f0d090] rounded-2xl p-3">
-          <p className="text-[10px] font-bold text-[#8b6f47] uppercase tracking-widest mb-1.5">✍️ She said...</p>
-          <p className="text-xs text-[#2d2926] italic leading-relaxed">&ldquo;Mom, I think I actually love fractions now.&rdquo;</p>
-          <p className="text-[10px] text-[#b5aca4] mt-2">Emma · March 17</p>
-        </div>
-        <div className="bg-[#f0f7f1] border border-[#c2dbc5] rounded-2xl px-3 py-2.5 flex items-center gap-3">
-          <span className="text-xl">📖</span>
-          <div>
-            <p className="text-xs font-semibold text-[#2d2926]">Charlotte&apos;s Web</p>
-            <p className="text-[10px] text-[#5c7f63]">Finished · March 15</p>
-          </div>
-        </div>
-        <div className="text-center pt-1">
-          <p className="text-[10px] text-[#5c7f63] font-semibold">🌿 24 memories this month</p>
+    <MockupShell title="Memories">
+      <div className="rounded-xl overflow-hidden border border-[var(--color-warm-border)] bg-white">
+        <div className="h-28 flex items-center justify-center text-4xl bg-gradient-to-br from-[#c8e8d0] to-[#a8d4b8]" aria-hidden="true">🦋</div>
+        <div className="px-3 py-3">
+          <p className="text-sm font-medium text-[var(--foreground)]">Backyard butterfly watching</p>
+          <p className="text-xs text-[var(--color-text-muted)] mt-1">Emma · October 6</p>
         </div>
       </div>
-    </div>
+      <div className="bg-[#fef9f0] border border-[#f0d090] rounded-xl p-3">
+        <p className="text-xs text-[#8b6f47] mb-2">A little thing she said</p>
+        <p className="text-sm text-[var(--foreground)] italic">&ldquo;Do butterflies remember being caterpillars?&rdquo;</p>
+      </div>
+      <PreviewCard emoji="📖" title="Charlotte's Web" detail="A finished book to remember" />
+    </MockupShell>
   );
 }
 
-function ResourcesMockup() {
+function PrintablesMockup() {
   return (
-    <MockupShell title="Resources" dot="#5c7f63">
-      <div className="p-4 space-y-3">
-        <div className="bg-[#5c7f63] rounded-xl px-3 py-2.5">
-          <p className="text-[9px] font-bold text-white/70 uppercase tracking-widest mb-0.5">For Nevada Families</p>
-          <p className="text-[11px] font-semibold text-white leading-tight">Resources picked for your state · Low regulation</p>
-        </div>
-        {[
-          { name: "CK-12", desc: "Free digital textbooks", emoji: "📖" },
-          { name: "Khan Academy", desc: "Free math & science", emoji: "🎓" },
-          { name: "Google Arts & Culture", desc: "Virtual museum tours", emoji: "🏛️" },
-        ].map((r) => (
-          <div key={r.name} className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl flex items-center gap-2.5 px-3 py-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#e8f0e9] flex items-center justify-center text-base shrink-0">{r.emoji}</div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[11px] font-semibold text-[#2d2926]">{r.name}</p>
-              <p className="text-[10px] text-[#7a6f65]">{r.desc}</p>
-            </div>
-          </div>
-        ))}
+    <MockupShell title="Printables">
+      <div className="rounded-xl border-4 border-double border-[#c2dbc5] bg-[var(--color-warm-card)] p-5 text-center">
+        <span className="text-3xl" aria-hidden="true">🌿</span>
+        <p className="text-lg text-[var(--g-brand)] mt-2" style={{ fontFamily: "var(--font-display)" }}>Reading achievement</p>
+        <p className="text-sm text-[#5c5248] mt-2">Celebrating Emma&apos;s love of books</p>
       </div>
+      <PreviewCard emoji="🪪" title="Homeschool ID cards" detail="Add a photo for your parent or student card." />
+      <PreviewCard emoji="🗓️" title="Year planner & photo frames" detail="Make room for the year's plans and favorite moments." />
     </MockupShell>
   );
 }
 
 function YearbookMockup() {
   return (
-    <MockupShell title="Family Yearbook" dot="var(--g-deep)">
-      <div className="space-y-3">
-        {/* Cover card */}
-        <div className="rounded-xl overflow-hidden" style={{ background: "var(--g-deep)" }}>
-          <div className="px-3 py-2.5 relative">
-            <span className="absolute top-0 right-1 text-[28px] opacity-[0.08] select-none">🌿</span>
-            <p className="text-[12px] font-bold text-white relative z-10" style={{ fontFamily: "var(--font-display)" }}>The Parker Family</p>
-            <p className="text-[8px] text-[#fefcf9]/55 uppercase tracking-wider">2025-26 school year</p>
-          </div>
-          <div className="bg-[#faf6f0] px-3 py-2 flex justify-between text-center">
-            {[
-              { n: "12", l: "Photos" },
-              { n: "5", l: "Books" },
-              { n: "8", l: "Wins" },
-              { n: "3", l: "Quotes" },
-            ].map((s) => (
-              <div key={s.l}>
-                <p className="text-[13px] font-bold text-[var(--g-deep)]">{s.n}</p>
-                <p className="text-[7px] text-[#9a8f85]">{s.l}</p>
-              </div>
-            ))}
-          </div>
+    <MockupShell title="Yearbook reader">
+      <div className="rounded-xl bg-[var(--g-brand)] px-5 py-6 text-center">
+        <p className="text-xl text-white" style={{ fontFamily: "var(--font-display)" }}>The Parker family</p>
+        <p className="text-sm text-white/80 mt-2">2026-2027</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="rounded-xl border border-[var(--color-warm-border)] bg-[var(--color-warm-card)] p-3">
+          <p className="text-sm text-[var(--g-brand)]" style={{ fontFamily: "var(--font-display)" }}>A letter from home</p>
+          <p className="text-xs text-[var(--color-text-muted)] mt-3 leading-relaxed">This year, we learned to slow down and notice the little things.</p>
         </div>
-        {/* Chapter preview */}
-        <div className="bg-[#fefcf9] rounded-xl border border-[#e8e2d9] p-3">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-4 h-4 rounded-full bg-[#e88da0]" />
-            <p className="text-[11px] font-bold text-[#2d2926]">Emma&apos;s year</p>
-            <span className="text-[8px] text-[#b5aca4]">8 memories</span>
-          </div>
-          <div className="grid grid-cols-3 gap-1">
-            {["🏆", "📖", "📸"].map((e, i) => (
-              <div key={i} className="aspect-square rounded bg-[#eaf3de] flex items-center justify-center text-lg">{e}</div>
-            ))}
-          </div>
-        </div>
-        {/* Progress */}
-        <div>
-          <div className="flex justify-between text-[8px] text-[#9a8f85] mb-1">
-            <span>Pages filling up</span>
-            <span>12 of 17 sections</span>
-          </div>
-          <div className="h-1 bg-[#e8e3dc] rounded-full overflow-hidden">
-            <div className="h-full bg-[var(--g-deep)] rounded-full" style={{ width: "70%" }} />
-          </div>
+        <div className="rounded-xl border border-[var(--color-warm-border)] bg-[var(--color-warm-card)] p-3">
+          <p className="text-sm text-[var(--g-brand)]" style={{ fontFamily: "var(--font-display)" }}>Emma&apos;s year</p>
+          <div className="rounded-lg bg-[#e8f0e9] py-4 mt-3 text-center text-3xl" aria-hidden="true">🦋</div>
+          <p className="text-xs text-[var(--color-text-muted)] mt-2">Backyard butterflies · October 6</p>
         </div>
       </div>
+      <p className="text-xs text-[var(--color-text-muted)]">Personalize the cover and sections in Customize.</p>
+    </MockupShell>
+  );
+}
+
+function ReportMockup() {
+  return (
+    <MockupShell title="Reports">
+      <p className="text-sm font-medium text-[var(--foreground)]">Hours &amp; Attendance Log</p>
+      <p className="text-xs text-[var(--color-text-muted)]">Emma · October 6, 2026</p>
+      <div className="grid grid-cols-2 gap-2">
+        {[{ label: "Recorded hours", value: "1h 15m" }, { label: "Days of learning", value: "1" }].map((item) => (
+          <div key={item.label} className="rounded-xl bg-[#e8f0e9] p-3">
+            <p className="text-lg font-medium text-[var(--g-brand)]">{item.value}</p>
+            <p className="text-xs text-[#5c5248]">{item.label}</p>
+          </div>
+        ))}
+      </div>
+      <PreviewCard emoji="✓" title="Math · Lesson 18" detail="30 minutes" />
+      <PreviewCard emoji="✓" title="Reading · Chapter 5" detail="45 minutes" />
+      <PreviewCard emoji="📖" title="Reading Log" detail="Charlotte's Web · Finished October 6" />
+    </MockupShell>
+  );
+}
+
+function TranscriptsMockup() {
+  return (
+    <MockupShell title="Transcripts">
+      <p className="text-sm font-medium text-[var(--foreground)]">Alex · High school transcript</p>
+      <p className="text-xs text-[var(--color-text-muted)]">2025-2026 · Graded courses</p>
+      <PreviewCard emoji="📐" title="Algebra I" detail="1.0 credit · A" />
+      <PreviewCard emoji="📚" title="English I" detail="1.0 credit · B" />
+      <div className="flex flex-wrap justify-between gap-2 rounded-xl bg-[#e8f0e9] p-3 text-sm text-[var(--g-brand)]">
+        <span>Credits: 2.0</span><span>Unweighted GPA: 3.50</span>
+      </div>
+      <p className="text-xs text-[var(--color-text-muted)]">Add grades and credits, then review before exporting.</p>
+    </MockupShell>
+  );
+}
+
+function YearsMockup() {
+  return (
+    <MockupShell title="Years">
+      <PreviewCard emoji="🌱" title="2026-2027 · Current year" detail="August 1, 2026 to May 31, 2027" />
+      <PreviewCard emoji="🌸" title="2025-2026 · Closed year" detail="Revisit the year's keepsake and finished trees." />
+      <PreviewCard emoji="🗂️" title="Add a past year" detail="Bring earlier homeschooling into your records." />
+    </MockupShell>
+  );
+}
+
+function ResourcesMockup() {
+  return (
+    <MockupShell title="Resources">
+      <PreviewCard emoji="🌿" title="Today's Easy Win" detail="An idea for a little learning together." />
+      <PreviewCard emoji="📚" title="Free Picks & categories" detail="Browse curriculum, activities, field trips, and more." />
+      <PreviewCard emoji="🔖" title="Saved resources" detail="Keep the finds you'd like to revisit." />
+      <PreviewCard emoji="🗺️" title="By State" detail="A separate place to start learning about your state's requirements." />
     </MockupShell>
   );
 }
@@ -418,9 +212,12 @@ const MOCKUPS: Record<FeatureId, () => React.JSX.Element> = {
   plan: PlanMockup,
   garden: GardenMockup,
   reports: ReportMockup,
-  memories: () => <MemoriesMockup />,
+  memories: MemoriesMockup,
+  printables: PrintablesMockup,
   resources: ResourcesMockup,
   yearbook: YearbookMockup,
+  transcripts: TranscriptsMockup,
+  years: YearsMockup,
 };
 
 // ─── Page ────────────────────────────────────────────────────────────────────
@@ -429,19 +226,12 @@ export default function TourPage() {
   const isNative = useIsNativeApp();
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState(0);
-  const [paused, setPaused] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
-  useEffect(() => {
-    if (paused) return;
-    const id = setInterval(() => setActive((i) => (i + 1) % FEATURES.length), 5000);
-    return () => clearInterval(id);
-  }, [paused]);
 
   const prev = () => setActive((i) => (i - 1 + FEATURES.length) % FEATURES.length);
   const next = () => setActive((i) => (i + 1) % FEATURES.length);
@@ -450,7 +240,7 @@ export default function TourPage() {
   const MockupComponent = MOCKUPS[feature.id];
 
   return (
-    <main className="min-h-screen bg-[#f8f7f4] text-[#2d2926] overflow-x-hidden">
+    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)] overflow-x-hidden">
 
       {/* ── Animations ─────────────────────────────────────────────────────────── */}
       <style>{`
@@ -483,25 +273,30 @@ export default function TourPage() {
         .delay-600 { animation-delay: 600ms; }
         .scroll-bounce { animation: scrollBounce 1.8s ease-in-out infinite; }
         .carousel-slide { animation: carouselFade 0.35s ease-out; }
+        @media (prefers-reduced-motion: reduce) {
+          html { scroll-behavior: auto; }
+          .anim-fade-in-up, .anim-fade-in, .scroll-bounce, .carousel-slide { animation: none; }
+          .tour-sparkle { animation: none !important; }
+        }
       `}</style>
 
       {/* ── Nav (matching homepage exactly) ────────────────────────────────────── */}
       <header
-        className={`sticky top-0 z-50 backdrop-blur-md border-b border-[#e8e2d9] transition-all duration-300 ${
+        className={`sticky top-0 z-50 backdrop-blur-md border-b border-[var(--color-warm-border)] transition-all duration-300 ${
           scrolled ? "shadow-md shadow-black/[0.06]" : "shadow-none"
         }`}
         style={{ backgroundColor: "rgba(248, 247, 244, 0.94)" }}
       >
-        <nav className="max-w-6xl mx-auto px-5 sm:px-8 py-4 flex items-center justify-between">
+        <nav className="max-w-6xl mx-auto px-5 sm:px-8 py-4 flex flex-wrap items-center justify-between gap-3">
           <Link href="/" className="flex items-center shrink-0">
             <img src="/rooted-logo-nav.png" alt="Rooted" style={{ height: '36px', width: 'auto' }} />
           </Link>
           <div className="flex items-center gap-2">
-            <Link href="/login" className="inline-flex text-sm font-medium text-[#7a6f65] hover:text-[#2d2926] transition-colors px-2 sm:px-3 py-2 rounded-lg hover:bg-[#f0ede8]">
-              Log In
+            <Link href="/login" className="inline-flex text-sm font-medium text-[var(--color-text-muted)] hover:text-[var(--foreground)] transition-colors px-2 sm:px-3 py-2 rounded-lg hover:bg-[#f0ede8]">
+              Log in
             </Link>
-            <Link href="/signup" className="inline-flex items-center gap-1.5 text-sm font-semibold bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white px-5 py-2.5 rounded-xl transition-colors shadow-sm">
-              Start Free Trial
+            <Link href="/signup" className="inline-flex items-center gap-1.5 text-sm font-medium bg-[var(--g-accent)] hover:bg-[var(--g-deep)] text-white px-3 sm:px-5 py-2.5 rounded-xl transition-colors shadow-sm">
+              Start free trial
               <svg width="11" height="11" viewBox="0 0 11 11" fill="none" aria-hidden="true">
                 <path d="M1.5 5.5h8M5.5 1.5l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -525,7 +320,7 @@ export default function TourPage() {
             { top: "12%", left: "72%", size: 2.5, delay: "0.8s" },
             { top: "30%", left: "88%", size: 1.5, delay: "0.2s" },
           ].map((s, i) => (
-            <div key={i} className="absolute rounded-full bg-white" style={{ top: s.top, left: s.left, width: s.size, height: s.size, opacity: 0.25, animation: `pulse ${2 + i * 0.3}s ease-in-out infinite`, animationDelay: s.delay }} />
+            <div key={i} className="tour-sparkle absolute rounded-full bg-white" style={{ top: s.top, left: s.left, width: s.size, height: s.size, opacity: 0.25, animation: `pulse ${2 + i * 0.3}s ease-in-out infinite`, animationDelay: s.delay }} />
           ))}
           <svg className="absolute bottom-0 left-[-2%] h-[85%] w-auto opacity-40" viewBox="0 0 160 500" fill="none">
             <rect x="72" y="400" width="16" height="100" fill="#3d2010"/>
@@ -550,20 +345,20 @@ export default function TourPage() {
         <div className="absolute inset-0 pointer-events-none" style={{ background: "radial-gradient(ellipse at center, transparent 35%, rgba(0,0,0,0.35) 100%)" }} aria-hidden="true"/>
 
         <div className="relative z-10 flex flex-col items-center max-w-3xl">
-          <h1 className="anim-fade-in-up delay-150 text-4xl sm:text-5xl lg:text-6xl font-bold leading-[1.08] mb-6 text-white" style={{ fontFamily: "var(--font-display)", textShadow: "0 2px 32px rgba(0,0,0,0.4)", letterSpacing: "-0.02em" }}>
+          <h1 className="anim-fade-in-up delay-150 text-4xl sm:text-5xl lg:text-6xl font-medium leading-[1.08] mb-6 text-white" style={{ fontFamily: "var(--font-display)", textShadow: "0 2px 32px rgba(0,0,0,0.4)", letterSpacing: "-0.02em" }}>
             See Rooted{" "}
-            <em className="not-italic" style={{ color: "#86c98a" }}>in Action</em>
+            <em className="not-italic" style={{ color: "#86c98a" }}>in action</em>
           </h1>
           <p className="anim-fade-in-up delay-300 text-base sm:text-lg text-white/78 mb-10 leading-relaxed max-w-[36rem]" style={{ textShadow: "0 1px 12px rgba(0,0,0,0.3)" }}>
-            Not a curriculum. A planning and memory tool that works alongside the one you already love.
+            A home for your family’s memories, with a planner that works alongside the curriculum you already love.
             Plan your days, capture memories, and actually see how far your kids have come.
           </p>
           <div className="anim-fade-in-up delay-450 flex flex-col sm:flex-row gap-3 mb-8 w-full sm:w-auto">
-            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[var(--g-deep)] hover:bg-[#f0f9f1] font-bold px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35)" }}>
-              Start Your Free Trial →
+            <Link href="/signup" className="inline-flex items-center justify-center gap-2 bg-white text-[var(--g-deep)] hover:bg-[#f0f9f1] font-medium px-8 py-4 rounded-xl transition-all text-base" style={{ boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 8px 32px rgba(0,0,0,0.35)" }}>
+              Start your free trial →
             </Link>
-            <a href="#walkthrough" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-semibold px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", background: "rgba(255,255,255,0.06)" }}>
-              Explore Features ↓
+            <a href="#walkthrough" className="inline-flex items-center justify-center gap-2 text-white hover:bg-white/12 font-medium px-8 py-4 rounded-xl transition-all text-base" style={{ border: "1px solid rgba(255,255,255,0.35)", background: "rgba(255,255,255,0.06)" }}>
+              Explore features ↓
             </a>
           </div>
           <p className="anim-fade-in delay-600 text-white/65 text-sm flex items-center gap-2">
@@ -581,24 +376,32 @@ export default function TourPage() {
       {/* ── Feature Walkthrough Carousel ───────────────────────────────────── */}
       <section id="walkthrough" className="px-6 sm:px-8 py-20 max-w-6xl mx-auto">
         <div className="text-center mb-14">
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-            Interactive Tour
+          <p className="text-xs font-medium tracking-widest text-[#b5aca4] mb-3">
+            Feature tour
           </p>
-          <h2 className="text-3xl sm:text-4xl font-bold text-[#2d2926]" style={{ fontFamily: "var(--font-display)" }}>
+          <h2 className="text-3xl sm:text-4xl font-medium text-[var(--foreground)]" style={{ fontFamily: "var(--font-display)" }}>
             Built for how you actually homeschool
           </h2>
+          <p className="max-w-2xl mx-auto mt-4 text-sm text-[var(--color-text-muted)] leading-relaxed">
+            On your phone, start with Today, Plan, Garden, Memories, Printables, and More.
+            Open More for Reports, Transcripts, Resources, and Years. On desktop, Reports,
+            Transcripts, and Resources also have their own sidebar links.
+          </p>
+          <p className="mt-3 text-sm text-[var(--color-text-muted)]">Choose a feature below and explore at your own pace.</p>
         </div>
 
-        {/* Tab buttons */}
+        {/* Feature buttons */}
         <div className="flex flex-wrap items-center justify-center gap-2 mb-10">
           {FEATURES.map((f, i) => (
             <button
               key={f.id}
-              onClick={() => { setActive(i); setPaused(true); }}
+              onClick={() => setActive(i)}
+              aria-pressed={i === active}
+              aria-controls="tour-feature"
               className={`px-3.5 py-2 rounded-xl text-sm font-medium transition-all ${
                 i === active
-                  ? "bg-[#5c7f63] text-white shadow-sm"
-                  : "bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63]"
+                  ? "bg-[var(--g-accent)] text-white shadow-sm"
+                  : "bg-[var(--color-warm-card)] border border-[var(--color-warm-border)] text-[var(--color-text-muted)] hover:border-[var(--g-accent)] hover:text-[var(--g-accent)]"
               }`}
             >
               {f.emoji} {f.label}
@@ -607,16 +410,12 @@ export default function TourPage() {
         </div>
 
         {/* Carousel */}
-        <div
-          onMouseEnter={() => setPaused(true)}
-          onMouseLeave={() => setPaused(false)}
-          className="relative"
-        >
-          <button onClick={prev} aria-label="Previous" className="hidden lg:flex absolute -left-14 top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors shadow-sm z-10 text-2xl leading-none">
+        <div className="relative" role="region" aria-label="Feature walkthrough">
+          <button onClick={prev} aria-label="Previous" className="hidden xl:flex absolute -left-14 top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full bg-[var(--color-warm-card)] border border-[var(--color-warm-border)] text-[var(--color-text-muted)] hover:border-[var(--g-accent)] hover:text-[var(--g-accent)] transition-colors shadow-sm z-10 text-2xl leading-none">
             ‹
           </button>
 
-          <div key={active} className="carousel-slide grid grid-cols-1 lg:grid-cols-5 gap-8 lg:gap-10 items-start">
+          <div id="tour-feature" aria-live="polite" aria-atomic="true" className="carousel-slide grid grid-cols-1 lg:grid-cols-5 gap-8 lg:gap-10 items-start">
             {/* Mockup */}
             <div className="lg:col-span-3 order-2 lg:order-1">
               <MockupComponent />
@@ -625,65 +424,66 @@ export default function TourPage() {
             {/* Description */}
             <div className="lg:col-span-2 order-1 lg:order-2 space-y-5">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-[#5c7f63] mb-1.5">
+                <p className="text-xs font-medium tracking-widest text-[var(--g-accent)] mb-1.5">
                   {feature.emoji} {feature.label}
                 </p>
-                <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] leading-tight mb-2" style={{ fontFamily: "var(--font-display)" }}>
+                <h2 className="text-2xl sm:text-3xl font-medium text-[var(--foreground)] leading-tight mb-2" style={{ fontFamily: "var(--font-display)" }}>
                   {feature.headline}
                 </h2>
-                <p className="text-[#7a6f65] leading-relaxed">{feature.sub}</p>
+                <p className="text-[var(--color-text-muted)] leading-relaxed">{feature.sub}</p>
+                <p className="text-xs text-[var(--g-accent)] leading-relaxed mt-3">Find it: {feature.location}</p>
               </div>
 
               <ul className="space-y-3">
                 {feature.bullets.map((b) => (
                   <li key={b} className="flex items-start gap-3">
                     <div className="w-5 h-5 rounded-full bg-[#e8f0e9] flex items-center justify-center shrink-0 mt-0.5">
-                      <Check size={11} className="text-[#5c7f63]" strokeWidth={3} />
+                      <Check size={11} className="text-[var(--g-accent)]" strokeWidth={3} />
                     </div>
                     <span className="text-sm text-[#5c5248] leading-relaxed">{b}</span>
                   </li>
                 ))}
               </ul>
 
-              <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-xl px-4 py-3 flex items-center gap-2.5">
+              <div className="bg-[var(--color-warm-card)] border border-[var(--color-warm-border)] rounded-xl px-4 py-3 flex items-center gap-2.5">
                 <span className="text-base shrink-0">💡</span>
-                <p className="text-sm text-[#5c7f63] font-medium">{feature.note}</p>
+                <p className="text-sm text-[var(--g-accent)] font-medium">{feature.note}</p>
               </div>
 
               {/* Curriculum tags in Plan tab */}
               {feature.id === "plan" && (
                 <div className="flex flex-wrap gap-2">
                   {["Charlotte Mason", "The Good and the Beautiful", "Classical", "Sonlight", "Unit Studies", "Unschooling", "Any approach ✨"].map((c) => (
-                    <span key={c} className="text-xs bg-[#e8f0e9] text-[#5c7f63] px-3 py-1.5 rounded-full border border-[#c2dbc5] font-medium">
+                    <span key={c} className="text-xs bg-[#e8f0e9] text-[var(--g-accent)] px-3 py-1.5 rounded-full border border-[#c2dbc5] font-medium">
                       {c}
                     </span>
                   ))}
                 </div>
               )}
 
-              <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white text-sm font-semibold px-5 py-3 rounded-xl transition-colors shadow-sm">
-                Try {feature.label} free →
+              <Link href="/signup" className="inline-flex items-center gap-2 bg-[var(--g-accent)] hover:bg-[var(--g-deep)] text-white text-sm font-medium px-5 py-3 rounded-xl transition-colors shadow-sm">
+                Start your free trial →
               </Link>
             </div>
           </div>
 
-          <button onClick={next} aria-label="Next" className="hidden lg:flex absolute -right-14 top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] hover:text-[#5c7f63] transition-colors shadow-sm z-10 text-2xl leading-none">
+          <button onClick={next} aria-label="Next" className="hidden xl:flex absolute -right-14 top-1/2 -translate-y-1/2 w-11 h-11 items-center justify-center rounded-full bg-[var(--color-warm-card)] border border-[var(--color-warm-border)] text-[var(--color-text-muted)] hover:border-[var(--g-accent)] hover:text-[var(--g-accent)] transition-colors shadow-sm z-10 text-2xl leading-none">
             ›
           </button>
 
           {/* Mobile arrows */}
-          <div className="flex lg:hidden items-center justify-center gap-6 mt-8">
-            <button onClick={prev} aria-label="Previous" className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] transition-colors text-2xl leading-none">‹</button>
+          <div className="flex xl:hidden items-center justify-center gap-6 mt-8">
+            <button onClick={prev} aria-label="Previous" className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--color-warm-card)] border border-[var(--color-warm-border)] text-[var(--color-text-muted)] hover:border-[var(--g-accent)] transition-colors text-2xl leading-none">‹</button>
             <span className="text-xs font-medium text-[#b5aca4]">{active + 1} / {FEATURES.length}</span>
-            <button onClick={next} aria-label="Next" className="w-11 h-11 flex items-center justify-center rounded-full bg-[#fefcf9] border border-[#e8e2d9] text-[#7a6f65] hover:border-[#5c7f63] transition-colors text-2xl leading-none">›</button>
+            <button onClick={next} aria-label="Next" className="w-11 h-11 flex items-center justify-center rounded-full bg-[var(--color-warm-card)] border border-[var(--color-warm-border)] text-[var(--color-text-muted)] hover:border-[var(--g-accent)] transition-colors text-2xl leading-none">›</button>
           </div>
 
           {/* Dot indicators */}
           <div className="flex items-center justify-center gap-2.5 mt-5">
             {FEATURES.map((f, i) => (
-              <button key={f.id} onClick={() => setActive(i)} aria-label={`Go to ${f.label}`}
+              <button key={f.id} onClick={() => setActive(i)} aria-label={`Go to ${f.label}`} aria-pressed={i === active} aria-controls="tour-feature"
                 className={`w-2.5 h-2.5 rounded-full transition-all duration-200 ${
-                  i === active ? "bg-[#5c7f63] scale-110" : "bg-transparent border-2 border-[#c8bfb5] hover:border-[#5c7f63]"
+                  i === active ? "bg-[var(--g-accent)] scale-110" : "bg-transparent border-2 border-[#c8bfb5] hover:border-[var(--g-accent)]"
                 }`}
               />
             ))}
@@ -694,38 +494,38 @@ export default function TourPage() {
       {/* ── Memories Deep-Dive ──────────────────────────────────────────────── */}
       <section
         className="px-6 sm:px-8 py-24"
-        style={{ background: "linear-gradient(160deg, #fef9f0 0%, #fefcf9 40%, #f0f7f1 100%)" }}
+        style={{ background: "linear-gradient(160deg, #fef9f0 0%, var(--color-warm-card) 40%, #f0f7f1 100%)" }}
       >
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-                The part moms love most
+              <p className="text-xs font-medium tracking-widest text-[#b5aca4] mb-3">
+                The moments you’ll want to remember
               </p>
-              <h2 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+              <h2 className="text-3xl sm:text-4xl font-medium text-[var(--foreground)] mb-5 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
                 These years go by so fast.{" "}
-                <em className="not-italic" style={{ color: "#5c7f63" }}>Hold onto them.</em>
+                <em className="not-italic" style={{ color: "var(--g-accent)" }}>Hold onto them.</em>
               </h2>
-              <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                Between the lessons, the field trips, the little things they said that made you laugh, so much gets forgotten. Rooted gives you a beautiful, simple place to save it all. It takes 10 seconds.
+              <p className="text-[var(--color-text-muted)] leading-relaxed mb-6 text-base">
+                Between the lessons, the field trips, the little things they said that made you laugh, so much gets forgotten. Rooted gives you a beautiful, simple place to save it all. Save a little at a time, whenever you have a moment.
               </p>
               <ul className="space-y-4 mb-8">
                 {[
                   { emoji: "📸", title: "Photos from your day", desc: "Snap and save moments as they happen, field trips, projects, backyard science." },
                   { emoji: "✍️", title: "Little notes & quotes", desc: "Write down what they said, what clicked, what made them proud. You'll want these later." },
-                  { emoji: "📖", title: "Books they loved", desc: "Build a reading log automatically as you go. A record of their whole reading life." },
+                  { emoji: "📖", title: "Books they loved", desc: "Add books as you read together and keep a record to look back on." },
                   { emoji: "🌿", title: "Look back and see it", desc: "Your whole homeschool journey, month by month. Proof you're doing something beautiful." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-xl bg-[#e8f0e9] flex items-center justify-center text-lg shrink-0 mt-0.5">{item.emoji}</div>
                     <div>
-                      <p className="font-semibold text-[#2d2926] text-sm mb-0.5">{item.title}</p>
-                      <p className="text-xs text-[#7a6f65] leading-relaxed">{item.desc}</p>
+                      <p className="font-medium text-[var(--foreground)] text-sm mb-0.5">{item.title}</p>
+                      <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">{item.desc}</p>
                     </div>
                   </li>
                 ))}
               </ul>
-              <Link href="/signup" className="inline-flex items-center gap-2 bg-[#5c7f63] hover:bg-[var(--g-deep)] text-white font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm shadow-sm">
+              <Link href="/signup" className="inline-flex items-center gap-2 bg-[var(--g-accent)] hover:bg-[var(--g-deep)] text-white font-medium px-7 py-3.5 rounded-xl transition-colors text-sm shadow-sm">
                 Start capturing memories →
               </Link>
             </div>
@@ -737,88 +537,40 @@ export default function TourPage() {
       </section>
 
       {/* ── Reports Deep-Dive ──────────────────────────────────────────────── */}
-      <section className="bg-[#fefcf9] border-y border-[#e8e2d9] px-6 sm:px-8 py-20">
+      <section className="bg-[var(--color-warm-card)] border-y border-[var(--color-warm-border)] px-6 sm:px-8 py-20">
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <div className="flex justify-center lg:justify-start order-2 lg:order-1">
-              <div
-                className="bg-white rounded-3xl shadow-xl border border-[#e8e2d9] overflow-hidden w-full max-w-sm select-none"
-                style={{ boxShadow: "0 16px 48px rgba(139, 111, 71, 0.10), 0 2px 8px rgba(0,0,0,0.05)" }}
-              >
-                <div className="bg-[#fefcf9] border-b border-[#e8e2d9] px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-[#8b6f47]" />
-                    <span className="text-xs font-semibold text-[#2d2926]">Progress Report</span>
-                  </div>
-                  <div className="flex items-center gap-1.5 bg-[#5c7f63] text-white text-[10px] font-bold px-2.5 py-1 rounded-lg">
-                    🖨️ Print
-                  </div>
-                </div>
-                <div className="p-5 space-y-4">
-                  <div>
-                    <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Zoe Parker · 2025–2026</p>
-                    <p className="text-sm font-bold text-[#2d2926] mt-0.5">Annual Progress Report</p>
-                  </div>
-                  <div className="grid grid-cols-4 gap-2">
-                    {[
-                      { label: "Lessons", value: "53" },
-                      { label: "Hours", value: "26h" },
-                      { label: "Books", value: "8" },
-                      { label: "Subjects", value: "4" },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="text-center bg-[#f8f5f0] rounded-xl py-2.5">
-                        <p className="text-sm font-bold text-[#2d2926]">{value}</p>
-                        <p className="text-[8px] text-[#7a6f65]">{label}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="space-y-2">
-                    {[
-                      { subject: "Math", pct: 90, color: "#5c7f63" },
-                      { subject: "Reading", pct: 78, color: "#4a7a8a" },
-                      { subject: "Science", pct: 60, color: "#8b6f47" },
-                      { subject: "History", pct: 45, color: "#7a6f8a" },
-                    ].map((s) => (
-                      <div key={s.subject} className="flex items-center gap-3">
-                        <span className="text-[9px] w-14 text-[#7a6f65] shrink-0">{s.subject}</span>
-                        <div className="flex-1 h-1.5 bg-[#f0ede8] rounded-full overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${s.pct}%`, backgroundColor: s.color }} />
-                        </div>
-                        <span className="text-[9px] text-[#b5aca4] w-6 text-right">{s.pct}%</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+              <div className="w-full max-w-sm"><ReportMockup /></div>
             </div>
 
             <div className="order-1 lg:order-2">
-              <p className="text-xs font-semibold uppercase tracking-widest text-[#b5aca4] mb-3">
-                Your family&apos;s story, beautifully documented
+              <p className="text-xs font-medium tracking-widest text-[#b5aca4] mb-3">
+                The learning you recorded, gathered together
               </p>
-              <h2 className="text-3xl sm:text-4xl font-bold text-[#2d2926] mb-5 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
+              <h2 className="text-3xl sm:text-4xl font-medium text-[var(--foreground)] mb-5 leading-snug" style={{ fontFamily: "var(--font-display)" }}>
                 See how far they&apos;ve come.
               </h2>
-              <p className="text-[#7a6f65] leading-relaxed mb-6 text-base">
-                At the end of a homeschool year it&apos;s easy to wonder, did we do enough? Rooted answers that question beautifully. Every lesson, every book, every subject, all in one place you can print, share, or save forever.
+              <p className="text-[var(--color-text-muted)] leading-relaxed mb-6 text-base">
+                When you need to look back, start with the learning you recorded. Filter Reports by child and date to review hours, attendance, and reading, then print or save the records you need.
               </p>
               <ul className="space-y-4 mb-8">
                 {[
-                  { emoji: "📸", title: "A yearbook, not just a document", desc: "Every lesson, win, book, and photo becomes a page in your family yearbook, a living record of their whole learning life." },
-                  { emoji: "👵", title: "Share with your whole family", desc: "Send a private link to grandparents, aunts, uncles, anyone you choose. No app download needed." },
-                  { emoji: "📋", title: "Print or save as PDF", desc: "Clean, professional layout. One click to generate, one click to print or download." },
+                  { emoji: "🕒", title: "Hours & Attendance Log", desc: "Review completed lessons and learning time from memories and activities. Lessons without recorded minutes use an estimate." },
+                  { emoji: "📖", title: "Reading Log", desc: "Keep the books you've added in a record you can filter by child and date." },
+                  { emoji: "📋", title: "Print or save as PDF", desc: "Report downloads are included with Rooted+ or an active trial. Plan also has its own Download Progress Report option." },
                 ].map((item) => (
                   <li key={item.title} className="flex gap-4 items-start">
                     <div className="w-9 h-9 rounded-xl bg-[#f5ede0] flex items-center justify-center text-lg shrink-0 mt-0.5">{item.emoji}</div>
                     <div>
-                      <p className="font-semibold text-[#2d2926] text-sm mb-0.5">{item.title}</p>
-                      <p className="text-xs text-[#7a6f65] leading-relaxed">{item.desc}</p>
+                      <p className="font-medium text-[var(--foreground)] text-sm mb-0.5">{item.title}</p>
+                      <p className="text-xs text-[var(--color-text-muted)] leading-relaxed">{item.desc}</p>
                     </div>
                   </li>
                 ))}
               </ul>
-              <Link href="/signup" className="inline-flex items-center gap-2 border-2 border-[#5c7f63] text-[#5c7f63] hover:bg-[#e8f0e9] font-semibold px-7 py-3.5 rounded-xl transition-colors text-sm">
-                Try Everything Free for 30 Days →
+              <Link href="/signup" className="inline-flex items-center gap-2 border-2 border-[var(--g-accent)] text-[var(--g-accent)] hover:bg-[#e8f0e9] font-medium px-7 py-3.5 rounded-xl transition-colors text-sm">
+                Try everything free for 30 days →
               </Link>
             </div>
           </div>
@@ -826,18 +578,18 @@ export default function TourPage() {
       </section>
 
       {/* ── Founder Quote ──────────────────────────────────────────────────── */}
-      <section className="bg-[#fefcf9] border-y border-[#e8e2d9]">
+      <section className="bg-[var(--color-warm-card)] border-y border-[var(--color-warm-border)]">
         <div className="max-w-2xl mx-auto px-6 sm:px-8 py-20 text-center">
-          <div className="w-12 h-12 rounded-2xl bg-[#5c7f63] flex items-center justify-center text-2xl mx-auto mb-8 shadow-sm" aria-hidden="true">
+          <div className="w-12 h-12 rounded-2xl bg-[var(--g-accent)] flex items-center justify-center text-2xl mx-auto mb-8 shadow-sm" aria-hidden="true">
             🌿
           </div>
           <div className="text-[3.5rem] leading-none select-none text-[#d4ead6] mb-2" style={{ fontFamily: "var(--font-display)", lineHeight: 0.85 }} aria-hidden="true">
             &ldquo;
           </div>
-          <p className="text-xl sm:text-2xl text-[#2d2926] leading-relaxed italic mb-8" style={{ fontFamily: "var(--font-display)" }}>
+          <p className="text-xl sm:text-2xl text-[var(--foreground)] leading-relaxed italic mb-8" style={{ fontFamily: "var(--font-display)" }}>
             I built Rooted for families like mine. I hope it brings your homeschool a little more calm and a lot more joy.
           </p>
-          <p className="text-sm font-semibold text-[#5c7f63]">
+          <p className="text-sm font-medium text-[var(--g-accent)]">
             Brittany W., homeschool mom of 2
           </p>
         </div>
@@ -859,14 +611,14 @@ export default function TourPage() {
 
           <div className="relative z-10">
             <div className="text-5xl mb-5">🌱</div>
-            <h2 className="text-2xl sm:text-3xl font-bold text-[#2d2926] mb-3" style={{ fontFamily: "var(--font-display)" }}>
+            <h2 className="text-2xl sm:text-3xl font-medium text-[var(--foreground)] mb-3" style={{ fontFamily: "var(--font-display)" }}>
               Start your homeschool journey today
             </h2>
             <p className="text-[var(--g-deep)] font-medium mb-8 leading-relaxed max-w-sm mx-auto">
               Try everything free for 30 days. No credit card needed. Join families already using Rooted.
             </p>
-            <Link href="/signup" className="inline-block bg-[#5c7f63] hover:bg-[#4a6b50] text-white font-semibold px-8 py-3 rounded-full transition-colors">
-              Start Your Free Trial →
+            <Link href="/signup" className="inline-block bg-[var(--g-accent)] hover:bg-[#4a6b50] text-white font-medium px-8 py-3 rounded-full transition-colors">
+              Start your free trial →
             </Link>
             <p className="mt-4">
               {isNative ? (
@@ -884,13 +636,13 @@ export default function TourPage() {
       </section>
 
       {/* ── Footer (matching homepage) ─────────────────────────────────────── */}
-      <footer className="bg-[#fefcf9] border-t border-[#e8e2d9]">
+      <footer className="bg-[var(--color-warm-card)] border-t border-[var(--color-warm-border)]">
         <div className="max-w-5xl mx-auto px-6 sm:px-8 py-12">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 items-start">
             <div className="flex flex-col items-center sm:items-start gap-2">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-[#5c7f63] flex items-center justify-center text-sm">🌿</div>
-                <span className="font-bold text-[#2d2926] text-base" style={{ fontFamily: "var(--font-display)" }}>
+                <div className="w-7 h-7 rounded-lg bg-[var(--g-accent)] flex items-center justify-center text-sm">🌿</div>
+                <span className="font-medium text-[var(--foreground)] text-base" style={{ fontFamily: "var(--font-display)" }}>
                   Rooted
                 </span>
               </div>
@@ -899,22 +651,22 @@ export default function TourPage() {
             </div>
 
             <div className="flex items-center justify-center gap-5 flex-wrap">
-              <Link href="/login"   className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Log In</Link>
-              <Link href="/signup"  className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Sign Up</Link>
-              <Link href="/privacy" className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Privacy</Link>
-              <Link href="/terms"   className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Terms</Link>
-              <Link href="/faq"     className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">FAQ</Link>
-              <Link href="/contact" className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Contact</Link>
-              <Link href="/partners" className="text-sm text-[#7a6f65] hover:text-[#5c7f63] transition-colors">Partners</Link>
+              <Link href="/login"   className="text-sm text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors">Log in</Link>
+              <Link href="/signup"  className="text-sm text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors">Sign up</Link>
+              <Link href="/privacy" className="text-sm text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors">Privacy</Link>
+              <Link href="/terms"   className="text-sm text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors">Terms</Link>
+              <Link href="/faq"     className="text-sm text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors">FAQ</Link>
+              <Link href="/contact" className="text-sm text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors">Contact</Link>
+              <Link href="/partners" className="text-sm text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors">Partners</Link>
             </div>
             <div className="flex items-center justify-center gap-4 mt-2">
-              <a href="https://instagram.com/rootedhomeschool" target="_blank" rel="noopener noreferrer" className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors flex items-center gap-1">
+              <a href="https://instagram.com/rootedhomeschool" target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors flex items-center gap-1">
                 📸 Instagram
               </a>
-              <a href="https://facebook.com/rootedhomeschool" target="_blank" rel="noopener noreferrer" className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors flex items-center gap-1">
+              <a href="https://facebook.com/rootedhomeschool" target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors flex items-center gap-1">
                 👥 Facebook
               </a>
-              <a href="https://pinterest.com/hellorootedapp" target="_blank" rel="noopener noreferrer" className="text-xs text-[#7a6f65] hover:text-[#5c7f63] transition-colors flex items-center gap-1">
+              <a href="https://pinterest.com/hellorootedapp" target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--color-text-muted)] hover:text-[var(--g-accent)] transition-colors flex items-center gap-1">
                 📌 Pinterest
               </a>
             </div>
