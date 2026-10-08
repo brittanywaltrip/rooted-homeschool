@@ -26,6 +26,7 @@ import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, 
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, planPhase2Commit, validatePhase2End, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
+import { isDecidedNotApplied, markNotApplied, restorePatch, scheduleSnapshot, SCHEDULE_FIELDS, stillAsWrittenFilters, wasNotApplied, type ScheduleSnapshot } from "@/app/lib/builder-settings-restore";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
 import PageHero from "@/app/components/PageHero";
@@ -2394,6 +2395,13 @@ function ScheduleBuilderPageInner() {
     // so this is how the catch names the goal in the console warning support
     // reads alongside the matching Sentry event.
     let failedPhase2GoalId: string | null = null;
+    // Curricula whose scheduling settings were put back after phase 2 wrote
+    // no lessons, so the family is not left with new settings over the old
+    // schedule. Read by the catch to say so.
+    const restoredGoalIds = new Set<string>();
+    // Each edited curriculum's scheduling settings as phase 1 found them and
+    // as phase 1 wrote them.
+    const scheduleBefore = new Map<string, { before: ScheduleSnapshot; written: ScheduleSnapshot; name: string }>();
     try {
       // Each entry pairs a saved curriculum_goals row with the local Row it
       // came from. The lesson-generation pass below needs both the dbId (for
@@ -2496,6 +2504,17 @@ function ScheduleBuilderPageInner() {
             // is left as the database has it.
             const updatePayload: Partial<typeof payload> = { ...payload };
             if (!startAtLessonTouched(row)) delete updatePayload.start_at_lesson;
+            const { data: beforeRow, error: beforeErr } = await supabase
+              .from("curriculum_goals")
+              .select(SCHEDULE_FIELDS.join(", "))
+              .eq("id", row.dbId)
+              .single();
+            if (beforeErr || !beforeRow) throw beforeErr ?? new Error(`Could not read goal ${row.dbId} before saving`);
+            scheduleBefore.set(row.dbId, {
+              before: scheduleSnapshot(beforeRow as unknown as Record<string, unknown>),
+              written: scheduleSnapshot(updatePayload as Record<string, unknown>),
+              name: capitalizeName(row.name.trim()),
+            });
             const { error } = await supabase
               .from("curriculum_goals")
               .update(updatePayload)
@@ -3293,11 +3312,11 @@ function ScheduleBuilderPageInner() {
             overCapacity: validation.overCapacity,
             integrity: validation.integrity,
           });
-          throw new ScheduleAssertionError(
+          throw markNotApplied(new ScheduleAssertionError(
             days.length > 0
               ? `Lesson scheduling produced ${days.length} overcapacity date(s): ${days.join(", ")}. The curriculum saved, but lessons were not generated. Please try a different start date or contact support.`
               : `Lesson scheduling was refused before anything was written: ${validation.integrity[0]}. The curriculum saved, but lessons were not generated. Please contact support.`,
-          );
+          ));
         }
 
         // Pins are exempt from the ceiling, not from observability. A day
@@ -3396,9 +3415,9 @@ function ScheduleBuilderPageInner() {
             "[handleSave] Batch would insert incomplete rows at/below the starting position, refusing INSERT",
             { goalId, currentLesson, lessonNumbers: belowFloor.map((r) => r.lesson_number) },
           );
-          throw new ScheduleAssertionError(
+          throw markNotApplied(new ScheduleAssertionError(
             `Lesson scheduling tried to schedule lesson(s) ${nums} that are at or below your starting position (${currentLesson}). The curriculum saved, but lessons were not generated. Please contact support.`,
-          );
+          ));
         }
 
         /* ── COMMIT ───────────────────────────────────────────────────────────
@@ -3458,7 +3477,7 @@ function ScheduleBuilderPageInner() {
         const snapshot = goalNow as Phase2GoalSnapshot;
         if (snapshot.current_lesson !== currentLesson || snapshot.total_lessons !== row.total_lessons) {
           // The plan was made from a different pointer or length: plan again.
-          throw new Error(`Phase 2 plan for goal ${goalId} is stale (pointer or total moved)`);
+          throw markNotApplied(new Error(`Phase 2 plan for goal ${goalId} is stale (pointer or total moved)`));
         }
         const committed = await applyPhase2Commit(supabase, {
           goalId,
@@ -3474,9 +3493,9 @@ function ScheduleBuilderPageInner() {
         if (committed.status === "refused" || committed.status === "invalid") {
           // Nothing was written. The database disagreed with a plan the page
           // had already validated, which reproduces on every attempt.
-          throw new ScheduleAssertionError(
+          throw markNotApplied(new ScheduleAssertionError(
             `Lesson scheduling was refused before anything was written (${committed.reason}). The curriculum saved, but lessons were not generated. Please contact support.`,
-          );
+          ));
         }
         if (committed.status === "unavailable") {
           // The transaction is not on this database (the release order puts
@@ -3487,12 +3506,14 @@ function ScheduleBuilderPageInner() {
             new Error(committed.reason),
             { tags: { phase: "phase2_commit_unavailable", goal_id: goalId } },
           );
-          throw new Error(`Phase 2 commit unavailable: ${committed.reason}`);
+          throw markNotApplied(new Error(`Phase 2 commit unavailable: ${committed.reason}`));
         }
         if (committed.status !== "applied") {
           // 'stale' (a row changed since it was read) or a failed transaction:
           // nothing was written, and the retry re-reads and plans again.
-          throw new Error(`Phase 2 commit ${committed.status}: ${committed.reason}`);
+          // A transport error is the one outcome that may still have committed.
+          const notApplied = new Error(`Phase 2 commit ${committed.status}: ${committed.reason}`);
+          throw isDecidedNotApplied(committed) ? markNotApplied(notApplied) : notApplied;
         }
 
         // ── Count what the DATABASE wrote, not what we planned to write ─────
@@ -3777,6 +3798,27 @@ function ScheduleBuilderPageInner() {
           phase2Failures.find((f) => isDeterministicPhase2Failure(f.err)) ??
           phase2Failures[0];
         failedPhase2GoalId = chosen.goalId;
+        // Phase 1 already wrote these curricula's new settings. Where phase 2
+        // provably wrote no lessons, put back the scheduling settings phase 1
+        // changed, but only while the row still holds what phase 1 wrote.
+        for (const f of phase2Failures) {
+          const snap = scheduleBefore.get(f.goalId);
+          if (!snap || !wasNotApplied(f.err)) continue;
+          const patch = restorePatch(snap.before, snap.written);
+          if (Object.keys(patch).length === 0) continue;
+          let restore = supabase.from("curriculum_goals").update(patch).eq("id", f.goalId);
+          for (const [col, op, val] of stillAsWrittenFilters(snap.written, patch)) restore = restore.filter(col, op, val);
+          const { data: restoredRows, error: restoreErr } = await restore.select("id");
+          if (!restoreErr && (restoredRows?.length ?? 0) === 1) {
+            restoredGoalIds.add(f.goalId);
+          } else {
+            captureSupabaseError(
+              "Schedule Builder could not restore settings after a refused rebuild",
+              restoreErr ?? new Error("settings changed since the save began"),
+              { level: "warning", tags: { phase: "phase2_settings_restore", goal_id: f.goalId } },
+            );
+          }
+        }
         throw chosen.err;
       }
 
@@ -3915,7 +3957,13 @@ function ScheduleBuilderPageInner() {
         // A refusal already says what is wrong and what to change, in the
         // family's own numbers. The support copy below would bury that under
         // "we've been notified" for a problem nobody but they can fix.
-        setPostSaveNotice(
+        const restoredName = failedPhase2GoalId && restoredGoalIds.has(failedPhase2GoalId)
+          ? scheduleBefore.get(failedPhase2GoalId)?.name ?? "this curriculum"
+          : null;
+        if (restoredName) setPostSaveNotice(
+          `The new schedule for ${restoredName} didn't fit, so nothing about its days, pace or length changed. Its lessons are exactly as they were. Adjust the schedule and save again.`,
+        );
+        else setPostSaveNotice(
           err instanceof ScheduleRefusedError
             ? `${err.message} Your other settings were saved. The lessons for this curriculum were not created.`
             : deterministic
@@ -3928,7 +3976,9 @@ function ScheduleBuilderPageInner() {
         // same rows they are looking at. Every other deterministic failure
         // reproduces identically no matter what they change, so there is
         // nothing to trap them here for.
-        if (deterministic && !(err instanceof ScheduleRefusedError)) {
+        // A restored curriculum keeps the draft too: the family's edit is still
+        // on screen to adjust, and nothing of it reached the database schedule.
+        if (deterministic && !(err instanceof ScheduleRefusedError) && !restoredName) {
           setDirty(false);
           setDraftNotice(null);
           clearScheduleDraft(effectiveUserId);
