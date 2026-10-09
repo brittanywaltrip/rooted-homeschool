@@ -1423,7 +1423,10 @@ pin on a day already past would take them off Today).
 - **"Shift all remaining lessons forward"** calls it without holds, then
   re-spreads the rest with `reprojectGoalTail` (a parent re-spread). Because the
   slot did not change, the projector lays every later lesson out after the pin,
-  and they land the promised number of school days later.
+  and they land the promised number of school days later. The cascade refuses
+  without further writes if the keep-slot RPC is missing or declines the move;
+  it must never fall back to `move_lesson_to_date`, which reproduces the earlier
+  reorder defect. Undo restores dates and pins directly, without reordering.
 - **Undo** restores exactly the rows the function reports it changed (each
   row's prior date, pin and source), with no slot arithmetic.
 - **Capacity.** The target day may now hold more than `lessons_per_day` (the

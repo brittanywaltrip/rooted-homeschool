@@ -355,3 +355,34 @@ test('the dialog still offers both choices and still makes its promise', () => {
   assert.match(src, /Only this lesson moves\. Lessons after it stay on their dates\./)
   assert.match(src, /Shift all remaining lessons forward/)
 })
+
+// Weekly-session reproduction for a complaint reported in October about
+// September activity. Synthetic rows only; not a reconstruction of an account.
+function weeklyFixture() {
+  const { goal, rows } = fixture()
+  const weekly = { ...goal, school_days: ['Thu'], start_date: '2026-09-03' }
+  return {
+    goal: weekly,
+    rows: rows.map((r, i) => ({ ...r, scheduled_date: nthSchoolDay('2026-09-03', ['Thu'], i, []) })),
+  }
+}
+
+test('weekly Shift all: keep-slot advances each later Thursday session one week', () => {
+  const { goal, rows } = weeklyFixture()
+  const after = reproject(goal, applyKeepSlot(goal, rows, 'L4', '2026-10-01', false), 'L4')
+  assert.deepEqual(disagreements(goal, after), [])
+  for (const r of rows.filter((r) => !r.completed)) {
+    assert.equal(dateOf(after, r.lesson_number), nthSchoolDay(r.scheduled_date!, ['Thu'], 1, []))
+  }
+  for (const r of rows.filter((r) => r.completed)) assert.deepEqual(after.find((a) => a.id === r.id), r)
+})
+
+test('weekly legacy fallback reproduction: the next week moves backward onto the vacated week', () => {
+  const { goal, rows } = weeklyFixture()
+  assert.equal(dateOf(rows, 4), '2026-09-24')
+  assert.equal(dateOf(rows, 5), '2026-10-01')
+  const after = reproject(goal, applyQueueMove(rows, 'L4', '2026-10-01'), 'L4')
+  assert.equal(dateOf(after, 4), '2026-10-01')
+  assert.equal(dateOf(after, 5), '2026-09-24')
+  assert.equal(dateOf(after, 20), dateOf(rows, 20), 'the finish never advances')
+})
