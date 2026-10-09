@@ -43,6 +43,10 @@ try {
  q(readFileSync('supabase/migrations/20260921230610_daily_reconcile.sql','utf8'));
  q(readFileSync('supabase/proposals/preserved_daily_reconcile.sql','utf8'));
  q(readFileSync('supabase/proposals/preserved_cleanup_guard.sql','utf8'));
+ if(process.env.REMAINING_COMPLETION_LOCKS==='1'){
+  assert.equal(process.env.PR146_COMPAT,'1','Remaining lock proposal requires the Builder compatibility schema');
+  q(readFileSync('supabase/proposals/remaining_completion_locks.sql','utf8'));
+ }
  q('create trigger preserved_cleanup_rehearsal after update of current_lesson on public.curriculum_goals for each row execute function public.curriculum_goals_cleanup_orphans_trg()');
  q("update rooted_private.app_switches set enabled=true where name='daily_reconcile'");
  const today=q("select (now() at time zone 'UTC')::date");
