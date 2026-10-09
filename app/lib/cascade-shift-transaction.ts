@@ -1,3 +1,4 @@
+import {durableSchedulerRpc} from './scheduler-recovery-journal.ts';
 import { isCalendarRefusal } from './calendar-refusal.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { planAnchoredCascade, sameCascadeSnapshot, type CascadeSnapshot, type CascadePlanResult } from './cascade-shift-plan.ts';
@@ -56,7 +57,7 @@ export async function shiftCurriculumSessions(client: SupabaseClient, args: {
     p_expected: planned.plan.expected, p_choice: choice, p_moves: planned.plan.writes, p_preserved: planned.plan.preserved };
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { data, error } = await client.rpc('commit_cascade_shift', request);
+      const { data, error } = await durableSchedulerRpc(client, 'commit_cascade_shift', request);
       if (error?.code === 'PGRST202') return { status: 'refused', reason: 'unavailable' };
       if (error) continue;
       if (data?.status === 'applied' || data?.status === 'already_applied') return {
@@ -72,7 +73,7 @@ export async function shiftCurriculumSessions(client: SupabaseClient, args: {
 export async function undoCurriculumShift(client: SupabaseClient, operationId: string): Promise<'undone' | 'stale' | 'failed' | 'unknown'> {
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const { data, error } = await client.rpc('undo_cascade_shift', { p_operation_id: operationId });
+      const { data, error } = await durableSchedulerRpc(client, 'undo_cascade_shift', { p_operation_id: operationId });
       if (error) continue;
       if (data?.status === 'undone' || data?.status === 'already_undone') return 'undone';
       if (data?.status === 'stale' || data?.status === 'expired') return 'stale';

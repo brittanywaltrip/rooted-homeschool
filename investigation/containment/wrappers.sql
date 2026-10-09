@@ -48,7 +48,7 @@ begin
   if day is null or abs(day-(now() at time zone 'UTC')::date)>1 then return jsonb_build_object('status','invalid','reason','local_day'); end if;
   if not rooted_private.cascade_window_valid(u,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso') or day is distinct from (now() at time zone (rooted_private.cascade_local_window(u,day)->>'timeZone'))::date then return jsonb_build_object('status','invalid','reason','day_window');end if;
   actual:=rooted_private.cascade_snapshot(p_goal_id,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso');
-  if actual is distinct from p_expected then return jsonb_build_object('status','stale'); end if;
+  if actual is distinct from p_expected then return jsonb_build_object('status','stale','reason','schedule_changed'); end if;
   if exists(select 1 from public.lessons where curriculum_goal_id=p_goal_id and queue_position is null) then
     return jsonb_build_object('status','invalid','reason','unsupported_queue');
   end if;

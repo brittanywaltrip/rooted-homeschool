@@ -1,3 +1,4 @@
+import {durableSchedulerRpc} from './scheduler-recovery-journal.ts';
 import { isDefinitiveSchedulerRejection } from './scheduler-terminal-result.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ParentRespreadSource } from './scheduler.ts';
@@ -26,7 +27,7 @@ export async function respreadContainedGoal(client: SupabaseClient, goal: string
   }
   const invoke = async (): Promise<Outcome> => {
     try {
-      const {data, error} = await client.rpc('commit_scheduler_respread', {p_operation_id: attempt.operation, p_goal_id: attempt.goal, p_expected: attempt.expected, p_source: attempt.source, p_day: attempt.day});
+      const {data, error} = await durableSchedulerRpc(client, 'commit_scheduler_respread', {p_operation_id: attempt.operation, p_goal_id: attempt.goal, p_expected: attempt.expected, p_source: attempt.source, p_day: attempt.day});
       if (error) {
         const code = error.code ?? '';
         if (['55P03','57014','PGRST003'].includes(code) || code.startsWith('40')) return refused('busy');

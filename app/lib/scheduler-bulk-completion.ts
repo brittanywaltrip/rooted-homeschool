@@ -1,3 +1,4 @@
+import {durableSchedulerRpc} from './scheduler-recovery-journal.ts';
 import { isDefinitiveSchedulerRejection } from './scheduler-terminal-result.ts';
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildCompletionPayload, completesInPlace, type CompletionChoice } from "./completeLessonOnDate.ts";
@@ -39,7 +40,7 @@ export async function commitBulkCompletion(client:SupabaseClient, goal:string, i
   }
   const invoke=async():Promise<SchedulerResult>=>{
     try {
-      const {data,error}=await client.rpc("commit_scheduler_bulk_completion",{p_operation_id:attempt.operation,p_goal_id:goal,p_expected:attempt.expected,p_items:attempt.items,p_local_day:attempt.localDay});
+      const {data,error}=await durableSchedulerRpc(client, "commit_scheduler_bulk_completion",{p_operation_id:attempt.operation,p_goal_id:goal,p_expected:attempt.expected,p_items:attempt.items,p_local_day:attempt.localDay});
       if(error) {
         const code=error.code??"";
         if(["55P03","57014","PGRST003"].includes(code)||code.startsWith("40"))return {status:"busy"};

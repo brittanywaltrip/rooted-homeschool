@@ -8,7 +8,7 @@ const success={status:'applied',gapCount:1,keptPinned:[],estimates:[],unschedule
 test('projection uses canonical day, queue order and only fixed tail dates',()=>{
  assert.deepEqual(planContainedRecalibration(state as never,2),[{id:'2',date:'2026-01-01'},{id:'3',date:'2026-01-02'}]);
  assert.equal(planContainedRecalibration(state as never,2.5),null);
- assert.equal(planContainedRecalibration({...state,snapshot:{...snapshot,rows:snapshot.rows.slice(1)}} as never,2),null);
+ assert.deepEqual(planContainedRecalibration({...state,snapshot:{...snapshot,rows:snapshot.rows.slice(1)}} as never,2),[{id:'2',date:'2026-01-01'},{id:'3',date:'2026-01-02'}]);
 });
 test('lost response retries retained exact operation; different intent cannot replace it',async()=>{
  const requests:unknown[]=[];let calls=0;let reads=0;
@@ -34,3 +34,12 @@ test('definite busy refusal retains no pending action and allows fresh read',asy
  await assert.rejects(recalibrateContained(client,{goalId:'g',newCurrentLesson:2}),/still saving/);
  await assert.rejects(recalibrateContained(client,{goalId:'g',newCurrentLesson:2}),/still saving/);assert.equal(reads,2);
 });
+
+test('ordinary selected pin releases in projection while other pins and extras stay held',()=>{
+ const changed=structuredClone(state);changed.snapshot.rows[1].queue_pinned=true;changed.snapshot.rows[2].queue_pinned=true;assert.deepEqual(planContainedRecalibration(changed as never,2),[{id:'2',date:'2026-01-01'}]);assert.equal(changed.snapshot.rows[1].queue_pinned,true);
+});
+test('unknown recalibration retires a proven local-day rejection before a fresh request',async()=>{
+ let calls=0,reads=0;const c={rpc:async(name:string)=>{if(name==='read_scheduler_state'){reads++;return{data:state,error:null};}if(calls++<2)throw Error('lost');if(calls===3)return{data:{status:'stale',reason:'local_day_changed'},error:null};return{data:success,error:null};}} as unknown as SupabaseClient;const intent={goalId:'g',newCurrentLesson:2};await assert.rejects(recalibrateContained(c,intent),/could not confirm/);await assert.rejects(recalibrateContained(c,intent),/Nothing changed/);assert.ok(await recalibrateContained(c,intent));assert.equal(reads,2);
+});
+
+test('recalibration never proposes writes for an unfinished backfill row',()=>{const changed=structuredClone(state);changed.snapshot.rows[2].is_backfill=true;assert.deepEqual(planContainedRecalibration(changed as never,2),[{id:'2',date:'2026-01-01'}]);});

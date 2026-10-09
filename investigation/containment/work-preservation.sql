@@ -61,3 +61,32 @@ REVOKE EXECUTE ON FUNCTION public.curriculum_goals_cleanup_orphans_trg() FROM PU
 REVOKE EXECUTE ON FUNCTION public.curriculum_goals_cleanup_orphans_trg() FROM anon;
 REVOKE EXECUTE ON FUNCTION public.curriculum_goals_cleanup_orphans_trg() FROM authenticated;
 GRANT EXECUTE ON FUNCTION public.curriculum_goals_cleanup_orphans_trg() TO service_role;
+
+-- Explicit parent operations retain the marker while changing only their
+-- validated selection. Legacy and automatic writers retain the old refusal.
+CREATE OR REPLACE FUNCTION public.guard_preserved_work() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
+DECLARE c rooted_private.scheduler_capabilities%rowtype;permitted boolean:=false;changed text[];
+BEGIN
+ IF OLD.queue_preserved AND NOT OLD.completed AND NOT OLD.skipped THEN
+  IF TG_OP='DELETE' OR (NEW.queue_preserved AND NOT NEW.completed AND NOT NEW.skipped AND
+   (NEW.scheduled_date IS DISTINCT FROM OLD.scheduled_date OR NEW.date IS DISTINCT FROM OLD.date OR NEW.queue_position IS DISTINCT FROM OLD.queue_position OR NEW.curriculum_goal_id IS DISTINCT FROM OLD.curriculum_goal_id)) THEN
+   SELECT * INTO c FROM rooted_private.scheduler_capabilities WHERE tx=txid_current() AND goal_id=OLD.curriculum_goal_id AND owner_id=auth.uid() AND owner_id=OLD.user_id;
+   IF FOUND THEN
+    IF TG_OP='DELETE' THEN permitted:=c.operation IN ('delete_selected','goal_stop','goal_delete','undo') AND OLD.id=ANY(c.delete_ids);
+    ELSE
+     SELECT coalesce(array_agg(k),'{}') INTO changed FROM unnest(ARRAY['date','scheduled_date','queue_position','curriculum_goal_id']) k WHERE to_jsonb(OLD)->k IS DISTINCT FROM to_jsonb(NEW)->k;
+     permitted:=OLD.id=ANY(c.row_ids) AND changed<@c.lesson_fields AND (
+      (c.operation IN ('edit','place_selected','single_move') AND OLD.id=ANY(c.explicit_ids)) OR
+      (c.operation='single_move' AND to_jsonb(OLD)-ARRAY['queue_position','updated_at'] IS NOT DISTINCT FROM to_jsonb(NEW)-ARRAY['queue_position','updated_at']) OR
+      c.operation IN ('calendar','undo','goal_stop','goal_delete','reassign','reassign_undo') OR
+      (c.operation='recalibration' AND to_jsonb(OLD)-ARRAY['queue_position','updated_at'] IS NOT DISTINCT FROM to_jsonb(NEW)-ARRAY['queue_position','updated_at'])
+     );
+    END IF;
+   END IF;
+   IF NOT permitted AND (TG_OP<>'DELETE' OR EXISTS(SELECT 1 FROM public.curriculum_goals WHERE id=OLD.curriculum_goal_id)) THEN RAISE EXCEPTION 'Preserved unfinished work requires a confirmed explicit change';END IF;
+  END IF;
+ END IF;
+ IF TG_OP='DELETE' THEN RETURN OLD;END IF;RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION public.guard_preserved_work() FROM PUBLIC,anon,authenticated,service_role;

@@ -1,0 +1,9 @@
+import test from 'node:test';import assert from 'node:assert/strict';import type {SupabaseClient} from '@supabase/supabase-js';
+import {reassignContainedLesson} from './scheduler-reassignment.ts';
+const changes={curriculum_goal_id:'to'},originals={curriculum_goal_id:'from'};
+test('reassignment retains exact request across lost replies and rejects a different intent',async()=>{let reads=0,calls=0;const requests:unknown[]=[];const c={rpc:async(name:string,args:unknown)=>{if(name==='read_scheduler_calendar'){reads++;return{data:{status:'ready',mode:'atomic_v2',snapshot:{rows:[]}},error:null};}requests.push(args);if(calls++<2)throw Error('lost');return{data:{status:'already_applied'},error:null};}} as unknown as SupabaseClient;
+ assert.equal((await reassignContainedLesson(c,'row',changes,originals)).status,'unknown');assert.equal((await reassignContainedLesson(c,'row',{curriculum_goal_id:'other'},originals)).status,'unknown');assert.equal((await reassignContainedLesson(c,'row',changes,originals)).status,'already_applied');assert.equal(reads,1);assert.equal(new Set(requests.map(x=>JSON.stringify(x))).size,1);
+});
+test('definitive stale retires uncertain reassignment before a new snapshot',async()=>{let reads=0,calls=0;const c={rpc:async(name:string)=>{if(name==='read_scheduler_calendar'){reads++;return{data:{status:'ready',mode:'atomic_v2',snapshot:{rows:[]}},error:null};}if(calls++<2)throw Error('lost');return{data:calls===3?{status:'stale',reason:'schedule_changed'}:{status:'applied'},error:null};}} as unknown as SupabaseClient;
+ assert.equal((await reassignContainedLesson(c,'row',changes,originals)).status,'unknown');assert.equal((await reassignContainedLesson(c,'row',changes,originals)).status,'stale');assert.equal((await reassignContainedLesson(c,'row',changes,originals)).status,'applied');assert.equal(reads,2);
+});

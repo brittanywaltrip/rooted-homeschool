@@ -14,7 +14,7 @@ END $$;
 REVOKE ALL ON FUNCTION rooted_private.scheduler_lock_owner(uuid,boolean) FROM PUBLIC,anon,authenticated,service_role;
 
 CREATE TABLE rooted_private.scheduler_modes(goal_id uuid PRIMARY KEY REFERENCES public.curriculum_goals(id) ON DELETE CASCADE, mode text NOT NULL CHECK(mode IN ('atomic_v2','paused')));
-CREATE TABLE rooted_private.scheduler_capabilities(tx bigint NOT NULL,goal_id uuid NOT NULL,owner_id uuid NOT NULL,operation text NOT NULL,row_ids uuid[] NOT NULL,lesson_fields text[] NOT NULL,goal_fields text[] NOT NULL,delete_ids uuid[] NOT NULL DEFAULT '{}',insert_shapes jsonb NOT NULL DEFAULT '[]',PRIMARY KEY(tx,goal_id));
+CREATE TABLE rooted_private.scheduler_capabilities(tx bigint NOT NULL,goal_id uuid NOT NULL,owner_id uuid NOT NULL,operation text NOT NULL,row_ids uuid[] NOT NULL,lesson_fields text[] NOT NULL,goal_fields text[] NOT NULL,delete_ids uuid[] NOT NULL DEFAULT '{}',insert_shapes jsonb NOT NULL DEFAULT '[]',explicit_ids uuid[] NOT NULL DEFAULT '{}',PRIMARY KEY(tx,goal_id));
 CREATE TABLE rooted_private.scheduler_action_receipts(id uuid PRIMARY KEY,user_id uuid NOT NULL,goal_id uuid NOT NULL,request_hash text NOT NULL,before_state jsonb,after_hash text NOT NULL,result jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT clock_timestamp(),undone_at timestamptz);
 ALTER TABLE rooted_private.scheduler_modes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rooted_private.scheduler_capabilities ENABLE ROW LEVEL SECURITY;
@@ -46,6 +46,11 @@ BEGIN
  IF TG_OP='UPDATE' THEN
   SELECT array_agg(k) INTO changed FROM unnest(fields) k WHERE oldj->k IS DISTINCT FROM newj->k;
   IF changed IS NULL THEN RETURN NEW;END IF;
+  -- Close-year compatibility: stamp only an unstamped goal onto its owner's
+  -- already archived year. No scheduling/content change can piggyback.
+  IF TG_TABLE_NAME='curriculum_goals' AND oldj->>'school_year_id' IS NULL AND newj->>'school_year_id' IS NOT NULL
+   AND newj->>'archived'='true' AND oldj-ARRAY['school_year_id','archived','updated_at'] IS NOT DISTINCT FROM newj-ARRAY['school_year_id','archived','updated_at']
+   AND EXISTS(SELECT 1 FROM public.school_years y WHERE y.id=(newj->>'school_year_id')::uuid AND y.user_id=(newj->>'user_id')::uuid AND y.status='archived') THEN RETURN NEW;END IF;
  END IF;
  -- The owner shared lock serializes activation, even for legacy writers.
  -- The early trigger raises: a mixed statement cannot silently drop some rows.
@@ -59,7 +64,7 @@ BEGIN
    IF TG_OP='DELETE' AND c.operation='goal_delete' THEN NULL;
    ELSIF TG_OP<>'UPDATE' OR NOT changed <@ c.goal_fields THEN RAISE EXCEPTION 'scheduler_goal_scope_refused';END IF;
   ELSIF TG_OP='UPDATE' THEN
-   IF NOT (OLD.id=ANY(c.row_ids)) OR NOT changed <@ c.lesson_fields OR (OLD.curriculum_goal_id IS DISTINCT FROM NEW.curriculum_goal_id AND NOT (c.operation='goal_delete' AND NEW.curriculum_goal_id IS NULL)) OR OLD.user_id IS DISTINCT FROM NEW.user_id THEN RAISE EXCEPTION 'scheduler_row_scope_refused';END IF;
+   IF NOT (OLD.id=ANY(c.row_ids)) OR NOT changed <@ c.lesson_fields OR (OLD.curriculum_goal_id IS DISTINCT FROM NEW.curriculum_goal_id AND NOT ((c.operation='goal_delete' AND NEW.curriculum_goal_id IS NULL) OR c.operation IN ('reassign','reassign_undo'))) OR OLD.user_id IS DISTINCT FROM NEW.user_id THEN RAISE EXCEPTION 'scheduler_row_scope_refused';END IF;
   ELSIF TG_OP='DELETE' THEN
    IF NOT OLD.id=ANY(c.delete_ids) THEN RAISE EXCEPTION 'scheduler_delete_scope_refused';END IF;
   ELSE

@@ -1,4 +1,5 @@
 "use client";
+import {reassignContainedLesson,undoContainedReassignment} from '@/app/lib/scheduler-reassignment';
 import { commitHistoryHeal, undoHistoryContinuation } from "@/app/lib/scheduler-history-healing";
 import { schedulerErrorMessage } from "@/app/lib/scheduler-error-message";
 import {commitGoalRetire} from "@/app/lib/scheduler-goal-retire";
@@ -1943,6 +1944,20 @@ export default function PlanV2() {
       flashNotice("Added as a separate lesson so your curriculum keeps its place.");
       reload();
       return;
+    }
+    if (editing && "curriculum_goal_id" in update) {
+      const result = await reassignContainedLesson(supabase, lessonId, changes, originals);
+      if (result.status !== "legacy") {
+        if (result.status !== "applied" && result.status !== "already_applied") throw new Error(schedulerRefusalMessage(result));
+        recordEvent("lesson.updated", {lesson_id: lessonId, lesson_title: editing.title ?? "lesson", changes: Object.fromEntries(Object.entries(changes).map(([key,value]) => [key,{from:originals[key as keyof typeof originals],to:value}])), actor: "user"});
+        setUndoAction({message: `Edited ${editing.title ?? "lesson"}`, key: `lesson-reassign:${result.operationId}`, onUndo: async () => {
+          const undone = await undoContainedReassignment(supabase, result.operationId!);
+          if (undone.status !== "undone" && undone.status !== "already_undone") flashNotice(schedulerRefusalMessage(undone));
+          reload(); reloadPins();
+        }});
+        reload(); reloadPins();
+        return;
+      }
     }
     // Same-course edits use one guarded transaction and authoritative Undo.
     // Goal reassignment keeps its existing split/refusal behavior above.

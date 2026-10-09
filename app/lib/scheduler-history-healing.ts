@@ -1,3 +1,4 @@
+import {durableSchedulerRpc} from './scheduler-recovery-journal.ts';
 import { isDefinitiveSchedulerRejection } from './scheduler-terminal-result.ts';
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeNextLessonsForGoal, toGoalConfig } from "./scheduler.ts";
@@ -42,7 +43,7 @@ export async function commitHistoryHeal(client: SupabaseClient, goal: string, in
   }
   const invoke = async (): Promise<SchedulerResult & {written?: number; row?: Record<string, unknown>}> => {
     try {
-      const {data, error} = await client.rpc("commit_scheduler_history_heal", {p_operation_id: attempt.operation, p_goal_id: goal, p_expected: attempt.expected, p_action: attempt.action});
+      const {data, error} = await durableSchedulerRpc(client, "commit_scheduler_history_heal", {p_operation_id: attempt.operation, p_goal_id: goal, p_expected: attempt.expected, p_action: attempt.action});
       if (error) {
         const code = error.code ?? "";
         if (code === "55P03" || code === "57014" || code.startsWith("40")) return {status: "busy"};
@@ -64,7 +65,7 @@ export async function commitHistoryHeal(client: SupabaseClient, goal: string, in
 /** Only the untouched row created by a continuation receipt may be removed. */
 export async function undoHistoryContinuation(client: SupabaseClient, operationId: string): Promise<SchedulerResult> {
   try {
-    const {data,error} = await client.rpc("undo_scheduler_continuation", {p_operation_id: operationId});
+    const {data,error} = await durableSchedulerRpc(client, "undo_scheduler_continuation", {p_operation_id: operationId});
     if (error) return {status: error.code === "55P03" ? "busy" : "unknown"};
     return data && ["undone","already_undone","stale","busy","invalid","paused"].includes(data.status) ? data : {status:"unknown"};
   } catch { return {status:"unknown"}; }

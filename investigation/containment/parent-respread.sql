@@ -129,6 +129,7 @@ BEGIN
   PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   have:=rooted_private.scheduler_state(p_goal_id);
   IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
+  IF p_day IS DISTINCT FROM (now() AT TIME ZONE (SELECT timezone FROM public.profiles WHERE id=u))::date THEN RETURN jsonb_build_object('status','stale','reason','local_day_changed');END IF;
   SELECT coalesce(array_agg(l.id),'{}') INTO ids FROM public.lessons l JOIN public.curriculum_goals g ON g.id=l.curriculum_goal_id WHERE g.id=p_goal_id AND l.queue_position>g.current_lesson AND NOT l.completed AND NOT l.skipped AND NOT coalesce(l.is_backfill,false) AND l.continues_lesson_id IS NULL AND NOT l.queue_pinned AND NOT l.queue_preserved;
   PERFORM rooted_private.scheduler_allow(p_goal_id,'respread',ids,ARRAY['date','scheduled_date','scheduled_source'],'{}'::text[]);
   result:=rooted_private.scheduler_respread_locked(p_goal_id,p_source,p_day)||jsonb_build_object('status','applied');

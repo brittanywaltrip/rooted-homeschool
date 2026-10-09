@@ -60,10 +60,10 @@ BEGIN
   END IF;
   IF EXISTS(SELECT 1 FROM rooted_private.scheduler_modes m JOIN public.curriculum_goals c ON c.id=m.goal_id WHERE c.user_id=owner_id AND m.mode='paused') THEN RETURN jsonb_build_object('status','paused');END IF;
   before_state:=rooted_private.scheduler_calendar_state(owner_id);
-  IF before_state IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale');END IF;
+  IF before_state IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   IF before_state->'profile'->>'timezone' IS NULL THEN RETURN jsonb_build_object('status','invalid','reason','timezone');END IF;
   local_day:=(now() AT TIME ZONE (before_state->'profile'->>'timezone'))::date;
-  IF (p_action->>'localDay')::date IS DISTINCT FROM local_day THEN RETURN jsonb_build_object('status','stale','reason','local_day');END IF;
+  IF (p_action->>'localDay')::date IS DISTINCT FROM local_day THEN RETURN jsonb_build_object('status','stale','reason','local_day_changed');END IF;
   days:=before_state->'profile'->'school_days';IF days IS NULL OR days='null'::jsonb OR jsonb_array_length(days)=0 THEN days:='["Mon","Tue","Wed","Thu","Fri"]'::jsonb;END IF;
   old_blocks:=before_state->'vacations';
   IF kind<>'add' THEN
@@ -88,7 +88,6 @@ BEGIN
    IF needs_shift AND coalesce((r->>'completed')::boolean,false)=false AND (r->>'scheduled_date')::date>=start_day THEN
     IF w IS NULL OR (w-ARRAY['id','date'])<>'{}'::jsonb THEN RETURN jsonb_build_object('status','invalid','reason','shift_scope');END IF;
     origin:=(r->>'scheduled_date')::date;target:=(w->>'date')::date;
-    IF coalesce((r->>'queue_preserved')::boolean,false) AND NOT coalesce((r->>'skipped')::boolean,false) AND target IS DISTINCT FROM origin THEN RETURN jsonb_build_object('status','invalid','reason','preserved_work');END IF;
     IF target IS NULL OR NOT rooted_private.calendar_teaching(target,days,new_blocks) THEN RETURN jsonb_build_object('status','invalid','reason','shift_target');END IF;
     IF kind='remove' THEN
      IF target>=origin OR origin-target>365 OR rooted_private.calendar_count(target,origin-1,days,new_blocks)<>shift_count THEN RETURN jsonb_build_object('status','invalid','reason','inverse_target');END IF;

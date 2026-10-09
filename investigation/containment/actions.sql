@@ -33,13 +33,11 @@ BEGIN
   -- Scope includes preexisting rows only: reviewed pointer cleanup can unschedule
   -- earlier orphan rows. No insert, reassignment or arbitrary content capability.
   PERFORM rooted_private.scheduler_allow(p_goal_id,kind,ids,fields,ARRAY['current_lesson','completed_at'],CASE WHEN kind='delete' THEN ARRAY[r.id] WHEN kind='delete_selected' THEN selected_ids ELSE '{}'::uuid[] END);
+  UPDATE rooted_private.scheduler_capabilities SET explicit_ids=CASE WHEN kind IN ('delete_selected','place_selected') THEN selected_ids ELSE ARRAY[r.id] END WHERE tx=txid_current() AND goal_id=p_goal_id;
   IF kind='single_move' THEN
    IF r.skipped OR p_action->>'targetDate' IS NULL THEN PERFORM rooted_private.scheduler_disallow(p_goal_id); RETURN jsonb_build_object('status','invalid','reason','protected_lesson');END IF;
    IF (p_action->>'localDay')::date IS DISTINCT FROM (now() AT TIME ZONE (SELECT timezone FROM public.profiles WHERE id=u))::date THEN PERFORM rooted_private.scheduler_disallow(p_goal_id); RETURN jsonb_build_object('status','invalid','reason','local_day');END IF;
-   IF r.completed THEN
-    UPDATE public.lessons SET date=(p_action->>'targetDate')::date,scheduled_date=(p_action->>'targetDate')::date,scheduled_source='plan_move',queue_pinned=true WHERE id=r.id;
-    GET DIAGNOSTICS n=ROW_COUNT;IF n<>1 THEN RAISE EXCEPTION 'scheduler_move_refused';END IF;
-   ELSIF (p_action->>'targetDate')::date>coalesce(r.scheduled_date,r.date) AND r.queue_position IS NOT NULL THEN
+   IF NOT r.completed AND (p_action->>'targetDate')::date>coalesce(r.scheduled_date,r.date) AND r.queue_position IS NOT NULL THEN
     result:=rooted_private.contained_move_lesson_keep_slot(r.id,(p_action->>'targetDate')::date,(p_action->>'localDay')::date,true);
     IF result->>'status' IS DISTINCT FROM 'moved' THEN RAISE EXCEPTION 'scheduler_move_refused';END IF;
    ELSE

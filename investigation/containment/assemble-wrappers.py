@@ -13,6 +13,8 @@ for f in fs:
  # lock: row triggers and the public wrapper now hold the owner barrier.
  if name in ('commit_cascade_shift','undo_cascade_shift'):
   definition=f['definition'].replace('public.'+name+'(',inner+'(').replace('lock table public.vacation_blocks in share mode;', 'PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);')
+  if name=='commit_cascade_shift':
+   definition=definition.replace("return jsonb_build_object('status','stale');","return jsonb_build_object('status','stale','reason','schedule_changed');")
   out.append(definition.rstrip().rstrip(';')+';')
  # 4-arg Builder routes through guarded 5-arg public overload (no nested cap).
  if name=='apply_builder_rebuild' and len(ident.split(','))==4:

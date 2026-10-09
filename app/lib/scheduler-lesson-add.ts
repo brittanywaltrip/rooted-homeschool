@@ -1,3 +1,4 @@
+import {durableSchedulerRpc} from './scheduler-recovery-journal.ts';
 import type {SupabaseClient} from '@supabase/supabase-js';
 import type {SchedulerResult} from './scheduler-contained.ts';
 import {isDefinitiveSchedulerRejection} from './scheduler-terminal-result.ts';
@@ -18,7 +19,7 @@ export async function commitLessonAdd(client:SupabaseClient,goal:string,values:L
  }
  const invoke=async():Promise<Result>=>{
   try{
-   const {data,error}=await client.rpc('commit_scheduler_add',{p_operation_id:attempt.operation,p_goal_id:goal,p_expected:attempt.expected,p_values:attempt.values});
+   const {data,error}=await durableSchedulerRpc(client, 'commit_scheduler_add',{p_operation_id:attempt.operation,p_goal_id:goal,p_expected:attempt.expected,p_values:attempt.values});
    if(error){const code=error.code??'';return {status:['55P03','57014','PGRST003'].includes(code)||code.startsWith('40')?'busy':['P0001','42501','PGRST202'].includes(code)||code.startsWith('22')||code.startsWith('23')?'invalid':'unknown',reason:error.message};}
    if(!data||!['applied','already_applied','already_undone','busy','stale','invalid','paused'].includes(data.status))return{status:'unknown'};
    if(['applied','already_applied'].includes(data.status)&&(!('row' in data)||typeof data.updatedExisting!=='boolean'))return{status:'unknown'};

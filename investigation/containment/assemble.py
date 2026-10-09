@@ -4,7 +4,7 @@ import hashlib,json,subprocess
 root=Path(__file__).resolve().parents[2]
 b=root/'investigation/containment'
 subprocess.run(['python3',str(b/'assemble-wrappers.py')],check=True)
-names=['core.sql','wrappers.sql','actions.sql','work-preservation.sql','recalibration.sql','history-healing.sql','recovery-inserts.sql','calendar.sql','retention.sql','parent-respread.sql','bulk-completion.sql','lesson-add.sql','goal-lifecycle.sql']
+names=['core.sql','wrappers.sql','actions.sql','work-preservation.sql','recalibration.sql','history-healing.sql','recovery-inserts.sql','calendar.sql','retention.sql','parent-respread.sql','bulk-completion.sql','lesson-add.sql','goal-lifecycle.sql','reassignment.sql','recovery-status.sql']
 parts=[]
 for name in names:
     source=(b/name).read_text()

@@ -5,6 +5,6 @@
  */
 export function isDefinitiveSchedulerRejection(result: {status: string; reason?: string}): boolean {
   return result.status === 'stale' && [
-    'schedule_changed', 'local_day_changed', 'placement_changed', 'already_completed', 'mode',
+    'schedule_changed', 'local_day_changed', 'placement_changed', 'already_completed', 'mode', 'local_day', 'continuation_exists', 'goal_not_empty_or_recent', 'slot_occupied_or_invalid', 'history_list',
   ].includes(result.reason ?? '');
 }

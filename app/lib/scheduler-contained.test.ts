@@ -159,9 +159,11 @@ test('calendar shift retains existing ordinal mapping and lowercase profile days
   const snapshot=calendarSnapshot();const before=structuredClone(snapshot);
   assert.deepEqual(planCalendarWrites(snapshot,breakAction),[{id:'c0',date:'2026-10-14'},{id:'c1',date:'2026-10-15'},{id:'c2',date:'2026-10-16'}]);assert.deepEqual(snapshot,before);
 });
-test('calendar metadata-only preserves rows; shift refuses preserved unfinished work',()=>{
+test('calendar metadata-only preserves rows; explicit shift includes preserved placement',()=>{
   const snapshot=calendarSnapshot();snapshot.rows[0].queue_preserved=true;
-  assert.equal(planCalendarWrites(snapshot,breakAction),null);
+  const before=structuredClone(snapshot);
+  assert.deepEqual(planCalendarWrites(snapshot,breakAction),[{id:'c0',date:'2026-10-14'},{id:'c1',date:'2026-10-15'},{id:'c2',date:'2026-10-16'}]);
+  assert.deepEqual(snapshot,before);
   assert.deepEqual(planCalendarWrites(snapshot,{...breakAction,shift:false}),[]);
 });
 test('explicit remove inversion uses current rows; it is distinct from receipt Undo',()=>{

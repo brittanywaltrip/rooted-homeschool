@@ -1,3 +1,4 @@
+import {durableSchedulerRpc} from './scheduler-recovery-journal.ts';
 import { isDefinitiveSchedulerRejection } from './scheduler-terminal-result.ts';
 import { countSchoolDaysInRange, nthSchoolDayBefore, type VacationRange } from "../../lib/school-days.ts";
 import { mapLessonDateAcrossVacation } from "../components/PlanV2/handleVacationSave.shift.ts";
@@ -95,7 +96,7 @@ function definiteRpcRefusal(error: {code?: string; message?: string}): Scheduler
 /** The returned retry retains the original operation and preimage after an ambiguous transport failure. */
 export async function retrySchedulerAction(client: SupabaseClient, retry: SchedulerRetry): Promise<SchedulerResult> {
   try {
-    const {data,error} = await client.rpc("commit_scheduler_action", {p_operation_id:retry.operationId,p_goal_id:retry.goalId,p_expected:retry.expected,p_action:retry.action});
+    const {data,error} = await durableSchedulerRpc(client, "commit_scheduler_action", {p_operation_id:retry.operationId,p_goal_id:retry.goalId,p_expected:retry.expected,p_action:retry.action});
     if (error) {
       const refusal = definiteRpcRefusal(error);
       return refusal ? {...refusal, operationId: retry.operationId} : {status:"unknown",reason:error.message,operationId:retry.operationId,retry};
@@ -195,7 +196,7 @@ export async function commitContainedGroups(client: SupabaseClient, groups: Arra
 }
 export async function undoContainedAction(client: SupabaseClient, operationId: string): Promise<SchedulerResult> {
   try {
-    const {data,error} = await client.rpc("undo_scheduler_action",{p_operation_id:operationId});
+    const {data,error} = await durableSchedulerRpc(client, "undo_scheduler_action",{p_operation_id:operationId});
     return error ? {...(definiteRpcRefusal(error) ?? {status: "unknown" as const, reason: error.message}),operationId} : {...parsed(data),operationId};
   } catch { return {status:"unknown",operationId}; }
 }
@@ -253,7 +254,6 @@ export function planCalendarWrites(snapshot: CalendarSnapshot, action: CalendarA
   for(const row of snapshot.rows) {
     if (row.completed||!row.scheduled_date||row.scheduled_date<start) continue;
     const date=action.kind==='add' ? mapLessonDateAcrossVacation(row.scheduled_date,start,end,days,count,blocks) : nthSchoolDayBefore(row.scheduled_date,days,count,blocks);
-    if (row.queue_preserved&&!row.skipped&&date!==row.scheduled_date) return null;
     writes.push({id:row.id,date});
   }
   return writes;
@@ -280,7 +280,7 @@ export async function commitCalendarAction(client: SupabaseClient, action: Calen
   }
   const call=async():Promise<SchedulerResult & {blockId?:string;written?:number}>=>{
     try{
-      const {data,error}=await client.rpc('commit_scheduler_calendar',{p_operation_id:attempt.operationId,p_expected:attempt.expected,p_action:attempt.action,p_writes:attempt.writes});
+      const {data,error}=await durableSchedulerRpc(client, 'commit_scheduler_calendar',{p_operation_id:attempt.operationId,p_expected:attempt.expected,p_action:attempt.action,p_writes:attempt.writes});
       if(error)return definiteRpcRefusal(error)??{status:'unknown'};
       if(!data||!['applied','already_applied','already_undone','busy','stale','invalid','paused'].includes(data.status))return {status:'unknown'};
       return data;
@@ -289,13 +289,13 @@ export async function commitCalendarAction(client: SupabaseClient, action: Calen
   let result=await call();
   if(result.status==='unknown'){attempt.ambiguous=true;result=await call();}
   const confirmed=result.status==='applied'||result.status==='already_applied'||result.status==='already_undone';
-  if(attempt.ambiguous&&!confirmed)result={status:'unknown'};
-  if(!attempt.ambiguous||confirmed)pendingCalendar.delete(client);
+  if(attempt.ambiguous&&!confirmed&&!isDefinitiveSchedulerRejection(result))result={status:'unknown'};
+  if(!attempt.ambiguous||confirmed||isDefinitiveSchedulerRejection(result))pendingCalendar.delete(client);
   return {...result,operationId:attempt.operationId};
 }
 export async function undoCalendarAction(client:SupabaseClient,operationId:string):Promise<SchedulerResult>{
   try{
-    const {data,error}=await client.rpc('undo_scheduler_calendar',{p_operation_id:operationId});
+    const {data,error}=await durableSchedulerRpc(client, 'undo_scheduler_calendar',{p_operation_id:operationId});
     return error?{...(definiteRpcRefusal(error)??{status:'unknown' as const}),operationId}:{...parsed(data),operationId};
   }catch{return {status:'unknown',operationId};}
 }
