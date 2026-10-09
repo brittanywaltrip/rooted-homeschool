@@ -93,6 +93,8 @@ export interface RecalibrateGapRow {
   lesson_number: number | null;
   queue_position: number | null;
   queue_pinned?: boolean | null;
+  queue_preserved?: boolean | null;
+  is_backfill?: boolean | null;
   skipped?: boolean | null;
   completed?: boolean | null;
   scheduled_date?: string | null;
@@ -131,7 +133,7 @@ export function planRecalibrateGap<T extends RecalibrateGapRow>(
   );
   return {
     gap,
-    toComplete: gap.filter((r) => !r.queue_pinned && !r.skipped),
+    toComplete: gap.filter((r) => !r.queue_pinned && !r.skipped && !r.queue_preserved),
     keptPinned: gap.filter((r) => !!r.queue_pinned && !r.skipped),
   };
 }
@@ -206,6 +208,8 @@ export function sameLessonIds(a: readonly string[], b: readonly string[]): boole
 }
 
 export interface RecalibrateResult {
+  operationId?: string;
+  resumedLessonIds?: string[];
   /** Lesson the user said they're on, clamped to [1, total_lessons]. */
   clamped: number;
   /** current_lesson value written to DB (= clamped - 1). */
@@ -284,11 +288,13 @@ export async function recalibrateCurriculumGoal(opts: {
   const localDay = toDateStr(new Date());
   const { data: orderRows, error: orderErr } = await supabase
     .from("lessons")
-    .select("lesson_number, queue_position")
+    .select("lesson_number, queue_position, completed, queue_preserved")
     .eq("curriculum_goal_id", goalId)
-    .not("lesson_number", "is", null)
-    .not("queue_position", "is", null);
+    .not("lesson_number", "is", null);
   if (orderErr) throw new Error(orderErr.message);
+  if ((orderRows ?? []).some((row: {lesson_number:number|null;completed:boolean;queue_preserved:boolean}) => row.lesson_number === newCurrentLesson && !row.completed && row.queue_preserved)) {
+    throw new Error("Resuming a preserved lesson requires protected scheduling for this course. Nothing changed.");
+  }
   let bookOrderRestored = false;
   if (queueOutOfBookOrder((orderRows ?? []) as { lesson_number: number | null; queue_position: number | null }[])) {
     const restored = await restoreQueueBookOrder(supabase, goalId, localDay);
@@ -337,7 +343,7 @@ export async function recalibrateCurriculumGoal(opts: {
   const [gapRowsRes, anchorRowRes] = await Promise.all([
     supabase
       .from("lessons")
-      .select("id, lesson_number, queue_position, queue_pinned, skipped, scheduled_date")
+      .select("id, lesson_number, queue_position, queue_pinned, queue_preserved, skipped, scheduled_date")
       .eq("curriculum_goal_id", goalId)
       .eq("completed", false)
       .not("lesson_number", "is", null)
@@ -501,7 +507,7 @@ export async function recalibrateCurriculumGoal(opts: {
   let unscheduled: ConfirmedWriteOutcome = NO_WRITES;
   if (!recordHistory) {
     const stillDated = gapLessons
-      .filter((l) => !l.queue_pinned && l.scheduled_date != null)
+      .filter((l) => !l.queue_pinned && !l.queue_preserved && l.scheduled_date != null)
       .map((l) => l.id);
     if (stillDated.length > 0) {
       // Tagged with recalibrate's own source, as Phase 5's writes are: a row
@@ -557,7 +563,7 @@ export async function recalibrateCurriculumGoal(opts: {
   // must not silently undo mom's manual moves.
   const { data: rowsData, error: rowsErr } = await supabase
     .from("lessons")
-    .select("id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned, skipped")
+    .select("id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned, queue_preserved, skipped")
     .eq("curriculum_goal_id", goalId)
     .eq("completed", false);
   const rows = (rowsData ?? []) as Array<{
@@ -569,6 +575,7 @@ export async function recalibrateCurriculumGoal(opts: {
     lesson_number: number | null;
     queue_position: number | null;
     queue_pinned: boolean | null;
+    queue_preserved: boolean | null;
     skipped: boolean | null;
   }>;
   const projected = computeNextLessonsForGoal(

@@ -610,6 +610,7 @@ export function RecalibrateForm(props: {
   // Read in BOOK order (bookOrderView): when a Plan move has left the queue out
   // of order, the recalibration puts it back before it reads anything, so the
   // list and the saved position here are the ones it will see.
+  const [allRows, setAllRows] = useState<RecalibrateGapRow[]>([]);
   const [gapRows, setGapRows] = useState<RecalibrateGapRow[] | null>(null);
   const [viewCountDone, setViewCountDone] = useState<number | null>(null);
   const [gapReadFailed, setGapReadFailed] = useState(false);
@@ -619,7 +620,7 @@ export function RecalibrateForm(props: {
       const [rowsRes, goalRes] = await Promise.all([
         supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, queue_pinned, skipped, completed, minutes_spent, hours")
+          .select("id, lesson_number, queue_position, queue_pinned, queue_preserved, is_backfill, scheduled_date, skipped, completed, minutes_spent, hours")
           .eq("curriculum_goal_id", goal.id)
           .not("lesson_number", "is", null),
         supabase
@@ -638,6 +639,7 @@ export function RecalibrateForm(props: {
       const view = bookOrderView(all, g);
       const countDone = view.drifted ? view.currentLesson : Math.max(0, g.current_lesson ?? 0);
       setViewCountDone(countDone);
+      setAllRows(view.rows);
       setGapRows(view.rows.filter((r) => !r.completed && (r.lesson_number ?? 0) > countDone));
     })();
     return () => { cancelled = true; };
@@ -663,7 +665,9 @@ export function RecalibrateForm(props: {
   // after the write refused because the list changed underneath the form: the
   // list on screen is stale, and only reopening shows the current one.
   const [listChanged, setListChanged] = useState(false);
-  const saveBlocked = checking || gapReadFailed || listChanged;
+  const selectedPreserved=allRows.find(r=>r.lesson_number===typed&&!r.completed&&r.queue_preserved);
+  const selectedQueueInvalid=!!selectedPreserved&&(selectedPreserved.queue_position!==typed||!!selectedPreserved.skipped||!!selectedPreserved.is_backfill);
+  const saveBlocked = checking || gapReadFailed || listChanged || selectedQueueInvalid;
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -730,6 +734,10 @@ export function RecalibrateForm(props: {
       <p className="text-[11px] text-[#5c7f63] leading-relaxed">
         This resets your position in the queue. If you moved lesson {Number.isInteger(typed) ? typed : "X"} to another day, saving releases that date so it can be your next lesson. Lessons you&apos;ve already logged stay in your history.
       </p>
+      {selectedPreserved&&<p className="text-[12px] text-[#2d4a36] leading-relaxed">{selectedQueueInvalid
+        ? "This lesson’s queue position needs review before it can be resumed. Nothing will change."
+        : `${formatLessonLabel(typed,recalUnit)} will return to your regular schedule. Its old planned date${selectedPreserved.scheduled_date?` (${selectedPreserved.scheduled_date})`:''} will be replaced by the next eligible session, and any pin on this lesson will be released. It stays unfinished, with its notes and logged time. Eligible following lessons will be rescheduled.`}</p>}
+      {allRows.some(r=>r.queue_preserved&&!r.completed&&r.lesson_number!==typed)&&<p className="text-[11px] text-[#5c7f63]">Other preserved unfinished lessons keep their dates and recorded work; they won’t be marked done by this change.</p>}
       {asksAboutHistory ? (
         <div className="rounded-md border border-[#c5dbc9] bg-white px-2.5 py-2">
           <p className="text-[11px] font-semibold text-[#2d4a36] mb-1">

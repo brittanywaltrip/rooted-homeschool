@@ -43,3 +43,24 @@ test('unknown recalibration retires a proven local-day rejection before a fresh 
 });
 
 test('recalibration never proposes writes for an unfinished backfill row',()=>{const changed=structuredClone(state);changed.snapshot.rows[2].is_backfill=true;assert.deepEqual(planContainedRecalibration(changed as never,2),[{id:'2',date:'2026-01-01'}]);});
+
+test('explicit resume releases only the selected preserved pin and keeps input immutable',()=>{
+ const changed=structuredClone(state);changed.snapshot.rows[1].queue_preserved=true;changed.snapshot.rows[1].queue_pinned=true;changed.snapshot.rows[2].queue_preserved=true;
+ assert.deepEqual(planContainedRecalibration(changed as never,2),[{id:'2',date:'2026-01-01'}]);
+ assert.equal(changed.snapshot.rows[1].queue_preserved,true);assert.equal(changed.snapshot.rows[1].queue_pinned,true);
+});
+test('preserved gap remains uncompleted even when history is requested',()=>{
+ const changed=structuredClone(state);changed.snapshot.rows[0].queue_preserved=true;
+ assert.deepEqual(planContainedRecalibration(changed as never,2,true),[{id:'2',date:'2026-01-01'},{id:'3',date:'2026-01-02'}]);
+});
+test('unresumable preserved rows refuse before sending a mutation',async()=>{
+ for(const patch of [{queue_position:null},{queue_position:8},{skipped:true},{is_backfill:true}]){
+  const changed=structuredClone(state);Object.assign(changed.snapshot.rows[1],{queue_preserved:true},patch);
+  let writes=0;const client={rpc:async(name:string)=>{if(name==='read_scheduler_state')return{data:changed,error:null};writes++;return{data:success,error:null};}} as unknown as SupabaseClient;
+  await assert.rejects(recalibrateContained(client,{goalId:'g',newCurrentLesson:2}),/queue position needs review/);assert.equal(writes,0);
+ }
+});
+test('retry of an undone resume reports the outcome rather than reapplying it',async()=>{
+ const client={rpc:async(name:string)=>({data:name==='read_scheduler_state'?state:{status:'already_undone'},error:null})} as unknown as SupabaseClient;
+ await assert.rejects(recalibrateContained(client,{goalId:'g',newCurrentLesson:2}),/already undone/);
+});

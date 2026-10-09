@@ -80,6 +80,7 @@ BEGIN
       (c.operation IN ('edit','place_selected','single_move') AND OLD.id=ANY(c.explicit_ids)) OR
       (c.operation='single_move' AND to_jsonb(OLD)-ARRAY['queue_position','updated_at'] IS NOT DISTINCT FROM to_jsonb(NEW)-ARRAY['queue_position','updated_at']) OR
       c.operation IN ('calendar','undo','goal_stop','goal_delete','reassign','reassign_undo') OR
+      (c.operation='recalibration' AND OLD.id=ANY(c.explicit_ids)) OR
       (c.operation='recalibration' AND to_jsonb(OLD)-ARRAY['queue_position','updated_at'] IS NOT DISTINCT FROM to_jsonb(NEW)-ARRAY['queue_position','updated_at'])
      );
     END IF;

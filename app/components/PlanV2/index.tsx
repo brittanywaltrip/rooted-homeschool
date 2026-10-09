@@ -126,6 +126,7 @@ import {
   type QueueHold,
   type VacationBlock as SchedVacationBlock,
 } from "@/app/lib/scheduler";
+import { undoContainedRecalibration } from "@/app/lib/recalibrate-contained";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied } from "@/app/lib/recalibrate";
 import { lessonMinutes } from "@/lib/lesson-minutes";
 import {
@@ -2682,6 +2683,11 @@ export default function PlanV2() {
           ? `Schedule updated to lesson ${result.clamped}`
           : `Moved to lesson ${result.clamped}, but some lessons didn't update. Try again, or check your connection.`,
       );
+      if(result.operationId)setUndoAction({message:`Schedule updated to lesson ${result.clamped}`,key:`recalibration:${result.operationId}`,onUndo:async()=>{
+        const undone=await undoContainedRecalibration(supabase,result.operationId!);
+        if(undone.status!=="undone"&&undone.status!=="already_undone")flashNotice(undone.status==='unknown'?"Undo still needs checking. Reload to check saved changes.":"Undo is no longer available because its window ended or later work changed the schedule. Your current work was kept.");
+        reloadGoals();reload();reloadPins();
+      }});
       // Optimistic local patch so the goal card shows the new pointer
       // before the background refetch lands. GoalFull does not carry
       // start_at_lesson (it's only read inside Schedule Builder), so we
@@ -2697,7 +2703,7 @@ export default function PlanV2() {
       reloadGoals();
       reload();
     },
-    [effectiveUserId, recordEvent, reloadGoals, reload, vacationBlocks],
+    [effectiveUserId, recordEvent, reloadGoals, reload, reloadPins, vacationBlocks],
   );
 
   async function saveYearDetails() {

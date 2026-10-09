@@ -72,3 +72,12 @@ test('uncertain cascade Undo retains owned course identity before deletion remov
  });await assert.rejects(durableSchedulerRpc(c,'undo_cascade_shift',{p_operation_id:'undo'}));const entry=readSchedulerRecovery('owner')[0];assert.equal(entry.goal,'g');assert.deepEqual(entry.args,{p_operation_id:'undo'});deleted=true;assert.equal(await recoverSchedulerEntry(c,entry),true);assert.equal(readSchedulerRecovery('owner').length,0);
  }finally{b.restore();}
 });
+
+test('successful recalibration retains compact Undo across reload and clears after ordinary Undo',async()=>{
+ const b=browser();try{
+  await durableSchedulerRpc(client(async()=>({data:{status:'applied'},error:null})),'commit_scheduler_recalibration',request);
+  const reloaded=JSON.parse(JSON.stringify(readSchedulerRecovery('owner')[0]));assert.equal(reloaded.phase,'confirmed');assert.equal(reloaded.undoRpc,'undo_scheduler_recalibration');assert.deepEqual(reloaded.args,{});
+  await durableSchedulerRpc(client(async(name,args)=>{assert.equal(name,'undo_scheduler_recalibration');assert.deepEqual(args,{p_operation_id:'op'});return{data:{status:'undone'},error:null};}),'undo_scheduler_recalibration',{p_operation_id:'op'});
+  assert.deepEqual(readSchedulerRecovery('owner'),[]);
+ }finally{b.restore();}
+});

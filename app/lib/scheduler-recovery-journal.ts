@@ -4,7 +4,7 @@ import {isDefinitiveSchedulerRejection} from './scheduler-terminal-result.ts';
 type Reply = Awaited<ReturnType<SupabaseClient['rpc']>>;
 export type RecoveryEntry = {version:1;owner:string;operation:string;rpc:string;args:Record<string,unknown>;goal:string|null;phase:'issued'|'tail'|'confirmed';uncertain:boolean;covers?:string[];tailSource?:'completion_respread'|'catchup_spread';undoRpc?:string;deferred?:boolean};
 const prefix='rooted:scheduler-recovery:v1:';
-const allowed=new Set(['commit_scheduler_reassign','undo_scheduler_reassign','commit_scheduler_action','commit_scheduler_add','commit_scheduler_retire','commit_scheduler_history_heal','commit_scheduler_bulk_completion','commit_scheduler_respread','commit_scheduler_calendar','commit_scheduler_recalibration','commit_cascade_shift','undo_scheduler_action','undo_scheduler_calendar','undo_scheduler_continuation','undo_cascade_shift']);
+const allowed=new Set(['undo_scheduler_recalibration','commit_scheduler_reassign','undo_scheduler_reassign','commit_scheduler_action','commit_scheduler_add','commit_scheduler_retire','commit_scheduler_history_heal','commit_scheduler_bulk_completion','commit_scheduler_respread','commit_scheduler_calendar','commit_scheduler_recalibration','commit_cascade_shift','undo_scheduler_action','undo_scheduler_calendar','undo_scheduler_continuation','undo_cascade_shift']);
 const key=(entry:Pick<RecoveryEntry,'owner'|'operation'|'rpc'>)=>`${prefix}${entry.owner}:${entry.rpc}:${entry.operation}`;
 function signal(){window.dispatchEvent(new Event('rooted:scheduler-recovery-changed'));}
 function save(entry:RecoveryEntry){const value=JSON.stringify(entry);window.localStorage.setItem(key(entry),value);if(window.localStorage.getItem(key(entry))!==value)throw Error('recovery_storage');signal();}
@@ -28,6 +28,7 @@ function tailSource(entry:RecoveryEntry){
  if(entry.rpc==='commit_scheduler_history_heal'&&action?.kind==='history_insert')return action.origin==='prior_card'?'completion_respread' as const:'catchup_spread' as const;
 }
 function undoRpc(entry:RecoveryEntry,result:Record<string,unknown>){
+ if(entry.rpc==='commit_scheduler_recalibration')return 'undo_scheduler_recalibration';
  if(entry.rpc==='commit_scheduler_reassign')return 'undo_scheduler_reassign';
  if(entry.rpc==='commit_cascade_shift')return 'undo_cascade_shift';
  if(entry.rpc==='commit_scheduler_calendar')return 'undo_scheduler_calendar';
@@ -90,8 +91,9 @@ async function invoke(client:SupabaseClient,entry:RecoveryEntry,recovering=false
    if(tailSource(entry)&&result!.status!=='already_undone'){
     // Keep only the receipt identity after success, not the full lesson snapshot.
     entry={...entry,tailSource:tailSource(entry),phase:'tail',args:{},uncertain:false};save(entry);
-   }else if(recovering&&result!.status!=='already_undone'&&undoRpc(entry,reply.data)){save({...entry,phase:'confirmed',args:{},undoRpc:undoRpc(entry,reply.data),uncertain:false});}
+   }else if((recovering||entry.rpc==='commit_scheduler_recalibration')&&result!.status!=='already_undone'&&undoRpc(entry,reply.data)){save({...entry,phase:'confirmed',args:{},undoRpc:undoRpc(entry,reply.data),uncertain:false});}
    else remove(entry);
+   if(entry.rpc.startsWith('undo_'))for(const saved of readSchedulerRecovery(entry.owner))if(saved.phase==='confirmed'&&saved.operation===entry.operation&&saved.undoRpc===entry.rpc)remove(saved);
    if(entry.rpc==='commit_scheduler_respread'&&entry.goal)clearSchedulerTail(entry.owner,entry.goal,entry.covers??[]);
   }else if(result&&terminal(entry,result))remove(entry);
   else if(!entry.uncertain&&((result&&['busy','invalid','paused','legacy'].includes(result.status??''))||(reply.error&&/^(22|23|40|55P03$|57014$|P0001$|42501$|PGRST20[23]$|PGRST30[123]$)/.test(reply.error.code))))remove(entry);

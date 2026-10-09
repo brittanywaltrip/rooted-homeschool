@@ -147,7 +147,7 @@ BEGIN
   IF auth.uid() IS NULL THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
   IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF;
   SELECT * INTO r FROM rooted_private.scheduler_action_receipts WHERE id=p_operation_id AND user_id=auth.uid() FOR UPDATE NOWAIT;
-  IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','operation');END IF;
+  IF NOT FOUND OR r.result->>'kind'='recalibration' THEN RETURN jsonb_build_object('status','invalid','reason','operation');END IF;
   IF r.undone_at IS NOT NULL THEN RETURN jsonb_build_object('status','already_undone');END IF;
   IF r.before_state IS NULL OR clock_timestamp()>r.created_at+interval '10 minutes' THEN RETURN jsonb_build_object('status','invalid','reason','expired');END IF;
   PERFORM 1 FROM public.curriculum_goals WHERE id=r.goal_id AND user_id=auth.uid() FOR UPDATE NOWAIT;

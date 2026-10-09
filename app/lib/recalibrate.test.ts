@@ -135,13 +135,13 @@ function makeRecalibrateSupabase(opts: {
         onRejected?: (e: unknown) => unknown,
       ) => {
         let data: unknown
-        if (projection === 'lesson_number, queue_position') {
+        if (projection === 'lesson_number, queue_position, completed, queue_preserved') {
           // Phase 0's book-order check: these fixtures are in order.
-          data = opts.gapLessons.map((g) => ({ lesson_number: g.lesson_number, queue_position: g.queue_position ?? g.lesson_number }))
+          data = opts.gapLessons.map((g) => ({ ...g, lesson_number: g.lesson_number, queue_position: g.queue_position ?? g.lesson_number }))
         } else if (projection === 'id') {
           // The pinned-lesson-X read: none pinned in these fixtures.
           data = []
-        } else if (projection === 'id, lesson_number, queue_position, queue_pinned, skipped, scheduled_date') {
+        } else if (projection === 'id, lesson_number, queue_position, queue_pinned, queue_preserved, skipped, scheduled_date') {
           // A gap row with no slot given holds the healthy one, lesson_number.
           data = opts.gapLessons.map((g) => ({ queue_position: g.lesson_number, ...g }))
         } else if (
@@ -150,7 +150,7 @@ function makeRecalibrateSupabase(opts: {
           // it projects around manually-placed rows instead of re-dating them.
           // skipped joined them in September 2026 (Invariant 22).
           projection ===
-            'id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned, skipped'
+            'id, scheduled_date, date, completed, is_backfill, lesson_number, queue_position, queue_pinned, queue_preserved, skipped'
         ) {
           data = opts.forwardIncompleteRows ?? []
         } else {
@@ -1076,7 +1076,7 @@ test('the form words its question from the same rule the write uses', () => {
   // A Yes carries exactly the list on screen; No carries none.
   assert.match(form, /await onSubmit\(n, yes, yes \? \(plan\?\.toComplete \?\? \[\]\)\.map\(\(r\) => r\.id\) : \[\]\)/)
   // Save is closed while reading, when the read failed, and after a refusal.
-  assert.match(form, /const saveBlocked = checking \|\| gapReadFailed \|\| listChanged;/)
+  assert.match(form, /const saveBlocked = checking \|\| gapReadFailed \|\| listChanged \|\| selectedQueueInvalid;/)
   assert.match(form, /disabled=\{submitting \|\| saveBlocked\}/)
   assert.match(form, /if \(saveBlocked\) return;/)
   assert.match(form, /We couldn&apos;t check this curriculum&apos;s lessons, so this can&apos;t be saved right now\./)
@@ -1296,3 +1296,13 @@ test('the stranded-lesson state: lesson 5 done in slot 6 hid lesson 6; "I\'m act
   assert.equal(byNum(6).scheduled_date, ymd(todayMid()), 'Plan shows lesson 6 today')
   assert.deepEqual(after.disagreements, [])
 })
+
+test('legacy preserved-selected resume refuses before restoring order or changing the pointer', async () => {
+ const {goalId,client,tables}=sequenceGoal([
+  {id:'P1',lesson_number:1,queue_position:2,completed:false,queue_preserved:true,queue_pinned:true,scheduled_date:inDays(5),notes:'Keep this work'},
+  {id:'P2',lesson_number:2,queue_position:1,completed:false,scheduled_date:inDays(6)},
+ ]);
+ const before=structuredClone(tables);
+ await assert.rejects(recalibrateCurriculumGoal({supabase:client as never,goalId,newCurrentLesson:1,vacationBlocks:[]}),/requires protected scheduling/);
+ assert.deepEqual(tables,before);
+});
