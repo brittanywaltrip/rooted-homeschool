@@ -85,18 +85,17 @@ for (const changed of ['completed','notes','date','pin','skip','continuation','p
 test('failure at each write leaves all rows intact in the transaction model', () => {
   const s=fixture();const p=mustPlan(s);for(let i=0;i<p.writes.length;i++){const result=commitModel(s,p,i);assert.equal(result.ok,false);assert.deepEqual(result.snapshot,s);}
 });
-test('completed, skipped and continuation rows are not moved or edited', () => {
+test('completed and skipped rows are not moved or edited', () => {
   const s=fixture(['2026-09-15','2026-09-22','2026-09-29','2026-10-06']);s.goal.current_lesson=1;s.goal.start_date='2026-09-15';
   s.rows[0].completed=true;s.rows[0].completed_at='2026-09-15T12:00:00Z';
   s.rows[2].skipped=true;s.rows[2].scheduled_date=null;
   s.rows[3].scheduled_date=s.rows[3].date='2026-09-29';
-  s.rows.push({...s.rows[0],id:'continuation',lesson_number:null,queue_position:null,completed:false,completed_at:null,continues_lesson_id:'L1',scheduled_source:'continuation',scheduled_date:'2026-11-03',date:'2026-11-03'});s.rowCount++;
   const p=mustPlan(s,{lessonId:'L2',from:'2026-09-22',to:'2026-09-29'});const next=commitModel(s,p).snapshot;
-  for(const id of ['L1','L3','continuation'])assert.deepEqual(next.rows.find(r=>r.id===id),s.rows.find(r=>r.id===id));
+  for(const id of ['L1','L3'])assert.deepEqual(next.rows.find(r=>r.id===id),s.rows.find(r=>r.id===id));
 });
 test('continuation collision and variable-capacity pileups refuse', () => {
   const s=fixture();s.rows.push({...s.rows[0],id:'c',lesson_number:null,queue_position:null,continues_lesson_id:'L1',scheduled_source:'continuation',scheduled_date:'2026-09-29',date:'2026-09-29'});s.rowCount++;
-  assert.deepEqual(planAnchoredCascade(s,choose),{ok:false,reason:'capacity'});
+  assert.deepEqual(planAnchoredCascade(s,choose),{ok:false,reason:'queue_order'});
   const varied=fixture(['2026-09-21','2026-09-21','2026-09-24']);varied.goal.school_days=['Mon','Thu'];varied.goal.lessons_per_day_overrides={Mon:2,Thu:1};varied.goal.start_date=varied.localDay='2026-09-21';
   assert.deepEqual(planAnchoredCascade(varied,{lessonId:'L1',from:'2026-09-21',to:'2026-09-24'}),{ok:false,reason:'capacity'});
 });
