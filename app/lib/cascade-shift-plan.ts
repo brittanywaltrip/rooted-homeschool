@@ -21,6 +21,8 @@ export type CascadeRow = {
 };
 export type CascadeSnapshot = {
   userId: string;
+  /** Authoritative account timezone supplied by the snapshot RPC. */
+  timeZone?: string;
   goal: CurriculumGoalConfig & { user_id: string };
   rows: CascadeRow[];
   rowCount: number;

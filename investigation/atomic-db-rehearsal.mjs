@@ -33,6 +33,7 @@ try {
  if new.id::text=current_setting('rehearsal.fail_id',true) then raise exception 'synthetic write failure'; end if;
  new.updated_at=clock_timestamp(); return new; end $$;
  create trigger rehearsal_update before update on public.lessons for each row execute function public.rehearsal_updated();`);
+ q(`create table public.profiles(id uuid primary key,timezone text not null);insert into public.profiles values('${U}','UTC'),('${OTHER}','UTC');`);
  q(readFileSync('supabase/proposals/cascade_shift_atomic.sql','utf8'));
  q(readFileSync('supabase/migrations/20260921230610_daily_reconcile.sql','utf8'));
  q(readFileSync('supabase/proposals/preserved_daily_reconcile.sql','utf8'));
@@ -151,7 +152,7 @@ try {
  const client={rpc:async(name,args)=>{const names={read_cascade_snapshot:['p_goal_id','p_local_day','p_day_start','p_day_end'],commit_cascade_shift:['p_operation_id','p_goal_id','p_expected','p_choice','p_moves','p_preserved'],undo_cascade_shift:['p_operation_id']};return {data:json(rpcSQL(name,names[name].map(key=>args[key]))),error:null};}};
  await browserRehearsal({client,snapshot,goalId:G,lessonId:L(1),today,target:add(7),finish:add(35)});
  pass('browser real callback/coordinator commits a pinned gap and performs SQL receipt Undo');
- writeFileSync('../investigation-evidence/preserved-db-results.json',JSON.stringify({scratch:root,results},null,2));
+ writeFileSync('../investigation-evidence/integrated-db-results.json',JSON.stringify({scratch:root,results},null,2));
  console.log(`${results.length} SQL cases passed`);
 }
 }finally{if(started)execFileSync(bin+'pg_ctl',['-D',root+'/data','stop','-m','fast'],{encoding:'utf8',stdio:'pipe'});}

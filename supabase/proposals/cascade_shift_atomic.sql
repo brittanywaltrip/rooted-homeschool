@@ -18,6 +18,34 @@ create table rooted_private.cascade_shift_receipts (
 alter table rooted_private.cascade_shift_receipts enable row level security;
 revoke all on rooted_private.cascade_shift_receipts from public, anon, authenticated;
 
+-- The account timezone is scheduling input, not a caller-selected offset.
+-- Derive both civil midnights independently: DST days need not be 24 hours.
+create function rooted_private.cascade_local_window(p_user uuid,p_day date)
+returns jsonb language plpgsql stable set search_path=pg_catalog,pg_temp as $$
+declare zone text; first_instant timestamptz; last_instant timestamptz;
+begin
+ select p.timezone into zone from public.profiles p where p.id=p_user;
+ if zone is null or p_day is null or not exists(select 1 from pg_timezone_names where name=zone) then return null;end if;
+ first_instant:=p_day::timestamp at time zone zone;
+ last_instant:=(p_day+1)::timestamp at time zone zone;
+ if last_instant<=first_instant then return null;end if;
+ return jsonb_build_object('timeZone',zone,
+  'dayStartIso',to_char(first_instant at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+  'dayEndIso',to_char(last_instant at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"'));
+end $$;
+revoke all on function rooted_private.cascade_local_window(uuid,date) from public,anon,authenticated;
+
+create function rooted_private.cascade_window_valid(p_user uuid,p_day date,p_start text,p_end text)
+returns boolean language plpgsql stable set search_path=pg_catalog,pg_temp as $$
+declare canonical jsonb:=rooted_private.cascade_local_window(p_user,p_day);
+begin
+ return canonical is not null and p_start is not null and p_end is not null
+  and p_start::timestamptz=(canonical->>'dayStartIso')::timestamptz
+  and p_end::timestamptz=(canonical->>'dayEndIso')::timestamptz;
+exception when invalid_datetime_format or datetime_field_overflow or invalid_text_representation then return false;
+end $$;
+revoke all on function rooted_private.cascade_window_valid(uuid,date,text,text) from public,anon,authenticated;
+
 -- One exact read shape, including all lesson fields and row membership. Keeping
 -- title/notes/etc in expected state prevents Undo from redating later work.
 create function rooted_private.cascade_snapshot(p_goal uuid, p_day date, p_start text, p_end text)
@@ -27,18 +55,24 @@ returns jsonb language sql stable set search_path = pg_catalog, pg_temp as $$
     'rows', coalesce((select jsonb_agg(to_jsonb(l) order by l.id) from public.lessons l where l.curriculum_goal_id=g.id),'[]'::jsonb),
     'rowCount', (select count(*) from public.lessons l where l.curriculum_goal_id=g.id),
     'vacations', coalesce((select jsonb_agg(jsonb_build_object('start_date',v.start_date,'end_date',v.end_date) order by v.start_date,v.end_date) from public.vacation_blocks v where v.user_id=g.user_id),'[]'::jsonb),
-    'localDay',p_day::text,'dayStartIso',p_start,'dayEndIso',p_end)
+    'localDay',p_day::text,'dayStartIso',p_start,'dayEndIso',p_end,
+    'timeZone',rooted_private.cascade_local_window(g.user_id,p_day)->>'timeZone')
   from public.curriculum_goals g where g.id=p_goal
 $$;
 revoke all on function rooted_private.cascade_snapshot(uuid,date,text,text) from public, anon, authenticated;
 
 create function public.read_cascade_snapshot(p_goal_id uuid,p_local_day date,p_day_start text,p_day_end text)
 returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
+declare canonical jsonb;
 begin
   if auth.uid() is null or not exists(select 1 from public.curriculum_goals where id=p_goal_id and user_id=auth.uid() and not archived) then
     return jsonb_build_object('status','invalid','reason','owner');
   end if;
-  return jsonb_build_object('status','ready','snapshot',rooted_private.cascade_snapshot(p_goal_id,p_local_day,p_day_start,p_day_end));
+  canonical:=rooted_private.cascade_local_window(auth.uid(),p_local_day);
+  if canonical is null or p_local_day is distinct from (now() at time zone (canonical->>'timeZone'))::date then return jsonb_build_object('status','invalid','reason','local_day');end if;
+  -- Legacy boundary parameters are retained for API compatibility only. The
+  -- preview always returns canonical account-local bounds, never echoes input.
+  return jsonb_build_object('status','ready','snapshot',rooted_private.cascade_snapshot(p_goal_id,p_local_day,canonical->>'dayStartIso',canonical->>'dayEndIso'));
 end $$;
 revoke all on function public.read_cascade_snapshot(uuid,date,text,text) from public,anon;
 grant execute on function public.read_cascade_snapshot(uuid,date,text,text) to authenticated;
@@ -179,11 +213,15 @@ begin
   select * into g from public.curriculum_goals where id=p_goal_id and user_id=u and not archived for update;
   if not found then return jsonb_build_object('status','invalid','reason','owner'); end if;
   perform 1 from public.lessons where curriculum_goal_id=p_goal_id order by id for update;
+  -- Pin the authoritative timezone through validation and all writes.
+  perform 1 from public.profiles where id=u for share;
+  if not found then return jsonb_build_object('status','invalid','reason','time_zone');end if;
   -- Blocks a concurrent break insert/update during validation+commit. This is
   -- a short global write lock and requires performance review before release.
   lock table public.vacation_blocks in share mode;
   day:=(p_expected->>'localDay')::date;
   if day is null or abs(day-(now() at time zone 'UTC')::date)>1 then return jsonb_build_object('status','invalid','reason','local_day'); end if;
+  if not rooted_private.cascade_window_valid(u,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso') or day is distinct from (now() at time zone (rooted_private.cascade_local_window(u,day)->>'timeZone'))::date then return jsonb_build_object('status','invalid','reason','day_window');end if;
   actual:=rooted_private.cascade_snapshot(p_goal_id,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso');
   if actual is distinct from p_expected then return jsonb_build_object('status','stale'); end if;
   if jsonb_typeof(p_moves) is distinct from 'array' or jsonb_array_length(p_moves)=0 then return jsonb_build_object('status','invalid','reason','moves'); end if;
@@ -275,6 +313,7 @@ begin
   perform 1 from public.curriculum_goals where id=receipt.goal_id and user_id=auth.uid() for update;
   if not found then return jsonb_build_object('status','stale'); end if;
   perform 1 from public.lessons where curriculum_goal_id=receipt.goal_id order by id for update;
+  perform 1 from public.profiles where id=auth.uid() for share;
   lock table public.vacation_blocks in share mode;
   actual:=rooted_private.cascade_snapshot(receipt.goal_id,(receipt.after_snapshot->>'localDay')::date,receipt.after_snapshot->>'dayStartIso',receipt.after_snapshot->>'dayEndIso');
   if actual is distinct from receipt.after_snapshot then return jsonb_build_object('status','stale'); end if;
