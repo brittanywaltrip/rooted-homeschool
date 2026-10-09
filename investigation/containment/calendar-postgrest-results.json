@@ -1,0 +1,21 @@
+{
+  "count": 16,
+  "passed": [
+    "calendar SQL compiles transactionally on isolated PostgreSQL",
+    "fresh separate synthetic owner activated; original fixture untouched",
+    "metadata-only add changes no lesson fields",
+    "add exact Undo scrubs snapshots; replay cannot claim reapplied",
+    "actual TS shift mapper/lowercase days, two lost responses, exact replay and Undo preserve work",
+    "explicit fresh inverse and its receipt Undo work; earlier operation remains stale",
+    "extra write fields and another owner replay refuse with no effects",
+    "forced mid-transaction failure rolls back calendar, every lesson, receipt and capabilities",
+    "edit metadata and exact Undo preserve full lessons",
+    "end-now clamps to future start; Undo restores period",
+    "remove/Undo retains original block identity and metadata",
+    "stale commit and Undo after later notes refuse without effects",
+    "preserved unfinished redate refuses whole calendar operation",
+    "contention refuses promptly; acquired goal locks and capabilities released",
+    "Undo expiry scrubs snapshots without losing replay identity",
+    "all disposable owner rows removed; existing fixture exact preservation"
+  ]
+}

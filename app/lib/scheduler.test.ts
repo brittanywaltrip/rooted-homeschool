@@ -6657,6 +6657,8 @@ const healGoal = (over: Record<string, unknown> = {}) => ({
 function stubClient(opts: { count: number | null; countError?: boolean }) {
   const calls: { inserts: unknown[][]; counted: number } = { inserts: [], counted: 0 }
   const client = {
+    // These cases exercise the unchanged legacy batched-insert path.
+    rpc: async () => ({data: {status: 'ready', mode: 'legacy'}, error: null}),
     from() {
       return {
         // Only the exact head count is tallied. recomputeCurrentLesson selects

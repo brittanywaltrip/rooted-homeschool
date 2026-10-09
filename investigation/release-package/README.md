@@ -1,5 +1,7 @@
 # Local release package
 
+**Current branch update:** this document describes the original packaging-only commit. The later local containment delta and current activation blockers are documented in [../containment/README.md](../containment/README.md). The original package alone is not old-client-contained.
+
 This packages the four reviewed SQL proposals from a10838ae366b33eee0060be694e47d947d9dc5c2 into one CLI-named transactional migration. It does not change application behavior beyond those already tested definitions and does not implement the old-client design. Nothing has been pushed or applied to a hosted database.
 
 `20261009174245_kandl_preserved_cascade_and_completion_locks.sql` was created by installed Supabase CLI 2.117.0 `migration new`; CLI telemetry was disabled and its per-command home isolated under /tmp. No linked project or hosted migration command was used. `assemble.py` deterministically fills that existing file from the checked-in proposals and `baseline.json`; `manifest.json` pins all source hashes and the generated migration hash.

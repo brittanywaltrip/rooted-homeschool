@@ -1,8 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import * as Sentry from "@sentry/nextjs";
-import { recomputeCurrentLesson } from "./scheduler";
-import { buildCompletionPayload, type LessonCompletedEvent } from "./completeLessonOnDate";
-import { captureSupabaseError } from "../../lib/sentry-error";
+import { recomputeCurrentLesson } from "./scheduler.ts";
+import { buildCompletionPayload, completeLessonOnDate, type LessonCompletedEvent } from "./completeLessonOnDate.ts";
+import { commitHistoryHeal, hasPendingHistoryHeal } from "./scheduler-history-healing.ts";
+import { captureSupabaseError } from "../../lib/sentry-error.ts";
 
 /**
  * "We did this, on that day."
@@ -79,6 +80,19 @@ export async function logPastDayLessons(
       todayStr,
     });
     try {
+      // An insert may have committed before its response was lost. Resolve its
+      // original receipt before treating the newly visible row as another edit.
+      if (hasPendingHistoryHeal(supabase, entry.goal_id)) {
+        const pending = await commitHistoryHeal(supabase, entry.goal_id, {
+          kind: "history_insert", slot: entry.lesson_number, date: entry.date,
+        });
+        if (pending.status === "applied" || pending.status === "already_applied") {
+          okCount += 1;
+          opts?.track?.({lesson_number: entry.lesson_number, subject_label: null,
+            lesson_date: entry.date, date_choice: "picked", surface: "month"});
+        } else failedCount += 1;
+        continue;
+      }
       const { data: existing, error: existingErr } = await supabase
         .from("lessons")
         .select("id")
@@ -101,10 +115,10 @@ export async function logPastDayLessons(
         // chosen day, flags is_backfill so the projector never re-spreads the
         // row back onto today (Invariant 3), and pins the slot because a day
         // the family named is a manual placement (Invariant 12).
-        const { error } = await supabase
-          .from("lessons")
-          .update(completionPayload)
-          .eq("id", (existing as { id: string }).id);
+        const { error, contained } = await completeLessonOnDate(supabase, {
+          lessonId: (existing as {id: string}).id, dateStr: entry.date,
+          choice: "picked", todayStr, surface: "month", lessonNumber: entry.lesson_number, onlyIfIncomplete: true,
+        });
         if (error) {
           captureSupabaseError("logPastDayLessons: update failed", error, {
             tags: { fn: "logPastDayLessons" },
@@ -114,7 +128,7 @@ export async function logPastDayLessons(
           continue;
         }
         okCount += 1;
-        touchedGoalIds.add(entry.goal_id);
+        if (!contained) touchedGoalIds.add(entry.goal_id);
         opts?.track?.({
           lesson_number: entry.lesson_number,
           subject_label: null,
@@ -122,6 +136,18 @@ export async function logPastDayLessons(
           date_choice: "picked",
           surface: "month",
         });
+        continue;
+      }
+
+      const contained = await commitHistoryHeal(supabase, entry.goal_id, {
+        kind: "history_insert", slot: entry.lesson_number, date: entry.date,
+      });
+      if (contained.status !== "legacy") {
+        if (contained.status === "applied" || contained.status === "already_applied") {
+          okCount += 1;
+          opts?.track?.({lesson_number: entry.lesson_number, subject_label: null,
+            lesson_date: entry.date, date_choice: "picked", surface: "month"});
+        } else failedCount += 1;
         continue;
       }
 

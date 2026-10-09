@@ -1,5 +1,6 @@
 "use client";
 
+import { commitContainedAction, schedulerRefusalMessage } from "@/app/lib/scheduler-contained";
 import { useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -148,12 +149,14 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       });
       if (error) {
         // Roll the optimistic patch back so the row does not read as done.
-        const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: false });
+        const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: lesson?.completed ?? false, scheduled_date: lesson?.scheduled_date ?? l.scheduled_date, date: lesson?.date ?? l.date });
         setLessons(prev => prev.map(revert));
         setMonthLessons(prev => prev.map(revert));
         // Moved, pinned, skipped or deleted elsewhere since Plan loaded:
         // nothing was written, so reload to show where it is now.
         if (error.code === "placement_changed" || error.code === "not_found") onScheduleRedated?.();
+        // Ambiguous transport may already have committed: fetch the real state.
+        if (error.code === "unknown") onScheduleRedated?.();
         throw new Error(error.message);
       }
       // The stored row decides (completesInPlace): a row loaded without its
@@ -265,13 +268,33 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
   }, [findLesson, setLessons, setMonthLessons, onNeedsDateChoice, completeWithChoice, redateAfter]);
 
   const deleteLesson = useCallback(async (id: string) => {
+    const lesson = findLesson(id);
+    const result = await commitContainedAction(supabase, lesson?.curriculum_goal_id, {kind: "delete", lessonId: id});
+    if (result.status === "legacy") {
+      const {data, error} = await supabase.from("lessons").delete().eq("id", id).select("id");
+      if (error || data?.length !== 1) throw new Error(error?.message ?? "The lesson could not be deleted. Reload and try again.");
+    } else if (result.status !== "applied" && result.status !== "already_applied") {
+      throw new Error(schedulerRefusalMessage(result));
+    }
     setLessons(prev => prev.filter(l => l.id !== id));
-    await supabase.from("lessons").delete().eq("id", id);
-  }, [setLessons]);
+    setMonthLessons(prev => prev.filter(l => l.id !== id));
+    setAllLessons?.(prev => prev.filter(l => l.id !== id));
+  }, [findLesson, setLessons, setMonthLessons, setAllLessons]);
 
   const skipLesson = useCallback(async (lesson: T) => {
     const originalDate = lesson.scheduled_date ?? lesson.date;
     if (!originalDate) return;
+    const contained = await commitContainedAction(supabase, lesson.curriculum_goal_id, {kind: "skip", lessonId: lesson.id});
+    if (contained.status !== "legacy") {
+      if (contained.status !== "applied" && contained.status !== "already_applied") throw new Error(schedulerRefusalMessage(contained));
+      const clear = (l: T): T => l.id === lesson.id ? { ...l, scheduled_date: null } : l;
+      setLessons(prev => prev.map(clear));
+      setMonthLessons(prev => prev.map(clear));
+      setAllLessons?.(prev => prev.map(clear));
+      onScheduleRedated?.();
+      // Legacy skip Undo is a direct write, so do not offer it for protected goals.
+      return;
+    }
     const originalScheduled = lesson.scheduled_date;
     // Skip means "we are not doing this lesson, move on". The row is kept and
     // marked skipped: the projector steps over its slot, so the next lesson
@@ -314,7 +337,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       throw new Error(error?.message ?? "The skip did not land");
     }
     onSkipUndo?.(lesson.id, originalDate);
-  }, [setLessons, setMonthLessons, setAllLessons, onSkipUndo]);
+  }, [setLessons, setMonthLessons, setAllLessons, onSkipUndo, onScheduleRedated]);
 
   return { toggleLesson, completeWithChoice, deleteLesson, skipLesson };
 }

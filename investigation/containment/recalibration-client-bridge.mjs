@@ -1,0 +1,11 @@
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+import {createClient} from '@supabase/supabase-js';
+import {recalibrateCurriculumGoal} from '../../app/lib/recalibrate.ts';
+const input=JSON.parse(fs.readFileSync(0,'utf8'));assert.equal(input.url,'http://127.0.0.1:54321');
+const client=createClient(input.url,input.anon,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{Authorization:`Bearer ${input.token}`}}});
+const rpc=client.rpc.bind(client);const requests=[];let dropped=0;
+client.rpc=async(name,args)=>{const result=await rpc(name,args);if(name==='commit_scheduler_recalibration'){requests.push(JSON.stringify(args));if(dropped++<2){assert.equal(result.error,null);assert.ok(['applied','already_applied'].includes(result.data.status));throw new Error('Lost committed response');}}return result;};
+const opts={supabase:client,goalId:input.goal,newCurrentLesson:3,vacationBlocks:[],recordHistory:false};
+await assert.rejects(recalibrateCurriculumGoal(opts),/could not confirm/);
+const result=await recalibrateCurriculumGoal(opts);assert.equal(result.newCountDone,2);assert.equal(result.bookOrderRestored,true);assert.equal(new Set(requests).size,1);assert.equal(requests.length,3);console.log(JSON.stringify({retained_requests:requests.length,book_order:true,no_history:true}));

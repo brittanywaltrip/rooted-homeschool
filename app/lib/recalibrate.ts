@@ -1,3 +1,4 @@
+import { recalibrateContained } from "./recalibrate-contained.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   computeNextLessonsForGoal,
@@ -24,7 +25,11 @@ import { queueOutOfBookOrder, restoreQueueBookOrder } from "./move-keep-slot.ts"
  * Schedule fires logPlanEvent directly. The utility itself only owns the
  * DB writes and projector resync so the two surfaces never drift.
  *
- * Behaviour, numbered by the "Phase N" headers in the code below:
+ * Protected curricula first use commit_scheduler_recalibration: its pointer,
+ * book order, optional confirmed history and projection are one transaction.
+ * A refusal or uncertain response never enters the legacy phases below.
+ *
+ * Legacy behaviour, numbered by the "Phase N" headers in the code below:
  *   Phases 1-2. Fetch the goal's pacing fields, the incomplete gap rows (lesson_number
  *      < clamped, not yet completed), and the anchor for the gap-fill window
  *      (latest real completion's completed_at) — in two trips so the gap
@@ -259,6 +264,9 @@ export async function recalibrateCurriculumGoal(opts: {
 }): Promise<RecalibrateResult> {
   const { supabase, goalId, newCurrentLesson, vacationBlocks } = opts;
   const recordHistory = opts.recordHistory === true;
+
+  const contained = await recalibrateContained(supabase, {goalId,newCurrentLesson,recordHistory,confirmedLessonIds:opts.confirmedLessonIds});
+  if (contained) return contained;
 
   // ── Phase 0: book order. ────────────────────────────────────────────────
   // "I'm actually on lesson X" is a statement about the BOOK, but the pointer

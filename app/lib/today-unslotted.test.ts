@@ -63,6 +63,7 @@ type Call = { table: string; ops: Array<[string, ...unknown[]]> };
 function fakeClient(stored: Record<string, unknown> | null, writtenRows: unknown[] = [{ id: "x" }]) {
   const calls: Call[] = [];
   const client = {
+    async rpc() { return {data: null, error: {code: "PGRST202", message: "RPC not installed"}}; },
     from(table: string) {
       const q: Call = { table, ops: [] };
       const api = {

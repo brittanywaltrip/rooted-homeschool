@@ -1,4 +1,6 @@
 "use client";
+import { commitHistoryHeal, undoHistoryContinuation } from "@/app/lib/scheduler-history-healing";
+import { commitContainedAction, commitContainedGroups, commitCalendarAction, undoCalendarAction, assertLegacySchedulingEdit, assertLegacyCalendarEdit, undoContainedAction, schedulerRefusalMessage } from "@/app/lib/scheduler-contained";
 import { CASCADE_CALENDAR_NOTE } from "@/app/lib/calendar-refusal";
 
 import PreservedWorkPanel from "../PreservedWorkPanel";
@@ -1020,8 +1022,8 @@ export default function PlanV2() {
     async (id: string, current: boolean): Promise<boolean> => {
       try {
         return await toggleLesson(id, current);
-      } catch {
-        flashNotice(current ? "Couldn't unmark that lesson, try again." : "Couldn't save that lesson, try again.");
+      } catch (error) {
+        flashNotice(error instanceof Error ? error.message : (current ? "Couldn't unmark that lesson, try again." : "Couldn't save that lesson, try again."));
         reload();
         return false;
       }
@@ -1102,7 +1104,13 @@ export default function PlanV2() {
   const deleteLessonWithLog = useCallback(
     async (id: string) => {
       const snap = lessons.find((l) => l.id === id);
-      await deleteLesson(id);
+      try {
+        await deleteLesson(id);
+      } catch (error) {
+        flashNotice(error instanceof Error ? error.message : "Couldn't delete that lesson. Reload and try again.");
+        reload();
+        return;
+      }
       if (snap) {
         const title = snap.title && snap.title.trim().length > 0
           ? snap.title
@@ -1115,7 +1123,7 @@ export default function PlanV2() {
         });
       }
     },
-    [lessons, deleteLesson, recordEvent],
+    [lessons, deleteLesson, recordEvent, reload],
   );
 
   const skipLessonWithLog = useCallback(
@@ -1133,9 +1141,11 @@ export default function PlanV2() {
       }
       try {
         await skipLesson(lesson);
-      } catch {
+      } catch (error) {
         // skipLesson already rolled back the optimistic UI state.
-        flashNotice("Couldn't skip, try again.");
+        flashNotice(error instanceof Error ? error.message : "Couldn't skip, reload and try again.");
+        reload();
+        reloadPins();
         return;
       }
       // The projector steps over the skipped slot, so the lessons after it move
@@ -1191,6 +1201,18 @@ export default function PlanV2() {
   // (isPinProjectable), so it moves nothing else.
   const unskipLesson = useCallback(
     async (lesson: PlanV2Lesson) => {
+      const contained = await commitContainedAction(supabase, lesson.curriculum_goal_id, {
+        kind: "set_skipped", lessonIds: [lesson.id], skipped: false, localDay: todayStr, restoreDates: {[lesson.id]: todayStr},
+      });
+      if (contained.status !== "legacy") {
+        if (contained.status === "applied" || contained.status === "already_applied") {
+          setSkippedLessons(prev => prev.filter(l => l.id !== lesson.id));
+          flashNotice("Lesson returned to the plan.");
+        } else flashNotice(schedulerRefusalMessage(contained));
+        reload();
+        reloadPins();
+        return;
+      }
       const { data: row, error: readErr } = await supabase
         .from("lessons")
         .select("queue_position, curriculum_goals(current_lesson)")
@@ -1591,13 +1613,16 @@ export default function PlanV2() {
         message: `Added lesson · ${row.title ?? "Lesson"} on ${dateLabel}`,
         key: `lesson-add:${row.id}`,
         onUndo: async () => {
-          setLessons((prev) => prev.filter((l) => l.id !== row.id));
           hapticTap(20);
           try {
-            await supabase.from("lessons").delete().eq("id", row.id);
-          } catch {
-            /* best-effort; next reload reconciles */
+            const {data, error} = await supabase.from("lessons").delete().eq("id", row.id).select("id");
+            if (error || data?.length !== 1) throw new Error("Couldn't confirm Undo. Reload and review the lesson.");
+          } catch (error) {
+            flashNotice(error instanceof Error ? error.message : "Couldn't confirm Undo. Reload and review the lesson.");
+            reload();
+            return;
           }
+          setLessons((prev) => prev.filter((l) => l.id !== row.id));
           // Removing a logged completion can move the pointer back (the lessons
           // trigger recomputes it on delete): re-date the curriculum again.
           if (isExtraCompletion && goalIdForInsert && effectiveUserId) {
@@ -1671,7 +1696,15 @@ export default function PlanV2() {
     const childId =
       parent.child_id ?? curriculumGoals.find((g) => g.id === goalId)?.child_id ?? null;
 
-    const { data: inserted, error } = await supabase
+    const contained = await commitHistoryHeal(supabase, goalId, {kind: "continue", parentLessonId: rootId, targetDate});
+    if (contained.status !== "legacy" && contained.status !== "applied" && contained.status !== "already_applied") {
+      flashNotice(schedulerRefusalMessage(contained));
+      reload();
+      return;
+    }
+    const { data: inserted, error } = contained.status !== "legacy"
+      ? {data: contained.row, error: null}
+      : await supabase
       .from("lessons")
       .insert({
         user_id: effectiveUserId,
@@ -1693,6 +1726,11 @@ export default function PlanV2() {
       })
       .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, subjects(name, color), curriculum_goals(subject_label)")
       .single();
+    if (contained.status === "already_applied" && !inserted) {
+      flashNotice("The earlier request was saved, but that lesson is no longer present. Reload to review the plan.");
+      reload();
+      return;
+    }
     if (error || !inserted) {
       flashNotice("Couldn't add another day, please try again.");
       return;
@@ -1722,6 +1760,12 @@ export default function PlanV2() {
       message: `Added another day for ${title} on ${dateLabel}`,
       key: `lesson-continue:${row.id}`,
       onUndo: async () => {
+        if (contained.status !== "legacy") {
+          const undone = await undoHistoryContinuation(supabase, contained.operationId!);
+          if (undone.status !== "undone" && undone.status !== "already_undone") flashNotice(schedulerRefusalMessage(undone));
+          reload();
+          return;
+        }
         setLessons((prev) => prev.filter((l) => l.id !== row.id));
         hapticTap(20);
         try {
@@ -2115,6 +2159,7 @@ export default function PlanV2() {
     //     out of their own reports, so completed rows are kept as history now,
     //     and so are unfinished rows carrying notes.
     try {
+      await assertLegacySchedulingEdit(supabase, [goal.id], "Deleting this protected curriculum is unavailable. Nothing changed.");
       const { data: rowsData, error: rowsErr } = await supabase
         .from("lessons")
         .select("id, completed, notes")
@@ -2172,8 +2217,9 @@ export default function PlanV2() {
         .delete()
         .eq("id", goal.id);
       if (goalErr) throw new Error(goalErr.message);
-    } catch {
-      flashNotice("Couldn't delete curriculum, try again.");
+    } catch (error) {
+      flashNotice(error instanceof Error ? error.message : "Couldn't delete curriculum. Reload to check what was saved.");
+      reloadGoals(); reload();
       return;
     }
     recordEvent("curriculum_goal.deleted", {
@@ -2196,25 +2242,29 @@ export default function PlanV2() {
     const { goal } = stopGoalConfirm;
     const completedAt = new Date().toISOString();
     try {
+      await assertLegacySchedulingEdit(supabase, [goal.id], "Stopping this protected curriculum is unavailable. Nothing changed.");
       // 1. Wipe future / uncompleted lesson rows so the queue projector
       //    has nothing left to schedule.
-      await supabase
+      const {error: lessonError} = await supabase
         .from("lessons")
         .delete()
         .eq("curriculum_goal_id", goal.id)
         .eq("completed", false);
+      if (lessonError) throw new Error("The curriculum could not be stopped. Reload to check the saved schedule.");
       // 2. Cap total_lessons at the actual completed count and mark
       //    completed_at so the goal moves into the celebrating /
       //    completed buckets and disappears from active.
-      await supabase
+      const {data: stoppedGoals, error: goalError} = await supabase
         .from("curriculum_goals")
         .update({
           total_lessons: goal.current_lesson,
           completed_at: completedAt,
         })
-        .eq("id", goal.id);
-    } catch {
-      flashNotice("Couldn't stop curriculum, please try again.");
+        .eq("id", goal.id).select("id");
+      if (goalError || stoppedGoals?.length !== 1) throw new Error("Some lesson changes may have saved, but the curriculum was not confirmed stopped. Reload to review it.");
+    } catch (error) {
+      flashNotice(error instanceof Error ? error.message : "Couldn't finish stopping curriculum. Reload to review it.");
+      reloadGoals(); reload();
       return;
     }
     // Optimistic local update so the active/celebrating/completed buckets
@@ -3382,6 +3432,18 @@ export default function PlanV2() {
     toDateStr: string,
   ): Promise<{ held: number; keptSlot: boolean; undo: () => Promise<boolean> } | null> => {
     const lesson = lessons.find((l) => l.id === lessonId);
+    const contained = await commitContainedAction(supabase, lesson?.curriculum_goal_id, {
+      kind: "single_move", lessonId, targetDate: toDateStr, localDay: todayStr,
+    });
+    if (contained.status !== "legacy") {
+      if (contained.status !== "applied" && contained.status !== "already_applied") {
+        throw new Error(schedulerRefusalMessage(contained));
+      }
+      return {held: typeof contained.held === "number" ? contained.held : Array.isArray(contained.held) ? contained.held.length : 0, keptSlot: toDateStr > fromDateStr, undo: async () => {
+        const result = await undoContainedAction(supabase, contained.operationId!);
+        return result.status === "undone" || result.status === "already_undone";
+      }};
+    }
     if (toDateStr > fromDateStr && lesson?.curriculum_goal_id && !lesson.completed) {
       const res = await moveLessonKeepSlot(supabase, {
         lessonId,
@@ -3470,14 +3532,20 @@ export default function PlanV2() {
       // One write for every single move (writeSingleMove): a later day keeps
       // the lesson's queue slot and holds the lessons after it, so Today shows
       // what Plan shows.
-      const written = await writeSingleMove(lessonId, fromDateStr, toDateStr).catch(() => null);
+      let moveFailure = "Couldn't save, check your connection and try again.";
+      const written = await writeSingleMove(lessonId, fromDateStr, toDateStr).catch((error: unknown) => {
+        if (error instanceof Error) moveFailure = error.message;
+        return null;
+      });
       if (!written) {
         setLessons((prev) =>
           prev.map((l) =>
             l.id === lessonId ? { ...l, scheduled_date: fromDateStr, date: fromDateStr } : l,
           ),
         );
-        flashNotice("Couldn't save, check your connection and try again.");
+        flashNotice(moveFailure);
+        reload();
+        reloadPins();
         return;
       }
 
@@ -3750,6 +3818,8 @@ export default function PlanV2() {
   }, [reload]);
 
   useEffect(() => {
+    const storedNotice = window.sessionStorage.getItem("rooted:pending-delete-notice");
+    if (storedNotice) { window.sessionStorage.removeItem("rooted:pending-delete-notice"); flashNotice(storedNotice); }
     return () => {
       // Capture the timer/rows at unmount time; can't await inside cleanup.
       const pending = pendingBulkDeleteRef.current;
@@ -3757,8 +3827,16 @@ export default function PlanV2() {
         window.clearTimeout(pending.timer);
         pendingBulkDeleteRef.current = null;
         const ids = pending.rows.map((r) => r.id);
-        // Fire and forget — we're tearing down.
-        supabase.from("lessons").delete().in("id", ids).then(() => {}, () => {});
+        // Persist a refusal notice for the next Plan visit; never silently
+        // swallow a resolved Supabase error just because this view unmounted.
+        const report = (notice: string | null) => {
+          if (notice) window.sessionStorage.setItem("rooted:pending-delete-notice", notice);
+          window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+        };
+        supabase.from("lessons").delete().in("id", ids).select("id").then(
+          ({data, error}) => report(bulkDeleteFailureNotice(ids.length, data?.length ?? 0, !!error)),
+          () => report("The pending deletion could not be confirmed. Reload and review the lessons."),
+        );
       }
     };
   }, []);
@@ -3919,12 +3997,18 @@ export default function PlanV2() {
     hapticTap(15);
 
     // The same write as every single move (writeSingleMove).
-    const written = await writeSingleMove(lessonId, fromDate, toDateStr).catch(() => null);
+    let moveFailure = "Couldn't move that lesson, check your connection.";
+    const written = await writeSingleMove(lessonId, fromDate, toDateStr).catch((error: unknown) => {
+      if (error instanceof Error) moveFailure = error.message;
+      return null;
+    });
     if (!written) {
       setLessons((prev) =>
         prev.map((l) => (l.id === lessonId ? { ...l, scheduled_date: fromDate, date: fromDate } : l)),
       );
-      flashNotice("Couldn't move that lesson, check your connection.");
+      flashNotice(moveFailure);
+      reload();
+      reloadPins();
       return;
     }
 
@@ -4208,12 +4292,28 @@ export default function PlanV2() {
     setBulkBusy(true);
     // Each row's pin, source and goal: undo puts a dragged lesson back as a pin
     // with its own source, and the skips re-date the goals they landed in.
-    const { data: priorRows } = await supabase
+    const { data: priorRows, error: priorError } = await supabase
       .from("lessons")
       .select("id, queue_pinned, scheduled_source, curriculum_goal_id")
       .in("id", snap.map((s) => s.id));
+    if (priorError || priorRows?.length !== snap.length) {
+      flashNotice("Couldn't read the selected lessons. Nothing was changed; reload and try again.");
+      setBulkBusy(false);
+      return;
+    }
     type PriorRow = { id: string; queue_pinned: boolean | null; scheduled_source: string | null; curriculum_goal_id: string | null };
     const priorById = new Map(((priorRows ?? []) as PriorRow[]).map((r) => [r.id, r]));
+    const groups = new Map<string, string[]>();
+    for (const item of snap) {
+      const goalId = priorById.get(item.id)?.curriculum_goal_id;
+      if (goalId) groups.set(goalId, [...(groups.get(goalId) ?? []), item.id]);
+    }
+    const groupOutcomes = await commitContainedGroups(supabase, Array.from(groups, ([goalId, lessonIds]) => ({
+      goalId, action: {kind: "set_skipped" as const, lessonIds: lessonIds.sort(), skipped: true, localDay: todayStr},
+    })));
+    const outcomeByGoal = new Map(groupOutcomes.map(outcome => [outcome.goalId, outcome.result]));
+    const protectedReceipts = groupOutcomes.filter(outcome => outcome.result.status === "applied" || outcome.result.status === "already_applied");
+    const uncertain = groupOutcomes.filter(outcome => outcome.result.status === "unknown");
     const snapIds = new Set(snap.map((s) => s.id));
     setLessons((prev) =>
       prev.map((l) => (snapIds.has(l.id) ? { ...l, scheduled_date: null } : l)),
@@ -4223,16 +4323,22 @@ export default function PlanV2() {
     // Confirmed per row: a row the database leaves alone comes back missing
     // from the representation with no error, and counts as a failure.
     const results = await Promise.allSettled(
-      snap.map((s) =>
-        supabase
+      snap.map(async (s) => {
+        const goalId = priorById.get(s.id)?.curriculum_goal_id;
+        const result = goalId ? outcomeByGoal.get(goalId) : undefined;
+        if (result && result.status !== "legacy") {
+          if (result.status === "applied" || result.status === "already_applied") return true;
+          throw new Error(schedulerRefusalMessage(result));
+        }
+        return supabase
           .from("lessons")
           .update({ skipped: true, scheduled_date: null, queue_pinned: false })
           .eq("id", s.id)
           .select("id")
           .then(({ data, error }) =>
             error || (data ?? []).length !== 1 ? Promise.reject(error ?? new Error("not skipped")) : true,
-          ),
-      ),
+          );
+      }),
     );
 
     const succeeded: { id: string; from: string }[] = [];
@@ -4258,7 +4364,7 @@ export default function PlanV2() {
     const skippedGoalIds = Array.from(new Set(
       succeeded
         .map((s) => priorById.get(s.id)?.curriculum_goal_id)
-        .filter((g): g is string => !!g),
+        .filter((g): g is string => !!g && outcomeByGoal.get(g)?.status === "legacy"),
     ));
     const moved = skippedGoalIds.length > 0 && effectiveUserId
       ? await resyncGoalsForParent(supabase, effectiveUserId, skippedGoalIds, PARENT_RESPREAD_SOURCE.skip)
@@ -4269,7 +4375,7 @@ export default function PlanV2() {
       setUndoAction({
         message:
           (failedIds.length > 0
-            ? `Skipped ${succeeded.length} of ${snap.length}, ${failedIds.length} couldn't be skipped`
+            ? `Skipped ${succeeded.length} of ${snap.length}, ${failedIds.length} not confirmed`
             : `Skipped ${succeeded.length} lesson${succeeded.length === 1 ? "" : "s"}`) + notMovedNote,
         key: `bulk-skip:${Date.now()}`,
         onUndo: async () => {
@@ -4279,8 +4385,19 @@ export default function PlanV2() {
           // re-dated as the family's own action ('skip_undo'), exactly as a
           // single Unskip does. Restoring the old dates alone would put the
           // skipped lessons back on days the moved-up lessons now hold.
+          let receiptNotRestored = 0;
+          for (const outcome of [...protectedReceipts].reverse()) {
+            const result = await undoContainedAction(supabase, outcome.result.operationId!);
+            if (result.status !== "undone" && result.status !== "already_undone") {
+              receiptNotRestored += outcome.action.kind === "set_skipped" ? outcome.action.lessonIds.length : 1;
+            }
+          }
+          const legacySucceeded = succeeded.filter(s => {
+            const goalId = priorById.get(s.id)?.curriculum_goal_id;
+            return !goalId || outcomeByGoal.get(goalId)?.status === "legacy";
+          });
           const restored = await Promise.all(
-            succeeded.map(async (s) => {
+            legacySucceeded.map(async (s) => {
               const prior = priorById.get(s.id);
               const payload = prior?.queue_pinned
                 ? {
@@ -4299,7 +4416,7 @@ export default function PlanV2() {
               return !error && (data ?? []).length === 1;
             }),
           );
-          const notRestored = restored.filter((ok) => !ok).length;
+          const notRestored = restored.filter((ok) => !ok).length + receiptNotRestored;
           const back = skippedGoalIds.length > 0 && effectiveUserId
             ? await resyncGoalsForParent(supabase, effectiveUserId, skippedGoalIds, PARENT_RESPREAD_SOURCE.unskip)
             : { ok: true, written: 0, failedGoals: [] as string[] };
@@ -4310,7 +4427,7 @@ export default function PlanV2() {
           const undated = ((dated ?? []) as { scheduled_date: string | null }[])
             .filter((r) => !r.scheduled_date).length;
           if (notRestored > 0) {
-            flashNotice(`${notRestored} lesson${notRestored === 1 ? "" : "s"} couldn't be put back. Try again.`);
+            flashNotice(`${notRestored} lesson${notRestored === 1 ? "" : "s"} could not be confirmed restored. Reload and review before trying again.`);
           } else if (!back.ok || datedErr || undated > 0) {
             flashNotice("They're back in the queue, but some couldn't be given a day. Try again, or check your connection.");
           } else {
@@ -4326,6 +4443,8 @@ export default function PlanV2() {
       flashNotice(`Couldn't skip ${failedIds.length} lesson${failedIds.length === 1 ? "" : "s"}.`);
     }
 
+    if (uncertain.length > 0) flashNotice("Some course changes could not be confirmed. Reload and review the plan before trying again.");
+    // Successes are per course; another course may have refused independently.
     recordEvent("lesson.bulk_action", {
       action: "skip",
       count: snap.length,
@@ -4340,7 +4459,7 @@ export default function PlanV2() {
     if (succeeded.length > 0) reloadPins();
     setBulkBusy(false);
     exitSelectMode();
-  }, [lessons, setLessons, reload, reloadPins, exitSelectMode, flagLanded, recordEvent, effectiveUserId]);
+  }, [lessons, setLessons, reload, reloadPins, exitSelectMode, flagLanded, recordEvent, effectiveUserId, todayStr]);
 
   // ── Bulk: delete (deferred DB write to undo window) ──────────────────────
 
@@ -4353,6 +4472,15 @@ export default function PlanV2() {
 
     if (rows.length === 0) {
       exitSelectMode();
+      return;
+    }
+
+    try {
+      await assertLegacySchedulingEdit(supabase, Array.from(new Set(rows.map(row => row.curriculum_goal_id).filter((id): id is string => !!id))),
+        "Bulk deletion is unavailable for protected curriculum lessons. Nothing changed.");
+    } catch (error) {
+      flashNotice(error instanceof Error ? error.message : "Couldn't check those lessons. Nothing changed.");
+      reload();
       return;
     }
 
@@ -4744,6 +4872,28 @@ export default function PlanV2() {
 
   const handleVacationSave = useCallback(async (values: VacationBlockSave) => {
     if (!effectiveUserId) throw new Error("Not signed in");
+    const contained = await commitCalendarAction(supabase, vacationModalExisting
+      ? {kind: "edit", id: vacationModalExisting.id, name: values.name, startDate: values.start_date, endDate: values.end_date}
+      : {kind: "add", name: values.name, startDate: values.start_date, endDate: values.end_date, shift: values.apply_shift});
+    if (contained.status !== "legacy") {
+      if (contained.status !== "applied" && contained.status !== "already_applied") {
+        reload();
+        throw new Error(contained.reason === "preserved_work" ? "This break would move preserved unfinished work. Nothing changed; review those lessons first." : schedulerRefusalMessage(contained));
+      }
+      setUndoAction({message: `${vacationModalExisting ? "Updated" : "Added"} break: ${values.name}${contained.written ? " · lessons shifted" : ""}`,
+        key: `calendar:${contained.operationId}`, onUndo: async () => {
+          const undone = await undoCalendarAction(supabase, contained.operationId!);
+          if (undone.status !== "undone" && undone.status !== "already_undone") flashNotice(schedulerRefusalMessage(undone));
+          reload(); reloadPins();
+        }});
+      if (!vacationModalExisting) recordEvent("vacation_block.created", {
+        vacation_block_id: contained.blockId, name: values.name, start_date: values.start_date, end_date: values.end_date,
+        shift_applied: !!contained.written,
+      });
+      reload(); reloadPins();
+      return;
+    }
+    await assertLegacyCalendarEdit(supabase, effectiveUserId);
 
     if (vacationModalExisting) {
       // Edit: simple UPDATE. No shift on edit (see VacationBlockModal docs).
@@ -4866,10 +5016,29 @@ export default function PlanV2() {
     });
 
     reload();
-  }, [effectiveUserId, schoolDays, vacationBlocks, vacationModalExisting, batchUpdateScheduledDates, recordEvent, reload]);
+  }, [effectiveUserId, schoolDays, vacationBlocks, vacationModalExisting, batchUpdateScheduledDates, recordEvent, reload, reloadPins]);
 
   const handleVacationDelete = useCallback(async (shiftBack: boolean) => {
     if (!vacationModalExisting) return;
+    if (!effectiveUserId) throw new Error("Not signed in");
+    const contained = await commitCalendarAction(supabase, {kind: "remove", id: vacationModalExisting.id, shift: shiftBack});
+    if (contained.status !== "legacy") {
+      if (contained.status !== "applied" && contained.status !== "already_applied") {
+        reload();
+        throw new Error(contained.reason === "preserved_work" ? "Removing this break would move preserved unfinished work. Nothing changed; review those lessons first." : schedulerRefusalMessage(contained));
+      }
+      setUndoAction({message: `Deleted break: ${vacationModalExisting.name}`, key: `calendar:${contained.operationId}`,
+        onUndo: async () => {
+          const undone = await undoCalendarAction(supabase, contained.operationId!);
+          if (undone.status !== "undone" && undone.status !== "already_undone") flashNotice(schedulerRefusalMessage(undone));
+          reload(); reloadPins();
+        }});
+      recordEvent("vacation_block.deleted", {vacation_block_id:vacationModalExisting.id,name:vacationModalExisting.name,
+        start_date:vacationModalExisting.start_date,end_date:vacationModalExisting.end_date,shift_applied:!!contained.written});
+      reload(); reloadPins();
+      return;
+    }
+    await assertLegacyCalendarEdit(supabase, effectiveUserId);
     const { id, name, start_date, end_date, shift_applied } = vacationModalExisting;
 
     // Capture any shift-back pairs first (while the block still exists
@@ -4952,7 +5121,7 @@ export default function PlanV2() {
     });
 
     reload();
-  }, [effectiveUserId, schoolDays, vacationBlocks, vacationModalExisting, batchUpdateScheduledDates, recordEvent, reload]);
+  }, [effectiveUserId, schoolDays, vacationBlocks, vacationModalExisting, batchUpdateScheduledDates, recordEvent, reload, reloadPins]);
 
   // "End break now" — invoked from the modal's active-break view. Caps the
   // block's end_date at today (clamped to start_date so a same-day block
@@ -4960,6 +5129,15 @@ export default function PlanV2() {
   // the queue projector reads the updated block range on the next reload.
   const handleVacationEndNow = useCallback(async () => {
     if (!vacationModalExisting || !effectiveUserId) return;
+    const contained = await commitCalendarAction(supabase, {kind: "endnow", id: vacationModalExisting.id});
+    if (contained.status !== "legacy") {
+      if (contained.status !== "applied" && contained.status !== "already_applied") {
+        reload(); throw new Error(schedulerRefusalMessage(contained));
+      }
+      reload(); reloadPins();
+      return;
+    }
+    await assertLegacyCalendarEdit(supabase, effectiveUserId);
     const newEnd = todayStr < vacationModalExisting.start_date
       ? vacationModalExisting.start_date
       : todayStr;
@@ -4969,7 +5147,7 @@ export default function PlanV2() {
       .eq("id", vacationModalExisting.id);
     if (error) throw new Error(error.message);
     reload();
-  }, [effectiveUserId, todayStr, vacationModalExisting, reload]);
+  }, [effectiveUserId, todayStr, vacationModalExisting, reload, reloadPins]);
 
   // ── Day-cell context menu actions ─────────────────────────────────────────
   // Helpers scoped to the day the menu is open for. All actions close the
@@ -5057,6 +5235,7 @@ export default function PlanV2() {
     if (!effectiveUserId) return;
     // Optimistic: show the block immediately by writing to local state via reload after insert.
     try {
+      await assertLegacyCalendarEdit(supabase, effectiveUserId);
       const { data, error } = await supabase
         .from("vacation_blocks")
         .insert({
@@ -5082,9 +5261,13 @@ export default function PlanV2() {
         onUndo: async () => {
           hapticTap(20);
           try {
-            await supabase.from("vacation_blocks").delete().eq("id", insertedId);
-          } catch {
-            flashNotice("Couldn't undo, check your connection.");
+            await assertLegacyCalendarEdit(supabase, effectiveUserId);
+            const {error} = await supabase.from("vacation_blocks").delete().eq("id", insertedId);
+            if (error) throw new Error(error.message);
+          } catch (error) {
+            flashNotice(error instanceof Error ? error.message : "Couldn't undo, check your connection.");
+            reload();
+            return;
           }
           recordEvent("vacation_block.deleted", {
             vacation_block_id: insertedId,
@@ -5102,8 +5285,8 @@ export default function PlanV2() {
         end_date: dateStr,
       });
       reload();
-    } catch {
-      flashNotice("Couldn't save, check your connection and try again.");
+    } catch (error) {
+      flashNotice(error instanceof Error ? error.message : "Couldn't save, check your connection and try again.");
     }
   }, [effectiveUserId, reload, recordEvent]);
 

@@ -1,0 +1,36 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import type {SupabaseClient} from '@supabase/supabase-js';
+import {recalibrateContained,planContainedRecalibration} from './recalibrate-contained.ts';
+const snapshot={goal:{id:'g',total_lessons:3,current_lesson:0,lessons_per_day:1,school_days:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],start_date:'2026-01-01'},rows:[1,2,3].map(n=>({id:String(n),lesson_number:n,queue_position:n,completed:false,skipped:false,queue_pinned:false,queue_preserved:false,is_backfill:false,continues_lesson_id:null,date:`2026-01-0${n}`,scheduled_date:`2026-01-0${n}`})),vacations:[]};
+const state={status:'ready',mode:'atomic_v2',snapshot,localDay:'2026-01-01',dayStartIso:'2026-01-01T00:00:00Z',dayEndIso:'2026-01-02T00:00:00Z'};
+const success={status:'applied',gapCount:1,keptPinned:[],estimates:[],unscheduled:['1'],respread:['2','3'],bookOrderRestored:false};
+test('projection uses canonical day, queue order and only fixed tail dates',()=>{
+ assert.deepEqual(planContainedRecalibration(state as never,2),[{id:'2',date:'2026-01-01'},{id:'3',date:'2026-01-02'}]);
+ assert.equal(planContainedRecalibration(state as never,2.5),null);
+ assert.equal(planContainedRecalibration({...state,snapshot:{...snapshot,rows:snapshot.rows.slice(1)}} as never,2),null);
+});
+test('lost response retries retained exact operation; different intent cannot replace it',async()=>{
+ const requests:unknown[]=[];let calls=0;let reads=0;
+ const client={rpc:async(name:string,args:unknown)=>{
+  if(name==='read_scheduler_state'){reads++;return {data:state,error:null};}
+  requests.push(args);if(calls++<2)throw new Error('lost');return {data:{...success,status:'already_applied'},error:null};
+ }} as unknown as SupabaseClient;
+ const opts={goalId:'g',newCurrentLesson:2};
+ await assert.rejects(recalibrateContained(client,opts),/could not confirm/);
+ await assert.rejects(recalibrateContained(client,{...opts,newCurrentLesson:3}),/could not confirm/);
+ const result=await recalibrateContained(client,opts);assert.equal(result?.newCountDone,1);assert.equal(reads,1);assert.equal(new Set(requests.map(x=>JSON.stringify(x))).size,1);
+});
+test('only explicit legacy/missing state RPC permits legacy writer',async()=>{
+ for(const response of [{data:{status:'ready',mode:'legacy'},error:null},{data:null,error:{code:'PGRST202'}}]) {
+  const client={rpc:async()=>response} as unknown as SupabaseClient;assert.equal(await recalibrateContained(client,{goalId:'g',newCurrentLesson:2}),null);
+ }
+ const paused={rpc:async()=>({data:{...state,mode:'paused'},error:null})} as unknown as SupabaseClient;
+ await assert.rejects(recalibrateContained(paused,{goalId:'g',newCurrentLesson:2}),/paused/);
+});
+test('definite busy refusal retains no pending action and allows fresh read',async()=>{
+ let reads=0;
+ const client={rpc:async(name:string)=>{if(name==='read_scheduler_state'){reads++;return {data:state,error:null};}return {data:{status:'busy'},error:null};}} as unknown as SupabaseClient;
+ await assert.rejects(recalibrateContained(client,{goalId:'g',newCurrentLesson:2}),/still saving/);
+ await assert.rejects(recalibrateContained(client,{goalId:'g',newCurrentLesson:2}),/still saving/);assert.equal(reads,2);
+});

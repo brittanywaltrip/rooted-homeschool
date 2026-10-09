@@ -192,6 +192,7 @@ function makeRecalibrateSupabase(opts: {
   }
 
   const supabase = {
+    rpc: async () => ({ data: null, error: { code: "PGRST202" } }),
     from(table: string) {
       if (table === 'lessons') return lessonsTable()
       if (table === 'curriculum_goals') return goalsTable()

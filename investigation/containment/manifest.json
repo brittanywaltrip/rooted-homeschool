@@ -1,0 +1,15 @@
+{
+  "sources": {
+    "core.sql": "efd19f0f9293b02a5627decd185d260b8f84a783db0423be6699b9ff24c7c0c2",
+    "wrappers.sql": "d493c9f3a64728245fd5d4cc5860bd4532cbfc0b85c71dc61440c74444cf54dc",
+    "actions.sql": "0107da8ff5d4e59a2407b7c84399f4e03b400841e8157611e2475d20734b0bf1",
+    "work-preservation.sql": "9067b28eebe19b89aafc44ba2d3b33075649dbb49615fe708eef7cb6837f1a94",
+    "recalibration.sql": "08f9c14efdd73a3b8ad8f8c0cf470fa1081019b654b641de8c8fa46e73042dcc",
+    "history-healing.sql": "1c5959fcd455d9238cb0eb057593e9025a346b86bcad09efb82d00f2cd50c1a3",
+    "calendar.sql": "a424011a0f47f801d3459491a2706ad3e032de9fb9a776bb3b72190f81e244eb",
+    "retention.sql": "53959ada670200b0da19e887e604cb4fe4a4fe2e6c17043338afa5e77d961ada"
+  },
+  "migration": "20261009183309_kandl_protected_scheduler_containment.sql",
+  "sha256": "9deeebc4fe5a9def751fe39c92ecdc1167451b9f4f21a4a9f227a30a790539fd",
+  "activation": "None; empty protected cohort"
+}

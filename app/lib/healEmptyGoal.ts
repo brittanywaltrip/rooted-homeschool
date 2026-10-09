@@ -8,6 +8,7 @@ import {
   type GoalConfigRow,
   type VacationBlock,
 } from "./scheduler.ts";
+import { commitHistoryHeal } from "./scheduler-history-healing.ts";
 import { captureSupabaseError } from "../../lib/sentry-error.ts";
 
 /* ============================================================================
@@ -258,6 +259,9 @@ export async function healEmptyGoal(
       userId: args.userId,
     });
     if (rows.length === 0) return 0;
+
+    const contained = await commitHistoryHeal(supabase, goalId, {kind: "heal_empty"});
+    if (contained.status !== "legacy") return contained.status === "applied" || contained.status === "already_applied" ? contained.written ?? 0 : 0;
 
     // 4. Write, in batches, through the same helper the builder uses.
     let written = 0;

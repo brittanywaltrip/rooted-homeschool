@@ -1,0 +1,9 @@
+PASS zero/over-max/null limits refuse without payload changes
+PASS batch limit 2 scrubs exactly two eligible action receipts
+PASS bounded repeated calls drain backlog and then return zero
+PASS unexpired payload and every durable proof remain unchanged
+PASS all synthetic receipts and maintenance changes rolled back
+PASS two-session maintenance skips locked receipt within 1s and scrubs only unlocked receipt
+PASS both maintenance/lock transactions roll back without changing committed seed payloads
+PASS committed synthetic seed removed; both receipt tables exactly empty again
+{"database": "rooted_containment_rehearsal", "passed": ["zero/over-max/null limits refuse without payload changes", "batch limit 2 scrubs exactly two eligible action receipts", "bounded repeated calls drain backlog and then return zero", "unexpired payload and every durable proof remain unchanged", "all synthetic receipts and maintenance changes rolled back", "two-session maintenance skips locked receipt within 1s and scrubs only unlocked receipt", "both maintenance/lock transactions roll back without changing committed seed payloads", "committed synthetic seed removed; both receipt tables exactly empty again"], "unrun": []}

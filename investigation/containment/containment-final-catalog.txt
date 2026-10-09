@@ -1,0 +1,3 @@
+PASS exact function body/security/search-path/ACL comparison: 40 functions
+PASS four private table RLS/ACL definitions match
+PASS no active synthetic cohorts or reusable capabilities remain

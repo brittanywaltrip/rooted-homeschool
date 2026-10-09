@@ -1,3 +1,4 @@
+import { commitContainedAction, pendingContainedAction, schedulerRefusalMessage, type SchedulerRetry } from "./scheduler-contained.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /* ============================================================================
@@ -206,6 +207,8 @@ type StoredPlacement = {
 export type CompletionErrorCode = "not_found" | "placement_changed" | "already_completed";
 
 export interface CompleteLessonResult {
+  contained?: boolean;
+  retry?: SchedulerRetry;
   /** What was written for a queue lesson; null when completed in place. */
   payload: CompletionPayload | null;
   /** The day the completion is filed under, as stored on the row. */
@@ -256,11 +259,24 @@ export async function completeLessonOnDate(
 ): Promise<CompleteLessonResult> {
   // Decided from the stored row, not the caller's copy of it, so a stale screen
   // can never move or unpin a lesson that has no queue slot.
-  const { data: stored, error: readErr } = await supabase
-    .from("lessons")
-    .select("curriculum_goal_id, queue_position, scheduled_date, queue_pinned, skipped, completed")
-    .eq("id", args.lessonId)
-    .maybeSingle();
+  const pending = pendingContainedAction(supabase, args.lessonId);
+  // A lost response may already have completed the lesson. Resume the exact
+  // original operation before fresh placement/completion guards can hide it.
+  const retainedRow = pending?.action.kind === "complete"
+    ? (pending.expected as {rows?: Array<Record<string, unknown>>}).rows?.find(r => r.id === args.lessonId)
+    : undefined;
+  const { data: stored, error: readErr } = retainedRow
+    ? {data: {
+        curriculum_goal_id: retainedRow.curriculum_goal_id,
+        queue_position: retainedRow.queue_position,
+        scheduled_date: retainedRow.scheduled_date,
+        queue_pinned: retainedRow.queue_pinned,
+        skipped: retainedRow.skipped,
+        completed: retainedRow.completed,
+      }, error: null}
+    : await supabase.from("lessons")
+      .select("curriculum_goal_id, queue_position, scheduled_date, queue_pinned, skipped, completed")
+      .eq("id", args.lessonId).maybeSingle();
   if (readErr) return { payload: null, filedDate: args.dateStr, inPlace: false, error: readErr };
   const row = stored as StoredPlacement | null;
   if (!row) {
@@ -269,6 +285,26 @@ export async function completeLessonOnDate(
   if (args.onlyIfIncomplete && row.completed) {
     return { payload: null, filedDate: row.scheduled_date ?? args.dateStr, inPlace: completesInPlace(row),
       error: { message: "lesson was already completed", code: "already_completed" } };
+  }
+  if (row.curriculum_goal_id) {
+    const inPlace = completesInPlace(row);
+    const filedDate = inPlace ? row.scheduled_date as string : args.dateStr;
+    let payload = inPlace ? null : buildCompletionPayload({dateStr: args.dateStr, choice: args.choice, todayStr: args.todayStr, now: args.now});
+    const result = await commitContainedAction(supabase, row.curriculum_goal_id, {
+      kind: "complete", lessonId: args.lessonId, onlyIfIncomplete: args.onlyIfIncomplete,
+      placement: { ...row },
+      payload: { ...completionTimeFields(args.extra), ...(payload ?? {completed: true, completed_at: inPlaceCompletedAt(filedDate, args.todayStr, args.now)}) },
+    });
+    if (result.status !== "legacy") {
+      if (result.status !== "applied" && result.status !== "already_applied") return {
+        payload, filedDate, inPlace, contained: true, retry: result.retry,
+        error: {code: result.status === "stale" ? "placement_changed" : result.status, message: schedulerRefusalMessage(result)},
+      };
+      if (payload && result.action?.kind === "complete") payload = result.action.payload as unknown as CompletionPayload;
+      args.track?.({lesson_number: args.lessonNumber ?? null, subject_label: args.subjectLabel ?? null,
+        lesson_date: filedDate, date_choice: inPlace ? (filedDate === args.todayStr ? "today" : "planned") : args.choice, surface: args.surface});
+      return {payload, filedDate, inPlace, contained: true, error: null};
+    }
   }
   // This predicate is evaluated with the UPDATE, not just in the read above.
   // Deliberate date changes on other surfaces retain their existing behavior.

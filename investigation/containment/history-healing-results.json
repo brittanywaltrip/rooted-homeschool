@@ -1,0 +1,20 @@
+{
+  "passed": [
+    "wrong projected next date rolls back insert and capability",
+    "next missing row heals without touching held rows",
+    "empty queue all slots atomic and identical replay does not duplicate",
+    "history insert preserves requested past noon completion and pin",
+    "history replay/stale page cannot overwrite recorded work",
+    "continuation derives exact root metadata, preserves schedule and receipt replay",
+    "paused continuation Undo preserves original schedule without disabling guard",
+    "exact continuation Undo removes only created row and repeats safely",
+    "continuation Undo refuses after parent note without touching it",
+    "expired continuation payload scrub preserves replay and missing row never reinserts",
+    "history insertion above earlier hours/minutes/start-time/notes preserves each full work row",
+    "actual TS helper lost responses replay exact operation and Undo through real API",
+    "public history wrapper resumes original insert receipt before existing-row lookup; one event and unchanged timestamp",
+    "invalid root and all outcomes leave no capability",
+    "row contention returns busy without partial insertion"
+  ],
+  "count": 15
+}

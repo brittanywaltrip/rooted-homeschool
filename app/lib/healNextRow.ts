@@ -21,6 +21,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { commitHistoryHeal } from "./scheduler-history-healing.ts";
 import { captureSupabaseError } from "../../lib/sentry-error.ts";
 
 export type NextRowGoal = {
@@ -219,6 +220,10 @@ export async function healNextRow(
   supabase: SupabaseClient,
   planned: PlannedNextRow,
 ): Promise<NextRowWriteOutcome> {
+  const contained = await commitHistoryHeal(supabase, planned.curriculum_goal_id, {
+    kind: "heal_next", slot: planned.queue_position, date: planned.scheduled_date,
+  });
+  if (contained.status !== "legacy") return contained.status === "applied" || contained.status === "already_applied" ? "written" : "failed";
   const { data, error } = await supabase.from("lessons").insert(planned).select("id");
   if (error) {
     // 23505 is the unique index on (curriculum_goal_id, lesson_number) or its

@@ -3,6 +3,7 @@
 // TODO(cleanup): Delete stale test lessons for admin account:
 // DELETE FROM lessons WHERE title ILIKE '%test%' AND user_id = 'd18ca881-a776-4e82-b145-832adc88a88a';
 
+import {assertLegacyLessonAction, checkedLessonWrite} from "@/app/lib/scheduler-refusal";
 import PreservedWorkPanel from "../components/PreservedWorkPanel";
 import { LessonUnitsProvider, useLessonUnits } from "@/lib/lesson-units-context";
 import { displayLessonTitle, formatLessonLabel, formatLessonRange } from "@/lib/lesson-label";
@@ -3172,6 +3173,10 @@ function TodayPageInner() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setSavingEdit(false); return; }
 
+    if ((editChildId || null) !== (editingLesson.child_id || null)) {
+      try { await assertLegacyLessonAction(supabase, [editingLesson.id]); }
+      catch (err) { setSavingEdit(false); showCaptureToast(err instanceof Error ? err.message : "Couldn't save this edit.", null); return; }
+    }
     let subjectId: string | null = null;
     if (editSubject.trim()) {
       const existing = subjects.find((s) => s.name.toLowerCase() === editSubject.trim().toLowerCase());
@@ -3185,12 +3190,13 @@ function TodayPageInner() {
       }
     }
 
-    await supabase.from("lessons").update({
+    const {error: editError} = await supabase.from("lessons").update({
       title:         editTitle.trim(),
       subject_id:    subjectId,
       minutes_spent: editHours ? parseInt(editHours) : null,
       child_id:      editChildId || null,
     }).eq("id", editingLesson.id);
+    if (editError) { setSavingEdit(false); showCaptureToast("Couldn't save this edit. The lesson is unchanged; reload and try again.", null); return; }
 
     setLessons((prev) => prev.map((l) => {
       if (l.id !== editingLesson.id) return l;
@@ -3207,20 +3213,24 @@ function TodayPageInner() {
   }
 
   async function deleteLesson(id: string) {
+    try { await assertLegacyLessonAction(supabase, [id, ...(pendingDelete ? [pendingDelete.lesson.id] : [])]); }
+    catch (err) { showCaptureToast(err instanceof Error ? err.message : "Couldn't delete this lesson.", null); return; }
     // If a previous delete is still pending its undo window, commit it now
     // before starting a new one (only one delete can be undoable at a time).
     if (pendingDelete && pendingDeleteTimer.current) {
       clearTimeout(pendingDeleteTimer.current);
       pendingDeleteTimer.current = null;
       const prevId = pendingDelete.lesson.id;
-      await supabase.from("lessons").delete().eq("id", prevId);
+      const {error} = await supabase.from("lessons").delete().eq("id", prevId);
+      if (error) { setPendingDelete(null); showCaptureToast("Couldn't delete that lesson. Reloaded the saved plan.", null); await loadData(); return; }
     }
     const lesson = lessons.find((l) => l.id === id);
     if (!lesson) return;
     setLessons((prev) => prev.filter((l) => l.id !== id));
     setPendingDelete({ lesson });
     pendingDeleteTimer.current = setTimeout(async () => {
-      await supabase.from("lessons").delete().eq("id", id);
+      const {error} = await supabase.from("lessons").delete().eq("id", id);
+      if (error) { showCaptureToast("Couldn't delete that lesson. Reloaded the saved plan.", null); await loadData(); }
       await refreshLeafCounts();
       setPendingDelete(null);
       pendingDeleteTimer.current = null;
@@ -3570,6 +3580,9 @@ function TodayPageInner() {
       // current_lesson + 1 as today's lesson, unchanged by this write — the
       // prompt goes away because the row it asked about now exists.
       await loadData();
+    } catch (err) {
+      showCaptureToast(err instanceof Error ? err.message : "Couldn't record that lesson. Reload and try again.", null);
+      await loadData();
     } finally {
       setConfirmingGoalIds((prev) => {
         const next = new Set(prev);
@@ -3639,10 +3652,11 @@ function TodayPageInner() {
         density,
         getLessonsPerDay,
       );
+      await assertLegacyLessonAction(supabase, updates.map(row => row.id));
       for (let i = 0; i < updates.length; i += 20) {
         await Promise.all(
           updates.slice(i, i + 20).map(({ id, newDate }) =>
-            supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+            checkedLessonWrite(supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id))
           )
         );
       }
@@ -3671,10 +3685,11 @@ function TodayPageInner() {
       // rows being pushed back — undo restores the entire state.
       const snapshot = buildLessonDateSnapshot([...missedLessons, ...futureLessons]);
       const { updates } = libPlanPushBackNDays(missedLessons, futureLessons, getSchoolDaysForLesson, today);
+      await assertLegacyLessonAction(supabase, updates.map(row => row.id));
       for (let i = 0; i < updates.length; i += 20) {
         await Promise.all(
           updates.slice(i, i + 20).map(({ id, newDate }) =>
-            supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+            checkedLessonWrite(supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id))
           )
         );
       }
@@ -3727,6 +3742,10 @@ function TodayPageInner() {
     setRescheduleBusy(true);
     try {
       await fn();
+    } catch (err) {
+      showCaptureToast(err instanceof Error ? err.message : "Couldn't save that change. Reload and try again.", null);
+      setMissedSheetSubmitting(false);
+      await loadData();
     } finally {
       setTimeout(() => {
         reschedulingGateRef.current.exit();
@@ -3743,33 +3762,39 @@ function TodayPageInner() {
     const live = rescheduleUndoSnapshotRef.current;
     if (!live || live.snapshot.length === 0) return;
     const { snapshot } = live;
-    const unskipById = new Map((live.unskip ?? []).map((u) => [u.id, u]));
-    // Literal restore — write both columns back to their captured values.
-    // Failures bubble out; we don't swallow.
-    for (let i = 0; i < snapshot.length; i += 20) {
-      await Promise.all(
-        snapshot.slice(i, i + 20).map((s) => {
-          const unskip = unskipById.get(s.id);
-          return supabase
-            .from("lessons")
-            .update(
-              unskip
-                ? { date: s.date, scheduled_date: s.scheduled_date, skipped: false, queue_pinned: unskip.queue_pinned }
-                : { date: s.date, scheduled_date: s.scheduled_date },
-            )
-            .eq("id", s.id);
-        })
-      );
+    try {
+      await assertLegacyLessonAction(supabase, snapshot.map(row => row.id));
+      const unskipById = new Map((live.unskip ?? []).map((u) => [u.id, u]));
+      // Literal restore — write both columns back to their captured values.
+      // Failures bubble out; we don't swallow.
+      for (let i = 0; i < snapshot.length; i += 20) {
+        await Promise.all(
+          snapshot.slice(i, i + 20).map((s) => {
+            const unskip = unskipById.get(s.id);
+            return checkedLessonWrite(supabase
+              .from("lessons")
+              .update(
+                unskip
+                  ? { date: s.date, scheduled_date: s.scheduled_date, skipped: false, queue_pinned: unskip.queue_pinned }
+                  : { date: s.date, scheduled_date: s.scheduled_date },
+              )
+              .eq("id", s.id));
+          })
+        );
+      }
+      rescheduleUndoSnapshotRef.current = null;
+      setRescheduleUndoToast(null);
+      if (rescheduleUndoTimer.current) clearTimeout(rescheduleUndoTimer.current);
+      // Refetch so Today's lessons + missed-lesson section reflect the undo.
+      // Order matters for the regression guard: loadData first, then the story
+      // refresh, so the user sees both lists update without a page reload.
+      await loadData();
+      await refreshTodayStory();
+      showCaptureToast("Undo complete", null);
+    } catch (err) {
+      showCaptureToast(err instanceof Error ? err.message : "Couldn't confirm Undo. Reload to review the saved schedule.", null);
+      await loadData();
     }
-    rescheduleUndoSnapshotRef.current = null;
-    setRescheduleUndoToast(null);
-    if (rescheduleUndoTimer.current) clearTimeout(rescheduleUndoTimer.current);
-    // Refetch so Today's lessons + missed-lesson section reflect the undo.
-    // Order matters for the regression guard: loadData first, then the story
-    // refresh, so the user sees both lists update without a page reload.
-    await loadData();
-    await refreshTodayStory();
-    showCaptureToast("Undo complete", null);
   }
 
   async function rescheduleMoveTo(targetDate: string) {
@@ -3786,7 +3811,8 @@ function TodayPageInner() {
       const snapshot = priorRow
         ? buildLessonDateSnapshot([priorRow as { id: string; date: string | null; scheduled_date: string | null }])
         : buildLessonDateSnapshot([{ id: rescheduleLesson.id, date: today, scheduled_date: today }]);
-      await supabase.from("lessons").update({ scheduled_date: targetDate, date: targetDate }).eq("id", rescheduleLesson.id);
+      await assertLegacyLessonAction(supabase, [rescheduleLesson.id]);
+      await checkedLessonWrite(supabase.from("lessons").update({ scheduled_date: targetDate, date: targetDate }).eq("id", rescheduleLesson.id));
       setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setMissedLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setRescheduleLesson(null);
@@ -3845,10 +3871,11 @@ function TodayPageInner() {
         }
       }
 
+      await assertLegacyLessonAction(supabase, updates.map(row => row.id));
       for (let i = 0; i < updates.length; i += 20) {
         await Promise.all(
           updates.slice(i, i + 20).map(({ id, newDate }) =>
-            supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id)
+            checkedLessonWrite(supabase.from("lessons").update({ scheduled_date: newDate, date: newDate }).eq("id", id))
           )
         );
       }
@@ -3884,7 +3911,8 @@ function TodayPageInner() {
       tomorrow.setDate(tomorrow.getDate() + 1);
       const tomorrowStr = localDateStr(tomorrow);
 
-      await supabase.from("lessons").update({ scheduled_date: tomorrowStr, date: tomorrowStr }).eq("id", rescheduleLesson.id);
+      await assertLegacyLessonAction(supabase, [rescheduleLesson.id]);
+      await checkedLessonWrite(supabase.from("lessons").update({ scheduled_date: tomorrowStr, date: tomorrowStr }).eq("id", rescheduleLesson.id));
       setLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setMissedLessons(prev => prev.filter(l => l.id !== rescheduleLesson.id));
       setRescheduleLesson(null);
@@ -3941,16 +3969,17 @@ function TodayPageInner() {
       }
     }
 
+    await assertLegacyLessonAction(supabase, updates.map(row => row.id));
     for (let i = 0; i < updates.length; i += 20) {
       await Promise.all(
         updates.slice(i, i + 20).map(({ id, newDate }) =>
-          supabase.from("lessons").update({
+          checkedLessonWrite(supabase.from("lessons").update({
             scheduled_date: newDate,
             date: newDate,
             completed: false,
             completed_at: null,
             minutes_spent: null,
-          }).eq("id", id)
+          }).eq("id", id))
         )
       );
     }
@@ -4509,10 +4538,11 @@ function TodayPageInner() {
     setSavingActivityEdit(true);
 
     if (editingActivity.type === "lesson") {
-      await supabase.from("lessons").update({
+      const {error} = await supabase.from("lessons").update({
         title:    activityEditTitle.trim(),
         child_id: activityEditChild || null,
       }).eq("id", editingActivity.id);
+      if (error) { setSavingActivityEdit(false); showCaptureToast("Couldn't save this lesson edit. Reload and try again.", null); return; }
       setLessons((prev) => prev.map((l) => l.id !== editingActivity.id ? l : {
         ...l, title: activityEditTitle.trim(), child_id: activityEditChild || l.child_id,
       }));

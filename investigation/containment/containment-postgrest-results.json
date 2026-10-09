@@ -1,0 +1,30 @@
+{
+  "passed": [
+    "actual protected bulk skip projects tail atomically, survives two lost responses and Undo restores all rows",
+    "actual protected unskip projects atomically, lost-response replay and Undo restore skipped state",
+    "activation refuses locked legacy transaction without installing protection or changing state",
+    "delayed legacy tail/unpin/Undo/slot/detachment/source writes refuse without effects",
+    "old RPC entry refuses before first write; no missing-function fallback",
+    "multi-row direct statement refuses atomically",
+    "ordinary notes/minutes/title remain available",
+    "profile school-day schedule dependency refuses without effects",
+    "missing/null/unknown operation kind cannot delete",
+    "recorded hours prevent deletion",
+    "actual TypeScript client recovers two lost server responses using one operation and authoritative Undo",
+    "current single move applies and exact lost-response retry is idempotent",
+    "authoritative Undo restores scheduling and repeats without writes",
+    "Undo cannot overwrite later parent note",
+    "protected completion with pointer trigger succeeds",
+    "onlyIfIncomplete refuses duplicate completion",
+    "goal settings, insert/delete, calendar and timezone bypasses refuse before mutation",
+    "actual second authenticated owner cannot read goal or use owned Undo receipt",
+    "anonymous/wrong goal/private capability access refused",
+    "injected later-row failure rolls back prior holds and primary move",
+    "lesson/profile/vacation/advisory contention is bounded and releases partial locks",
+    "success/refusal leave no reusable capabilities",
+    "current guarded Builder no-change transaction succeeds in protected mode",
+    "pause blocks fresh action without enabling legacy writers",
+    "paused Builder retains owned exact-request replay"
+  ],
+  "existing_fixture_exact": true
+}
