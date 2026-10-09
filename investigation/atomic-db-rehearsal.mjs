@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import {computeNextLessonsForGoal,queueHoldsFromRows} from '../app/lib/scheduler.ts';
 import {countDoneToday} from '../app/lib/phase2-commit.ts';
 import { planAnchoredCascade } from '../app/lib/cascade-shift-plan.ts';
+process.env.TZ='UTC'; // Synthetic fixture and callback use the same active calendar.
 const runAsync=promisify(execFile);
 const root=mkdtempSync('/tmp/rooted-cascade-atomic-');
 const bin='/opt/homebrew/opt/postgresql@17/bin/';
@@ -59,7 +60,20 @@ try {
  const undo=(v)=>json(rpcSQL('undo_cascade_shift',[v.op]));
  const restored=(s)=>s.rows.map(r=>{const copy={...r};delete copy.updated_at;return copy;});
  function pass(name){results.push({name,status:'PASS'});console.log('PASS '+name);}
- if(process.env.CASCADE_COMPAT_CASE==='projection'){
+ if(process.env.REVIEW_DAILY==='1') {
+ reset(false);const yesterday=add(-1);
+ q(`update public.lessons set queue_preserved=true,date='${yesterday}',scheduled_date='${yesterday}' where id='${L(1)}';
+ update public.lessons set completed=true,completed_at='${yesterday}T12:00:00Z',date='${yesterday}',scheduled_date='${yesterday}' where id='${L(2)}';
+ update public.lessons set date='${today}',scheduled_date='${today}' where id='${L(3)}';
+ update public.curriculum_goals set current_lesson=2,lessons_per_day=1,school_days=array['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],start_date='${yesterday}';`);
+ const s=snapshot();const g=s.goal;
+ const expected={goal:{total_lessons:g.total_lessons,current_lesson:g.current_lesson,lessons_per_day:g.lessons_per_day,lessons_per_day_overrides:g.lessons_per_day_overrides,school_days:g.school_days,start_date:g.start_date},vacations:[],pins:[],skipped:[],preserved:[[1,yesterday]],done_today:1,day_start:yesterday+'T00:00:00Z',day_end:add(1)+'T00:00:00Z'};
+ const result=json(rpcSQL('apply_daily_reconcile',[G,today,expected,[{id:L(3),from:today,to:add(1)}]]));
+ const actual=snapshot();const projected=computeNextLessonsForGoal(actual.goal,new Date(today+'T00:00:00'),3650,[],countDoneToday(actual.rows,actual.dayStartIso,actual.dayEndIso),queueHoldsFromRows(actual.rows,G));
+ assert.equal(result.status,'invalid');assert.deepEqual(actual,s);
+ const stored=actual.rows.find(r=>r.queue_position===3).scheduled_date;const normal=projected.find(r=>r.lesson_number===3).date;assert.equal(stored,normal);
+ console.log(JSON.stringify({status:result.status,prefixUnchanged:true,stored,normal},null,2));pass('independent daily 48-hour reproduction rejected with all rows unchanged');
+ } else if(process.env.CASCADE_COMPAT_CASE==='projection'){
   reset(false);q(`update public.curriculum_goals set total_lessons=4 where id='${G}';insert into public.lessons(id,user_id,curriculum_goal_id,lesson_number,queue_position,date,scheduled_date)values('${L(4)}','${U}','${G}',4,null,'${add(7)}','${add(7)}')`);
   const current=snapshot();
   const projected=computeNextLessonsForGoal(current.goal,new Date(today+'T00:00:00'),3650,current.vacations,0,queueHoldsFromRows(current.rows,G));
@@ -67,8 +81,11 @@ try {
   const tsMatches=current.rows.filter(r=>r.queue_position!=null).every(r=>bySlot.get(r.queue_position)===r.scheduled_date);
   const sqlMatches=q(`select rooted_private.cascade_projection_matches(${quote(JSON.stringify(current))}::jsonb)`)==='t';
   console.log(JSON.stringify({tsMatches,sqlMatches,projected},null,2));
-  assert.equal(sqlMatches,tsMatches,'PR146 unslotted capacity must agree between SQL and TypeScript');
-  pass('PR146 unslotted capacity SQL/projector parity');
+  assert.equal(sqlMatches,false,'Unimplemented unslotted SQL rules must never certify a projection');
+  assert.equal(planAnchoredCascade(current,{lessonId:L(1),from:today,to:add(7)}).ok,false);
+  assert.deepEqual(json(rpcSQL('commit_cascade_shift',[randomUUID(),G,current,{lessonId:L(1),from:today,to:add(7)},[],[]])),{status:'invalid',reason:'unsupported_queue'});
+  assert.deepEqual(snapshot(),current);
+  pass('PR146 unslotted cascade safely refuses in client and SQL without changes');
  } else if(process.env.CASCADE_COMPAT_CASE==='unslotted'){
   reset(false);q(`update public.lessons set queue_position=null where id='${L(1)}'`);
   const beforeUnslotted=snapshot().rows[0];

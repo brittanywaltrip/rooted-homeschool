@@ -116,3 +116,10 @@ test('shifting a later queue suffix preserves earlier unfinished work exactly', 
   const shifted=commitModel(s,p);assert.deepEqual({...shifted.snapshot.rows[0],updated_at:earlier.updated_at},earlier);
   assert.deepEqual(dates(shifted.snapshot),['2026-09-22','2026-10-06','2026-10-13']);
 });
+
+test('unslotted courses refuse until the server supports PR146 reservations',()=>{
+ for(const completed of [false,true]){
+  const s=fixture();s.rows.push({...s.rows[0],id:'outside',lesson_number:4,queue_position:null,completed});s.rowCount++;s.goal.total_lessons++;
+  assert.deepEqual(planAnchoredCascade(s,choose),{ok:false,reason:'queue_order'});
+ }
+});

@@ -4610,10 +4610,12 @@ export default function PlanV2() {
     if (!c.previewSnapshot) { flashNotice("Couldn't safely preview this shift. Nothing moved."); return; }
     setBulkBusy(true);
     try {
+      const activeStart = new Date(`${todayStr}T00:00:00`);
+      const activeEnd = new Date(activeStart); activeEnd.setDate(activeEnd.getDate() + 1);
       const result = await shiftCurriculumSessions(supabase, {
         previewSnapshot: c.previewSnapshot, operationId: crypto.randomUUID(), goalId: c.goalId, lessonId: c.lessonId,
         from: c.fromDateStr, to: c.toDateStr, localDay: todayStr,
-        dayStartIso: c.previewSnapshot.dayStartIso, dayEndIso: c.previewSnapshot.dayEndIso,
+        dayStartIso: activeStart.toISOString(), dayEndIso: activeEnd.toISOString(),
       });
       if (result.status !== "applied") {
         flashNotice(result.status === "unknown"

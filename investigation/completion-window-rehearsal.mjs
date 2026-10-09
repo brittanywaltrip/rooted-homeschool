@@ -8,6 +8,7 @@ import {computeNextLessonsForGoal,queueHoldsFromRows} from '../app/lib/scheduler
 import {countDoneToday} from '../app/lib/phase2-commit.ts';
 import { planAnchoredCascade } from '../app/lib/cascade-shift-plan.ts';
 assert.equal(process.env.REVIEW_WINDOW,'1','Run with REVIEW_WINDOW=1');
+process.env.TZ='UTC'; // Synthetic fixture and callback use the same active calendar.
 const runAsync=promisify(execFile);
 const root=mkdtempSync('/tmp/rooted-cascade-atomic-');
 const bin='/opt/homebrew/opt/postgresql@17/bin/';
@@ -58,7 +59,8 @@ try {
   update public.lessons set date='${yesterday}',scheduled_date='${yesterday}',completed=true,completed_at='${yesterday}T12:00:00Z' where id='${L(1)}';
   update public.lessons set date='${yesterday}',scheduled_date='${yesterday}' where id='${L(2)}';
   update public.lessons set date='${today}',scheduled_date='${today}' where id='${L(3)}';`);
-  const s=json(rpcSQL('read_cascade_snapshot',[G,today,yesterday+'T00:00:00Z',add(1)+'T00:00:00Z'])).snapshot;
+  assert.equal(json(rpcSQL('read_cascade_snapshot',[G,today,yesterday+'T00:00:00Z',add(1)+'T00:00:00Z'])).status,'invalid');
+  const s=snapshot();
   const c={lessonId:L(2),from:yesterday,to:today};
   const fields=r=>({date:r.date,scheduled_date:r.scheduled_date,queue_pinned:r.queue_pinned,scheduled_source:r.scheduled_source});
   const writes=s.rows.filter(r=>r.queue_position>=2).map(r=>({id:r.id,before:fields(r),after:{date:r.queue_position===2?today:add(1),scheduled_date:r.queue_position===2?today:add(1),queue_pinned:r.queue_position===2,scheduled_source:r.queue_position===2?'plan_move':'plan_cascade_shift'}}));
@@ -79,6 +81,14 @@ try {
   assert.equal(json(rpcSQL('commit_cascade_shift',[randomUUID(),G,good,c,goodPlan.plan.writes])).status,'applied');
   assert.deepEqual(snapshot().rows.slice(1).map(r=>r.scheduled_date),[today,today]);
   pass('valid account-local completion window succeeds without counting yesterday');
+  q(`update public.lessons set completed_at='${yesterday}T20:00:00Z' where id='${L(1)}'`);
+  const sameDayBefore=snapshot();
+  const tokyoStart=add(-1)+'T15:00:00Z',tokyoEnd=today+'T15:00:00Z';
+  assert.equal(countDoneToday(sameDayBefore.rows,sameDayBefore.dayStartIso,sameDayBefore.dayEndIso),0);
+  assert.equal(countDoneToday(sameDayBefore.rows,tokyoStart,tokyoEnd),1);
+  assert.equal(json(rpcSQL('read_cascade_snapshot',[G,today,tokyoStart,tokyoEnd])).status,'invalid');
+  assert.deepEqual(snapshot(),sameDayBefore);
+  pass('same-date Tokyo browser versus UTC profile refuses before preview, preserving all rows');
   reset();const stale=prepare();q(`update public.profiles set timezone='Etc/UTC' where id='${U}'`);
   assert.equal(commit(stale).status,'stale');
   q(`update public.profiles set timezone='UTC' where id='${U}'`);assert.deepEqual(snapshot(),stale.s);

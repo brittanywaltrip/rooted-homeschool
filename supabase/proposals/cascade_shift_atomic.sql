@@ -70,8 +70,11 @@ begin
   end if;
   canonical:=rooted_private.cascade_local_window(auth.uid(),p_local_day);
   if canonical is null or p_local_day is distinct from (now() at time zone (canonical->>'timeZone'))::date then return jsonb_build_object('status','invalid','reason','local_day');end if;
-  -- Legacy boundary parameters are retained for API compatibility only. The
-  -- preview always returns canonical account-local bounds, never echoes input.
+  -- Today/Plan use the active browser calendar. Refuse mismatched boundaries
+  -- (even on the same calendar date) instead of silently reinterpreting them.
+  if not rooted_private.cascade_window_valid(auth.uid(),p_local_day,p_day_start,p_day_end) then
+    return jsonb_build_object('status','invalid','reason','calendar_mismatch');
+  end if;
   return jsonb_build_object('status','ready','snapshot',rooted_private.cascade_snapshot(p_goal_id,p_local_day,canonical->>'dayStartIso',canonical->>'dayEndIso'));
 end $$;
 revoke all on function public.read_cascade_snapshot(uuid,date,text,text) from public,anon;
@@ -127,6 +130,9 @@ declare
  first_applied boolean:=false; placed boolean; safety integer:=0; label text; override_value jsonb;
 begin
  if day is null or pointer is null or total is null then return false; end if;
+ -- PR146's unslotted reservations are not implemented by this validator.
+ -- Conservative refusal is required; ignoring them can certify wrong dates.
+ if exists(select 1 from jsonb_array_elements(state->'rows') x where x->>'queue_position' is null) then return false;end if;
  select count(*) into done_count from jsonb_array_elements(state->'rows') x where (x->>'completed')::boolean
   and (x->>'completed_at')::timestamptz >= (state->>'dayStartIso')::timestamptz
   and (x->>'completed_at')::timestamptz < (state->>'dayEndIso')::timestamptz;
@@ -224,6 +230,9 @@ begin
   if not rooted_private.cascade_window_valid(u,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso') or day is distinct from (now() at time zone (rooted_private.cascade_local_window(u,day)->>'timeZone'))::date then return jsonb_build_object('status','invalid','reason','day_window');end if;
   actual:=rooted_private.cascade_snapshot(p_goal_id,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso');
   if actual is distinct from p_expected then return jsonb_build_object('status','stale'); end if;
+  if exists(select 1 from public.lessons where curriculum_goal_id=p_goal_id and queue_position is null) then
+    return jsonb_build_object('status','invalid','reason','unsupported_queue');
+  end if;
   if jsonb_typeof(p_moves) is distinct from 'array' or jsonb_array_length(p_moves)=0 then return jsonb_build_object('status','invalid','reason','moves'); end if;
   select * into selected from public.lessons where id=(p_choice->>'lessonId')::uuid and curriculum_goal_id=p_goal_id;
   target:=(p_choice->>'to')::date;

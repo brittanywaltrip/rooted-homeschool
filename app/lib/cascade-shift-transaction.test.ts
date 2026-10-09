@@ -68,3 +68,10 @@ test('unsupported unpinned gaps do not produce an actionable preview',async()=>{
  const f=fake([{data:{status:'ready',snapshot:s}}]);assert.equal(await previewCurriculumShift(f.client,args),null);
  assert.equal(f.calls.length,1);
 });
+
+test('same-day browser/account boundary mismatch cannot preview or commit', async()=>{
+ const local={...args,dayStartIso:'2026-09-21T15:00:00Z',dayEndIso:'2026-09-22T15:00:00Z'};
+ const preview=fake([ready()]);assert.equal(await previewCurriculumShift(preview.client,local),null);
+ const confirm=fake([ready()]);assert.deepEqual(await shiftCurriculumSessions(confirm.client,{...local,previewSnapshot:snapshot()}),{status:'refused',reason:'read'});
+ assert.equal(confirm.calls.length,1);
+});

@@ -62,6 +62,9 @@ export function planAnchoredCascade(snapshot: CascadeSnapshot, choice: {
     return { ok: false, reason: 'snapshot' };
   }
   const moved = rows.find(r => r.id === choice.lessonId);
+  // PR146 reserves capacity and slots for unslotted rows. Until the server
+  // validator implements those rules, this operation must refuse that course.
+  if (rows.some(r=>r.queue_position == null)) return {ok:false,reason:'queue_order'};
   const days = normalizeSchoolDays(goal.school_days);
   const delta = schoolDayDelta(choice.from, choice.to, days, vacations.map(v => ({ start: v.start_date, end: v.end_date })));
   if (!moved || !queueWork(moved) || moved.scheduled_date !== choice.from ||
