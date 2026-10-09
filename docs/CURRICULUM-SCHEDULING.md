@@ -1637,3 +1637,58 @@ release/reschedule flow for preserved work, full-schema rehearsal and legacy
 writer compatibility are release gates. The independent completion-window
 finding against the preceding correctness commit is also unresolved here and
 must be fixed separately before any release.
+
+### Builder stale forms and recovery write confirmation (isolated follow-up to PR146)
+
+The Builder records both the stored values and their loaded form representation.
+Before any save writes, `resolveBuilderEdits` derives intent from that original
+form, refuses conflicting edits to changed fields, and merges untouched settings
+from a fresh owner-scoped read. Flat pace and its override map are checked as one
+control. The merged row feeds the history pre-flight and phase-2 planner; its
+fresh schedule snapshot is the pin-preservation baseline. A no-patch sibling also
+refuses if any scheduling input changes after that refresh. PR146's atomic
+settings-and-lessons transaction remains the final concurrency guard. Successful
+per-goal saves advance the form baseline so a second save is a new edit.
+Restored drafts keep their original baseline; older drafts without one fail
+closed and ask the family to copy their edits before discarding the old draft.
+
+Recovery Yes checks every completion result and confirms insert representations.
+A failed lookup, missing row, changed placement or unconfirmed write stops the
+batch with the count confirmed so far, before recording an answer or re-spreading.
+Already recorded completions stay recorded; a retry skips them without changing
+their date or time. Today and Plan reload after failure, keep the review open,
+and reserve success notices for the confirmed count returned on success.
+
+Tests: `builder-edit-intent.test.ts` executes the page's actual row adapters and
+pre-write refresh with synthetic reads, then the real projector. It covers stale
+siblings, deliberate conflicts, drafts, repeated saves and pace agreement.
+`missed-work-answers.test.ts` calls the real recovery writer and completion helper
+against the filtering memory client, including partial failure and retry. These
+are not substitutes for full two-session database/browser integration. Historical
+lesson disappearance and final-row SQL validation remain separate open work.
+
+
+### Local concurrency follow-up (not release clearance)
+
+Recovery passes `onlyIfIncomplete` to the completion writer. Its update includes
+`completed = false` atomically with the placement guards. An already completed
+row or a lost conditional write is counted only after recovery confirms the
+same owner's goal/slot is completed; its recorded date, timestamp and hours are
+preserved, with no duplicate completion event. A failed confirmation remains a
+partial failure. Other surfaces retain deliberate completion-date edits.
+
+Builder re-reads lifecycle and lesson-construction metadata before either kind
+of phase-two commit, including pending settings, and refuses changed dependencies.
+The prepared `20261008000000_apply_builder_rebuild_goal_guard.sql` migration
+adds the same dependencies to validation under the RPC's goal lock, before any
+new settings or lesson writes. Until that migration is separately approved and
+installed, a client check alone does not close the post-read race. New requests
+use an explicit guard contract; old clients fail closed and must reload. Both
+RPC overloads keep committed-request replay before lifecycle/contract rejection.
+The client also replays an uncertain issued request before another outer-retry
+read, preserving uncertainty if responses remain lost.
+
+See `BUILDER-GOAL-GUARD-ROLLOUT.md` for the exact compatibility matrix, safe pause,
+known-race restoration and verification limits. This is a per-goal boundary:
+phase-one metadata, other goals and vacation changes are not one transaction.
+Historical disappearance and final-row SQL validation remain separate work.

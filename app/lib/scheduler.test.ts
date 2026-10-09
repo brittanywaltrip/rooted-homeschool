@@ -7693,7 +7693,7 @@ test('catch-up: the page keeps the sheet open until every write has landed', () 
   const lastRecompute = body.lastIndexOf('recomputeCurrentLesson(')
   const close = body.lastIndexOf('setShowMissedRecovery(false)')
   assert.ok(close > lastRecompute, 'it closes after the last write')
-  assert.ok(/setRecoveryToast\(rows\.length\)/.test(body), 'and toasts the count')
+  assert.ok(/setRecoveryToast\(completedCount\)/.test(body), 'and toasts the count')
   assert.ok(/throw err/.test(body), 'a failure reaches the modal')
   // Regression guard: both refreshes still awaited on the way out.
   const tail = body.slice(close)
@@ -7967,7 +7967,7 @@ test('big families: the no-op decision runs before the first phase-2 write, logs
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
   const verdict = body.indexOf('const verdict = isPhase2NoOp({')
-  const firstWrite = body.indexOf('const committed = await applyPhase2Commit(')
+  const firstWrite = body.indexOf('const committed = await commitPhase2(')
   assert.ok(verdict !== -1 && firstWrite !== -1 && verdict < firstWrite, 'the no-op check runs before the first phase-2 write')
   const skip = body.slice(verdict, firstWrite)
   assert.match(skip, /type: "schedule\.rebuilt"/, 'Invariant 18: a rebuild that writes nothing still logs')
@@ -8340,7 +8340,7 @@ test('the Schedule Builder wires all three fixes into phase 2 itself', () => {
   )
   assert.match(
     phase2,
-    /computeNextLessonsForGoal\(\s*goalConfig,\s*forwardAnchor,\s*3650,\s*vacations,\s*isNewGoal \? 0 : doneToday,\s*holds,\s*\)/,
+    /computeNextLessonsForGoal\(\s*goalConfig,\s*forwardAnchor,\s*3650,\s*vacations,\s*isNewGoal \? 0 : doneTodaySplit\.slotted,\s*isNewGoal \? holds : \[\.\.\.holds, \.\.\.doneTodayHolds\(doneTodaySplit\.unslotted, ymd\(todayMid\)\)\],\s*\)/,
     'the forward projection reads the anchor, and lessons done today count against an existing goal\'s today',
   )
 
@@ -8353,7 +8353,7 @@ test('the Schedule Builder wires all three fixes into phase 2 itself', () => {
     'a claimed row throws the backstop; an untouched sibling is reported, not thrown',
   )
   const refusalAt = phase2.indexOf('historyBackfillRefusal({')
-  const firstWrite = phase2.indexOf('const committed = await applyPhase2Commit(')
+  const firstWrite = phase2.indexOf('const committed = await commitPhase2(')
   assert.ok(
     refusalAt !== -1 && firstWrite !== -1 && refusalAt < firstWrite,
     'the refusal is decided in PLAN, before phase 2 writes anything',
@@ -9149,7 +9149,7 @@ test('an unclaimed short goal is left alone, not rebuilt without the part that d
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
   const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
   const bail = phase2.indexOf('if (unclaimedShortfall)')
-  const firstWrite = phase2.indexOf('const committed = await applyPhase2Commit(')
+  const firstWrite = phase2.indexOf('const committed = await commitPhase2(')
   const floorDelete = phase2.indexOf('} = planPhase2Commit({')
   assert.ok(bail !== -1, 'the bail-out exists')
   assert.ok(bail < firstWrite, 'it returns before the first phase-2 write')
@@ -9633,7 +9633,7 @@ test('the builder anchors its pace at the next lesson date', () => {
   assert.match(calcPace, /vacations,/, 'and it honours the family\'s breaks')
   assert.match(
     src,
-    /calcPace\(row, today, nextQueued\?\.date, vacations(, skippedSlots)?\)/,
+    /calcPace\(row, today, nextQueued\?\.date, vacations(, skippedSlots(, goalDayHolds)?)?\)/,
     'anchored at the next lesson, with breaks (and the goal\'s skips, Invariant 22)',
   )
   // One computation, read by both surfaces. Computing it again in the row card
@@ -9847,7 +9847,9 @@ test('a stale Schedule Builder tab or draft cannot write an old starting lesson 
 
   // The UPDATE sends start_at_lesson only when this session changed it.
   const save = extractFunctionBody(src, /async function handleSave\s*\(/)
-  assert.match(save, /const updatePayload: Partial<typeof payload> = \{ \.\.\.payload \};\s*if \(!startAtLessonTouched\(row\)\) delete updatePayload\.start_at_lesson;/)
+  assert.match(save, /if \(!startAtLessonTouched\(row\) && row\._editBaseline\) form\.start_at_lesson = row\._editBaseline\.form\.start_at_lesson;/)
+  assert.match(save, /resolveBuilderEdits\(row\._editBaseline, form, \{ \.\.\.current \}\)/)
+  assert.match(save, /const updatePayload = \{ \.\.\.editPatches\.get\(row\.dbId\) \};/)
   assert.match(save, /\.from\("curriculum_goals"\)\s*\.update\(updatePayload\)/)
   assert.doesNotMatch(save, /\.from\("curriculum_goals"\)\s*\.update\(payload\)/, 'no UPDATE sends the unguarded payload')
 
@@ -10051,7 +10053,7 @@ test('the builder confirms what the database wrote and refuses a short batch', (
   // The pure coverage check runs before the first destructive call.
   const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
   const coverage = phase2.indexOf('uncoveredProjectedSlots({')
-  const firstWrite = phase2.indexOf('const committed = await applyPhase2Commit(')
+  const firstWrite = phase2.indexOf('const committed = await commitPhase2(')
   assert.ok(coverage !== -1 && coverage < firstWrite, 'coverage is checked in PLAN, before any write')
   // And it REPORTS rather than refusing. A surviving row can hold a
   // lesson_number inside the projected range with its slot outside it (a stale
@@ -10531,7 +10533,7 @@ test('builder rebuild: the Schedule Builder runs those same pieces', () => {
   assert.match(phase2, /queue_pinned, skipped, scheduled_date, date, title", \{ count: "exact" \}/, 'phase 2 reads skipped')
   assert.match(phase2, /completed_at, notes, minutes_spent/, 'phase 2 reads completed_at, to count lessons done today')
   assert.match(phase2, /\} = planPhase2Rows\(\{/)
-  assert.match(phase2, /computeNextLessonsForGoal\(\s*goalConfig,\s*forwardAnchor,\s*3650,\s*vacations,\s*isNewGoal \? 0 : doneToday,\s*holds,\s*\)/)
+  assert.match(phase2, /computeNextLessonsForGoal\(\s*goalConfig,\s*forwardAnchor,\s*3650,\s*vacations,\s*isNewGoal \? 0 : doneTodaySplit\.slotted,\s*isNewGoal \? holds : \[\.\.\.holds, \.\.\.doneTodayHolds\(doneTodaySplit\.unslotted, ymd\(todayMid\)\)\],\s*\)/)
   assert.match(phase2, /skippedSlots: projectableSkippedSlots,/)
   assert.match(phase2, /\} = planPhase2Commit\(\{/)
   const commit = stripComments(loadRepoFile('app/lib/phase2-commit.ts'))
@@ -10686,13 +10688,17 @@ test('builder preview: skips are loaded once and handed to every schedule line',
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   assert.match(src, /\.from\("lessons"\)\s*\.select\("curriculum_goal_id, queue_position, completed, skipped"\)\s*\.eq\("user_id", effectiveUserId\)\s*\.eq\("skipped", true\)/)
   assert.match(src, /skippedSlotsFromRows\(\[r\], goalId\)/, 'the derivation planPhase2Rows uses')
-  assert.match(src, /rowScheduleFor\(r, today, todayStr, vacations, skippedByGoal, previewLive\)/)
-  // Invariant 23: pins (make-ups included) and today's completions reach the preview too.
-  assert.match(src, /\.eq\("queue_pinned", true\)\s*\.eq\("completed", false\)/)
+  assert.match(src, /rowScheduleFor\(r, today, todayStr, vacations, skippedByGoal, previewLive, reservationRows\)/)
+  // Reserved slots (reservedSlotsFromRows) join the skips, against the pointer this row's typed next lesson implies.
+  assert.match(src, /reservedSlotsFromRows\(reservationRows\.filter\(\(r\) => r\.curriculum_goal_id === goalId\), nextLesson - 1, goalId\)/)
+  // Invariant 23: pins (make-ups included) and today's completions reach the preview too,
+  // and so do dated lessons with no queue slot, which hold their day (DayHold).
+  assert.match(src, /\.or\("queue_pinned\.eq\.true,and\(queue_position\.is\.null,scheduled_date\.not\.is\.null\)"\)\s*\.eq\("completed", false\)/)
+  assert.match(src, /\.\.\.keptPins, \.\.\.goalDayHolds\]/, 'the preview projects around the days unslotted lessons hold')
   assert.match(src, /doneTodayHere,\s*\[\.\.\.skippedSlots\.map/)
   assert.match(src, /nextLesson: builderNextLesson\(branch === "fresh" \? 1 : nextLesson, skippedSlots, row\.total_lessons\)/)
   assert.match(src, /const nextQueued = projected\.find\(\(p\) => p\.lesson_number > previewCurrent\);/)
-  assert.match(src, /calcPace\(row, today, nextQueued\?\.date, vacations, skippedSlots\)/)
+  assert.match(src, /calcPace\(row, today, nextQueued\?\.date, vacations, skippedSlots, goalDayHolds\)/, 'the finish estimate counts the days unslotted lessons hold')
   assert.equal((src.match(/nextLesson: sched\.nextLesson,/g) ?? []).length, 4, 'both stored-progress lines and both next-lesson lines read the stepped lesson')
 })
 

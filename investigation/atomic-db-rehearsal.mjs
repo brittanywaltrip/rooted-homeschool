@@ -1,7 +1,7 @@
 // Disposable local PostgreSQL only. No .env, remote credentials or network DB.
 import { execFileSync, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import {computeNextLessonsForGoal,queueHoldsFromRows} from '../app/lib/scheduler.ts';
@@ -34,6 +34,10 @@ try {
  new.updated_at=clock_timestamp(); return new; end $$;
  create trigger rehearsal_update before update on public.lessons for each row execute function public.rehearsal_updated();`);
  q(`create table public.profiles(id uuid primary key,timezone text not null);insert into public.profiles values('${U}','UTC'),('${OTHER}','UTC');`);
+ if(process.env.PR146_COMPAT==='1'){
+  q('alter table public.curriculum_goals add column completed_at timestamptz,add column child_id uuid,add column curriculum_name text,add column subject_label text,add column default_minutes integer,add column scheduled_start_time time');
+  for(const migration of readdirSync('supabase/migrations').filter(n=>n.includes('apply_builder_rebuild')&&n.endsWith('.sql')).sort())q(readFileSync('supabase/migrations/'+migration,'utf8'));
+ }
  q(readFileSync('supabase/proposals/cascade_shift_atomic.sql','utf8'));
  q(readFileSync('supabase/migrations/20260921230610_daily_reconcile.sql','utf8'));
  q(readFileSync('supabase/proposals/preserved_daily_reconcile.sql','utf8'));
@@ -55,7 +59,23 @@ try {
  const undo=(v)=>json(rpcSQL('undo_cascade_shift',[v.op]));
  const restored=(s)=>s.rows.map(r=>{const copy={...r};delete copy.updated_at;return copy;});
  function pass(name){results.push({name,status:'PASS'});console.log('PASS '+name);}
- if(process.env.CASCADE_REVIEW_CASE){
+ if(process.env.CASCADE_COMPAT_CASE==='projection'){
+  reset(false);q(`update public.curriculum_goals set total_lessons=4 where id='${G}';insert into public.lessons(id,user_id,curriculum_goal_id,lesson_number,queue_position,date,scheduled_date)values('${L(4)}','${U}','${G}',4,null,'${add(7)}','${add(7)}')`);
+  const current=snapshot();
+  const projected=computeNextLessonsForGoal(current.goal,new Date(today+'T00:00:00'),3650,current.vacations,0,queueHoldsFromRows(current.rows,G));
+  const bySlot=new Map(projected.map(p=>[p.lesson_number,p.date]));
+  const tsMatches=current.rows.filter(r=>r.queue_position!=null).every(r=>bySlot.get(r.queue_position)===r.scheduled_date);
+  const sqlMatches=q(`select rooted_private.cascade_projection_matches(${quote(JSON.stringify(current))}::jsonb)`)==='t';
+  console.log(JSON.stringify({tsMatches,sqlMatches,projected},null,2));
+  assert.equal(sqlMatches,tsMatches,'PR146 unslotted capacity must agree between SQL and TypeScript');
+  pass('PR146 unslotted capacity SQL/projector parity');
+ } else if(process.env.CASCADE_COMPAT_CASE==='unslotted'){
+  reset(false);q(`update public.lessons set queue_position=null where id='${L(1)}'`);
+  const beforeUnslotted=snapshot().rows[0];
+  q(`update public.lessons set completed=true,completed_at=now() where id='${L(2)}'`);
+  assert.deepEqual(snapshot().rows[0],beforeUnslotted,'Pointer cleanup must preserve family-dated unslotted work');
+  pass('PR146 unslotted placement survives pointer cleanup');
+ } else if(process.env.CASCADE_REVIEW_CASE){
   reset();const check=prepare();
   if(process.env.CASCADE_REVIEW_CASE==='gap'){
    q(`update public.lessons set queue_pinned=false where id='${L(2)}'`);
@@ -157,7 +177,7 @@ try {
  const client={rpc:async(name,args)=>{const names={read_cascade_snapshot:['p_goal_id','p_local_day','p_day_start','p_day_end'],commit_cascade_shift:['p_operation_id','p_goal_id','p_expected','p_choice','p_moves','p_preserved'],undo_cascade_shift:['p_operation_id']};return {data:json(rpcSQL(name,names[name].map(key=>args[key]))),error:null};}};
  await browserRehearsal({client,snapshot,goalId:G,lessonId:L(1),today,target:add(7),finish:add(35)});
  pass('browser real callback/coordinator commits a pinned gap and performs SQL receipt Undo');
- writeFileSync('../investigation-evidence/integrated-db-results.json',JSON.stringify({scratch:root,results},null,2));
+ writeFileSync(`../investigation-evidence/${process.env.PR146_COMPAT==='1'?'pr146-compat':'integrated'}-db-results.json`,JSON.stringify({scratch:root,results},null,2));
  console.log(`${results.length} SQL cases passed`);
 }
 }finally{if(started)execFileSync(bin+'pg_ctl',['-D',root+'/data','stop','-m','fast'],{encoding:'utf8',stdio:'pipe'});}

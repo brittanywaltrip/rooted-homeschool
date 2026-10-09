@@ -35,6 +35,8 @@ BEGIN
       WHERE curriculum_goal_id = NEW.id
         AND completed = false
         AND scheduled_date IS NOT NULL
+        -- Preserve PR146's placement rule for lessons outside the queue.
+        AND queue_position IS NOT NULL
         AND queue_pinned = false
         AND queue_preserved = false
         AND lesson_number IS NOT NULL

@@ -3075,8 +3075,9 @@ export default function PlanV2() {
 
   const handleMissedYes = useCallback(async (rows: RecoveryRow[]) => {
     if (rows.length === 0) { setMissedReviewOpen(false); return; }
+    let completedCount = 0;
     try {
-      await answerMissedYes(await missedAnswerDeps(), rows);
+      ({ completedCount } = await answerMissedYes(await missedAnswerDeps(), rows));
     } catch (err) {
       reload();
       reloadPins();
@@ -3087,7 +3088,7 @@ export default function PlanV2() {
     reload();
     reloadPins();
     await refreshMissedWork();
-    flashNotice(`Marked ${rows.length} lesson${rows.length === 1 ? "" : "s"} done.`);
+    flashNotice(`Marked ${completedCount} lesson${completedCount === 1 ? "" : "s"} done.`);
     window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
   }, [missedAnswerDeps, reload, reloadPins, refreshMissedWork]);
 
