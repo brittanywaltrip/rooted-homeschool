@@ -115,6 +115,11 @@ try {
  const cacheWrites=[{id:L(3),from:add(14),to:add(7)}];
  assert.equal(json(rpcSQL('apply_daily_reconcile',[G,today,staleExpected,cacheWrites])).status,'stale');
  assert.deepEqual(snapshot(),advanced);
+ const forgedDaily={...expected,day_start:add(-1)+'T00:00:00Z'};
+ assert.equal(json(rpcSQL('apply_daily_reconcile',[G,today,forgedDaily,cacheWrites])).status,'invalid');
+ assert.deepEqual(snapshot(),advanced);
+ assert.equal(q('select count(*) from rooted_private.daily_reconcile_log'),'0');
+ pass('preserved-work daily reconciliation rejects a forged completion window without writes or receipt');
  assert.equal(json(rpcSQL('apply_daily_reconcile',[G,today,expected,cacheWrites])).status,'applied');
  const rolled=snapshot();assert.deepEqual(rolled.rows[0],advanced.rows[0]);assert.equal(rolled.rows[2].scheduled_date,add(7));assert.equal(q(`select rooted_private.cascade_projection_matches(${quote(JSON.stringify(rolled))}::jsonb)`),'t');
  pass('completion pointer and daily reconciliation retain earlier work; old daily payload refuses');

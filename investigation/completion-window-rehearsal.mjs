@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import {computeNextLessonsForGoal,queueHoldsFromRows} from '../app/lib/scheduler.ts';
 import {countDoneToday} from '../app/lib/phase2-commit.ts';
 import { planAnchoredCascade } from '../app/lib/cascade-shift-plan.ts';
+assert.equal(process.env.REVIEW_WINDOW,'1','Run with REVIEW_WINDOW=1');
 const runAsync=promisify(execFile);
 const root=mkdtempSync('/tmp/rooted-cascade-atomic-');
 const bin='/opt/homebrew/opt/postgresql@17/bin/';
@@ -46,7 +47,7 @@ try {
  ('${L(3)}','${U}','${G}',3,3,'${add(gap?28:14)}','${add(gap?28:14)}',false,'wizard_create',null,null);`);}
  const snapshot=()=>json(rpcSQL('read_cascade_snapshot',[G,today,today+'T00:00:00Z',add(1)+'T00:00:00Z'])).snapshot;
  function prepare(target=add(7)){const s=snapshot();const c={lessonId:L(1),from:s.rows[0].scheduled_date,to:target};const p=planAnchoredCascade(s,c);assert.ok(p.ok,JSON.stringify(p));return {s,c,p:p.plan,op:randomUUID()};}
- const commit=(v)=>json(rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes]));
+ const commit=(v)=>json(rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes,v.p.preserved]));
  const undo=(v)=>json(rpcSQL('undo_cascade_shift',[v.op]));
  const restored=(s)=>s.rows.map(r=>{const copy={...r};delete copy.updated_at;return copy;});
  function pass(name){results.push({name,status:'PASS'});console.log('PASS '+name);}
@@ -133,12 +134,12 @@ try {
  assert.equal(commit(v).status,'already_applied');assert.deepEqual(snapshot(),after);pass('same operation retry writes nothing twice');
  assert.equal(undo(v).status,'undone');assert.deepEqual(restored(snapshot()),restored(v.s));assert.equal(undo(v).status,'already_undone');pass('protected SQL Undo restores exact scheduling fields once');
  reset();v=prepare();q(`update public.lessons set notes='later work' where id='${L(2)}'`);after=snapshot();assert.equal(commit(v).status,'stale');assert.deepEqual(snapshot(),after);pass('stale preflight cannot overwrite later work');
- reset();v=prepare();const fail=json(`set rehearsal.fail_id=${quote(L(2))}; ${rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes])}`);assert.equal(fail.status,'failed');assert.deepEqual(snapshot(),v.s);assert.equal(q('select count(*) from rooted_private.cascade_shift_receipts'),'0');pass('second-row error rolls back trigger, tail and receipt');
+ reset();v=prepare();const fail=json(`set rehearsal.fail_id=${quote(L(2))}; ${rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes,v.p.preserved])}`);assert.equal(fail.status,'failed');assert.deepEqual(snapshot(),v.s);assert.equal(q('select count(*) from rooted_private.cascade_shift_receipts'),'0');pass('second-row error rolls back trigger, tail and receipt');
  reset();v=prepare();assert.equal(commit(v).status,'applied');q(`update public.lessons set notes='later note' where id='${L(2)}'`);after=snapshot();assert.equal(undo(v).status,'stale');assert.deepEqual(snapshot(),after);pass('Undo refuses a later note');
  reset();v=prepare();assert.equal(commit(v).status,'applied');q(`update public.lessons set completed=true,completed_at=now() where id='${L(2)}'`);after=snapshot();assert.equal(undo(v).status,'stale');assert.deepEqual(snapshot(),after);pass('Undo refuses a later completion and pointer change');
  reset();v=prepare();assert.equal(commit(v).status,'applied');q(`insert into public.vacation_blocks(user_id,start_date,end_date) values('${U}','${add(35)}','${add(35)}')`);after=snapshot();assert.equal(undo(v).status,'stale');assert.deepEqual(snapshot(),after);pass('Undo refuses changed breaks');
  reset();v=prepare();assert.equal(commit(v).status,'applied');after=snapshot();const undoFail=json(`set rehearsal.fail_id=${quote(L(2))}; ${rpcSQL('undo_cascade_shift',[v.op])}`);assert.equal(undoFail.status,'failed');assert.deepEqual(snapshot(),after);pass('second-row Undo error rolls back every restore');
- reset();v=prepare();let wrong=json(rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes]),OTHER);assert.equal(wrong.status,'invalid');assert.deepEqual(snapshot(),v.s);pass('another owner cannot commit');
+ reset();v=prepare();let wrong=json(rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes,v.p.preserved]),OTHER);assert.equal(wrong.status,'invalid');assert.deepEqual(snapshot(),v.s);pass('another owner cannot commit');
  assert.throws(()=>q(`set role anon; ${rpcSQL('read_cascade_snapshot',[G,today,today+'T00:00:00Z',add(1)+'T00:00:00Z'])}`),/permission denied/);pass('anonymous RPC access denied');
  reset();v=prepare();let bad=structuredClone(v);bad.p.writes.pop();assert.equal(commit(bad).status,'invalid');assert.deepEqual(snapshot(),v.s);pass('partial tail payload refused before writes');
  reset();v=prepare();bad=structuredClone(v);bad.p.writes[2].after.queue_pinned=true;assert.equal(commit(bad).status,'invalid');assert.deepEqual(snapshot(),v.s);pass('cannot silently pin the whole tail');

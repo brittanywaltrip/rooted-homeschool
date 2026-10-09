@@ -54,6 +54,14 @@ begin
   -- write in flight commits first, and is then seen by the comparison below.
   perform 1 from public.lessons l where l.curriculum_goal_id = p_goal_id for update;
 
+  -- Match cascade preview/commit's authoritative account-local completion
+  -- window. A caller must not extend this window to absorb older completions.
+  perform 1 from public.profiles where id=v_uid for share;
+  if not found or not rooted_private.cascade_window_valid(v_uid,p_local_day,p_expected->>'day_start',p_expected->>'day_end')
+     or p_local_day is distinct from (now() at time zone (rooted_private.cascade_local_window(v_uid,p_local_day)->>'timeZone'))::date then
+    return jsonb_build_object('status','invalid','reason','day_window');
+  end if;
+
   -- 4. Is the calculation still current?
   if jsonb_build_object(
        'total_lessons', v_goal.total_lessons,
