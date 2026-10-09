@@ -1035,13 +1035,9 @@ function TodayPageInner() {
     const lastYear = otdNow.getFullYear() - 1;
     const otdStart = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() - 3);
     const otdEnd = new Date(lastYear, otdNow.getMonth(), otdNow.getDate() + 3);
-    // Browser TZ is the ground truth for the user's actual location.
-    // profiles.timezone was added 2026-05-03 with a DEFAULT of
-    // America/New_York for all 1,747 existing rows and has never been
-    // self-updated, so reading it as the source of truth is wrong for
-    // anyone outside NY. Use the browser detection here, then self-heal
-    // the stored column in the background once we know what it should
-    // be.
+    // Today uses the active browser calendar. Cascade and daily reconciliation
+    // refuse when its civil-midnight boundaries differ from the account's.
+    // Reading Today must not change the family's stored timezone preference.
     const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     setUserTz(browserTz);
 
@@ -1224,21 +1220,6 @@ function TodayPageInner() {
     setSchoolYearName(schoolYear.name);
     const authUser = authResult.data?.user;
 
-    // Self-heal: if profiles.timezone disagrees with the browser-detected
-    // TZ, push an update in the background. Fire-and-forget so first paint
-    // is never blocked. The constraint at profiles_timezone_format accepts
-    // standard IANA strings; unusual values (e.g. "Etc/GMT+5") may bounce
-    // — silently ignored, browserTz is still used in-page.
-    // profiles.timezone was added 2026-05-03 with a DEFAULT of America/New_York
-    // and has never been self-updated, so the browser is the ground truth.
-    const tzFromProfile = profile?.timezone ?? null;
-    if (browserTz && tzFromProfile !== browserTz) {
-      void supabase
-        .from("profiles")
-        .update({ timezone: browserTz })
-        .eq("id", effectiveUserId)
-        .then(() => {}, () => {});
-    }
     setFamilyName(profile?.display_name || authUser?.user_metadata?.family_name || "");
     setFirstName(authUser?.user_metadata?.first_name || "");
     setOnboarded(profile?.onboarded ?? null);

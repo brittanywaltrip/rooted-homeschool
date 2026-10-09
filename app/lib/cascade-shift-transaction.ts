@@ -15,7 +15,9 @@ export async function previewCurriculumShift(client: SupabaseClient, args: {
     const {data,error}=await client.rpc('read_cascade_snapshot',{p_goal_id:args.goalId,p_local_day:args.localDay,p_day_start:args.dayStartIso,p_day_end:args.dayEndIso});
     if(error || data?.status !== 'ready') return null;
     const snapshot=data.snapshot as CascadeSnapshot;
-    if(snapshot.goal.id!==args.goalId || snapshot.localDay!==args.localDay) return null;
+    if(snapshot.goal.id!==args.goalId || snapshot.localDay!==args.localDay ||
+       Date.parse(snapshot.dayStartIso)!==Date.parse(args.dayStartIso) ||
+       Date.parse(snapshot.dayEndIso)!==Date.parse(args.dayEndIso)) return null;
     const plan=planAnchoredCascade(snapshot,{lessonId:args.lessonId,from:args.from,to:args.to});
     if(!plan.ok) return null;
     return {snapshot,preservedEarlierCount:plan.plan.preserved.length,shiftDays:plan.plan.days,futureLessonsToShift:plan.plan.writes.length-1,
@@ -36,6 +38,8 @@ export async function shiftCurriculumSessions(client: SupabaseClient, args: {
   if (read.error || read.data?.status !== 'ready') return { status: 'refused', reason: read.error?.code === 'PGRST202' ? 'unavailable' : 'read' };
   const snapshot = read.data.snapshot as CascadeSnapshot;
   if (snapshot?.goal?.id !== args.goalId || snapshot?.localDay !== args.localDay || !Array.isArray(snapshot.rows)) return { status: 'refused', reason: 'read' };
+  if (Date.parse(snapshot.dayStartIso)!==Date.parse(args.dayStartIso) ||
+      Date.parse(snapshot.dayEndIso)!==Date.parse(args.dayEndIso)) return { status: 'refused', reason: 'read' };
   try {
     if (!args.previewSnapshot || !sameCascadeSnapshot(snapshot,args.previewSnapshot)) return { status: 'refused', reason: 'stale' };
   } catch { return { status: 'refused', reason: 'read' }; }

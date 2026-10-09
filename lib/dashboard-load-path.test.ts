@@ -66,10 +66,9 @@ test("one profiles read on the load path: the layout's, through ProfileContext",
   // The layout reads it in readProfile (with one retry) and looks up partner_email; the effect calls those.
   assert.equal(count(layoutAuthEffect, 'from("profiles")'), 0);
   assert.equal(count(layoutAuthEffect, "loadProfile(user.id)"), 1);
-  // The page's only touch on profiles inside loadData is the timezone self-heal write.
-  const reads = pageLoadData.split('from("profiles")').slice(1);
-  assert.equal(reads.length, 1, "loadData touches profiles once");
-  assert.match(reads[0].slice(0, 60), /\.update\(/, "and that touch is the timezone write");
+  // A page load uses the shared profile without silently changing timezone.
+  assert.equal(count(pageLoadData, 'from("profiles")'), 0);
+  assert.doesNotMatch(pageLoadData, /\.update\(\{\s*timezone:/);
   assert.equal(count(pageLoadData, "loadPageProfile()"), 1);
   // The streak reset runs off that same profile rather than reading its own.
   assert.match(pageLoadData, /recomputeStaleStreak\(effectiveUserId, \{ profile: p \}\)/);
