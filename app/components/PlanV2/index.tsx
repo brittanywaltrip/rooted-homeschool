@@ -1,5 +1,6 @@
 "use client";
 
+import PreservedWorkPanel from "../PreservedWorkPanel";
 import { displayLessonTitle, formatLessonLabel } from "@/lib/lesson-label";
 import { useLessonUnits } from "@/lib/lesson-units-context";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -327,6 +328,7 @@ export default function PlanV2() {
     toDateStr: string;
     goalId: string;
     shiftDays: number;
+    preservedEarlierCount?: number;
     futureLessonsToShift: number;
     projectedFinishDate: string | null;
   } | null>(null);
@@ -823,6 +825,15 @@ export default function PlanV2() {
     window.history.replaceState(null, "", "/dashboard/plan");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(()=>{
+    const date=new URLSearchParams(window.location.search).get("unfinishedDate");
+    if(!date || !/^\d{4}-\d{2}-\d{2}$/.test(date))return;
+    const target=new Date(`${date}T12:00:00`);if(Number.isNaN(target.getTime()))return;
+    // Hydrate a one-time explicit navigation from the unfinished-work link.
+    setMonthStart(firstOfMonth(target));setViewMode("month");setFocusedDateStr(date);setOpenDayStr(date);
+    window.history.replaceState(null,"","/dashboard/plan");
+  },[]);
 
   // School years — drives milestone markers and the school-year cards.
   const schoolYears = useSchoolYears(effectiveUserId ?? null);
@@ -5265,6 +5276,7 @@ export default function PlanV2() {
           <p><span className="font-medium">Add what you need.</span> Use + here or on a day to add a lesson, appointment or break. Log a lesson you did records work that is already finished.</p>
           <p><span className="font-medium">Adjust as you go.</span> Move a lesson when plans change. Check it off on Today when it is done; that completed work counts in Reports.</p>
         </div>
+        <PreservedWorkPanel userId={effectiveUserId} revision={lessons} onOpenDate={(date)=>{setMonthStart(firstOfMonth(new Date(`${date}T12:00:00`)));setViewMode("month");setFocusedDateStr(date);setOpenDayStr(date);}} />
         {/* Recovery card — shown when a year close left the account without an
             active school year. Warm, no guilt, one tap to pick back up. */}
         {showRecoveryCard && (
@@ -6253,7 +6265,7 @@ export default function PlanV2() {
                 }
                 setCascadeChoice({
                   lessonId: target.lessonId, fromDateStr: target.fromDateStr, toDateStr, goalId,
-                  previewSnapshot: preview.snapshot, shiftDays: preview.shiftDays,
+                  previewSnapshot: preview.snapshot, preservedEarlierCount: preview.preservedEarlierCount, shiftDays: preview.shiftDays,
                   futureLessonsToShift: preview.futureLessonsToShift,
                   projectedFinishDate: preview.projectedFinishDate,
                 });
@@ -7376,6 +7388,7 @@ function CascadeChoiceDialog(props: {
     toDateStr: string;
     goalId: string;
     shiftDays: number;
+    preservedEarlierCount?: number;
     futureLessonsToShift: number;
     projectedFinishDate: string | null;
   };
@@ -7446,6 +7459,7 @@ function CascadeChoiceDialog(props: {
                   {finishLabel ? ` New finish date: ${finishLabel}.` : ""}
                 </>}
               </p>
+              {choice.preservedEarlierCount ? <p className="text-xs mt-2">{choice.preservedEarlierCount} earlier unfinished lesson{choice.preservedEarlierCount===1?"":"s"} stay on their dates and remain in Still unfinished.</p> : null}
             </button>
             <button
               type="button"

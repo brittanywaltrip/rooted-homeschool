@@ -201,6 +201,7 @@ export async function recomputeCurrentLesson(
  * column).
  */
 export interface QueueResyncRow {
+  queue_preserved?: boolean | null;
   id: string;
   scheduled_date: string | null;
   completed: boolean;
@@ -236,7 +237,7 @@ export function planProjectedDateWrites<T extends QueueResyncRow>(
     if (r.is_backfill) continue;
     // Manual placement wins over the projector, always. Without this guard
     // every manual move was reverted on the next load (see PinnedSlot).
-    if (r.queue_pinned) continue;
+    if (r.queue_pinned || r.queue_preserved) continue;
     // A skip is the family saying "we are not doing this one". Before the
     // skipped column, Skip only nulled scheduled_date, the row still matched
     // this loop, and the next Today load put it straight back on the calendar.
@@ -347,7 +348,7 @@ async function planGoalResync(
   // them).
   const { data, error } = await supabase
     .from("lessons")
-    .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned, skipped")
+    .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned, skipped, queue_preserved")
     .eq("curriculum_goal_id", goal.id)
     .eq("completed", false);
   if (error || !data) {
@@ -365,12 +366,7 @@ async function planGoalResync(
   // Skips are loaded alongside pins and travel in the same array, so the
   // projection steps over a skipped slot here exactly as every read surface
   // does (see SkippedSlot).
-  const pins: QueueHold[] = skippedSlotsFromRows(rows);
-  for (const r of rows) {
-    if (!r.queue_pinned || r.skipped) continue;
-    if (r.queue_position == null || !r.scheduled_date) continue;
-    pins.push({ slot: r.queue_position, date: r.scheduled_date });
-  }
+  const pins: QueueHold[] = queueHoldsFromRows(rows);
 
   const projected = computeNextLessonsForGoal(
     goal,
@@ -750,7 +746,7 @@ export interface DailyReconcileMove {
 }
 
 export type DailyReconcilePlan =
-  | { ok: true; moves: DailyReconcileMove[]; pins: Array<[number, string]>; skipped: number[] }
+  | { ok: true; moves: DailyReconcileMove[]; pins: Array<[number, string]>; skipped: number[]; preserved?: Array<[number,string]> }
   | { ok: false; reason: "read_failed" | "over_cap" };
 
 /**
@@ -789,7 +785,8 @@ export async function planDailyReconcile(
     .filter((r) => !r.completed && r.skipped && r.queue_position != null)
     .map((r) => r.queue_position as number)
     .sort((a, b) => a - b);
-  return { ok: true, moves, pins, skipped };
+  const preserved = plan.rows.filter(r=>r.queue_preserved && !r.completed && !r.skipped && r.queue_position!=null && r.scheduled_date).map(r=>[r.queue_position!,r.scheduled_date!] as [number,string]).sort((a,b)=>a[0]-b[0]);
+  return { ok: true, moves, pins, skipped, ...(preserved.length ? {preserved} : {}) };
 }
 
 export type ParentReprojectResult = ConfirmedWriteOutcome & {
@@ -820,7 +817,7 @@ export async function reprojectGoalForParent(
   const keep = new Set(opts.keepPinnedIds ?? []);
   const { data, error } = await supabase
     .from("lessons")
-    .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned, skipped")
+    .select("id, scheduled_date, completed, is_backfill, queue_position, queue_pinned, skipped, queue_preserved")
     .eq("curriculum_goal_id", goal.id)
     .eq("completed", false);
   if (error || !data) {
@@ -837,9 +834,9 @@ export async function reprojectGoalForParent(
 
   // The pins that survive this operation: skips always, plus the rows the
   // caller is deliberately keeping pinned (the lesson a cascade just moved).
-  const holds: QueueHold[] = skippedSlotsFromRows(rows);
+  const holds: QueueHold[] = [...skippedSlotsFromRows(rows), ...pinsFromRows(rows).filter(p=>p.preserved)];
   for (const r of rows) {
-    if (!r.queue_pinned || r.skipped || !keep.has(r.id)) continue;
+    if (r.queue_preserved || !r.queue_pinned || r.skipped || !keep.has(r.id)) continue;
     if (r.queue_position == null || !r.scheduled_date) continue;
     holds.push({ slot: r.queue_position, date: r.scheduled_date });
   }
@@ -861,7 +858,7 @@ export async function reprojectGoalForParent(
   const byDate = new Map<string, string[]>();
   const unpinOnly: string[] = [];
   for (const r of rows) {
-    if (keep.has(r.id)) continue;
+    if (r.queue_preserved || keep.has(r.id)) continue;
     const projDate =
       !r.is_backfill && !r.skipped && r.queue_position != null
         ? projDateBySlot.get(r.queue_position)
@@ -1590,6 +1587,8 @@ export function clampStartAtLesson(
 export interface PinnedSlot {
   slot: number;
   date: string;
+  /** Explicitly retained earlier unfinished work, independent of the pointer. */
+  preserved?: boolean;
 }
 
 /**
@@ -1689,6 +1688,7 @@ export function pinHoldsDay(
 
 /** The lesson columns needed to derive a pin. */
 export interface PinnableRow {
+  queue_preserved?: boolean | null;
   queue_position?: number | null;
   scheduled_date?: string | null;
   date?: string | null;
@@ -1713,7 +1713,7 @@ export interface PinnableRow {
 export function pinsFromRows(rows: PinnableRow[], goalId?: string): PinnedSlot[] {
   const out: PinnedSlot[] = [];
   for (const r of rows) {
-    if (!r.queue_pinned) continue;
+    if (!r.queue_pinned && !r.queue_preserved) continue;
     if (r.completed) continue;
     // A skip wins over a stale pin: skipping clears queue_pinned, so both at
     // once only happens on a row written before that rule.
@@ -1722,7 +1722,7 @@ export function pinsFromRows(rows: PinnableRow[], goalId?: string): PinnedSlot[]
     const slot = r.queue_position;
     const date = r.scheduled_date ?? r.date ?? null;
     if (slot == null || !date) continue;
-    out.push({ slot, date });
+    out.push({ slot, date, ...(r.queue_preserved ? {preserved: true} : {}) });
   }
   return out;
 }
@@ -1770,9 +1770,9 @@ export async function loadPinsByGoal(
   try {
     const { data, error } = await supabase
       .from("lessons")
-      .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned, skipped")
+      .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned, skipped, queue_preserved")
       .eq("user_id", userId)
-      .or("queue_pinned.eq.true,skipped.eq.true")
+      .or("queue_pinned.eq.true,skipped.eq.true,queue_preserved.eq.true")
       .eq("completed", false);
     if (error || !data) {
       if (error) {
@@ -2230,10 +2230,14 @@ export function computeNextLessonsForGoal(
   for (const p of pins) {
     if (isSkippedSlot(p)) skippedSlots.add(p.slot);
   }
+  const preserved = pins.filter((p): p is PinnedSlot => !isSkippedSlot(p) && !!p.preserved && !skippedSlots.has(p.slot) && p.slot >= 1 && p.slot <= goal.total_lessons);
+  const preservedSlots = new Set(preserved.map(p=>p.slot));
+  const preservedRows = preserved.filter(p=>p.date < endDateStr).map(p=>({goal_id:goal.id,lesson_number:p.slot,date:p.date}));
   const pinDateBySlot = new Map<number, string>();
   const used = new Map<string, number>();
+  for (const p of preservedRows) used.set(p.date,(used.get(p.date)??0)+1);
   for (const p of pins) {
-    if (isSkippedSlot(p) || skippedSlots.has(p.slot)) continue;
+    if (isSkippedSlot(p) || skippedSlots.has(p.slot) || p.preserved) continue;
     // isPinProjectable is the one definition of "the projector places this
     // pin" — the Schedule Builder's phase 2 guard reads the same helper.
     if (!isPinProjectable(p, goal)) continue;
@@ -2249,7 +2253,7 @@ export function computeNextLessonsForGoal(
   const makeUps: ProjectedLesson[] = [];
   const makeUpSlots = new Set<number>();
   for (const p of pins) {
-    if (isSkippedSlot(p) || skippedSlots.has(p.slot)) continue;
+    if (isSkippedSlot(p) || skippedSlots.has(p.slot) || p.preserved) continue;
     if (!isMakeUpPin(p, goal, fromDateStr)) continue;
     if (p.date >= endDateStr || makeUpSlots.has(p.slot)) continue;
     makeUpSlots.add(p.slot);
@@ -2257,7 +2261,7 @@ export function computeNextLessonsForGoal(
     used.set(p.date, (used.get(p.date) ?? 0) + 1);
   }
   makeUps.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.lesson_number - b.lesson_number));
-  if (goal.current_lesson >= goal.total_lessons) return makeUps;
+  if (goal.current_lesson >= goal.total_lessons) return [...makeUps,...preservedRows];
 
   // The "next" lesson_number is current_lesson + 1 (current_lesson is the
   // count of completed lessons; lesson_number is 1-indexed in the row).
@@ -2294,7 +2298,7 @@ export function computeNextLessonsForGoal(
   // start_at_lesson - 1, which the pointer never drops below). Reached that
   // way, the slot was emitted once as a make-up and once by the queue walk, so
   // Today rendered one lesson as two identical cards.
-  const emitted = new Set<number>(makeUpSlots);
+  const emitted = new Set<number>([...makeUpSlots,...preservedSlots]);
 
   let safety = 0;
   while (nextLesson <= goal.total_lessons && safety < 10_000) {
@@ -2356,9 +2360,9 @@ export function computeNextLessonsForGoal(
             let rewound = goal.current_lesson + 1;
             for (let back = completedTodayCount; back > 0 && rewound > 1; ) {
               rewound--;
-              if (!skippedSlots.has(rewound) && !makeUpSlots.has(rewound)) back--;
+              if (!skippedSlots.has(rewound) && !makeUpSlots.has(rewound) && !preservedSlots.has(rewound)) back--;
             }
-            while (skippedSlots.has(rewound) || makeUpSlots.has(rewound)) rewound++;
+            while (skippedSlots.has(rewound) || makeUpSlots.has(rewound) || preservedSlots.has(rewound)) rewound++;
             nextLesson = rewound;
             firstDayApplied = true;
             if (nextLesson > goal.total_lessons) break;
@@ -2392,7 +2396,7 @@ export function computeNextLessonsForGoal(
 
   // After the queue, so `out[0]` is still the next queue lesson for every
   // caller that reads it that way.
-  return makeUps.length > 0 ? [...out, ...makeUps] : out;
+  return [...out, ...makeUps, ...preservedRows];
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

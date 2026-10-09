@@ -17,6 +17,7 @@ export type CascadeRow = {
   is_backfill: boolean; continues_lesson_id: string | null;
   notes: string | null; minutes_spent: number | null; hours: number | null;
   updated_at: string;
+  queue_preserved?: boolean;
 };
 export type CascadeSnapshot = {
   userId: string;
@@ -28,15 +29,15 @@ export type CascadeSnapshot = {
   dayStartIso: string;
   dayEndIso: string;
 };
-export type CascadeDateState = Pick<CascadeRow, 'scheduled_date' | 'date' | 'queue_pinned' | 'scheduled_source'>;
+export type CascadeDateState = Pick<CascadeRow, 'scheduled_date' | 'date' | 'queue_pinned' | 'scheduled_source' | 'queue_preserved'>;
 export type CascadeWrite = { id: string; before: CascadeDateState; after: CascadeDateState };
-export type CascadePlan = { expected: CascadeSnapshot; writes: CascadeWrite[]; days: number };
+export type CascadePlan = { expected: CascadeSnapshot; writes: CascadeWrite[]; preserved: CascadeWrite[]; days: number };
 export type CascadePlanResult =
   | { ok: true; plan: CascadePlan }
   | { ok: false; reason: 'snapshot' | 'selection' | 'queue_order' | 'capacity' | 'unrepresented_gap' };
 const dateState = (r: CascadeRow): CascadeDateState => ({
   scheduled_date: r.scheduled_date, date: r.date,
-  queue_pinned: r.queue_pinned, scheduled_source: r.scheduled_source,
+  queue_pinned: r.queue_pinned, scheduled_source: r.scheduled_source, queue_preserved: !!r.queue_preserved,
 });
 const queueWork = (r: CascadeRow) => !r.completed && !r.skipped && !r.is_backfill &&
   !r.continues_lesson_id && r.queue_position != null;
@@ -77,10 +78,10 @@ export function planAnchoredCascade(snapshot: CascadeSnapshot, choice: {
   }
   const affected = new Set(ordered.filter(r => r.queue_position! >= moved.queue_position!).map(r => r.id));
   const next = rows.map(r => {
-    if (!affected.has(r.id)) return { ...r };
+    if (!affected.has(r.id)) return { ...r, queue_preserved: r.queue_preserved || (queueWork(r) && r.queue_position! < moved.queue_position! && !!r.scheduled_date) };
     const date = r.id === moved.id ? choice.to : nthSchoolDay(r.scheduled_date!, days, delta, vacations);
     return { ...r, date, scheduled_date: date, queue_pinned: r.id === moved.id || r.queue_pinned,
-      scheduled_source: r.id === moved.id ? 'plan_move' : 'plan_cascade_shift' };
+      scheduled_source: r.id === moved.id ? 'plan_move' : 'plan_cascade_shift', queue_preserved: false };
   });
   // Only changed destinations are judged. An unrelated historical/manual
   // overload is not permission to introduce a new one or to rewrite it.
@@ -97,6 +98,7 @@ export function planAnchoredCascade(snapshot: CascadeSnapshot, choice: {
     if (bySlot.get(r.queue_position!) !== r.scheduled_date) return { ok: false, reason: 'unrepresented_gap' };
   }
   return { ok: true, plan: { expected: structuredClone(snapshot), days: delta,
+    preserved: next.filter(r=>!affected.has(r.id) && r.queue_preserved && !rows.find(old=>old.id===r.id)!.queue_preserved).map(r=>({id:r.id,before:dateState(rows.find(old=>old.id===r.id)!),after:dateState(r)})),
     writes: next.filter(r => affected.has(r.id)).map(r => ({ id: r.id,
       before: dateState(rows.find(old => old.id === r.id)!), after: dateState(r) })) } };
 }

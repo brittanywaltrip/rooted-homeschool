@@ -1608,3 +1608,32 @@ year.
 ---
 
 *This doc is alive. When you find a new bug pattern, add it. When you write a new test, add it. When you discover a new invariant, document it. Keep it next to the code.*
+
+## Local candidate: preserved earlier unfinished work (approved October 9, 2026)
+
+Not deployed. The atomic forward-shift candidate confines date changes to the
+exact selected queue suffix displayed in its retained preview. Earlier
+unfinished dated rows gain `queue_preserved`, a placement/scope marker distinct
+from `queue_pinned`, completion, skip and backfill. Their dates, content, queue
+positions and existing pins do not change. Completed prefix rows never change.
+No prior historical pin is inferred. A deliberately reordered queue remains an
+unsupported safe refusal, rather than guessing book order or broadening scope.
+
+The shared projector emits preserved work on its stored day independently of
+the completion pointer, but it does not let that work drag the active suffix's
+cursor forward. New cache writers exclude preserved rows. The shared Today/Plan
+“Still unfinished” list has no age or completion-history threshold and links to
+the original Plan date. Explicit completion remains the existing user action;
+no scheduling operation marks earlier work done. Pointer cleanup must exclude
+preserved rows. The daily RPC compares the exact preservation set and rejects
+older payloads lacking it. Atomic Undo restores the prior marker state along
+with scheduling fields, only while expected state is still current.
+
+The schema proposals are outside the migration ledger. New clients require
+those definitions before activation. Arbitrary unpinned gaps still refuse;
+existing pinned anchors and ordinary rollover remain supported. Unaware rebuild
+or implicit date edits of preserved work fail closed. A complete explicit
+release/reschedule flow for preserved work, full-schema rehearsal and legacy
+writer compatibility are release gates. The independent completion-window
+finding against the preceding correctness commit is also unresolved here and
+must be fixed separately before any release.

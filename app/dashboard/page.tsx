@@ -3,6 +3,7 @@
 // TODO(cleanup): Delete stale test lessons for admin account:
 // DELETE FROM lessons WHERE title ILIKE '%test%' AND user_id = 'd18ca881-a776-4e82-b145-832adc88a88a';
 
+import PreservedWorkPanel from "../components/PreservedWorkPanel";
 import { LessonUnitsProvider, useLessonUnits } from "@/lib/lesson-units-context";
 import { displayLessonTitle, formatLessonLabel, formatLessonRange } from "@/lib/lesson-label";
 import { useEffect, useState, useCallback, useRef } from "react";
@@ -4726,6 +4727,8 @@ function TodayPageInner() {
         );
       })()}
 
+
+      <PreservedWorkPanel userId={effectiveUserId} revision={lessons} />
 
       {/* Legacy missed-lesson list. Queue scheduling keeps the next lesson
           available, and the notice below opens the shared review on tap. */}

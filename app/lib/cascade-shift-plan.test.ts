@@ -4,7 +4,7 @@ import { planAnchoredCascade, sameCascadeSnapshot, type CascadePlan, type Cascad
 
 function fixture(dates = ['2026-09-22','2026-09-29','2026-10-06'], pins: number[] = []): CascadeSnapshot {
   return { userId: 'synthetic-user', goal: { id: 'g', user_id: 'synthetic-user', total_lessons: dates.length, current_lesson: 0, lessons_per_day: 1, school_days: ['Tue'], start_date: '2026-09-22' },
-    rows: dates.map((date,i) => ({ id: `L${i+1}`, user_id: 'synthetic-user', curriculum_goal_id: 'g', lesson_number: i+1, queue_position: i+1, scheduled_date: date, date, queue_pinned: pins.includes(i+1), scheduled_source: pins.includes(i+1) ? 'plan_move' : 'wizard_create', completed: false, completed_at: null, skipped: false, is_backfill: false, continues_lesson_id: null, notes: null, minutes_spent: null, hours: null, updated_at: `version-${i}` })), rowCount: dates.length, vacations: [], localDay: '2026-09-22', dayStartIso: '2026-09-22T00:00:00Z', dayEndIso: '2026-09-23T00:00:00Z' };
+    rows: dates.map((date,i) => ({ id: `L${i+1}`, user_id: 'synthetic-user', curriculum_goal_id: 'g', lesson_number: i+1, queue_position: i+1, scheduled_date: date, date, queue_preserved:false,queue_pinned: pins.includes(i+1), scheduled_source: pins.includes(i+1) ? 'plan_move' : 'wizard_create', completed: false, completed_at: null, skipped: false, is_backfill: false, continues_lesson_id: null, notes: null, minutes_spent: null, hours: null, updated_at: `version-${i}` })), rowCount: dates.length, vacations: [], localDay: '2026-09-22', dayStartIso: '2026-09-22T00:00:00Z', dayEndIso: '2026-09-23T00:00:00Z' };
 }
 const choose = { lessonId: 'L1', from: '2026-09-22', to: '2026-09-29' };
 function mustPlan(s: CascadeSnapshot, c = choose) { const r = planAnchoredCascade(s,c); if (!r.ok) throw Error(r.reason); return r.plan; }
@@ -14,11 +14,11 @@ function mustPlan(s: CascadeSnapshot, c = choose) { const r = planAnchoredCascad
 function commitModel(current: CascadeSnapshot, plan: CascadePlan, failAt = -1) {
   if (!sameCascadeSnapshot(current, plan.expected)) return { ok: false as const, snapshot: current };
   const next = structuredClone(current);
-  for (const [i,w] of plan.writes.entries()) {
+  for (const [i,w] of [...plan.writes,...(plan.preserved??[])].entries()) {
     if (i === failAt) return { ok: false as const, snapshot: current };
     Object.assign(next.rows.find(r => r.id === w.id)!, w.after, { updated_at: `committed-${i}-${current.rows.find(r => r.id === w.id)!.updated_at}` });
   }
-  return { ok: true as const, snapshot: next, undo: { expected: structuredClone(next), days: -plan.days, writes: plan.writes.map(w => ({ id: w.id, before: w.after, after: w.before })) } };
+  return { ok: true as const, snapshot: next, undo: { expected: structuredClone(next), days: -plan.days, preserved: [], writes: [...plan.writes,...(plan.preserved??[])].map(w => ({ id: w.id, before: w.after, after: w.before })) } };
 }
 const dates = (s: CascadeSnapshot) => s.rows.map(r => r.scheduled_date);
 
@@ -110,9 +110,9 @@ test('partial snapshots and wrong ownership refuse before a plan exists', () => 
 });
 
 test('shifting a later queue suffix preserves earlier unfinished work exactly', () => {
-  const s=fixture(); const earlier=structuredClone(s.rows[0]);
+  const s=fixture(); const earlier={...structuredClone(s.rows[0]),queue_preserved:true};
   const p=mustPlan(s,{lessonId:'L2',from:'2026-09-29',to:'2026-10-06'});
   assert.deepEqual(p.writes.map(w=>w.id),['L2','L3']);
-  const shifted=commitModel(s,p);assert.deepEqual(shifted.snapshot.rows[0],earlier);
+  const shifted=commitModel(s,p);assert.deepEqual({...shifted.snapshot.rows[0],updated_at:earlier.updated_at},earlier);
   assert.deepEqual(dates(shifted.snapshot),['2026-09-22','2026-10-06','2026-10-13']);
 });

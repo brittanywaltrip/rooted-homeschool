@@ -124,6 +124,7 @@ export async function reconcileForDay(
           goal: expectedGoal(goal),
           vacations: shared.vacations.map((v) => [v.start_date, v.end_date]),
           pins: plan.pins,
+          preserved: plan.preserved ?? [],
           skipped: plan.skipped,
           done_today: doneToday,
           day_start: dayStart,

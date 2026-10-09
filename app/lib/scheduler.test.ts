@@ -10322,7 +10322,7 @@ test('skip: the reconciler loads skipped rows and passes them to the projector w
   assert.match(body, /planGoalResync\(/)
   const plan = extractFunctionBody(src, /async function planGoalResync\s*\(/)
   assert.match(plan, /queue_pinned, skipped/)
-  assert.match(plan, /skippedSlotsFromRows\(rows\)/)
+  assert.match(plan, /queueHoldsFromRows\(rows\)/)
   const loader = extractFunctionBody(src, /export async function loadPinsByGoal\s*\(/)
   assert.match(loader, /queue_pinned\.eq\.true,skipped\.eq\.true/)
 })

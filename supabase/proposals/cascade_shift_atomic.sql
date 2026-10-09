@@ -2,6 +2,7 @@
 -- here, so this is deliberately outside migrations/ with no invented version.
 -- Apply only after independent review, full-schema rehearsal and release approval.
 -- No existing family row is changed by installing these definitions.
+alter table public.lessons add column if not exists queue_preserved boolean not null default false;
 create schema if not exists rooted_private;
 create table rooted_private.cascade_shift_receipts (
   id uuid primary key,
@@ -70,7 +71,7 @@ begin
   if change is null then
    if actual_row is distinct from r then return false; end if;
   else
-   expected_row:=r||jsonb_build_object('date',change->'date','scheduled_date',change->'scheduled_date','queue_pinned',change->'queue_pinned','scheduled_source',change->'scheduled_source');
+   expected_row:=r||jsonb_build_object('date',change->'date','scheduled_date',change->'scheduled_date','queue_pinned',change->'queue_pinned','scheduled_source',change->'scheduled_source','queue_preserved',change->'queue_preserved');
    if (actual_row-'updated_at') is distinct from (expected_row-'updated_at') then return false; end if;
   end if;
  end loop;
@@ -101,6 +102,10 @@ begin
  end loop;
  for r in select * from jsonb_array_elements(state->'rows') loop
   slot:=(r->>'queue_position')::int;d:=coalesce(r->>'scheduled_date',r->>'date')::date;
+  if slot is not null and d is not null and slot>=1 and slot<=total and not coalesce((r->>'completed')::boolean,false) and not skipped ? slot::text and coalesce((r->>'queue_preserved')::boolean,false) then
+   emitted:=emitted||jsonb_build_object(slot::text,true);makeups:=makeups||jsonb_build_object(slot::text,true);
+   projected:=projected||jsonb_build_object(slot::text,d);used:=used||jsonb_build_object(d::text,coalesce((used->>d::text)::int,0)+1);continue;
+  end if;
   if slot is null or d is null or coalesce((r->>'completed')::boolean,false) or not coalesce((r->>'queue_pinned')::boolean,false) or skipped ? slot::text then continue; end if;
   if slot>pointer and slot<=total then
    if pin_dates ? slot::text then return false; end if;
@@ -156,13 +161,13 @@ begin
 end $$;
 revoke all on function rooted_private.cascade_projection_matches(jsonb) from public,anon,authenticated;
 
-create function public.commit_cascade_shift(p_operation_id uuid,p_goal_id uuid,p_expected jsonb,p_choice jsonb,p_moves jsonb)
+create function public.commit_cascade_shift(p_operation_id uuid,p_goal_id uuid,p_expected jsonb,p_choice jsonb,p_moves jsonb,p_preserved jsonb default '[]'::jsonb)
 returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
 declare
   u uuid:=auth.uid(); g public.curriculum_goals%rowtype; selected public.lessons%rowtype;
   prior rooted_private.cascade_shift_receipts%rowtype; actual jsonb; after_state jsonb;
-  request jsonb:=jsonb_build_object('expected',p_expected,'choice',p_choice,'moves',p_moves);
-  day date; target date; delta integer; required integer; got integer; bad integer; w jsonb;
+  request jsonb:=jsonb_build_object('expected',p_expected,'choice',p_choice,'moves',p_moves,'preserved',p_preserved);
+  all_moves jsonb:=p_moves||p_preserved; day date; target date; delta integer; required integer; got integer; bad integer; w jsonb;
 begin
   if u is null or p_operation_id is null then return jsonb_build_object('status','invalid','reason','owner'); end if;
   perform pg_advisory_xact_lock(hashtextextended(p_operation_id::text,0));
@@ -201,10 +206,10 @@ begin
       where l.id=(w->>'id')::uuid and l.curriculum_goal_id=p_goal_id and l.user_id=u
         and not l.completed and not l.skipped and not coalesce(l.is_backfill,false) and l.continues_lesson_id is null
         and l.queue_position>=selected.queue_position
-        and jsonb_build_object('scheduled_date',l.scheduled_date,'date',l.date,'queue_pinned',l.queue_pinned,'scheduled_source',l.scheduled_source)=w->'before';
+        and jsonb_build_object('scheduled_date',l.scheduled_date,'date',l.date,'queue_pinned',l.queue_pinned,'scheduled_source',l.scheduled_source,'queue_preserved',l.queue_preserved)=w->'before';
     -- Payload keys are checked below; only these four columns are ever written.
     if got<>1 then return jsonb_build_object('status','invalid','reason','row'); end if;
-    if (w->'after'->>'date') is distinct from (w->'after'->>'scheduled_date')
+    if (w->'after'->>'queue_preserved')::boolean is distinct from false or (w->'after'->>'date') is distinct from (w->'after'->>'scheduled_date')
       or (w->'after'->>'queue_pinned')::boolean is distinct from (case when (w->>'id')::uuid=selected.id then true else (w->'before'->>'queue_pinned')::boolean end)
       or (w->'after'->>'scheduled_source') is distinct from (case when (w->>'id')::uuid=selected.id then 'plan_move' else 'plan_cascade_shift' end)
       or (w->'after'->>'date')::date<day
@@ -213,11 +218,20 @@ begin
       or ((w->>'id')::uuid=selected.id and (w->'after'->>'date')::date<>target)
     then return jsonb_build_object('status','invalid','reason','shape'); end if;
   end loop;
+  -- Earlier unfinished dates remain authoritative without becoming pins or
+  -- completions. The exact prefix is separate from the confirmed moved suffix.
+  select count(*) into required from public.lessons where curriculum_goal_id=p_goal_id and not completed and not skipped and not coalesce(is_backfill,false) and continues_lesson_id is null and queue_position<selected.queue_position and scheduled_date is not null and not queue_preserved;
+  if jsonb_typeof(p_preserved) is distinct from 'array' or jsonb_array_length(p_preserved)<>required or (select count(distinct x->>'id') from jsonb_array_elements(p_preserved) x)<>required then return jsonb_build_object('status','invalid','reason','preserved_scope');end if;
+  for w in select * from jsonb_array_elements(p_preserved) loop
+   select count(*) into got from public.lessons l where l.id=(w->>'id')::uuid and l.curriculum_goal_id=p_goal_id and l.user_id=u and not completed and not skipped and not coalesce(is_backfill,false) and continues_lesson_id is null and queue_position<selected.queue_position and scheduled_date is not null and not queue_preserved
+    and jsonb_build_object('scheduled_date',l.scheduled_date,'date',l.date,'queue_pinned',l.queue_pinned,'scheduled_source',l.scheduled_source,'queue_preserved',l.queue_preserved)=w->'before';
+   if got<>1 or w->'after' is distinct from ((w->'before')||'{"queue_preserved":true}'::jsonb) then return jsonb_build_object('status','invalid','reason','preserved_row');end if;
+  end loop;
   -- A nested block is a subtransaction: any failure rolls EVERY date/pin back.
   begin
-    for w in select * from jsonb_array_elements(p_moves) loop
+    for w in select * from jsonb_array_elements(all_moves) loop
       update public.lessons set scheduled_date=(w->'after'->>'scheduled_date')::date,date=(w->'after'->>'date')::date,
-        queue_pinned=(w->'after'->>'queue_pinned')::boolean,scheduled_source=w->'after'->>'scheduled_source'
+        queue_preserved=(w->'after'->>'queue_preserved')::boolean,queue_pinned=(w->'after'->>'queue_pinned')::boolean,scheduled_source=w->'after'->>'scheduled_source'
         where id=(w->>'id')::uuid;
       get diagnostics got=row_count;
       if got<>1 then raise exception 'cascade row refused'; end if;
@@ -234,10 +248,10 @@ begin
     select count(*) into bad from (select scheduled_date,lag(scheduled_date) over(order by queue_position) prev from public.lessons where curriculum_goal_id=p_goal_id and not completed and not skipped and not coalesce(is_backfill,false) and queue_position>g.current_lesson) q where scheduled_date<prev;
     if bad>0 then raise exception 'cascade order'; end if;
     after_state:=rooted_private.cascade_snapshot(p_goal_id,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso');
-    if not rooted_private.cascade_postcondition(actual,after_state,p_moves,'after') then raise exception 'cascade postcondition';end if;
+    if not rooted_private.cascade_postcondition(actual,after_state,all_moves,'after') then raise exception 'cascade postcondition';end if;
     if not rooted_private.cascade_projection_matches(after_state) then raise exception 'cascade projector mismatch';end if;
     insert into rooted_private.cascade_shift_receipts(id,user_id,goal_id,request,before_snapshot,after_snapshot,moves)
-      values(p_operation_id,u,p_goal_id,request,actual,after_state,p_moves);
+      values(p_operation_id,u,p_goal_id,request,actual,after_state,all_moves);
   exception when others then
     return jsonb_build_object('status','failed','reason','transaction');
   end;
@@ -245,8 +259,8 @@ begin
 exception when invalid_text_representation or invalid_datetime_format or datetime_field_overflow or numeric_value_out_of_range then
   return jsonb_build_object('status','invalid','reason','payload');
 end $$;
-revoke all on function public.commit_cascade_shift(uuid,uuid,jsonb,jsonb,jsonb) from public,anon;
-grant execute on function public.commit_cascade_shift(uuid,uuid,jsonb,jsonb,jsonb) to authenticated;
+revoke all on function public.commit_cascade_shift(uuid,uuid,jsonb,jsonb,jsonb,jsonb) from public,anon;
+grant execute on function public.commit_cascade_shift(uuid,uuid,jsonb,jsonb,jsonb,jsonb) to authenticated;
 
 create function public.undo_cascade_shift(p_operation_id uuid)
 returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
@@ -267,7 +281,7 @@ begin
   begin
     for w in select * from jsonb_array_elements(receipt.moves) loop
       update public.lessons set scheduled_date=(w->'before'->>'scheduled_date')::date,date=(w->'before'->>'date')::date,
-        queue_pinned=(w->'before'->>'queue_pinned')::boolean,scheduled_source=w->'before'->>'scheduled_source'
+        queue_preserved=(w->'before'->>'queue_preserved')::boolean,queue_pinned=(w->'before'->>'queue_pinned')::boolean,scheduled_source=w->'before'->>'scheduled_source'
         where id=(w->>'id')::uuid and curriculum_goal_id=receipt.goal_id;
       get diagnostics n=row_count;
       if n<>1 then raise exception 'undo row refused'; end if;

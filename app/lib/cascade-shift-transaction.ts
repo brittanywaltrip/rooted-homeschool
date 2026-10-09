@@ -18,7 +18,7 @@ export async function previewCurriculumShift(client: SupabaseClient, args: {
     if(snapshot.goal.id!==args.goalId || snapshot.localDay!==args.localDay) return null;
     const plan=planAnchoredCascade(snapshot,{lessonId:args.lessonId,from:args.from,to:args.to});
     if(!plan.ok) return null;
-    return {snapshot,shiftDays:plan.plan.days,futureLessonsToShift:plan.plan.writes.length-1,
+    return {snapshot,preservedEarlierCount:plan.plan.preserved.length,shiftDays:plan.plan.days,futureLessonsToShift:plan.plan.writes.length-1,
       projectedFinishDate:plan.plan.writes.reduce((latest,w)=>w.after.date>latest?w.after.date:latest,args.to)};
   } catch { return null; }
 }
@@ -48,7 +48,7 @@ export async function shiftCurriculumSessions(client: SupabaseClient, args: {
   // response was lost after commit, the server recognizes it without moving
   // the schedule for a second time.
   const request = { p_operation_id: args.operationId, p_goal_id: args.goalId,
-    p_expected: planned.plan.expected, p_choice: choice, p_moves: planned.plan.writes };
+    p_expected: planned.plan.expected, p_choice: choice, p_moves: planned.plan.writes, p_preserved: planned.plan.preserved };
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const { data, error } = await client.rpc('commit_cascade_shift', request);

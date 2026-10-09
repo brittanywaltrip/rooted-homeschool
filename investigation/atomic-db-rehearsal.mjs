@@ -34,10 +34,15 @@ try {
  new.updated_at=clock_timestamp(); return new; end $$;
  create trigger rehearsal_update before update on public.lessons for each row execute function public.rehearsal_updated();`);
  q(readFileSync('supabase/proposals/cascade_shift_atomic.sql','utf8'));
+ q(readFileSync('supabase/migrations/20260921230610_daily_reconcile.sql','utf8'));
+ q(readFileSync('supabase/proposals/preserved_daily_reconcile.sql','utf8'));
+ q(readFileSync('supabase/proposals/preserved_cleanup_guard.sql','utf8'));
+ q('create trigger preserved_cleanup_rehearsal after update of current_lesson on public.curriculum_goals for each row execute function public.curriculum_goals_cleanup_orphans_trg()');
+ q("update rooted_private.app_switches set enabled=true where name='daily_reconcile'");
  const today=q("select (now() at time zone 'UTC')::date");
  const add=n=>q(`select (date '${today}'+${n})::text`);
  const label=q(`select to_char(date '${today}','Dy')`);
- function reset(gap=true){q(`truncate rooted_private.cascade_shift_receipts; delete from public.lessons;delete from public.vacation_blocks;delete from public.curriculum_goals;
+ function reset(gap=true){q(`truncate rooted_private.cascade_shift_receipts;truncate rooted_private.daily_reconcile_log; update public.lessons set queue_preserved=false;delete from public.lessons;delete from public.vacation_blocks;delete from public.curriculum_goals;
  insert into public.curriculum_goals(id,user_id,total_lessons,current_lesson,school_days,start_date) values('${G}','${U}',3,0,array['${label}'],'${today}');
  insert into public.lessons(id,user_id,curriculum_goal_id,lesson_number,queue_position,scheduled_date,date,queue_pinned,scheduled_source,notes,minutes_spent)
  values('${L(1)}','${U}','${G}',1,1,'${today}','${today}',false,'wizard_create',null,null),
@@ -45,7 +50,7 @@ try {
  ('${L(3)}','${U}','${G}',3,3,'${add(gap?28:14)}','${add(gap?28:14)}',false,'wizard_create',null,null);`);}
  const snapshot=()=>json(rpcSQL('read_cascade_snapshot',[G,today,today+'T00:00:00Z',add(1)+'T00:00:00Z'])).snapshot;
  function prepare(target=add(7)){const s=snapshot();const c={lessonId:L(1),from:s.rows[0].scheduled_date,to:target};const p=planAnchoredCascade(s,c);assert.ok(p.ok,JSON.stringify(p));return {s,c,p:p.plan,op:randomUUID()};}
- const commit=(v)=>json(rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes]));
+ const commit=(v)=>json(rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes,v.p.preserved]));
  const undo=(v)=>json(rpcSQL('undo_cascade_shift',[v.op]));
  const restored=(s)=>s.rows.map(r=>{const copy={...r};delete copy.updated_at;return copy;});
  function pass(name){results.push({name,status:'PASS'});console.log('PASS '+name);}
@@ -75,19 +80,46 @@ try {
  assert.equal(commit(v).status,'already_applied');assert.deepEqual(snapshot(),after);pass('same operation retry writes nothing twice');
  assert.equal(undo(v).status,'undone');assert.deepEqual(restored(snapshot()),restored(v.s));assert.equal(undo(v).status,'already_undone');pass('protected SQL Undo restores exact scheduling fields once');
  reset();v=prepare();q(`update public.lessons set notes='later work' where id='${L(2)}'`);after=snapshot();assert.equal(commit(v).status,'stale');assert.deepEqual(snapshot(),after);pass('stale preflight cannot overwrite later work');
- reset();v=prepare();const fail=json(`set rehearsal.fail_id=${quote(L(2))}; ${rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes])}`);assert.equal(fail.status,'failed');assert.deepEqual(snapshot(),v.s);assert.equal(q('select count(*) from rooted_private.cascade_shift_receipts'),'0');pass('second-row error rolls back trigger, tail and receipt');
+ reset();v=prepare();const fail=json(`set rehearsal.fail_id=${quote(L(2))}; ${rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes,v.p.preserved])}`);assert.equal(fail.status,'failed');assert.deepEqual(snapshot(),v.s);assert.equal(q('select count(*) from rooted_private.cascade_shift_receipts'),'0');pass('second-row error rolls back trigger, tail and receipt');
  reset();v=prepare();assert.equal(commit(v).status,'applied');q(`update public.lessons set notes='later note' where id='${L(2)}'`);after=snapshot();assert.equal(undo(v).status,'stale');assert.deepEqual(snapshot(),after);pass('Undo refuses a later note');
  reset();v=prepare();assert.equal(commit(v).status,'applied');q(`update public.lessons set completed=true,completed_at=now() where id='${L(2)}'`);after=snapshot();assert.equal(undo(v).status,'stale');assert.deepEqual(snapshot(),after);pass('Undo refuses a later completion and pointer change');
  reset();v=prepare();assert.equal(commit(v).status,'applied');q(`insert into public.vacation_blocks(user_id,start_date,end_date) values('${U}','${add(35)}','${add(35)}')`);after=snapshot();assert.equal(undo(v).status,'stale');assert.deepEqual(snapshot(),after);pass('Undo refuses changed breaks');
  reset();v=prepare();assert.equal(commit(v).status,'applied');after=snapshot();const undoFail=json(`set rehearsal.fail_id=${quote(L(2))}; ${rpcSQL('undo_cascade_shift',[v.op])}`);assert.equal(undoFail.status,'failed');assert.deepEqual(snapshot(),after);pass('second-row Undo error rolls back every restore');
- reset();v=prepare();let wrong=json(rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes]),OTHER);assert.equal(wrong.status,'invalid');assert.deepEqual(snapshot(),v.s);pass('another owner cannot commit');
+ reset();v=prepare();let wrong=json(rpcSQL('commit_cascade_shift',[v.op,G,v.s,v.c,v.p.writes,v.p.preserved]),OTHER);assert.equal(wrong.status,'invalid');assert.deepEqual(snapshot(),v.s);pass('another owner cannot commit');
  assert.throws(()=>q(`set role anon; ${rpcSQL('read_cascade_snapshot',[G,today,today+'T00:00:00Z',add(1)+'T00:00:00Z'])}`),/permission denied/);pass('anonymous RPC access denied');
  reset();v=prepare();let bad=structuredClone(v);bad.p.writes.pop();assert.equal(commit(bad).status,'invalid');assert.deepEqual(snapshot(),v.s);pass('partial tail payload refused before writes');
  reset();v=prepare();bad=structuredClone(v);bad.p.writes[2].after.queue_pinned=true;assert.equal(commit(bad).status,'invalid');assert.deepEqual(snapshot(),v.s);pass('cannot silently pin the whole tail');
- reset(false);v=prepare();const v2={...v,op:randomUUID()};const statements=[v,v2].map(x=>as(rpcSQL('commit_cascade_shift',[x.op,G,x.s,x.c,x.p.writes])));
+ reset(false);v=prepare();const v2={...v,op:randomUUID()};const statements=[v,v2].map(x=>as(rpcSQL('commit_cascade_shift',[x.op,G,x.s,x.c,x.p.writes,x.p.preserved])));
  const concurrent=await Promise.all(statements.map(sql=>runAsync(bin+'psql',['-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],{env,encoding:'utf8'})));
  assert.deepEqual(concurrent.map(r=>JSON.parse(r.stdout.trim()).status).sort(),['applied','stale']);pass('concurrent same-snapshot commits serialize: only one applies');
  reset();v=prepare();assert.equal(commit(v).status,'applied');let vnext=prepare(add(14));let nextPlan=planAnchoredCascade(vnext.s,vnext.c);assert.ok(nextPlan.ok);vnext.p=nextPlan.plan;assert.equal(commit(vnext).status,'applied');assert.deepEqual(snapshot().rows.map(r=>r.scheduled_date),[add(14),add(35),add(42)]);assert.equal(undo(vnext).status,'undone');assert.equal(undo(v).status,'stale');pass('repeated shift succeeds; old Undo token cannot overwrite newer revisions');
+ reset(false);
+ q(`update public.lessons set date=date-7,scheduled_date=scheduled_date-7`);
+ let prefixSnapshot=snapshot();const prefixChoice={lessonId:L(2),from:today,to:add(7)};
+ const prefixPlan=planAnchoredCascade(prefixSnapshot,prefixChoice);assert.ok(prefixPlan.ok,JSON.stringify(prefixPlan));
+ const prefixOp={s:prefixSnapshot,c:prefixChoice,p:prefixPlan.plan,op:randomUUID()};
+ assert.equal(prefixOp.p.writes.length,2);assert.equal(prefixOp.p.preserved.length,1);
+ assert.equal(commit(prefixOp).status,'applied');const prefixAfter=snapshot();
+ assert.deepEqual(restored(prefixAfter)[0],{...restored(prefixSnapshot)[0],queue_preserved:true});
+ assert.deepEqual(prefixAfter.rows.map(r=>r.scheduled_date),[add(-7),add(7),add(14)]);
+ assert.equal(q(`select rooted_private.cascade_projection_matches(${quote(JSON.stringify(prefixAfter))}::jsonb)`),'t');
+ assert.equal(undo(prefixOp).status,'undone');assert.deepEqual(restored(snapshot()),restored(prefixSnapshot));
+ pass('SQL preserves earlier dates/content separately and Undo restores the scope marker');
+ prefixSnapshot=snapshot();prefixOp.s=prefixSnapshot;prefixOp.op=randomUUID();prefixOp.p=planAnchoredCascade(prefixSnapshot,prefixChoice).plan;
+ assert.equal(commit(prefixOp).status,'applied');
+ q(`update public.lessons set completed=true,completed_at='${today}T01:00:00Z' where id='${L(2)}'`);
+ const advanced=snapshot();assert.equal(advanced.goal.current_lesson,2);assert.equal(advanced.rows[0].completed,false);assert.equal(advanced.rows[0].queue_preserved,true);
+ const expected={goal:{total_lessons:advanced.goal.total_lessons,current_lesson:advanced.goal.current_lesson,lessons_per_day:advanced.goal.lessons_per_day,lessons_per_day_overrides:advanced.goal.lessons_per_day_overrides,school_days:advanced.goal.school_days,start_date:advanced.goal.start_date},vacations:[],pins:[],skipped:[],preserved:[[1,add(-7)]],done_today:1,day_start:today+'T00:00:00Z',day_end:add(1)+'T00:00:00Z'};
+ const staleExpected={...expected};delete staleExpected.preserved;
+ const cacheWrites=[{id:L(3),from:add(14),to:add(7)}];
+ assert.equal(json(rpcSQL('apply_daily_reconcile',[G,today,staleExpected,cacheWrites])).status,'stale');
+ assert.deepEqual(snapshot(),advanced);
+ assert.equal(json(rpcSQL('apply_daily_reconcile',[G,today,expected,cacheWrites])).status,'applied');
+ const rolled=snapshot();assert.deepEqual(rolled.rows[0],advanced.rows[0]);assert.equal(rolled.rows[2].scheduled_date,add(7));assert.equal(q(`select rooted_private.cascade_projection_matches(${quote(JSON.stringify(rolled))}::jsonb)`),'t');
+ pass('completion pointer and daily reconciliation retain earlier work; old daily payload refuses');
+ assert.throws(()=>q(as(`update public.lessons set scheduled_date=scheduled_date+7 where id='${L(1)}'`)),/cannot be rescheduled implicitly/);assert.deepEqual(snapshot(),rolled);
+ assert.throws(()=>q(as(`delete from public.lessons where id='${L(1)}'`)),/must be explicitly resolved/);assert.deepEqual(snapshot(),rolled);
+ pass('unaware direct writer and rebuild deletion cannot erase preserved work');
  // Differential characterization of the independent SQL validator, including
  // first-day rewind, skips, make-ups, variable capacity, breaks and gap pins.
  let parityCases=0;
@@ -116,10 +148,10 @@ try {
  pass(`${parityCases} SQL/TypeScript projection parity and mutation checks`);
  reset();
  const {browserRehearsal}=await import('./atomic-browser-rehearsal.mjs');
- const client={rpc:async(name,args)=>{const names={read_cascade_snapshot:['p_goal_id','p_local_day','p_day_start','p_day_end'],commit_cascade_shift:['p_operation_id','p_goal_id','p_expected','p_choice','p_moves'],undo_cascade_shift:['p_operation_id']};return {data:json(rpcSQL(name,names[name].map(key=>args[key]))),error:null};}};
+ const client={rpc:async(name,args)=>{const names={read_cascade_snapshot:['p_goal_id','p_local_day','p_day_start','p_day_end'],commit_cascade_shift:['p_operation_id','p_goal_id','p_expected','p_choice','p_moves','p_preserved'],undo_cascade_shift:['p_operation_id']};return {data:json(rpcSQL(name,names[name].map(key=>args[key]))),error:null};}};
  await browserRehearsal({client,snapshot,goalId:G,lessonId:L(1),today,target:add(7),finish:add(35)});
  pass('browser real callback/coordinator commits a pinned gap and performs SQL receipt Undo');
- writeFileSync('../investigation-evidence/correctness-db-results.json',JSON.stringify({scratch:root,results},null,2));
+ writeFileSync('../investigation-evidence/preserved-db-results.json',JSON.stringify({scratch:root,results},null,2));
  console.log(`${results.length} SQL cases passed`);
 }
 }finally{if(started)execFileSync(bin+'pg_ctl',['-D',root+'/data','stop','-m','fast'],{encoding:'utf8',stdio:'pipe'});}
