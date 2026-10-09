@@ -1,3 +1,4 @@
+import { isDefinitiveSchedulerRejection } from './scheduler-terminal-result.ts';
 import { countSchoolDaysInRange, nthSchoolDayBefore, type VacationRange } from "../../lib/school-days.ts";
 import { mapLessonDateAcrossVacation } from "../components/PlanV2/handleVacationSave.shift.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -5,7 +6,11 @@ import { computeNextLessonsForGoal, queueHoldsFromRows, type CurriculumGoalConfi
 import { countDoneToday } from "./phase2-commit.ts";
 import type { CascadeRow } from "./cascade-shift-plan.ts";
 
+export type SchedulerEditFields = {title?: string; lesson_number?: number | null; minutes_spent?: number | null; scheduled_date?: string; child_id?: string};
 export type SchedulerAction =
+  | { kind: "place_selected"; lessonIds: string[]; targetDate: string }
+  | { kind: "delete_selected"; lessonIds: string[] }
+  | { kind: "edit"; lessonId: string; changes: SchedulerEditFields; originals: SchedulerEditFields }
   | { kind: "single_move"; lessonId: string; targetDate: string; localDay: string }
   | { kind: "complete"; lessonId: string; payload: Record<string, unknown>; onlyIfIncomplete?: boolean; placement?: Record<string, unknown> }
   | { kind: "skip" | "delete"; lessonId: string }
@@ -26,7 +31,7 @@ export function pendingContainedAction(client: SupabaseClient, lessonId: string)
   return pending.get(client)?.get(lessonId);
 }
 function actionLessonIds(action: SchedulerAction): string[] {
-  return action.kind === "set_skipped" ? action.lessonIds : [action.lessonId];
+  return (action.kind === "set_skipped" || action.kind === "delete_selected" || action.kind === "place_selected") ? action.lessonIds : [action.lessonId];
 }
 function sameIntent(a: SchedulerAction, b: SchedulerAction): boolean {
   const normalized = (action: SchedulerAction) => {
@@ -56,8 +61,8 @@ async function retainedAttempt(client: SupabaseClient, retry: SchedulerRetry): P
   const confirmed = result.status === "applied" || result.status === "already_applied" || result.status === "already_undone";
   // A busy/stale/invalid replay cannot disprove an earlier request still
   // committing. Keep its token until the receipt confirms the outcome.
-  if (retry.ambiguous && !confirmed) result = {status: "unknown", reason: result.reason, operationId: retry.operationId, retry};
-  if (!retry.ambiguous || confirmed) for (const id of actionLessonIds(retry.action)) operations.delete(id);
+  if (retry.ambiguous && !confirmed && !isDefinitiveSchedulerRejection(result)) result = {status: "unknown", reason: result.reason, operationId: retry.operationId, retry};
+  if (!retry.ambiguous || confirmed || isDefinitiveSchedulerRejection(result)) for (const id of actionLessonIds(retry.action)) operations.delete(id);
   return {...result, action: retry.action};
 }
 const accepted = new Set(["legacy", "applied", "already_applied", "undone", "already_undone", "busy", "stale", "invalid", "paused"]);
@@ -293,4 +298,14 @@ export async function undoCalendarAction(client:SupabaseClient,operationId:strin
     const {data,error}=await client.rpc('undo_scheduler_calendar',{p_operation_id:operationId});
     return error?{...(definiteRpcRefusal(error)??{status:'unknown' as const}),operationId}:{...parsed(data),operationId};
   }catch{return {status:'unknown',operationId};}
+}
+
+/** Capture the full state before the UI's deferred-delete Undo window. */
+export async function prepareContainedDeletion(client: SupabaseClient, goal: string | null, ids: string[]): Promise<() => Promise<SchedulerResult>> {
+  const prepared = await prepareContainedAction(client, goal, {kind: "delete_selected", lessonIds: ids});
+  if (!("expected" in prepared)) {
+    if (prepared.status !== "legacy") throw new Error(schedulerRefusalMessage(prepared));
+    return async () => prepared;
+  }
+  return () => retainedAttempt(client, prepared);
 }

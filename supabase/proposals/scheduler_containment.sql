@@ -2,6 +2,18 @@
 -- LOCAL ONLY: protected cohorts remain empty until separately approved activation.
 BEGIN;
 SET LOCAL lock_timeout='5s';
+-- Shared ordinary mutations / exclusive calendar membership, scoped to a family.
+-- All lesson and goal mutations participate, including content-only and legacy.
+CREATE FUNCTION rooted_private.scheduler_lock_owner(p_owner uuid,p_exclusive boolean DEFAULT false) RETURNS void LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
+DECLARE key bigint; ok boolean;
+BEGIN
+ IF p_owner IS NULL THEN RETURN;END IF;
+ key:=hashtextextended('rooted_scheduler_owner:'||p_owner::text,0);
+ IF p_exclusive THEN ok:=pg_try_advisory_xact_lock(key);ELSE ok:=pg_try_advisory_xact_lock_shared(key);END IF;
+ IF NOT ok THEN RAISE lock_not_available;END IF;
+END $$;
+REVOKE ALL ON FUNCTION rooted_private.scheduler_lock_owner(uuid,boolean) FROM PUBLIC,anon,authenticated,service_role;
+
 CREATE TABLE rooted_private.scheduler_modes(goal_id uuid PRIMARY KEY REFERENCES public.curriculum_goals(id) ON DELETE CASCADE, mode text NOT NULL CHECK(mode IN ('atomic_v2','paused')));
 CREATE TABLE rooted_private.scheduler_capabilities(tx bigint NOT NULL,goal_id uuid NOT NULL,owner_id uuid NOT NULL,operation text NOT NULL,row_ids uuid[] NOT NULL,lesson_fields text[] NOT NULL,goal_fields text[] NOT NULL,delete_ids uuid[] NOT NULL DEFAULT '{}',insert_shapes jsonb NOT NULL DEFAULT '[]',PRIMARY KEY(tx,goal_id));
 CREATE TABLE rooted_private.scheduler_action_receipts(id uuid PRIMARY KEY,user_id uuid NOT NULL,goal_id uuid NOT NULL,request_hash text NOT NULL,before_state jsonb,after_hash text NOT NULL,result jsonb NOT NULL,created_at timestamptz NOT NULL DEFAULT clock_timestamp(),undone_at timestamptz);
@@ -10,7 +22,7 @@ ALTER TABLE rooted_private.scheduler_capabilities ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rooted_private.scheduler_action_receipts ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON rooted_private.scheduler_modes,rooted_private.scheduler_capabilities,rooted_private.scheduler_action_receipts FROM PUBLIC,anon,authenticated,service_role;
 CREATE FUNCTION rooted_private.scheduler_state(p_goal uuid) RETURNS jsonb LANGUAGE sql STABLE SET search_path=pg_catalog,pg_temp AS $$
- SELECT jsonb_build_object('goal',to_jsonb(g),'rows',coalesce((SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM public.lessons l WHERE curriculum_goal_id=g.id),'[]'::jsonb),'vacations',coalesce((SELECT jsonb_agg(to_jsonb(v) ORDER BY id) FROM public.vacation_blocks v WHERE user_id=g.user_id),'[]'::jsonb)) FROM public.curriculum_goals g WHERE id=p_goal
+ SELECT jsonb_build_object('goal',to_jsonb(g),'profile',(SELECT jsonb_build_object('timezone',p.timezone,'school_days',p.school_days) FROM public.profiles p WHERE p.id=g.user_id),'rows',coalesce((SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM public.lessons l WHERE curriculum_goal_id=g.id),'[]'::jsonb),'vacations',coalesce((SELECT jsonb_agg(to_jsonb(v) ORDER BY id) FROM public.vacation_blocks v WHERE user_id=g.user_id),'[]'::jsonb)) FROM public.curriculum_goals g WHERE id=p_goal
 $$;
 CREATE FUNCTION public.read_scheduler_state(p_goal_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
 BEGIN
@@ -24,27 +36,31 @@ BEGIN
 END $$;
 CREATE FUNCTION rooted_private.scheduler_disallow(p_goal uuid) RETURNS void LANGUAGE sql SET search_path=pg_catalog,pg_temp AS $$ DELETE FROM rooted_private.scheduler_capabilities WHERE tx=txid_current() AND goal_id=p_goal $$;
 CREATE FUNCTION rooted_private.scheduler_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
-DECLARE oldj jsonb;newj jsonb;g uuid; m text;c rooted_private.scheduler_capabilities%rowtype; fields text[]; changed text[]; shape jsonb;
+DECLARE oldj jsonb;newj jsonb;g uuid; m text;c rooted_private.scheduler_capabilities%rowtype; fields text[]; changed text[]; shape jsonb; owner_key uuid;
 BEGIN
  IF TG_OP<>'INSERT' THEN oldj:=to_jsonb(OLD);END IF;
  IF TG_OP<>'DELETE' THEN newj:=to_jsonb(NEW);END IF;
- fields:=CASE WHEN TG_TABLE_NAME='lessons' THEN ARRAY['id','user_id','child_id','date','scheduled_date','lesson_number','counts_toward_goal','goal_id','scheduled_source','curriculum_goal_id','school_year','is_backfill','school_year_id','queue_position','queue_pinned','continues_lesson_id','skipped','queue_preserved','completed','completed_at'] ELSE ARRAY['id','user_id','child_id','total_lessons','current_lesson','target_date','school_days','school_year','start_date','start_at_lesson','school_year_id','lessons_per_day','completed_at','lessons_per_day_overrides','archived','placement_mode','placement_migrated_at','lessons_per_unit'] END;
+ FOR owner_key IN SELECT DISTINCT x FROM unnest(ARRAY[(oldj->>'user_id')::uuid,(newj->>'user_id')::uuid]) x WHERE x IS NOT NULL ORDER BY x LOOP PERFORM rooted_private.scheduler_lock_owner(owner_key,false);END LOOP;
+ -- Archive visibility and unit wording do not rewrite scheduling or work.
+ -- They remain in full expected snapshots, so conflicting receipts go stale.
+ fields:=CASE WHEN TG_TABLE_NAME='lessons' THEN ARRAY['id','user_id','child_id','date','scheduled_date','lesson_number','counts_toward_goal','goal_id','scheduled_source','curriculum_goal_id','school_year','is_backfill','school_year_id','queue_position','queue_pinned','continues_lesson_id','skipped','queue_preserved','completed','completed_at'] ELSE ARRAY['id','user_id','child_id','total_lessons','current_lesson','target_date','school_days','school_year','start_date','start_at_lesson','school_year_id','lessons_per_day','completed_at','lessons_per_day_overrides','placement_mode','placement_migrated_at'] END;
  IF TG_OP='UPDATE' THEN
   SELECT array_agg(k) INTO changed FROM unnest(fields) k WHERE oldj->k IS DISTINCT FROM newj->k;
   IF changed IS NULL THEN RETURN NEW;END IF;
  END IF;
- -- Every scheduler writer, including legacy mode, locks before reading mode.
+ -- The owner shared lock serializes activation, even for legacy writers.
  -- The early trigger raises: a mixed statement cannot silently drop some rows.
  FOR g IN SELECT DISTINCT x FROM unnest(CASE WHEN TG_TABLE_NAME='lessons' THEN ARRAY[(oldj->>'curriculum_goal_id')::uuid,(newj->>'curriculum_goal_id')::uuid] ELSE ARRAY[(oldj->>'id')::uuid,(newj->>'id')::uuid] END) x WHERE x IS NOT NULL ORDER BY x LOOP
-  PERFORM 1 FROM public.curriculum_goals WHERE id=g FOR UPDATE NOWAIT;
   SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g;
   IF m IS NULL THEN CONTINUE;END IF;
+  PERFORM 1 FROM public.curriculum_goals WHERE id=g FOR UPDATE NOWAIT;
   SELECT * INTO c FROM rooted_private.scheduler_capabilities WHERE tx=txid_current() AND goal_id=g AND owner_id=auth.uid();
   IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='scheduler_client_upgrade_required',HINT='Reload and review the schedule before retrying.';END IF;
   IF TG_TABLE_NAME='curriculum_goals' THEN
-   IF TG_OP<>'UPDATE' OR NOT changed <@ c.goal_fields THEN RAISE EXCEPTION 'scheduler_goal_scope_refused';END IF;
+   IF TG_OP='DELETE' AND c.operation='goal_delete' THEN NULL;
+   ELSIF TG_OP<>'UPDATE' OR NOT changed <@ c.goal_fields THEN RAISE EXCEPTION 'scheduler_goal_scope_refused';END IF;
   ELSIF TG_OP='UPDATE' THEN
-   IF NOT (OLD.id=ANY(c.row_ids)) OR NOT changed <@ c.lesson_fields OR OLD.curriculum_goal_id IS DISTINCT FROM NEW.curriculum_goal_id OR OLD.user_id IS DISTINCT FROM NEW.user_id THEN RAISE EXCEPTION 'scheduler_row_scope_refused';END IF;
+   IF NOT (OLD.id=ANY(c.row_ids)) OR NOT changed <@ c.lesson_fields OR (OLD.curriculum_goal_id IS DISTINCT FROM NEW.curriculum_goal_id AND NOT (c.operation='goal_delete' AND NEW.curriculum_goal_id IS NULL)) OR OLD.user_id IS DISTINCT FROM NEW.user_id THEN RAISE EXCEPTION 'scheduler_row_scope_refused';END IF;
   ELSIF TG_OP='DELETE' THEN
    IF NOT OLD.id=ANY(c.delete_ids) THEN RAISE EXCEPTION 'scheduler_delete_scope_refused';END IF;
   ELSE
@@ -63,11 +79,12 @@ CREATE TRIGGER "000_scheduler_guard" BEFORE INSERT OR UPDATE OR DELETE ON public
 -- Private cohort transition/pause: deployment never calls this or changes a goal.
 CREATE FUNCTION rooted_private.set_scheduler_mode(p_goal uuid,p_expected jsonb,p_mode text) RETURNS void LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 BEGIN
+ PERFORM rooted_private.scheduler_lock_owner((SELECT user_id FROM public.curriculum_goals WHERE id=p_goal),true);
  IF p_mode NOT IN ('atomic_v2','paused') THEN RAISE EXCEPTION 'Cannot downgrade a protected goal to legacy';END IF;
  PERFORM 1 FROM public.curriculum_goals WHERE id=p_goal FOR UPDATE NOWAIT;
  IF NOT FOUND THEN RAISE EXCEPTION 'No goal';END IF;
  PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal ORDER BY id FOR UPDATE NOWAIT;
- LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+ PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
  IF rooted_private.scheduler_state(p_goal) IS DISTINCT FROM p_expected THEN RAISE EXCEPTION 'scheduler_activation_stale';END IF;
  INSERT INTO rooted_private.scheduler_modes VALUES(p_goal,p_mode) ON CONFLICT(goal_id) DO UPDATE SET mode=excluded.mode;
 END $$;
@@ -84,7 +101,9 @@ BEGIN
  ELSE
   owners:=ARRAY[CASE WHEN TG_OP<>'INSERT' THEN OLD.user_id END,CASE WHEN TG_OP<>'DELETE' THEN NEW.user_id END];
  END IF;
+ FOR g IN SELECT DISTINCT x FROM unnest(owners) x WHERE x IS NOT NULL ORDER BY x LOOP PERFORM rooted_private.scheduler_lock_owner(g,true);END LOOP;
  FOR g IN SELECT id FROM public.curriculum_goals WHERE user_id=ANY(owners) ORDER BY id FOR UPDATE NOWAIT LOOP
+  IF TG_TABLE_NAME='profiles' THEN CONTINUE;END IF;
   IF EXISTS(SELECT 1 FROM rooted_private.scheduler_modes WHERE goal_id=g) THEN
    IF TG_TABLE_NAME<>'profiles' AND EXISTS(SELECT 1 FROM rooted_private.scheduler_capabilities WHERE tx=txid_current() AND goal_id=g AND owner_id=auth.uid() AND operation='calendar') THEN CONTINUE;END IF;
    RAISE EXCEPTION USING ERRCODE='P0001',MESSAGE='scheduler_calendar_upgrade_required',HINT='The calendar was not changed. Reload and review before retrying.';
@@ -101,28 +120,184 @@ ALTER FUNCTION public.apply_builder_rebuild(uuid, date, jsonb, jsonb) SET SCHEMA
 CREATE FUNCTION public.apply_builder_rebuild(p_goal_id uuid, p_local_day date, p_expected jsonb, p_plan jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN RETURN public.apply_builder_rebuild(p_goal_id,p_local_day,p_expected,p_plan,NULL); END $wrapper$; REVOKE ALL ON FUNCTION public.apply_builder_rebuild(uuid, date, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.apply_builder_rebuild(uuid, date, jsonb, jsonb) TO authenticated,service_role;
 DO $$ BEGIN IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.apply_builder_rebuild(uuid, date, jsonb, jsonb, jsonb)'::regprocedure) IS DISTINCT FROM '5ea0cb0551ea562e90c07b3731309229' THEN RAISE EXCEPTION 'Containment baseline drift: apply_builder_rebuild';END IF;END $$;
 ALTER FUNCTION public.apply_builder_rebuild(uuid, date, jsonb, jsonb, jsonb) SET SCHEMA rooted_private; ALTER FUNCTION rooted_private.apply_builder_rebuild(uuid, date, jsonb, jsonb, jsonb) RENAME TO contained_apply_builder_rebuild; REVOKE ALL ON FUNCTION rooted_private.contained_apply_builder_rebuild(uuid, date, jsonb, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role;
-CREATE FUNCTION public.apply_builder_rebuild(p_goal_id uuid, p_local_day date, p_expected jsonb, p_plan jsonb, p_settings jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN g:=p_goal_id; IF g IS NULL THEN RETURN rooted_private.contained_apply_builder_rebuild(p_goal_id,p_local_day,p_expected,p_plan,p_settings); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_apply_builder_rebuild(p_goal_id,p_local_day,p_expected,p_plan,p_settings); END IF; LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT; IF m='paused' AND NOT (EXISTS(SELECT 1 FROM rooted_private.builder_commit_log WHERE request_id=(p_plan->>'request_id')::uuid AND user_id=auth.uid())) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT; PERFORM rooted_private.scheduler_allow(g,'apply_builder_rebuild',ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=g),ARRAY['date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'],ARRAY['current_lesson','total_lessons','start_date','start_at_lesson','target_date','school_days','lessons_per_day','lessons_per_day_overrides','placement_mode','completed_at'],ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=g),coalesce((SELECT jsonb_agg(jsonb_build_object('lesson_number',x->'lesson_number','queue_position',x->'queue_position','title',x->'title','scheduled_date',x->'scheduled_date','date',x->'scheduled_date','scheduled_source','wizard_create')) FROM jsonb_array_elements(p_plan->'inserts') x),'[]'::jsonb)); result:=rooted_private.contained_apply_builder_rebuild(p_goal_id,p_local_day,p_expected,p_plan,p_settings); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.apply_builder_rebuild(uuid, date, jsonb, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.apply_builder_rebuild(uuid, date, jsonb, jsonb, jsonb) TO authenticated,service_role;
+CREATE FUNCTION public.apply_builder_rebuild(p_goal_id uuid, p_local_day date, p_expected jsonb, p_plan jsonb, p_settings jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); g:=p_goal_id; IF g IS NULL THEN RETURN rooted_private.contained_apply_builder_rebuild(p_goal_id,p_local_day,p_expected,p_plan,p_settings); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_apply_builder_rebuild(p_goal_id,p_local_day,p_expected,p_plan,p_settings); END IF; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); IF m='paused' AND NOT (EXISTS(SELECT 1 FROM rooted_private.builder_commit_log WHERE request_id=(p_plan->>'request_id')::uuid AND user_id=auth.uid())) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); PERFORM rooted_private.scheduler_allow(g,'apply_builder_rebuild',ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=g),ARRAY['date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'],ARRAY['current_lesson','total_lessons','start_date','start_at_lesson','target_date','school_days','lessons_per_day','lessons_per_day_overrides','placement_mode','completed_at'],ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=g),coalesce((SELECT jsonb_agg(jsonb_build_object('lesson_number',x->'lesson_number','queue_position',x->'queue_position','title',x->'title','scheduled_date',x->'scheduled_date','date',x->'scheduled_date','scheduled_source','wizard_create')) FROM jsonb_array_elements(p_plan->'inserts') x),'[]'::jsonb)); result:=rooted_private.contained_apply_builder_rebuild(p_goal_id,p_local_day,p_expected,p_plan,p_settings); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.apply_builder_rebuild(uuid, date, jsonb, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.apply_builder_rebuild(uuid, date, jsonb, jsonb, jsonb) TO authenticated,service_role;
 DO $$ BEGIN IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.apply_daily_reconcile(uuid, date, jsonb, jsonb)'::regprocedure) IS DISTINCT FROM '1a4b8ed5380c8c680bc4d736a6310a81' THEN RAISE EXCEPTION 'Containment baseline drift: apply_daily_reconcile';END IF;END $$;
 ALTER FUNCTION public.apply_daily_reconcile(uuid, date, jsonb, jsonb) SET SCHEMA rooted_private; ALTER FUNCTION rooted_private.apply_daily_reconcile(uuid, date, jsonb, jsonb) RENAME TO contained_apply_daily_reconcile; REVOKE ALL ON FUNCTION rooted_private.contained_apply_daily_reconcile(uuid, date, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role;
-CREATE FUNCTION public.apply_daily_reconcile(p_goal_id uuid, p_local_day date, p_expected jsonb, p_writes jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN g:=p_goal_id; IF g IS NULL THEN RETURN rooted_private.contained_apply_daily_reconcile(p_goal_id,p_local_day,p_expected,p_writes); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_apply_daily_reconcile(p_goal_id,p_local_day,p_expected,p_writes); END IF; LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT; IF m='paused' AND NOT (false) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT; PERFORM rooted_private.scheduler_allow(g,'apply_daily_reconcile',ARRAY(SELECT (x->>'id')::uuid FROM jsonb_array_elements(p_writes) x),ARRAY['date','scheduled_date','scheduled_source'],'{}'::text[],'{}'::uuid[],'[]'::jsonb); result:=rooted_private.contained_apply_daily_reconcile(p_goal_id,p_local_day,p_expected,p_writes); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.apply_daily_reconcile(uuid, date, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.apply_daily_reconcile(uuid, date, jsonb, jsonb) TO authenticated;
+CREATE FUNCTION public.apply_daily_reconcile(p_goal_id uuid, p_local_day date, p_expected jsonb, p_writes jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); g:=p_goal_id; IF g IS NULL THEN RETURN rooted_private.contained_apply_daily_reconcile(p_goal_id,p_local_day,p_expected,p_writes); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_apply_daily_reconcile(p_goal_id,p_local_day,p_expected,p_writes); END IF; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); IF m='paused' AND NOT (false) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); PERFORM rooted_private.scheduler_allow(g,'apply_daily_reconcile',ARRAY(SELECT (x->>'id')::uuid FROM jsonb_array_elements(p_writes) x),ARRAY['date','scheduled_date','scheduled_source'],'{}'::text[],'{}'::uuid[],'[]'::jsonb); result:=rooted_private.contained_apply_daily_reconcile(p_goal_id,p_local_day,p_expected,p_writes); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.apply_daily_reconcile(uuid, date, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.apply_daily_reconcile(uuid, date, jsonb, jsonb) TO authenticated;
 DO $$ BEGIN IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.commit_cascade_shift(uuid, uuid, jsonb, jsonb, jsonb, jsonb)'::regprocedure) IS DISTINCT FROM '100a0f4e3da54e205bd7cecfe22822cf' THEN RAISE EXCEPTION 'Containment baseline drift: commit_cascade_shift';END IF;END $$;
 ALTER FUNCTION public.commit_cascade_shift(uuid, uuid, jsonb, jsonb, jsonb, jsonb) SET SCHEMA rooted_private; ALTER FUNCTION rooted_private.commit_cascade_shift(uuid, uuid, jsonb, jsonb, jsonb, jsonb) RENAME TO contained_commit_cascade_shift; REVOKE ALL ON FUNCTION rooted_private.contained_commit_cascade_shift(uuid, uuid, jsonb, jsonb, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role;
-CREATE FUNCTION public.commit_cascade_shift(p_operation_id uuid, p_goal_id uuid, p_expected jsonb, p_choice jsonb, p_moves jsonb, p_preserved jsonb DEFAULT '[]'::jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN g:=p_goal_id; IF g IS NULL THEN RETURN rooted_private.contained_commit_cascade_shift(p_operation_id,p_goal_id,p_expected,p_choice,p_moves,p_preserved); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_commit_cascade_shift(p_operation_id,p_goal_id,p_expected,p_choice,p_moves,p_preserved); END IF; LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT; IF m='paused' AND NOT (EXISTS(SELECT 1 FROM rooted_private.cascade_shift_receipts WHERE id=p_operation_id AND user_id=auth.uid())) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT; IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF; PERFORM rooted_private.scheduler_allow(g,'commit_cascade_shift',ARRAY(SELECT (x->>'id')::uuid FROM jsonb_array_elements(p_moves||p_preserved) x),ARRAY['date','scheduled_date','scheduled_source','queue_pinned','queue_preserved'],'{}'::text[],'{}'::uuid[],'[]'::jsonb); result:=rooted_private.contained_commit_cascade_shift(p_operation_id,p_goal_id,p_expected,p_choice,p_moves,p_preserved); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.commit_cascade_shift(uuid, uuid, jsonb, jsonb, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.commit_cascade_shift(uuid, uuid, jsonb, jsonb, jsonb, jsonb) TO authenticated;
+CREATE OR REPLACE FUNCTION rooted_private.contained_commit_cascade_shift(p_operation_id uuid, p_goal_id uuid, p_expected jsonb, p_choice jsonb, p_moves jsonb, p_preserved jsonb DEFAULT '[]'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'pg_temp'
+AS $function$
+declare
+  u uuid:=auth.uid(); g public.curriculum_goals%rowtype; selected public.lessons%rowtype;
+  prior rooted_private.cascade_shift_receipts%rowtype; actual jsonb; after_state jsonb;
+  request jsonb:=jsonb_build_object('expected',p_expected,'choice',p_choice,'moves',p_moves,'preserved',p_preserved);
+  all_moves jsonb:=p_moves||p_preserved; day date; target date; delta integer; required integer; got integer; bad integer; w jsonb;
+begin
+  if u is null or p_operation_id is null then return jsonb_build_object('status','invalid','reason','owner'); end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_operation_id::text,0));
+  select * into prior from rooted_private.cascade_shift_receipts where id=p_operation_id;
+  if found then
+    if prior.user_id<>u or prior.goal_id<>p_goal_id or prior.request<>request then return jsonb_build_object('status','invalid','reason','operation'); end if;
+    return jsonb_build_object('status',case when prior.undone_at is null then 'already_applied' else 'already_undone' end,'operationId',p_operation_id);
+  end if;
+  -- Completion locks a lesson before its trigger updates the goal. Never wait
+  -- for its lesson while holding that goal. This subtransaction releases every
+  -- acquired row lock on conflict, even if the caller keeps its transaction open.
+  begin
+    select * into g from public.curriculum_goals where id=p_goal_id and user_id=u and not archived for update nowait;
+    if not found then return jsonb_build_object('status','invalid','reason','owner'); end if;
+    perform 1 from public.lessons where curriculum_goal_id=p_goal_id order by id for update nowait;
+  exception when lock_not_available then
+    return jsonb_build_object('status','stale','reason','busy');
+  end;
+  -- Pin the authoritative timezone through validation and all writes.
+  perform 1 from public.profiles where id=u for share;
+  if not found then return jsonb_build_object('status','invalid','reason','time_zone');end if;
+  -- Blocks a concurrent break insert/update during validation+commit. This is
+  -- a short global write lock and requires performance review before release.
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
+  day:=(p_expected->>'localDay')::date;
+  if day is null or abs(day-(now() at time zone 'UTC')::date)>1 then return jsonb_build_object('status','invalid','reason','local_day'); end if;
+  if not rooted_private.cascade_window_valid(u,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso') or day is distinct from (now() at time zone (rooted_private.cascade_local_window(u,day)->>'timeZone'))::date then return jsonb_build_object('status','invalid','reason','day_window');end if;
+  actual:=rooted_private.cascade_snapshot(p_goal_id,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso');
+  if actual is distinct from p_expected then return jsonb_build_object('status','stale'); end if;
+  if exists(select 1 from public.lessons where curriculum_goal_id=p_goal_id and queue_position is null) then
+    return jsonb_build_object('status','invalid','reason','unsupported_queue');
+  end if;
+  if jsonb_typeof(p_moves) is distinct from 'array' or jsonb_array_length(p_moves)=0 then return jsonb_build_object('status','invalid','reason','moves'); end if;
+  select * into selected from public.lessons where id=(p_choice->>'lessonId')::uuid and curriculum_goal_id=p_goal_id;
+  target:=(p_choice->>'to')::date;
+  if not found or selected.completed or selected.skipped or coalesce(selected.is_backfill,false) or selected.continues_lesson_id is not null
+    or selected.queue_position is null or selected.queue_position<=g.current_lesson
+    or selected.scheduled_date is distinct from (p_choice->>'from')::date
+    or target<=selected.scheduled_date or target<day then return jsonb_build_object('status','invalid','reason','selection'); end if;
+  delta:=rooted_private.cascade_steps(p_goal_id,selected.scheduled_date,target);
+  if delta<1 then return jsonb_build_object('status','invalid','reason','offset'); end if;
+  -- Existing book drift must not be silently repaired by a shift.
+  select count(*) into bad from (select lesson_number,lag(lesson_number) over(order by queue_position) prev from public.lessons where curriculum_goal_id=p_goal_id and queue_position is not null and lesson_number is not null) q where lesson_number<prev;
+  if bad>0 then return jsonb_build_object('status','invalid','reason','queue_order'); end if;
+  select count(*) into required from public.lessons where curriculum_goal_id=p_goal_id and not completed and not skipped and not coalesce(is_backfill,false) and continues_lesson_id is null and queue_position>=selected.queue_position;
+  select count(distinct x->>'id') into got from jsonb_array_elements(p_moves) x;
+  if got<>required or jsonb_array_length(p_moves)<>required then return jsonb_build_object('status','invalid','reason','scope'); end if;
+  for w in select * from jsonb_array_elements(p_moves) loop
+    select count(*) into got from public.lessons l
+      where l.id=(w->>'id')::uuid and l.curriculum_goal_id=p_goal_id and l.user_id=u
+        and not l.completed and not l.skipped and not coalesce(l.is_backfill,false) and l.continues_lesson_id is null
+        and l.queue_position>=selected.queue_position
+        and jsonb_build_object('scheduled_date',l.scheduled_date,'date',l.date,'queue_pinned',l.queue_pinned,'scheduled_source',l.scheduled_source,'queue_preserved',l.queue_preserved)=w->'before';
+    -- Payload keys are checked below; only these four columns are ever written.
+    if got<>1 then return jsonb_build_object('status','invalid','reason','row'); end if;
+    if (w->'after'->>'queue_preserved')::boolean is distinct from false or (w->'after'->>'date') is distinct from (w->'after'->>'scheduled_date')
+      or (w->'after'->>'queue_pinned')::boolean is distinct from (case when (w->>'id')::uuid=selected.id then true else (w->'before'->>'queue_pinned')::boolean end)
+      or (w->'after'->>'scheduled_source') is distinct from (case when (w->>'id')::uuid=selected.id then 'plan_move' else 'plan_cascade_shift' end)
+      or (w->'after'->>'date')::date<day
+      or rooted_private.cascade_steps(p_goal_id,(w->'before'->>'scheduled_date')::date,(w->'after'->>'date')::date)<>delta
+      or rooted_private.cascade_steps(p_goal_id,(w->'after'->>'date')::date-1,(w->'after'->>'date')::date)<>1
+      or ((w->>'id')::uuid=selected.id and (w->'after'->>'date')::date<>target)
+    then return jsonb_build_object('status','invalid','reason','shape'); end if;
+  end loop;
+  -- Earlier unfinished dates remain authoritative without becoming pins or
+  -- completions. The exact prefix is separate from the confirmed moved suffix.
+  select count(*) into required from public.lessons where curriculum_goal_id=p_goal_id and not completed and not skipped and not coalesce(is_backfill,false) and continues_lesson_id is null and queue_position<selected.queue_position and scheduled_date is not null and not queue_preserved;
+  if jsonb_typeof(p_preserved) is distinct from 'array' or jsonb_array_length(p_preserved)<>required or (select count(distinct x->>'id') from jsonb_array_elements(p_preserved) x)<>required then return jsonb_build_object('status','invalid','reason','preserved_scope');end if;
+  for w in select * from jsonb_array_elements(p_preserved) loop
+   select count(*) into got from public.lessons l where l.id=(w->>'id')::uuid and l.curriculum_goal_id=p_goal_id and l.user_id=u and not completed and not skipped and not coalesce(is_backfill,false) and continues_lesson_id is null and queue_position<selected.queue_position and scheduled_date is not null and not queue_preserved
+    and jsonb_build_object('scheduled_date',l.scheduled_date,'date',l.date,'queue_pinned',l.queue_pinned,'scheduled_source',l.scheduled_source,'queue_preserved',l.queue_preserved)=w->'before';
+   if got<>1 or w->'after' is distinct from ((w->'before')||'{"queue_preserved":true}'::jsonb) then return jsonb_build_object('status','invalid','reason','preserved_row');end if;
+  end loop;
+  -- A nested block is a subtransaction: any failure rolls EVERY date/pin back.
+  begin
+    for w in select * from jsonb_array_elements(all_moves) loop
+      update public.lessons set scheduled_date=(w->'after'->>'scheduled_date')::date,date=(w->'after'->>'date')::date,
+        queue_preserved=(w->'after'->>'queue_preserved')::boolean,queue_pinned=(w->'after'->>'queue_pinned')::boolean,scheduled_source=w->'after'->>'scheduled_source'
+        where id=(w->>'id')::uuid;
+      get diagnostics got=row_count;
+      if got<>1 then raise exception 'cascade row refused'; end if;
+    end loop;
+    set constraints all immediate;
+    -- No newly overloaded destination, including protected continuations and
+    -- completed work. Existing unrelated stacked dates remain untouched.
+    select count(*) into bad from (
+      select l.scheduled_date,count(*) n from public.lessons l where l.curriculum_goal_id=p_goal_id and not l.skipped
+        and l.scheduled_date in (select (x->'after'->>'date')::date from jsonb_array_elements(p_moves) x)
+      group by l.scheduled_date
+    ) d where d.n>coalesce((g.lessons_per_day_overrides->>((array['Sun','Mon','Tue','Wed','Thu','Fri','Sat'])[extract(dow from d.scheduled_date)::int+1]))::int,g.lessons_per_day);
+    if bad>0 then raise exception 'cascade capacity'; end if;
+    select count(*) into bad from (select scheduled_date,lag(scheduled_date) over(order by queue_position) prev from public.lessons where curriculum_goal_id=p_goal_id and not completed and not skipped and not coalesce(is_backfill,false) and queue_position>g.current_lesson) q where scheduled_date<prev;
+    if bad>0 then raise exception 'cascade order'; end if;
+    after_state:=rooted_private.cascade_snapshot(p_goal_id,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso');
+    if not rooted_private.cascade_postcondition(actual,after_state,all_moves,'after') then raise exception 'cascade postcondition';end if;
+    if not rooted_private.cascade_projection_matches(after_state) then raise exception 'cascade projector mismatch';end if;
+    insert into rooted_private.cascade_shift_receipts(id,user_id,goal_id,request,before_snapshot,after_snapshot,moves)
+      values(p_operation_id,u,p_goal_id,request,actual,after_state,all_moves);
+  exception when others then
+    return jsonb_build_object('status','failed','reason','transaction');
+  end;
+  return jsonb_build_object('status','applied','operationId',p_operation_id,'snapshot',after_state);
+exception when invalid_text_representation or invalid_datetime_format or datetime_field_overflow or numeric_value_out_of_range then
+  return jsonb_build_object('status','invalid','reason','payload');
+end $function$;
+CREATE FUNCTION public.commit_cascade_shift(p_operation_id uuid, p_goal_id uuid, p_expected jsonb, p_choice jsonb, p_moves jsonb, p_preserved jsonb DEFAULT '[]'::jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); g:=p_goal_id; IF g IS NULL THEN RETURN rooted_private.contained_commit_cascade_shift(p_operation_id,p_goal_id,p_expected,p_choice,p_moves,p_preserved); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_commit_cascade_shift(p_operation_id,p_goal_id,p_expected,p_choice,p_moves,p_preserved); END IF; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); IF m='paused' AND NOT (EXISTS(SELECT 1 FROM rooted_private.cascade_shift_receipts WHERE id=p_operation_id AND user_id=auth.uid())) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF; PERFORM rooted_private.scheduler_allow(g,'commit_cascade_shift',ARRAY(SELECT (x->>'id')::uuid FROM jsonb_array_elements(p_moves||p_preserved) x),ARRAY['date','scheduled_date','scheduled_source','queue_pinned','queue_preserved'],'{}'::text[],'{}'::uuid[],'[]'::jsonb); result:=rooted_private.contained_commit_cascade_shift(p_operation_id,p_goal_id,p_expected,p_choice,p_moves,p_preserved); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.commit_cascade_shift(uuid, uuid, jsonb, jsonb, jsonb, jsonb) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.commit_cascade_shift(uuid, uuid, jsonb, jsonb, jsonb, jsonb) TO authenticated;
 DO $$ BEGIN IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.move_lesson_keep_slot(uuid, date, date, boolean)'::regprocedure) IS DISTINCT FROM '1a339b9ab5e1a57a3a164d77c46ac660' THEN RAISE EXCEPTION 'Containment baseline drift: move_lesson_keep_slot';END IF;END $$;
 ALTER FUNCTION public.move_lesson_keep_slot(uuid, date, date, boolean) SET SCHEMA rooted_private; ALTER FUNCTION rooted_private.move_lesson_keep_slot(uuid, date, date, boolean) RENAME TO contained_move_lesson_keep_slot; REVOKE ALL ON FUNCTION rooted_private.contained_move_lesson_keep_slot(uuid, date, date, boolean) FROM PUBLIC,anon,authenticated,service_role;
-CREATE FUNCTION public.move_lesson_keep_slot(p_lesson_id uuid, p_target_date date, p_local_day date, p_hold_between boolean) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN g:=(SELECT curriculum_goal_id FROM public.lessons WHERE id=p_lesson_id AND user_id=auth.uid()); IF g IS NULL THEN RETURN rooted_private.contained_move_lesson_keep_slot(p_lesson_id,p_target_date,p_local_day,p_hold_between); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_move_lesson_keep_slot(p_lesson_id,p_target_date,p_local_day,p_hold_between); END IF; LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT; RETURN jsonb_build_object('status','invalid','reason','client_upgrade_required'); EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.move_lesson_keep_slot(uuid, date, date, boolean) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.move_lesson_keep_slot(uuid, date, date, boolean) TO authenticated,service_role;
+CREATE FUNCTION public.move_lesson_keep_slot(p_lesson_id uuid, p_target_date date, p_local_day date, p_hold_between boolean) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); g:=(SELECT curriculum_goal_id FROM public.lessons WHERE id=p_lesson_id AND user_id=auth.uid()); IF g IS NULL THEN RETURN rooted_private.contained_move_lesson_keep_slot(p_lesson_id,p_target_date,p_local_day,p_hold_between); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_move_lesson_keep_slot(p_lesson_id,p_target_date,p_local_day,p_hold_between); END IF; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); RETURN jsonb_build_object('status','invalid','reason','client_upgrade_required'); EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.move_lesson_keep_slot(uuid, date, date, boolean) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.move_lesson_keep_slot(uuid, date, date, boolean) TO authenticated,service_role;
 DO $$ BEGIN IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.move_lesson_to_date(uuid, date)'::regprocedure) IS DISTINCT FROM '1d49673948e1c7d32e81bd56277caee1' THEN RAISE EXCEPTION 'Containment baseline drift: move_lesson_to_date';END IF;END $$;
 ALTER FUNCTION public.move_lesson_to_date(uuid, date) SET SCHEMA rooted_private; ALTER FUNCTION rooted_private.move_lesson_to_date(uuid, date) RENAME TO contained_move_lesson_to_date; REVOKE ALL ON FUNCTION rooted_private.contained_move_lesson_to_date(uuid, date) FROM PUBLIC,anon,authenticated,service_role;
-CREATE FUNCTION public.move_lesson_to_date(p_lesson_id uuid, p_target_date date) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN g:=(SELECT curriculum_goal_id FROM public.lessons WHERE id=p_lesson_id AND user_id=auth.uid()); IF g IS NULL THEN PERFORM rooted_private.contained_move_lesson_to_date(p_lesson_id,p_target_date); RETURN; END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN PERFORM rooted_private.contained_move_lesson_to_date(p_lesson_id,p_target_date); RETURN; END IF; LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT; RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='scheduler_client_upgrade_required', HINT='Reload and review the schedule before retrying.'; EXCEPTION WHEN lock_not_available THEN RAISE; END; END $wrapper$; REVOKE ALL ON FUNCTION public.move_lesson_to_date(uuid, date) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.move_lesson_to_date(uuid, date) TO authenticated,service_role;
+CREATE FUNCTION public.move_lesson_to_date(p_lesson_id uuid, p_target_date date) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); g:=(SELECT curriculum_goal_id FROM public.lessons WHERE id=p_lesson_id AND user_id=auth.uid()); IF g IS NULL THEN PERFORM rooted_private.contained_move_lesson_to_date(p_lesson_id,p_target_date); RETURN; END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN PERFORM rooted_private.contained_move_lesson_to_date(p_lesson_id,p_target_date); RETURN; END IF; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='scheduler_client_upgrade_required', HINT='Reload and review the schedule before retrying.'; EXCEPTION WHEN lock_not_available THEN RAISE; END; END $wrapper$; REVOKE ALL ON FUNCTION public.move_lesson_to_date(uuid, date) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.move_lesson_to_date(uuid, date) TO authenticated,service_role;
 DO $$ BEGIN IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.reopen_lesson(uuid, date)'::regprocedure) IS DISTINCT FROM '85752dd922bc2b31012f7202b72f09f1' THEN RAISE EXCEPTION 'Containment baseline drift: reopen_lesson';END IF;END $$;
 ALTER FUNCTION public.reopen_lesson(uuid, date) SET SCHEMA rooted_private; ALTER FUNCTION rooted_private.reopen_lesson(uuid, date) RENAME TO contained_reopen_lesson; REVOKE ALL ON FUNCTION rooted_private.contained_reopen_lesson(uuid, date) FROM PUBLIC,anon,authenticated,service_role;
-CREATE FUNCTION public.reopen_lesson(p_lesson_id uuid, p_local_day date) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN g:=(SELECT curriculum_goal_id FROM public.lessons WHERE id=p_lesson_id AND user_id=auth.uid()); IF g IS NULL THEN RETURN rooted_private.contained_reopen_lesson(p_lesson_id,p_local_day); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_reopen_lesson(p_lesson_id,p_local_day); END IF; LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT; IF m='paused' AND NOT (false) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT; PERFORM rooted_private.scheduler_allow(g,'reopen_lesson',ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=g),ARRAY['date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'],ARRAY['current_lesson','total_lessons','start_date','start_at_lesson','target_date','school_days','lessons_per_day','lessons_per_day_overrides','placement_mode','completed_at'],'{}'::uuid[],'[]'::jsonb); result:=rooted_private.contained_reopen_lesson(p_lesson_id,p_local_day); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.reopen_lesson(uuid, date) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.reopen_lesson(uuid, date) TO authenticated,service_role;
+CREATE FUNCTION public.reopen_lesson(p_lesson_id uuid, p_local_day date) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); g:=(SELECT curriculum_goal_id FROM public.lessons WHERE id=p_lesson_id AND user_id=auth.uid()); IF g IS NULL THEN RETURN rooted_private.contained_reopen_lesson(p_lesson_id,p_local_day); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_reopen_lesson(p_lesson_id,p_local_day); END IF; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); IF m='paused' AND NOT (false) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); PERFORM rooted_private.scheduler_allow(g,'reopen_lesson',ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=g),ARRAY['date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'],ARRAY['current_lesson','total_lessons','start_date','start_at_lesson','target_date','school_days','lessons_per_day','lessons_per_day_overrides','placement_mode','completed_at'],'{}'::uuid[],'[]'::jsonb); result:=rooted_private.contained_reopen_lesson(p_lesson_id,p_local_day); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.reopen_lesson(uuid, date) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.reopen_lesson(uuid, date) TO authenticated,service_role;
 DO $$ BEGIN IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.restore_queue_book_order(uuid, date)'::regprocedure) IS DISTINCT FROM '66e870fb2f447c9e5f60e41cae18d4e5' THEN RAISE EXCEPTION 'Containment baseline drift: restore_queue_book_order';END IF;END $$;
 ALTER FUNCTION public.restore_queue_book_order(uuid, date) SET SCHEMA rooted_private; ALTER FUNCTION rooted_private.restore_queue_book_order(uuid, date) RENAME TO contained_restore_queue_book_order; REVOKE ALL ON FUNCTION rooted_private.contained_restore_queue_book_order(uuid, date) FROM PUBLIC,anon,authenticated,service_role;
-CREATE FUNCTION public.restore_queue_book_order(p_goal_id uuid, p_local_day date) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN g:=p_goal_id; IF g IS NULL THEN RETURN rooted_private.contained_restore_queue_book_order(p_goal_id,p_local_day); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_restore_queue_book_order(p_goal_id,p_local_day); END IF; LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT; RETURN jsonb_build_object('status','invalid','reason','client_upgrade_required'); EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.restore_queue_book_order(uuid, date) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.restore_queue_book_order(uuid, date) TO authenticated,service_role;
+CREATE FUNCTION public.restore_queue_book_order(p_goal_id uuid, p_local_day date) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); g:=p_goal_id; IF g IS NULL THEN RETURN rooted_private.contained_restore_queue_book_order(p_goal_id,p_local_day); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_restore_queue_book_order(p_goal_id,p_local_day); END IF; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); RETURN jsonb_build_object('status','invalid','reason','client_upgrade_required'); EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.restore_queue_book_order(uuid, date) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.restore_queue_book_order(uuid, date) TO authenticated,service_role;
 DO $$ BEGIN IF (SELECT md5(prosrc) FROM pg_proc WHERE oid='public.undo_cascade_shift(uuid)'::regprocedure) IS DISTINCT FROM '991b676c0d3c282810cc2d3e300103e7' THEN RAISE EXCEPTION 'Containment baseline drift: undo_cascade_shift';END IF;END $$;
 ALTER FUNCTION public.undo_cascade_shift(uuid) SET SCHEMA rooted_private; ALTER FUNCTION rooted_private.undo_cascade_shift(uuid) RENAME TO contained_undo_cascade_shift; REVOKE ALL ON FUNCTION rooted_private.contained_undo_cascade_shift(uuid) FROM PUBLIC,anon,authenticated,service_role;
-CREATE FUNCTION public.undo_cascade_shift(p_operation_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN g:=(SELECT goal_id FROM rooted_private.cascade_shift_receipts WHERE id=p_operation_id AND user_id=auth.uid()); IF g IS NULL THEN RETURN rooted_private.contained_undo_cascade_shift(p_operation_id); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_undo_cascade_shift(p_operation_id); END IF; LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT; IF m='paused' AND NOT (true) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT; PERFORM 1 FROM rooted_private.cascade_shift_receipts WHERE id=p_operation_id AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF; PERFORM rooted_private.scheduler_allow(g,'undo_cascade_shift',ARRAY(SELECT (x->>'id')::uuid FROM rooted_private.cascade_shift_receipts r,jsonb_array_elements(r.moves) x WHERE r.id=p_operation_id),ARRAY['date','scheduled_date','scheduled_source','queue_pinned','queue_preserved'],'{}'::text[],'{}'::uuid[],'[]'::jsonb); result:=rooted_private.contained_undo_cascade_shift(p_operation_id); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.undo_cascade_shift(uuid) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.undo_cascade_shift(uuid) TO authenticated;
+CREATE OR REPLACE FUNCTION rooted_private.contained_undo_cascade_shift(p_operation_id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'pg_temp'
+AS $function$
+declare receipt rooted_private.cascade_shift_receipts%rowtype; actual jsonb; w jsonb; n integer;
+begin
+  if auth.uid() is null then return jsonb_build_object('status','invalid'); end if;
+  perform pg_advisory_xact_lock(hashtextextended(p_operation_id::text,0));
+  select * into receipt from rooted_private.cascade_shift_receipts where id=p_operation_id and user_id=auth.uid() for update;
+  if not found then return jsonb_build_object('status','invalid'); end if;
+  if receipt.undone_at is not null then return jsonb_build_object('status','already_undone'); end if;
+  if clock_timestamp()-receipt.created_at>interval '10 minutes' then return jsonb_build_object('status','expired'); end if;
+  -- Match commit's nonblocking goal/lesson acquisition and release semantics.
+  begin
+    perform 1 from public.curriculum_goals where id=receipt.goal_id and user_id=auth.uid() for update nowait;
+    if not found then return jsonb_build_object('status','stale'); end if;
+    perform 1 from public.lessons where curriculum_goal_id=receipt.goal_id order by id for update nowait;
+  exception when lock_not_available then
+    return jsonb_build_object('status','stale','reason','busy');
+  end;
+  perform 1 from public.profiles where id=auth.uid() for share;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
+  actual:=rooted_private.cascade_snapshot(receipt.goal_id,(receipt.after_snapshot->>'localDay')::date,receipt.after_snapshot->>'dayStartIso',receipt.after_snapshot->>'dayEndIso');
+  if actual is distinct from receipt.after_snapshot then return jsonb_build_object('status','stale'); end if;
+  begin
+    for w in select * from jsonb_array_elements(receipt.moves) loop
+      update public.lessons set scheduled_date=(w->'before'->>'scheduled_date')::date,date=(w->'before'->>'date')::date,
+        queue_preserved=(w->'before'->>'queue_preserved')::boolean,queue_pinned=(w->'before'->>'queue_pinned')::boolean,scheduled_source=w->'before'->>'scheduled_source'
+        where id=(w->>'id')::uuid and curriculum_goal_id=receipt.goal_id;
+      get diagnostics n=row_count;
+      if n<>1 then raise exception 'undo row refused'; end if;
+    end loop;
+    set constraints all immediate;
+    if not rooted_private.cascade_postcondition(actual,rooted_private.cascade_snapshot(receipt.goal_id,(receipt.after_snapshot->>'localDay')::date,receipt.after_snapshot->>'dayStartIso',receipt.after_snapshot->>'dayEndIso'),receipt.moves,'before') then raise exception 'undo postcondition';end if;
+    update rooted_private.cascade_shift_receipts set undone_at=clock_timestamp() where id=p_operation_id;
+  exception when others then return jsonb_build_object('status','failed'); end;
+  return jsonb_build_object('status','undone');
+end $function$;
+CREATE FUNCTION public.undo_cascade_shift(p_operation_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $wrapper$ DECLARE g uuid;m text;result jsonb; BEGIN BEGIN PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); g:=(SELECT goal_id FROM rooted_private.cascade_shift_receipts WHERE id=p_operation_id AND user_id=auth.uid()); IF g IS NULL THEN RETURN rooted_private.contained_undo_cascade_shift(p_operation_id); END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION 'scheduler_owner_refused';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN RETURN rooted_private.contained_undo_cascade_shift(p_operation_id); END IF; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); IF m='paused' AND NOT (true) THEN RETURN jsonb_build_object('status','invalid','reason','scheduler_paused');END IF; PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=g ORDER BY id FOR UPDATE NOWAIT; PERFORM 1 FROM public.profiles WHERE id=auth.uid() FOR SHARE NOWAIT; PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false); PERFORM 1 FROM rooted_private.cascade_shift_receipts WHERE id=p_operation_id AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF; PERFORM rooted_private.scheduler_allow(g,'undo_cascade_shift',ARRAY(SELECT (x->>'id')::uuid FROM rooted_private.cascade_shift_receipts r,jsonb_array_elements(r.moves) x WHERE r.id=p_operation_id),ARRAY['date','scheduled_date','scheduled_source','queue_pinned','queue_preserved'],'{}'::text[],'{}'::uuid[],'[]'::jsonb); result:=rooted_private.contained_undo_cascade_shift(p_operation_id); PERFORM rooted_private.scheduler_disallow(g); RETURN result; EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','stale','reason','busy'); END; END $wrapper$; REVOKE ALL ON FUNCTION public.undo_cascade_shift(uuid) FROM PUBLIC,anon,authenticated,service_role; GRANT EXECUTE ON FUNCTION public.undo_cascade_shift(uuid) TO authenticated;
 
 -- SOURCE: actions.sql
 CREATE FUNCTION public.commit_scheduler_action(p_operation_id uuid,p_goal_id uuid,p_expected jsonb,p_action jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
@@ -141,30 +316,64 @@ BEGIN
   SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=p_goal_id;
   IF m IS NULL THEN RETURN jsonb_build_object('status','legacy');END IF;
   IF m='paused' THEN RETURN jsonb_build_object('status','paused','reason','scheduler_paused');END IF;
-  LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   have:=rooted_private.scheduler_state(p_goal_id);
   IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
-  SELECT * INTO r FROM public.lessons WHERE id=(CASE WHEN kind='set_skipped' THEN p_action->'lessonIds'->>0 ELSE p_action->>'lessonId' END)::uuid AND curriculum_goal_id=p_goal_id AND user_id=u;
+  SELECT * INTO r FROM public.lessons WHERE id=(CASE WHEN kind IN ('set_skipped','delete_selected','place_selected') THEN p_action->'lessonIds'->>0 ELSE p_action->>'lessonId' END)::uuid AND curriculum_goal_id=p_goal_id AND user_id=u;
   IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','lesson');END IF;
   ids:=ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=p_goal_id);
-  IF kind IS NULL OR kind NOT IN ('single_move','complete','skip','delete','set_skipped') THEN RETURN jsonb_build_object('status','invalid','reason','action');END IF;
-  fields:=CASE kind WHEN 'single_move' THEN ARRAY['date','scheduled_date','scheduled_source','queue_position','queue_pinned'] WHEN 'complete' THEN ARRAY['date','scheduled_date','scheduled_source','queue_pinned','completed','completed_at','is_backfill'] WHEN 'set_skipped' THEN ARRAY['skipped','date','scheduled_date','queue_pinned','scheduled_source'] WHEN 'skip' THEN ARRAY['skipped','scheduled_date','queue_pinned'] ELSE ARRAY['scheduled_date'] END;
+  IF kind IS NULL OR kind NOT IN ('single_move','edit','complete','skip','delete','delete_selected','place_selected','set_skipped') THEN RETURN jsonb_build_object('status','invalid','reason','action');END IF;
+  fields:=CASE kind WHEN 'place_selected' THEN ARRAY['date','scheduled_date','scheduled_source','queue_pinned'] WHEN 'edit' THEN ARRAY['date','scheduled_date','scheduled_source','queue_pinned','lesson_number','child_id'] WHEN 'single_move' THEN ARRAY['date','scheduled_date','scheduled_source','queue_position','queue_pinned'] WHEN 'complete' THEN ARRAY['date','scheduled_date','scheduled_source','queue_pinned','completed','completed_at','is_backfill'] WHEN 'set_skipped' THEN ARRAY['skipped','date','scheduled_date','queue_pinned','scheduled_source'] WHEN 'skip' THEN ARRAY['skipped','scheduled_date','queue_pinned'] ELSE ARRAY['scheduled_date'] END;
+  IF kind IN ('delete_selected','place_selected') THEN
+   IF jsonb_typeof(p_action->'lessonIds') IS DISTINCT FROM 'array' OR jsonb_array_length(p_action->'lessonIds')=0 THEN RAISE EXCEPTION 'scheduler_delete_shape';END IF;
+   SELECT array_agg(value::uuid) INTO selected_ids FROM jsonb_array_elements_text(p_action->'lessonIds');
+   IF cardinality(selected_ids)<>(SELECT count(DISTINCT x) FROM unnest(selected_ids) x) OR (SELECT count(*) FROM public.lessons WHERE id=ANY(selected_ids) AND user_id=u AND curriculum_goal_id=p_goal_id)<>cardinality(selected_ids) THEN RAISE EXCEPTION 'scheduler_delete_scope';END IF;
+  END IF;
   -- Scope includes preexisting rows only: reviewed pointer cleanup can unschedule
   -- earlier orphan rows. No insert, reassignment or arbitrary content capability.
-  PERFORM rooted_private.scheduler_allow(p_goal_id,kind,ids,fields,ARRAY['current_lesson','completed_at'],CASE WHEN kind='delete' THEN ARRAY[r.id] ELSE '{}'::uuid[] END);
+  PERFORM rooted_private.scheduler_allow(p_goal_id,kind,ids,fields,ARRAY['current_lesson','completed_at'],CASE WHEN kind='delete' THEN ARRAY[r.id] WHEN kind='delete_selected' THEN selected_ids ELSE '{}'::uuid[] END);
   IF kind='single_move' THEN
-   IF r.completed OR r.skipped OR r.queue_preserved OR p_action->>'targetDate' IS NULL THEN PERFORM rooted_private.scheduler_disallow(p_goal_id); RETURN jsonb_build_object('status','invalid','reason','protected_lesson');END IF;
+   IF r.skipped OR p_action->>'targetDate' IS NULL THEN PERFORM rooted_private.scheduler_disallow(p_goal_id); RETURN jsonb_build_object('status','invalid','reason','protected_lesson');END IF;
    IF (p_action->>'localDay')::date IS DISTINCT FROM (now() AT TIME ZONE (SELECT timezone FROM public.profiles WHERE id=u))::date THEN PERFORM rooted_private.scheduler_disallow(p_goal_id); RETURN jsonb_build_object('status','invalid','reason','local_day');END IF;
-   IF (p_action->>'targetDate')::date>coalesce(r.scheduled_date,r.date) AND r.queue_position IS NOT NULL THEN
+   IF r.completed THEN
+    UPDATE public.lessons SET date=(p_action->>'targetDate')::date,scheduled_date=(p_action->>'targetDate')::date,scheduled_source='plan_move',queue_pinned=true WHERE id=r.id;
+    GET DIAGNOSTICS n=ROW_COUNT;IF n<>1 THEN RAISE EXCEPTION 'scheduler_move_refused';END IF;
+   ELSIF (p_action->>'targetDate')::date>coalesce(r.scheduled_date,r.date) AND r.queue_position IS NOT NULL THEN
     result:=rooted_private.contained_move_lesson_keep_slot(r.id,(p_action->>'targetDate')::date,(p_action->>'localDay')::date,true);
     IF result->>'status' IS DISTINCT FROM 'moved' THEN RAISE EXCEPTION 'scheduler_move_refused';END IF;
    ELSE
     PERFORM rooted_private.contained_move_lesson_to_date(r.id,(p_action->>'targetDate')::date);
    END IF;
    IF NOT EXISTS(SELECT 1 FROM public.lessons WHERE id=r.id AND date=(p_action->>'targetDate')::date AND scheduled_date=(p_action->>'targetDate')::date) THEN RAISE EXCEPTION 'scheduler_move_postcondition';END IF;
+  ELSIF kind='place_selected' THEN
+   IF p_action->>'targetDate' IS NULL THEN RAISE EXCEPTION 'scheduler_placement_shape';END IF;
+   UPDATE public.lessons SET date=(p_action->>'targetDate')::date,scheduled_date=(p_action->>'targetDate')::date,queue_pinned=true,scheduled_source='plan_move' WHERE id=ANY(selected_ids);
+   GET DIAGNOSTICS n=ROW_COUNT;IF n<>cardinality(selected_ids) THEN RAISE EXCEPTION 'scheduler_placement_rowcount';END IF;
+  ELSIF kind='delete_selected' THEN
+   -- Explicit Delete retains its existing semantics. The client captures this
+   -- expectation before the Undo delay; later work makes the whole call stale.
+   DELETE FROM public.lessons WHERE id=ANY(selected_ids) AND curriculum_goal_id=p_goal_id AND user_id=u;
+   GET DIAGNOSTICS n=ROW_COUNT;IF n<>cardinality(selected_ids) THEN RAISE EXCEPTION 'scheduler_delete_refused';END IF;
+  ELSIF kind='edit' THEN
+   payload:=p_action->'changes';
+   IF jsonb_typeof(payload) IS DISTINCT FROM 'object' OR payload='{}'::jsonb OR EXISTS(SELECT 1 FROM jsonb_object_keys(payload) k WHERE k NOT IN ('title','lesson_number','minutes_spent','scheduled_date','child_id')) THEN RAISE EXCEPTION 'scheduler_edit_shape';END IF;
+   IF jsonb_typeof(p_action->'originals') IS DISTINCT FROM 'object' OR EXISTS(SELECT 1 FROM jsonb_object_keys(payload) k WHERE NOT (p_action->'originals' ? k)) OR EXISTS(SELECT 1 FROM jsonb_each(p_action->'originals') e WHERE CASE WHEN e.key='scheduled_date' THEN to_jsonb(coalesce(r.scheduled_date,r.date)) ELSE to_jsonb(r)->e.key END IS DISTINCT FROM e.value) THEN RAISE EXCEPTION 'scheduler_edit_originals';END IF;
+   IF (payload?'scheduled_date' AND (payload->>'scheduled_date' IS NULL OR payload->>'scheduled_date' !~ '^\d{4}-\d{2}-\d{2}$')) OR (payload?'child_id' AND NOT EXISTS(SELECT 1 FROM public.children WHERE id=(payload->>'child_id')::uuid AND user_id=u)) THEN RAISE EXCEPTION 'scheduler_edit_shape';END IF;
+   UPDATE public.lessons SET
+    title=CASE WHEN payload?'title' THEN payload->>'title' ELSE title END,
+    lesson_number=CASE WHEN payload?'lesson_number' THEN (payload->>'lesson_number')::integer ELSE lesson_number END,
+    minutes_spent=CASE WHEN payload?'minutes_spent' THEN (payload->>'minutes_spent')::integer ELSE minutes_spent END,
+    hours=CASE WHEN payload?'minutes_spent' THEN coalesce(((payload->>'minutes_spent')::double precision/60)::numeric,0) ELSE hours END,
+    child_id=CASE WHEN payload?'child_id' THEN (payload->>'child_id')::uuid ELSE child_id END,
+    date=CASE WHEN payload?'scheduled_date' THEN (payload->>'scheduled_date')::date ELSE date END,
+    scheduled_date=CASE WHEN payload?'scheduled_date' THEN (payload->>'scheduled_date')::date ELSE scheduled_date END,
+    queue_pinned=CASE WHEN payload?'scheduled_date' THEN true ELSE queue_pinned END,
+    scheduled_source=CASE WHEN payload?'scheduled_date' THEN 'plan_move' ELSE scheduled_source END WHERE id=r.id;
+   GET DIAGNOSTICS n=ROW_COUNT;IF n<>1 THEN RAISE EXCEPTION 'scheduler_edit_refused';END IF;
+   IF NOT EXISTS(SELECT 1 FROM public.lessons l WHERE l.id=r.id AND to_jsonb(l)-'updated_at'=(to_jsonb(r)||payload||CASE WHEN payload?'minutes_spent' THEN jsonb_build_object('hours',coalesce(((payload->>'minutes_spent')::double precision/60)::numeric,0)) ELSE '{}'::jsonb END||CASE WHEN payload?'scheduled_date' THEN jsonb_build_object('date',payload->'scheduled_date','queue_pinned',true,'scheduled_source','plan_move') ELSE '{}'::jsonb END)-'updated_at') THEN RAISE EXCEPTION 'scheduler_edit_postcondition';END IF;
   ELSIF kind='complete' THEN
    payload:=p_action->'payload';
    IF jsonb_typeof(payload)<>'object' OR payload->>'completed' IS DISTINCT FROM 'true' OR EXISTS(SELECT 1 FROM jsonb_object_keys(payload) k WHERE k NOT IN ('completed','completed_at','scheduled_date','date','queue_pinned','scheduled_source','is_backfill','hours','minutes_spent','started_at')) THEN RAISE EXCEPTION 'scheduler_completion_shape';END IF;
@@ -209,9 +418,26 @@ BEGIN
   SET CONSTRAINTS ALL IMMEDIATE;
   PERFORM rooted_private.scheduler_disallow(p_goal_id);
   after_state:=rooted_private.scheduler_state(p_goal_id);
-  -- Only fields needed for move/skip Undo are retained; never notes or titles.
-  SELECT jsonb_build_object('goal',jsonb_build_object('current_lesson',have->'goal'->'current_lesson','completed_at',have->'goal'->'completed_at'),'rows',jsonb_agg((SELECT jsonb_object_agg(k,v) FROM jsonb_each(x) e(k,v) WHERE k=ANY(ARRAY['id','date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'])))) INTO undo_state FROM jsonb_array_elements(have->'rows') x;
-  IF kind NOT IN ('single_move','skip','set_skipped') THEN undo_state:=NULL;END IF;
+  IF kind='place_selected' AND (
+   (SELECT array_agg(x->>'id' ORDER BY x->>'id') FROM jsonb_array_elements(have->'rows') x) IS DISTINCT FROM (SELECT array_agg(x->>'id' ORDER BY x->>'id') FROM jsonb_array_elements(after_state->'rows') x)
+   OR EXISTS(SELECT 1 FROM jsonb_array_elements(have->'rows') b JOIN jsonb_array_elements(after_state->'rows') a ON a->>'id'=b->>'id' WHERE a-'updated_at' IS DISTINCT FROM (CASE WHEN (b->>'id')::uuid=ANY(selected_ids) THEN b||jsonb_build_object('date',p_action->'targetDate','scheduled_date',p_action->'targetDate','queue_pinned',true,'scheduled_source','plan_move') ELSE b END)-'updated_at')
+  ) THEN RAISE EXCEPTION 'scheduler_placement_preservation';END IF;
+  IF kind='delete_selected' AND (
+   (SELECT array_agg(x->>'id' ORDER BY x->>'id') FROM jsonb_array_elements(have->'rows') x WHERE NOT (x->>'id')::uuid=ANY(selected_ids)) IS DISTINCT FROM (SELECT array_agg(x->>'id' ORDER BY x->>'id') FROM jsonb_array_elements(after_state->'rows') x)
+   OR
+   EXISTS(SELECT 1 FROM jsonb_array_elements(after_state->'rows') a WHERE (a->>'id')::uuid=ANY(selected_ids))
+   OR (SELECT count(*) FROM jsonb_array_elements(have->'rows'))-(SELECT count(*) FROM jsonb_array_elements(after_state->'rows'))<>cardinality(selected_ids)
+   OR EXISTS(SELECT 1 FROM jsonb_array_elements(have->'rows') b JOIN jsonb_array_elements(after_state->'rows') a ON a->>'id'=b->>'id' WHERE b-ARRAY['scheduled_date','updated_at'] IS DISTINCT FROM a-ARRAY['scheduled_date','updated_at'])
+  ) THEN RAISE EXCEPTION 'scheduler_delete_postcondition';END IF;
+  IF kind='edit' AND (
+   (SELECT array_agg(x->>'id' ORDER BY x->>'id') FROM jsonb_array_elements(have->'rows') x) IS DISTINCT FROM (SELECT array_agg(x->>'id' ORDER BY x->>'id') FROM jsonb_array_elements(after_state->'rows') x)
+   OR EXISTS(SELECT 1 FROM jsonb_array_elements(have->'rows') b JOIN jsonb_array_elements(after_state->'rows') a ON a->>'id'=b->>'id' WHERE CASE WHEN b->>'id'=r.id::text THEN b-ARRAY['title','lesson_number','minutes_spent','hours','child_id','date','scheduled_date','queue_pinned','scheduled_source','updated_at'] IS DISTINCT FROM a-ARRAY['title','lesson_number','minutes_spent','hours','child_id','date','scheduled_date','queue_pinned','scheduled_source','updated_at'] ELSE b-'updated_at' IS DISTINCT FROM a-'updated_at' END)
+   OR (have->'goal')-'updated_at' IS DISTINCT FROM (after_state->'goal')-'updated_at'
+  ) THEN RAISE EXCEPTION 'scheduler_edit_scope_postcondition';END IF;
+  -- Edit Undo retains only the selected row's editable content, never notes.
+
+  SELECT jsonb_build_object('goal',jsonb_build_object('current_lesson',have->'goal'->'current_lesson','completed_at',have->'goal'->'completed_at'),'rows',jsonb_agg((SELECT jsonb_object_agg(k,v) FROM jsonb_each(x) e(k,v) WHERE k=ANY(ARRAY['id','date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'] || CASE WHEN kind='edit' AND x->>'id'=r.id::text THEN ARRAY['title','lesson_number','minutes_spent','hours','child_id'] ELSE '{}'::text[] END)))) INTO undo_state FROM jsonb_array_elements(have->'rows') x;
+  IF kind NOT IN ('single_move','place_selected','edit','skip','set_skipped') THEN undo_state:=NULL;END IF;
   result:=jsonb_build_object('status','applied','operationId',p_operation_id,'held',coalesce(jsonb_array_length(result->'held'),0));
   INSERT INTO rooted_private.scheduler_action_receipts(id,user_id,goal_id,request_hash,before_state,after_hash,result) VALUES(p_operation_id,u,p_goal_id,request_hash,undo_state,rooted_private.scheduler_hash(after_state),result);
   RETURN result;
@@ -219,7 +445,7 @@ BEGIN
 EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR invalid_datetime_format OR check_violation OR not_null_violation THEN RETURN jsonb_build_object('status','invalid','reason','shape');
 END $$;
 CREATE FUNCTION public.undo_scheduler_action(p_operation_id uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
-DECLARE r rooted_private.scheduler_action_receipts%rowtype;s jsonb;w jsonb;fields text[]:=ARRAY['date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'];
+DECLARE r rooted_private.scheduler_action_receipts%rowtype;s jsonb;w jsonb;fields text[]:=ARRAY['lesson_number','child_id','date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'];
 BEGIN
  BEGIN
   IF auth.uid() IS NULL THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
@@ -229,18 +455,23 @@ BEGIN
   IF r.undone_at IS NOT NULL THEN RETURN jsonb_build_object('status','already_undone');END IF;
   IF r.before_state IS NULL OR clock_timestamp()>r.created_at+interval '10 minutes' THEN RETURN jsonb_build_object('status','invalid','reason','expired');END IF;
   PERFORM 1 FROM public.curriculum_goals WHERE id=r.goal_id AND user_id=auth.uid() FOR UPDATE NOWAIT;
-  LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=r.goal_id ORDER BY id FOR UPDATE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   s:=rooted_private.scheduler_state(r.goal_id);
   IF rooted_private.scheduler_hash(s)<>r.after_hash THEN RETURN jsonb_build_object('status','stale','reason','later_edit');END IF;
-  PERFORM rooted_private.scheduler_allow(r.goal_id,'undo',ARRAY(SELECT (x->>'id')::uuid FROM jsonb_array_elements(r.before_state->'rows') x),fields,ARRAY['current_lesson','completed_at']);
+  PERFORM rooted_private.scheduler_allow(r.goal_id,'undo',ARRAY(SELECT (x->>'id')::uuid FROM jsonb_array_elements(r.before_state->'rows') x),fields,ARRAY['current_lesson','completed_at'],CASE WHEN r.result->>'kind'='add' THEN ARRAY[(r.result->>'rowId')::uuid] ELSE '{}'::uuid[] END);
+  IF r.result->>'kind'='add' THEN
+   DELETE FROM public.lessons WHERE id=(r.result->>'rowId')::uuid AND curriculum_goal_id=r.goal_id;
+   IF FOUND IS NOT TRUE THEN RAISE EXCEPTION 'scheduler_add_undo_delete';END IF;
+  END IF;
   -- Clear changed slots first so restoring a legacy earlier move cannot collide.
   UPDATE public.lessons l SET queue_position=NULL FROM jsonb_array_elements(r.before_state->'rows') x WHERE l.id=(x->>'id')::uuid AND to_jsonb(l.queue_position) IS DISTINCT FROM x->'queue_position';
   FOR w IN SELECT x FROM jsonb_array_elements(r.before_state->'rows') x ORDER BY (x->>'queue_position')::integer DESC NULLS LAST,x->>'id' LOOP
-   UPDATE public.lessons SET date=(w->>'date')::date,scheduled_date=(w->>'scheduled_date')::date,scheduled_source=w->>'scheduled_source',queue_position=(w->>'queue_position')::integer,queue_pinned=(w->>'queue_pinned')::boolean,queue_preserved=(w->>'queue_preserved')::boolean,completed=(w->>'completed')::boolean,completed_at=(w->>'completed_at')::timestamptz,skipped=(w->>'skipped')::boolean,is_backfill=(w->>'is_backfill')::boolean WHERE id=(w->>'id')::uuid AND EXISTS(SELECT 1 FROM jsonb_each(w) e WHERE e.key<>'id' AND to_jsonb(lessons)->e.key IS DISTINCT FROM e.value);
+   UPDATE public.lessons SET title=CASE WHEN w?'title' THEN w->>'title' ELSE title END,lesson_number=CASE WHEN w?'lesson_number' THEN (w->>'lesson_number')::integer ELSE lesson_number END,minutes_spent=CASE WHEN w?'minutes_spent' THEN (w->>'minutes_spent')::integer ELSE minutes_spent END,hours=CASE WHEN w?'hours' THEN (w->>'hours')::numeric ELSE hours END,child_id=CASE WHEN w?'child_id' THEN (w->>'child_id')::uuid ELSE child_id END,date=(w->>'date')::date,scheduled_date=(w->>'scheduled_date')::date,scheduled_source=w->>'scheduled_source',queue_position=(w->>'queue_position')::integer,queue_pinned=(w->>'queue_pinned')::boolean,queue_preserved=(w->>'queue_preserved')::boolean,completed=(w->>'completed')::boolean,completed_at=(w->>'completed_at')::timestamptz,skipped=(w->>'skipped')::boolean,is_backfill=(w->>'is_backfill')::boolean WHERE id=(w->>'id')::uuid AND EXISTS(SELECT 1 FROM jsonb_each(w) e WHERE e.key<>'id' AND to_jsonb(lessons)->e.key IS DISTINCT FROM e.value);
   END LOOP;
   UPDATE public.curriculum_goals SET current_lesson=(r.before_state->'goal'->>'current_lesson')::integer,completed_at=(r.before_state->'goal'->>'completed_at')::timestamptz WHERE id=r.goal_id AND (current_lesson IS DISTINCT FROM (r.before_state->'goal'->>'current_lesson')::integer OR completed_at IS DISTINCT FROM (r.before_state->'goal'->>'completed_at')::timestamptz);
+  IF (SELECT array_agg(x->>'id' ORDER BY x->>'id') FROM jsonb_array_elements(r.before_state->'rows') x) IS DISTINCT FROM (SELECT array_agg(id::text ORDER BY id::text) FROM public.lessons WHERE curriculum_goal_id=r.goal_id) THEN RAISE EXCEPTION 'scheduler_undo_membership';END IF;
   IF EXISTS(SELECT 1 FROM jsonb_array_elements(r.before_state->'rows') x JOIN public.lessons l ON l.id=(x->>'id')::uuid, jsonb_each(x) e WHERE to_jsonb(l)->e.key IS DISTINCT FROM e.value) THEN RAISE EXCEPTION 'scheduler_undo_postcondition';END IF;
   SET CONSTRAINTS ALL IMMEDIATE;
   PERFORM rooted_private.scheduler_disallow(r.goal_id);
@@ -341,7 +572,7 @@ BEGIN
   IF m IS DISTINCT FROM 'atomic_v2' THEN RETURN jsonb_build_object('status',CASE WHEN m='paused' THEN 'paused' ELSE 'stale' END,'reason','mode');END IF;
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
   SELECT timezone INTO tz FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   before_state:=rooted_private.scheduler_state(p_goal_id);
   IF before_state IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   IF p_current IS NULL OR p_current<1 OR p_current>g.total_lessons OR g.total_lessons>2000 OR p_history IS NULL OR p_day IS DISTINCT FROM (now() AT TIME ZONE tz)::date OR p_confirmed IS NULL OR jsonb_typeof(p_dates) IS DISTINCT FROM 'array' THEN RETURN jsonb_build_object('status','invalid','reason','shape');END IF;
@@ -437,7 +668,7 @@ BEGIN
   IF m='paused' THEN RETURN jsonb_build_object('status','paused');END IF;
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   have:=rooted_private.scheduler_state(p_goal_id);
   IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   day:=(now() AT TIME ZONE (SELECT timezone FROM public.profiles WHERE id=u))::date;
@@ -540,7 +771,7 @@ BEGIN
   IF m IS DISTINCT FROM 'atomic_v2' THEN RETURN jsonb_build_object('status','paused');END IF;
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=r.goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   state:=rooted_private.scheduler_state(r.goal_id);
   IF rooted_private.scheduler_hash(state) IS DISTINCT FROM r.after_hash THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   row_id:=(r.result->'row'->>'id')::uuid;
@@ -585,10 +816,10 @@ BEGIN
   SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=p_goal_id;
   IF m IS NULL THEN RETURN jsonb_build_object('status','invalid','reason','not_protected');END IF;
   IF m='paused' THEN RETURN jsonb_build_object('status','paused');END IF;
-  LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   have:=rooted_private.scheduler_state(p_goal_id);
   IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   day:=(now() AT TIME ZONE (SELECT timezone FROM public.profiles WHERE id=u))::date;
@@ -725,13 +956,11 @@ BEGIN
   IF owner_id IS NULL OR p_operation_id IS NULL OR kind NOT IN ('add','edit','remove','endnow') OR kind IS NULL OR jsonb_typeof(p_writes) IS DISTINCT FROM 'array' THEN RETURN jsonb_build_object('status','invalid','reason','request');END IF;
   IF (p_action-CASE kind WHEN 'add' THEN ARRAY['kind','name','startDate','endDate','shift','localDay'] WHEN 'edit' THEN ARRAY['kind','id','name','startDate','endDate','localDay'] WHEN 'remove' THEN ARRAY['kind','id','shift','localDay'] ELSE ARRAY['kind','id','localDay'] END)<>'{}'::jsonb THEN RETURN jsonb_build_object('status','invalid','reason','action_fields');END IF;
   -- Bounded fail-fast locks protect complete membership, including one-offs and
-  -- newly created goals. These are intentionally wider than per-goal actions.
-  LOCK TABLE public.curriculum_goals IN SHARE MODE NOWAIT;
+  -- newly created goals. Every row writer participates in this owner barrier.
+  PERFORM rooted_private.scheduler_lock_owner(owner_id,true);
   FOR g IN SELECT id FROM public.curriculum_goals WHERE user_id=owner_id ORDER BY id FOR UPDATE NOWAIT LOOP NULL;END LOOP;
-  LOCK TABLE public.lessons IN SHARE ROW EXCLUSIVE MODE NOWAIT;
   PERFORM 1 FROM public.lessons WHERE user_id=owner_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=owner_id FOR UPDATE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE ROW EXCLUSIVE MODE NOWAIT;
   IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF;
   request_hash:=rooted_private.scheduler_hash(jsonb_build_object('expected',p_expected,'action',p_action,'writes',p_writes));
   SELECT * INTO receipt FROM rooted_private.scheduler_calendar_receipts WHERE id=p_operation_id FOR UPDATE NOWAIT;
@@ -830,12 +1059,10 @@ DECLARE owner_id uuid:=auth.uid();receipt rooted_private.scheduler_calendar_rece
 BEGIN
  BEGIN
   IF owner_id IS NULL THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
-  LOCK TABLE public.curriculum_goals IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(owner_id,true);
   FOR g IN SELECT id FROM public.curriculum_goals WHERE user_id=owner_id ORDER BY id FOR UPDATE NOWAIT LOOP NULL;END LOOP;
-  LOCK TABLE public.lessons IN SHARE ROW EXCLUSIVE MODE NOWAIT;
   PERFORM 1 FROM public.lessons WHERE user_id=owner_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=owner_id FOR UPDATE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE ROW EXCLUSIVE MODE NOWAIT;
   IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF;
   SELECT * INTO receipt FROM rooted_private.scheduler_calendar_receipts WHERE id=p_operation_id AND user_id=owner_id FOR UPDATE NOWAIT;
   IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','receipt');END IF;
@@ -934,10 +1161,10 @@ BEGIN
   IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
   SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=r.goal_id;
   IF m IS NULL OR m NOT IN ('atomic_v2','paused') THEN RETURN jsonb_build_object('status','invalid','reason','mode');END IF;
-  LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=r.goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   state:=rooted_private.scheduler_state(r.goal_id);
   IF rooted_private.scheduler_hash(state) IS DISTINCT FROM r.after_hash THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   row_id:=(r.result->'row'->>'id')::uuid;
@@ -1046,7 +1273,7 @@ BEGIN
  IF day_window IS NULL OR p_day IS DISTINCT FROM (now() AT TIME ZONE (day_window->>'timeZone'))::date THEN RAISE EXCEPTION 'scheduler_respread_day';END IF;
  before_state:=rooted_private.cascade_snapshot(p_goal,p_day,day_window->>'dayStartIso',day_window->>'dayEndIso');
  projection:=rooted_private.scheduler_project_dates(before_state);
- LOCK TABLE public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+ PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
  FOR r IN SELECT * FROM public.lessons WHERE curriculum_goal_id=p_goal AND queue_position>g.current_lesson AND NOT completed AND NOT skipped AND NOT coalesce(is_backfill,false) AND continues_lesson_id IS NULL AND NOT queue_pinned AND NOT queue_preserved ORDER BY id LOOP
   target:=(projection->>r.queue_position::text)::date;
   IF target IS NULL THEN RAISE EXCEPTION 'scheduler_respread_unprojected';END IF;
@@ -1076,14 +1303,14 @@ BEGIN
    IF prior.user_id<>u OR prior.goal_id<>p_goal_id OR prior.request_hash<>hash THEN RETURN jsonb_build_object('status','invalid','reason','operation');END IF;
    RETURN prior.result||jsonb_build_object('status','already_applied');
   END IF;
-  LOCK TABLE public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   PERFORM 1 FROM public.curriculum_goals WHERE id=p_goal_id AND user_id=u AND NOT archived FOR UPDATE NOWAIT;
   IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
   SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=p_goal_id;
   IF m IS DISTINCT FROM 'atomic_v2' THEN RETURN jsonb_build_object('status',CASE WHEN m='paused' THEN 'paused' ELSE 'stale' END,'reason','mode');END IF;
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   have:=rooted_private.scheduler_state(p_goal_id);
   IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   SELECT coalesce(array_agg(l.id),'{}') INTO ids FROM public.lessons l JOIN public.curriculum_goals g ON g.id=l.curriculum_goal_id WHERE g.id=p_goal_id AND l.queue_position>g.current_lesson AND NOT l.completed AND NOT l.skipped AND NOT coalesce(l.is_backfill,false) AND l.continues_lesson_id IS NULL AND NOT l.queue_pinned AND NOT l.queue_preserved;
@@ -1117,10 +1344,10 @@ BEGIN
   SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=p_goal_id;
   IF m IS NULL THEN RETURN jsonb_build_object('status','legacy');END IF;
   IF m='paused' THEN RETURN jsonb_build_object('status','paused');END IF;
-  LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   have:=rooted_private.scheduler_state(p_goal_id);
   IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   local_day:=(now() AT TIME ZONE (SELECT timezone FROM public.profiles WHERE id=u))::date;
@@ -1172,5 +1399,142 @@ EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR invalid
 END $$;
 REVOKE ALL ON FUNCTION public.commit_scheduler_bulk_completion(uuid,uuid,jsonb,jsonb,date) FROM PUBLIC,anon,service_role;
 GRANT EXECUTE ON FUNCTION public.commit_scheduler_bulk_completion(uuid,uuid,jsonb,jsonb,date) TO authenticated;
+
+-- SOURCE: lesson-add.sql
+-- Explicit Plan Add / Log extra. Reuse only an untouched placeholder; no
+-- arbitrary caller-supplied row, owner, slot, pin or completion timestamp.
+CREATE FUNCTION public.commit_scheduler_add(p_operation_id uuid,p_goal_id uuid,p_expected jsonb,p_values jsonb) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
+DECLARE u uuid:=auth.uid();g public.curriculum_goals%rowtype;r public.lessons%rowtype;prior rooted_private.scheduler_action_receipts%rowtype;
+ have jsonb;after_state jsonb;shape jsonb;before_undo jsonb;result jsonb;request_hash text:=rooted_private.scheduler_hash(jsonb_build_object('rpc','add','goal',p_goal_id,'expected',p_expected,'values',p_values));
+ mode text;num integer;slot integer;mins integer;d date;done boolean;reuse boolean:=false;rid uuid;n integer;ids uuid[];fields text[]:=ARRAY['date','scheduled_date','scheduled_source','queue_pinned','completed','completed_at','is_backfill'];
+BEGIN
+ IF u IS NULL OR p_operation_id IS NULL THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
+ BEGIN
+  IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF;
+  SELECT * INTO prior FROM rooted_private.scheduler_action_receipts WHERE id=p_operation_id;
+  IF FOUND THEN
+   IF prior.user_id<>u OR prior.goal_id<>p_goal_id OR prior.request_hash<>request_hash THEN RETURN jsonb_build_object('status','invalid','reason','operation');END IF;
+   RETURN prior.result||jsonb_build_object('status',CASE WHEN prior.undone_at IS NULL THEN 'already_applied' ELSE 'already_undone' END,'row',(SELECT to_jsonb(l) FROM public.lessons l WHERE l.id=(prior.result->>'rowId')::uuid AND user_id=u));
+  END IF;
+  PERFORM rooted_private.scheduler_lock_owner(u,false);
+  SELECT * INTO g FROM public.curriculum_goals WHERE id=p_goal_id AND user_id=u FOR UPDATE NOWAIT;
+  IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
+  SELECT m.mode INTO mode FROM rooted_private.scheduler_modes m WHERE goal_id=p_goal_id;
+  IF mode IS NULL THEN RETURN jsonb_build_object('status','legacy');END IF;
+  IF mode='paused' THEN RETURN jsonb_build_object('status','paused');END IF;
+  PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
+  PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
+  have:=rooted_private.scheduler_state(p_goal_id);
+  IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
+  IF jsonb_typeof(p_values) IS DISTINCT FROM 'object' OR EXISTS(SELECT 1 FROM jsonb_object_keys(p_values) k WHERE k NOT IN ('title','child_id','lesson_number','minutes_spent','notes','scheduled_date','completed')) OR jsonb_typeof(p_values->'completed') IS DISTINCT FROM 'boolean' OR jsonb_typeof(p_values->'title') IS DISTINCT FROM 'string' OR p_values->>'scheduled_date' IS NULL THEN RAISE EXCEPTION 'scheduler_add_shape';END IF;
+  IF (p_values->>'child_id')::uuid IS DISTINCT FROM g.child_id OR NOT EXISTS(SELECT 1 FROM public.children WHERE id=g.child_id AND user_id=u) THEN RAISE EXCEPTION 'scheduler_add_child';END IF;
+  num:=(p_values->>'lesson_number')::integer;mins:=(p_values->>'minutes_spent')::integer;d:=(p_values->>'scheduled_date')::date;done:=(p_values->>'completed')::boolean;
+  IF (num IS NOT NULL AND num<1) OR (mins IS NOT NULL AND mins<0) OR (NOT done AND num IS NULL) THEN RAISE EXCEPTION 'scheduler_add_shape';END IF;
+  SELECT * INTO r FROM public.lessons WHERE curriculum_goal_id=p_goal_id AND lesson_number=num;
+  reuse:=FOUND;
+  IF reuse THEN
+   IF r.completed OR r.skipped OR r.queue_pinned OR r.queue_preserved OR r.continues_lesson_id IS NOT NULL OR r.started_at IS NOT NULL OR coalesce(r.hours,0)>0 OR coalesce(r.minutes_spent,0)>0 OR nullif(btrim(r.notes),'') IS NOT NULL OR (r.scheduled_source IS NOT NULL AND r.scheduled_source NOT IN ('queue_resync','skip_respread','skip_undo','catchup_spread','catchup_pushback','plan_cascade_shift','recalibrate_respread','completion_respread','uncomplete_respread','undo_restore')) THEN RETURN jsonb_build_object('status','invalid','reason','existing_work');END IF;
+   rid:=r.id;slot:=r.queue_position;
+   IF NOT done AND slot IS NULL THEN RAISE EXCEPTION 'scheduler_add_unslotted_placeholder';END IF;
+  ELSE
+   rid:=gen_random_uuid();
+   IF NOT done THEN
+    slot:=num;
+    IF EXISTS(SELECT 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id AND queue_position=slot) THEN
+     SELECT greatest(coalesce(max(queue_position),0),coalesce(max(lesson_number),0),num)+1 INTO slot FROM public.lessons WHERE curriculum_goal_id=p_goal_id;
+    END IF;
+   END IF;
+  END IF;
+  ids:=ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=p_goal_id);
+  IF NOT reuse THEN
+   shape:=jsonb_build_object('id',rid,'user_id',u,'child_id',g.child_id,'curriculum_goal_id',g.id,'title',p_values->>'title','lesson_number',num,'queue_position',slot,'date',d,'scheduled_date',d,'notes',p_values->>'notes','minutes_spent',mins,'hours',coalesce((mins::double precision/60)::numeric,0),'completed',done,'completed_at',CASE WHEN done THEN (d::timestamp AT TIME ZONE 'UTC')+interval '12 hours' ELSE NULL END,'queue_pinned',NOT done AND slot IS NOT NULL,'is_backfill',false,'scheduled_source',CASE WHEN done THEN 'extra_log' ELSE 'plan_move' END);
+  END IF;
+  PERFORM rooted_private.scheduler_allow(g.id,'add',ids,fields,ARRAY['current_lesson','completed_at'],'{}'::uuid[],CASE WHEN reuse THEN '[]'::jsonb ELSE jsonb_build_array(shape) END);
+  IF reuse THEN
+   UPDATE public.lessons SET date=d,scheduled_date=d,completed=done,completed_at=CASE WHEN done THEN (d::timestamp AT TIME ZONE 'UTC')+interval '12 hours' ELSE NULL END,
+    minutes_spent=CASE WHEN mins IS NOT NULL THEN mins ELSE minutes_spent END,hours=CASE WHEN mins IS NOT NULL THEN (mins::double precision/60)::numeric ELSE hours END,
+    notes=CASE WHEN p_values->>'notes' IS NOT NULL THEN p_values->>'notes' ELSE notes END,
+    queue_pinned=CASE WHEN NOT done AND slot IS NOT NULL THEN true ELSE queue_pinned END,scheduled_source=CASE WHEN done THEN 'extra_log' ELSE 'plan_move' END WHERE id=rid;
+  ELSE
+   INSERT INTO public.lessons(id,user_id,child_id,curriculum_goal_id,title,lesson_number,queue_position,date,scheduled_date,notes,minutes_spent,hours,completed,completed_at,queue_pinned,is_backfill,scheduled_source)
+   SELECT x.id,x.user_id,x.child_id,x.curriculum_goal_id,x.title,x.lesson_number,x.queue_position,x.date,x.scheduled_date,x.notes,x.minutes_spent,x.hours,x.completed,x.completed_at,x.queue_pinned,x.is_backfill,x.scheduled_source FROM jsonb_populate_record(NULL::public.lessons,shape) x;
+  END IF;
+  GET DIAGNOSTICS n=ROW_COUNT;IF n<>1 THEN RAISE EXCEPTION 'scheduler_add_rowcount';END IF;
+  IF done THEN PERFORM rooted_private.scheduler_respread_locked(g.id,'completion_respread',(now() AT TIME ZONE (SELECT timezone FROM public.profiles WHERE id=u))::date);END IF;
+  SET CONSTRAINTS ALL IMMEDIATE;
+  after_state:=rooted_private.scheduler_state(g.id);
+  IF NOT EXISTS(SELECT 1 FROM public.lessons WHERE id=rid AND user_id=u AND curriculum_goal_id=g.id AND date=d AND scheduled_date=d AND completed=done AND (mins IS NULL OR minutes_spent=mins) AND (p_values->>'notes' IS NULL OR notes=p_values->>'notes')) THEN RAISE EXCEPTION 'scheduler_add_postcondition';END IF;
+  IF (SELECT count(*) FROM jsonb_array_elements(after_state->'rows'))<>(SELECT count(*) FROM jsonb_array_elements(have->'rows'))+(CASE WHEN reuse THEN 0 ELSE 1 END)
+   OR EXISTS(SELECT 1 FROM jsonb_array_elements(have->'rows') b LEFT JOIN jsonb_array_elements(after_state->'rows') a ON a->>'id'=b->>'id' WHERE a IS NULL OR CASE WHEN b->>'id'=rid::text THEN b-ARRAY['date','scheduled_date','completed','completed_at','minutes_spent','hours','notes','queue_pinned','scheduled_source','updated_at'] IS DISTINCT FROM a-ARRAY['date','scheduled_date','completed','completed_at','minutes_spent','hours','notes','queue_pinned','scheduled_source','updated_at'] ELSE b-ARRAY['date','scheduled_date','scheduled_source','updated_at'] IS DISTINCT FROM a-ARRAY['date','scheduled_date','scheduled_source','updated_at'] END) THEN RAISE EXCEPTION 'scheduler_add_preservation';END IF;
+  SELECT jsonb_build_object('goal',jsonb_build_object('current_lesson',have->'goal'->'current_lesson','completed_at',have->'goal'->'completed_at'),'rows',jsonb_agg((SELECT jsonb_object_agg(k,v) FROM jsonb_each(x) e(k,v) WHERE k=ANY(ARRAY['id','date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'])))) INTO before_undo FROM jsonb_array_elements(have->'rows') x;
+  before_undo:=jsonb_set(before_undo,'{rows}',coalesce(nullif(before_undo->'rows','null'::jsonb),'[]'::jsonb));
+  result:=jsonb_build_object('status','applied','kind','add','rowId',rid,'updatedExisting',reuse,'operationId',p_operation_id);
+  PERFORM rooted_private.scheduler_disallow(g.id);
+  INSERT INTO rooted_private.scheduler_action_receipts(id,user_id,goal_id,request_hash,before_state,after_hash,result) VALUES(p_operation_id,u,g.id,request_hash,CASE WHEN reuse THEN NULL ELSE before_undo END,rooted_private.scheduler_hash(after_state),result);
+  RETURN result||jsonb_build_object('row',(SELECT to_jsonb(l) FROM public.lessons l WHERE id=rid));
+ EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','busy');END;
+EXCEPTION WHEN invalid_text_representation OR datetime_field_overflow OR invalid_datetime_format OR check_violation OR not_null_violation THEN RETURN jsonb_build_object('status','invalid','reason','shape');
+END $$;
+REVOKE ALL ON FUNCTION public.commit_scheduler_add(uuid,uuid,jsonb,jsonb) FROM PUBLIC,anon,service_role;
+GRANT EXECUTE ON FUNCTION public.commit_scheduler_add(uuid,uuid,jsonb,jsonb) TO authenticated;
+
+-- SOURCE: goal-lifecycle.sql
+-- Fixed retirement commands. No customer activation or generic goal mutation.
+CREATE FUNCTION public.commit_scheduler_retire(p_operation_id uuid,p_goal_id uuid,p_expected jsonb,p_kind text) RETURNS jsonb
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
+DECLARE u uuid:=auth.uid();g public.curriculum_goals%rowtype;mode text;have jsonb;prior rooted_private.scheduler_action_receipts%rowtype;request_hash text:=rooted_private.scheduler_hash(jsonb_build_object('rpc','retire','goal',p_goal_id,'expected',p_expected,'kind',p_kind));
+ ids uuid[];remove_ids uuid[];keep_ids uuid[];n integer;subject uuid;result jsonb;stopped timestamptz;after_rows jsonb;
+BEGIN
+ IF u IS NULL OR p_operation_id IS NULL OR p_kind IS NULL OR p_kind NOT IN ('stop','delete') THEN RETURN jsonb_build_object('status','invalid','reason','request');END IF;
+ BEGIN
+  IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF;
+  SELECT * INTO prior FROM rooted_private.scheduler_action_receipts WHERE id=p_operation_id;
+  IF FOUND THEN
+   IF prior.user_id<>u OR prior.goal_id<>p_goal_id OR prior.request_hash<>request_hash THEN RETURN jsonb_build_object('status','invalid','reason','operation');END IF;
+   RETURN prior.result||jsonb_build_object('status','already_applied');
+  END IF;
+  PERFORM rooted_private.scheduler_lock_owner(u,false);
+  SELECT * INTO g FROM public.curriculum_goals WHERE id=p_goal_id AND user_id=u FOR UPDATE NOWAIT;
+  IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
+  SELECT m.mode INTO mode FROM rooted_private.scheduler_modes m WHERE goal_id=p_goal_id;
+  IF mode IS NULL THEN RETURN jsonb_build_object('status','legacy');END IF;
+  IF mode='paused' THEN RETURN jsonb_build_object('status','paused');END IF;
+  PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
+  have:=rooted_private.scheduler_state(p_goal_id);
+  IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
+  ids:=ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=p_goal_id);
+  remove_ids:=ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=p_goal_id AND NOT completed AND NOT rooted_private.lesson_carries_work(notes,minutes_spent) AND coalesce(hours,0)=0 AND started_at IS NULL);
+  keep_ids:=ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=p_goal_id AND NOT id=ANY(remove_ids));
+  PERFORM rooted_private.scheduler_allow(g.id,CASE WHEN p_kind='delete' THEN 'goal_delete' ELSE 'goal_stop' END,ids,ARRAY['scheduled_date','queue_position','queue_pinned','queue_preserved','curriculum_goal_id'],ARRAY['total_lessons','current_lesson','completed_at','start_at_lesson'],remove_ids);
+  IF p_kind='delete' THEN
+   SELECT CASE WHEN count(*)=1 THEN (array_agg(id))[1] ELSE NULL END INTO subject FROM public.subjects WHERE user_id=u AND lower(name)=lower(coalesce(nullif(btrim(g.subject_label),''),g.curriculum_name));
+   IF subject IS NOT NULL THEN UPDATE public.lessons SET subject_id=subject WHERE id=ANY(keep_ids) AND subject_id IS NULL;END IF;
+  END IF;
+  UPDATE public.lessons SET scheduled_date=NULL,queue_position=NULL,queue_pinned=false,queue_preserved=false WHERE id=ANY(keep_ids) AND NOT completed;
+  GET DIAGNOSTICS n=ROW_COUNT;IF n<>(SELECT count(*) FROM jsonb_array_elements(have->'rows') x WHERE (x->>'id')::uuid=ANY(keep_ids) AND NOT (x->>'completed')::boolean) THEN RAISE EXCEPTION 'scheduler_retire_unschedule';END IF;
+  DELETE FROM public.lessons WHERE id=ANY(remove_ids);
+  GET DIAGNOSTICS n=ROW_COUNT;IF n<>cardinality(remove_ids) THEN RAISE EXCEPTION 'scheduler_retire_delete';END IF;
+  IF p_kind='delete' THEN
+   DELETE FROM public.curriculum_goals WHERE id=g.id AND user_id=u;
+   GET DIAGNOSTICS n=ROW_COUNT;IF n<>1 THEN RAISE EXCEPTION 'scheduler_retire_goal';END IF;
+  ELSE
+   stopped:=clock_timestamp();
+   UPDATE public.curriculum_goals SET total_lessons=g.current_lesson,current_lesson=g.current_lesson,start_at_lesson=least(start_at_lesson,g.current_lesson+1),completed_at=stopped WHERE id=g.id;
+   GET DIAGNOSTICS n=ROW_COUNT;IF n<>1 THEN RAISE EXCEPTION 'scheduler_retire_goal';END IF;
+  END IF;
+  SET CONSTRAINTS ALL IMMEDIATE;
+  SELECT coalesce(jsonb_agg(to_jsonb(l) ORDER BY id),'[]'::jsonb) INTO after_rows FROM public.lessons l WHERE id=ANY(ids);
+  IF (SELECT count(*) FROM jsonb_array_elements(after_rows))<>cardinality(keep_ids) OR EXISTS(SELECT 1 FROM public.lessons WHERE id=ANY(remove_ids))
+   OR EXISTS(SELECT 1 FROM jsonb_array_elements(have->'rows') b JOIN jsonb_array_elements(after_rows) a ON a->>'id'=b->>'id' WHERE b-ARRAY['scheduled_date','queue_position','queue_pinned','queue_preserved','curriculum_goal_id','subject_id','updated_at'] IS DISTINCT FROM a-ARRAY['scheduled_date','queue_position','queue_pinned','queue_preserved','curriculum_goal_id','subject_id','updated_at'] OR ((b->>'completed')::boolean AND b-ARRAY['curriculum_goal_id','subject_id','updated_at'] IS DISTINCT FROM a-ARRAY['curriculum_goal_id','subject_id','updated_at']))
+   OR EXISTS(SELECT 1 FROM public.lessons WHERE id=ANY(keep_ids) AND ((NOT completed AND (scheduled_date IS NOT NULL OR queue_position IS NOT NULL OR queue_pinned OR queue_preserved)) OR (p_kind='delete' AND curriculum_goal_id IS NOT NULL))) THEN RAISE EXCEPTION 'scheduler_retire_preservation';END IF;
+  PERFORM rooted_private.scheduler_disallow(g.id);
+  result:=jsonb_build_object('status','applied','kind',p_kind,'removed',cardinality(remove_ids),'retained',cardinality(keep_ids),'completedAt',stopped,'currentLesson',g.current_lesson);
+  INSERT INTO rooted_private.scheduler_action_receipts(id,user_id,goal_id,request_hash,before_state,after_hash,result) VALUES(p_operation_id,u,g.id,request_hash,NULL,rooted_private.scheduler_hash(after_rows),result);
+  RETURN result;
+ EXCEPTION WHEN lock_not_available THEN RETURN jsonb_build_object('status','busy');END;
+END $$;
+REVOKE ALL ON FUNCTION public.commit_scheduler_retire(uuid,uuid,jsonb,text) FROM PUBLIC,anon,service_role;
+GRANT EXECUTE ON FUNCTION public.commit_scheduler_retire(uuid,uuid,jsonb,text) TO authenticated;
 
 COMMIT;

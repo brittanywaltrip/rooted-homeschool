@@ -1,3 +1,4 @@
+import { isDefinitiveSchedulerRejection } from './scheduler-terminal-result.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { ParentRespreadSource } from './scheduler.ts';
 
@@ -42,7 +43,7 @@ export async function respreadContainedGoal(client: SupabaseClient, goal: string
   let result = await invoke();
   if (result.status === 'unknown') {attempt.ambiguous = true; result = await invoke();}
   const confirmed = result.status === 'applied' || result.status === 'already_applied';
-  if (attempt.ambiguous && !confirmed) return refused('unknown');
+  if (attempt.ambiguous && !confirmed && !isDefinitiveSchedulerRejection(result)) return refused('unknown');
   retained.delete(goal);
   return result;
 }

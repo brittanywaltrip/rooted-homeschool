@@ -7437,17 +7437,18 @@ test('bulk delete: a failed or partial delete is reported, a full one is silent'
   assert.match(bulkDeleteFailureNotice(3, 2, false) ?? '', /^Only 2 of 3 lessons were deleted\./)
 })
 
-test('bulk delete: both delete paths check the result instead of swallowing it', () => {
+test('bulk delete: deferred and flushed writes share a prepared, checked deletion', () => {
   const src = stripComments(loadRepoFile('app/components/PlanV2/index.tsx'))
   const runner = src.slice(src.indexOf('const runBulkDelete = useCallback'))
   const runBody = runner.slice(0, runner.indexOf('const performBulkDelete = useCallback'))
   const commit = src.slice(src.indexOf('const commitPendingBulkDelete = useCallback'))
   const commitBody = commit.slice(0, commit.indexOf('useEffect('))
-  for (const [name, body] of [['runBulkDelete', runBody], ['commitPendingBulkDelete', commitBody]] as const) {
-    assert.ok(/\.delete\(\)\.in\("id", [\s\S]*?\)\.select\("id"\)/.test(body), `${name} asks for the deleted ids back`)
-    assert.ok(/bulkDeleteFailureNotice\(/.test(body), `${name} turns the result into a notice`)
-    assert.ok(/flashNotice\(notice\)/.test(body), `${name} shows the notice`)
-    assert.ok(!/catch \{\s*\}/.test(body), `${name} has no empty catch`)
+  assert.ok(runBody.indexOf('prepareLessonDelete(') < runBody.indexOf('setLessons('), 'snapshot captured before hiding rows')
+  assert.ok(runBody.includes('await commit()'), 'timer invokes the prepared transaction')
+  assert.ok(commitBody.includes('await pending.commit()'), 'flush invokes the same prepared transaction')
+  for (const body of [runBody, commitBody]) {
+    assert.ok(body.includes('flashNotice('), 'rejection is surfaced')
+    assert.ok(!/catch \{\s*\}/.test(body), 'no empty catch')
   }
 })
 
@@ -7470,13 +7471,12 @@ test('bulk delete: the set of files that can delete a lesson row is pinned', () 
   // purpose: decide what it does with completed rows, then add it.
   const allowed = new Map([
     ['app/components/PlanV2/index.tsx', 'single-row + bulk; bulk routes through planBulkLessonDelete'],
-    ['app/components/PlanV2/usePlanLessonActions.ts', 'single row, 5s undo'],
-    ['app/dashboard/page.tsx', "Today's single-row delete and its undo replacement"],
+    ['app/lib/scheduler-lesson-delete.ts', 'explicit selected deletion; protected snapshot and legacy exact row-count confirmation'],
     ['app/dashboard/years/add/page.tsx', 'rollback of a half-created school year'],
     ['app/lib/scheduler.ts', 'healGoalIntegrity: incomplete duplicates only, never a completed dupe'],
     ['app/api/account/delete/route.ts', 'account deletion, whole account by design'],
   ])
-  const found = sweepRepoFiles(/\.from\("lessons"\)\s*\.delete\(\)/)
+  const found = sweepRepoFiles(/\.from\(["']lessons["']\)\s*\.delete\(\)/)
   for (const file of found) {
     assert.ok(allowed.has(file), `${file} deletes lesson rows and is not on the reviewed list`)
   }

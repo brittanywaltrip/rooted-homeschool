@@ -1,3 +1,4 @@
+import { isDefinitiveSchedulerRejection } from './scheduler-terminal-result.ts';
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildCompletionPayload, completesInPlace, type CompletionChoice } from "./completeLessonOnDate.ts";
 import type { SchedulerResult } from "./scheduler-contained.ts";
@@ -51,8 +52,8 @@ export async function commitBulkCompletion(client:SupabaseClient, goal:string, i
   let result=await invoke();
   if(result.status==="unknown"){attempt.ambiguous=true;result=await invoke();}
   const confirmed=["applied","already_applied","already_undone"].includes(result.status);
-  if(attempt.ambiguous&&!confirmed)result={status:"unknown",reason:result.reason};
-  if(!attempt.ambiguous||confirmed)retained.delete(goal);
+  if(attempt.ambiguous&&!confirmed&&!isDefinitiveSchedulerRejection(result))result={status:"unknown",reason:result.reason};
+  if(!attempt.ambiguous||confirmed||isDefinitiveSchedulerRejection(result))retained.delete(goal);
   return {...result,operationId:attempt.operation};
 }
 

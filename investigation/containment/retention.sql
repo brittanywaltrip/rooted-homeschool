@@ -49,10 +49,10 @@ BEGIN
   IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
   SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=r.goal_id;
   IF m IS NULL OR m NOT IN ('atomic_v2','paused') THEN RETURN jsonb_build_object('status','invalid','reason','mode');END IF;
-  LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=r.goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   state:=rooted_private.scheduler_state(r.goal_id);
   IF rooted_private.scheduler_hash(state) IS DISTINCT FROM r.after_hash THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   row_id:=(r.result->'row'->>'id')::uuid;

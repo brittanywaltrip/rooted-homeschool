@@ -1,5 +1,7 @@
 "use client";
 
+import {prepareLessonDelete} from '../../lib/scheduler-lesson-delete';
+
 import { schedulerErrorMessage } from "@/app/lib/scheduler-error-message";
 import { commitContainedAction, pendingContainedAction, schedulerRefusalMessage } from "@/app/lib/scheduler-contained";
 import { useRef, useCallback } from "react";
@@ -287,13 +289,8 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
 
   const deleteLesson = useCallback(async (id: string) => {
     const lesson = findLesson(id);
-    const result = await commitContainedAction(supabase, lesson?.curriculum_goal_id, {kind: "delete", lessonId: id});
-    if (result.status === "legacy") {
-      const {data, error} = await supabase.from("lessons").delete().eq("id", id).select("id");
-      if (error || data?.length !== 1) throw new Error(schedulerErrorMessage(error, "The lesson could not be deleted. Reload and try again."));
-    } else if (result.status !== "applied" && result.status !== "already_applied") {
-      throw new Error(schedulerRefusalMessage(result));
-    }
+    if (!lesson) throw new Error("Reload to find the lesson before deleting it.");
+    await (await prepareLessonDelete(supabase, [lesson]))();
     setLessons(prev => prev.filter(l => l.id !== id));
     setMonthLessons(prev => prev.filter(l => l.id !== id));
     setAllLessons?.(prev => prev.filter(l => l.id !== id));

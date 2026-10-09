@@ -3,6 +3,7 @@
 // TODO(cleanup): Delete stale test lessons for admin account:
 // DELETE FROM lessons WHERE title ILIKE '%test%' AND user_id = 'd18ca881-a776-4e82-b145-832adc88a88a';
 
+import {prepareLessonDelete} from "@/app/lib/scheduler-lesson-delete";
 import {commitHistoryHeal, hasPendingHistoryHeal} from "@/app/lib/scheduler-history-healing";
 import {schedulerRefusalMessage, pendingContainedAction} from "@/app/lib/scheduler-contained";
 import {assertLegacyLessonAction, checkedLessonWrite} from "@/app/lib/scheduler-refusal";
@@ -633,7 +634,7 @@ function TodayPageInner() {
   // a 1.5s cool-down elapses post-completion.
   const reschedulingGateRef = useRef<InFlightGate>(createInFlightGate());
   const [rescheduleBusy, setRescheduleBusy] = useState(false);
-  const [pendingDelete,          setPendingDelete]          = useState<{ lesson: Lesson } | null>(null);
+  const [pendingDelete,          setPendingDelete]          = useState<{ lesson: Lesson; commit: () => Promise<void> } | null>(null);
   const pendingDeleteTimer       = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Lesson note editing (ported from Plan page for parity)
   const [editingNoteId,          setEditingNoteId]          = useState<string | null>(null);
@@ -3221,24 +3222,24 @@ function TodayPageInner() {
   }
 
   async function deleteLesson(id: string) {
-    try { await assertLegacyLessonAction(supabase, [id, ...(pendingDelete ? [pendingDelete.lesson.id] : [])]); }
-    catch (err) { showCaptureToast(err instanceof Error ? err.message : "Couldn't delete this lesson.", null); return; }
     // If a previous delete is still pending its undo window, commit it now
     // before starting a new one (only one delete can be undoable at a time).
     if (pendingDelete && pendingDeleteTimer.current) {
       clearTimeout(pendingDeleteTimer.current);
       pendingDeleteTimer.current = null;
-      const prevId = pendingDelete.lesson.id;
-      const {error} = await supabase.from("lessons").delete().eq("id", prevId);
-      if (error) { setPendingDelete(null); showCaptureToast("Couldn't delete that lesson. Reloaded the saved plan.", null); await loadData(); return; }
+      try {await pendingDelete.commit();}
+      catch(error){setPendingDelete(null);showCaptureToast(error instanceof Error ? error.message : "Could not confirm deletion. Reload to review.",null);await loadData();return;}
     }
     const lesson = lessons.find((l) => l.id === id);
     if (!lesson) return;
+    let commit: () => Promise<void>;
+    try {commit=await prepareLessonDelete(supabase,[lesson]);}
+    catch(error){showCaptureToast(error instanceof Error ? error.message : "Could not prepare deletion.",null);return;}
     setLessons((prev) => prev.filter((l) => l.id !== id));
-    setPendingDelete({ lesson });
+    setPendingDelete({ lesson, commit });
     pendingDeleteTimer.current = setTimeout(async () => {
-      const {error} = await supabase.from("lessons").delete().eq("id", id);
-      if (error) { showCaptureToast("Couldn't delete that lesson. Reloaded the saved plan.", null); await loadData(); }
+      try {await commit();}
+      catch(error){showCaptureToast(error instanceof Error ? error.message : "Could not confirm deletion. Reload to review.",null);await loadData();}
       await refreshLeafCounts();
       setPendingDelete(null);
       pendingDeleteTimer.current = null;

@@ -45,13 +45,11 @@ BEGIN
   IF owner_id IS NULL OR p_operation_id IS NULL OR kind NOT IN ('add','edit','remove','endnow') OR kind IS NULL OR jsonb_typeof(p_writes) IS DISTINCT FROM 'array' THEN RETURN jsonb_build_object('status','invalid','reason','request');END IF;
   IF (p_action-CASE kind WHEN 'add' THEN ARRAY['kind','name','startDate','endDate','shift','localDay'] WHEN 'edit' THEN ARRAY['kind','id','name','startDate','endDate','localDay'] WHEN 'remove' THEN ARRAY['kind','id','shift','localDay'] ELSE ARRAY['kind','id','localDay'] END)<>'{}'::jsonb THEN RETURN jsonb_build_object('status','invalid','reason','action_fields');END IF;
   -- Bounded fail-fast locks protect complete membership, including one-offs and
-  -- newly created goals. These are intentionally wider than per-goal actions.
-  LOCK TABLE public.curriculum_goals IN SHARE MODE NOWAIT;
+  -- newly created goals. Every row writer participates in this owner barrier.
+  PERFORM rooted_private.scheduler_lock_owner(owner_id,true);
   FOR g IN SELECT id FROM public.curriculum_goals WHERE user_id=owner_id ORDER BY id FOR UPDATE NOWAIT LOOP NULL;END LOOP;
-  LOCK TABLE public.lessons IN SHARE ROW EXCLUSIVE MODE NOWAIT;
   PERFORM 1 FROM public.lessons WHERE user_id=owner_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=owner_id FOR UPDATE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE ROW EXCLUSIVE MODE NOWAIT;
   IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF;
   request_hash:=rooted_private.scheduler_hash(jsonb_build_object('expected',p_expected,'action',p_action,'writes',p_writes));
   SELECT * INTO receipt FROM rooted_private.scheduler_calendar_receipts WHERE id=p_operation_id FOR UPDATE NOWAIT;
@@ -150,12 +148,10 @@ DECLARE owner_id uuid:=auth.uid();receipt rooted_private.scheduler_calendar_rece
 BEGIN
  BEGIN
   IF owner_id IS NULL THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
-  LOCK TABLE public.curriculum_goals IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(owner_id,true);
   FOR g IN SELECT id FROM public.curriculum_goals WHERE user_id=owner_id ORDER BY id FOR UPDATE NOWAIT LOOP NULL;END LOOP;
-  LOCK TABLE public.lessons IN SHARE ROW EXCLUSIVE MODE NOWAIT;
   PERFORM 1 FROM public.lessons WHERE user_id=owner_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=owner_id FOR UPDATE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE ROW EXCLUSIVE MODE NOWAIT;
   IF NOT pg_try_advisory_xact_lock(hashtextextended(p_operation_id::text,0)) THEN RAISE lock_not_available;END IF;
   SELECT * INTO receipt FROM rooted_private.scheduler_calendar_receipts WHERE id=p_operation_id AND user_id=owner_id FOR UPDATE NOWAIT;
   IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','receipt');END IF;

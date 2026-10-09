@@ -89,7 +89,7 @@ BEGIN
  IF day_window IS NULL OR p_day IS DISTINCT FROM (now() AT TIME ZONE (day_window->>'timeZone'))::date THEN RAISE EXCEPTION 'scheduler_respread_day';END IF;
  before_state:=rooted_private.cascade_snapshot(p_goal,p_day,day_window->>'dayStartIso',day_window->>'dayEndIso');
  projection:=rooted_private.scheduler_project_dates(before_state);
- LOCK TABLE public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+ PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
  FOR r IN SELECT * FROM public.lessons WHERE curriculum_goal_id=p_goal AND queue_position>g.current_lesson AND NOT completed AND NOT skipped AND NOT coalesce(is_backfill,false) AND continues_lesson_id IS NULL AND NOT queue_pinned AND NOT queue_preserved ORDER BY id LOOP
   target:=(projection->>r.queue_position::text)::date;
   IF target IS NULL THEN RAISE EXCEPTION 'scheduler_respread_unprojected';END IF;
@@ -119,14 +119,14 @@ BEGIN
    IF prior.user_id<>u OR prior.goal_id<>p_goal_id OR prior.request_hash<>hash THEN RETURN jsonb_build_object('status','invalid','reason','operation');END IF;
    RETURN prior.result||jsonb_build_object('status','already_applied');
   END IF;
-  LOCK TABLE public.lessons IN ROW EXCLUSIVE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   PERFORM 1 FROM public.curriculum_goals WHERE id=p_goal_id AND user_id=u AND NOT archived FOR UPDATE NOWAIT;
   IF NOT FOUND THEN RETURN jsonb_build_object('status','invalid','reason','owner');END IF;
   SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=p_goal_id;
   IF m IS DISTINCT FROM 'atomic_v2' THEN RETURN jsonb_build_object('status',CASE WHEN m='paused' THEN 'paused' ELSE 'stale' END,'reason','mode');END IF;
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   have:=rooted_private.scheduler_state(p_goal_id);
   IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   SELECT coalesce(array_agg(l.id),'{}') INTO ids FROM public.lessons l JOIN public.curriculum_goals g ON g.id=l.curriculum_goal_id WHERE g.id=p_goal_id AND l.queue_position>g.current_lesson AND NOT l.completed AND NOT l.skipped AND NOT coalesce(l.is_backfill,false) AND l.continues_lesson_id IS NULL AND NOT l.queue_pinned AND NOT l.queue_preserved;

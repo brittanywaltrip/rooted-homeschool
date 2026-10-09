@@ -332,7 +332,11 @@ test('Plan: single check, uncheck, bulk done and its undo, logged lessons, past-
   redatesAfterRecompute(bulk.slice(0, undoAt), /PARENT_RESPREAD_SOURCE\.completion/, 'bulk done')
   redatesAfterRecompute(bulk.slice(undoAt), /PARENT_RESPREAD_SOURCE\.uncompletion/, 'bulk done undo')
   const logged = between(plan, 'const handleSubmitAddLesson = useCallback', 'const handleSubmitEditLesson')
-  redatesAfterRecompute(logged.slice(0, logged.indexOf('onUndo:')), /PARENT_RESPREAD_SOURCE\.completion/, 'log a lesson you did')
+  const legacyLogged = logged.slice(logged.indexOf('const hasGoalAndNumber'));
+  assert.ok(logged.includes('commitLessonAdd('), 'protected extra logs use the atomic add and respread transaction');
+  const addSql = src('investigation/containment/lesson-add.sql');
+  assert.ok(addSql.includes('scheduler_respread_locked'), 'protected extra log re-dates within its transaction');
+  redatesAfterRecompute(legacyLogged.slice(0, legacyLogged.indexOf('onUndo:')), /PARENT_RESPREAD_SOURCE\.completion/, 'legacy log a lesson you did')
   assert.ok(/PARENT_RESPREAD_SOURCE\.uncompletion/.test(logged.slice(logged.indexOf('onUndo:'))), 'its undo re-dates')
   const pastDay = between(plan, 'const handleLogCatchUp = useCallback', 'const missedLessonsInView')
   assert.ok(pastDay.indexOf('PARENT_RESPREAD_SOURCE.completion') > pastDay.indexOf('logPastDayLessons('), 'past-day checklist')

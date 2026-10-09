@@ -26,7 +26,7 @@ BEGIN
   IF m='paused' THEN RETURN jsonb_build_object('status','paused');END IF;
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=p_goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   have:=rooted_private.scheduler_state(p_goal_id);
   IF have IS DISTINCT FROM p_expected THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   day:=(now() AT TIME ZONE (SELECT timezone FROM public.profiles WHERE id=u))::date;
@@ -129,7 +129,7 @@ BEGIN
   IF m IS DISTINCT FROM 'atomic_v2' THEN RETURN jsonb_build_object('status','paused');END IF;
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=r.goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM 1 FROM public.profiles WHERE id=u FOR SHARE NOWAIT;
-  LOCK TABLE public.vacation_blocks IN SHARE MODE NOWAIT;
+  PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   state:=rooted_private.scheduler_state(r.goal_id);
   IF rooted_private.scheduler_hash(state) IS DISTINCT FROM r.after_hash THEN RETURN jsonb_build_object('status','stale','reason','schedule_changed');END IF;
   row_id:=(r.result->'row'->>'id')::uuid;

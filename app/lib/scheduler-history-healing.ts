@@ -1,3 +1,4 @@
+import { isDefinitiveSchedulerRejection } from './scheduler-terminal-result.ts';
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { computeNextLessonsForGoal, toGoalConfig } from "./scheduler.ts";
 import type { SchedulerResult } from "./scheduler-contained.ts";
@@ -55,8 +56,8 @@ export async function commitHistoryHeal(client: SupabaseClient, goal: string, in
   let result = await invoke();
   if (result.status === "unknown") { attempt.ambiguous = true; result = await invoke(); }
   const confirmed = result.status === "applied" || result.status === "already_applied" || result.status === "already_undone";
-  if (attempt.ambiguous && !confirmed) result = {status: "unknown"};
-  if (!attempt.ambiguous || confirmed) retained.delete(goal);
+  if (attempt.ambiguous && !confirmed && !isDefinitiveSchedulerRejection(result)) result = {status: "unknown"};
+  if (!attempt.ambiguous || confirmed || isDefinitiveSchedulerRejection(result)) retained.delete(goal);
   return {...result, operationId: attempt.operation};
 }
 
