@@ -7844,10 +7844,12 @@ test('big families: the completion tap handler reads lessons only by id or by go
 test('big families: a second tap on a lesson still in flight is ignored, not queued', () => {
   const src = stripComments(loadRepoFile('app/components/PlanV2/usePlanLessonActions.ts'))
   assert.match(src, /const inFlightRef = useRef<Set<string>>\(new Set\(\)\)/)
-  const complete = extractFunctionBody(src, /const completeWithChoice = useCallback\(async \(/)
+  // Match through the return type so inline parameter types are not read as the body.
+  const complete = extractFunctionBody(src, /const completeWithChoice = useCallback\(async \([\s\S]*?\): Promise<boolean> => /)
   const toggle = extractFunctionBody(src, /const toggleLesson = useCallback\(async \(/)
   for (const body of [complete, toggle]) {
-    assert.ok(body.indexOf('if (inFlightRef.current.has(id)) return false;') < body.indexOf('await '), 'the guard runs before any write and says the tap was dropped')
+    const guardIndex = body.indexOf('if (inFlightRef.current.has(id)) return false;')
+    assert.ok(guardIndex >= 0 && guardIndex < body.indexOf('await '), 'the guard runs before any write and says the tap was dropped')
     assert.match(body, /inFlightRef\.current\.delete\(id\)/, 'the guard is released')
   }
   // A dropped tap must not be logged, toasted or celebrated: the row and the
