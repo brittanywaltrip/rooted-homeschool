@@ -1,0 +1,6 @@
+{"iteration": 1, "scrubbed": {"actions": 2, "calendars": 0}, "remaining": 5, "elapsed_ms": 83, "alert": true}
+{"iteration": 1, "scrubbed": {"actions": 2, "calendars": 0}, "remaining": 3, "elapsed_ms": 82, "alert": true}
+{"iteration": 2, "scrubbed": {"actions": 2, "calendars": 0}, "remaining": 1, "elapsed_ms": 89, "alert": true}
+{"iteration": 3, "scrubbed": {"actions": 1, "calendars": 0}, "remaining": 0, "elapsed_ms": 79, "alert": false}
+PASS operator exits2 on residual backlog, next bounded run drains, compact proof retained
+PASS only disposable receipts removed; rehearsal tables restored empty

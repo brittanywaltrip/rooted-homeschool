@@ -1,0 +1,32 @@
+PASS two independent 500-row courses respread concurrently with both applied
+PASS all 1000 rows retain content and goal fields; pinned/preserved rows exact
+PASS same-course race has one applied and one busy/stale with no partial duplicate
+PASS calendar-style table contention refuses with exact zero effects
+PASS busy releases acquired goal/earlier-row locks while refusing transaction remains open
+{
+  "passed": [
+    "two independent 500-row courses respread concurrently with both applied",
+    "all 1000 rows retain content and goal fields; pinned/preserved rows exact",
+    "same-course race has one applied and one busy/stale with no partial duplicate",
+    "calendar-style table contention refuses with exact zero effects",
+    "busy releases acquired goal/earlier-row locks while refusing transaction remains open"
+  ],
+  "latencies_ms": {
+    "independent_ms": [
+      160.54,
+      152.38
+    ],
+    "same_goal_ms": [
+      193.08,
+      19.53
+    ],
+    "same_goal_statuses": [
+      "applied",
+      "busy"
+    ],
+    "calendar_table_refusal_ms": 29.32,
+    "partial_lock_refusal_ms": 28.5
+  },
+  "scope": "isolated Colima local measurements, no SLA claim"
+}
+PASS own two 500-row cohorts and receipts cleaned

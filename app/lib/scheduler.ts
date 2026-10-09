@@ -527,7 +527,7 @@ export type ParentRespreadSource =
  * dates are behind until the next parent action re-dates them.
  */
 export const COMPLETION_RESPREAD_FAILED_NOTE =
-  "Saved, but your upcoming lessons couldn't be moved to match. Try again, or check your connection.";
+  "Your recorded work is saved, but upcoming dates could not refresh. Do not mark the work again; review the schedule before retrying its refresh.";
 
 /**
  * Written by an undo that puts a row back where the automatic projector had
@@ -667,6 +667,21 @@ export async function resyncGoalForParent(
   vacationBlocks: VacationBlock[],
   opts: { source: ParentRespreadSource; today?: Date; completedTodayCount?: number | DoneTodaySplit },
 ): Promise<ParentReprojectResult> {
+  // Protected goals derive the entire tail under server locks, including the
+  // family's current day and completion count. Never fall through to direct
+  // writes after a protected refusal or ambiguous response.
+  const {respreadContainedGoal} = await import("./parent-respread-contained.ts");
+  const contained = await respreadContainedGoal(supabase, goal.id, opts.source);
+  if (contained.status !== "legacy") {
+    if (contained.status === "applied" || contained.status === "already_applied") {
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("rooted:schedule-refresh-resolved", {detail: {goalId: goal.id}}));
+      return {ok: true, expected: contained.written, written: contained.written, writtenIds: contained.writtenIds, failedIds: []};
+    }
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("rooted:schedule-refresh-needed", {
+      detail: {goalId: goal.id, retry: () => resyncGoalForParent(supabase, goal, vacationBlocks, opts)},
+    }));
+    return {ok: false, reason: "read_failed", ...NO_WRITES};
+  }
   const plan = await planGoalResync(
     supabase, goal, vacationBlocks, opts.completedTodayCount ?? 0, opts.today ?? new Date(), "resyncGoalForParent",
   );

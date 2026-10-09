@@ -1,0 +1,12 @@
+{
+  "passed": [
+    "bulk RPC and descending Undo compile",
+    "actual TS helper survives two lost responses and exact receipt Undo",
+    "higher completed slot, preserved gap, work and exact scheduling Undo; replay safe",
+    "calendar-like table contention returns busy without effects",
+    "midnight caller-day mismatch has zero effects",
+    "silent suppression rolls back earlier completion and leaves no receipt",
+    "later work makes Undo stale without overwriting notes",
+    "disposable owner and every owned row/receipt removed"
+  ]
+}

@@ -326,7 +326,9 @@ test('Plan: single check, uncheck, bulk done and its undo, logged lessons, past-
 
   const plan = src('app/components/PlanV2/index.tsx')
   const bulk = between(plan, 'const completeBulk = useCallback', '// ── Bulk: skip')
-  const undoAt = bulk.indexOf('onUndo:')
+  const undoAt = bulk.indexOf('const undoCompleted = async')
+  assert.ok(undoAt > 0, 'bulk receipt recovery and regular Undo share one callback')
+  assert.ok(bulk.includes('onUndo: undoCompleted'), 'confirmed batches expose their Undo callback')
   redatesAfterRecompute(bulk.slice(0, undoAt), /PARENT_RESPREAD_SOURCE\.completion/, 'bulk done')
   redatesAfterRecompute(bulk.slice(undoAt), /PARENT_RESPREAD_SOURCE\.uncompletion/, 'bulk done undo')
   const logged = between(plan, 'const handleSubmitAddLesson = useCallback', 'const handleSubmitEditLesson')

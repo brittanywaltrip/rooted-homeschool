@@ -1,0 +1,7 @@
+PASS unapproved source refuses unchanged
+PASS full expected snapshot required
+PASS locked tail refuses atomically
+PASS calendar-style lessons table lock refuses promptly with zero effects
+PASS real completion then respread respects unslotted capacity/reservation and preserves pins/preserved placements; lost-response replay identical
+{"passed": ["unapproved source refuses unchanged", "full expected snapshot required", "locked tail refuses atomically", "calendar-style lessons table lock refuses promptly with zero effects", "real completion then respread respects unslotted capacity/reservation and preserves pins/preserved placements; lost-response replay identical"]}
+PASS original captured fixture exact preservation; own cohort cleaned

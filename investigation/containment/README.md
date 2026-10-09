@@ -1,5 +1,7 @@
 # Protected scheduler containment — local candidate
 
+**Follow-up:** the bounded completion/catch-up, browser and contention gates below have since been addressed. See [COMPATIBILITY-VALIDATION.md](COMPATIBILITY-VALIDATION.md) and the current writer inventory for the latest results; the earlier open-gate list is historical. Publication/activation remain unapproved.
+
 Status: **not approved for activation or publication**. This branch adds local old-client containment and narrow replacement writers to the earlier preservation/lock package. No hosted writes, customer repair, push, PR, deployment or activation occurred.
 
 ## Problem and implemented behavior
@@ -12,7 +14,7 @@ Replacement operations cover single moves, skip/unskip, individual completion/de
 
 ## Artifact and deterministic assembly
 
-Apply neither migration remotely under this authorization. The existing `20261009174245_kandl_preserved_cascade_and_completion_locks.sql` remains unchanged. New CLI-created `20261009183309_kandl_protected_scheduler_containment.sql` is a second, single-transaction delta after that package and the reconciled PR146 prerequisites. `python3 investigation/containment/assemble.py` regenerates it and the review proposal from eight checked-in SQL sources. Manifest pins all source hashes. New migration SHA256: `9deeebc4fe5a9def751fe39c92ecdc1167451b9f4f21a4a9f227a30a790539fd`.
+Apply neither migration remotely under this authorization. The existing `20261009174245_kandl_preserved_cascade_and_completion_locks.sql` remains unchanged. New CLI-created `20261009183309_kandl_protected_scheduler_containment.sql` is a second, single-transaction delta after that package and the reconciled PR146 prerequisites. `python3 investigation/containment/assemble.py` regenerates it and the review proposal from the checked-in SQL sources. Manifest pins all source hashes. New migration SHA256: `991f639238c54b2a31fafa0d42c276f4730cd87cb60ecec55bf2094610e6ebe7`.
 
 Exact baseline fingerprints cover the nine wrapped public overloads and cleanup trigger. The draft is not idempotent: duplicates/drift refuse, and must never be forced with loosened checks. Final source identity is the local commit containing this document; exact-commit build evidence is recorded separately under `synthetic-runtime` so no subsequent source rewrite is needed.
 

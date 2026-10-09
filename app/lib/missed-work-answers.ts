@@ -14,6 +14,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import * as Sentry from "@sentry/nextjs";
 import { recomputeCurrentLesson, resyncGoalsForParent, PARENT_RESPREAD_SOURCE } from "./scheduler.ts";
 import { completeLessonOnDate, buildCompletionPayload } from "./completeLessonOnDate.ts";
+import {commitHistoryHeal, hasPendingHistoryHeal} from "./scheduler-history-healing.ts";
+import {schedulerRefusalMessage, pendingContainedAction} from "./scheduler-contained.ts";
 import { goalsWithUncheckedRows, type MissedEntry, type RecoveryRow } from "./recoverySelection.ts";
 import { captureSupabaseError } from "../../lib/sentry-error.ts";
 
@@ -100,6 +102,21 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
 
   try {
     for (const row of rows) {
+      const insertIntent = {kind: "history_insert" as const, slot: row.lesson_number, date: row.date, choice: row.choice};
+      const confirmInsert = async () => {
+        const result = await commitHistoryHeal(d.supabase, row.goal_id, insertIntent);
+        if (result.status === "legacy") return false;
+        if (result.status !== "applied" && result.status !== "already_applied") throw new Error(schedulerRefusalMessage(result));
+        completedCount++;
+        const goal = d.goals.find(g => g.id === row.goal_id);
+        d.track("lesson_completed", {lesson_number:row.lesson_number, subject_label:goal?.subject_label ?? null,
+          lesson_date:row.date, date_choice:row.choice, surface:"recovery"});
+        return true;
+      };
+      // An insert that committed before a lost response must resolve its own
+      // receipt before an existing-row read can mistake it for a new action.
+      if (hasPendingHistoryHeal(d.supabase, row.goal_id)) { await confirmInsert(); continue; }
+
       // Match by (curriculum_goal_id, queue_position): the projection emits
       // queue slot indices (see ProjectedLesson), and queue_position is the
       // column Today already matches projection slots against. Rows are
@@ -114,7 +131,7 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
 
       if (lookupError) throw lookupError;
       // A retry must not re-date a completion that already landed.
-      if (existing?.completed) { completedCount++; continue; }
+      if (existing?.completed && !pendingContainedAction(d.supabase, existing.id)) { completedCount++; continue; }
       const goal = d.goals.find((g) => g.id === row.goal_id);
 
       if (existing) {
@@ -145,6 +162,8 @@ export async function answerMissedYes(d: MissedAnswerDeps, rows: RecoveryRow[]):
         completedCount++;
         continue;
       }
+
+      if (await confirmInsert()) continue;
 
       const goalRow = await d.supabase
         .from("curriculum_goals")

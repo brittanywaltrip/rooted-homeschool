@@ -1,0 +1,11 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';
+import {createClient} from '@supabase/supabase-js';
+import {commitContainedAction} from '../../app/lib/scheduler-contained.ts';
+import {respreadContainedGoal} from '../../app/lib/parent-respread-contained.ts';
+const i=JSON.parse(fs.readFileSync(0,'utf8'));assert.equal(i.url,'http://127.0.0.1:54321');
+const c=createClient(i.url,i.anon,{auth:{persistSession:false,autoRefreshToken:false},global:{headers:{Authorization:`Bearer ${i.token}`}}});
+const completed=await commitContainedAction(c,i.goal,{kind:'complete',lessonId:i.first,onlyIfIncomplete:true,payload:{completed:true,completed_at:new Date().toISOString()}});assert.equal(completed.status,'applied');
+const rpc=c.rpc.bind(c);let dropped=0;const requests=[];
+c.rpc=async(name,args)=>{const out=await rpc(name,args);if(name==='commit_scheduler_respread'){requests.push(JSON.stringify(args));if(dropped++<2){assert.equal(out.error,null);throw new Error('response lost');}}return out;};
+assert.equal((await respreadContainedGoal(c,i.goal,'completion_respread')).status,'unknown');
+const done=await respreadContainedGoal(c,i.goal,'completion_respread');assert.equal(done.status,'already_applied');assert.equal(new Set(requests).size,1);console.log(JSON.stringify({written:done.written,replayRequests:requests.length}));

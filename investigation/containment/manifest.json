@@ -1,15 +1,18 @@
 {
   "sources": {
     "core.sql": "efd19f0f9293b02a5627decd185d260b8f84a783db0423be6699b9ff24c7c0c2",
-    "wrappers.sql": "d493c9f3a64728245fd5d4cc5860bd4532cbfc0b85c71dc61440c74444cf54dc",
-    "actions.sql": "0107da8ff5d4e59a2407b7c84399f4e03b400841e8157611e2475d20734b0bf1",
+    "wrappers.sql": "ba35e1969c30fdfa6653decf9c114d2c1c1d1e29597d1bb09b7a1eee8e4f36bb",
+    "actions.sql": "894abfeed447972468e9bc1e58bffa1b3022cdc38ea9113a5f022130dfd3e695",
     "work-preservation.sql": "9067b28eebe19b89aafc44ba2d3b33075649dbb49615fe708eef7cb6837f1a94",
     "recalibration.sql": "08f9c14efdd73a3b8ad8f8c0cf470fa1081019b654b641de8c8fa46e73042dcc",
     "history-healing.sql": "1c5959fcd455d9238cb0eb057593e9025a346b86bcad09efb82d00f2cd50c1a3",
+    "recovery-inserts.sql": "bb27ae739422c7b08155aa2d33b7181878461eb20b18fc3c40cf39eb155b8353",
     "calendar.sql": "a424011a0f47f801d3459491a2706ad3e032de9fb9a776bb3b72190f81e244eb",
-    "retention.sql": "53959ada670200b0da19e887e604cb4fe4a4fe2e6c17043338afa5e77d961ada"
+    "retention.sql": "3f9f37c872a67f2ba4b5e1178ffa622a8aa2bc2cb47c4896db9b81d4062a0273",
+    "parent-respread.sql": "9480000183a4a117eb52727bd06cdc1becce6e091a277884ceeae3f7532c892b",
+    "bulk-completion.sql": "f4e37440ddd27ea2c56f302bb90d7c7da74ff5061b8871dea4475d2a816460b0"
   },
   "migration": "20261009183309_kandl_protected_scheduler_containment.sql",
-  "sha256": "9deeebc4fe5a9def751fe39c92ecdc1167451b9f4f21a4a9f227a30a790539fd",
+  "sha256": "991f639238c54b2a31fafa0d42c276f4730cd87cb60ecec55bf2094610e6ebe7",
   "activation": "None; empty protected cohort"
 }

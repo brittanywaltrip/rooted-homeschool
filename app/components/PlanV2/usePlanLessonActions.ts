@@ -1,6 +1,7 @@
 "use client";
 
-import { commitContainedAction, schedulerRefusalMessage } from "@/app/lib/scheduler-contained";
+import { schedulerErrorMessage } from "@/app/lib/scheduler-error-message";
+import { commitContainedAction, pendingContainedAction, schedulerRefusalMessage } from "@/app/lib/scheduler-contained";
 import { useRef, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -157,7 +158,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
         if (error.code === "placement_changed" || error.code === "not_found") onScheduleRedated?.();
         // Ambiguous transport may already have committed: fetch the real state.
         if (error.code === "unknown") onScheduleRedated?.();
-        throw new Error(error.message);
+        throw new Error(schedulerErrorMessage(error));
       }
       // The stored row decides (completesInPlace): a row loaded without its
       // queue_position still kept its own dates, so the screen does too.
@@ -168,8 +169,14 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       }
 
       if (lesson?.curriculum_goal_id) {
-        await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
-        await redateAfter(lesson.curriculum_goal_id, "completion");
+        try {
+          await recomputeCurrentLesson(supabase, lesson.curriculum_goal_id);
+          await redateAfter(lesson.curriculum_goal_id, "completion");
+        } catch {
+          // The completion is confirmed; a failed follow-up cannot undo it.
+          onRedateFailed?.(COMPLETION_RESPREAD_FAILED_NOTE);
+          onScheduleRedated?.();
+        }
       }
       if (effectiveUserId) {
         try {
@@ -186,10 +193,21 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     } finally {
       inFlightRef.current.delete(id);
     }
-  }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted, redateAfter, onScheduleRedated]);
+  }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted, redateAfter, onScheduleRedated, onRedateFailed]);
 
   const toggleLesson = useCallback(async (id: string, current: boolean): Promise<boolean> => {
     if (inFlightRef.current.has(id)) return false;
+    // A response can be lost after completion commits. Resolve that exact
+    // receipt before interpreting the now-checked row as a request to reopen.
+    const pending = pendingContainedAction(supabase, id);
+    if (pending?.action.kind === "complete") {
+      const payload = pending.action.payload;
+      const prior = (pending.expected as {rows?: Array<Record<string, unknown>>}).rows?.find(row => row.id === id);
+      const date = String(payload.date ?? prior?.scheduled_date ?? toDateStr(new Date()));
+      const choice: CompletionChoice = payload.scheduled_source === "completion_planned" ? "planned"
+        : payload.scheduled_source === "completion_picked" ? "picked" : "today";
+      return completeWithChoice(id, date, choice);
+    }
     const lesson = findLesson(id);
     const completingNow = !current;
     const todayStr = toDateStr(new Date());
@@ -272,7 +290,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     const result = await commitContainedAction(supabase, lesson?.curriculum_goal_id, {kind: "delete", lessonId: id});
     if (result.status === "legacy") {
       const {data, error} = await supabase.from("lessons").delete().eq("id", id).select("id");
-      if (error || data?.length !== 1) throw new Error(error?.message ?? "The lesson could not be deleted. Reload and try again.");
+      if (error || data?.length !== 1) throw new Error(schedulerErrorMessage(error, "The lesson could not be deleted. Reload and try again."));
     } else if (result.status !== "applied" && result.status !== "already_applied") {
       throw new Error(schedulerRefusalMessage(result));
     }
@@ -334,7 +352,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       setLessons(prev => prev.map(restore));
       setMonthLessons(prev => prev.map(restore));
       if (setAllLessons) setAllLessons(prev => prev.map(restore));
-      throw new Error(error?.message ?? "The skip did not land");
+      throw new Error(schedulerErrorMessage(error, "The skip did not land"));
     }
     onSkipUndo?.(lesson.id, originalDate);
   }, [setLessons, setMonthLessons, setAllLessons, onSkipUndo, onScheduleRedated]);

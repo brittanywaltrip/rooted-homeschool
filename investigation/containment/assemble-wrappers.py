@@ -17,6 +17,7 @@ for f in fs:
   invoke=f'{inner}({call})'
   direct='PERFORM '+invoke+'; RETURN;' if f['result']=='void' else 'RETURN '+invoke+';'
   body=f'g:={goal}; IF g IS NULL THEN {direct} END IF; PERFORM 1 FROM public.curriculum_goals WHERE id=g AND user_id=auth.uid() FOR UPDATE NOWAIT; IF NOT FOUND THEN RAISE EXCEPTION \'scheduler_owner_refused\';END IF; SELECT mode INTO m FROM rooted_private.scheduler_modes WHERE goal_id=g; IF m IS NULL THEN {direct} END IF;'
+  body+=' LOCK TABLE public.curriculum_goals,public.lessons IN ROW EXCLUSIVE MODE NOWAIT;'
   if name in ('move_lesson_keep_slot','move_lesson_to_date','restore_queue_book_order'):
    # restore order is a multistage recalibration's first write; block until replacement.
    body += " RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='scheduler_client_upgrade_required', HINT='Reload and review the schedule before retrying.';" if f['result']=='void' else " RETURN jsonb_build_object('status','invalid','reason','client_upgrade_required');"

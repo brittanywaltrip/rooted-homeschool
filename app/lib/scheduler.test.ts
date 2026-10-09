@@ -3107,12 +3107,13 @@ test('confirmPriorLessonComplete refuses to write when the goal is gone', () => 
   // runs after the write cannot stop it. Both writes are considered — the
   // shared helper for an existing row, the insert for a missing one.
   const goalFetchAt = body.indexOf('.select(GOAL_CONFIG_COLUMNS)')
-  const lessonLookupAt = body.indexOf('.select("id, scheduled_date, date")')
+  const lessonLookupAt = body.indexOf('.select("id, scheduled_date, date, completed")')
   const insertAt = body.indexOf('.insert({')
   const helperAt = body.indexOf('completeLessonOnDate(')
+  const containedInsertAt = body.indexOf('commitHistoryHeal(')
   assert.ok(goalFetchAt > -1, 'the goal config is fetched')
   assert.ok(
-    goalFetchAt < lessonLookupAt && goalFetchAt < insertAt && goalFetchAt < helperAt,
+    goalFetchAt < lessonLookupAt && goalFetchAt < insertAt && goalFetchAt < helperAt && goalFetchAt < containedInsertAt,
     'the goal fetch precedes the lesson lookup and both writes',
   )
 
@@ -3120,7 +3121,7 @@ test('confirmPriorLessonComplete refuses to write when the goal is gone', () => 
   assert.ok(guardAt > -1, 'a missing goal is guarded')
   const guardBlock = body.slice(guardAt, body.indexOf('const goalCfg'))
   assert.ok(/\breturn;/.test(guardBlock), 'the guard returns rather than falling through')
-  assert.ok(guardAt < insertAt && guardAt < helperAt, 'the guard runs before both writes')
+  assert.ok(guardAt < insertAt && guardAt < helperAt && guardAt < containedInsertAt, 'the guard runs before both writes')
 
   assert.ok(
     /captureSupabaseError\(\s*"Prior-lesson confirm: goal missing/.test(guardBlock),
@@ -3165,7 +3166,7 @@ test('confirmPriorLessonComplete stamps noon UTC of the day being confirmed', ()
   // takes rowDay and returns it untouched.
   assert.ok(/rowDay,/.test(body), "the existing row's date is fed to the resolver")
   assert.ok(
-    /\.select\("id, scheduled_date, date"\)/.test(body),
+    /\.select\("id, scheduled_date, date, completed"\)/.test(body),
     'so the lookup still selects both date columns',
   )
   assert.equal(
@@ -6249,7 +6250,10 @@ test('prior-lesson card: every guard from 97ed329 and 07e91cb still holds', () =
 
   // Update when a row exists, insert only when none does.
   assert.ok(/if \(existingRow\?\.id\) \{/.test(body), 'still prefers updating the existing row')
-  assert.ok(/\.select\("id, scheduled_date, date"\)/.test(body), 'and still reads its dates')
+  assert.ok(/\.select\("id, scheduled_date, date, completed"\)/.test(body), 'and still reads its dates')
+
+  assert.ok(/onlyIfIncomplete:\s*true/.test(body), 'existing completion cannot overwrite a concurrent completed record')
+  assert.ok(/hasPendingHistoryHeal/.test(body) && /commitHistoryHeal/.test(body), 'lost insert receipts resolve before another completion')
 
   // The pointer still recomputes rather than advancing (Invariant 15).
   assert.ok(

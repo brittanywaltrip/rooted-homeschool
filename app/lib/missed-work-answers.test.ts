@@ -163,3 +163,40 @@ test("failed winner re-read remains partial failure, never a confirmed completio
   assert.deepEqual(f.tables.lessons.map(r=>r.completed),[false,false]);
   assert.equal(f.events.filter(e=>e === "lesson_completed").length,0);
 });
+
+test('protected missing catch-up preserves offered choice and resolves lost insert before lookup on retry', async () => {
+  const f=setup(); f.tables.lessons.length=0;
+  const baseRpc=f.client.rpc.bind(f.client); const calls: string[]=[]; let insertCalls=0; let respreads=0; let directTailWrites=0;
+  const baseFrom=f.client.from.bind(f.client);
+  f.client.from=(table:string)=>{const query=baseFrom(table);return {...query,update(payload:Record<string,unknown>){if(table==='lessons' && ('scheduled_date' in payload || 'date' in payload)){directTailWrites++;throw new Error('Forbidden direct tail write');}return query.update(payload);}};};
+  f.client.rpc=async (name,args) => {
+    if(name==='read_scheduler_state') return {data:{status:'ready',mode:'atomic_v2',localDay:f.deps.todayStr,snapshot:{goal:f.tables.curriculum_goals[0],rows:[...f.tables.lessons],vacations:[]}},error:null} as never;
+    if(name==='commit_scheduler_history_heal') {
+      calls.push(JSON.stringify(args));insertCalls++;
+      const action=args.p_action as {choice:string;date:string;slot:number};
+      assert.equal(action.choice,'planned');
+      if(insertCalls===1) f.tables.lessons.push({id:'new-history',user_id:'u',child_id:'c',curriculum_goal_id:'g',lesson_number:action.slot,queue_position:action.slot,
+        completed:true,completed_at:`${action.date}T12:00:00Z`,date:action.date,scheduled_date:action.date,scheduled_source:'completion_planned',queue_pinned:true,is_backfill:true,minutes_spent:25,hours:25/60});
+      if(insertCalls<3) throw new Error('Response lost after commit');
+      return {data:{status:'already_applied',written:1},error:null} as never;
+    }
+    if(name==='commit_scheduler_respread'){respreads++;assert.equal(args.p_source,'catchup_spread');return {data:{status:'applied',written:0,writtenIds:[]},error:null} as never;}
+    return baseRpc(name,args);
+  };
+  await assert.rejects(answerMissedYes(f.deps,[rows[0]]),MissedCompletionError);
+  const saved={...f.tables.lessons[0]};
+  assert.deepEqual(await answerMissedYes(f.deps,[rows[0]]),{completedCount:1});
+  assert.deepEqual(f.tables.lessons[0],saved);
+  assert.equal(respreads,1);assert.equal(directTailWrites,0);
+  assert.equal(calls.length,3);assert.equal(new Set(calls).size,1);
+  assert.equal(f.events.filter(e=>e==='lesson_completed').length,1);
+});
+
+test('protected missing-row refusal preserves prior work and never falls back to direct insertion', async () => {
+  const f=setup();f.tables.lessons.splice(0,1);const before=f.tables.lessons.map(r=>({...r}));
+  f.client.rpc=async(name)=> name==='read_scheduler_state'
+    ? {data:{status:'ready',mode:'paused',snapshot:{}},error:null} as never
+    : {data:null,error:{code:'PGRST202',message:'missing'}};
+  await assert.rejects(answerMissedYes(f.deps,[rows[0]]),MissedCompletionError);
+  assert.deepEqual(f.tables.lessons,before);assert.equal(f.events.filter(e=>e==='lesson_completed').length,0);
+});

@@ -1,0 +1,161 @@
+{
+  "final": [
+    {
+      "artifact": "bulk-result.json",
+      "phase": "bulk",
+      "success": true,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Plan rendered with lesson search",
+        "Actual multi-select bulk completion committed two lessons atomically",
+        "Bulk receipt Undo restores exact business fields, work and goal pointer",
+        "Bulk Undo survives reload"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    },
+    {
+      "artifact": "catchup-result.json",
+      "phase": "catchup",
+      "success": true,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Catch-up opens on explicit notice click",
+        "Catch-up completed three selected lessons on historical dates with note preserved and pointer3",
+        "Catch-up and tail persisted after reload"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    },
+    {
+      "artifact": "complete-result.json",
+      "phase": "complete",
+      "success": true,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Plan rendered with lesson search",
+        "Actual Plan completion persisted and preserved notes/time/other completion states",
+        "Completion pointer advanced to selected lesson",
+        "Reload preserved completion and projected tail"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    },
+    {
+      "artifact": "plan-tail-retry-result.json",
+      "phase": "plan-tail-retry",
+      "success": true,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Plan rendered with lesson search",
+        "Plan saved completion and shows explicit recovery after two lost tail replies",
+        "Recovery replays same tail operation and Plan refetches lessons/goals without repeating completion",
+        "Plan recovered completion and schedule persist on full reload"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    },
+    {
+      "artifact": "readiness-result.json",
+      "phase": "readiness",
+      "success": true,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Plan rendered with lesson search"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    },
+    {
+      "artifact": "shift-result.json",
+      "phase": "shift",
+      "success": true,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Plan rendered with lesson search",
+        "Shift-all committed once after deliberately lost response",
+        "Retry retained identical operation UUID and payload",
+        "Selected and following lessons advanced exactly one session; prefix date unchanged",
+        "Reload preserves committed schedule and receipt count"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    },
+    {
+      "artifact": "tail-retry-result.json",
+      "phase": "tail-retry",
+      "success": true,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Saved completion plus two lost tail replies shows explicit Refresh upcoming lessons recovery",
+        "Recovery replays original tail UUID/payload without completion repeat or state change",
+        "Recovered saved work and tail persist across reload"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    },
+    {
+      "artifact": "today-reload-result.json",
+      "phase": "today-reload",
+      "success": true,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Lost both completion responses shows explicit Check saved completion retry",
+        "Reload after unresolved replies shows saved lesson with no duplicate completion or receipt; in-memory retry disappears"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    },
+    {
+      "artifact": "today-retry-result.json",
+      "phase": "today-retry",
+      "success": true,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Lost both completion responses shows explicit Check saved completion retry",
+        "Explicit retry resolves original UUID/payload without a second completion timestamp or time write",
+        "Today completion and tail persist across reload"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    }
+  ],
+  "supersededHarnessAttempts": [
+    {
+      "artifact": "plan-tail-retry-before-locator-fix-result.json",
+      "phase": "plan-tail-retry",
+      "success": false,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Plan rendered with lesson search",
+        "Plan saved completion and shows explicit recovery after two lost tail replies",
+        "Recovery replays same tail operation and Plan refetches lessons/goals without repeating completion"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    },
+    {
+      "artifact": "today-retry-before-wait-fix-result.json",
+      "phase": "today-retry",
+      "success": false,
+      "checks": [
+        "Real password sign-in reached Today",
+        "Lost both completion responses shows explicit Check saved completion retry",
+        "Explicit retry resolves original UUID/payload without a second completion timestamp or time write"
+      ],
+      "failures": [],
+      "head": "cbf46d530ac630d47cc8a1e877dafac69c0fa5d2",
+      "dirty": true
+    }
+  ]
+}

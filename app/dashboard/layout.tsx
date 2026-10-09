@@ -12,6 +12,7 @@ import {
 } from "@/lib/auth-retry";
 import { PartnerContext, PartnerContextType } from "@/lib/partner-context";
 import UpgradeBanner from "@/app/components/UpgradeBanner";
+import ScheduleRefreshRecovery from "@/app/components/ScheduleRefreshRecovery";
 import { ProfileContext, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile, type ProfileContextType } from "@/lib/profile-context";
 import { SessionContext } from "@/lib/session-context";
 import type { User } from "@supabase/supabase-js";
@@ -1210,6 +1211,7 @@ function DashboardLayoutInner({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
+        <ScheduleRefreshRecovery />
         <BadgeNotificationListener />
       </div>
     </PartnerContext.Provider>

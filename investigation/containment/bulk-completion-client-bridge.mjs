@@ -1,0 +1,15 @@
+import {createClient} from '@supabase/supabase-js';
+import {commitBulkCompletion} from '../../app/lib/scheduler-bulk-completion.ts';
+import {undoContainedAction} from '../../app/lib/scheduler-contained.ts';
+import assert from 'node:assert/strict';
+let input='';for await(const chunk of process.stdin)input+=chunk;
+const a=JSON.parse(input);assert.equal(a.url,'http://127.0.0.1:54321');
+const client=createClient(a.url,a.anon,{global:{headers:{Authorization:`Bearer ${a.token}`}},auth:{persistSession:false,autoRefreshToken:false}});
+const original=client.rpc.bind(client);const calls=[];let lost=2;
+client.rpc=async(name,args)=>{const result=await original(name,args);if(name==='commit_scheduler_bulk_completion'){calls.push(args);if(lost-->0)throw new Error('synthetic response loss');}return result;};
+const items=a.ids.map(lessonId=>({lessonId,dateStr:a.day,choice:'today'}));
+assert.equal((await commitBulkCompletion(client,a.goal,items,a.day)).status,'unknown');
+const result=await commitBulkCompletion(client,a.goal,items,a.day);assert.equal(result.status,'already_applied');
+assert.deepEqual(calls[0],calls[1]);assert.deepEqual(calls[0],calls[2]);
+assert.equal((await undoContainedAction(client,result.operationId)).status,'undone');
+process.stdout.write(JSON.stringify({identical_requests:calls.length}));

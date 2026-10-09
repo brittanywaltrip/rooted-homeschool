@@ -3,6 +3,8 @@
 // TODO(cleanup): Delete stale test lessons for admin account:
 // DELETE FROM lessons WHERE title ILIKE '%test%' AND user_id = 'd18ca881-a776-4e82-b145-832adc88a88a';
 
+import {commitHistoryHeal, hasPendingHistoryHeal} from "@/app/lib/scheduler-history-healing";
+import {schedulerRefusalMessage, pendingContainedAction} from "@/app/lib/scheduler-contained";
 import {assertLegacyLessonAction, checkedLessonWrite} from "@/app/lib/scheduler-refusal";
 import PreservedWorkPanel from "../components/PreservedWorkPanel";
 import { LessonUnitsProvider, useLessonUnits } from "@/lib/lesson-units-context";
@@ -613,6 +615,9 @@ function TodayPageInner() {
     minutes: number | null;
     surface: CompletionSurface;
   };
+  type CompletionAttempt = {lesson: Lesson; dateStr: string; choice: CompletionChoice; surface: CompletionSurface; minutes?: number | null; silent?: boolean};
+  const [completionRetry, setCompletionRetry] = useState<{args: CompletionAttempt; message: string} | null>(null);
+  const [completionRetryBusy, setCompletionRetryBusy] = useState(false);
   const [completionChoice, setCompletionChoice] = useState<PendingCompletion | null>(null);
   const [completionToast, setCompletionToast] = useState<
     (PendingCompletion & { message: string; inPlace?: boolean }) | null
@@ -2549,7 +2554,7 @@ function TodayPageInner() {
         ? { minutes_spent: args.minutes, hours: args.minutes / 60.0 }
         : undefined;
 
-    const { error, filedDate, inPlace } = await completeLessonOnDate(supabase, {
+    const { error, filedDate, inPlace, contained } = await completeLessonOnDate(supabase, {
       lessonId: lesson.id,
       dateStr,
       choice,
@@ -2563,13 +2568,16 @@ function TodayPageInner() {
       track: (event) => posthog.capture("lesson_completed", event),
     });
     if (error) {
-      showCaptureToast("Couldn't log that, try again.", null);
+      const message = contained ? error.message : "Couldn't log that, try again.";
+      showCaptureToast(message, null);
+      if (contained && (error.code === "unknown" || error.code === "busy")) setCompletionRetry({args, message});
       // Moved, pinned, skipped or deleted in another tab since this list
       // loaded: nothing was written. Show where it is now before another tap.
       if (error.code === "placement_changed" || error.code === "not_found") await loadData();
       return false;
     }
 
+    setCompletionRetry(prior => prior?.args.lesson.id === lesson.id ? null : prior);
     // A lesson completed in place keeps its own dates (completesInPlace).
     const updatedLessons = lessons.map((l) =>
       l.id === lesson.id
@@ -3471,13 +3479,13 @@ function TodayPageInner() {
       // on across the recompute below.
       const { data: existing } = await supabase
         .from("lessons")
-        .select("id, scheduled_date, date")
+        .select("id, scheduled_date, date, completed")
         .eq("user_id", effectiveUserId)
         .eq("curriculum_goal_id", g.goal_id)
         .eq("lesson_number", g.current_lesson)
         .maybeSingle();
       const existingRow = existing as
-        | { id: string; scheduled_date: string | null; date: string | null }
+        | { id: string; scheduled_date: string | null; date: string | null; completed: boolean }
         | null;
 
       // The day the family agreed to, which is the day the card showed them.
@@ -3501,10 +3509,22 @@ function TodayPageInner() {
       const dateStr =
         choice === "today" ? today : (g.resolved_day ?? freshlyResolved ?? today);
 
-      if (existingRow?.id) {
+      let insertedThroughReceipt = false;
+      if (!existingRow?.id || hasPendingHistoryHeal(supabase, g.goal_id)) {
+        const result = await commitHistoryHeal(supabase, g.goal_id, {kind:"history_insert",slot:g.current_lesson,date:dateStr,choice,origin:"prior_card"});
+        if (result.status !== "legacy") {
+          if (result.status !== "applied" && result.status !== "already_applied") throw new Error(schedulerRefusalMessage(result));
+          insertedThroughReceipt = true;
+          posthog.capture("lesson_completed", {lesson_number:g.current_lesson,subject_label:g.subject_label,lesson_date:dateStr,date_choice:choice,surface:"prior_card"});
+        }
+      }
+      if (insertedThroughReceipt || (existingRow?.completed && !pendingContainedAction(supabase, existingRow.id))) {
+        // Already confirmed by the fixed insert receipt; do not complete again.
+      } else if (existingRow?.id) {
         // Invariant 16: one writer, and it is the shared one.
         const { error } = await completeLessonOnDate(supabase, {
           lessonId: existingRow.id,
+          onlyIfIncomplete: true,
           dateStr,
           choice,
           todayStr: today,
@@ -7050,6 +7070,17 @@ function TodayPageInner() {
           <div className="bg-[var(--g-brand)] text-white text-sm font-medium px-4 py-3 rounded-2xl shadow-lg">
             Marked {recoveryToast} {recoveryToast === 1 ? "lesson" : "lessons"} done. Today is updated.
           </div>
+        </div>
+      )}
+
+      {completionRetry && (
+        <div role="status" className="fixed bottom-36 left-1/2 -translate-x-1/2 z-[75] w-full max-w-md rounded-xl bg-white p-4 shadow-lg">
+          <p>{completionRetry.message}</p>
+          <button disabled={completionRetryBusy} onClick={async () => {
+            setCompletionRetryBusy(true);
+            try { await runCompletion(completionRetry.args); await loadData(); }
+            finally { setCompletionRetryBusy(false); }
+          }}>{completionRetryBusy ? "Checking…" : "Check saved completion"}</button>
         </div>
       )}
 

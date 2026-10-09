@@ -152,6 +152,8 @@ export function buildLessonCompletedEvent(args: {
 }
 
 export interface CompleteLessonArgs {
+  /** Bulk already checked legacy mode; an activation must refuse the direct write, not silently lose batch Undo. */
+  legacyBulkFallback?: boolean;
   /** Recovery must preserve another tab's completed record. */
   onlyIfIncomplete?: boolean;
   lessonId: string;
@@ -286,7 +288,7 @@ export async function completeLessonOnDate(
     return { payload: null, filedDate: row.scheduled_date ?? args.dateStr, inPlace: completesInPlace(row),
       error: { message: "lesson was already completed", code: "already_completed" } };
   }
-  if (row.curriculum_goal_id) {
+  if (row.curriculum_goal_id && !args.legacyBulkFallback) {
     const inPlace = completesInPlace(row);
     const filedDate = inPlace ? row.scheduled_date as string : args.dateStr;
     let payload = inPlace ? null : buildCompletionPayload({dateStr: args.dateStr, choice: args.choice, todayStr: args.todayStr, now: args.now});

@@ -3,7 +3,7 @@ import { computeNextLessonsForGoal, toGoalConfig } from "./scheduler.ts";
 import type { SchedulerResult } from "./scheduler-contained.ts";
 
 export type HistoryHealIntent =
-  | { kind: "history_insert"; slot: number; date: string }
+  | { kind: "history_insert"; slot: number; date: string; choice?: "planned" | "picked" | "today"; origin?: "prior_card" }
   | { kind: "heal_next"; slot: number; date: string }
   | { kind: "heal_empty" }
   | { kind: "continue"; parentLessonId: string; targetDate: string };
