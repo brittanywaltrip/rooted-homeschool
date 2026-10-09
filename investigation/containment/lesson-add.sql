@@ -31,7 +31,7 @@ BEGIN
   SELECT * INTO r FROM public.lessons WHERE curriculum_goal_id=p_goal_id AND lesson_number=num;
   reuse:=FOUND;
   IF reuse THEN
-   IF r.completed OR r.skipped OR r.queue_pinned OR r.queue_preserved OR r.continues_lesson_id IS NOT NULL OR r.started_at IS NOT NULL OR coalesce(r.hours,0)>0 OR coalesce(r.minutes_spent,0)>0 OR nullif(btrim(r.notes),'') IS NOT NULL OR (r.scheduled_source IS NOT NULL AND r.scheduled_source NOT IN ('queue_resync','skip_respread','skip_undo','catchup_spread','catchup_pushback','plan_cascade_shift','recalibrate_respread','completion_respread','uncomplete_respread','undo_restore')) THEN RETURN jsonb_build_object('status','invalid','reason','existing_work');END IF;
+   IF r.completed OR r.skipped OR r.queue_pinned OR r.queue_preserved OR r.continues_lesson_id IS NOT NULL OR r.started_at IS NOT NULL OR coalesce(r.hours,0)>0 OR coalesce(r.minutes_spent,0)>0 OR nullif(btrim(r.notes),'') IS NOT NULL OR (r.scheduled_source IS NOT NULL AND r.scheduled_source NOT IN ('queue_resync','skip_respread','skip_undo','catchup_spread','catchup_pushback','plan_cascade_shift','recalibrate_respread','completion_respread','edit_respread','uncomplete_respread','undo_restore')) THEN RETURN jsonb_build_object('status','invalid','reason','existing_work');END IF;
    rid:=r.id;slot:=r.queue_position;
    IF NOT done AND slot IS NULL THEN RAISE EXCEPTION 'scheduler_add_unslotted_placeholder';END IF;
   ELSE

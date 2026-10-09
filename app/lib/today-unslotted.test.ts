@@ -176,7 +176,7 @@ test("Today, Plan and the Builder are wired to the same rules", () => {
   assert.match(today, /if \(error\.code === "placement_changed" \|\| error\.code === "not_found"\) await loadData\(\);/, "Today reloads after a refused completion");
   const plan = read("../components/PlanV2/usePlanLessonActions.ts");
   assert.match(plan, /completesInPlace\(lesson as/);
-  assert.match(plan, /if \(error\.code === "placement_changed" \|\| error\.code === "not_found"\) onScheduleRedated\?\.\(\);/, "Plan reloads after a refused completion");
+  assert.match(plan, /if \(error\.code === "placement_changed" \|\| error\.code === "not_found" \|\| error\.code === "already_completed"\) onScheduleRedated\?\.\(\);/, "Plan reloads after a refused completion");
   assert.match(read("../components/PlanV2/usePlanV2Data.ts"), /lesson_number, queue_position, completed/, "Plan reads queue_position");
   const builder = read("../dashboard/plan/schedule/page.tsx");
   assert.match(builder, /\.select\("curriculum_goal_id, queue_position"\)/, "the preview splits today's completions");

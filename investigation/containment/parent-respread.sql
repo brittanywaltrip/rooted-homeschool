@@ -84,7 +84,7 @@ LANGUAGE plpgsql SET search_path=pg_catalog,pg_temp AS $$
 DECLARE g public.curriculum_goals%rowtype;day_window jsonb;before_state jsonb;projection jsonb;r record;target date;written uuid[]:='{}';n integer;
 BEGIN
  SELECT * INTO g FROM public.curriculum_goals WHERE id=p_goal AND user_id=auth.uid();
- IF NOT FOUND OR p_source IS NULL OR p_source NOT IN ('completion_respread','uncomplete_respread','catchup_spread','skip_undo','skip_respread') THEN RAISE EXCEPTION 'scheduler_respread_scope';END IF;
+ IF NOT FOUND OR p_source IS NULL OR p_source NOT IN ('completion_respread','uncomplete_respread','catchup_spread','skip_undo','skip_respread','edit_respread') THEN RAISE EXCEPTION 'scheduler_respread_scope';END IF;
  day_window:=rooted_private.cascade_local_window(g.user_id,p_day);
  IF day_window IS NULL OR p_day IS DISTINCT FROM (now() AT TIME ZONE (day_window->>'timeZone'))::date THEN RAISE EXCEPTION 'scheduler_respread_day';END IF;
  before_state:=rooted_private.cascade_snapshot(p_goal,p_day,day_window->>'dayStartIso',day_window->>'dayEndIso');

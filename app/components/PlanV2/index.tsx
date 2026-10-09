@@ -469,29 +469,6 @@ export default function PlanV2() {
     return () => { cancelled = true; };
   }, [effectiveUserId, pinsNonce]);
 
-  // Skipped lessons, for the curriculum panel only. The calendar loads by
-  // scheduled_date and a skipped row has none, so without this a skip would
-  // vanish with no way back. Refreshed with the pins, which carry the same
-  // skips to the projector.
-  const [skippedLessons, setSkippedLessons] = useState<PlanV2Lesson[]>([]);
-  useEffect(() => {
-    if (!effectiveUserId) return;
-    let cancelled = false;
-    (async () => {
-      const { data, error } = await supabase
-        .from("lessons")
-        .select("id, title, lesson_number, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, completed_at, skipped, subjects(name, color), curriculum_goals(subject_label)")
-        .eq("user_id", effectiveUserId)
-        .eq("skipped", true)
-        .eq("completed", false)
-        .not("curriculum_goal_id", "is", null);
-      if (cancelled || error) return;
-      setSkippedLessons((data ?? []) as unknown as PlanV2Lesson[]);
-    })();
-    return () => { cancelled = true; };
-  }, [effectiveUserId, pinsNonce]);
-
-
   // Vacation modal — single instance for both create + edit. `existing` is
   // null in create mode; populated in edit mode with the block we clicked.
   const [vacationModalOpen, setVacationModalOpen] = useState(false);
@@ -814,6 +791,39 @@ export default function PlanV2() {
   const { kids, lessons, appointments, vacationBlocks, activities: calendarActivities, loading, reload, setLessons, setAppointments } =
     usePlanV2Data({ effectiveUserId, monthStart });
 
+  // Unfinished off-calendar lessons remain available for historical logging.
+  // Completing a later slot can clear an earlier empty row's planned date;
+  // include it in the curriculum panel without placing it on the calendar.
+  const [offCalendarLessons, setOffCalendarLessons] = useState<PlanV2Lesson[]>([]);
+  useEffect(() => setOffCalendarLessons([]), [effectiveUserId]);
+  useEffect(() => {
+    if (!effectiveUserId) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from("lessons")
+        .select("id, title, lesson_number, queue_position, completed, child_id, scheduled_date, date, curriculum_goal_id, hours, minutes_spent, notes, scheduled_source, continues_lesson_id, completed_at, skipped, subjects(name, color), curriculum_goals(subject_label)")
+        .eq("user_id", effectiveUserId)
+        .or("skipped.eq.true,scheduled_date.is.null")
+        .eq("completed", false)
+        .not("curriculum_goal_id", "is", null);
+      if (cancelled || error) return;
+      setOffCalendarLessons((data ?? []) as unknown as PlanV2Lesson[]);
+    })();
+    return () => { cancelled = true; };
+  }, [effectiveUserId, pinsNonce, lessons]);
+
+
+  const lessonById = useMemo(() => new Map([...offCalendarLessons, ...lessons].map(l => [l.id, l])), [offCalendarLessons, lessons]);
+  useEffect(() => {
+    const refresh = () => { reload(); reloadPins(); };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("rooted:lessons-updated", refresh);
+    return () => { window.removeEventListener("focus", refresh); window.removeEventListener("rooted:lessons-updated", refresh); };
+  }, [reload, reloadPins]);
+
+
+
   useEffect(() => {
     const recovered = () => { reload(); reloadPins(); reloadGoals(); };
     window.addEventListener("rooted:schedule-refresh-recovered", recovered);
@@ -999,14 +1009,20 @@ export default function PlanV2() {
   // before it is written; this holds the lesson while the chooser is open.
   // Nothing is stored until they answer, so Cancel is free.
   const [completionChoice, setCompletionChoice] = useState<
-    { lesson: PlanV2Lesson; plannedDate: string } | null
+    { lesson: PlanV2Lesson; plannedDate: string; expectedCompletion?: {completed_at:string|null;scheduled_date:string|null} } | null
   >(null);
+
+  const openCompletionCorrection = useCallback(async (lesson:PlanV2Lesson, plannedDate:string) => {
+    const {data,error}=await supabase.from("lessons").select("completed, completed_at, scheduled_date").eq("id",lesson.id).maybeSingle();
+    if(error||!data?.completed){flashNotice("This lesson changed. Reload before changing its date.");reload();return;}
+    setCompletionChoice({lesson,plannedDate,expectedCompletion:{completed_at:data.completed_at,scheduled_date:data.scheduled_date}});
+  },[reload]);
 
   const { toggleLesson, completeWithChoice, deleteLesson, skipLesson } = usePlanLessonActions<PlanV2Lesson>({
     lessons,
-    monthLessons: lessons,
+    monthLessons: offCalendarLessons,
     setLessons,
-    setMonthLessons: setLessons,
+    setMonthLessons: setOffCalendarLessons,
     effectiveUserId,
     onSkipUndo: () => {
       // Drop + reschedule share UndoBar; skip refresh is good enough here.
@@ -1076,7 +1092,7 @@ export default function PlanV2() {
   // the user's intent was recorded even if persistence hiccups.
   const toggleLessonWithLog = useCallback(
     async (id: string, current: boolean) => {
-      const snap = lessons.find((l) => l.id === id);
+      const snap = lessonById.get(id);
       // Invariant 16: when the day is not today the hook opens the chooser and
       // writes nothing, so there is no completion to log yet. The chooser's own
       // onChoose records the audit event and the toast once the family answers.
@@ -1092,7 +1108,7 @@ export default function PlanV2() {
           message: `Logged for ${completionLabelDate(todayStr)}`,
           key: `completion:${id}:${Date.now()}`,
           actionLabel: "Change",
-          onUndo: () => setCompletionChoice({ lesson: snap, plannedDate: todayStr }),
+          onUndo: () => openCompletionCorrection(snap, todayStr),
         });
       }
       if (snap) {
@@ -1111,12 +1127,12 @@ export default function PlanV2() {
         await fireConfettiIfNewlyCompleted(snap.curriculum_goal_id);
       }
     },
-    [lessons, toggleLessonReported, recordEvent, fireConfettiIfNewlyCompleted, todayStr],
+    [lessonById, openCompletionCorrection, toggleLessonReported, recordEvent, fireConfettiIfNewlyCompleted, todayStr],
   );
 
   const deleteLessonWithLog = useCallback(
     async (id: string) => {
-      const snap = lessons.find((l) => l.id === id);
+      const snap = lessonById.get(id);
       try {
         await deleteLesson(id);
       } catch (error) {
@@ -1136,7 +1152,7 @@ export default function PlanV2() {
         });
       }
     },
-    [lessons, deleteLesson, recordEvent, reload],
+    [lessonById, deleteLesson, recordEvent, reload],
   );
 
   const skipLessonWithLog = useCallback(
@@ -1219,7 +1235,7 @@ export default function PlanV2() {
       });
       if (contained.status !== "legacy") {
         if (contained.status === "applied" || contained.status === "already_applied") {
-          setSkippedLessons(prev => prev.filter(l => l.id !== lesson.id));
+          setOffCalendarLessons(prev => prev.filter(l => l.id !== lesson.id));
           flashNotice("Lesson returned to the plan.");
         } else flashNotice(schedulerRefusalMessage(contained));
         reload();
@@ -1245,7 +1261,7 @@ export default function PlanV2() {
         flashNotice("Couldn't unskip, try again.");
         return;
       }
-      setSkippedLessons((prev) => prev.filter((l) => l.id !== lesson.id));
+      setOffCalendarLessons((prev) => prev.filter((l) => l.id !== lesson.id));
       if (passed) {
         flashNotice("You've already moved past this one, so it's on today's plan.");
       } else {
@@ -1834,7 +1850,7 @@ export default function PlanV2() {
     }
     let root: PlanV2Lesson = lesson;
     if (lesson.continues_lesson_id) {
-      const local = lessons.find((l) => l.id === lesson.continues_lesson_id);
+      const local = lessonById.get(lesson.continues_lesson_id);
       if (local) {
         root = local;
       } else {
@@ -1856,7 +1872,7 @@ export default function PlanV2() {
     const defaultDateStr = toDateStr(next);
     setOpenDayStr(null);
     setContinueTarget({ parent: root, parentDateStr, defaultDateStr });
-  }, [lessons]);
+  }, [lessonById]);
 
   const handleSubmitEditLesson = useCallback(async (
     lessonId: string,
@@ -1876,7 +1892,7 @@ export default function PlanV2() {
     // queue_position), so vacating one leaves a blank subject card nothing
     // refills. planGoalReassign decides; see item 1 of the 2026-09-08
     // queue-slot brief and trg_lessons_block_goal_detach.
-    const editing = lessons.find((l) => l.id === lessonId);
+    const editing = lessonById.get(lessonId);
     const goalPlan =
       editing && "curriculum_goal_id" in changes
         ? planGoalReassign(
@@ -2050,7 +2066,7 @@ export default function PlanV2() {
         const attempted =
           changes.lesson_number ??
           originals.lesson_number ??
-          lessons.find((l) => l.id === lessonId)?.lesson_number ??
+          lessonById.get(lessonId)?.lesson_number ??
           null;
         throw new Error(
           attempted != null
@@ -2066,7 +2082,7 @@ export default function PlanV2() {
     for (const key of Object.keys(changes) as (keyof EditLessonChanges)[]) {
       changesForLog[key] = { from: originals[key], to: changes[key] };
     }
-    const snap = lessons.find((l) => l.id === lessonId);
+    const snap = lessonById.get(lessonId);
     const titleForLog =
       (changes.title as string | undefined) ??
       snap?.title ??
@@ -2133,14 +2149,14 @@ export default function PlanV2() {
       },
     });
     if (pinsNewDate) reloadPins();
-  }, [lessons, setLessons, recordEvent, reload, reloadPins, effectiveUserId]);
+  }, [lessonById, setLessons, recordEvent, reload, reloadPins, effectiveUserId]);
 
   // Fired when a lesson's notes have been auto-saved by the day panel. The
   // panel doesn't know about PLAN_EVENT_TYPES, so it just passes the id +
   // new length and we log the audit entry here.
   const handleLessonNotesUpdated = useCallback(
     (lessonId: string, noteLength: number) => {
-      const snap = lessons.find((l) => l.id === lessonId);
+      const snap = lessonById.get(lessonId);
       const title =
         snap?.title && snap.title.trim().length > 0
           ? snap.title
@@ -2153,7 +2169,7 @@ export default function PlanV2() {
         actor: "user",
       });
     },
-    [lessons, recordEvent],
+    [lessonById, recordEvent],
   );
 
   // ── Curriculum wizard + activity + report + backfill handlers ───────────
@@ -2960,15 +2976,14 @@ export default function PlanV2() {
     return lessons.filter((l) => (l.child_id ? childFilter.has(l.child_id) : true));
   }, [lessons, childFilter, kids.length]);
 
-  // The panel's lesson list: the calendar's rows plus every skipped lesson,
-  // which the calendar never loads.
+  // Supplement the curriculum list with unfinished rows absent from the calendar.
   const panelLessons = useMemo<PlanV2Lesson[]>(() => {
     const seen = new Set(filteredLessons.map((l) => l.id));
-    const skipped = skippedLessons.filter(
+    const skipped = offCalendarLessons.filter(
       (l) => !seen.has(l.id) && (childFilter.size === 0 || childFilter.size === kids.length || !l.child_id || childFilter.has(l.child_id)),
     );
     return skipped.length > 0 ? [...filteredLessons, ...skipped] : filteredLessons;
-  }, [filteredLessons, skippedLessons, childFilter, kids.length]);
+  }, [filteredLessons, offCalendarLessons, childFilter, kids.length]);
 
   const filteredAppointments = useMemo<PlanV2Appointment[]>(() => {
     if (childFilter.size === 0 || childFilter.size === kids.length) return appointments;
@@ -3521,7 +3536,7 @@ export default function PlanV2() {
     fromDateStr: string,
     toDateStr: string,
   ): Promise<{ held: number; keptSlot: boolean; undo: () => Promise<boolean> } | null> => {
-    const lesson = lessons.find((l) => l.id === lessonId);
+    const lesson = lessonById.get(lessonId);
     const contained = await commitContainedAction(supabase, lesson?.curriculum_goal_id, {
       kind: "single_move", lessonId, targetDate: toDateStr, localDay: todayStr,
     });
@@ -3568,7 +3583,7 @@ export default function PlanV2() {
         return !backErr;
       },
     };
-  }, [lessons, todayStr, restoreLessonSnapshot]);
+  }, [lessonById, todayStr, restoreLessonSnapshot]);
 
   // ── Move a single lesson to a new date ────────────────────────────────────
   // Shared by drag-drop AND the mobile/desktop reschedule dialog. Handles
@@ -3586,7 +3601,7 @@ export default function PlanV2() {
         flashNotice("Heads up, this day is marked as vacation.");
       }
 
-      const source = lessons.find((l) => l.id === lessonId);
+      const source = lessonById.get(lessonId);
       if (!source) return;
 
       const [ty, tm, td] = toDateStr.split("-").map(Number);
@@ -3703,7 +3718,7 @@ export default function PlanV2() {
         window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
       }
     },
-    [lessons, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent, writeSingleMove, unitFor],
+    [lessons, lessonById, vacationBlocks, setLessons, reload, reloadPins, flagLanded, recordEvent, writeSingleMove, unitFor],
   );
 
   // ── Appointment move (drag-drop on non-recurring instances) ────────────────
@@ -4055,7 +4070,7 @@ export default function PlanV2() {
       flashNotice("That day is blocked off as a vacation, pick another day.");
       return;
     }
-    const lesson = lessons.find((l) => l.id === lessonId);
+    const lesson = lessonById.get(lessonId);
     if (!lesson) return;
     const fromDate = lesson.scheduled_date ?? lesson.date;
     if (!fromDate || fromDate === toDateStr) return;
@@ -4110,7 +4125,7 @@ export default function PlanV2() {
     // A move pins the lesson (and may hold others), so the pin map needs a refresh.
     reloadPins();
     reload();
-  }, [lessons, vacationBlocks, setLessons, flagLanded, reload, reloadPins, recordEvent, writeSingleMove]);
+  }, [lessonById, vacationBlocks, setLessons, flagLanded, reload, reloadPins, recordEvent, writeSingleMove]);
 
   // ── Bulk: mark done ───────────────────────────────────────────────────────
   //
@@ -7446,9 +7461,9 @@ export default function PlanV2() {
               setCompletionChoice(null);
               let wrote = false;
               try {
-                wrote = await completeWithChoice(lesson.id, dateStr, choice);
-              } catch {
-                flashNotice("Couldn't log that, try again.");
+                wrote = await completeWithChoice(lesson.id, dateStr, choice, completionChoice.expectedCompletion);
+              } catch (error) {
+                flashNotice(error instanceof Error ? error.message : "Couldn't log that, try again.");
                 return;
               }
               if (!wrote) return;
@@ -7468,7 +7483,7 @@ export default function PlanV2() {
                 // undoing: the family said they did it, they are only
                 // correcting which day.
                 onUndo: () => {
-                  setCompletionChoice({ lesson, plannedDate: dateStr });
+                  return openCompletionCorrection(lesson, dateStr);
                 },
               });
               if (lesson.curriculum_goal_id) {

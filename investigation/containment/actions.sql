@@ -130,6 +130,17 @@ BEGIN
    OR EXISTS(SELECT 1 FROM jsonb_array_elements(have->'rows') b JOIN jsonb_array_elements(after_state->'rows') a ON a->>'id'=b->>'id' WHERE CASE WHEN b->>'id'=r.id::text THEN b-ARRAY['title','lesson_number','minutes_spent','hours','child_id','date','scheduled_date','queue_pinned','scheduled_source','updated_at'] IS DISTINCT FROM a-ARRAY['title','lesson_number','minutes_spent','hours','child_id','date','scheduled_date','queue_pinned','scheduled_source','updated_at'] ELSE b-'updated_at' IS DISTINCT FROM a-'updated_at' END)
    OR (have->'goal')-'updated_at' IS DISTINCT FROM (after_state->'goal')-'updated_at'
   ) THEN RAISE EXCEPTION 'scheduler_edit_scope_postcondition';END IF;
+  -- Finish Edit's derived dates in this same transaction, before its Undo
+  -- after-hash. A same-day reload must not invalidate Undo merely by finishing
+  -- the projection implied by this edit. No new receipt or public source.
+  IF kind='edit' AND (payload?'scheduled_date' OR payload?'lesson_number') THEN
+   canonical:=rooted_private.cascade_local_window(u,(now() AT TIME ZONE (SELECT timezone FROM public.profiles WHERE id=u))::date);
+   PERFORM rooted_private.scheduler_allow(p_goal_id,'edit_respread',ARRAY(SELECT id FROM public.lessons WHERE curriculum_goal_id=p_goal_id AND queue_position>(have->'goal'->>'current_lesson')::integer AND NOT completed AND NOT skipped AND NOT coalesce(is_backfill,false) AND continues_lesson_id IS NULL AND NOT queue_pinned AND NOT queue_preserved),ARRAY['date','scheduled_date','scheduled_source'],'{}');
+   PERFORM rooted_private.scheduler_respread_locked(p_goal_id,'edit_respread',(now() AT TIME ZONE (canonical->>'timeZone'))::date);
+   SET CONSTRAINTS ALL IMMEDIATE;
+   PERFORM rooted_private.scheduler_disallow(p_goal_id);
+   after_state:=rooted_private.scheduler_state(p_goal_id);
+  END IF;
   -- Edit Undo retains only the selected row's editable content, never notes.
 
   SELECT jsonb_build_object('goal',jsonb_build_object('current_lesson',have->'goal'->'current_lesson','completed_at',have->'goal'->'completed_at'),'rows',jsonb_agg((SELECT jsonb_object_agg(k,v) FROM jsonb_each(x) e(k,v) WHERE k=ANY(ARRAY['id','date','scheduled_date','scheduled_source','queue_position','queue_pinned','queue_preserved','completed','completed_at','skipped','is_backfill'] || CASE WHEN kind='edit' AND x->>'id'=r.id::text THEN ARRAY['title','lesson_number','minutes_spent','hours','child_id'] ELSE '{}'::text[] END)))) INTO undo_state FROM jsonb_array_elements(have->'rows') x;
@@ -155,7 +166,7 @@ BEGIN
   PERFORM 1 FROM public.lessons WHERE curriculum_goal_id=r.goal_id ORDER BY id FOR UPDATE NOWAIT;
   PERFORM rooted_private.scheduler_lock_owner(auth.uid(),false);
   s:=rooted_private.scheduler_state(r.goal_id);
-  IF rooted_private.scheduler_hash(s)<>r.after_hash THEN RETURN jsonb_build_object('status','stale','reason','later_edit');END IF;
+  IF rooted_private.scheduler_hash(s) IS DISTINCT FROM r.after_hash THEN RETURN jsonb_build_object('status','stale','reason','later_edit');END IF;
   PERFORM rooted_private.scheduler_allow(r.goal_id,'undo',ARRAY(SELECT (x->>'id')::uuid FROM jsonb_array_elements(r.before_state->'rows') x),fields,ARRAY['current_lesson','completed_at'],CASE WHEN r.result->>'kind'='add' THEN ARRAY[(r.result->>'rowId')::uuid] ELSE '{}'::uuid[] END);
   IF r.result->>'kind'='add' THEN
    DELETE FROM public.lessons WHERE id=(r.result->>'rowId')::uuid AND curriculum_goal_id=r.goal_id;

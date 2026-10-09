@@ -156,6 +156,8 @@ export interface CompleteLessonArgs {
   legacyBulkFallback?: boolean;
   /** Recovery must preserve another tab's completed record. */
   onlyIfIncomplete?: boolean;
+  /** Explicit date correction must still match the completion the parent opened. */
+  expectedCompletion?: {completed_at: string | null; scheduled_date: string | null};
   lessonId: string;
   dateStr: string;
   choice: CompletionChoice;
@@ -204,6 +206,7 @@ type StoredPlacement = {
   queue_pinned: boolean | null;
   skipped: boolean | null;
   completed?: boolean | null;
+  completed_at?: string | null;
 };
 
 export type CompletionErrorCode = "not_found" | "placement_changed" | "already_completed";
@@ -275,18 +278,22 @@ export async function completeLessonOnDate(
         queue_pinned: retainedRow.queue_pinned,
         skipped: retainedRow.skipped,
         completed: retainedRow.completed,
+        ...(args.expectedCompletion ? {completed_at: retainedRow.completed_at} : {}),
       }, error: null}
     : await supabase.from("lessons")
-      .select("curriculum_goal_id, queue_position, scheduled_date, queue_pinned, skipped, completed")
+      .select(args.expectedCompletion ? "curriculum_goal_id, queue_position, scheduled_date, queue_pinned, skipped, completed, completed_at" : "curriculum_goal_id, queue_position, scheduled_date, queue_pinned, skipped, completed")
       .eq("id", args.lessonId).maybeSingle();
   if (readErr) return { payload: null, filedDate: args.dateStr, inPlace: false, error: readErr };
   const row = stored as StoredPlacement | null;
   if (!row) {
     return { payload: null, filedDate: args.dateStr, inPlace: false, error: { message: "lesson not found", code: "not_found" } };
   }
+  if (args.expectedCompletion && (!row.completed || row.completed_at !== args.expectedCompletion.completed_at || row.scheduled_date !== args.expectedCompletion.scheduled_date)) {
+    return {payload:null,filedDate:args.dateStr,inPlace:completesInPlace(row),error:{code:"placement_changed",message:"This completion changed in another tab. Reload before changing its date."}};
+  }
   if (args.onlyIfIncomplete && row.completed) {
     return { payload: null, filedDate: row.scheduled_date ?? args.dateStr, inPlace: completesInPlace(row),
-      error: { message: "lesson was already completed", code: "already_completed" } };
+      error: { message: "This lesson was already logged in another tab. Reload to see its saved date.", code: "already_completed" } };
   }
   if (row.curriculum_goal_id && !args.legacyBulkFallback) {
     const inPlace = completesInPlace(row);
@@ -373,6 +380,10 @@ function guardPlacement<Q extends { eq: (c: string, v: any) => Q; is: (c: string
   out = eqOrIs(out, "scheduled_date", row.scheduled_date);
   out = eqOrIs(out, "queue_pinned", row.queue_pinned);
   out = eqOrIs(out, "skipped", row.skipped);
+  if ("completed_at" in row) {
+    out = eqOrIs(out, "completed", row.completed);
+    out = eqOrIs(out, "completed_at", row.completed_at);
+  }
   return out;
 }
 

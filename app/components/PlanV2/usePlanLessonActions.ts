@@ -118,6 +118,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     id: string,
     dateStr: string,
     choice: CompletionChoice,
+    expectedCompletion?: {completed_at: string | null; scheduled_date: string | null},
   ): Promise<boolean> => {
     // false: a write for this lesson is already in flight and this tap was
     // dropped. The caller must not log, toast or celebrate a tap that wrote
@@ -142,6 +143,8 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
         choice,
         todayStr,
         surface: "plan",
+        onlyIfIncomplete: !expectedCompletion,
+        expectedCompletion,
         lessonNumber: (lesson as { lesson_number?: number | null } | undefined)?.lesson_number ?? null,
         subjectLabel:
           (lesson as { curriculum_goals?: { subject_label?: string | null } | null } | undefined)
@@ -157,7 +160,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
         setMonthLessons(prev => prev.map(revert));
         // Moved, pinned, skipped or deleted elsewhere since Plan loaded:
         // nothing was written, so reload to show where it is now.
-        if (error.code === "placement_changed" || error.code === "not_found") onScheduleRedated?.();
+        if (error.code === "placement_changed" || error.code === "not_found" || error.code === "already_completed") onScheduleRedated?.();
         // Ambiguous transport may already have committed: fetch the real state.
         if (error.code === "unknown") onScheduleRedated?.();
         throw new Error(schedulerErrorMessage(error));
@@ -180,6 +183,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
           onScheduleRedated?.();
         }
       }
+      onScheduleRedated?.();
       if (effectiveUserId) {
         try {
           onLogAction({
@@ -231,8 +235,8 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       if (lesson && lesson.scheduled_date && completesInPlace(lesson as { curriculum_goal_id?: string | null; queue_position?: number | null; scheduled_date?: string | null })) {
         return completeWithChoice(id, lesson.scheduled_date, lesson.scheduled_date === todayStr ? "today" : "planned");
       }
-      if (lesson && onNeedsDateChoice && needsDateChoice(plannedDate, todayStr)) {
-        onNeedsDateChoice(lesson, plannedDate as string, todayStr);
+      if (lesson && onNeedsDateChoice && (needsDateChoice(plannedDate, todayStr) || (!!lesson.curriculum_goal_id && lesson.scheduled_date == null))) {
+        onNeedsDateChoice(lesson, plannedDate ?? todayStr, todayStr);
         return false;
       }
       return completeWithChoice(id, todayStr, "today");

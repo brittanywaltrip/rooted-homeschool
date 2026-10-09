@@ -2,21 +2,21 @@
   "sources": {
     "core.sql": "b1c1ba7253e191ba44e55e4c6a61f7f6744c6ab6f7f48f94ee68fc8c0fac5573",
     "wrappers.sql": "06d074623b23e455cd661832ed950c38dd8ad328a1ab79d9f7698804649e43d1",
-    "actions.sql": "2aab0450a224cdb245f5dfff213788a3ea59792820604b039ebb0d037a45c57c",
+    "actions.sql": "38173dc7012f9e6291b89eeba5e52b206394a06badbbe865bf936e7b1c89b9da",
     "work-preservation.sql": "ec4b089d114c17ca4a27a003fa905fdd566ea2682c3fb6e552d16db666de8230",
     "recalibration.sql": "5e2eda111aafe53eeed96509e22e62215de384d4b5ce3cc809ab80ca4a2ef302",
     "history-healing.sql": "e87f9676645848aedbd77aa967ceccbff4dd1f19390b201fd5db7d1f086adeb5",
     "recovery-inserts.sql": "c954a4fc8764f41f4bb497f96a084274cf52729764c9699018a800aab3281b3f",
     "calendar.sql": "c6983a0198690832b54129a836cded11e941442be4c5d5df11e7f1921fa89d95",
     "retention.sql": "afbc7a733688d01da542bfb6c7523aaa5f7557bdc4bf9cd2a6923e081676405c",
-    "parent-respread.sql": "2ea4d3d06407280b37885696212956d25f4b923863056e02f3c2064c312b1845",
+    "parent-respread.sql": "0158fca35fb40d71bd7925592e4c2ba41e100261491bf1d469c81ec2a91b3953",
     "bulk-completion.sql": "81d672413f8731e591c91dc2e1b38c4870cbb80b8c2f0e76ae7a9a1db33079b5",
-    "lesson-add.sql": "8a56b69f424c4fc3dc0bca2aec03e02d5078e4cd9c08f4e9a1d11b743628dd80",
+    "lesson-add.sql": "84ae66ad0a2cc153bd676b2af9be081173dbc0c54cbf19fcb20aab881a1fcbd2",
     "goal-lifecycle.sql": "7f7b55709a43aca2bfc5d65cf17e5f9836850561b825bcb631e44b5599230d86",
     "reassignment.sql": "971f2b12bff2e27a2ebaa8c34e59a4065c981b2cc915f74da662e7076d1bf263",
     "recovery-status.sql": "85500ff11c4109294437bf50a5f0a33d0722e10d2744372ac29acd2ce7dba558"
   },
   "migration": "20261009183309_kandl_protected_scheduler_containment.sql",
-  "sha256": "17b98e18ebc66989f5b84dca47f7ea78034d1a4a9c3bec499e533f9edcd35b24",
+  "sha256": "33512f6a9b60354aac01b271f0262e6fdfe82350c0c72750f112213247bb6723",
   "activation": "None; empty protected cohort"
 }

@@ -876,7 +876,7 @@ function LessonList(props: {
               // pre-date the completed_at backfill.
               const dateLabel = l.completed
                 ? formatDate(l.completed_at?.slice(0, 10) ?? l.scheduled_date ?? l.date)
-                : "";
+                : l.scheduled_date == null && !l.skipped ? "Not scheduled · ready to log" : "";
               // A skipped lesson stays in the list, greyed, so the family can
               // see what they skipped and take it back. It is not done, so it
               // gets no check and no strike-through.
