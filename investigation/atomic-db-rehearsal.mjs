@@ -39,6 +39,25 @@ try {
   q('alter table public.curriculum_goals add column completed_at timestamptz,add column child_id uuid,add column curriculum_name text,add column subject_label text,add column default_minutes integer,add column scheduled_start_time time');
   for(const migration of readdirSync('supabase/migrations').filter(n=>n.includes('apply_builder_rebuild')&&n.endsWith('.sql')).sort())q(readFileSync('supabase/migrations/'+migration,'utf8'));
  }
+ if(process.env.RELEASE_PACKAGE==='1'){
+  assert.equal(process.env.PR146_COMPAT,'1');
+  q(readFileSync('investigation/release-package/legacy-baseline-fixture.sql','utf8'));
+  q(readFileSync('supabase/migrations/20260921230610_daily_reconcile.sql','utf8'));
+  const manifest=JSON.parse(readFileSync('investigation/release-package/manifest.json','utf8'));
+  const migration=readFileSync(manifest.migration,'utf8');
+  const helper=q("select pg_get_functiondef('rooted_private.lesson_carries_work(text,integer)'::regprocedure)");
+  q("create or replace function rooted_private.lesson_carries_work(p_notes text,p_minutes integer) returns boolean language sql immutable as $$ select false $$");
+  assert.throws(()=>q(migration),/Baseline function drift/);
+  assert.equal(q("select count(*) from pg_attribute where attrelid='public.lessons'::regclass and attname='queue_preserved' and not attisdropped"),'0');
+  q(helper);
+  q(`insert into public.curriculum_goals(id,user_id,total_lessons,current_lesson,school_days,start_date) values('${G}','${U}',1,0,array['Mon'],current_date);insert into public.lessons(id,user_id,curriculum_goal_id,lesson_number,queue_position,date,scheduled_date,notes,minutes_spent) values('${L(1)}','${U}','${G}',1,1,current_date,current_date,'migration preservation sentinel',17)`);
+  const beforeRows=q("select json_build_object('goals',(select json_agg(g order by id) from public.curriculum_goals g),'lessons',(select json_agg(to_jsonb(l) order by id) from public.lessons l))");
+  q(migration);
+  assert.deepEqual(JSON.parse(q("select json_build_object('goals',(select json_agg(g order by id) from public.curriculum_goals g),'lessons',(select json_agg(to_jsonb(l)-'queue_preserved' order by id) from public.lessons l))")),JSON.parse(beforeRows));
+  assert.equal(q('select queue_preserved from public.lessons'), 'f');
+  assert.throws(()=>q(migration),/Unexpected preexisting/);
+  console.log('PASS packaged migration refuses dependency drift atomically, installs once, refuses duplicate application');
+ }else{
  q(readFileSync('supabase/proposals/cascade_shift_atomic.sql','utf8'));
  q(readFileSync('supabase/migrations/20260921230610_daily_reconcile.sql','utf8'));
  q(readFileSync('supabase/proposals/preserved_daily_reconcile.sql','utf8'));
@@ -47,6 +66,8 @@ try {
   assert.equal(process.env.PR146_COMPAT,'1','Remaining lock proposal requires the Builder compatibility schema');
   q(readFileSync('supabase/proposals/remaining_completion_locks.sql','utf8'));
  }
+ }
+ if(process.env.RELEASE_CATALOG_FILE)writeFileSync(process.env.RELEASE_CATALOG_FILE,q("select coalesce(json_agg(x order by nspname,proname,args),'[]') from (select n.nspname,p.proname,pg_get_function_identity_arguments(p.oid) args,md5(p.prosrc) body,p.prosecdef,p.proconfig,p.proacl::text acl from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname in ('public','rooted_private') and p.prolang <> 13) x"));
  q('create trigger preserved_cleanup_rehearsal after update of current_lesson on public.curriculum_goals for each row execute function public.curriculum_goals_cleanup_orphans_trg()');
  q("update rooted_private.app_switches set enabled=true where name='daily_reconcile'");
  const today=q("select (now() at time zone 'UTC')::date");

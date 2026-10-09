@@ -1,0 +1,42 @@
+{
+  "base_commit": "a10838ae366b33eee0060be694e47d947d9dc5c2",
+  "migration": "supabase/migrations/20261009174245_kandl_preserved_cascade_and_completion_locks.sql",
+  "sources": {
+    "cascade_shift_atomic.sql": "4122688bfe539cc475a3bb14373b522fea0327a796068504c388fd71afdce14c",
+    "preserved_cleanup_guard.sql": "5eba0d1fc3178f4ba42851e654abee03ab24fc698a721599f14729d24c30074e",
+    "preserved_daily_reconcile.sql": "14ee6733d3acdcac43ea8000e6e0f11ce3714fe62a9d490a3d7ccaed3b397b79",
+    "remaining_completion_locks.sql": "f0e98e09f64b961e8d716deea6aa48fa3d102d372b6d877da47d6ef487e3c998"
+  },
+  "migration_sha256": "d19d4b66df7b091e163c2919382755edf20f43ce95f34cb1c39e95c6ac10fb9f",
+  "baseline_functions": [
+    {
+      "signature": "rooted_private.lesson_carries_work(text,integer)",
+      "body_md5": "df8372242d67b3020f3777ac5e8e9c45"
+    },
+    {
+      "signature": "public.reopen_lesson(uuid,date)",
+      "body_md5": "9611a68a4e546de9501312f90e87c482"
+    },
+    {
+      "signature": "public.restore_queue_book_order(uuid,date)",
+      "body_md5": "5794a1226fb06f20521913566596a6e2"
+    },
+    {
+      "signature": "public.move_lesson_keep_slot(uuid,date,date,boolean)",
+      "body_md5": "cc9d61dd703250808b35fad609c38c24"
+    },
+    {
+      "signature": "public.move_lesson_to_date(uuid,date)",
+      "body_md5": "d92d6872b2b14011d247779c6e37c546"
+    },
+    {
+      "signature": "public.apply_builder_rebuild(uuid,date,jsonb,jsonb,jsonb)",
+      "body_md5": "f31b17b46c25b2458c1ed79656964275"
+    },
+    {
+      "signature": "public.apply_builder_rebuild(uuid,date,jsonb,jsonb)",
+      "body_md5": "0f6e208035a1d29e4a5172eef0f04c07"
+    }
+  ],
+  "not_remote_apply_authorization": true
+}
