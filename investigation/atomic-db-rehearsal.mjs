@@ -60,7 +60,17 @@ try {
  const undo=(v)=>json(rpcSQL('undo_cascade_shift',[v.op]));
  const restored=(s)=>s.rows.map(r=>{const copy={...r};delete copy.updated_at;return copy;});
  function pass(name){results.push({name,status:'PASS'});console.log('PASS '+name);}
- if(process.env.REVIEW_DAILY==='1') {
+ if(process.env.CASCADE_COMPAT_CASE==='builder'){
+  assert.equal(process.env.PR146_COMPAT,'1');reset(false);
+  const builderExpected=()=>{const state=snapshot();const keys=['total_lessons','current_lesson','start_at_lesson','lessons_per_day','lessons_per_day_overrides','school_days','start_date','archived','completed_at','child_id','curriculum_name','subject_label','default_minutes','scheduled_start_time'];return {builder_guard_version:1,goal:Object.fromEntries(keys.map(k=>[k,state.goal[k]])),rows:state.rows.map(r=>[r.id,r.lesson_number,r.queue_position,r.completed,r.queue_pinned,r.skipped,r.scheduled_date]),day_start:state.dayStartIso,day_end:state.dayEndIso};};
+  const builderPlan=(id,to)=>({request_id:randomUUID(),unpin_ids:[],delete_ids:[],makeup_ids:[],retire_keep_ids:[],retire_above:3,inserts:[],redates:[{id,to}]});
+  const ordinary=json(rpcSQL('apply_builder_rebuild',[G,today,builderExpected(),builderPlan(L(3),add(21)),null]));
+  assert.equal(ordinary.status,'applied',JSON.stringify(ordinary));assert.equal(snapshot().rows[2].scheduled_date,add(21));
+  q(`update public.lessons set queue_preserved=true where id='${L(1)}'`);const before=snapshot();
+  const protectedResult=json(rpcSQL('apply_builder_rebuild',[G,today,builderExpected(),builderPlan(L(1),add(28)),null]));
+  assert.equal(protectedResult.status,'failed',JSON.stringify(protectedResult));assert.deepEqual(snapshot(),before);
+  pass('actual PR146 guarded Builder ordinary redate succeeds; unaware preserved redate rolls back');
+ } else if(process.env.REVIEW_DAILY==='1') {
  reset(false);const yesterday=add(-1);
  q(`update public.lessons set queue_preserved=true,date='${yesterday}',scheduled_date='${yesterday}' where id='${L(1)}';
  update public.lessons set completed=true,completed_at='${yesterday}T12:00:00Z',date='${yesterday}',scheduled_date='${yesterday}' where id='${L(2)}';
