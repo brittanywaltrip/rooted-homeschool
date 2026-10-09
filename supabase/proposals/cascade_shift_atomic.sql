@@ -55,6 +55,107 @@ returns integer language sql stable set search_path=pg_catalog,pg_temp as $$
 $$;
 revoke all on function rooted_private.cascade_steps(uuid,date,date) from public,anon,authenticated;
 
+-- Compare the intended complete post-state to trigger-visible stored state.
+-- Only targeted scheduling fields and their updated_at may differ.
+create function rooted_private.cascade_postcondition(before_state jsonb,after_state jsonb,moves jsonb,direction text)
+returns boolean language plpgsql immutable set search_path=pg_catalog,pg_temp as $$
+declare r jsonb; actual_row jsonb; change jsonb; expected_row jsonb;
+begin
+ if (before_state-'rows') is distinct from (after_state-'rows') then return false; end if;
+ if jsonb_array_length(before_state->'rows')<>jsonb_array_length(after_state->'rows') then return false; end if;
+ for r in select * from jsonb_array_elements(before_state->'rows') loop
+  select x into actual_row from jsonb_array_elements(after_state->'rows') x where x->>'id'=r->>'id';
+  if actual_row is null then return false; end if;
+  select x->direction into change from jsonb_array_elements(moves) x where x->>'id'=r->>'id';
+  if change is null then
+   if actual_row is distinct from r then return false; end if;
+  else
+   expected_row:=r||jsonb_build_object('date',change->'date','scheduled_date',change->'scheduled_date','queue_pinned',change->'queue_pinned','scheduled_source',change->'scheduled_source');
+   if (actual_row-'updated_at') is distinct from (expected_row-'updated_at') then return false; end if;
+  end if;
+ end loop;
+ return true;
+end $$;
+revoke all on function rooted_private.cascade_postcondition(jsonb,jsonb,jsonb,text) from public,anon,authenticated;
+
+-- Independent server counterpart of computeNextLessonsForGoal. This is a
+-- validator, never a repair: any divergence refuses the entire transaction.
+-- Differential tests must accompany changes to either projector.
+create function rooted_private.cascade_projection_matches(state jsonb)
+returns boolean language plpgsql stable set search_path=pg_catalog,pg_temp as $$
+declare
+ g jsonb:=state->'goal'; r jsonb; slot integer; pointer integer:=(g->>'current_lesson')::int;
+ total integer:=(g->>'total_lessons')::int; day date:=(state->>'localDay')::date;
+ cursor_day date:=greatest(day,(g->>'start_date')::date); end_day date:=day+3650;
+ pin_dates jsonb:='{}'; skipped jsonb:='{}'; used jsonb:='{}'; emitted jsonb:='{}'; projected jsonb:='{}'; makeups jsonb:='{}';
+ d date; next_slot integer; done_count integer; back integer; cap integer; used_count integer;
+ first_applied boolean:=false; placed boolean; safety integer:=0; label text; override_value jsonb;
+begin
+ if day is null or pointer is null or total is null then return false; end if;
+ select count(*) into done_count from jsonb_array_elements(state->'rows') x where (x->>'completed')::boolean
+  and (x->>'completed_at')::timestamptz >= (state->>'dayStartIso')::timestamptz
+  and (x->>'completed_at')::timestamptz < (state->>'dayEndIso')::timestamptz;
+ for r in select * from jsonb_array_elements(state->'rows') loop
+  slot:=(r->>'queue_position')::int;
+  if slot is not null and not coalesce((r->>'completed')::boolean,false) and coalesce((r->>'skipped')::boolean,false) then skipped:=skipped||jsonb_build_object(slot::text,true); end if;
+ end loop;
+ for r in select * from jsonb_array_elements(state->'rows') loop
+  slot:=(r->>'queue_position')::int;d:=coalesce(r->>'scheduled_date',r->>'date')::date;
+  if slot is null or d is null or coalesce((r->>'completed')::boolean,false) or not coalesce((r->>'queue_pinned')::boolean,false) or skipped ? slot::text then continue; end if;
+  if slot>pointer and slot<=total then
+   if pin_dates ? slot::text then return false; end if;
+   pin_dates:=pin_dates||jsonb_build_object(slot::text,d);used:=used||jsonb_build_object(d::text,coalesce((used->>d::text)::int,0)+1);
+  elsif slot>=1 and slot<=pointer and d>=day and d<end_day then
+   if makeups ? slot::text then return false; end if;
+   makeups:=makeups||jsonb_build_object(slot::text,true);emitted:=emitted||jsonb_build_object(slot::text,true);
+   used:=used||jsonb_build_object(d::text,coalesce((used->>d::text)::int,0)+1);
+  end if;
+ end loop;
+ next_slot:=pointer+1;
+ while next_slot<=total and safety<10000 loop
+  safety:=safety+1;
+  if emitted ? next_slot::text or skipped ? next_slot::text then next_slot:=next_slot+1;continue; end if;
+  if pin_dates ? next_slot::text then
+   d:=(pin_dates->>next_slot::text)::date;if d>=end_day then exit;end if;
+   projected:=projected||jsonb_build_object(next_slot::text,d);emitted:=emitted||jsonb_build_object(next_slot::text,true);
+   cursor_day:=greatest(cursor_day,d);next_slot:=next_slot+1;continue;
+  end if;
+  placed:=false;
+  while cursor_day<end_day and safety<10000 loop
+   safety:=safety+1;
+   if rooted_private.cascade_steps((g->>'id')::uuid,cursor_day-1,cursor_day)=1 then
+    label:=(array['Sun','Mon','Tue','Wed','Thu','Fri','Sat'])[extract(dow from cursor_day)::int+1];
+    override_value:=g->'lessons_per_day_overrides'->label;
+    cap:=greatest(1,(g->>'lessons_per_day')::int);
+    if jsonb_typeof(override_value)='number' and (override_value::text)::numeric>=0 then cap:=floor((override_value::text)::numeric)::int;end if;
+    if cap>0 then
+     if not first_applied and cursor_day=day then
+      next_slot:=pointer+1;back:=done_count;
+      while back>0 and next_slot>1 loop next_slot:=next_slot-1;if not skipped ? next_slot::text and not makeups ? next_slot::text then back:=back-1;end if;end loop;
+      while skipped ? next_slot::text or makeups ? next_slot::text loop next_slot:=next_slot+1;end loop;
+      first_applied:=true;
+      if next_slot>total or pin_dates ? next_slot::text then exit;end if;
+     end if;
+     used_count:=coalesce((used->>cursor_day::text)::int,0);
+     if used_count<cap or (first_applied and cursor_day=day and next_slot<=pointer) then
+      projected:=projected||jsonb_build_object(next_slot::text,cursor_day);emitted:=emitted||jsonb_build_object(next_slot::text,true);
+      used:=used||jsonb_build_object(cursor_day::text,used_count+1);next_slot:=next_slot+1;placed:=true;exit;
+     end if;
+    end if;
+   end if;
+   cursor_day:=cursor_day+1;
+  end loop;
+  if not placed then if pin_dates ? next_slot::text and cursor_day<end_day then continue;end if;exit;end if;
+ end loop;
+ for r in select * from jsonb_array_elements(state->'rows') loop
+  slot:=(r->>'queue_position')::int;
+  if slot is null or slot<=pointer or coalesce((r->>'completed')::boolean,false) or coalesce((r->>'skipped')::boolean,false) or coalesce((r->>'is_backfill')::boolean,false) or r->>'continues_lesson_id' is not null then continue;end if;
+  if (projected->>slot::text) is distinct from (r->>'scheduled_date') then return false;end if;
+ end loop;
+ return true;
+end $$;
+revoke all on function rooted_private.cascade_projection_matches(jsonb) from public,anon,authenticated;
+
 create function public.commit_cascade_shift(p_operation_id uuid,p_goal_id uuid,p_expected jsonb,p_choice jsonb,p_moves jsonb)
 returns jsonb language plpgsql security definer set search_path=pg_catalog,pg_temp as $$
 declare
@@ -121,6 +222,7 @@ begin
       get diagnostics got=row_count;
       if got<>1 then raise exception 'cascade row refused'; end if;
     end loop;
+    set constraints all immediate;
     -- No newly overloaded destination, including protected continuations and
     -- completed work. Existing unrelated stacked dates remain untouched.
     select count(*) into bad from (
@@ -132,6 +234,8 @@ begin
     select count(*) into bad from (select scheduled_date,lag(scheduled_date) over(order by queue_position) prev from public.lessons where curriculum_goal_id=p_goal_id and not completed and not skipped and not coalesce(is_backfill,false) and queue_position>g.current_lesson) q where scheduled_date<prev;
     if bad>0 then raise exception 'cascade order'; end if;
     after_state:=rooted_private.cascade_snapshot(p_goal_id,day,p_expected->>'dayStartIso',p_expected->>'dayEndIso');
+    if not rooted_private.cascade_postcondition(actual,after_state,p_moves,'after') then raise exception 'cascade postcondition';end if;
+    if not rooted_private.cascade_projection_matches(after_state) then raise exception 'cascade projector mismatch';end if;
     insert into rooted_private.cascade_shift_receipts(id,user_id,goal_id,request,before_snapshot,after_snapshot,moves)
       values(p_operation_id,u,p_goal_id,request,actual,after_state,p_moves);
   exception when others then
@@ -168,6 +272,8 @@ begin
       get diagnostics n=row_count;
       if n<>1 then raise exception 'undo row refused'; end if;
     end loop;
+    set constraints all immediate;
+    if not rooted_private.cascade_postcondition(actual,rooted_private.cascade_snapshot(receipt.goal_id,(receipt.after_snapshot->>'localDay')::date,receipt.after_snapshot->>'dayStartIso',receipt.after_snapshot->>'dayEndIso'),receipt.moves,'before') then raise exception 'undo postcondition';end if;
     update rooted_private.cascade_shift_receipts set undone_at=clock_timestamp() where id=p_operation_id;
   exception when others then return jsonb_build_object('status','failed'); end;
   return jsonb_build_object('status','undone');

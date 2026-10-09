@@ -78,7 +78,7 @@ import { oneOffLessonRows } from "./oneOffLessonRows";
 import WeekPlannerModal from "./WeekPlannerModal";
 import { weekPlanRows, type WeekPlanInput } from "./weekPlan";
 import { shiftManualPlan } from "./shiftManualPlan";
-import { shiftCurriculumSessions, undoCurriculumShift } from "../../lib/cascade-shift-transaction";
+import { shiftCurriculumSessions, undoCurriculumShift, previewCurriculumShift, type CascadeSnapshot } from "../../lib/cascade-shift-transaction";
 import LessonSearchModal, { type LessonSearchResult } from "./LessonSearchModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
@@ -87,7 +87,6 @@ import {
   DEFAULT_SCHOOL_DAYS,
   countSchoolDaysInRange,
   isTeachingDay,
-  nthSchoolDay,
   nthSchoolDayBefore,
 } from "@/lib/school-days";
 import { useLiveAnnouncer, SR_ONLY_STYLE } from "./useLiveAnnouncer";
@@ -321,6 +320,8 @@ export default function PlanV2() {
   // ripple. shiftDays is the school-day delta from the original date to
   // the chosen date.
   const [cascadeChoice, setCascadeChoice] = useState<{
+    previewSnapshot: CascadeSnapshot | null;
+    shiftUnavailable?: boolean;
     lessonId: string;
     fromDateStr: string;
     toDateStr: string;
@@ -4589,18 +4590,18 @@ export default function PlanV2() {
    * No keep-slot/re-spread fallback can partially commit the trigger.
    */
   const handleShiftAllForward = useCallback(async (c: {
+    previewSnapshot: CascadeSnapshot | null;
+    shiftUnavailable?: boolean;
     lessonId: string; fromDateStr: string; toDateStr: string; goalId: string; shiftDays: number;
   }) => {
     setCascadeChoice(null);
+    if (!c.previewSnapshot) { flashNotice("Couldn't safely preview this shift. Nothing moved."); return; }
     setBulkBusy(true);
     try {
-      const start = new Date(`${todayStr}T00:00:00`);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
       const result = await shiftCurriculumSessions(supabase, {
-        operationId: crypto.randomUUID(), goalId: c.goalId, lessonId: c.lessonId,
+        previewSnapshot: c.previewSnapshot, operationId: crypto.randomUUID(), goalId: c.goalId, lessonId: c.lessonId,
         from: c.fromDateStr, to: c.toDateStr, localDay: todayStr,
-        dayStartIso: start.toISOString(), dayEndIso: end.toISOString(),
+        dayStartIso: c.previewSnapshot.dayStartIso, dayEndIso: c.previewSnapshot.dayEndIso,
       });
       if (result.status !== "applied") {
         flashNotice(result.status === "unknown"
@@ -6232,49 +6233,29 @@ export default function PlanV2() {
                 void performMove(target.lessonId, target.fromDateStr, toDateStr);
                 return;
               }
-              // The count and finish date MUST come from the whole affected
-              // tail, not from `lessons` state. State is capped to the visible
-              // 42-cell grid, so this dialog used to promise "7 later lessons
-              // shift, finish Aug 12" when the truth was 59 lessons and Oct 23
-              // — mom agreed to something quite different from what happened.
+              // Read and retain the complete plan before showing its promise.
+              // Confirmation must compare against this exact snapshot.
               void (async () => {
-                const { data: tail, error: tailErr } = await supabase
-                  .from("lessons")
-                  .select("id, scheduled_date, date")
-                  .eq("curriculum_goal_id", goalId)
-                  .eq("completed", false)
-                  .neq("id", target.lessonId)
-                  .gt("scheduled_date", target.fromDateStr)
-                  .order("scheduled_date", { ascending: true });
-                if (tailErr) {
-                  flashNotice("Couldn't check the rest of this curriculum. Try again.");
+                const start = new Date(`${todayStr}T00:00:00`);
+                const end = new Date(start); end.setDate(end.getDate() + 1);
+                const preview = await previewCurriculumShift(supabase, {
+                  goalId, lessonId: target.lessonId, from: target.fromDateStr, to: toDateStr,
+                  localDay: todayStr, dayStartIso: start.toISOString(), dayEndIso: end.toISOString(),
+                });
+                if (!preview) {
+                  setCascadeChoice({lessonId: target.lessonId, fromDateStr: target.fromDateStr, toDateStr, goalId,
+                    previewSnapshot: null, shiftUnavailable: true, shiftDays, futureLessonsToShift: 0, projectedFinishDate: null});
                   return;
                 }
-                const futureLessons = ((tail ?? []) as {
-                  id: string;
-                  scheduled_date: string | null;
-                  date: string | null;
-                }[]).filter((l) => (l.scheduled_date ?? l.date) !== null);
-                if (futureLessons.length === 0) {
+                if (preview.futureLessonsToShift === 0) {
                   void performMove(target.lessonId, target.fromDateStr, toDateStr);
                   return;
                 }
-                // Projected new finish = the latest future lesson's current
-                // date, shifted forward by shiftDays. Shown verbatim in the
-                // modal so mom knows what she's agreeing to.
-                const latestDateStr = futureLessons.reduce<string>((acc, l) => {
-                  const d = (l.scheduled_date ?? l.date)!;
-                  return d > acc ? d : acc;
-                }, target.fromDateStr);
-                const projectedFinishDate = nthSchoolDay(latestDateStr, goalSchoolDays, shiftDays, vacationBlocks);
                 setCascadeChoice({
-                  lessonId: target.lessonId,
-                  fromDateStr: target.fromDateStr,
-                  toDateStr,
-                  goalId,
-                  shiftDays,
-                  futureLessonsToShift: futureLessons.length,
-                  projectedFinishDate,
+                  lessonId: target.lessonId, fromDateStr: target.fromDateStr, toDateStr, goalId,
+                  previewSnapshot: preview.snapshot, shiftDays: preview.shiftDays,
+                  futureLessonsToShift: preview.futureLessonsToShift,
+                  projectedFinishDate: preview.projectedFinishDate,
                 });
               })();
             }}
@@ -6319,6 +6300,7 @@ export default function PlanV2() {
             }}
             onShiftAll={() => {
               void handleShiftAllForward({
+                previewSnapshot: cascadeChoice.previewSnapshot,
                 lessonId: cascadeChoice.lessonId,
                 fromDateStr: cascadeChoice.fromDateStr,
                 toDateStr: cascadeChoice.toDateStr,
@@ -7388,6 +7370,7 @@ function RescheduleDialog(props: {
 
 function CascadeChoiceDialog(props: {
   choice: {
+    shiftUnavailable?: boolean;
     lessonId: string;
     fromDateStr: string;
     toDateStr: string;
@@ -7452,13 +7435,16 @@ function CascadeChoiceDialog(props: {
             <button
               type="button"
               onClick={onShiftAll}
+              disabled={choice.shiftUnavailable}
               className="w-full text-left p-4 rounded-xl border transition-colors"
               style={{ background: "#f8fdf9", borderColor: "#b8d89a" }}
             >
               <p className="text-sm font-medium text-[#2d3a2e]">Shift all remaining lessons forward</p>
               <p className="text-xs text-[#9a8e84] mt-0.5">
-                {tail} shift by {days}.
-                {finishLabel ? ` New finish date: ${finishLabel}.` : ""}
+                {choice.shiftUnavailable ? "This schedule can't safely shift together. You can still move just this lesson." : <>
+                  {tail} shift by {days}.
+                  {finishLabel ? ` New finish date: ${finishLabel}.` : ""}
+                </>}
               </p>
             </button>
             <button

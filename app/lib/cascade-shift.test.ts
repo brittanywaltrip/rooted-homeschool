@@ -45,7 +45,7 @@ for (const result of [
     }
     runInNewContext(compiled, context)
     const run = (context as unknown as { run: (c: unknown) => Promise<void> }).run
-    await run({ lessonId: 'L4', goalId: 'g', fromDateStr: '2026-09-24', toDateStr: '2026-09-29', shiftDays: 3 })
+    await run({ previewSnapshot: {dayStartIso:'2026-09-24T00:00:00Z',dayEndIso:'2026-09-25T00:00:00Z'}, lessonId: 'L4', goalId: 'g', fromDateStr: '2026-09-24', toDateStr: '2026-09-29', shiftDays: 3 })
     assert.deepEqual(effects, [])
     assert.deepEqual(busy, [true, false])
     assert.equal(notices.length, 1)
@@ -66,7 +66,15 @@ test('actual callback registers receipt Undo only after atomic success', async (
     undoCurriculumShift: async (_client: unknown, id: string) => { assert.equal(id, 'op'); calls.push('Undo'); return 'stale' },
   }
   runInNewContext(compiled, context)
-  await (context as unknown as {run: (c: unknown) => Promise<void>}).run({lessonId: 'L4', goalId: 'g', fromDateStr: '2026-09-24', toDateStr: '2026-09-29', shiftDays: 3})
+  await (context as unknown as {run: (c: unknown) => Promise<void>}).run({previewSnapshot: {dayStartIso:'2026-09-24T00:00:00Z',dayEndIso:'2026-09-25T00:00:00Z'},lessonId: 'L4', goalId: 'g', fromDateStr: '2026-09-24', toDateStr: '2026-09-29', shiftDays: 3})
   assert.deepEqual(calls, ['success']); assert.ok(undo); await undo()
   assert.deepEqual(calls, ['success','Undo']); assert.match(notices[0], /left it as it is/)
+})
+
+test('a missing safe preview cannot call the mutation coordinator', async () => {
+  const notices: string[] = []
+  const context={setCascadeChoice:()=>{},flashNotice:(s:string)=>notices.push(s),shiftCurriculumSessions:()=>{throw Error('unexpected write')}}
+  runInNewContext(compiled,context)
+  await (context as unknown as {run:(c:unknown)=>Promise<void>}).run({previewSnapshot:null})
+  assert.match(notices[0],/Nothing moved/)
 })

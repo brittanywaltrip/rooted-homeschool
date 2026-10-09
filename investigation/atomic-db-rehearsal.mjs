@@ -4,6 +4,8 @@ import { promisify } from 'node:util';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import {computeNextLessonsForGoal,queueHoldsFromRows} from '../app/lib/scheduler.ts';
+import {countDoneToday} from '../app/lib/phase2-commit.ts';
 import { planAnchoredCascade } from '../app/lib/cascade-shift-plan.ts';
 const runAsync=promisify(execFile);
 const root=mkdtempSync('/tmp/rooted-cascade-atomic-');
@@ -47,6 +49,26 @@ try {
  const undo=(v)=>json(rpcSQL('undo_cascade_shift',[v.op]));
  const restored=(s)=>s.rows.map(r=>{const copy={...r};delete copy.updated_at;return copy;});
  function pass(name){results.push({name,status:'PASS'});console.log('PASS '+name);}
+ if(process.env.CASCADE_REVIEW_CASE){
+  reset();const check=prepare();
+  if(process.env.CASCADE_REVIEW_CASE==='gap'){
+   q(`update public.lessons set queue_pinned=false where id='${L(2)}'`);
+   check.s=snapshot();check.p.writes[1].before.queue_pinned=false;check.p.writes[1].after.queue_pinned=false;
+   assert.equal(planAnchoredCascade(check.s,check.c).ok,false);
+   assert.notEqual(commit(check).status,'applied');assert.deepEqual(snapshot(),check.s);
+  }else{
+   if(process.env.CASCADE_REVIEW_CASE==='undo')assert.equal(commit(check).status,'applied');
+   const before=snapshot();
+   const body=process.env.CASCADE_REVIEW_CASE==='protected'?"new.notes:='unexpected trigger edit';":"new.date:=old.date;new.scheduled_date:=old.scheduled_date;";
+   if(process.env.CASCADE_REVIEW_CASE==='deferred'){
+    q(`create function public.rehearsal_silent() returns trigger language plpgsql as $$ begin if new.id='${L(2)}' and current_setting('rehearsal.deferred_fired',true) is distinct from 'yes' then perform set_config('rehearsal.deferred_fired','yes',true);update public.lessons set date=old.date,scheduled_date=old.scheduled_date where id=new.id;end if;return null;end $$;create constraint trigger z_rehearsal_silent after update on public.lessons deferrable initially deferred for each row execute function public.rehearsal_silent();`);
+   }else{
+   q(`create function public.rehearsal_silent() returns trigger language plpgsql as $$ begin if new.id='${L(2)}' then ${body} end if;return new;end $$;create trigger z_rehearsal_silent before update on public.lessons for each row execute function public.rehearsal_silent();`);
+   }
+   assert.equal((process.env.CASCADE_REVIEW_CASE==='undo'?undo(check):commit(check)).status,'failed');assert.deepEqual(snapshot(),before);
+  }
+  pass('review regression '+process.env.CASCADE_REVIEW_CASE);process.exitCode=0;
+ }else{
  reset();let v=prepare();let out=commit(v);assert.equal(out.status,'applied');let after=snapshot();
  assert.deepEqual(after.rows.map(r=>r.scheduled_date),[add(7),add(28),add(35)]);assert.deepEqual(after.rows.map(r=>r.queue_pinned),[true,true,false]);
  assert.equal(after.rows[1].notes,'synthetic note');assert.equal(after.rows[1].minutes_spent,25);pass('pinned gap shifts successfully in one real SQL transaction');
@@ -66,11 +88,38 @@ try {
  const concurrent=await Promise.all(statements.map(sql=>runAsync(bin+'psql',['-X','-q','-A','-t','-v','ON_ERROR_STOP=1','-c',sql],{env,encoding:'utf8'})));
  assert.deepEqual(concurrent.map(r=>JSON.parse(r.stdout.trim()).status).sort(),['applied','stale']);pass('concurrent same-snapshot commits serialize: only one applies');
  reset();v=prepare();assert.equal(commit(v).status,'applied');let vnext=prepare(add(14));let nextPlan=planAnchoredCascade(vnext.s,vnext.c);assert.ok(nextPlan.ok);vnext.p=nextPlan.plan;assert.equal(commit(vnext).status,'applied');assert.deepEqual(snapshot().rows.map(r=>r.scheduled_date),[add(14),add(35),add(42)]);assert.equal(undo(vnext).status,'undone');assert.equal(undo(v).status,'stale');pass('repeated shift succeeds; old Undo token cannot overwrite newer revisions');
+ // Differential characterization of the independent SQL validator, including
+ // first-day rewind, skips, make-ups, variable capacity, breaks and gap pins.
+ let parityCases=0;
+ for(let variant=0;variant<32;variant++){
+  reset(false);
+  const pointer=variant%4===0?1:variant%4===1?2:0;
+  const weekdaySet=variant%2?[label]:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const overrides=variant%3===0?{[label]:2}:null;
+  q(`update public.curriculum_goals set total_lessons=5,current_lesson=${pointer},school_days=${quote('{'+weekdaySet.join(',')+'}')},lessons_per_day=${variant%3===1?2:1},lessons_per_day_overrides=${overrides?quote(JSON.stringify(overrides))+'::jsonb':'null'};delete from public.lessons;`);
+  for(let n=1;n<=5;n++){
+   const completed=n<=pointer && !(variant%4===1 && n===1);
+   const makeup=variant%4===1 && n===1;
+   const pin=makeup || (variant%5===0 && n===4);
+   const skipped=variant%7===0 && n===3;
+   const date=add(makeup?0:pin?21:n-1);
+   q(`insert into public.lessons(id,user_id,curriculum_goal_id,lesson_number,queue_position,scheduled_date,date,queue_pinned,scheduled_source,completed,completed_at,skipped) values('${L(n)}','${U}','${G}',${n},${n},'${date}','${date}',${pin},'wizard_create',${completed},${completed?quote(today+'T01:00:00Z'):'null'},${skipped});`);
+  }
+  if(variant%6===0)q(`insert into public.vacation_blocks(user_id,start_date,end_date)values('${U}','${add(7)}','${add(9)}')`);
+  let current=snapshot();const projected=computeNextLessonsForGoal(current.goal,new Date(today+'T00:00:00'),3650,current.vacations,countDoneToday(current.rows,current.dayStartIso,current.dayEndIso),queueHoldsFromRows(current.rows,G));
+  const projectedBySlot=new Map(projected.map(p=>[p.lesson_number,p.date]));
+  for(const row of current.rows){if(!row.completed&&!row.skipped&&row.queue_position>pointer){const date=projectedBySlot.get(row.queue_position);assert.ok(date);q(`update public.lessons set date='${date}',scheduled_date='${date}' where id='${row.id}'`);}}
+  current=snapshot();assert.equal(q(`select rooted_private.cascade_projection_matches(${quote(JSON.stringify(current))}::jsonb)`),'t',`parity variant ${variant}`);parityCases++;
+  const unpinned=current.rows.find(r=>!r.completed&&!r.skipped&&!r.queue_pinned&&r.queue_position>pointer);
+  if(unpinned){q(`update public.lessons set date=date+7,scheduled_date=scheduled_date+7 where id='${unpinned.id}'`);current=snapshot();assert.equal(q(`select rooted_private.cascade_projection_matches(${quote(JSON.stringify(current))}::jsonb)`),'f',`mutated parity ${variant}`);parityCases++;}
+ }
+ pass(`${parityCases} SQL/TypeScript projection parity and mutation checks`);
  reset();
  const {browserRehearsal}=await import('./atomic-browser-rehearsal.mjs');
  const client={rpc:async(name,args)=>{const names={read_cascade_snapshot:['p_goal_id','p_local_day','p_day_start','p_day_end'],commit_cascade_shift:['p_operation_id','p_goal_id','p_expected','p_choice','p_moves'],undo_cascade_shift:['p_operation_id']};return {data:json(rpcSQL(name,names[name].map(key=>args[key]))),error:null};}};
  await browserRehearsal({client,snapshot,goalId:G,lessonId:L(1),today,target:add(7),finish:add(35)});
  pass('browser real callback/coordinator commits a pinned gap and performs SQL receipt Undo');
- writeFileSync('../investigation-evidence/atomic-db-results.json',JSON.stringify({scratch:root,results},null,2));
+ writeFileSync('../investigation-evidence/correctness-db-results.json',JSON.stringify({scratch:root,results},null,2));
  console.log(`${results.length} SQL cases passed`);
+}
 }finally{if(started)execFileSync(bin+'pg_ctl',['-D',root+'/data','stop','-m','fast'],{encoding:'utf8',stdio:'pipe'});}
