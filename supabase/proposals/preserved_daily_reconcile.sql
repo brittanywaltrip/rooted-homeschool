@@ -36,23 +36,24 @@ begin
     return jsonb_build_object('status', 'invalid', 'reason', 'shape');
   end if;
 
-  -- 2. Ownership, and serialize every call for this curriculum.
-  select * into v_goal from public.curriculum_goals g
-   where g.id = p_goal_id and g.user_id = v_uid
-   for update;
-  if not found then
-    return jsonb_build_object('status', 'invalid', 'reason', 'not_owner');
-  end if;
+  -- Completion owns its lesson before its trigger updates the goal. Acquire
+  -- both sets without waiting; roll back all row locks if either is busy.
+  begin
+    select * into v_goal from public.curriculum_goals g
+     where g.id = p_goal_id and g.user_id = v_uid for update nowait;
+    if not found then
+      return jsonb_build_object('status', 'invalid', 'reason', 'not_owner');
+    end if;
 
-  -- 3. Once per curriculum per local day.
-  if exists (select 1 from rooted_private.daily_reconcile_log l
-              where l.curriculum_goal_id = p_goal_id and l.local_day = p_local_day) then
-    return jsonb_build_object('status', 'already');
-  end if;
-
-  -- Hold the curriculum's lessons still while comparing and writing. A parent
-  -- write in flight commits first, and is then seen by the comparison below.
-  perform 1 from public.lessons l where l.curriculum_goal_id = p_goal_id for update;
+    -- Once per curriculum per local day.
+    if exists (select 1 from rooted_private.daily_reconcile_log l
+                where l.curriculum_goal_id = p_goal_id and l.local_day = p_local_day) then
+      return jsonb_build_object('status', 'already');
+    end if;
+    perform 1 from public.lessons l where l.curriculum_goal_id = p_goal_id order by l.id for update nowait;
+  exception when lock_not_available then
+    return jsonb_build_object('status','stale','reason','busy');
+  end;
 
   -- Match cascade preview/commit's authoritative account-local completion
   -- window. A caller must not extend this window to absorb older completions.

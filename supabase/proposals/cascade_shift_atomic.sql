@@ -216,9 +216,16 @@ begin
     if prior.user_id<>u or prior.goal_id<>p_goal_id or prior.request<>request then return jsonb_build_object('status','invalid','reason','operation'); end if;
     return jsonb_build_object('status',case when prior.undone_at is null then 'already_applied' else 'already_undone' end,'operationId',p_operation_id);
   end if;
-  select * into g from public.curriculum_goals where id=p_goal_id and user_id=u and not archived for update;
-  if not found then return jsonb_build_object('status','invalid','reason','owner'); end if;
-  perform 1 from public.lessons where curriculum_goal_id=p_goal_id order by id for update;
+  -- Completion locks a lesson before its trigger updates the goal. Never wait
+  -- for its lesson while holding that goal. This subtransaction releases every
+  -- acquired row lock on conflict, even if the caller keeps its transaction open.
+  begin
+    select * into g from public.curriculum_goals where id=p_goal_id and user_id=u and not archived for update nowait;
+    if not found then return jsonb_build_object('status','invalid','reason','owner'); end if;
+    perform 1 from public.lessons where curriculum_goal_id=p_goal_id order by id for update nowait;
+  exception when lock_not_available then
+    return jsonb_build_object('status','stale','reason','busy');
+  end;
   -- Pin the authoritative timezone through validation and all writes.
   perform 1 from public.profiles where id=u for share;
   if not found then return jsonb_build_object('status','invalid','reason','time_zone');end if;
@@ -319,9 +326,14 @@ begin
   if not found then return jsonb_build_object('status','invalid'); end if;
   if receipt.undone_at is not null then return jsonb_build_object('status','already_undone'); end if;
   if clock_timestamp()-receipt.created_at>interval '10 minutes' then return jsonb_build_object('status','expired'); end if;
-  perform 1 from public.curriculum_goals where id=receipt.goal_id and user_id=auth.uid() for update;
-  if not found then return jsonb_build_object('status','stale'); end if;
-  perform 1 from public.lessons where curriculum_goal_id=receipt.goal_id order by id for update;
+  -- Match commit's nonblocking goal/lesson acquisition and release semantics.
+  begin
+    perform 1 from public.curriculum_goals where id=receipt.goal_id and user_id=auth.uid() for update nowait;
+    if not found then return jsonb_build_object('status','stale'); end if;
+    perform 1 from public.lessons where curriculum_goal_id=receipt.goal_id order by id for update nowait;
+  exception when lock_not_available then
+    return jsonb_build_object('status','stale','reason','busy');
+  end;
   perform 1 from public.profiles where id=auth.uid() for share;
   lock table public.vacation_blocks in share mode;
   actual:=rooted_private.cascade_snapshot(receipt.goal_id,(receipt.after_snapshot->>'localDay')::date,receipt.after_snapshot->>'dayStartIso',receipt.after_snapshot->>'dayEndIso');

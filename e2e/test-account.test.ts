@@ -209,3 +209,17 @@ test('E2E_USER_ID and E2E_EMAIL still mean the PRODUCTION account', () => {
   assert.equal(E2E_USER_ID, 'a7011926-149e-42d1-9dde-e55b16059859')
   assert.equal(E2E_EMAIL, 'rooted.e2e@rootedhomeschoolapp.com')
 })
+
+
+test('isolated local stack only allows its fixed synthetic account', async () => {
+  const { ISOLATED_LOCAL_PROJECT_REF } = await import('../lib/env-identity.ts');
+  const local = E2E_ACCOUNTS[ISOLATED_LOCAL_PROJECT_REF];
+  assert.doesNotThrow(() => assertIsTestAccount(local.id, 'local test', { projectRef: ISOLATED_LOCAL_PROJECT_REF, email: local.email }));
+  for (const id of [null, PROD_ACCOUNT.id, STAGING_ACCOUNT.id, ...Object.keys(NEVER_TOUCH_USER_IDS)]) {
+    assert.throws(() => assertIsTestAccount(id, 'local test', { projectRef: ISOLATED_LOCAL_PROJECT_REF }));
+  }
+  for (const projectRef of [PROD_REF, STAGING_REF, 'unknown']) {
+    assert.throws(() => assertIsTestAccount(local.id, 'local test', { projectRef }));
+  }
+  assert.throws(() => assertIsTestAccount(local.id, 'local test', { projectRef: ISOLATED_LOCAL_PROJECT_REF, email: PROD_ACCOUNT.email }));
+});

@@ -27,6 +27,10 @@ export const PRODUCTION_PROJECT_REF = "gvkbegvvmhcrmxdorctk";
  */
 export const RECOVERY_PROJECT_REF = "drjmqjlbypostvasafke";
 
+/** Disposable local stack only. This sentinel cannot be a hosted project ref. */
+export const ISOLATED_LOCAL_PROJECT_REF = "rooted-isolated-local";
+export const ISOLATED_LOCAL_SUPABASE_URL = "http://127.0.0.1:54321";
+
 export type RootedEnv = "production" | "staging" | "local";
 
 export class EnvironmentIdentityError extends Error {
@@ -50,6 +54,11 @@ export class EnvironmentIdentityError extends Error {
  */
 export function projectRefFromSupabaseUrl(url: string | undefined | null): string | null {
   if (!url) return null;
+  // Literal comparison deliberately rejects DNS aliases, other ports, credentials,
+  // paths, query strings and URL-normalized numeric/encoded host variants.
+  if (url === ISOLATED_LOCAL_SUPABASE_URL || url === `${ISOLATED_LOCAL_SUPABASE_URL}/`) {
+    return ISOLATED_LOCAL_PROJECT_REF;
+  }
   let host: string;
   try {
     const parsed = new URL(url);
@@ -125,6 +134,12 @@ export function resolveEnvIdentity(input: EnvIdentityInput): EnvIdentity {
     );
   }
   const env = rawEnv as RootedEnv;
+  if (projectRef === ISOLATED_LOCAL_PROJECT_REF && env !== "local") {
+    throw new EnvironmentIdentityError(
+      "env_label_mismatch",
+      "The isolated loopback endpoint requires ROOTED_ENV=local.",
+    );
+  }
 
   const isProduction = projectRef === PRODUCTION_PROJECT_REF;
   const isRecovery = projectRef === RECOVERY_PROJECT_REF;

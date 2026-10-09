@@ -188,7 +188,7 @@ try {
  const client={rpc:async(name,args)=>{const names={read_cascade_snapshot:['p_goal_id','p_local_day','p_day_start','p_day_end'],commit_cascade_shift:['p_operation_id','p_goal_id','p_expected','p_choice','p_moves'],undo_cascade_shift:['p_operation_id']};return {data:json(rpcSQL(name,names[name].map(key=>args[key]))),error:null};}};
  await browserRehearsal({client,snapshot,goalId:G,lessonId:L(1),today,target:add(7),finish:add(35)});
  pass('browser real callback/coordinator commits a pinned gap and performs SQL receipt Undo');
- writeFileSync('../investigation-evidence/window-db-results.json',JSON.stringify({scratch:root,results},null,2));
+ writeFileSync(process.env.REHEARSAL_RESULT_FILE ?? '../investigation-evidence/window-db-results.json',JSON.stringify({scratch:root,results},null,2));
  console.log(`${results.length} SQL cases passed`);
 }
 }finally{if(started)execFileSync(bin+'pg_ctl',['-D',root+'/data','stop','-m','fast'],{encoding:'utf8',stdio:'pipe'});}

@@ -1,4 +1,4 @@
-import { projectRefFromSupabaseUrl } from '../lib/env-identity.ts';
+import { ISOLATED_LOCAL_PROJECT_REF, projectRefFromSupabaseUrl } from '../lib/env-identity.ts';
 
 /* ============================================================================
  * The one account the e2e suite is allowed to touch.
@@ -40,6 +40,12 @@ import { projectRefFromSupabaseUrl } from '../lib/env-identity.ts';
  * run against it. New projects are not implicitly trusted.
  */
 export const E2E_ACCOUNTS: Record<string, { id: string; email: string }> = {
+  // Provision this fixed synthetic identity only in the disposable loopback stack.
+  // No environment variable may substitute another account or hosted project.
+  [ISOLATED_LOCAL_PROJECT_REF]: {
+    id: '7b1f8044-4d8e-4c6e-86bc-94fcf7a02e1d',
+    email: 'rooted-e2e@isolated.invalid',
+  },
   // Production project. "Rooted E2E", free tier, one child.
   // UNCHANGED from the original single pin.
   gvkbegvvmhcrmxdorctk: {

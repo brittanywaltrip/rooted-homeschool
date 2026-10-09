@@ -11,6 +11,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
+  ISOLATED_LOCAL_PROJECT_REF,
+  ISOLATED_LOCAL_SUPABASE_URL,
   supabaseKeyIdentity,
   keyRequiresLiveProbe,
   assertCredentialsBindToProject,
@@ -351,4 +353,30 @@ test("production alias health still requires explicit environment settings", () 
   assert.equal(publicEnvIdentity(base).projectRef, PRODUCTION_PROJECT_REF);
   assert.equal(publicEnvIdentity({ ...base, expectedRef: PRODUCTION_PROJECT_REF }).error, "missing_rooted_env");
   assert.equal(publicEnvIdentity({ ...base, expectedRef: PRODUCTION_PROJECT_REF, rootedEnv: "production" }).ok, true);
+});
+
+
+test("isolated local identity requires the exact loopback endpoint and explicit expectation", () => {
+  const local = { supabaseUrl: ISOLATED_LOCAL_SUPABASE_URL, rootedEnv: "local", expectedRef: ISOLATED_LOCAL_PROJECT_REF };
+  assert.equal(assertSafeForTestWrites(local, "local fixture").projectRef, ISOLATED_LOCAL_PROJECT_REF);
+  assert.equal(projectRefFromSupabaseUrl(`${ISOLATED_LOCAL_SUPABASE_URL}/`), ISOLATED_LOCAL_PROJECT_REF);
+  assert.equal(codeOf(() => assertSafeForTestWrites({ ...local, expectedRef: null }, "test")), "missing_expected_ref");
+  assert.equal(codeOf(() => assertSafeForTestWrites({ ...local, expectedRef: STAGING_REF }, "test")), "project_ref_mismatch");
+  for (const rootedEnv of ["staging", "production"]) {
+    assert.equal(codeOf(() => assertSafeForTestWrites({ ...local, rootedEnv }, "test")), "env_label_mismatch");
+  }
+  for (const supabaseUrl of [
+    "http://localhost:54321", "http://[::1]:54321", "http://127.0.0.2:54321",
+    "http://127.1:54321", "http://2130706433:54321", "http://0x7f000001:54321",
+    "http://127.0.0.1:54322", "https://127.0.0.1:54321", "http://0.0.0.0:54321",
+    "http://127.0.0.1:54321/rest/v1", "http://127.0.0.1:54321?host=prod",
+    "http://user:pass@127.0.0.1:54321", "http://127.0.0.1:54321#fragment",
+    "http://127.0.0.1.example.com:54321", "https://rooted-isolated-local.supabase.co",
+  ]) {
+    assert.equal(projectRefFromSupabaseUrl(supabaseUrl), null, supabaseUrl);
+    assert.equal(codeOf(() => assertSafeForTestWrites({ ...local, supabaseUrl }, "test")), "unresolvable_project_ref", supabaseUrl);
+  }
+  for (const ref of [PRODUCTION_PROJECT_REF, RECOVERY_PROJECT_REF, STAGING_REF]) {
+    assert.equal(codeOf(() => assertSafeForTestWrites({ ...local, supabaseUrl: url(ref) }, "test")), "project_ref_mismatch");
+  }
 });
