@@ -35,6 +35,7 @@ export type Phase2CommitRow = {
   completed: boolean;
   completed_at?: string | null;
   queue_pinned: boolean | null;
+  queue_preserved?: boolean | null;
   skipped?: boolean | null;
   scheduled_date: string | null;
   date?: string | null;
@@ -291,6 +292,13 @@ export function validatePhase2End(a: {
 
   const integrity: string[] = [];
   const before = new Map(a.beforeRows.map((r) => [r.id, r]));
+  for (const r of a.beforeRows) {
+    if (!r.queue_preserved || r.completed) continue;
+    if (a.plan.delete_ids.includes(r.id) || a.plan.unpin_ids.includes(r.id) || a.plan.makeup_ids.includes(r.id) || a.plan.redates.some(t => t.id === r.id) ||
+        (a.plan.retire_above != null && r.lesson_number != null && r.lesson_number > a.plan.retire_above && r.queue_position != null)) {
+      integrity.push(`rebuild would change preserved unfinished lesson ${r.lesson_number}`);
+    }
+  }
   for (const id of a.plan.delete_ids) {
     const r = before.get(id);
     if (!r) integrity.push(`delete names a row the goal does not hold (${id})`);
@@ -441,7 +449,7 @@ export function planPhase2Commit(a: {
 }) {
   const redates: { id: string; to: string; from: string | null }[] = [];
   for (const r of a.survivors) {
-    if (r.completed || r.skipped || a.behindIds.has(r.id) || a.makeUpIds.has(r.id)) continue;
+    if (r.completed || r.skipped || r.queue_preserved || a.behindIds.has(r.id) || a.makeUpIds.has(r.id)) continue;
     if (r.queue_pinned && !a.releasedIds.has(r.id)) continue;
     if (r.queue_position == null) continue;
     const to = a.projDateBySlot.get(r.queue_position);

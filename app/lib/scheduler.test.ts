@@ -10530,7 +10530,7 @@ test('builder rebuild: the Schedule Builder runs those same pieces', () => {
   const src = stripComments(loadRepoFile('app/dashboard/plan/schedule/page.tsx'))
   const body = extractFunctionBody(src, /async function handleSave\s*\(/)
   const phase2 = body.slice(body.indexOf('const applyPhase2ForGoal = async'))
-  assert.match(phase2, /queue_pinned, skipped, scheduled_date, date, title", \{ count: "exact" \}/, 'phase 2 reads skipped')
+  assert.match(phase2, /queue_pinned, skipped, queue_preserved, scheduled_date, date, title", \{ count: "exact" \}/, 'phase 2 reads skipped')
   assert.match(phase2, /completed_at, notes, minutes_spent/, 'phase 2 reads completed_at, to count lessons done today')
   assert.match(phase2, /\} = planPhase2Rows\(\{/)
   assert.match(phase2, /computeNextLessonsForGoal\(\s*goalConfig,\s*forwardAnchor,\s*3650,\s*vacations,\s*isNewGoal \? 0 : doneTodaySplit\.slotted,\s*isNewGoal \? holds : \[\.\.\.holds, \.\.\.doneTodayHolds\(doneTodaySplit\.unslotted, ymd\(todayMid\)\)\],\s*\)/)
@@ -10538,7 +10538,7 @@ test('builder rebuild: the Schedule Builder runs those same pieces', () => {
   assert.match(phase2, /\} = planPhase2Commit\(\{/)
   const commit = stripComments(loadRepoFile('app/lib/phase2-commit.ts'))
   assert.match(commit, /const to = a\.projDateBySlot\.get\(r\.queue_position\);/)
-  assert.match(commit, /if \(r\.completed \|\| r\.skipped \|\| a\.behindIds\.has\(r\.id\) \|\| a\.makeUpIds\.has\(r\.id\)\) continue;/)
+  assert.match(commit, /if \(r\.completed \|\| r\.skipped \|\| r\.queue_preserved \|\| a\.behindIds\.has\(r\.id\) \|\| a\.makeUpIds\.has\(r\.id\)\) continue;/)
   assert.doesNotMatch(phase2, /const deletedIds = new Set\(/, 'the delete simulation has one definition, in planPhase2Rows')
 })
 
@@ -10693,7 +10693,7 @@ test('builder preview: skips are loaded once and handed to every schedule line',
   assert.match(src, /reservedSlotsFromRows\(reservationRows\.filter\(\(r\) => r\.curriculum_goal_id === goalId\), nextLesson - 1, goalId\)/)
   // Invariant 23: pins (make-ups included) and today's completions reach the preview too,
   // and so do dated lessons with no queue slot, which hold their day (DayHold).
-  assert.match(src, /\.or\("queue_pinned\.eq\.true,and\(queue_position\.is\.null,scheduled_date\.not\.is\.null\)"\)\s*\.eq\("completed", false\)/)
+  assert.match(src, /\.or\("queue_pinned\.eq\.true,queue_preserved\.eq\.true,and\(queue_position\.is\.null,scheduled_date\.not\.is\.null\)"\)\s*\.eq\("completed", false\)/)
   assert.match(src, /\.\.\.keptPins, \.\.\.goalDayHolds\]/, 'the preview projects around the days unslotted lessons hold')
   assert.match(src, /doneTodayHere,\s*\[\.\.\.skippedSlots\.map/)
   assert.match(src, /nextLesson: builderNextLesson\(branch === "fresh" \? 1 : nextLesson, skippedSlots, row\.total_lessons\)/)

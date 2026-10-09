@@ -556,3 +556,26 @@ test('an unslotted future lesson keeps its date and number without receiving an 
   // Any date collision is refused by the existing capacity check, not resolved
   // by changing the family's unslotted lesson.
 });
+
+test('Builder keeps preserved unfinished slots on their stored days across ordinary and schedule-changing saves', () => {
+  for (const clearPins of [false, true]) for (const currentLesson of [0, 3]) for (const pinned of [false, true]) {
+    const row: Row = { id:'preserved', lesson_number:2, queue_position:2, completed:false, queue_pinned:pinned, queue_preserved:true, skipped:false, scheduled_date:'2026-10-13', date:'2026-10-13', notes:null, minutes_spent:null };
+    const rows = planPhase2Rows({beforeRows:[row], goalId:GOAL, clearPins, currentLesson, totalLessons:3, todayYmd:'2026-10-09'});
+    assert.deepEqual(rows.survivors,[row]);
+    assert.equal(rows.deletedIds.size,0);
+    assert.equal(rows.makeUpIds.size,0);
+    assert.equal(rows.pinnedRows.length,0,'a schedule change cannot release a preserved hold');
+    assert.deepEqual(rows.pins,[{slot:2,date:'2026-10-13',preserved:true}]);
+    const commit = planPhase2Commit({beforeRows:[row], survivors:rows.survivors, deletedIds:rows.deletedIds, releasedIds:new Set(), makeUpIds:rows.makeUpIds, behindIds:rows.behindIds, projDateBySlot:new Map([[2,'2026-10-18']]), inserts:[], totalLessons:3, todayYmd:'2026-10-09', doneToday:0,currentLesson,perDayAllowed:()=>1});
+    assert.deepEqual(commit.plan.redates,[]);
+    assert.equal(commit.endRows[0].scheduled_date,row.scheduled_date);
+  }
+});
+
+test('Builder refuses shortening past preserved unfinished work before writing', () => {
+  for (const notes of [null, 'Family note']) {
+    const row: Row = {id:'kept',lesson_number:4,queue_position:4,completed:false,queue_pinned:false,queue_preserved:true,scheduled_date:'2026-10-11',date:'2026-10-11',notes,minutes_spent:null};
+    const plan = planPhase2Commit({beforeRows:[row],survivors:[row],deletedIds:new Set(),releasedIds:new Set(),makeUpIds:new Set(),behindIds:new Set(),projDateBySlot:new Map(),inserts:[],totalLessons:3,todayYmd:'2026-10-09',doneToday:0,currentLesson:0,perDayAllowed:()=>1});
+    assert.ok(plan.validation.integrity.includes('rebuild would change preserved unfinished lesson 4'));
+  }
+});

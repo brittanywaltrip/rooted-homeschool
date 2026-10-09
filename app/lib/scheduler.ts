@@ -2731,6 +2731,7 @@ export type Phase2BeforeRow = {
   queue_position: number | null;
   completed: boolean;
   queue_pinned: boolean | null;
+  queue_preserved?: boolean | null;
   /** Invariant 22. A skipped row is held back and never re-dated, like a pin. */
   skipped?: boolean | null;
   scheduled_date: string | null;
@@ -2839,20 +2840,21 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
   // scheduled_date as a write.)
   // `pinnedRows` is the pins a schedule change releases: the live queue's only.
   const pinnedRows = beforeRows
-    .filter((r) => !r.completed && r.queue_position != null && r.queue_pinned && !r.skipped && !isBehind(r))
+    .filter((r) => !r.completed && r.queue_position != null && r.queue_pinned && !r.queue_preserved && !r.skipped && !isBehind(r))
     .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
   const makeUpRows = behindRows
-    .filter((r) => r.queue_pinned)
+    .filter((r) => r.queue_pinned && !r.queue_preserved)
     .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
   // A row reopened before make-ups existed was left unpinned, so no surface
   // could see it (Sentry ROOTED-HOMESCHOOL-1Q). The rebuild pins it where it
   // is, the same thing reopening it does now, so Today, Plan and every
   // projection agree it holds that day. Past-dated ones are left as they are.
   const makeUpConversions = args.todayYmd
-    ? behindRows.filter((r) => !r.queue_pinned && r.scheduled_date != null && r.scheduled_date >= args.todayYmd!)
+    ? behindRows.filter((r) => !r.queue_preserved && !r.queue_pinned && r.scheduled_date != null && r.scheduled_date >= args.todayYmd!)
     : [];
   const makeUpIds = new Set(makeUpConversions.map((r) => r.id));
   const survivingPins = [
+    ...beforeRows.filter((r) => !r.completed && r.queue_preserved).map((r) => ({ ...r, curriculum_goal_id: goalId })),
     ...(clearPins ? [] : pinnedRows),
     ...makeUpRows,
     ...makeUpConversions.map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId })),

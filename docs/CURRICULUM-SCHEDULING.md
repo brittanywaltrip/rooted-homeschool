@@ -1696,3 +1696,15 @@ See `BUILDER-GOAL-GUARD-ROLLOUT.md` for the exact compatibility matrix, safe pau
 known-race restoration and verification limits. This is a per-goal boundary:
 phase-one metadata, other goals and vacation changes are not one transaction.
 Historical disappearance and final-row SQL validation remain separate work.
+
+### Builder preservation follow-up (local candidate)
+
+Builder preview and save read `queue_preserved`. Preserved unfinished rows remain
+holds when a scheduling change releases ordinary pins, and they never become
+make-ups or implicit redates. Pointer-cleanup prediction preserves them. A plan
+that would delete, unpin, redate, convert or retire preserved unfinished work is
+refused before the commit RPC; shortening past it does not silently release it.
+Real no-op and changed-settings saves were rehearsed on the isolated synthetic
+stack. Completion contention in the newly installed Builder/reopen/move/restore
+RPCs reproduced deadlocks and remains an independent release blocker; see
+`investigation/APPROVED-BUNDLE-RESULTS.md`. This is not a deployed guarantee.

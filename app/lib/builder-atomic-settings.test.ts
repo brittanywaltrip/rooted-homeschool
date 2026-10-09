@@ -99,3 +99,8 @@ test("the Schedule Builder commits an existing curriculum's settings with its le
   assert.match(src, /if \(upcoming\.length === 0\) \{ await commitSettingsOnly\(\); return; \}/);
   assert.equal((src.match(/await commitSettingsOnly\(\);\n\s+return;/g) ?? []).length, 2);
 });
+
+test('a preserved unfinished slot keeps its date when the pointer rises', () => {
+  const row = { completed:false, scheduled_date:'2026-09-20', queue_pinned:false, queue_preserved:true, lesson_number:2, queue_position:2, notes:null };
+  assert.deepEqual(afterOrphanCleanup([row],0,3),[row]);
+});

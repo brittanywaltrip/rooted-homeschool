@@ -917,7 +917,7 @@ function rowScheduleFor(
   const previewCurrent = branch === "fresh" ? 0 : nextLesson - 1;
   // A schedule change releases the live queue's pins but never a make-up.
   const goalPins = row.dbId ? (live.pinsByGoal.get(row.dbId) ?? []) : [];
-  const keptPins = scheduleFieldsChangedForRow(row) ? goalPins.filter((p) => p.slot <= previewCurrent) : goalPins;
+  const keptPins = scheduleFieldsChangedForRow(row) ? goalPins.filter((p) => p.preserved || p.slot <= previewCurrent) : goalPins;
   // Unslotted lessons keep their dates through any save, so they always hold their day.
   const goalDayHolds = row.dbId ? (live.dayHoldsByGoal.get(row.dbId) ?? []) : [];
   const doneTodayHere = !isNew && row.dbId ? (live.doneTodayByGoal.get(row.dbId) ?? 0) : 0;
@@ -1489,9 +1489,9 @@ function ScheduleBuilderPageInner() {
           // preview only: the save reads all three from the goal's own rows.
           supabase
             .from("lessons")
-            .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned, skipped")
+            .select("curriculum_goal_id, queue_position, scheduled_date, date, completed, queue_pinned, skipped, queue_preserved")
             .eq("user_id", effectiveUserId)
-            .or("queue_pinned.eq.true,and(queue_position.is.null,scheduled_date.not.is.null)")
+            .or("queue_pinned.eq.true,queue_preserved.eq.true,and(queue_position.is.null,scheduled_date.not.is.null)")
             .eq("completed", false),
           supabase
             .from("lessons")
@@ -2914,7 +2914,7 @@ function ScheduleBuilderPageInner() {
           count: beforeRowsCount,
         } = await supabase
           .from("lessons")
-          .select("id, lesson_number, queue_position, completed, completed_at, notes, minutes_spent, queue_pinned, skipped, scheduled_date, date, title", { count: "exact" })
+          .select("id, lesson_number, queue_position, completed, completed_at, notes, minutes_spent, queue_pinned, skipped, queue_preserved, scheduled_date, date, title", { count: "exact" })
           .eq("curriculum_goal_id", goalId);
         if (beforeRowsErr) throw beforeRowsErr;
         const actualBeforeRows = (beforeRowsData ?? []) as {
@@ -2926,6 +2926,7 @@ function ScheduleBuilderPageInner() {
           notes: string | null;
           minutes_spent: number | null;
           queue_pinned: boolean | null;
+          queue_preserved?: boolean | null;
           skipped: boolean | null;
           scheduled_date: string | null;
           date: string | null;
