@@ -443,3 +443,38 @@ test('app deployed before the migration: a missing function reads as switched of
   assert.equal(failures.length, 0, 'no failure note')
   assert.equal(w.tables.lessons.find((x) => x.id === 'L3')!.scheduled_date, ymd(at(MON)), 'nothing written')
 })
+
+test('calendar refusal stays unresolved across ticks and reload, then bounded explicit retry clears it',async()=>{
+ let clock=at(TUE),calls=0,corrected=false,settles=0,stored:import('./calendar-refusal.ts').ReconcileBlock|null=null;
+ const make=()=>createDailyReconcileRunner({now:()=>clock,dayOf:ymd,initialBlock:stored,
+  run:async(now,explicit)=>{calls++;if(corrected){assert.equal(explicit,true);return {day:ymd(now),results:[],written:0,disabled:false,retry:false};}return {day:ymd(now),results:[{goalId:GOAL,status:'invalid',written:0,reason:'day_window'}],written:0,disabled:false,retry:true,blocked:'calendar'};},
+  onBlocked:b=>{stored=b;},onSettled:()=>{stored=null;settles++;}});
+ let runner=make();await runner.trigger();assert.equal(runner.settledDay,null);assert.equal(stored!.kind,'calendar');
+ clock=new Date(clock.getTime()+86400000);await runner.trigger();assert.equal(calls,1,'even a new day does not poll a refusal');
+ runner=make();await runner.trigger();assert.equal(calls,1,'reload keeps refusal and does not auto-retry');
+ await runner.trigger(true);assert.equal(calls,2);assert.equal(runner.settledDay,null);
+ corrected=true;await runner.trigger(true);assert.equal(calls,2,'rapid explicit click is bounded');
+ clock=new Date(clock.getTime()+30_001);await runner.trigger(true);assert.equal(calls,3);assert.equal(settles,1);assert.equal(stored,null);
+ await runner.trigger();assert.equal(calls,3,'successful retry settles the day');
+});
+
+test('real daily client marks calendar refusal and leaves fixture rows unchanged',async()=>{
+ const w=world(),before=structuredClone(w.tables);
+ const client={...w.client,rpc:async()=>({data:{status:'invalid',reason:'day_window'},error:null})};
+ const result=await reconcileForDay(client as never,USER,{now:at(TUE),timezone:TZ});
+ assert.equal(result.blocked,'calendar');assert.equal(result.retry,true);assert.equal(result.written,0);assert.deepEqual(w.tables,before);
+});
+
+test('explicit retry verifies calendar even when no date writes are needed',async()=>{
+ const w=world(),before=structuredClone(w.tables);let corrected=false,checks=0;
+ const client={...w.client,rpc:async(name:string,args:Record<string,string>)=>{assert.equal(name,'read_cascade_snapshot');checks++;return {error:null,data:corrected?{status:'ready',snapshot:{dayStartIso:args.p_day_start,dayEndIso:args.p_day_end}}:{status:'invalid',reason:'calendar_mismatch'}};}};
+ const first=await reconcileForDay(client as never,USER,{now:at(MON),timezone:TZ,verifyCalendar:true});assert.equal(first.blocked,'calendar');
+ corrected=true;const second=await reconcileForDay(client as never,USER,{now:at(MON),timezone:TZ,verifyCalendar:true});assert.equal(second.retry,false);assert.equal(checks,2);assert.deepEqual(w.tables,before);
+});
+
+test('a disabled synchronization cannot clear a prior refusal on explicit retry',async()=>{
+ const w=world(),before=structuredClone(w.tables);
+ const client={...w.client,rpc:async(name:string,args:Record<string,string>)=>({error:null,data:name==='read_cascade_snapshot'?{status:'ready',snapshot:{dayStartIso:args.p_day_start,dayEndIso:args.p_day_end}}:{status:'disabled'}})};
+ const r=await reconcileForDay(client as never,USER,{now:at(TUE),timezone:TZ,verifyCalendar:true});
+ assert.equal(r.retry,true);assert.equal(r.blocked,'refused');assert.deepEqual(w.tables,before);
+});

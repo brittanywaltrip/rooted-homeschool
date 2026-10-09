@@ -17,6 +17,7 @@
 // The local day and today's-completion window use the browser's timezone, the
 // same rules as Today and the parent re-dates (resyncGoalsForParent).
 
+import { isCalendarRefusal, type ReconcileBlock } from "./calendar-refusal.ts";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { planDailyReconcile, splitDoneToday, toGoalConfig, type DoneTodaySplit, type GoalConfigRow, type VacationBlock } from "./scheduler.ts";
 import { addDays, startOfDayInTzAsUtc, ymdInTz } from "./timezone.ts";
@@ -47,6 +48,8 @@ export interface DailyReconcileRun {
   disabled: boolean;
   /** Something failed or stayed stale: the day must NOT be treated as settled. */
   retry: boolean;
+  /** Refusal needs an explicit retry, never automatic polling. */
+  blocked?: ReconcileBlock["kind"];
 }
 
 const RAW_GOAL_COLUMNS =
@@ -69,7 +72,7 @@ function expectedGoal(g: RawGoal) {
 export async function reconcileForDay(
   supabase: SupabaseClient,
   userId: string,
-  opts: { timezone?: string; now?: Date } = {},
+  opts: { timezone?: string; now?: Date; verifyCalendar?: boolean } = {},
 ): Promise<DailyReconcileRun> {
   const now = opts.now ?? new Date();
   const tz = opts.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -107,6 +110,18 @@ export async function reconcileForDay(
     run.retry = true;
     run.results.push({ goalId: "*", status: "error", written: 0, reason: "read_failed" });
     return run;
+  }
+
+  // Explicit retries must verify the calendar even if the cache now needs no
+  // writes. Otherwise a "nothing" result could clear an unresolved mismatch.
+  if (opts.verifyCalendar && shared.goals.length) {
+    try {
+      const {data,error}=await supabase.rpc("read_cascade_snapshot",{p_goal_id:shared.goals[0].id,p_local_day:day,p_day_start:dayStart,p_day_end:dayEnd});
+      if(error || data?.status!=='ready' || Date.parse(data.snapshot?.dayStartIso)!==Date.parse(dayStart) || Date.parse(data.snapshot?.dayEndIso)!==Date.parse(dayEnd)) {
+        const calendar=!error && (isCalendarRefusal(data?.reason) || data?.status==='ready');
+        return {...run,retry:true,blocked:calendar?'calendar':'refused',results:[{goalId:shared.goals[0].id,status:'invalid',written:0,reason:calendar?'calendar_mismatch':'calendar_check_failed'}]};
+      }
+    } catch { return {...run,retry:true,blocked:'refused',results:[{goalId:'*',status:'error',written:0,reason:'calendar_check_failed'}]}; }
   }
 
   for (const first of shared.goals) {
@@ -157,7 +172,10 @@ export async function reconcileForDay(
     run.written += outcome.written;
     if (outcome.status === "disabled") { run.disabled = true; break; }
   }
-  run.retry = run.results.some((r) => r.status === "error" || r.status === "stale");
+  const refused=run.results.filter(r=>r.status==='invalid');
+  if(refused.length) run.blocked=refused.some(r=>isCalendarRefusal(r.reason))?'calendar':'refused';
+  if(opts.verifyCalendar&&run.disabled)run.blocked='refused';
+  run.retry = !!run.blocked || run.results.some((r) => r.status === "error" || r.status === "stale");
   return run;
 }
 
@@ -167,6 +185,9 @@ export async function reconcileForDay(
  * overnight reconciles on its next tick, focus or visibility change. A run that
  * failed or stayed stale is not settled: the next trigger retries it, but no
  * sooner than `retryAfterMs` after the failure (a new day retries at once).
+ * Explicit refusals remain blocked across days and require trigger(true).
+ * Manual retries share the in-flight promise and a 30-second cooldown;
+ * initialBlock/onBlocked let the UI persist that marker across reloads.
  * Never two runs at once in the same tab. `onFailure` fires at most once per
  * local day; `onSettled` fires when a later run finishes, so a page can keep a
  * failure note up until then rather than flash it while it is still loading.
@@ -175,15 +196,20 @@ export async function reconcileForDay(
  * stops calling until the next day or the next page load.
  */
 export function createDailyReconcileRunner(deps: {
-  run: (now: Date) => Promise<DailyReconcileRun>;
+  run: (now: Date, explicit: boolean) => Promise<DailyReconcileRun>;
   now: () => Date;
   dayOf: (d: Date) => string;
   retryAfterMs?: number;
+  manualRetryAfterMs?: number;
+  initialBlock?: ReconcileBlock | null;
+  onBlocked?: (block: ReconcileBlock) => void;
   onRedated?: (run: DailyReconcileRun) => void;
   onFailure?: (run: DailyReconcileRun | null, err?: unknown) => void;
   onSettled?: (run: DailyReconcileRun) => void;
 }) {
   const retryAfterMs = deps.retryAfterMs ?? 5 * 60_000;
+  let blocked: ReconcileBlock | null = deps.initialBlock ?? null;
+  let lastManualAt = blocked ? blocked.retryAt - (deps.manualRetryAfterMs ?? 30_000) : -Infinity;
   let settledDay: string | null = null;
   let failedDay: string | null = null;
   let failedAt = 0;
@@ -199,25 +225,38 @@ export function createDailyReconcileRunner(deps: {
   };
 
   return {
-    trigger(): Promise<DailyReconcileRun | null> {
+    trigger(explicit = false): Promise<DailyReconcileRun | null> {
       if (inFlight) return inFlight;
       const now = deps.now();
       const day = deps.dayOf(now);
+      if (explicit) {
+        if(now.getTime()<lastManualAt+(deps.manualRetryAfterMs??30_000)) return Promise.resolve(null);
+        lastManualAt=now.getTime();
+        if(blocked) { blocked={...blocked,retryAt:lastManualAt+(deps.manualRetryAfterMs??30_000)};deps.onBlocked?.(blocked); }
+      } else if(blocked) return Promise.resolve(null);
       if (settledDay === day) return Promise.resolve(null);
-      if (failedDay === day && now.getTime() - failedAt < retryAfterMs) return Promise.resolve(null);
+      if (!explicit && failedDay === day && now.getTime() - failedAt < retryAfterMs) return Promise.resolve(null);
       inFlight = deps
-        .run(now)
+        .run(now, explicit)
         .then((r) => {
           if (r.written > 0) deps.onRedated?.(r);
-          if (r.retry) fail(r.day, r);
-          else {
+          if(r.blocked) {
+            blocked={kind:r.blocked,day:r.day,retryAt:Number.isFinite(lastManualAt)?lastManualAt+(deps.manualRetryAfterMs??30_000):now.getTime()};
+            deps.onBlocked?.(blocked);
+          } else if (r.retry) {
+            // A failed explicit check must not erase an earlier refusal.
+            if(blocked) { blocked={...blocked,retryAt:lastManualAt+(deps.manualRetryAfterMs??30_000)};deps.onBlocked?.(blocked); }
+            else fail(r.day, r);
+          } else {
+            blocked=null;
             settledDay = r.day;
             deps.onSettled?.(r);
           }
           return r;
         })
         .catch((err) => {
-          fail(day, null, err);
+          if(blocked) { blocked={...blocked,retryAt:lastManualAt+(deps.manualRetryAfterMs??30_000)};deps.onBlocked?.(blocked); }
+          else fail(day, null, err);
           return null;
         })
         .finally(() => {
@@ -225,6 +264,7 @@ export function createDailyReconcileRunner(deps: {
         });
       return inFlight;
     },
+    get blocked() { return blocked; },
     get settledDay() {
       return settledDay;
     },

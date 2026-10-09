@@ -1,3 +1,4 @@
+import { isCalendarRefusal } from './calendar-refusal.ts';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { planAnchoredCascade, sameCascadeSnapshot, type CascadeSnapshot, type CascadePlanResult } from './cascade-shift-plan.ts';
 
@@ -5,19 +6,19 @@ export type { CascadeSnapshot } from './cascade-shift-plan.ts';
 
 export type CascadeShiftResult =
   | { status: 'applied'; operationId: string; writtenIds: string[] }
-  | { status: 'refused'; reason: Extract<CascadePlanResult, {ok:false}>['reason'] | 'stale' | 'unavailable' | 'read' | 'transaction' }
+  | { status: 'refused'; reason: Extract<CascadePlanResult, {ok:false}>['reason'] | 'stale' | 'unavailable' | 'read' | 'transaction' | 'calendar' }
   | { status: 'unknown'; operationId: string };
 
 export async function previewCurriculumShift(client: SupabaseClient, args: {
-  goalId: string; lessonId: string; from: string; to: string; localDay: string; dayStartIso: string; dayEndIso: string;
+  goalId: string; lessonId: string; from: string; to: string; localDay: string; dayStartIso: string; dayEndIso: string; onCalendarMismatch?:()=>void;
 }) {
   try {
     const {data,error}=await client.rpc('read_cascade_snapshot',{p_goal_id:args.goalId,p_local_day:args.localDay,p_day_start:args.dayStartIso,p_day_end:args.dayEndIso});
-    if(error || data?.status !== 'ready') return null;
+    if(error || data?.status !== 'ready') { if(!error&&isCalendarRefusal(data?.reason))args.onCalendarMismatch?.();return null; }
     const snapshot=data.snapshot as CascadeSnapshot;
-    if(snapshot.goal.id!==args.goalId || snapshot.localDay!==args.localDay ||
-       Date.parse(snapshot.dayStartIso)!==Date.parse(args.dayStartIso) ||
-       Date.parse(snapshot.dayEndIso)!==Date.parse(args.dayEndIso)) return null;
+    if(snapshot.goal.id!==args.goalId || snapshot.localDay!==args.localDay) return null;
+    if(Date.parse(snapshot.dayStartIso)!==Date.parse(args.dayStartIso) ||
+       Date.parse(snapshot.dayEndIso)!==Date.parse(args.dayEndIso)) {args.onCalendarMismatch?.();return null;}
     const plan=planAnchoredCascade(snapshot,{lessonId:args.lessonId,from:args.from,to:args.to});
     if(!plan.ok) return null;
     return {snapshot,preservedEarlierCount:plan.plan.preserved.length,shiftDays:plan.plan.days,futureLessonsToShift:plan.plan.writes.length-1,
@@ -35,11 +36,11 @@ export async function shiftCurriculumSessions(client: SupabaseClient, args: {
     read = await client.rpc('read_cascade_snapshot', { p_goal_id: args.goalId,
       p_local_day: args.localDay, p_day_start: args.dayStartIso, p_day_end: args.dayEndIso });
   } catch { return { status: 'refused', reason: 'read' }; }
-  if (read.error || read.data?.status !== 'ready') return { status: 'refused', reason: read.error?.code === 'PGRST202' ? 'unavailable' : 'read' };
+  if (read.error || read.data?.status !== 'ready') return { status: 'refused', reason: !read.error&&isCalendarRefusal(read.data?.reason)?'calendar':read.error?.code === 'PGRST202' ? 'unavailable' : 'read' };
   const snapshot = read.data.snapshot as CascadeSnapshot;
   if (snapshot?.goal?.id !== args.goalId || snapshot?.localDay !== args.localDay || !Array.isArray(snapshot.rows)) return { status: 'refused', reason: 'read' };
   if (Date.parse(snapshot.dayStartIso)!==Date.parse(args.dayStartIso) ||
-      Date.parse(snapshot.dayEndIso)!==Date.parse(args.dayEndIso)) return { status: 'refused', reason: 'read' };
+      Date.parse(snapshot.dayEndIso)!==Date.parse(args.dayEndIso)) return { status: 'refused', reason: 'calendar' };
   try {
     if (!args.previewSnapshot || !sameCascadeSnapshot(snapshot,args.previewSnapshot)) return { status: 'refused', reason: 'stale' };
   } catch { return { status: 'refused', reason: 'read' }; }
@@ -62,7 +63,7 @@ export async function shiftCurriculumSessions(client: SupabaseClient, args: {
         status: 'applied', operationId: args.operationId, writtenIds: planned.plan.writes.map(w => w.id),
       };
       if (data?.status === 'stale' || data?.status === 'already_undone') return { status: 'refused', reason: 'stale' };
-      if (data?.status === 'invalid' || data?.status === 'failed') return { status: 'refused', reason: 'transaction' };
+      if (data?.status === 'invalid' || data?.status === 'failed') return { status: 'refused', reason: isCalendarRefusal(data?.reason)?'calendar':'transaction' };
     } catch { /* retry exactly the same operation, never recompute a new shift */ }
   }
   return { status: 'unknown', operationId: args.operationId };

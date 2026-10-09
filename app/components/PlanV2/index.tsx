@@ -1,4 +1,5 @@
 "use client";
+import { CASCADE_CALENDAR_NOTE } from "@/app/lib/calendar-refusal";
 
 import PreservedWorkPanel from "../PreservedWorkPanel";
 import { displayLessonTitle, formatLessonLabel } from "@/lib/lesson-label";
@@ -20,6 +21,7 @@ import {
 } from "@dnd-kit/core";
 import { supabase } from "@/lib/supabase";
 import { buildRemovalContext, removedCurriculumName, type RemovalContext } from "@/lib/progress-report-rows";
+import DateSyncNotice from "@/app/components/DateSyncNotice";
 import { useDailyReconcile } from "@/app/hooks/useDailyReconcile";
 import { useLocalDay } from "@/app/hooks/useLocalDay";
 import { loadMissedWork, type MissedWorkGoalRow } from "@/app/lib/missed-work";
@@ -323,6 +325,7 @@ export default function PlanV2() {
   const [cascadeChoice, setCascadeChoice] = useState<{
     previewSnapshot: CascadeSnapshot | null;
     shiftUnavailable?: boolean;
+    calendarMismatch?: boolean;
     lessonId: string;
     fromDateStr: string;
     toDateStr: string;
@@ -805,7 +808,7 @@ export default function PlanV2() {
 
   // Once a day, bring stored lesson dates in step with Today's projection
   // (app/lib/daily-reconcile.ts), then reload so this calendar shows them.
-  const { failureNote: reconcileFailureNote } = useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
+  const reconcileSync = useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
     onRedated: () => { reload(); reloadPins(); },
   });
 
@@ -4604,6 +4607,7 @@ export default function PlanV2() {
   const handleShiftAllForward = useCallback(async (c: {
     previewSnapshot: CascadeSnapshot | null;
     shiftUnavailable?: boolean;
+    calendarMismatch?: boolean;
     lessonId: string; fromDateStr: string; toDateStr: string; goalId: string; shiftDays: number;
   }) => {
     setCascadeChoice(null);
@@ -4620,6 +4624,7 @@ export default function PlanV2() {
       if (result.status !== "applied") {
         flashNotice(result.status === "unknown"
           ? "Couldn't confirm the shift. Refresh Plan and check the dates before trying again."
+          : result.reason === "calendar" ? CASCADE_CALENDAR_NOTE
           : result.reason === "stale" || result.reason === "selection"
             ? "The schedule changed while this move was open. Nothing moved. Refresh Plan and try again."
             : "Couldn't safely preserve this schedule's spacing. Nothing moved.");
@@ -5512,11 +5517,7 @@ export default function PlanV2() {
         {/* Missed-lessons banner, above the calendar card: the same lessons
             Today asks about, and Review opens the same prompt, so the question
             is answered once whichever screen the family is on. */}
-        {reconcileFailureNote ? (
-          <p role="status" className="text-[12px] text-[#7a4a1a] bg-[#fdf6e8] border border-[#e8d9a8] rounded-xl px-3.5 py-2.5">
-            {reconcileFailureNote}
-          </p>
-        ) : null}
+      <DateSyncNotice note={reconcileSync.failureNote} {...reconcileSync} />
 
         {!loading ? (
           <MissedLessonsBanner
@@ -6253,13 +6254,15 @@ export default function PlanV2() {
               void (async () => {
                 const start = new Date(`${todayStr}T00:00:00`);
                 const end = new Date(start); end.setDate(end.getDate() + 1);
+                let calendarMismatch=false;
                 const preview = await previewCurriculumShift(supabase, {
+                  onCalendarMismatch:()=>{calendarMismatch=true;},
                   goalId, lessonId: target.lessonId, from: target.fromDateStr, to: toDateStr,
                   localDay: todayStr, dayStartIso: start.toISOString(), dayEndIso: end.toISOString(),
                 });
                 if (!preview) {
                   setCascadeChoice({lessonId: target.lessonId, fromDateStr: target.fromDateStr, toDateStr, goalId,
-                    previewSnapshot: null, shiftUnavailable: true, shiftDays, futureLessonsToShift: 0, projectedFinishDate: null});
+                    previewSnapshot: null, shiftUnavailable: true, calendarMismatch, shiftDays, futureLessonsToShift: 0, projectedFinishDate: null});
                   return;
                 }
                 if (preview.futureLessonsToShift === 0) {
@@ -7386,6 +7389,7 @@ function RescheduleDialog(props: {
 function CascadeChoiceDialog(props: {
   choice: {
     shiftUnavailable?: boolean;
+    calendarMismatch?: boolean;
     lessonId: string;
     fromDateStr: string;
     toDateStr: string;
@@ -7457,7 +7461,7 @@ function CascadeChoiceDialog(props: {
             >
               <p className="text-sm font-medium text-[#2d3a2e]">Shift all remaining lessons forward</p>
               <p className="text-xs text-[#9a8e84] mt-0.5">
-                {choice.shiftUnavailable ? "This schedule can't safely shift together. You can still move just this lesson." : <>
+                {choice.shiftUnavailable ? (choice.calendarMismatch ? CASCADE_CALENDAR_NOTE : "This schedule can't safely shift together. You can still move just this lesson.") : <>
                   {tail} shift by {days}.
                   {finishLabel ? ` New finish date: ${finishLabel}.` : ""}
                 </>}

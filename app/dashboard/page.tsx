@@ -11,6 +11,7 @@ import * as Sentry from "@sentry/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import DateSyncNotice from "@/app/components/DateSyncNotice";
 import { useDailyReconcile } from "@/app/hooks/useDailyReconcile";
 import { usePartner } from "@/lib/partner-context";
 import { useProfile, DASHBOARD_PROFILE_COLUMNS, type DashboardProfile } from "@/lib/profile-context";
@@ -2250,7 +2251,7 @@ function TodayPageInner() {
   // this page projects. The server switch decides whether anything is written.
   // A co-teacher's session is not the curriculum's owner, so it leaves this to
   // the family's own tabs.
-  const { failureNote: reconcileFailureNote } = useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
+  const reconcileSync = useDailyReconcile(supabase, isPartner ? null : effectiveUserId, {
     onRedated: () => { void loadDataRef.current(); },
   });
 
@@ -4850,11 +4851,7 @@ function TodayPageInner() {
           back to the catch-up flow, and hiding it too left the family with
           no path to log the day they actually worked.
          ═══════════════════════════════════════════════════════════ */}
-      {reconcileFailureNote && (
-        <p role="status" className="text-[12px] text-[#7a4a1a] bg-[#fdf6e8] border border-[#e8d9a8] rounded-xl px-3.5 py-2.5">
-          {reconcileFailureNote}
-        </p>
-      )}
+      <DateSyncNotice note={reconcileSync.failureNote} {...reconcileSync} />
 
       {!loading && overdueLessonCount > 0 && missedEntriesByGoal.size > 0 && (
         // Opens Today's own catch-up sheet, with the same lessons it counts.
