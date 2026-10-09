@@ -2,63 +2,71 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import {
-  createDailyReconcileRunner,
-  reconcileForDay,
-  DAILY_RECONCILE_FAILED_NOTE,
-  type DailyReconcileRun,
-} from "@/app/lib/daily-reconcile";
+import { createDailyReconcileRunner, reconcileForDay, DAILY_RECONCILE_FAILED_NOTE, type DailyReconcileRun } from "@/app/lib/daily-reconcile";
+import { CALENDAR_REFUSAL_NOTE, readReconcileBlock, saveReconcileBlock, type ReconcileBlock } from "@/app/lib/calendar-refusal";
 import { ymdInTz } from "@/app/lib/timezone";
 
-/**
- * Keep this tab's stored lesson dates in step with Today, once per curriculum
- * per local day (see app/lib/daily-reconcile.ts). Used by Today and Plan; only
- * one of them is mounted in a tab at a time.
- *
- * Triggers: when the page mounts with a user, when the tab regains focus or
- * becomes visible, and once a minute, so a tab left open overnight catches up
- * without a reload. Each trigger after the day has settled costs nothing.
- *
- * Whether anything is written is decided by the server switch at the moment of
- * the call, not by this build, so switching the job off stops open tabs too.
- */
+type Notice = { owner: string; note: string; block: ReconcileBlock | null };
 export function useDailyReconcile(
   supabase: SupabaseClient,
   userId: string | null | undefined,
   handlers: { onRedated?: (run: DailyReconcileRun) => void },
-): { failureNote: string | null } {
-  // Kept up until a later run settles, not flashed: the first run fires while
-  // the page is still loading, and a toast there was never seen.
-  const [failureNote, setFailureNote] = useState<string | null>(null);
-  const handlersRef = useRef(handlers);
-  useEffect(() => {
-    handlersRef.current = handlers;
-  });
-
-  useEffect(() => {
-    if (!userId) return;
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const runner = createDailyReconcileRunner({
-      run: (now) => reconcileForDay(supabase, userId, { timezone: tz, now }),
-      now: () => new Date(),
-      dayOf: (d) => ymdInTz(d, tz),
-      onRedated: (run) => handlersRef.current.onRedated?.(run),
-      onFailure: () => setFailureNote(DAILY_RECONCILE_FAILED_NOTE),
-      onSettled: () => setFailureNote(null),
+) {
+  const [notice,setNotice]=useState<Notice|null>(null);
+  const [busyOwner,setBusyOwner]=useState<string|null>(null);
+  const [clock,setClock]=useState(0);
+  const runnerRef=useRef<{owner:string;runner:ReturnType<typeof createDailyReconcileRunner>}|null>(null);
+  const handlersRef=useRef(handlers);
+  useEffect(()=>{handlersRef.current=handlers;});
+  useEffect(()=>{
+    if(!userId) return;
+    let active=true;
+    // The stored marker contains only refusal kind, day and retry deadline.
+    // An unavailable storage API still leaves the current mount unresolved.
+    let initial:ReconcileBlock|null=null;
+    try { initial=readReconcileBlock(window.sessionStorage,userId); } catch {}
+    const persist=(block:ReconcileBlock|null)=>{try{saveReconcileBlock(window.sessionStorage,userId,block);}catch{}};
+    const showBlock=(block:ReconcileBlock)=>{
+      if(!active) return;
+      persist(block);
+      setNotice({owner:userId,note:block.kind==='calendar'?CALENDAR_REFUSAL_NOTE:"Plan date sync was refused. No synchronization was confirmed. Contact Rooted support before retrying.",block});
+    };
+    if(initial) showBlock(initial);
+    const browserZone=()=>Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const runner=createDailyReconcileRunner({
+      initialBlock:initial,
+      run:(now,explicit)=>reconcileForDay(supabase,userId,{timezone:browserZone(),now,verifyCalendar:explicit}),
+      now:()=>new Date(),dayOf:d=>ymdInTz(d,browserZone()),
+      onRedated:r=>{if(active) handlersRef.current.onRedated?.(r);},
+      onBlocked:showBlock,
+      onFailure:()=>{if(active)setNotice({owner:userId,note:DAILY_RECONCILE_FAILED_NOTE,block:null});},
+      onSettled:()=>{if(active){persist(null);setNotice(null);}},
     });
-    const kick = () => {
-      if (document.visibilityState === "visible") void runner.trigger();
-    };
+    runnerRef.current={owner:userId,runner};
+    const kick=()=>{if(document.visibilityState==='visible')void runner.trigger();};
     kick();
-    const tick = window.setInterval(kick, 60_000);
-    window.addEventListener("focus", kick);
-    document.addEventListener("visibilitychange", kick);
-    return () => {
-      window.clearInterval(tick);
-      window.removeEventListener("focus", kick);
-      document.removeEventListener("visibilitychange", kick);
-    };
-  }, [supabase, userId]);
-
-  return { failureNote };
+    const tick=window.setInterval(kick,60_000);
+    window.addEventListener('focus',kick);document.addEventListener('visibilitychange',kick);
+    return ()=>{active=false;if(runnerRef.current?.runner===runner)runnerRef.current=null;window.clearInterval(tick);window.removeEventListener('focus',kick);document.removeEventListener('visibilitychange',kick);};
+  },[supabase,userId]);
+  const current=notice?.owner===userId?notice:null;
+  const retryAt=current?.block?.retryAt??0;
+  useEffect(()=>{
+    if(!retryAt) return;
+    const timer=window.setTimeout(()=>setClock(Date.now()),Math.max(0,retryAt-Date.now())+10);
+    return()=>window.clearTimeout(timer);
+  },[retryAt]);
+  const retry=async()=>{
+    const entry=runnerRef.current;
+    if(!entry || entry.owner!==userId || busyOwner===userId)return;
+    setBusyOwner(entry.owner);
+    try{
+      const result=await entry.runner.trigger(true);
+      // Another tab may already have corrected the dates. Refresh the surface
+      // after a verified no-write retry as well as after our own writes.
+      if(result&&!result.retry&&!result.disabled&&result.written===0&&runnerRef.current===entry)handlersRef.current.onRedated?.(result);
+    }finally{setBusyOwner(owner=>owner===entry.owner?null:owner);setClock(Date.now());}
+  };
+  return {failureNote:current?.note??null,calendarMismatch:current?.block?.kind==='calendar',requiresAction:!!current?.block,
+    retry,retrying:!!userId&&busyOwner===userId,retryReady:Math.max(clock,Date.now())>=retryAt};
 }

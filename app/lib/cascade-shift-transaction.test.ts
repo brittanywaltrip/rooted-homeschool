@@ -72,6 +72,20 @@ test('unsupported unpinned gaps do not produce an actionable preview',async()=>{
 test('same-day browser/account boundary mismatch cannot preview or commit', async()=>{
  const local={...args,dayStartIso:'2026-09-21T15:00:00Z',dayEndIso:'2026-09-22T15:00:00Z'};
  const preview=fake([ready()]);assert.equal(await previewCurriculumShift(preview.client,local),null);
- const confirm=fake([ready()]);assert.deepEqual(await shiftCurriculumSessions(confirm.client,{...local,previewSnapshot:snapshot()}),{status:'refused',reason:'read'});
+ const confirm=fake([ready()]);assert.deepEqual(await shiftCurriculumSessions(confirm.client,{...local,previewSnapshot:snapshot()}),{status:'refused',reason:'calendar'});
  assert.equal(confirm.calls.length,1);
+});
+
+test('calendar-specific preview explanation survives dismissal and re-opening without writes',async()=>{
+ for(let reopen=0;reopen<2;reopen++){
+  let explained=false;const f=fake([{data:{status:'invalid',reason:'calendar_mismatch'}}]);
+  assert.equal(await previewCurriculumShift(f.client,{...args,onCalendarMismatch:()=>{explained=true;}}),null);
+  assert.equal(explained,true);assert.equal(f.calls.length,1);assert.equal(f.calls[0].name,'read_cascade_snapshot');
+ }
+});
+
+test('a calendar change at commit keeps the calendar-specific refusal',async()=>{
+ const f=fake([ready(),{data:{status:'invalid',reason:'day_window'}}]);
+ assert.deepEqual(await shiftCurriculumSessions(f.client,{...args,previewSnapshot:snapshot()}),{status:'refused',reason:'calendar'});
+ assert.equal(f.calls.length,2);
 });
