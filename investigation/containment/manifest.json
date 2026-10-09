@@ -14,9 +14,9 @@
     "lesson-add.sql": "8a56b69f424c4fc3dc0bca2aec03e02d5078e4cd9c08f4e9a1d11b743628dd80",
     "goal-lifecycle.sql": "7f7b55709a43aca2bfc5d65cf17e5f9836850561b825bcb631e44b5599230d86",
     "reassignment.sql": "971f2b12bff2e27a2ebaa8c34e59a4065c981b2cc915f74da662e7076d1bf263",
-    "recovery-status.sql": "5720ea1dfefe4191d33d8d1b5c99815fc039ba0bbceb89067b9a43f2cfc99e10"
+    "recovery-status.sql": "85500ff11c4109294437bf50a5f0a33d0722e10d2744372ac29acd2ce7dba558"
   },
   "migration": "20261009183309_kandl_protected_scheduler_containment.sql",
-  "sha256": "6a532cd8c001a3439add987861ce98ca88b33538e3dbe08f56164c98dad42f45",
+  "sha256": "5dd57b3e74bb2c499fdcf94666bdaec79268c6a56140c45b239f59e2c6cc8496",
   "activation": "None; empty protected cohort"
 }

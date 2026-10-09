@@ -39,7 +39,7 @@ test('a delayed respread clears only completion tails it captured before sending
 });
 
 test('cascade transaction rollback is terminal even after transport uncertainty',async()=>{
- const b=browser();try{for(const rpc of ['commit_cascade_shift','undo_cascade_shift']){await assert.rejects(durableSchedulerRpc(client(async()=>{throw Error('lost');}),rpc,request));assert.equal(await recoverSchedulerEntry(client(async()=>({data:{status:'failed',reason:'transaction'},error:null})),readSchedulerRecovery('owner')[0]),true);assert.equal(readSchedulerRecovery('owner').length,0);}}finally{b.restore();}
+ const b=browser();try{for(const rpc of ['commit_cascade_shift','undo_cascade_shift']){await assert.rejects(durableSchedulerRpc(client(async(name)=>{if(name==='read_scheduler_recovery')return{data:{status:'ready',receiptPresent:true,goalId:'g'},error:null};throw Error('lost');}),rpc,request));assert.equal(await recoverSchedulerEntry(client(async()=>({data:{status:'failed',reason:'transaction'},error:null})),readSchedulerRecovery('owner')[0]),true);assert.equal(readSchedulerRecovery('owner').length,0);}}finally{b.restore();}
 });
 
 test('recovery waits for an original in-flight request and cannot lose its token',async()=>{
@@ -62,5 +62,13 @@ test('archived completion tail persists across reload and only resumes after own
 test('other-device delete retires only proven superseded work; missing owner never suffices',async()=>{
  const b=browser();try{await assert.rejects(durableSchedulerRpc(client(async()=>{throw Error('lost');}),'commit_scheduler_add',request));let state='unknown';let mutations=0;const c=client(async(name)=>{if(name==='read_scheduler_recovery')return{data:{status:'ready',goalState:state,receiptPresent:false},error:null};mutations++;return{data:{status:'invalid',reason:'owner'},error:null};});let entry=readSchedulerRecovery('owner')[0];assert.equal(await recoverSchedulerEntry(c,entry),false);assert.equal(readSchedulerRecovery('owner').length,1);state='archived';assert.equal(await recoverSchedulerEntry(c,entry),false);assert.equal(readSchedulerRecovery('owner')[0].deferred,true);state='deleted_verified';assert.equal(await recoverSchedulerEntry(c,entry),true);assert.equal(readSchedulerRecovery('owner').length,0);assert.equal(mutations,3);
  await durableSchedulerRpc(client(async()=>({data:{status:'applied'},error:null})),'commit_scheduler_action',{...request,p_action:{kind:'complete'}});entry=readSchedulerRecovery('owner')[0];assert.equal(await recoverSchedulerEntry(c,entry),true);assert.equal(mutations,3);assert.equal(readSchedulerRecovery('owner').length,0);
+ }finally{b.restore();}
+});
+
+test('uncertain cascade Undo retains owned course identity before deletion removes its ledger',async()=>{
+ const b=browser();try{let deleted=false;const c=client(async(name,args)=>{
+  if(name==='read_scheduler_recovery'){assert.equal(args.p_goal_id,deleted?'g':null);return{data:{status:'ready',receiptPresent:!deleted,goalId:'g',goalState:deleted?'deleted_verified':'active'},error:null};}
+  if(!deleted)throw Error('lost before delivery');return{data:{status:'invalid'},error:null};
+ });await assert.rejects(durableSchedulerRpc(c,'undo_cascade_shift',{p_operation_id:'undo'}));const entry=readSchedulerRecovery('owner')[0];assert.equal(entry.goal,'g');assert.deepEqual(entry.args,{p_operation_id:'undo'});deleted=true;assert.equal(await recoverSchedulerEntry(c,entry),true);assert.equal(readSchedulerRecovery('owner').length,0);
  }finally{b.restore();}
 });

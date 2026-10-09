@@ -62,7 +62,14 @@ async function issueLocked(client:SupabaseClient,rpc:string,args:Record<string,u
   if(await ownerOf(client)!==owner)return refusal('The signed-in account changed. Reload before retrying.');const entries=readSchedulerRecovery(owner);const old=entries.find(e=>e.rpc===rpc&&e.operation===args.p_operation_id);
   if(old?.phase==='tail'||old?.phase==='confirmed')return {data:{status:'already_applied',operationId:old.operation},error:null,count:null,status:200,statusText:'OK'};
   if(old&&JSON.stringify(old.args)!==JSON.stringify(args))return refusal('The original change still needs checking. Reload to check saved changes.');
-  const goal=goalOf(args);
+  let goal=goalOf(args);
+  if(!old&&rpc==='undo_cascade_shift'){
+   // This legacy ledger cascades with course deletion. Retain its owned goal
+   // before issuing Undo so a later deletion can supersede an unknown outcome.
+   const {data,error}=await client.rpc('read_scheduler_recovery',{p_operation_id:args.p_operation_id,p_rpc:rpc,p_goal_id:null});
+   if(error||data?.status!=='ready'||!data.receiptPresent||typeof data.goalId!=='string')return refusal('Undo could not be checked safely. Reload before retrying.');
+   goal=data.goalId;
+  }
   if(entries.some(e=>e.phase==='issued'&&e!==old&&(e.goal===goal||!e.goal||!goal)))return refusal('An earlier change still needs checking. Reload to check saved changes.');
   entry=old??{version:1,owner,operation:args.p_operation_id,rpc,args:structuredClone(args),goal,phase:'issued',uncertain:false};
   if(!old&&rpc==='commit_scheduler_respread')entry.covers=entries.filter(e=>e.phase==='tail'&&e.goal===goal).map(key);
