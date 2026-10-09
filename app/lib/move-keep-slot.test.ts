@@ -343,10 +343,11 @@ test('Plan: every single-lesson move, and the Shift all trigger lesson, go throu
   }
   // "Move just this lesson" is performMove.
   assert.match(src, /onMoveJustThis=\{\(\) => \{[\s\S]{0,200}performMove\(c\.lessonId, c\.fromDateStr, c\.toDateStr\)/)
-  // Shift all pins the trigger lesson without holds, then re-spreads.
+  // Cascade uses one server transaction, without the single-move writer.
   const shift = src.slice(src.indexOf('const handleShiftAllForward = useCallback'), src.indexOf('// ── Past-date move with optional completion'))
-  assert.match(shift, /moveLessonKeepSlot\(supabase, \{[^}]*holdBetween: false/)
-  assert.ok(shift.indexOf('moveLessonKeepSlot(') < shift.indexOf('reprojectGoalTail('), 'the pin lands before the re-spread')
+  assert.match(shift, /shiftCurriculumSessions\(supabase,/)
+  assert.doesNotMatch(shift, /moveLessonKeepSlot\(|reprojectGoalTail\(/)
+
 })
 
 test('the dialog still offers both choices and still makes its promise', () => {

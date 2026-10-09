@@ -78,7 +78,7 @@ import { oneOffLessonRows } from "./oneOffLessonRows";
 import WeekPlannerModal from "./WeekPlannerModal";
 import { weekPlanRows, type WeekPlanInput } from "./weekPlan";
 import { shiftManualPlan } from "./shiftManualPlan";
-import { checkCascadeShift, type CascadeSnapshotRow } from "../../lib/cascade-shift-preflight";
+import { shiftCurriculumSessions, undoCurriculumShift } from "../../lib/cascade-shift-transaction";
 import LessonSearchModal, { type LessonSearchResult } from "./LessonSearchModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
@@ -105,17 +105,14 @@ import {
   bulkDeleteConfirmCopy,
   bulkDeleteFailureNotice,
   computeGapLessonsForGoal,
-  reprojectGoalForParent,
   resyncGoalsForParent,
   sourceForUndoRestore,
   isProjectorPlacedSource,
   addLessonPlacement,
   PARENT_RESPREAD_SOURCE,
   COMPLETION_RESPREAD_FAILED_NOTE,
-  type ParentRespreadSource,
   toGoalConfig,
   GOAL_CONFIG_COLUMNS,
-  type CurriculumGoalConfig,
   type GoalConfigRow,
   type QueueHold,
   type VacationBlock as SchedVacationBlock,
@@ -269,17 +266,6 @@ type ReprojectSnapshotRow = {
   date: string | null;
   queue_pinned: boolean | null;
   scheduled_source: string | null;
-  /** Read by the cascade shift only, to prove its undo restored the order. */
-  queue_position?: number | null;
-};
-
-/** One goal's parent re-spread, as reprojectGoalTail reports it. */
-type TailReprojectOutcome = {
-  ok: boolean;
-  /** Failed, AND some rows moved that could not be put back. */
-  partial: boolean;
-  /** Prior state of exactly the rows this action changed, for Undo. */
-  undoRows: ReprojectSnapshotRow[];
 };
 
 const UNDO_INCOMPLETE_NOTICE =
@@ -4597,244 +4583,61 @@ export default function PlanV2() {
   }, [effectiveUserId]);
 
 
-  /**
-   * Snapshot, then re-project and unpin ONE goal's incomplete tail, as a
-   * parent's action (reprojectGoalForParent, never the automatic reconciler).
-   *
-   * This is the shared shape of every bulk reschedule now: never hand-place
-   * dates, never pin rows the projector will have to fight. Hand-placing was
-   * the defect that scrambled 30 families through the old shift-forward flow
-   * (see 04fa1eb) and it had two more instances, push-back and cascade-shift,
-   * which both call this instead.
-   *
-   * Why pinning the tail is wrong. `batchUpdateScheduledDates(pairs,
-   * "plan_move", true)` sets queue_pinned but never queue_position, and
-   * reconcileGoalScheduleCache derives its pin set FROM queue_position. So a
-   * pinned row with a null slot is invisible to the pin set (the projector
-   * double-books its date) while still being skipped by the writer, and a
-   * pinned row WITH a slot freezes the tail: pins only retire on completion,
-   * so the documented auto-roll stops for that goal until every lesson is done.
-   *
-   * `from` is where the projection starts. Push-back passes the resume date so
-   * the pause is honored; cascade-shift passes today and lets the pinned
-   * trigger lesson shape the tail. `keepPinnedIds` protects rows that are
-   * legitimately pinned by the user in this same operation, i.e. the lesson
-   * just moved through the move_lesson_to_date RPC, which pins it correctly
-   * (slot AND flag together).
-   *
-   * On success `undoRows` holds the prior state of exactly the rows it changed.
-   * On failure it has already put back whatever it moved; `partial` says that
-   * restore did not fully land either.
-   */
-  const reprojectGoalTail = useCallback(async (
-    config: CurriculumGoalConfig,
-    opts: { from?: Date; keepPinnedIds?: string[]; source: ParentRespreadSource },
-  ): Promise<TailReprojectOutcome> => {
-    // (a) Snapshot BEFORE touching anything. A failed read means we skip the
-    // goal rather than change rows we could never restore.
-    const { data: snapRows, error: snapErr } = await supabase
-      .from("lessons")
-      .select("id, scheduled_date, date, queue_pinned, scheduled_source")
-      .eq("curriculum_goal_id", config.id)
-      .eq("completed", false);
-    if (snapErr || !snapRows) return { ok: false, partial: false, undoRows: [] };
-    const snapshot = snapRows as unknown as ReprojectSnapshotRow[];
-
-    // (b) Project first, then write each row's new date and its unpin in one
-    // update, under the parent's own source. This does not go through the
-    // automatic reconciler: its switch (NEXT_PUBLIC_SCHEDULER_SYNC_ENABLED) is
-    // for background resyncs, and routing a parent's tap through it meant the
-    // switch being off cleared the pins, wrote no dates, and still said done.
-    const result = await reprojectGoalForParent(
-      supabase,
-      config,
-      vacationBlocks as unknown as SchedVacationBlock[],
-      { from: opts.from ?? new Date(), source: opts.source, keepPinnedIds: opts.keepPinnedIds },
-    );
-    const written = new Set(result.writtenIds);
-    const changed = snapshot.filter((s) => written.has(s.id));
-    if (result.ok) return { ok: true, partial: false, undoRows: changed };
-
-    // (c) Some rows may have moved before a later request failed. Put them
-    // back now, so a failure leaves the goal as it was rather than half done.
-    if (changed.length === 0) return { ok: false, partial: false, undoRows: [] };
-    const rolledBack = await restoreLessonSnapshot(changed);
-    return { ok: false, partial: !rolledBack.ok, undoRows: [] };
-  }, [vacationBlocks, restoreLessonSnapshot]);
-
-
-  /**
-   * Cascade shift: the family moved one lesson and chose to shift the rest.
-   *
-   * The move itself goes through move_lesson_keep_slot, which pins the lesson
-   * on its new day in its own queue slot (queue_position and queue_pinned are
-   * never out of step). Everything after it is then unpinned and re-projected,
-   * and the projector lays every later slot out AFTER the pinned lesson by
-   * itself. That is exactly the "this moved, shift the rest after it" intent,
-   * without the hand-placed dates the old implementation wrote.
-   *
-   * The old version pinned the whole tail with no queue_position, which froze
-   * the goal's auto-roll until every lesson was completed.
+  /** Shift the chosen queue suffix by the promised teaching-day offset.
+   * Existing pins stay anchors and shift with it. A checked server transaction
+   * commits every date/pin together and owns expected-state protected Undo.
+   * No keep-slot/re-spread fallback can partially commit the trigger.
    */
   const handleShiftAllForward = useCallback(async (c: {
-    lessonId: string;
-    fromDateStr: string;
-    toDateStr: string;
-    goalId: string;
-    shiftDays: number;
+    lessonId: string; fromDateStr: string; toDateStr: string; goalId: string; shiftDays: number;
   }) => {
     setCascadeChoice(null);
     setBulkBusy(true);
-
-    // GOAL_CONFIG_COLUMNS + toGoalConfig, never a hand-rolled column list:
-    // curriculumGoals state omits lessons_per_day_overrides, and a config
-    // built without it silently falls back to the flat lessons_per_day.
-    const { data: goalRow, error: goalErr } = await supabase
-      .from("curriculum_goals")
-      .select(GOAL_CONFIG_COLUMNS)
-      .eq("id", c.goalId)
-      .maybeSingle();
-    if (goalErr || !goalRow) {
+    try {
+      const start = new Date(`${todayStr}T00:00:00`);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 1);
+      const result = await shiftCurriculumSessions(supabase, {
+        operationId: crypto.randomUUID(), goalId: c.goalId, lessonId: c.lessonId,
+        from: c.fromDateStr, to: c.toDateStr, localDay: todayStr,
+        dayStartIso: start.toISOString(), dayEndIso: end.toISOString(),
+      });
+      if (result.status !== "applied") {
+        flashNotice(result.status === "unknown"
+          ? "Couldn't confirm the shift. Refresh Plan and check the dates before trying again."
+          : result.reason === "stale" || result.reason === "selection"
+            ? "The schedule changed while this move was open. Nothing moved. Refresh Plan and try again."
+            : "Couldn't safely preserve this schedule's spacing. Nothing moved.");
+        reloadPins(); reload();
+        return;
+      }
+      flagLanded(c.lessonId);
+      hapticTap(20);
+      recordEvent("lesson.bulk_action", {
+        action: "shift_forward_cascade", count: result.writtenIds.length,
+        goal_ids: [c.goalId], school_days_shifted: c.shiftDays,
+        succeeded: result.writtenIds.length, failed: 0,
+        trigger_lesson_id: c.lessonId, goal_id: c.goalId,
+        operation_id: result.operationId,
+      });
+      const name = curriculumGoals.find(g => g.id === c.goalId)?.curriculum_name ?? "this curriculum";
+      setUndoAction({
+        message: `Shifted ${result.writtenIds.length} lessons in ${name}`,
+        key: `shift-forward-cascade:${result.operationId}`,
+        onUndo: async () => {
+          const undone = await undoCurriculumShift(supabase, result.operationId);
+          if (undone !== "undone") flashNotice(undone === "stale"
+            ? "The schedule changed after this shift, so Undo left it as it is."
+            : "Couldn't confirm Undo. Refresh Plan and check the dates.");
+          reloadPins(); reload();
+        },
+      });
+      reloadPins(); reload();
+      if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
+    } finally {
       setBulkBusy(false);
-      flashNotice("Couldn't load this curriculum, nothing moved. Try again.");
-      return;
     }
-    const config = toGoalConfig(goalRow as unknown as GoalConfigRow);
-
-    // Snapshot first: it covers the moved lesson too (it is incomplete), so
-    // Undo restores its date and pin state along with the rest of the tail,
-    // and queue_position so Undo can prove the queue order came back.
-    const { data: snapRows, error: snapErr } = await supabase
-      .from("lessons")
-      .select("id, scheduled_date, date, queue_pinned, scheduled_source, queue_position, completed, skipped, is_backfill")
-      .eq("curriculum_goal_id", c.goalId)
-      .eq("completed", false);
-    if (snapErr || !snapRows) {
-      setBulkBusy(false);
-      flashNotice("Couldn't read this curriculum's schedule, nothing moved. Try again.");
-      return;
-    }
-    const snapshot = snapRows as unknown as ReprojectSnapshotRow[];
-
-    const preflight = checkCascadeShift(config, snapRows as CascadeSnapshotRow[], vacationBlocks, c,
-      new Date(`${todayStr}T00:00:00`));
-    if (!preflight.ok) {
-      setBulkBusy(false);
-      flashNotice(preflight.reason === "changed"
-        ? "This lesson changed since the move was opened. Nothing moved. Refresh Plan and try again."
-        : "This shift would change the spacing of lessons already on your plan, so nothing moved.");
-      return;
-    }
-
-    // Pin the trigger lesson on its new day WITHOUT renumbering the queue
-    // (move_lesson_keep_slot). The re-spread below then lays every later slot
-    // out after that pin, which is the shift the dialog promised. It used to
-    // go through move_lesson_to_date, which gave the lesson the slot at the
-    // end of its new day and slid the lessons in between down one: the
-    // re-spread then packed those from today, so they moved EARLIER, and the
-    // finish date the dialog named never arrived (rooted-staging, 2026-09-24).
-    // Never fall back to that reorder here, including when the keep-slot
-    // function is unavailable or refuses a stale / unslotted lesson.
-    const kept = await moveLessonKeepSlot(supabase, {
-      lessonId: c.lessonId,
-      targetDate: c.toDateStr,
-      localDay: todayStr,
-      holdBetween: false,
-    });
-    if (kept.status !== "moved") {
-      setBulkBusy(false);
-      flashNotice(kept.status === "unavailable"
-        ? "Couldn't safely shift this curriculum, nothing moved. Please contact support."
-        : kept.status === "failed"
-          ? "Couldn't confirm the move. Refresh Plan and check the lesson before trying again."
-          : "Couldn't shift this curriculum, nothing moved. Refresh Plan and try again.");
-      return;
-    }
-
-    // Unpin and re-project everything else. keepPinnedIds protects the lesson
-    // we just pinned through the RPC.
-    const tail = await reprojectGoalTail(config, {
-      keepPinnedIds: [c.lessonId],
-      source: PARENT_RESPREAD_SOURCE.cascade,
-    });
-    const ok = tail.ok;
-    const movedPrior = snapshot.find((s) => s.id === c.lessonId) ?? null;
-    const tailUndoRows = tail.undoRows.filter((s) => s.id !== c.lessonId);
-
-    setLessons((prev) =>
-      prev.map((l) =>
-        l.id === c.lessonId ? { ...l, scheduled_date: c.toDateStr, date: c.toDateStr } : l,
-      ),
-    );
-    flagLanded(c.lessonId);
-    hapticTap(20);
-
-    recordEvent("lesson.bulk_action", {
-      action: "shift_forward_cascade",
-      count: snapshot.length,
-      goal_ids: [c.goalId],
-      school_days_shifted: c.shiftDays,
-      succeeded: ok ? tail.undoRows.length : 0,
-      failed: ok ? 0 : 1,
-      trigger_lesson_id: c.lessonId,
-      goal_id: c.goalId,
-    });
-
-    const curriculumName =
-      curriculumGoals.find((g) => g.id === c.goalId)?.curriculum_name ?? "this curriculum";
-    setUndoAction({
-      // Nothing re-spreads the tail later: the background reconciler may be
-      // switched off, so never promise that it will "settle".
-      message: ok
-        ? `Moved the lesson and re-spread the rest of ${curriculumName}`
-        : tail.partial
-          ? `Moved the lesson, but the rest of ${curriculumName} only partly moved, so check it`
-          : `Moved the lesson, but couldn't re-spread the rest of ${curriculumName}. They kept their dates.`,
-      key: `shift-forward-cascade:${Date.now()}`,
-      onUndo: async () => {
-        hapticTap(20);
-        // Keep-slot moves never renumber the queue. Restore the tail and
-        // trigger lesson directly, then verify the order stayed unchanged.
-        const undone = await restoreLessonSnapshot(tailUndoRows);
-        let ok = undone.ok;
-        if (movedPrior) {
-          const back = await restoreLessonSnapshot([movedPrior]);
-          if (!back.ok) ok = false;
-        }
-        const { data: slotsNow } = await supabase
-          .from("lessons")
-          .select("id, queue_position")
-          .in("id", snapshot.map((s) => s.id));
-        const slotById = new Map(((slotsNow ?? []) as { id: string; queue_position: number | null }[]).map((r) => [r.id, r.queue_position]));
-        const orderRestored = snapshot.every((s) => slotById.get(s.id) === (s.queue_position ?? null));
-        if (!ok) flashNotice(UNDO_INCOMPLETE_NOTICE);
-        else if (!orderRestored) {
-          flashNotice("Dates are back, but the lesson order changed. Check this curriculum on Plan.");
-          recordEvent("lesson.bulk_action", {
-            action: "shift_forward_cascade_undo",
-            count: snapshot.length,
-            goal_ids: [c.goalId],
-            succeeded: 0,
-            failed: 1,
-            trigger_lesson_id: c.lessonId,
-            goal_id: c.goalId,
-          });
-        }
-        reloadPins();
-        reload();
-      },
-    });
-
-    reloadPins();
-    reload();
-    setBulkBusy(false);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("rooted:lessons-updated"));
-    }
-  }, [
-    curriculumGoals, setLessons, flagLanded, reprojectGoalTail,
-    restoreLessonSnapshot, recordEvent, reload, reloadPins, todayStr, vacationBlocks,
-  ]);
+  }, [curriculumGoals, flagLanded, recordEvent, reload, reloadPins, todayStr]);
 
   // ── Past-date move with optional completion ──────────────────────────────
   // When a mom picks a past date for a single lesson, the move itself

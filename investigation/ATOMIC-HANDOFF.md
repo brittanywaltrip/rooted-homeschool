@@ -1,0 +1,57 @@
+# Local atomic cascade continuation — 2026-10-09
+
+## Status and isolation
+
+Local candidate only; not live and not release-ready. Branch `fix/cascade-atomic-shift` in `rooted-cascade-atomic` is based on frozen `cdd5d4fb52222688e65af53186510af4890cfecc`. The other frozen checkout remains `beb53fa9479dc63ed723a519637a6d7eafcf947d`. This continuation does not modify shared staging, PR #146, real records, deployment settings or remote code. No push, migration application, email or account mutation occurred. Local PostgreSQL and a loopback browser used only generated fixtures, without loading an env file.
+
+## Implemented behavior
+
+`cascade-shift-plan.ts` computes one teaching-day-offset move for the chosen queue suffix. Existing later pins move with their lessons and remain anchors; only the selected lesson gains a pin. Earlier rows, order, IDs, titles, notes, minutes/hours, completion/skip/backfill/continuation fields are not written. A comparison against the actual shared projector verifies that the promised dates can survive normal projection. Regular weekly schedules, Sunday schedules, existing pinned gaps, multiple gap anchors, holidays, repeat moves and a later suffix can succeed.
+
+`cascade-shift-transaction.ts` reads a complete snapshot from the new owner-scoped RPC, plans, and submits the exact expected state to one atomic commit. Retries use the same operation ID and payload. A lost response is never reported as “nothing moved”; an uncertain result asks the parent to refresh/check. There is no fallback to the legacy reorder RPC or sequential client writes. PlanV2's actual callback now uses this coordinator and registers server-receipt Undo only after confirmed success. The dead cascade-only reproject callback was removed; other parent re-spread features are untouched.
+
+`supabase/proposals/cascade_shift_atomic.sql` is a review draft, deliberately outside the migration ledger because the Supabase CLI is unavailable. It defines owner-checked snapshot/commit/Undo RPCs and private RLS-protected receipts. Commit locks the goal and its rows, rechecks the entire snapshot/settings/breaks, checks exact suffix scope, offset, pins, capacity and order, and writes only four scheduling columns. Any write failure rolls back all row changes and the receipt. Undo uses the stored authoritative preimage, refuses any subsequent goal/lesson/break/membership change, expires after ten minutes, and rolls back atomically on failure. Retry tokens are idempotent. No installation SQL changes existing lessons.
+
+## Deliberate limits and remaining blockers
+
+- Unpinned gaps that the existing projector cannot represent are refused. Earlier overdue unfinished rows may also make exact preservation impossible under current projection rules. This solves successful anchored-gap shifting, not arbitrary gap semantics. Supporting arbitrary gaps needs durable movable gap state or an explicitly accepted anchor policy across Today, Plan, completion, and automatic rollover; pinning the entire tail is not acceptable.
+- Pre-existing swapped slots, such as the reported collision pairs, are refused. This feature is not an automatic data repair.
+- The SQL rehearsal uses the repository's builder test schema stub plus necessary columns/FKs and a synthetic updated-at/failure trigger. It is real PostgreSQL transaction testing, not full production-schema or deployed Supabase/PostgREST verification. Full-schema triggers, RLS, constraints, authenticated transport and performance require a separate disposable integration environment.
+- The draft takes a short SHARE lock on the entire vacation table to prevent concurrent break edits. Review lock ordering/contention before release, preferably introducing a consistent owner-level protocol for all break writers.
+- Receipts currently retain complete snapshots (including notes) and request copies. Define private retention/cleanup and reduce unnecessary copied content before deployment. Never send snapshot payloads to analytics.
+- Server validation independently checks offset/scope/order/capacity/pins. The exact shared-projector equivalence check is currently client-side; review whether its invariant needs independent server enforcement before exposing the endpoint.
+- **Older open clients remain a release blocker.** The new endpoints do not remove/guard the old `move_lesson_to_date` followed by direct unpin/re-spread path. An app deployment alone cannot protect already initialized bundles. Trace all legitimate old RPC/direct-write callers and add narrowly scoped server protection plus a forced-refresh/version transition before claiming containment for stale clients. Do not indiscriminately revoke all lesson writes.
+
+## Verification and artifacts
+
+- Full unit suite after integration: 2,105 tests; 2,097 pass, 8 skip, 0 fail. One later-suffix test was subsequently added and passed in the focused planner run.
+- TypeScript `tsc --noEmit --incremental false`: clean.
+- Changed TS/TSX ESLint: no errors, 12 existing Plan warnings after removing the newly unused import. Whole-repository lint has 79 errors both here and in frozen cdd5d4f; it is not a passing gate. Logs: `atomic-lint.txt` and `preflight-baseline-full-lint.txt`.
+- Disposable PostgreSQL rehearsal: 15 SQL cases plus one browser/SQL case passed. Includes exact successful pinned-gap dates/pins, content preservation, idempotent commit and Undo, stale notes/completion/breaks, failure on the second commit/Undo row with complete rollback, owner/anonymous rejection, partial/over-pinned payload rejection, concurrent commits, repeated shift and stale older Undo.
+- Browser case renders the actual dialog and invokes the extracted actual callback, real coordinator and actual draft SQL RPCs through a local adapter. The React app shell and Supabase HTTP transport are stubbed. It is not a logged-in full-app E2E test. A screenshot was visually inspected: ordinary final row stays unpinned, existing gap anchor advances, synthetic note/minutes remain. Undo restores the dates.
+- Logs/results under `../investigation-evidence/atomic-*`. Browser images: `atomic-browser/pinned-gap-shift.png`, `atomic-browser/undo.png`. Re-run: `node investigation/atomic-db-rehearsal.mjs` (requires local PostgreSQL 17 binaries and cached Playwright Chromium). The harness shuts its disposable database down in `finally`.
+
+## Updated historical evidence from parent
+
+The existing frozen historical harness reproduced swapped adjacent queue slots, same-day overlaps, and misleading 52/51 success counts from the old callback with the automatic reconciler switch false. Its 53-row synthetic fixtures proved that fingerprint, but they did not incorporate the later-discovered 50/49 preview counts or finish dates; do not present those fixtures as an exact reconstruction.
+
+Parent found September 21 client initialization at 17:42:02.730 UTC and a 17:42:19.979 Plan pageview shared by the 21:51–21:52 reschedule clicks. This predates both 20:01 containment deployment and the 21:19-ready production deployment at `978d7c6bed7668388b6270d9bdbbd6bf6892f187`. That deployed source already called `reprojectGoalForParent`, while the older initialized browser could retain the old callback. Strong stale-client evidence, not exact bundle proof: no app release field was recorded, and the historical public switch value is not exposed. The SDK version is not an app build version.
+
+The calendar opened September 20 for the first action and September 22 for the second; date input values were not captured. Current trigger destinations September 27/29 and explicit one-school-day promises strongly support fulfilling a one-week forward shift as the intended result. Preview: 50 later lessons ending September 12, 2027 (Sunday), 49 later ending September 7, 2027 (Tuesday). Success events count 52 and 51, respectively, exceeding selected-plus-later by one in each case. That is consistent with the old whole-incomplete-goal count including an earlier unfinished lesson; it is not proof every counted row actually changed.
+
+## Proposed customer repair, for review only
+
+Fulfill the chosen forward-session result; do not claim an exact historical Undo. The previous tail unpin destroys information, and independent analysis demonstrated two distinct prior pin states can map to identical final rows. No discovered account-specific backup covered these two goals. Provider backups/PITR remain unverified, not known absent.
+
+A regular-grid candidate consistent with the preview is Sunday selected lesson 2 at September 27, lesson 3 October 4, … ending September 12, 2027; Tuesday selected lesson 3 September 29, lesson 4 October 6, … ending September 7, 2027. Selected plus later comprises 51 Sunday rows and 50 Tuesday rows. The parent reports 52/51 total rows, leaving one extra row in each course that must remain unchanged. Do not infer total course length or missing/completed row membership from those counts. This is a constrained candidate, not authorization to overwrite unknown gaps/pins. The parent has requested the 103-row minimal inventory/settings; use it when available to prepare a disposable fixture and exact diff.
+
+Before producing a row-level dry-run, the parent analyst should provide owner-scoped aggregates for each affected goal: total and complete/skipped/backfill/continuation counts; pointer; min/max and count of ordinary lesson numbers and queue slots; current selected row/next row; current last ordinary lesson number/date; count of dates differing from the inferred pre-shift weekly grid; all current pins/source categories; any row versions after the incident. The precise final date and tail count can confirm/reject the regular-grid candidate without fetching lesson titles or notes. Preserve every current row ID/content/link, all earlier lessons, and known current anchors. Do not regenerate or delete rows. Any unknown former pin remains explicitly unknown.
+
+Once evidence permits it, prepare a row-by-row before/after date+slot diff only for the two courses, including the minimal two-slot order repair and later-date advancement, with all protected fields unchanged. Test that proposed result in an isolated fixture across Plan/Today/auto-roll; if prior earlier incomplete work changes its projection, the proposal needs a schedule-anchor decision. An approved repair transaction must lock and compare exact expected state, save a recoverable preimage and audit result, and abort if anything changed. No customer question or record mutation has been made here.
+
+## Proposed release sequence
+
+1. Independent review of the local diff and SQL, including legacy-client protections and gap limits. Preserve the frozen containment branches and shared staging reservation.
+2. Full-schema disposable rehearsal with real auth/PostgREST, all relevant triggers, note/completion conflicts, earlier incomplete work, variable pace, new/repeated actions, refresh, and Plan/Today rollover. Formalize receipt retention and legacy-client transition.
+3. Obtain separate approval for migration/deployment and any customer repair, with concrete reviewed diffs. Install schema compatibly before enabling the new client; missing RPCs fail closed. Do not release this client alone as a complete fix.
+4. Monitor versioned atomic operation outcomes and confirmed mismatches, without logging family content. September 7–October 8's 142 shift-choice clicks across 16 PostHog people (10 clicks for Kandl) are observed usage, not confirmed affected users or a complete upper bound.

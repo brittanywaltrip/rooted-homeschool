@@ -641,14 +641,9 @@ test('Unskip and Today catch-up date lessons themselves instead of waiting for t
   assert.ok(yes.indexOf('resyncGoalsForParent(') > yes.indexOf('recomputeCurrentLesson('), 'after the completions move the pointer')
 })
 
-test('cascade undo restores dates without renumbering, and checks the order', () => {
+test('cascade Undo uses its server receipt without a client snapshot overwrite', () => {
   const src = stripComments(read('app/components/PlanV2/index.tsx'))
   const fn = src.slice(src.indexOf('const handleShiftAllForward'), src.indexOf('const handlePastDateMove'))
-  const undo = fn.slice(fn.indexOf('onUndo:'))
-  const restoreAt = undo.indexOf('restoreLessonSnapshot(tailUndoRows)')
-  const movedAt = undo.indexOf('restoreLessonSnapshot([movedPrior])')
-  assert.ok(restoreAt !== -1 && movedAt > restoreAt, 'tail dates first, then the moved lesson')
-  assert.ok(!fn.includes('"move_lesson_to_date"'), 'cascade and undo never renumber slots')
-  assert.ok(/queue_position/.test(fn.slice(0, fn.indexOf('onUndo:'))), 'the snapshot carries the slot')
-  assert.ok(/orderRestored/.test(undo), 'the undo proves the order came back')
+  assert.match(fn, /undoCurriculumShift\(supabase, result.operationId\)/)
+  assert.doesNotMatch(fn, /restoreLessonSnapshot|move_lesson_to_date|reprojectGoalTail/)
 })

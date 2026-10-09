@@ -3,7 +3,6 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
-import { makeMemorySupabase } from './test-helpers/memory-supabase.ts'
 
 // Exercise the actual component callback, without mounting the calendar or
 // connecting to a database. Compile only this callback; all effects are fakes.
@@ -24,39 +23,50 @@ const compiled = ts.transpileModule(`globalThis.run = ${callback.getText(ast)};`
 }).outputText
 
 for (const result of [
-  { status: 'unavailable' },
-  { status: 'not_movable', reason: 'no_slot' },
-  { status: 'not_movable', reason: 'completed' },
-  { status: 'not_movable', reason: 'skipped' },
-  { status: 'not_movable', reason: 'not_later' },
-  { status: 'failed', reason: 'connection' },
+  { status: 'refused', reason: 'unavailable' },
+  { status: 'refused', reason: 'selection' },
+  { status: 'refused', reason: 'unrepresented_gap' },
+  { status: 'refused', reason: 'stale' },
+  { status: 'refused', reason: 'transaction' },
+  { status: 'unknown', operationId: 'op' },
 ]) {
-  test(`Shift all refuses ${result.status}/${result.reason ?? 'missing RPC'} without a reorder or tail write`, async () => {
-    const seed = {
-      curriculum_goals: [{ id: 'g' }],
-      lessons: [{ id: 'L4', curriculum_goal_id: 'g', completed: false, queue_position: 4, scheduled_date: '2026-09-24' }],
-    }
-    const { client, tables } = makeMemorySupabase(seed)
+  test(`Shift all handles ${result.status}/${result.reason ?? 'unknown response'} without fallback writes or success`, async () => {
     const effects: string[] = []
     const busy: boolean[] = []
     const notices: string[] = []
     const context = {
-      supabase: { ...client, rpc: async () => { effects.push('legacy reorder'); return { error: null } } },
-      GOAL_CONFIG_COLUMNS: 'id', toGoalConfig: (g: unknown) => g,
-      todayStr: '2026-09-24', vacationBlocks: [], checkCascadeShift: () => ({ ok: true }),
+      supabase: { rpc: async () => { effects.push('unexpected direct RPC'); throw Error('unexpected') } },
+      todayStr: '2026-09-24', crypto: { randomUUID: () => 'op' },
       setCascadeChoice: () => {}, setBulkBusy: (b: boolean) => busy.push(b),
       flashNotice: (s: string) => notices.push(s),
-      moveLessonKeepSlot: async () => result,
-      reprojectGoalTail: async () => { effects.push('tail write'); throw new Error('unexpected tail write') },
-      PARENT_RESPREAD_SOURCE: { cascade: 'plan_cascade_shift' },
+      shiftCurriculumSessions: async () => result,
+      recordEvent: () => effects.push('success event'), setUndoAction: () => effects.push('Undo'),
+      reloadPins: () => {}, reload: () => {},
     }
     runInNewContext(compiled, context)
     const run = (context as unknown as { run: (c: unknown) => Promise<void> }).run
     await run({ lessonId: 'L4', goalId: 'g', fromDateStr: '2026-09-24', toDateStr: '2026-09-29', shiftDays: 3 })
     assert.deepEqual(effects, [])
-    assert.deepEqual(tables, seed)
     assert.deepEqual(busy, [true, false])
     assert.equal(notices.length, 1)
-    assert.match(notices[0], result.status === 'failed' ? /Couldn't confirm the move/ : /nothing moved/i)
+    assert.match(notices[0], result.status === 'unknown' ? /Couldn't confirm/ : /nothing moved/i)
   })
 }
+
+test('actual callback registers receipt Undo only after atomic success', async () => {
+  const calls: string[] = [], notices: string[] = []
+  let undo: (() => Promise<void>) | undefined
+  const context = {
+    supabase: {}, todayStr: '2026-09-24', crypto: { randomUUID: () => 'op' }, curriculumGoals: [],
+    setCascadeChoice: () => {}, setBulkBusy: () => {}, flagLanded: () => {}, hapticTap: () => {},
+    flashNotice: (s: string) => notices.push(s), reloadPins: () => {}, reload: () => {},
+    shiftCurriculumSessions: async () => ({ status: 'applied', operationId: 'op', writtenIds: ['L4', 'L5'] }),
+    recordEvent: (_name: string, data: {count: number}) => { assert.equal(data.count, 2); calls.push('success') },
+    setUndoAction: (action: {onUndo: () => Promise<void>}) => { undo = action.onUndo },
+    undoCurriculumShift: async (_client: unknown, id: string) => { assert.equal(id, 'op'); calls.push('Undo'); return 'stale' },
+  }
+  runInNewContext(compiled, context)
+  await (context as unknown as {run: (c: unknown) => Promise<void>}).run({lessonId: 'L4', goalId: 'g', fromDateStr: '2026-09-24', toDateStr: '2026-09-29', shiftDays: 3})
+  assert.deepEqual(calls, ['success']); assert.ok(undo); await undo()
+  assert.deepEqual(calls, ['success','Undo']); assert.match(notices[0], /left it as it is/)
+})
