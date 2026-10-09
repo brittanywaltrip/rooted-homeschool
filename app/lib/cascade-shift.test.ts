@@ -43,7 +43,7 @@ for (const result of [
     const context = {
       supabase: { ...client, rpc: async () => { effects.push('legacy reorder'); return { error: null } } },
       GOAL_CONFIG_COLUMNS: 'id', toGoalConfig: (g: unknown) => g,
-      todayStr: '2026-09-24',
+      todayStr: '2026-09-24', vacationBlocks: [], checkCascadeShift: () => ({ ok: true }),
       setCascadeChoice: () => {}, setBulkBusy: (b: boolean) => busy.push(b),
       flashNotice: (s: string) => notices.push(s),
       moveLessonKeepSlot: async () => result,

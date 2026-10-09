@@ -1,4 +1,6 @@
-# Cascade gap semantics — separate analysis, no production changes
+# Cascade gap semantics — original analysis
+
+> Superseded follow-up: do not ask the customer questions. See FOLLOWUP-HANDOFF.md for the browser reproduction, isolated candidate, and latest constraints.
 
 The reviewed checkout `../rooted-kandl` remains frozen at **beb53fa9479dc63ed723a519637a6d7eafcf947d**. This checkout is `rooted-gap-analysis`, branch `investigate/cascade-gap-semantics`, based on that exact commit. Only this investigation document and a disposable in-memory characterization test are added. No production implementation is changed.
 

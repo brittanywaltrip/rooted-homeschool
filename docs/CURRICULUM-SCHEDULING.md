@@ -1427,6 +1427,10 @@ pin on a day already past would take them off Today).
   without further writes if the keep-slot RPC is missing or declines the move;
   it must never fall back to `move_lesson_to_date`, which reproduces the earlier
   reorder defect. Undo restores dates and pins directly, without reordering.
+  Before the trigger move, `checkCascadeShift` also verifies that the existing
+  projection can deliver the dates the dialog promises without compressing gaps
+  or changing earlier placements. Unsupported shifts are refused before writing;
+  this is containment, not a gap-preserving scheduler or an atomic commit.
 - **Undo** restores exactly the rows the function reports it changed (each
   row's prior date, pin and source), with no slot arithmetic.
 - **Capacity.** The target day may now hold more than `lessons_per_day` (the

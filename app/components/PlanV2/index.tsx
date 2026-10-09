@@ -78,6 +78,7 @@ import { oneOffLessonRows } from "./oneOffLessonRows";
 import WeekPlannerModal from "./WeekPlannerModal";
 import { weekPlanRows, type WeekPlanInput } from "./weekPlan";
 import { shiftManualPlan } from "./shiftManualPlan";
+import { checkCascadeShift, type CascadeSnapshotRow } from "../../lib/cascade-shift-preflight";
 import LessonSearchModal, { type LessonSearchResult } from "./LessonSearchModal";
 import EditLessonModal, { type EditLessonChanges } from "./EditLessonModal";
 import AppointmentWizard, { type AppointmentSavedInfo } from "@/app/components/AppointmentWizard";
@@ -4705,7 +4706,7 @@ export default function PlanV2() {
     // and queue_position so Undo can prove the queue order came back.
     const { data: snapRows, error: snapErr } = await supabase
       .from("lessons")
-      .select("id, scheduled_date, date, queue_pinned, scheduled_source, queue_position")
+      .select("id, scheduled_date, date, queue_pinned, scheduled_source, queue_position, completed, skipped, is_backfill")
       .eq("curriculum_goal_id", c.goalId)
       .eq("completed", false);
     if (snapErr || !snapRows) {
@@ -4714,6 +4715,16 @@ export default function PlanV2() {
       return;
     }
     const snapshot = snapRows as unknown as ReprojectSnapshotRow[];
+
+    const preflight = checkCascadeShift(config, snapRows as CascadeSnapshotRow[], vacationBlocks, c,
+      new Date(`${todayStr}T00:00:00`));
+    if (!preflight.ok) {
+      setBulkBusy(false);
+      flashNotice(preflight.reason === "changed"
+        ? "This lesson changed since the move was opened. Nothing moved. Refresh Plan and try again."
+        : "This shift would change the spacing of lessons already on your plan, so nothing moved.");
+      return;
+    }
 
     // Pin the trigger lesson on its new day WITHOUT renumbering the queue
     // (move_lesson_keep_slot). The re-spread below then lays every later slot
@@ -4822,7 +4833,7 @@ export default function PlanV2() {
     }
   }, [
     curriculumGoals, setLessons, flagLanded, reprojectGoalTail,
-    restoreLessonSnapshot, recordEvent, reload, reloadPins, todayStr,
+    restoreLessonSnapshot, recordEvent, reload, reloadPins, todayStr, vacationBlocks,
   ]);
 
   // ── Past-date move with optional completion ──────────────────────────────
