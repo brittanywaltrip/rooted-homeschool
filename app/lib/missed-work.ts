@@ -19,6 +19,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   computeGapLessonsForGoal,
+  isPinnedSlot,
   computeTodayLessons,
   loadPinsByGoal,
   toGoalConfig,
@@ -104,8 +105,13 @@ export function computeMissedWork(args: {
     if (!gapStart) continue;
     const cfg = toGoalConfig(goal);
     const holds = args.holdsByGoal.get(goal.id) ?? [];
-    // A skipped lesson is never offered as one they might have done.
-    const gap = computeGapLessonsForGoal(cfg, gapStart, args.todayMid, args.vacations, holds);
+    // Preserved work has an authoritative stored date and its own visible list.
+    // The historical projection intentionally ignores pins; never offer its
+    // fabricated dates as completion choices for explicitly preserved slots.
+    // Filter after projection so ordinary catch-up slots keep their dates.
+    const preservedSlots = new Set(holds.filter(isPinnedSlot).filter(h => h.preserved).map(h => h.slot));
+    const gap = computeGapLessonsForGoal(cfg, gapStart, args.todayMid, args.vacations, holds)
+      .filter(p => !preservedSlots.has(p.lesson_number));
     if (gap.length === 0) continue;
     const todaySlots = new Set(
       computeTodayLessons([cfg], args.todayMid, args.vacations, args.doneTodayByGoal, args.holdsByGoal)

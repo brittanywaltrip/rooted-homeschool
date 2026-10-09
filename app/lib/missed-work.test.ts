@@ -202,3 +202,39 @@ test('the gap window: after the last completion, two weeks at most, after the la
   assert.equal(at(new Date(2026, 8, 15, 15).toISOString(), null, '2026-09-18'), '2026-09-19')
   assert.equal(gapStartForGoal({ lastCompletedIso: null, startDate: null, answeredOn: null, todayMid }), null)
 })
+
+for (const weekday of ['Sun', 'Tue']) {
+  test(`preserved ${weekday} prefix is not offered with fabricated catch-up dates`, () => {
+    const goal = { id: GOAL, total_lessons: 52, current_lesson: 0, lessons_per_day: 1,
+      school_days: [weekday], start_date: '2026-09-20' };
+    const args = { goals: [goal], lastCompletedByGoal: new Map<string,string>(), anyCompletion: true,
+      todayMid: new Date('2026-10-09T00:00:00'), vacations: [], doneTodayByGoal: new Map<string,number>() };
+    const ordinary = computeMissedWork({ ...args, holdsByGoal: new Map() });
+    assert.deepEqual((ordinary.get(GOAL) ?? []).map(e=>e.lesson_number), [1,2]);
+    const ordinaryPins = computeMissedWork({ ...args, holdsByGoal: new Map([[GOAL,[
+      {slot:1,date:'2026-10-18'}, {slot:2,date:'2026-10-25',preserved:false},
+    ]]]) });
+    assert.deepEqual((ordinaryPins.get(GOAL) ?? []).map(({lesson_number,date})=>({lesson_number,date})),
+      (ordinary.get(GOAL) ?? []).map(({lesson_number,date})=>({lesson_number,date})));
+    const preserved = computeMissedWork({ ...args, holdsByGoal: new Map([[GOAL,[
+      {slot:1,date:weekday==='Sun'?'2026-09-20':'2026-09-22',preserved:true},
+      {slot:2,date:weekday==='Sun'?'2026-09-27':'2026-09-29',preserved:true},
+    ]]]) });
+    assert.deepEqual([...preserved], [], 'authoritative preserved dates belong to Still unfinished, not historical projection');
+  });
+}
+
+test('Today and Plan omit preserved recovery choices without reassigning ordinary or skipped slots', async () => {
+  const db = seed();
+  db.tables.lessons.find(r=>r.id==='L4')!.skipped=true;
+  const ordinary = await planSide(db);
+  db.tables.lessons.find(r=>r.id==='L3')!.queue_preserved=true;
+  db.tables.lessons.find(r=>r.id==='L5')!.queue_preserved=true;
+  const expected=(ordinary.get(GOAL) ?? []).filter(e=>e.lesson_number!==3 && e.lesson_number!==5);
+  const today=await todaySide(db), plan=await planSide(db);
+  const dates = (rows: MissedEntry[]) => rows.map(({goal_id,lesson_number,date})=>({goal_id,lesson_number,date}));
+  assert.deepEqual(dates(plan.get(GOAL) ?? []),dates(expected));
+  assert.deepEqual(today.get(GOAL),plan.get(GOAL));
+  assert.ok(expected.length>0);
+  assert.ok(expected.every(e=>![1,2,3,4,5].includes(e.lesson_number)));
+});

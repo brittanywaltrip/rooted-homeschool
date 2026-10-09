@@ -1623,7 +1623,11 @@ The shared projector emits preserved work on its stored day independently of
 the completion pointer, but it does not let that work drag the active suffix's
 cursor forward. New cache writers exclude preserved rows. The shared Today/Plan
 “Still unfinished” list has no age or completion-history threshold and links to
-the original Plan date. Explicit completion remains the existing user action;
+the original Plan date. The shared missed-work computation excludes preserved
+slots after historical gap projection: that projection ignores pins and can
+fabricate a different due date. Ordinary catch-up slots keep their historical
+dates; preserved work remains accessible through its authoritative list.
+Explicit completion remains the existing user action;
 no scheduling operation marks earlier work done. Pointer cleanup must exclude
 preserved rows. The daily RPC compares the exact preservation set and rejects
 older payloads lacking it. Atomic Undo restores the prior marker state along
