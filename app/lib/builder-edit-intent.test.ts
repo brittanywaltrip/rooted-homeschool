@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { resolveBuilderEdits } from "./builder-edit-intent.ts";
-import { changedSettings, scheduleSnapshot } from "./builder-settings-restore.ts";
+import { changedSettings, scheduleSnapshot, pointerFor } from "./builder-settings-restore.ts";
 import { clampStartAtLesson, computeNextLessonsForGoal, hasScheduleFieldsChanged } from "./scheduler.ts";
 
 // Execute the actual page's row adapters and pre-write refresh, with a local
@@ -21,7 +21,8 @@ const refreshStart = source.indexOf("    const freshGoals = new Map");
 const refreshEnd = source.indexOf("    const newCurriculumRows = rows.filter", refreshStart);
 const refresh = source.slice(refreshStart, refreshEnd);
 const js = ts.transpileModule([...found.values()].join("\n") + `
-async function refreshRows(rows: Row[], goals: unknown[]) {
+async function refreshRows(rows: Row[], goals: unknown[], canResume = true) {
+  const canOfferProtectedLessonResume = async () => canResume;
   let saveError = null;
   const effectiveUserId = "u";
   const dupReleaseAndExit = (message) => { saveError = message; };
@@ -147,4 +148,58 @@ test("successful save advances its baseline without normalizing untouched stored
   const repeat=await page.refreshRows([settled],[stored]);
   assert.equal(repeat.saveError,null);
   assert.deepEqual(repeat.editPatches.get("g"),{default_minutes:45});
+});
+
+test("later completion progress refreshes an untouched next-lesson field without becoming a history claim", async () => {
+  const form = page.rowFromCurriculumGoal(original);
+  form.name = "Renamed after newer work";
+  const current = {...original, current_lesson: 8};
+  const result = await page.refreshRows([form], [current]);
+  assert.equal(result.saveError, null);
+  assert.deepEqual(result.editPatches.get("g"), {curriculum_name: "Renamed after newer work"});
+  assert.equal(result.rows[0].start_at_lesson, 9);
+  assert.equal(result.rows[0]._dbCurrentLesson, 8);
+  assert.equal(page.scheduleFieldsChangedForRow(result.rows[0]), false);
+});
+
+test("backward next-lesson request behind newer completion refuses before any Builder writes", async () => {
+  const loaded = {...original, current_lesson: 5};
+  const form = page.rowFromCurriculumGoal(loaded);
+  form.start_at_lesson = 3;
+  const result = await page.refreshRows([form], [{...loaded, current_lesson: 8}]);
+  assert.match(result.saveError, /actually on/);
+  assert.equal(result.rows, undefined);
+  assert.equal(pointerFor({ startAtLesson: 3, totalLessons: 20, maxCompletedSlot: 8 }), 8);
+});
+
+test("lowering an unrecorded starting floor remains a supported Builder edit", async () => {
+  const loaded = {...original, start_at_lesson: 6, current_lesson: 5};
+  const form = page.rowFromCurriculumGoal(loaded); form.start_at_lesson = 3;
+  const result = await page.refreshRows([form], [loaded]);
+  assert.equal(result.saveError, null);
+  assert.deepEqual(result.editPatches.get("g"), {start_at_lesson: 3});
+});
+
+
+test("backwards Builder refusal never recommends an unavailable protected action", async () => {
+  const loaded = {...original, current_lesson: 5};
+  const form = page.rowFromCurriculumGoal(loaded); form.start_at_lesson = 2;
+  const result = await page.refreshRows([form], [loaded], false);
+  assert.match(result.saveError, /needs a schedule review/);
+  assert.doesNotMatch(result.saveError, /actually on/);
+  assert.equal(result.rows, undefined);
+});
+
+test("ordinary Save after explicit recalibration refreshes the stale Builder baseline", async () => {
+  const loaded = {...original, current_lesson: 4};
+  const form = page.rowFromCurriculumGoal(loaded);
+  // Exactly the immediate-action handler's local field updates.
+  form.start_at_lesson = 2; form.start_at_lesson_initial = 2;
+  form.progress_confirmed = false; form.name = "New name";
+  const current = {...loaded, current_lesson: 1, start_at_lesson: 2};
+  const result = await page.refreshRows([form], [current]);
+  assert.equal(result.saveError, null);
+  assert.deepEqual(result.editPatches.get("g"), {curriculum_name: "New name"});
+  assert.equal(result.rows[0]._dbCurrentLesson, 1);
+  assert.equal(result.rows[0].start_at_lesson, 2);
 });

@@ -23,6 +23,7 @@ import {
   type PerDayShape,
 } from "@/app/lib/builder-pace";
 import { isPhase2NoOp, planPhase2Rows, builderNextLesson, skippedSlotsFromRows, pinsFromRows, dayHoldsFromRows, splitDoneToday, doneTodayHolds, type PinnableRow, type PinnedSlot, type DayHold, computeNextLessonsForGoal, finishDateFromNextLesson, uncoveredProjectedSlots, forwardScheduleStart, historyBackfillRefusal, projectHistoryBackfill, currentLessonFor, deriveHistoryFromNextLesson, nextLessonSentence, startingFreshSentence, previewLessonLine, storedProgressLine, formatWeekdayLong, formatYmdShort, type DerivedHistory, recomputeCurrentLesson, createInFlightGate, hasScheduleFieldsChanged, isStartAtLessonInRange, clampStartAtLesson, isTotalLessonsAboveProgress, planPhase2LessonInserts, loadReservationRows, reservedSlotsFromRows, type ReservationRow, type VacationBlock as SchedVacationBlock } from "@/app/lib/scheduler";
+import { canOfferProtectedLessonResume } from "@/app/lib/builder-resume-guidance";
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, withBuilderGoalGuard, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
@@ -2114,6 +2115,17 @@ function ScheduleBuilderPageInner() {
         if (error || !data) throw error ?? new Error(`Could not refresh ${row.name}. Reload and try again.`);
         const current = data as CurriculumGoalDbRow;
         if (current.archived || current.completed_at) throw new Error(`${row.name} changed since this tab opened. Reload the Builder before saving.`);
+        // A Builder floor edit cannot resume an unfinished lesson behind
+        // recorded progress: phase 2 retains the completed-slot floor. Sending
+        // this as an ordinary save used to succeed while leaving another
+        // lesson next. The explicit recalibration action owns that intent.
+        if (startAtLessonTouched(row) && row.start_at_lesson <= current.current_lesson &&
+            current.current_lesson >= (current.start_at_lesson ?? 1)) {
+          const canResume = await canOfferProtectedLessonResume(supabase, row.dbId, row.start_at_lesson);
+          throw new Error(canResume
+            ? `${row.name}: to return to lesson ${row.start_at_lesson} while keeping later recorded work, use “I'm actually on...” in this curriculum's More actions menu. This schedule has not been saved.`
+            : `${row.name}: returning to lesson ${row.start_at_lesson} needs a schedule review before it can be saved. Your saved work is unchanged.`);
+        }
         const form = curriculumEditableValues(row);
         // This control displays progress, not the stored pointer floor.
         if (!startAtLessonTouched(row) && row._editBaseline) form.start_at_lesson = row._editBaseline.form.start_at_lesson;

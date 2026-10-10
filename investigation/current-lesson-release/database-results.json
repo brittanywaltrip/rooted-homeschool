@@ -1,0 +1,19 @@
+{
+  "database": "rooted_resume_release_3caa091f",
+  "template": "rooted_production_chain_fixed_v2",
+  "newMigrations": [],
+  "checks": [
+    "invalid server projection rolls back pointer, rows and capability",
+    "newer note rejects stale recalibration with exact preservation",
+    "atomic current lesson 2 preserves later completed history, time, pin and other child exactly",
+    "identical operation replay is write-free",
+    "altered operation reuse refuses without changes",
+    "Undo refuses newer work without erasing it",
+    "bounded Undo restores original fields; original operation cannot reapply afterward"
+  ],
+  "functionFingerprints": {
+    "read_scheduler_state": "eab6717ba633ef6f8a3d73cac0c25ad1",
+    "undo_scheduler_recalibration": "8485cbbb2e71b69cbaca9af35238a84b",
+    "commit_scheduler_recalibration": "57103b591aa712840f46f9a69d806301"
+  }
+}

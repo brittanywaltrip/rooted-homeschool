@@ -1,0 +1,43 @@
+{
+  "base": "fddea641709c6cdbd7b97a5d6e757bc8592b9bd1",
+  "newMigrations": [],
+  "modeChanges": [],
+  "existingPrerequisites": [
+    {
+      "path": "supabase/migrations/20260930200903_apply_builder_rebuild_unslotted_guard.sql",
+      "sha256": "dfa0e2b2a7b0478e386e4a0d10736ea24fc1288f8e31ef921cb3e5332f9d8654",
+      "status": "unchanged prerequisite in recorded live release"
+    },
+    {
+      "path": "supabase/migrations/20261001000000_apply_builder_rebuild_atomic_settings.sql",
+      "sha256": "a3a01488b95f3f832fe94f7c796c0aa730f73a8c574a4c34d9e27fa0aa597b34",
+      "status": "unchanged prerequisite in recorded live release"
+    },
+    {
+      "path": "supabase/migrations/20261005000000_apply_builder_rebuild_unslotted_dates.sql",
+      "sha256": "7d886dd6bbcf6a680019776dca66acd4f22253cb96dea4ed15f4796c737496ae",
+      "status": "unchanged prerequisite in recorded live release"
+    },
+    {
+      "path": "supabase/migrations/20261006000000_reopen_lesson_in_place.sql",
+      "sha256": "897d4fb5f5777a64967c22dd21008ad0b49cd9a8f95d3d742c365c91eae06997",
+      "status": "unchanged prerequisite in recorded live release"
+    },
+    {
+      "path": "supabase/migrations/20261008000000_apply_builder_rebuild_goal_guard.sql",
+      "sha256": "cc49609a3ee2363f86c2ebdda4c2679a763cb1b85da8de80f41a08a503783af0",
+      "status": "unchanged prerequisite in recorded live release"
+    },
+    {
+      "path": "supabase/migrations/20261009174245_kandl_preserved_cascade_and_completion_locks.sql",
+      "sha256": "2d3db3a479e12650e03a8bb9d62e9a8867676f856aff507d7bbb98fc13c8ec4e",
+      "status": "unchanged prerequisite in recorded live release"
+    },
+    {
+      "path": "supabase/migrations/20261009183309_kandl_protected_scheduler_containment.sql",
+      "sha256": "be8368ae2d982ef87636afd1c4d97863834ee1ff23ca1b2a58517f5f6aff630a",
+      "status": "unchanged prerequisite in recorded live release"
+    }
+  ],
+  "freshProductionAttestation": false
+}
