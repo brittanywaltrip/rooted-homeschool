@@ -6,7 +6,7 @@
     },
     {
       "signature": "public.reopen_lesson(uuid,date)",
-      "body_md5": "9611a68a4e546de9501312f90e87c482"
+      "body_md5": "6a6c3a920eeda6c1299309b9ab19df9d"
     },
     {
       "signature": "public.restore_queue_book_order(uuid,date)",

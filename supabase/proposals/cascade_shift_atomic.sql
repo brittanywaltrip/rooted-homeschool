@@ -77,7 +77,7 @@ begin
   end if;
   return jsonb_build_object('status','ready','snapshot',rooted_private.cascade_snapshot(p_goal_id,p_local_day,canonical->>'dayStartIso',canonical->>'dayEndIso'));
 end $$;
-revoke all on function public.read_cascade_snapshot(uuid,date,text,text) from public,anon;
+revoke all on function public.read_cascade_snapshot(uuid,date,text,text) from public,anon,service_role;
 grant execute on function public.read_cascade_snapshot(uuid,date,text,text) to authenticated;
 
 -- Validation only, not a second date picker: count the selected teaching-day

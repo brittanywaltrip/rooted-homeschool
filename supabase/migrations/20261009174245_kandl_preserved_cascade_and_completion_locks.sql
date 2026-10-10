@@ -7,13 +7,14 @@ DO $preflight$ BEGIN
 IF to_regclass('rooted_private.cascade_shift_receipts') IS NOT NULL OR EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid='public.lessons'::regclass AND attname='queue_preserved' AND NOT attisdropped) THEN RAISE EXCEPTION 'Unexpected preexisting cascade/preservation schema; reconcile instead of replay'; END IF;
 IF to_regclass('rooted_private.builder_commit_log') IS NULL OR to_regclass('rooted_private.daily_reconcile_log') IS NULL OR to_regclass('rooted_private.app_switches') IS NULL THEN RAISE EXCEPTION 'Missing reviewed Builder/daily dependencies'; END IF;
 IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=to_regprocedure('rooted_private.lesson_carries_work(text,integer)')) IS DISTINCT FROM 'df8372242d67b3020f3777ac5e8e9c45' THEN RAISE EXCEPTION 'Baseline function drift: rooted_private.lesson_carries_work(text,integer)'; END IF;
-IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=to_regprocedure('public.reopen_lesson(uuid,date)')) IS DISTINCT FROM '9611a68a4e546de9501312f90e87c482' THEN RAISE EXCEPTION 'Baseline function drift: public.reopen_lesson(uuid,date)'; END IF;
+IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=to_regprocedure('public.reopen_lesson(uuid,date)')) IS DISTINCT FROM '6a6c3a920eeda6c1299309b9ab19df9d' THEN RAISE EXCEPTION 'Baseline function drift: public.reopen_lesson(uuid,date)'; END IF;
 IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=to_regprocedure('public.restore_queue_book_order(uuid,date)')) IS DISTINCT FROM '5794a1226fb06f20521913566596a6e2' THEN RAISE EXCEPTION 'Baseline function drift: public.restore_queue_book_order(uuid,date)'; END IF;
 IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=to_regprocedure('public.move_lesson_keep_slot(uuid,date,date,boolean)')) IS DISTINCT FROM 'cc9d61dd703250808b35fad609c38c24' THEN RAISE EXCEPTION 'Baseline function drift: public.move_lesson_keep_slot(uuid,date,date,boolean)'; END IF;
 IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=to_regprocedure('public.move_lesson_to_date(uuid,date)')) IS DISTINCT FROM 'd92d6872b2b14011d247779c6e37c546' THEN RAISE EXCEPTION 'Baseline function drift: public.move_lesson_to_date(uuid,date)'; END IF;
 IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=to_regprocedure('public.apply_builder_rebuild(uuid,date,jsonb,jsonb,jsonb)')) IS DISTINCT FROM 'f31b17b46c25b2458c1ed79656964275' THEN RAISE EXCEPTION 'Baseline function drift: public.apply_builder_rebuild(uuid,date,jsonb,jsonb,jsonb)'; END IF;
 IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=to_regprocedure('public.apply_builder_rebuild(uuid,date,jsonb,jsonb)')) IS DISTINCT FROM '0f6e208035a1d29e4a5172eef0f04c07' THEN RAISE EXCEPTION 'Baseline function drift: public.apply_builder_rebuild(uuid,date,jsonb,jsonb)'; END IF;
 END $preflight$;
+ALTER TABLE rooted_private.builder_commit_log ENABLE ROW LEVEL SECURITY;
 
 -- SOURCE: supabase/proposals/cascade_shift_atomic.sql
 -- LOCAL REVIEW DRAFT ONLY. Never applied remotely. Supabase CLI is unavailable
@@ -95,7 +96,7 @@ begin
   end if;
   return jsonb_build_object('status','ready','snapshot',rooted_private.cascade_snapshot(p_goal_id,p_local_day,canonical->>'dayStartIso',canonical->>'dayEndIso'));
 end $$;
-revoke all on function public.read_cascade_snapshot(uuid,date,text,text) from public,anon;
+revoke all on function public.read_cascade_snapshot(uuid,date,text,text) from public,anon,service_role;
 grant execute on function public.read_cascade_snapshot(uuid,date,text,text) to authenticated;
 
 -- Validation only, not a second date picker: count the selected teaching-day
@@ -664,6 +665,17 @@ begin
   end;
   if not v_row.completed then
     return jsonb_build_object('status', 'not_completed');
+  end if;
+  -- Preserve the prerequisite migration's completion-in-place contract.
+  -- An unslotted curriculum row keeps its parent-owned date, pin and source.
+  if v_goal_id is not null and v_row.queue_position is null then
+    begin
+      update public.lessons set completed = false, completed_at = null where id = p_lesson_id;
+      select g.current_lesson into v_current from public.curriculum_goals g where g.id = v_goal_id;
+      return jsonb_build_object('status', 'requeued', 'in_place', true, 'current_lesson', v_current);
+    exception when others then
+      return jsonb_build_object('status', 'failed', 'reason', sqlerrm, 'sqlstate', sqlstate);
+    end;
   end if;
   begin
     update public.lessons

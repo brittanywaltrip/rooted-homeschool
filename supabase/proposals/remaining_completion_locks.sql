@@ -55,6 +55,17 @@ begin
   if not v_row.completed then
     return jsonb_build_object('status', 'not_completed');
   end if;
+  -- Preserve the prerequisite migration's completion-in-place contract.
+  -- An unslotted curriculum row keeps its parent-owned date, pin and source.
+  if v_goal_id is not null and v_row.queue_position is null then
+    begin
+      update public.lessons set completed = false, completed_at = null where id = p_lesson_id;
+      select g.current_lesson into v_current from public.curriculum_goals g where g.id = v_goal_id;
+      return jsonb_build_object('status', 'requeued', 'in_place', true, 'current_lesson', v_current);
+    exception when others then
+      return jsonb_build_object('status', 'failed', 'reason', sqlerrm, 'sqlstate', sqlstate);
+    end;
+  end if;
   begin
     update public.lessons
        set completed = false, completed_at = null, is_backfill = false,

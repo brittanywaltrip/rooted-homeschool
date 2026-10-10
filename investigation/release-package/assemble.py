@@ -8,6 +8,8 @@ for f in manifest['new_functions']:
  sig=f['signature'];md5=f['body_md5']
  pre.append("IF (SELECT md5(prosrc) FROM pg_proc WHERE oid=to_regprocedure('%s')) IS DISTINCT FROM '%s' THEN RAISE EXCEPTION 'Baseline function drift: %s'; END IF;"%(sig,md5,sig))
 pre.append('END $preflight$;')
+# Match the reviewed receipt-table isolation on a production-derived baseline.
+pre.append('ALTER TABLE rooted_private.builder_commit_log ENABLE ROW LEVEL SECURITY;')
 chunks=[]
 for name in sources:
  s=(r/'supabase/proposals'/name).read_text();s=re.sub(r'(?m)^BEGIN;\s*$','',s);s=re.sub(r'(?m)^COMMIT;\s*$','',s)
