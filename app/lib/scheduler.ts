@@ -3817,10 +3817,12 @@ export function computeTodayLessons(
   pinsByGoal?: Map<string, readonly QueueHold[]>,
 ): ProjectedLesson[] {
   const out: ProjectedLesson[] = [];
+  const todayStr = toDateStr(today);
   for (const goal of goals) {
     const completed = completedTodayPerGoal?.get(goal.id) ?? 0;
-    // Project a single calendar day. computeNextLessonsForGoal will return
-    // [] if today isn't a school day for this goal — exactly what we want.
+    // The full projector also retains historical pins and preserved work
+    // for Plan/cache reconciliation. Today's list includes only today's
+    // dates; earlier unresolved work has its own PreservedWorkPanel.
     const projected = computeNextLessonsForGoal(
       goal,
       today,
@@ -3829,7 +3831,7 @@ export function computeTodayLessons(
       completed,
       pinsByGoal?.get(goal.id) ?? [],
     );
-    out.push(...projected);
+    out.push(...projected.filter((lesson) => lesson.date === todayStr));
   }
   return out;
 }

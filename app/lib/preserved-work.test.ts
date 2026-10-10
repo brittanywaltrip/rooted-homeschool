@@ -31,9 +31,18 @@ test('pointer advancement and day rollover retain unresolved earlier work while 
  const holds=queueHoldsFromRows(after.rows),day=new Date('2026-10-11T00:00:00');
  const p=computeNextLessonsForGoal(after.goal,day,3650,[],0,holds);
  assert.equal(p.find(r=>r.lesson_number===1)?.date,'2026-09-13');
- assert.equal(computeTodayLessons([after.goal],day,[],new Map(),new Map([['g',holds]]))[0].lesson_number,3);
+ assert.deepEqual(computeTodayLessons([after.goal],day,[],new Map(),new Map([['g',holds]])),[{goal_id:'g',lesson_number:3,date:'2026-10-11'}]);
  const map=new Map(p.map(r=>[`g|${r.lesson_number}`,r.date]));const writes=planProjectedDateWrites(after.rows,map,r=>`g|${r.queue_position}`);
  assert.equal([...writes.values()].flat().includes('L1'),false);assert.equal(after.rows[0].completed,false);
+});
+test('Today excludes preserved earlier work on a non-school day but retains it in Plan projection',()=>{
+ const {after}=shift(fixture());const holds=queueHoldsFromRows(after.rows),day=new Date('2026-09-21T00:00:00');
+ assert.deepEqual(computeTodayLessons([after.goal],day,[],new Map(),new Map([['g',holds]])),[]);
+ assert.equal(computeNextLessonsForGoal(after.goal,day,14,[],0,holds).find(r=>r.lesson_number===1)?.date,'2026-09-13');
+});
+test('Today includes preserved work dated today without also showing older preserved work',()=>{
+ const {after}=shift(fixture(),'L3','2026-09-27','2026-10-04');const holds=queueHoldsFromRows(after.rows);
+ assert.deepEqual(computeTodayLessons([after.goal],new Date('2026-09-20T00:00:00'),[],new Map(),new Map([['g',holds]])),[{goal_id:'g',lesson_number:2,date:'2026-09-20'}]);
 });
 test('five-day course shifts lesson 12 onward without touching eleven completed lessons',()=>{
  const s=fixture();s.goal.school_days=['Mon','Tue','Wed','Thu','Fri'];s.goal.total_lessons=20;s.goal.current_lesson=11;s.goal.start_date='2026-09-01';s.localDay='2026-09-18';s.dayStartIso=s.localDay+'T00:00:00Z';s.dayEndIso='2026-09-19T00:00:00Z';
