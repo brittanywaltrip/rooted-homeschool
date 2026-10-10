@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 /* ============================================================================
  * UndoBar — single global undo slot.
@@ -42,6 +42,40 @@ export default function UndoBar({ action, onDismiss }: UndoBarProps) {
   const [enter, setEnter] = useState(false);
   const timerRef = useRef<number | null>(null);
   const startRef = useRef<number>(0);
+  const [recoveryBottom, setRecoveryBottom] = useState<number | null>(null);
+  const hasAction = action !== null;
+
+  // A persistent recovery notice can coexist with an unrelated course's Undo.
+  // Stack above its actual height so neither control intercepts the other.
+  useLayoutEffect(() => {
+    if (!hasAction) { setRecoveryBottom(null); return; }
+    let banner: Element | null = null;
+    const measure = () => {
+      const rect = banner?.getBoundingClientRect();
+      setRecoveryBottom(rect && rect.height > 0
+        ? Math.max(88, window.innerHeight - rect.top + 12)
+        : null);
+    };
+    const resize = new ResizeObserver(measure);
+    const sync = () => {
+      const next = document.querySelector('[data-scheduler-recovery-banner]');
+      if (next !== banner) {
+        if (banner) resize.unobserve(banner);
+        banner = next;
+        if (banner) resize.observe(banner);
+      }
+      measure();
+    };
+    const changes = new MutationObserver(sync);
+    changes.observe(document.body, {childList: true, subtree: true});
+    window.addEventListener('resize', measure);
+    sync();
+    return () => {
+      changes.disconnect();
+      resize.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [hasAction]);
 
   useEffect(() => {
     if (!action) {
@@ -109,9 +143,9 @@ export default function UndoBar({ action, onDismiss }: UndoBarProps) {
     <div
       role="status"
       aria-live="polite"
-      className="fixed z-[80] left-1/2 -translate-x-1/2 pointer-events-none px-3 w-full max-w-md"
+      className="fixed z-[80] left-1/2 pointer-events-none px-3 w-full max-w-md"
       style={{
-        bottom: "calc(env(safe-area-inset-bottom, 0px) + 88px)",
+        bottom: recoveryBottom ?? "calc(env(safe-area-inset-bottom, 0px) + 88px)",
         transition: "transform 200ms ease-out, opacity 200ms ease-out",
         transform: enter ? "translate(-50%, 0)" : "translate(-50%, 12px)",
         opacity: enter ? 1 : 0,
