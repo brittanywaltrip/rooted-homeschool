@@ -12,6 +12,22 @@ export function sameSetting(a: unknown, b: unknown): boolean {
   return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
 
+/** Narrow fast path for an actual name-only save, not a no-op repair retry.
+ * Compare original form intent before refresh: a failed earlier scheduling
+ * edit can already match storage while its lesson generation still needs work. */
+export function isBuilderNameOnlySave(rows: readonly { eligible: boolean; baseline?: Record<string, unknown>; form: Record<string, unknown> }[]): boolean {
+  let renamed = false;
+  for (const row of rows) {
+    if (!row.eligible || !row.baseline) return false;
+    for (const key of Object.keys(row.form)) {
+      if (sameSetting(row.form[key], row.baseline[key])) continue;
+      if (key !== "curriculum_name") return false;
+      renamed = true;
+    }
+  }
+  return renamed;
+}
+
 /** Three-way merge. Never infer intent by comparing the form to a fresh read.
  * A convergent edit is safe (also covers retry after a lost save response). */
 export function resolveBuilderEdits(baseline: EditBaseline | undefined, form: Record<string, unknown>, current: Record<string, unknown>) {

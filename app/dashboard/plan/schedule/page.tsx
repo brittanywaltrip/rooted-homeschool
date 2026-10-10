@@ -27,7 +27,7 @@ import { canOfferProtectedLessonResume } from "@/app/lib/builder-resume-guidance
 import { recalibrateCurriculumGoal, recalibrateFullyApplied, RecalibrateListChangedError } from "@/app/lib/recalibrate";
 import { lostLessonRows, countCompletedBelowStart } from "@/app/lib/lost-lesson-rows";
 import { applyPhase2Commit, countDoneToday, phase2Expected, withBuilderGoalGuard, planPhase2Commit, validatePhase2End, type Phase2CommitPlan, type Phase2CommitResult, type Phase2CommitRow, type Phase2GoalSnapshot } from "@/app/lib/phase2-commit";
-import { resolveBuilderEdits, builderPlanDependenciesMatch, type EditBaseline } from "@/app/lib/builder-edit-intent";
+import { resolveBuilderEdits, builderPlanDependenciesMatch, isBuilderNameOnlySave, sameSetting, type EditBaseline } from "@/app/lib/builder-edit-intent";
 import { afterOrphanCleanup, changedSettings, isDecidedNotApplied, markNotApplied, pointerFor, restorePatch, scheduleSnapshot, SCHEDULE_FIELDS, stillAsWrittenFilters, wasNotApplied, type ScheduleSnapshot } from "@/app/lib/builder-settings-restore";
 import { RecalibrateForm, type CurriculumGoal as PanelGoal } from "@/app/components/PlanV2/CurriculumGroupsPanel";
 import { logPlanEvent } from "@/lib/audit-log";
@@ -2104,6 +2104,23 @@ function ScheduleBuilderPageInner() {
 
     // Resolve every existing curriculum before ANY write or history check.
     // Phase 2 must plan with these same merged values, including siblings.
+    // Capture intent BEFORE refresh replaces baselines. An inserted course
+    // whose generation failed still has no original schedule; a previous
+    // non-name edit must retain its rebuild even if its DB patch now converges.
+    const nameOnlySave = isBuilderNameOnlySave(rows.filter(row => !row.readOnly).map(row => {
+      if (row.type !== "curriculum") return {
+        eligible: !row.pendingDelete && row.previouslySavedAs === "activities" && !!row.dbId &&
+          sameSetting(row, dbRowsRef.current.find(saved => saved.dbId === row.dbId && saved.previouslySavedAs === "activities")),
+        baseline: {}, form: {},
+      };
+      const form = curriculumEditableValues(row);
+      if (!startAtLessonTouched(row) && row._editBaseline) form.start_at_lesson = row._editBaseline.form.start_at_lesson;
+      return {
+        eligible: !row.pendingDelete && row.previouslySavedAs === "curriculum_goals" && !!row.dbId &&
+          !!row._originalSchedule && !row.unit_touched,
+        baseline: row._editBaseline?.form, form,
+      };
+    }));
     const freshGoals = new Map<string, CurriculumGoalDbRow>();
     const editPatches = new Map<string, Record<string, unknown>>();
     try {
@@ -3966,7 +3983,9 @@ function ScheduleBuilderPageInner() {
           try {
             const replay = uncertainCommits.get(goalId);
             if (replay) await replay();
-            else await applyPhase2ForGoal(goalId, row);
+            else if (!nameOnlySave) {
+              await applyPhase2ForGoal(goalId, row);
+            }
             const stored = freshGoals.has(goalId)
               ? { ...freshGoals.get(goalId)!, ...editPatches.get(goalId) }
               : curriculumEditableValues(row);

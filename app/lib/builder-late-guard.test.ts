@@ -107,7 +107,7 @@ for (const lostResponses of [2,4]) for (const lateChange of [{curriculum_name:"R
     assert.equal(result.replayed,true);assert.equal(builds,1);assert.equal(calls,lostResponses+1);
     assert.equal(committedTotal,8);assert.equal(uncertainCommits.size,0);
     // Pin the actual outer retry wiring: replay precedes another planner/read.
-    assert.match(source,/const replay = uncertainCommits.get\(goalId\);\s*if \(replay\) await replay\(\);\s*else await applyPhase2ForGoal/);
+    assert.match(source,/const replay = uncertainCommits.get\(goalId\);\s*if \(replay\) await replay\(\);\s*else if \(!nameOnlySave\) \{\s*await applyPhase2ForGoal/);
   });
 }
 
