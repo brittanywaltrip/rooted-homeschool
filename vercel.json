@@ -44,5 +44,11 @@
       "path": "/api/cron/trial-ending",
       "schedule": "0 16 * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "fix/homepage-sample-student": false,
+      "main": false
+    }
+  }
 }
