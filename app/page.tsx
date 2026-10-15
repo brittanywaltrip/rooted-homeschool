@@ -808,7 +808,7 @@ function HomeInner() {
                 </div>
                 <div className="p-5 space-y-4">
                   <div>
-                    <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Zoe Waltrip · 2025–2026</p>
+                    <p className="text-[10px] text-[#b5aca4] uppercase tracking-widest">Sample student · 2025–2026</p>
                     <p className="text-sm font-bold text-[#2d2926] mt-0.5">Annual Progress Report</p>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
