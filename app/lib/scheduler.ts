@@ -2543,6 +2543,7 @@ export type Phase2PlanRow = Phase2BeforeRow & {
  *     this, the floor delete took a note-free skipped row and the reinsert
  *     brought its number back as an ordinary dated lesson.
  *   - Rows carrying the parent's notes or minutes are held back (Invariant 18).
+ *   - Unslotted rows keep their identity, pins and dates on every save.
  *   - Every other incomplete row above the completed floor is deleted and
  *     re-created from the projection.
  *
@@ -2577,7 +2578,7 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
   // scheduled_date as a write.)
   // `pinnedRows` is the pins a schedule change releases: the live queue's only.
   const pinnedRows = beforeRows
-    .filter((r) => !r.completed && r.queue_pinned && !r.skipped && !isBehind(r))
+    .filter((r) => !r.completed && r.queue_position != null && r.queue_pinned && !r.skipped && !isBehind(r))
     .map((r) => ({ ...r, completed: false, queue_pinned: true, curriculum_goal_id: goalId }));
   const makeUpRows = behindRows
     .filter((r) => r.queue_pinned)
@@ -2626,6 +2627,9 @@ export function planPhase2Rows<T extends Phase2PlanRow>(args: {
     ...skippedRows.map((r) => r.id),
     ...workRowIds,
     ...behindRows.map((r) => r.id),
+    // No queue slot means the Builder has no placement to rebuild. Preserve
+    // the family's existing row and date without guessing a queue position.
+    ...beforeRows.filter((r) => !r.completed && r.queue_position == null).map((r) => r.id),
   ]);
   // Mirrors the COMMIT delete exactly: incomplete, lesson_number strictly above
   // the floor, minus the held-back rows. PostgREST's `gt` never matches a NULL,
