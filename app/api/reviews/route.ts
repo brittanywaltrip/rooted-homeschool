@@ -17,11 +17,18 @@ export async function GET() {
   return NextResponse.json(data ?? []);
 }
 
-// POST — submit a new review (authenticated users)
+// POST — public submission; associate an account only after verifying its token.
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { name, rating, review_text, user_id } = body;
+    const { name, rating, review_text } = body;
+    const token = req.headers.get("authorization")?.match(/^Bearer (\S+)$/)?.[1];
+    let userId: string | null = null;
+    if (token) {
+      const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+      if (error || !user) return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+      userId = user.id;
+    }
 
     if (!name || !rating || !review_text) {
       return NextResponse.json(
@@ -48,7 +55,7 @@ export async function POST(req: Request) {
       name: name.trim(),
       rating,
       review_text: review_text.trim(),
-      user_id: user_id || null,
+      user_id: userId,
       approved: false,
     });
 

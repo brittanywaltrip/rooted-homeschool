@@ -2,9 +2,20 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 
 export const dynamic = "force-dynamic";
+const ADMIN_EMAILS = new Set(["garfieldbrittany@gmail.com", "christopherwaltrip@gmail.com", "hello@rootedhomeschoolapp.com"]);
+
+async function verifyAdmin(req: Request): Promise<boolean> {
+  const token = req.headers.get("authorization")?.match(/^Bearer (\S+)$/)?.[1];
+  if (!token) return false;
+  const { data: { user }, error } = await supabaseAdmin.auth.getUser(token);
+  return !error && !!user && ADMIN_EMAILS.has(user.email ?? "");
+}
+
+const forbidden = () => NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
 // GET — all reviews (admin only, bypasses RLS)
-export async function GET() {
+export async function GET(req: Request) {
+  if (!await verifyAdmin(req)) return forbidden();
   const { data, error } = await supabaseAdmin
     .from("reviews")
     .select("*")
@@ -18,6 +29,7 @@ export async function GET() {
 
 // PATCH — toggle approval
 export async function PATCH(req: Request) {
+  if (!await verifyAdmin(req)) return forbidden();
   try {
     const { id, approved } = await req.json();
     if (!id) {
@@ -40,6 +52,7 @@ export async function PATCH(req: Request) {
 
 // DELETE — remove a review
 export async function DELETE(req: Request) {
+  if (!await verifyAdmin(req)) return forbidden();
   try {
     const { id } = await req.json();
     if (!id) {
