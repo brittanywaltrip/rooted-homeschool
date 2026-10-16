@@ -11,6 +11,7 @@ import {
 } from "@/app/lib/scheduler";
 import {
   completeLessonOnDate,
+  completesInPlace,
   needsDateChoice,
   type CompletionChoice,
   type LessonCompletedEvent,
@@ -124,12 +125,14 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       const todayStr = toDateStr(new Date());
       // Optimistic: the row moves to the day it is being filed under, so the
       // calendar agrees with the toast before the write lands.
+      // A lesson with no queue slot is completed in place and keeps its dates.
+      const inPlace = !!lesson && completesInPlace(lesson as { curriculum_goal_id?: string | null; queue_position?: number | null; scheduled_date?: string | null });
       const patch = (l: T): T =>
-        l.id !== id ? l : { ...l, completed: true, scheduled_date: dateStr, date: dateStr };
+        l.id !== id ? l : inPlace ? { ...l, completed: true } : { ...l, completed: true, scheduled_date: dateStr, date: dateStr };
       setLessons(prev => prev.map(patch));
       setMonthLessons(prev => prev.map(patch));
 
-      const { error } = await completeLessonOnDate(supabase, {
+      const { error, inPlace: storedInPlace } = await completeLessonOnDate(supabase, {
         lessonId: id,
         dateStr,
         choice,
@@ -148,7 +151,17 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
         const revert = (l: T): T => (l.id !== id ? l : { ...l, completed: false });
         setLessons(prev => prev.map(revert));
         setMonthLessons(prev => prev.map(revert));
+        // Moved, pinned, skipped or deleted elsewhere since Plan loaded:
+        // nothing was written, so reload to show where it is now.
+        if (error.code === "placement_changed" || error.code === "not_found") onScheduleRedated?.();
         throw new Error(error.message);
+      }
+      // The stored row decides (completesInPlace): a row loaded without its
+      // queue_position still kept its own dates, so the screen does too.
+      if (storedInPlace && !inPlace && lesson) {
+        const restore = (l: T): T => (l.id !== id ? l : { ...l, scheduled_date: lesson.scheduled_date, date: lesson.date });
+        setLessons(prev => prev.map(restore));
+        setMonthLessons(prev => prev.map(restore));
       }
 
       if (lesson?.curriculum_goal_id) {
@@ -170,7 +183,7 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
     } finally {
       inFlightRef.current.delete(id);
     }
-  }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted, redateAfter]);
+  }, [findLesson, setLessons, setMonthLessons, effectiveUserId, onLessonCompleted, redateAfter, onScheduleRedated]);
 
   const toggleLesson = useCallback(async (id: string, current: boolean): Promise<boolean> => {
     if (inFlightRef.current.has(id)) return false;
@@ -190,6 +203,11 @@ export function usePlanLessonActions<T extends MinimalLesson>(opts: UsePlanLesso
       // Same tap, two different dates, depending on a comparison the family
       // could not see. See Invariant 16 in docs/CURRICULUM-SCHEDULING.md.
       const plannedDate = lesson?.scheduled_date ?? lesson?.date ?? null;
+      // A curriculum lesson with no queue slot is filed under its own day and
+      // never moved, so there is no day to ask about (completesInPlace).
+      if (lesson && lesson.scheduled_date && completesInPlace(lesson as { curriculum_goal_id?: string | null; queue_position?: number | null; scheduled_date?: string | null })) {
+        return completeWithChoice(id, lesson.scheduled_date, lesson.scheduled_date === todayStr ? "today" : "planned");
+      }
       if (lesson && onNeedsDateChoice && needsDateChoice(plannedDate, todayStr)) {
         onNeedsDateChoice(lesson, plannedDate as string, todayStr);
         return false;
