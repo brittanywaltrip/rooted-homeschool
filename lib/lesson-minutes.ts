@@ -68,6 +68,12 @@ export function lessonMinutes(l: LessonTimeFields): LessonMinutes {
   return { minutes: ESTIMATED_MINUTES_PER_LESSON, source: "estimated", estimated: true };
 }
 
+/** Editing notes/date must not silently convert fallback time into recorded time. */
+export function lessonMinutesInput(l: LessonTimeFields): string {
+  const time = lessonMinutes(l);
+  return time.estimated ? "" : String(time.minutes);
+}
+
 export interface LessonMinutesTotal {
   /** Everything: recorded plus estimated. */
   minutes: number;
