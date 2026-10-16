@@ -174,7 +174,7 @@ export function simulatePhase2End(
   for (const r of beforeRows) {
     if (deleted.has(r.id)) continue;
     const retiring =
-      plan.retire_above != null && !r.completed && r.lesson_number != null && r.lesson_number > plan.retire_above;
+      plan.retire_above != null && !r.completed && r.queue_position != null && r.lesson_number != null && r.lesson_number > plan.retire_above;
     if (retiring && !retireKeep.has(r.id)) continue;
     const pinned = (r.queue_pinned ?? false) && !unpin.has(r.id);
     const row: Phase2EndRow = {
@@ -273,6 +273,7 @@ export function validatePhase2End(a: {
     const r = before.get(id);
     if (!r) integrity.push(`delete names a row the goal does not hold (${id})`);
     else if (r.completed) integrity.push(`delete would remove completed lesson ${r.lesson_number}`);
+    else if (r.queue_position == null) integrity.push(`delete would remove unslotted lesson ${r.lesson_number}`);
     else if (r.skipped) integrity.push(`delete would remove skipped lesson ${r.lesson_number}`);
     else if (holdsParentWork(r)) integrity.push(`delete would erase the family's notes or minutes on lesson ${r.lesson_number}`);
     else if (r.queue_pinned && !a.plan.unpin_ids.includes(id)) integrity.push(`delete would remove pinned lesson ${r.lesson_number}`);
@@ -280,10 +281,16 @@ export function validatePhase2End(a: {
       integrity.push(`delete would remove reopened lesson ${r.lesson_number} behind the pointer`);
     }
   }
+  for (const id of a.plan.unpin_ids) {
+    const r = before.get(id);
+    if (!r) integrity.push(`unpin names a row the goal does not hold (${id})`);
+    else if (r.queue_position == null) integrity.push(`unpin would change unslotted lesson ${r.lesson_number}`);
+  }
   for (const t of a.plan.redates) {
     const r = before.get(t.id);
     if (!r) integrity.push(`re-date names a row the goal does not hold (${t.id})`);
     else if (r.completed) integrity.push(`re-date would move completed lesson ${r.lesson_number}`);
+    else if (r.queue_position == null) integrity.push(`re-date would move unslotted lesson ${r.lesson_number}`);
     else if (r.queue_pinned && !a.plan.unpin_ids.includes(t.id)) integrity.push(`re-date would move pinned lesson ${r.lesson_number}`);
     else if (t.to < a.todayYmd) integrity.push(`re-date would move lesson ${r.lesson_number} into the past`);
   }
@@ -399,13 +406,15 @@ export function planPhase2Commit(a: {
     if (to === undefined) continue;
     redates.push({ id: r.id, to, from: r.scheduled_date });
   }
-  // Shortening a curriculum retires the unfinished rows past the new end; one
+  // Shortening retires only rows that hold a queue slot. Unslotted rows are
+  // preserved with their existing pin and date, even beyond the new end. One
   // carrying the parent's notes or minutes is unscheduled instead of deleted
   // (Invariant 18).
   const retireKeepIds = a.beforeRows
     .filter(
       (r) =>
         !r.completed &&
+        r.queue_position != null &&
         r.lesson_number != null &&
         a.totalLessons != null &&
         r.lesson_number > a.totalLessons &&
