@@ -73,6 +73,8 @@ export type Phase2CommitPlan = {
   retire_keep_ids: string[];
   /** Kept rows the rebuild re-dates. */
   redates: { id: string; to: string }[];
+  /** One id per curriculum per save, so a re-sent call returns the first outcome. */
+  request_id?: string;
 };
 
 /** The goal fields a plan was made from, as apply_builder_rebuild compares them. */
@@ -174,7 +176,7 @@ export function simulatePhase2End(
   for (const r of beforeRows) {
     if (deleted.has(r.id)) continue;
     const retiring =
-      plan.retire_above != null && !r.completed && r.lesson_number != null && r.lesson_number > plan.retire_above;
+      plan.retire_above != null && !r.completed && r.queue_position != null && r.lesson_number != null && r.lesson_number > plan.retire_above;
     if (retiring && !retireKeep.has(r.id)) continue;
     const pinned = (r.queue_pinned ?? false) && !unpin.has(r.id);
     const row: Phase2EndRow = {
@@ -273,6 +275,7 @@ export function validatePhase2End(a: {
     const r = before.get(id);
     if (!r) integrity.push(`delete names a row the goal does not hold (${id})`);
     else if (r.completed) integrity.push(`delete would remove completed lesson ${r.lesson_number}`);
+    else if (r.queue_position == null) integrity.push(`delete would remove unslotted lesson ${r.lesson_number}`);
     else if (r.skipped) integrity.push(`delete would remove skipped lesson ${r.lesson_number}`);
     else if (holdsParentWork(r)) integrity.push(`delete would erase the family's notes or minutes on lesson ${r.lesson_number}`);
     else if (r.queue_pinned && !a.plan.unpin_ids.includes(id)) integrity.push(`delete would remove pinned lesson ${r.lesson_number}`);
@@ -280,10 +283,16 @@ export function validatePhase2End(a: {
       integrity.push(`delete would remove reopened lesson ${r.lesson_number} behind the pointer`);
     }
   }
+  for (const id of a.plan.unpin_ids) {
+    const r = before.get(id);
+    if (!r) integrity.push(`unpin names a row the goal does not hold (${id})`);
+    else if (r.queue_position == null) integrity.push(`unpin would change unslotted lesson ${r.lesson_number}`);
+  }
   for (const t of a.plan.redates) {
     const r = before.get(t.id);
     if (!r) integrity.push(`re-date names a row the goal does not hold (${t.id})`);
     else if (r.completed) integrity.push(`re-date would move completed lesson ${r.lesson_number}`);
+    else if (r.queue_position == null) integrity.push(`re-date would move unslotted lesson ${r.lesson_number}`);
     else if (r.queue_pinned && !a.plan.unpin_ids.includes(t.id)) integrity.push(`re-date would move pinned lesson ${r.lesson_number}`);
     else if (t.to < a.todayYmd) integrity.push(`re-date would move lesson ${r.lesson_number} into the past`);
   }
@@ -307,7 +316,7 @@ export function validatePhase2End(a: {
 }
 
 export type Phase2CommitResult =
-  | { status: "applied"; inserted: number; redated: number }
+  | { status: "applied"; inserted: number; redated: number; replayed?: boolean }
   | {
       /**
        * stale: rows changed since they were read (retry re-reads and re-plans).
@@ -318,6 +327,11 @@ export type Phase2CommitResult =
        */
       status: "stale" | "refused" | "invalid" | "failed" | "unavailable";
       reason: string;
+      /**
+       * The call itself failed in transit. The transaction may still have
+       * committed, so the caller must not treat this as "wrote nothing".
+       */
+      transport?: boolean;
     };
 
 /** PostgREST's "function not found": the migration is not on this database yet. */
@@ -339,25 +353,40 @@ export async function applyPhase2Commit(
   a: {
     goalId: string;
     localDay: string;
-    expected: ReturnType<typeof phase2Expected>;
+    expected: ReturnType<typeof phase2Expected> & { current_lesson_after?: number; rows_after_settings?: unknown[] };
     plan: Phase2CommitPlan;
+    /**
+     * Scheduling settings this save changes. Written by apply_builder_rebuild
+     * in the same transaction as the lessons (20261001000000, five-argument
+     * form). A database without that form reports "unavailable" and writes
+     * nothing, rather than rebuilding lessons for settings it ignored.
+     */
+    settings?: Record<string, unknown>;
   },
 ): Promise<Phase2CommitResult> {
-  const { data, error } = await supabase.rpc("apply_builder_rebuild", {
+  const args: Record<string, unknown> = {
     p_goal_id: a.goalId,
     p_local_day: a.localDay,
     p_expected: a.expected,
     p_plan: a.plan,
-  });
+  };
+  if (a.settings) args.p_settings = a.settings;
+  let { data, error } = await supabase.rpc("apply_builder_rebuild", args);
+  // The response was lost, so the commit may or may not have landed. With a
+  // request id, the identical call answers that: the database returns the
+  // logged outcome if it committed, or judges the plan afresh if it did not.
+  if (error && a.plan.request_id && !isMissingFunction(error as { code?: string })) {
+    ({ data, error } = await supabase.rpc("apply_builder_rebuild", args));
+  }
   if (error) {
     if (isMissingFunction(error as { code?: string })) {
       return { status: "unavailable", reason: "apply_builder_rebuild is not deployed on this database" };
     }
-    return { status: "failed", reason: (error as { message?: string }).message ?? "rpc error" };
+    return { status: "failed", reason: (error as { message?: string }).message ?? "rpc error", transport: true };
   }
-  const res = (data ?? {}) as { status?: string; reason?: string; inserted?: number; redated?: number };
+  const res = (data ?? {}) as { status?: string; reason?: string; inserted?: number; redated?: number; replayed?: boolean };
   if (res.status === "applied") {
-    return { status: "applied", inserted: res.inserted ?? 0, redated: res.redated ?? 0 };
+    return { status: "applied", inserted: res.inserted ?? 0, redated: res.redated ?? 0, ...(res.replayed ? { replayed: true } : {}) };
   }
   const status = res.status === "stale" || res.status === "refused" || res.status === "invalid" ? res.status : "failed";
   return { status, reason: res.reason ?? "unknown" };
@@ -399,13 +428,15 @@ export function planPhase2Commit(a: {
     if (to === undefined) continue;
     redates.push({ id: r.id, to, from: r.scheduled_date });
   }
-  // Shortening a curriculum retires the unfinished rows past the new end; one
+  // Shortening retires only rows that hold a queue slot. Unslotted rows are
+  // preserved with their existing pin and date, even beyond the new end. One
   // carrying the parent's notes or minutes is unscheduled instead of deleted
   // (Invariant 18).
   const retireKeepIds = a.beforeRows
     .filter(
       (r) =>
         !r.completed &&
+        r.queue_position != null &&
         r.lesson_number != null &&
         a.totalLessons != null &&
         r.lesson_number > a.totalLessons &&
