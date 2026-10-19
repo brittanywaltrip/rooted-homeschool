@@ -48,7 +48,8 @@
   "git": {
     "deploymentEnabled": {
       "fix/homepage-sample-student": false,
-      "main": false
+      "main": false,
+      "chore/staging-auth-check": false
     }
   }
 }
