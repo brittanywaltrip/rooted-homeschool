@@ -92,7 +92,7 @@ async function guard(route){
 async function api(account,path,{method='GET',body}={}){
  deadline();
  const res=await fetch(SB+path,{method,redirect:'error',signal:AbortSignal.timeout(15000),headers:{apikey:env.STAGING_ANON_KEY,Authorization:'Bearer '+account.token,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
- check(res.ok(),'authorized_request_refused');return res.json();
+ check(res.ok,'authorized_request_refused');return res.json();
 }
 async function rpc(account,name,args,mutate=false){
  if(mutate)journal(name,args);else check(readRpcAllowed(name,args),'read_rpc_refused');
@@ -177,7 +177,7 @@ try{
  browser=await chromium.launch();activeStart=Date.now();
  // Health request may use existing bypass only at this fixed staging origin.
  const health=await fetch(APP+'/api/health',{redirect:'error',signal:AbortSignal.timeout(15000),headers:env.VERCEL_AUTOMATION_BYPASS_SECRET?{'x-vercel-protection-bypass':env.VERCEL_AUTOMATION_BYPASS_SECRET}:{}});
- check(health.ok(),'health_refused');const h=await health.json();check(h.env==='staging'&&h.projectRef===REF&&h.identityOk===true,'health_identity_refused');
+ check(health.ok,'health_refused');const h=await health.json();check(h.env==='staging'&&h.projectRef===REF&&h.identityOk===true,'health_identity_refused');
  console.log(JSON.stringify({deployment:DEPLOYMENT,fixture_receipt_sha256:env.FIXTURE_RECEIPT_SHA256}));
  accounts.push(await login(0));accounts.push(await login(1));
  const [owner,control]=accounts;
