@@ -1,0 +1,58 @@
+name: Stage A bounded lesson verification
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_commit:
+        description: Exact reviewed publication commit SHA
+        required: true
+        type: string
+      fixture_receipt_sha256:
+        description: SHA256 of original committed sealed setup receipt, verified by execution owner
+        required: true
+        type: string
+      fixture_day:
+        description: Frozen UTC day from committed setup receipt (YYYY-MM-DD)
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: rooted-staging-smoke
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Refuse unreviewed source
+        env:
+          EXPECTED: ${{ inputs.reviewed_commit }}
+          ACTUAL: ${{ github.workflow_sha }}
+        run: |
+          [[ "$EXPECTED" =~ ^[a-f0-9]{40}$ && "$EXPECTED" == "$ACTUAL" ]] || exit 1
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.reviewed_commit }}
+          persist-credentials: false
+          sparse-checkout: .github/stage-a-bounded
+      - name: Install locked browser dependency without lifecycle scripts
+        working-directory: .github/stage-a-bounded
+        run: |
+          npm ci --ignore-scripts --omit=optional --no-audit --no-fund
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - name: Run only the reviewed bounded matrix
+        working-directory: .github/stage-a-bounded
+        env:
+          EXPECTED_SOURCE: ${{ inputs.reviewed_commit }}
+          ACTUAL_SOURCE: ${{ github.workflow_sha }}
+          FIXTURE_RECEIPT_SHA256: ${{ inputs.fixture_receipt_sha256 }}
+          FIXTURE_DAY: ${{ inputs.fixture_day }}
+          STAGING_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          OWNER_EMAIL: ${{ secrets.STAGING_PLAYWRIGHT_EMAIL }}
+          OWNER_PASSWORD: ${{ secrets.STAGING_PLAYWRIGHT_PASSWORD }}
+          CONTROL_EMAIL: ${{ secrets.STAGING_CONTROL_EMAIL }}
+          CONTROL_PASSWORD: ${{ secrets.STAGING_CONTROL_PASSWORD }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node runner.mjs

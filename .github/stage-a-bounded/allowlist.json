@@ -1,0 +1,67 @@
+{
+  "project": "cvgqovweybggrqakhdtd",
+  "owners": [
+    "1954d827-ac7d-41e8-aeef-f8e07d4337a4",
+    "1e082f15-2638-41ca-ac29-8bf108c96de6"
+  ],
+  "children": [
+    "b95a2755-a3fb-4c30-8e01-809414edb8ad",
+    "2eba0b73-96ca-4b1d-9238-a76577d14379"
+  ],
+  "goals": [
+    "92741aeb-277a-4df3-aef7-4c0192e8ec33",
+    "6eabb82b-fb50-4092-a44c-4e5aee3020e3",
+    "a75cbdbd-ddbf-45fe-a8ff-85101813ce16",
+    "325fac2d-250a-4718-9fa9-a983fc4692df"
+  ],
+  "lessons": [
+    "f3a51cf0-466d-4ca8-929f-1eb13ccceb05",
+    "9311e94e-8b05-4cba-8b39-4ac545a0182f",
+    "b2bf99ff-8318-4330-a5c5-34276fdf5995",
+    "cee5a5c5-6822-4f9d-af15-7e22ceea63b6",
+    "dbf0e937-1c72-4d79-9eda-8f62ff6a5528",
+    "c5ba6a26-f377-41c8-960b-f0e7c9f5a30c",
+    "0d45f61e-1657-497a-bfb2-50c2403c91d2",
+    "c376ff2f-e124-4895-b868-7b44faa07b3b",
+    "548fd613-0959-4ecd-b78a-7ebc84b3128f",
+    "3310105f-3c25-488b-918c-f107c1e6faa8",
+    "14604de3-f758-4696-ba1c-f70f31ca3b21",
+    "66407ddb-d6bf-4b14-9603-8006cc5ccb81",
+    "80eb4e37-311d-47fd-93ae-d8fbf035b5f2",
+    "213c3382-7d76-4569-bf7a-c670cf2b503d",
+    "c2cd472f-d2e4-46ff-85f6-f66fcffde5b4",
+    "ff7545a6-d521-4775-b7c2-1951347209c3",
+    "678aca44-1dcb-4108-a0d4-94a2ed736345",
+    "751ba048-7c2b-4af4-8b65-b8192a96c67b",
+    "bcc77d8f-02d0-4f63-8555-06c520201825",
+    "9d2aebe9-8e86-4dfe-baae-23c32cdfbe33",
+    "8b609178-6cdc-42ad-b06e-1b2c2fa33fad",
+    "26449f5c-9493-4b88-a59b-207ffa68392f",
+    "8cdf8d7e-8afe-4f14-b5d9-f74fa94fbcfb",
+    "a51c5e8b-a504-4558-a971-fcf6ce3582cf"
+  ],
+  "children_owner_indices": [
+    0,
+    1
+  ],
+  "goal_owner_indices": [
+    0,
+    0,
+    0,
+    1
+  ],
+  "goal_child_indices": [
+    0,
+    0,
+    0,
+    1
+  ],
+  "lessons_per_goal": 6,
+  "atomic_goal_indices": [
+    1,
+    2,
+    3
+  ],
+  "status": "REVIEW ONLY; no execution",
+  "cleanup": "Deletes newly created synthetic fixture data only; never Auth users/profiles."
+}
