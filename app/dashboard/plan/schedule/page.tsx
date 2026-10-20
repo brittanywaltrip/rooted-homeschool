@@ -3520,7 +3520,11 @@ function ScheduleBuilderPageInner() {
         // numbers are zipped onto the free projected slots, so each row takes
         // its queue_position and its date from the slot it lands in.
         const plannedInserts = planPhase2LessonInserts({
-          upcoming,
+          // The projector rewinds over today's completions for display. Those
+          // positions need not actually hold consecutive completed lessons.
+          // A missing position behind the pointer must not become new work;
+          // explicit historical backfill is planned separately above.
+          upcoming: upcoming.filter((p) => p.lesson_number > currentLesson),
           existingLessonNumbers: existingNums,
           existingQueuePositions: existingSlots,
           skippedSlots: projectableSkippedSlots,

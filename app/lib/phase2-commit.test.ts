@@ -103,6 +103,17 @@ function untick(rows: Row[], id: string, opts: { reopen: boolean } = { reopen: t
   return out
 }
 
+// Exercise the actual Builder call boundary, including its forward-slot filter.
+// The shared projector also emits display-only positions for completed work.
+const builderSource = readFileSync(new URL('../dashboard/plan/schedule/page.tsx', import.meta.url), 'utf8')
+const builderInsertCall = builderSource.match(/const plannedInserts = (planPhase2LessonInserts\(\{[\s\S]*?\}\));/)?.[1]
+assert.ok(builderInsertCall, 'Builder forward-insert call must be present')
+const builderInserts = new Function(
+  'planPhase2LessonInserts', 'upcoming', 'existingNums', 'existingSlots', 'projectableSkippedSlots', 'currentLesson',
+  `return ${builderInsertCall}`,
+) as (planner: typeof planPhase2LessonInserts, upcoming: ReturnType<typeof computeNextLessonsForGoal>,
+  numbers: Set<number>, slots: Set<number>, skipped: number[], currentLesson: number) => ReturnType<typeof planPhase2LessonInserts>
+
 const perDayAllowed = () => 1
 const DAY_START = new Date(2026, 8, 21).toISOString()
 const DAY_END = new Date(2026, 8, 22).toISOString()
@@ -129,10 +140,9 @@ function resave(beforeRows: Row[], opts: { legacyProjection?: boolean } = {}) {
     if (r.queue_position != null) existingSlots.add(r.queue_position)
     if (r.lesson_number != null) existingNums.add(r.lesson_number)
   }
-  const planned = planPhase2LessonInserts({
-    upcoming, existingLessonNumbers: existingNums, existingQueuePositions: existingSlots,
-    skippedSlots: rowsPlan.projectableSkippedSlots,
-  })
+  const planned = builderInserts(
+    planPhase2LessonInserts, upcoming, existingNums, existingSlots, rowsPlan.projectableSkippedSlots, currentLesson,
+  )
   const toInsert = planned.map((p) => ({
     child_id: 'child', lesson_number: p.lesson_number, queue_position: p.queue_position,
     title: `L${p.lesson_number}`, scheduled_date: p.date, date: p.date,
@@ -579,3 +589,32 @@ test('Builder refuses shortening past preserved unfinished work before writing',
     assert.ok(plan.validation.integrity.includes('rebuild would change preserved unfinished lesson 4'));
   }
 });
+
+// Nonconsecutive completions rewind onto a missing historical position. That
+// position is for display, never permission to create unfinished past work.
+test('Builder does not recreate a missing position between nonconsecutive completions', () => {
+  const rows = created().filter(r => r.lesson_number !== 14).map(r =>
+    r.lesson_number === 2 ? { ...r, completed_at: `${TODAY_YMD}T12:00:00Z` } : r)
+  const r = resave(rows)
+  assert.equal(r.doneToday, 2)
+  assert.ok(r.upcoming.some(p => p.lesson_number === 14), 'exercise the count-based rewind')
+  assert.deepEqual(r.validation.overCapacity, [])
+  assert.deepEqual(r.validation.integrity, [])
+  assert.ok(r.plan.inserts.every(i => i.lesson_number > r.currentLesson))
+  assert.equal(r.plan.inserts[0].scheduled_date, TOMORROW_YMD)
+  assert.ok(!r.endRows.some(row => row.lesson_number === 14), 'do not invent history')
+  for (const row of rows.filter(row => row.completed)) {
+    assert.ok(!r.plan.delete_ids.includes(row.id))
+    assert.ok(!r.plan.redates.some(t => t.id === row.id))
+  }
+})
+
+test('Builder keeps an earlier gap without moving the forward queue after one completion', () => {
+  const rows = created().filter(r => r.lesson_number !== 14)
+  const r = resave(rows)
+  assert.equal(r.doneToday, 1)
+  assert.deepEqual(r.validation.overCapacity, [])
+  assert.deepEqual(r.validation.integrity, [])
+  assert.equal(r.plan.inserts[0].lesson_number, 16)
+  assert.equal(r.plan.inserts[0].scheduled_date, TOMORROW_YMD)
+})
