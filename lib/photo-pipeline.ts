@@ -727,11 +727,8 @@ export async function uploadMemoryPhoto(
   // state (signedPhotoUrl returns null on failure and this line handled it),
   // and SignedImage re-signs from a stored path at render time.
   //
-  // The lazy import is INSIDE the same try. photo-url pulls in the
-  // service-role admin client at module scope, so it is imported here rather
-  // than at the top to keep this module loadable outside a browser bundle, and
-  // a chunk that fails to load on a flaky connection is exactly as survivable
-  // as a signing call that times out: the photo is already stored either way.
+  // A chunk that fails to load is as survivable as a signing timeout:
+  // the photo is already stored, so retain its bare path as the fallback.
   let signed: string | null = null;
   try {
     const { signedPhotoUrl } = await import("./photo-url.ts");
