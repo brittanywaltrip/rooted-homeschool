@@ -350,9 +350,12 @@ test('Today: check-off, uncheck, extra lessons and the prior-lesson card re-date
   redatesAfterRecompute(between(today, 'async function confirmPriorLessonComplete', 'await loadData();'), /redateAfterCompletionChange\([^;]*"completion"\)/, 'prior-lesson card')
 })
 
-test('Reports: editing or deleting a completed record re-dates that curriculum', () => {
+test('Reports: a server-confirmed date edit or deletion re-dates that curriculum', () => {
   const reports = src('app/dashboard/reports/page.tsx')
-  assert.ok(/redateAfterRecordChange\(goalId, "completion"\)/.test(between(reports, 'async function updateLessonRecord', 'async function deleteLessonRecord')))
+  const edit = between(reports, 'async function updateLessonRecord', 'async function deleteLessonRecord')
+  assert.match(edit, /update_report_lesson_record_v2/)
+  assert.match(edit, /p_expected_date: current\.date \?\? current\.scheduled_date/)
+  assert.match(edit, /if \(data\.scheduling_changed\) \{\s*await redateAfterRecordChange\(data\.curriculum_goal_id \?\? null, "completion"\)/)
   const del = between(reports, 'async function deleteLessonRecord', 'async function redateAfterRecordChange')
   assert.ok(del.indexOf('redateAfterRecordChange(goalId, "uncompletion")') > del.indexOf('"delete_report_lesson_record"'))
   assert.ok(/resyncGoalsForParent\(supabase, effectiveUserId, \[goalId\], PARENT_RESPREAD_SOURCE\[kind\]\)/.test(between(reports, 'async function redateAfterRecordChange', '\n  }\n')))

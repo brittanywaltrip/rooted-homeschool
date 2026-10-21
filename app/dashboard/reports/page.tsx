@@ -26,7 +26,7 @@ import { selectReportPhotos, type ReportPhoto } from "@/lib/report-evidence";
 import { buildActivityLog, selectReportAppointments } from "@/lib/report-activity-log";
 import { dayOffInputError, dayOffLength, selectReportDaysOff, type ReportAbsence, type ReportBreak } from "@/lib/report-days-off";
 import { resyncGoalsForParent, PARENT_RESPREAD_SOURCE, COMPLETION_RESPREAD_FAILED_NOTE } from "@/app/lib/scheduler";
-import { lessonMinutes, sumLessonMinutes } from "@/lib/lesson-minutes";
+import { lessonMinutes, lessonMinutesInput, sumLessonMinutes, ESTIMATED_MINUTES_PER_LESSON } from "@/lib/lesson-minutes";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -287,7 +287,8 @@ function PrintReport({
   // One rule for lesson time everywhere (lib/lesson-minutes.ts): recorded
   // minutes as recorded, a recorded 0 as 0, and only a lesson with no time at
   // all as the estimate.
-  const lessonHours = sumLessonMinutes(completedLessons).minutes / 60;
+  const lessonTimeSummary = sumLessonMinutes(completedLessons);
+  const lessonHours = lessonTimeSummary.minutes / 60;
   const memoryHours = filteredActivities.reduce((sum, a) => sum + ((a.duration_minutes ?? 0) / 60), 0);
 
   // Completed recurring-activity sessions: a FOURTH source, distinct from the
@@ -433,7 +434,7 @@ function PrintReport({
           // Sessions, not activity types: 8 activities producing 20 sessions is
           // 20 here. Both numbers appear in the Activities section below.
           { icon: Sparkles,    label: "Activity Sessions",  value: activitySummary.sessions, color: "#7a6f9a" },
-          { icon: Clock,       label: "Hours Logged",      value: `${totalHours.toFixed(1)}h`, color: "#8b6f47" },
+          { icon: Clock,       label: "Total Hours",      value: `${totalHours.toFixed(1)}h`, color: "#8b6f47" },
           { icon: Calendar,    label: "Days Present",      value: presentDates.size, color: "#4a7a8a" },
           { icon: BookOpen,    label: "Books Read",        value: filteredBooks.length, color: "#7a4a8a" },
         ].map(({ icon: Icon, label, value, color }, i, arr) => (
@@ -452,6 +453,12 @@ function PrintReport({
           </div>
         ))}
       </div>
+
+      {lessonTimeSummary.estimatedCount > 0 && (
+        <p className="text-sm text-[#7a6f65]">
+          Total hours include {(lessonTimeSummary.estimatedMinutes / 60).toFixed(1)}h estimated across {lessonTimeSummary.estimatedCount} completed {lessonTimeSummary.estimatedCount === 1 ? "lesson" : "lessons"} with no recorded time ({ESTIMATED_MINUTES_PER_LESSON} minutes each). Estimated lesson times are marked below. Enter actual minutes in Edit record to replace an estimate; enter 0 for no time.
+        </p>
+      )}
 
       {/* Subjects covered */}
       {Object.values(subjectMap).length > 0 && (
@@ -500,7 +507,8 @@ function PrintReport({
             <tbody>
               {lessonDetails.map((lesson) => {
                 const date = lesson.date ?? lesson.scheduled_date;
-                const minutes = lessonMinutes(lesson).minutes;
+                const lessonTime = lessonMinutes(lesson);
+                const minutes = lessonTime.minutes;
                 return (
                   <tr key={lesson.id} className="border-t border-[#f2ede6]">
                     <td className="py-2 pr-3 align-top text-[#7a6f65] whitespace-nowrap">{formatLogDate(date)}</td>
@@ -516,7 +524,7 @@ function PrintReport({
                                 className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
                             </label>
                             <label className="text-[11px] text-[#7a6f65]">Minutes
-                              <input type="number" min="0" max="1440" value={recordMinutes} onChange={(e) => setRecordMinutes(e.target.value)}
+                              <input type="number" min="0" max="1440" placeholder="Blank = estimated" value={recordMinutes} onChange={(e) => setRecordMinutes(e.target.value)}
                                 className="mt-1 block w-full rounded-lg border border-[#d8d0c6] bg-white px-2 py-1.5 text-sm text-[#2d2926]" />
                             </label>
                           </div>
@@ -543,12 +551,12 @@ function PrintReport({
                         </div>
                       ) : canEdit ? (
                         <button type="button" className="no-print block mt-1 text-xs font-medium text-[#5c7f63]"
-                          onClick={() => { setEditingActivityId(null); setEditingLessonId(lesson.id); setRecordDate(date ?? ""); setRecordMinutes(String(lessonMinutes(lesson).minutes)); setDetailText(lesson.notes ?? ""); setDeleteConfirm(null); setDetailError(null); }}>
+                          onClick={() => { setEditingActivityId(null); setEditingLessonId(lesson.id); setRecordDate(date ?? ""); setRecordMinutes(lessonMinutesInput(lesson)); setDetailText(lesson.notes ?? ""); setDeleteConfirm(null); setDetailError(null); }}>
                           Edit record
                         </button>
                       ) : null}
                     </td>
-                    <td className="py-2 align-top text-right text-[#7a6f65] whitespace-nowrap">{formatSessionDuration(minutes)}</td>
+                    <td className="py-2 align-top text-right text-[#7a6f65] whitespace-nowrap">{formatSessionDuration(minutes)}{lessonTime.estimated && <span className="block text-xs">Estimated</span>}</td>
                   </tr>
                 );
               })}
@@ -1433,25 +1441,26 @@ function ReportsPageInner() {
 
   async function updateLessonRecord(lessonId: string, patch: ReportRecordPatch): Promise<boolean> {
     if (!effectiveUserId || isPartner) return false;
-    const { data, error } = await supabase.rpc("update_report_lesson_record", {
+    const current = lessons.find((row) => row.id === lessonId);
+    if (!current) return false;
+    const { data, error } = await supabase.rpc("update_report_lesson_record_v2", {
       p_lesson_id: lessonId,
       p_date: patch.date,
       p_minutes_spent: patch.minutes,
       p_notes: patch.notes,
+      p_expected_date: current.date ?? current.scheduled_date,
     });
-    if (error || data !== true) {
+    if (error || data?.saved !== true || typeof data.scheduling_changed !== "boolean") {
       console.error("[hours-report] lesson record save failed", error);
       return false;
     }
-    const goalId = lessons.find((row) => row.id === lessonId)?.curriculum_goal_id ?? null;
-    setLessons((rows) => rows.map((row) => row.id === lessonId ? {
-      ...row, date: patch.date, scheduled_date: patch.date,
-      minutes_spent: patch.minutes, notes: patch.notes,
-    } : row));
     // Moving a completion onto or off today changes how many lessons Today
     // counts as done today, which moves its projection. Re-date that
     // curriculum so Plan follows. The record edit itself already saved.
-    await redateAfterRecordChange(goalId, "completion");
+    if (data.scheduling_changed) {
+      await redateAfterRecordChange(data.curriculum_goal_id ?? null, "completion");
+    }
+    await load();
     return true;
   }
 
