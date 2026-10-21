@@ -47,6 +47,12 @@ import {
 } from '@/lib/email/email-claim'
 import { transactionalSuppressionFor } from '@/lib/email/resend-suppression'
 import { invoiceSubscriptionId } from '@/lib/invoice-subscription'
+import {
+  handleInvoicePaid,
+  type LinkedProfileRow,
+  type PaidInvoiceLike,
+  type SubscriptionLike,
+} from '@/lib/invoice-paid'
 
 const ADMIN_EMAIL = 'garfieldbrittany@gmail.com'
 const FOUNDING_PRICE_ID = process.env.STRIPE_FOUNDING_FAMILY_PRICE_ID
@@ -1215,6 +1221,55 @@ export async function POST(req: NextRequest) {
       nextPaymentAttemptIso: nextAttempt ? nextAttempt.toISOString() : null,
       customerEmailOutcome: customerOutcome,
     })
+  }
+
+  // ── invoice.paid ────────────────────────────────────────────────────────
+  // A renewal's customer.subscription.updated arrives BEFORE Stripe collects,
+  // so that branch correctly stores the end of the OLD term. This is the event
+  // that says the new term was paid for. It moves current_period_end forward to
+  // the paid invoice's billed line end and writes nothing else: no access, plan,
+  // gift, legacy or cancellation field, no relinking, no referral or
+  // commission, no email. Every rule lives in lib/invoice-paid.ts.
+  if (event.type === 'invoice.paid') {
+    const outcome = await handleInvoicePaid(event.data.object as PaidInvoiceLike, {
+      retrieveInvoice: (id) => stripeClient().invoices.retrieve(id) as Promise<PaidInvoiceLike>,
+      retrieveSubscription: (id) =>
+        stripeClient().subscriptions.retrieve(id) as unknown as Promise<SubscriptionLike>,
+      refundState: (id) => resolveInvoiceRefundState(id),
+      profilesForCustomer: async (customerId) => {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, stripe_subscription_id, current_period_end')
+          .eq('stripe_customer_id', customerId)
+          .limit(2)
+        if (error) throw new Error(error.message)
+        return (data ?? []) as LinkedProfileRow[]
+      },
+      advancePaidThrough: async ({ profileId, subscriptionId, expectedCurrent, through }) => {
+        const base = supabase
+          .from('profiles')
+          .update({ current_period_end: through.toISOString() })
+          .eq('id', profileId)
+          .eq('stripe_subscription_id', subscriptionId)
+        const { data, error } = await (expectedCurrent === null
+          ? base.is('current_period_end', null)
+          : base.eq('current_period_end', expectedCurrent)
+        ).select('id')
+        if (error) throw new Error(error.message)
+        return { matched: (data ?? []).length > 0 }
+      },
+    })
+
+    if (outcome.action === 'advanced') {
+      console.log('[webhook:invoice_paid] advanced paid-through', outcome)
+    } else if (outcome.retry) {
+      // Idempotent, so a redelivery is safe and re-decides from fresh state.
+      console.error('[webhook:invoice_paid] could not decide, asking Stripe to redeliver', outcome)
+      return NextResponse.json({ error: outcome.reason }, { status: 500 })
+    } else {
+      console.log('[webhook:invoice_paid] wrote nothing', outcome)
+    }
+    return NextResponse.json({ received: true, invoicePaid: outcome.action === 'advanced' ? 'advanced' : outcome.reason })
   }
 
   return NextResponse.json({ received: true })
