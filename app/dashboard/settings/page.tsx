@@ -107,11 +107,20 @@ type AffiliateStatsPayload = {
   rows: ReferralRow[];
 };
 
+async function fetchAffiliateStats(code: string): Promise<AffiliateStatsPayload> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error("Sign in to view affiliate stats");
+  const res = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(code)}`, {
+    headers: { Authorization: `Bearer ${session.access_token}` },
+  });
+  if (!res.ok) throw new Error("Affiliate stats unavailable");
+  return res.json();
+}
+
 function AffiliateStatCell({ couponId, code, field, prefix = "" }: { couponId: string; code: string; field: "totalRedemptions" | "payingCount" | "revenueDriven"; prefix?: string }) {
   const [val, setVal] = useState<number | null>(null);
   useEffect(() => {
-    fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(code)}`)
-      .then(r => r.json())
+    fetchAffiliateStats(code)
       .then(d => setVal(d[field] ?? 0))
       .catch(() => setVal(0));
   }, [couponId, code, field]);
@@ -122,8 +131,7 @@ function AffiliateStatCell({ couponId, code, field, prefix = "" }: { couponId: s
 function AffiliateStatsRow({ couponId, code }: { couponId: string; code: string }) {
   const [stats, setStats] = useState<{ totalRedemptions: number; payingCount: number; revenueDriven: number } | null>(null);
   useEffect(() => {
-    fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(code)}`)
-      .then(r => r.json())
+    fetchAffiliateStats(code)
       .then(setStats)
       .catch(() => {});
   }, [couponId, code]);
@@ -515,8 +523,7 @@ export default function SettingsPage() {
     if (affData) {
       setAffiliateData(affData as { name: string; code: string; stripe_coupon_id: string; is_active: boolean; created_at: string; clicks: number });
       try {
-        const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(affData.code)}`);
-        const stats = await r.json();
+        const stats = await fetchAffiliateStats(affData.code);
         setAffiliateStats(stats);
       } catch {}
     }
@@ -540,8 +547,7 @@ export default function SettingsPage() {
     setPreviewPayments([]);
     setShowAffiliatePreview(true);
     try {
-      const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(first.code)}`);
-      const stats = await r.json();
+      const stats = await fetchAffiliateStats(first.code);
       setPreviewStats(stats);
     } catch {}
     loadPreviewPayments(first.code);
@@ -554,8 +560,7 @@ export default function SettingsPage() {
     setPreviewStats(null);
     setPreviewPayments([]);
     try {
-      const r = await fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(aff.code)}`);
-      const stats = await r.json();
+      const stats = await fetchAffiliateStats(aff.code);
       setPreviewStats(stats);
     } catch {}
     loadPreviewPayments(aff.code);
@@ -563,8 +568,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (affiliateData?.stripe_coupon_id && affiliateData?.code) {
-      fetch(`/api/stripe/affiliate-stats?code=${encodeURIComponent(affiliateData.code)}`)
-        .then(r => r.json())
+      fetchAffiliateStats(affiliateData.code)
         .then(setAffiliateStats)
         .catch(() => {});
     }
