@@ -138,5 +138,6 @@ q -c "create function public._boom2() returns trigger language plpgsql as \$b\$ 
 check "T22 make-up write fails"         "$(reopen "$(L 5)")   $(row "$(L 5)")" 'injected make-up failure.*"failed".*done/unpinned/wizard_create/.*/min=30/ptr=5'
 q -c "drop trigger _boom2 on public.lessons; drop function public._boom2();"
 
+q -f "$S/unslotted.sql" >/dev/null && echo "PASS unslotted SQL assertions" || FAILS=$((FAILS+1))
 pg_ctl -D "$R/data" stop -m fast >/dev/null
 echo "failures: $FAILS"; exit $FAILS
