@@ -1,5 +1,7 @@
 "use client";
 
+import { deferAuthWork } from "@/lib/defer-auth-work";
+
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -348,18 +350,26 @@ export default function AdminResourcesPage() {
 
   // Auth check — wait for session rehydration on mobile
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    let mounted = true;
+    let cancelWork: (() => void) | undefined;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'INITIAL_SESSION') {
         if (!session || !ADMIN_EMAILS.includes(session.user.email ?? '')) {
           router.replace('/dashboard');
           return;
         }
-        // Refresh the session to get a fresh access token
-        await supabase.auth.refreshSession();
-        setChecking(false);
+        cancelWork = deferAuthWork(async () => {
+          const { data, error } = await supabase.auth.refreshSession();
+          if (!mounted) return;
+          if (error || !data.session) {
+            router.replace('/login');
+            return;
+          }
+          setChecking(false);
+        }, () => { router.replace('/login'); });
       }
     });
-    return () => subscription.unsubscribe();
+    return () => { mounted = false; cancelWork?.(); subscription.unsubscribe(); };
   }, [router]);
 
   // Load resources
