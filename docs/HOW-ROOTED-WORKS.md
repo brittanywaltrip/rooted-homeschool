@@ -186,7 +186,9 @@ A new curriculum is attached to the family's current school year. The builder it
 
 "It says lessons 1 to 10 are done through today, but we haven't done lesson 10 yet" or "Math isn't on Today."
 
-"What lesson are you on next?" means the next one they have not done. If they are about to do lesson 11 today and type 11, Rooted records lesson 10 as done today and puts lesson 11 on the next school day, so nothing for that subject shows on Today today. What to tell them: that is expected for a brand-new curriculum. Rooted never adds a new curriculum's lessons to today. If they do lesson 11 today anyway, they can check it off with "+ Log extra lessons" on Today. Editing an existing curriculum behaves differently: its next lesson can land on today.
+"What lesson are you on next?" means the next one they have not done. For a brand-new curriculum, entering 11 starts them on lesson 11; it does not automatically mark lessons 1 to 10 done or add them to their records or hours. The default is "No, just start me on lesson 11." Earlier lessons are recorded as completed history only if they choose "Yes, add them to our records." That choice also adds the configured minutes for those lessons to reports.
+
+The new curriculum's upcoming lessons begin on the first eligible school day on or after the later of tomorrow and their chosen start date, skipping non-school days and vacation days. Lesson 11 therefore does not appear as scheduled work on Today today. If they do lesson 11 today anyway, they can check it off with "+ Log extra lessons" on Today. Editing an existing curriculum behaves differently: its next lesson can land on today.
 
 **Known quirk:** "Remove curriculum" inside the builder only puts the curriculum away and leaves its lessons alone. The Delete on the Plan page is the one that clears unfinished lessons from the calendar.
 
