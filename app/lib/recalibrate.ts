@@ -6,6 +6,7 @@ import {
   mergeOutcomes,
   NO_WRITES,
   PARENT_RESPREAD_SOURCE,
+  loadReservedSlotsForGoal,
   queueHoldsFromRows,
   type ConfirmedWriteOutcome,
   type CurriculumGoalConfig,
@@ -568,7 +569,9 @@ export async function recalibrateCurriculumGoal(opts: {
     1500,
     vacationBlocks,
     0,
-    queueHoldsFromRows(rows),
+    // Reserved slots (reservedSlotsFromRows): an unslotted lesson's own slot
+    // is stepped over, never dated as if a lesson held it.
+    [...queueHoldsFromRows(rows), ...(await loadReservedSlotsForGoal(supabase, cfg))],
   );
   const projDateByKey = new Map(
     projected.map((p) => [`${p.goal_id}|${p.lesson_number}`, p.date]),

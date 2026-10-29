@@ -159,20 +159,84 @@ export interface CompleteLessonArgs {
   lessonNumber?: number | null;
   subjectLabel?: string | null;
   /**
-   * Columns written alongside the completion that are not part of the date
-   * rule: minutes_spent / hours, mostly. Never a date column and never
-   * `completed` — those belong to the payload above and are applied last so a
-   * caller cannot quietly override them.
+   * The time recorded with the completion. Only these two columns are ever
+   * written from it (completionTimeFields); anything else a caller passes is
+   * dropped, so it can never carry a date, a pin, a source or a slot.
    */
-  extra?: Record<string, unknown>;
+  extra?: CompletionTimeFields;
   /** Fires once, only after the write succeeds. */
   track?: (event: LessonCompletedEvent) => void;
   now?: Date;
 }
 
+/** The time columns a completion may write alongside itself. */
+export interface CompletionTimeFields {
+  minutes_spent?: number | null;
+  hours?: number | null;
+}
+
+/** Keep only minutes_spent and hours, whatever the caller passed. */
+export function completionTimeFields(extra: unknown): CompletionTimeFields {
+  const out: CompletionTimeFields = {};
+  if (!extra || typeof extra !== "object") return out;
+  const e = extra as Record<string, unknown>;
+  if ("minutes_spent" in e && (e.minutes_spent === null || typeof e.minutes_spent === "number")) out.minutes_spent = e.minutes_spent as number | null;
+  if ("hours" in e && (e.hours === null || typeof e.hours === "number")) out.hours = e.hours as number | null;
+  return out;
+}
+
+/**
+ * Where a lesson sits, as read just before a completion is written. The write
+ * is conditioned on every one of these still holding, so a move, a pin, a skip
+ * or a slot change in another tab between the read and the write makes the
+ * completion refuse (placement_changed) instead of landing on a lesson the
+ * family did not see.
+ */
+type StoredPlacement = {
+  curriculum_goal_id: string | null;
+  queue_position: number | null;
+  scheduled_date: string | null;
+  queue_pinned: boolean | null;
+  skipped: boolean | null;
+};
+
+export type CompletionErrorCode = "not_found" | "placement_changed";
+
 export interface CompleteLessonResult {
-  payload: CompletionPayload;
-  error: { message: string } | null;
+  /** What was written for a queue lesson; null when completed in place. */
+  payload: CompletionPayload | null;
+  /** The day the completion is filed under, as stored on the row. */
+  filedDate: string;
+  /** True for a curriculum lesson with no queue slot (completesInPlace). */
+  inPlace: boolean;
+  /** code is a CompletionErrorCode when this function refused, or the database's own code. */
+  error: { message: string; code?: CompletionErrorCode | string } | null;
+}
+
+/**
+ * A curriculum lesson with no queue slot is completed WHERE IT STANDS.
+ *
+ * Its date is the only placement it has (the projector never places it), so a
+ * completion must not move it, and its pin and source are the family's own
+ * record of how it got there. Reopening it restores exactly the same row
+ * (reopen_lesson, 20261006000000). Completion therefore writes `completed` and
+ * `completed_at` and nothing else: no date, no source, no pin, no backfill flag,
+ * and never a queue slot. It is filed under its own day, so there is nothing to
+ * choose and the date chooser is not shown for it.
+ *
+ * One-off lessons (no curriculum) keep the ordinary rule.
+ */
+export function completesInPlace(lesson: {
+  curriculum_goal_id?: string | null;
+  queue_position?: number | null;
+  scheduled_date?: string | null;
+}): boolean {
+  return !!lesson.curriculum_goal_id && lesson.queue_position === null && !!lesson.scheduled_date;
+}
+
+/** completed_at for an in-place completion filed under `filedDate`, by the same rule as buildCompletionPayload's "planned". */
+export function inPlaceCompletedAt(filedDate: string, todayStr: string, now: Date = new Date()): string {
+  return filedDate >= todayStr ? now.toISOString() : `${filedDate}T12:00:00Z`;
 }
 
 /**
@@ -187,18 +251,54 @@ export async function completeLessonOnDate(
   supabase: SupabaseClient,
   args: CompleteLessonArgs,
 ): Promise<CompleteLessonResult> {
+  // Decided from the stored row, not the caller's copy of it, so a stale screen
+  // can never move or unpin a lesson that has no queue slot.
+  const { data: stored, error: readErr } = await supabase
+    .from("lessons")
+    .select("curriculum_goal_id, queue_position, scheduled_date, queue_pinned, skipped")
+    .eq("id", args.lessonId)
+    .maybeSingle();
+  if (readErr) return { payload: null, filedDate: args.dateStr, inPlace: false, error: readErr };
+  const row = stored as StoredPlacement | null;
+  if (!row) {
+    return { payload: null, filedDate: args.dateStr, inPlace: false, error: { message: "lesson not found", code: "not_found" } };
+  }
+  const time = completionTimeFields(args.extra);
+  const changed = { message: "lesson changed before it could be completed", code: "placement_changed" as const };
+
+  if (completesInPlace(row)) {
+    const filedDate = row.scheduled_date as string;
+    const completedAt = inPlaceCompletedAt(filedDate, args.todayStr, args.now);
+    const { data: written, error } = await guardPlacement(
+      supabase.from("lessons").update({ ...time, completed: true, completed_at: completedAt }).eq("id", args.lessonId),
+      row,
+    ).select("id");
+    if (error) return { payload: null, filedDate, inPlace: true, error };
+    if (!written || written.length !== 1) return { payload: null, filedDate, inPlace: true, error: changed };
+    const choice: CompletionChoice = filedDate === args.todayStr ? "today" : "planned";
+    args.track?.({
+      lesson_number: args.lessonNumber ?? null,
+      subject_label: args.subjectLabel ?? null,
+      lesson_date: filedDate,
+      date_choice: choice,
+      surface: args.surface,
+    });
+    return { payload: null, filedDate, inPlace: true, error: null };
+  }
+
   const payload = buildCompletionPayload({
     dateStr: args.dateStr,
     choice: args.choice,
     todayStr: args.todayStr,
     now: args.now,
   });
-  // Payload last: `extra` carries minutes and hours, never the date rule.
-  const { error } = await supabase
-    .from("lessons")
-    .update({ ...(args.extra ?? {}), ...payload })
-    .eq("id", args.lessonId);
-  if (error) return { payload, error };
+  // Payload last: the time fields never carry the date rule.
+  const { data: written, error } = await guardPlacement(
+    supabase.from("lessons").update({ ...time, ...payload }).eq("id", args.lessonId),
+    row,
+  ).select("id");
+  if (error) return { payload, filedDate: payload.date, inPlace: false, error };
+  if (!written || written.length !== 1) return { payload, filedDate: payload.date, inPlace: false, error: changed };
   args.track?.(
     buildLessonCompletedEvent({
       payload,
@@ -208,7 +308,21 @@ export async function completeLessonOnDate(
       subjectLabel: args.subjectLabel,
     }),
   );
-  return { payload, error: null };
+  return { payload, filedDate: payload.date, inPlace: false, error: null };
+}
+
+/** Condition an update on the placement read before it (null via IS, values via =). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function guardPlacement<Q extends { eq: (c: string, v: any) => Q; is: (c: string, v: null) => Q }>(q: Q, row: StoredPlacement): Q {
+  // An absent column reads as null: the guard then refuses rather than match on undefined.
+  const eqOrIs = (query: Q, column: string, value: string | number | boolean | null | undefined): Q =>
+    value == null ? query.is(column, null) : query.eq(column, value);
+  let out = eqOrIs(q, "curriculum_goal_id", row.curriculum_goal_id);
+  out = eqOrIs(out, "queue_position", row.queue_position);
+  out = eqOrIs(out, "scheduled_date", row.scheduled_date);
+  out = eqOrIs(out, "queue_pinned", row.queue_pinned);
+  out = eqOrIs(out, "skipped", row.skipped);
+  return out;
 }
 
 /**
