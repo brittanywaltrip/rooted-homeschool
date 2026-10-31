@@ -964,7 +964,7 @@ function HomeInner() {
 
           {/* Free */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Rooted</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#7a6f65] mb-3">Rooted</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
                 className="text-4xl font-bold text-[#2d2926]"
@@ -973,7 +973,7 @@ function HomeInner() {
                 $0
               </span>
             </div>
-            <p className="text-xs text-[#b5aca4] mb-6">No credit card needed</p>
+            <p className="text-xs text-[#7a6f65] mb-6">No credit card needed</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "30-day free trial, full access to everything",
@@ -983,7 +983,7 @@ function HomeInner() {
                 "After trial: yearbook and report previews",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
-                  <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
+                  <span className="text-[#5c7f63] mt-0.5 shrink-0 text-xs">✓</span>
                   {f}
                 </li>
               ))}
@@ -998,7 +998,7 @@ function HomeInner() {
 
           {/* Standard */}
           <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Rooted+</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#7a6f65] mb-3">Rooted+</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
                 className="text-4xl font-bold text-[#2d2926]"
@@ -1006,9 +1006,9 @@ function HomeInner() {
               >
                 $59
               </span>
-              <span className="text-sm text-[#b5aca4] mb-1">/year</span>
+              <span className="text-sm text-[#7a6f65] mb-1">/year</span>
             </div>
-            <p className="text-xs text-[#b5aca4] mb-6">≈ $4.92/month</p>
+            <p className="text-xs text-[#7a6f65] mb-6">≈ $4.92/month</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
@@ -1022,7 +1022,7 @@ function HomeInner() {
                 "Share with family, send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
-                  <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
+                  <span className="text-[#5c7f63] mt-0.5 shrink-0 text-xs">✓</span>
                   {f}
                 </li>
               ))}
@@ -1037,7 +1037,7 @@ function HomeInner() {
 
           {/* Show the same Monthly option as /upgrade when checkout is ready. */}
           {monthlyAvailable && <div className="bg-[#fefcf9] border border-[#e8e2d9] rounded-2xl p-6 text-center flex flex-col">
-            <p className="text-xs font-bold uppercase tracking-widest text-[#b5aca4] mb-3">Rooted+ Monthly</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-[#7a6f65] mb-3">Rooted+ Monthly</p>
             <div className="flex items-end justify-center gap-1 mb-1">
               <span
                 className="text-4xl font-bold text-[#2d2926]"
@@ -1045,21 +1045,23 @@ function HomeInner() {
               >
                 $9.99
               </span>
-              <span className="text-sm text-[#b5aca4] mb-1">/mo</span>
+              <span className="text-sm text-[#7a6f65] mb-1">/mo</span>
             </div>
-            <p className="text-xs text-[#b5aca4] mb-6">Billed monthly · Cancel anytime</p>
+            <p className="text-xs text-[#7a6f65] mb-6">Everything in Rooted+, billed monthly · Cancel anytime</p>
             <ul className="text-sm text-left space-y-2.5 mb-7 flex-1">
               {[
                 "Unlimited children",
                 "Unlimited photo memories",
                 "Complete memory timeline, every moment, forever",
+                "Transcripts & PDF reports, export anytime",
+                "Badges & certificates",
                 "Hours & Attendance Log, track and export your learning hours",
                 "Curriculum progress tracking, stay on track all year without the stress",
                 "Full yearbook, no watermark, download anytime",
                 "Share with family, send grandparents a private link to follow along in real time",
               ].map((f) => (
                 <li key={f} className="flex items-start gap-2 text-[#7a6f65]">
-                  <span className="text-[#c8bfb5] mt-0.5 shrink-0 text-xs">✓</span>
+                  <span className="text-[#5c7f63] mt-0.5 shrink-0 text-xs">✓</span>
                   {f}
                 </li>
               ))}
