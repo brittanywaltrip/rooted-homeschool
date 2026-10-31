@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin as supabase } from '@/lib/supabase-admin'
 
 import { COMMISSION_RATE, LEGACY_COMMISSION_PER_PAYING, displayCommission } from '@/lib/commission'
+import { canReadAffiliateStats } from '@/lib/affiliate-stats-access'
 
 // Each referral row's commission now comes from the webhook at conversion
 // time (stored in referrals.commission_amount). Pre-migration rows fall
@@ -27,7 +28,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing code' }, { status: 400 })
   }
 
+  const token = req.headers.get('authorization')?.match(/^Bearer (\S+)$/)?.[1]
+  if (!token) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+  if (authError || !user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
+    const { data: affiliateRow, error: affiliateError } = await supabase
+      .from('affiliates')
+      .select('user_id, clicks')
+      .ilike('code', affiliateCode)
+      .maybeSingle()
+    if (affiliateError) throw affiliateError
+    if (!affiliateRow || !canReadAffiliateStats(user, affiliateRow.user_id)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
+
     const { data: referrals, error: refErr } = await supabase
       .from('referrals')
       .select('id, user_id, converted, commission_note, commission_amount, stripe_session_id, created_at')
@@ -80,11 +96,6 @@ export async function GET(req: NextRequest) {
     // Clicks live on the affiliates table as a single all-time counter — there's
     // no timestamped click log, so "this month" can't be derived. Return all-time
     // only and let the UI show a dash for the monthly figure.
-    const { data: affiliateRow } = await supabase
-      .from('affiliates')
-      .select('clicks')
-      .ilike('code', affiliateCode)
-      .maybeSingle()
     const clicksAllTime = (affiliateRow as { clicks?: number } | null)?.clicks ?? 0
 
     // Next payout fires on the 1st of next month. "Amount owed" is the
@@ -121,7 +132,7 @@ export async function GET(req: NextRequest) {
     })
   } catch (err) {
     console.error('[affiliate-stats]', err)
-    return NextResponse.json(emptyPayload())
+    return NextResponse.json({ error: 'Stats unavailable' }, { status: 503 })
   }
 }
 
