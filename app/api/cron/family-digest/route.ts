@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabaseAdmin } from "@/lib/supabase-admin";
-import { signedPhotoUrlsAdmin } from "@/lib/photo-url";
+import { signedPhotoUrlsAdmin } from "@/lib/photo-url-admin";
 import { sendResendTemplate, TEMPLATES } from "@/lib/resend-template";
 import { canSendMarketingEmail } from "@/lib/email/can-send";
 import { buildFamilyListUnsubscribeHeaders } from "@/lib/email/list-unsubscribe";
