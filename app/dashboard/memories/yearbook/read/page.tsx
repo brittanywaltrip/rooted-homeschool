@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef, useMemo, useContext, createCo
 import { motion, AnimatePresence } from "framer-motion";
 import { useSwipeable } from "react-swipeable";
 import { supabase } from "@/lib/supabase";
+import { saveSettingKey, profileSettingsDb } from "@/lib/yearbook-settings-save";
 import { usePartner } from "@/lib/partner-context";
 import { useProfile } from "@/lib/profile-context";
 import { capitalizeChildNames } from "@/lib/utils";
@@ -1092,13 +1093,22 @@ export default function YearbookReadPage() {
 
   // ── Yearbook settings toggle ─────────────────────────────────────────────────
 
+  // Not wired to any control today. If it is, it must save only its own key on
+  // top of what is stored, like the editor does, never this page's whole copy.
   async function toggleYbSetting(key: keyof YearbookSettings) {
-    const next = { ...ybSettings, [key]: !ybSettings[key] };
-    setYbSettings(next);
+    const before = ybSettings;
+    const value = !ybSettings[key];
+    setYbSettings({ ...ybSettings, [key]: value });
     setCurrentPage(0); // reset to cover when toggling sections
     if (!effectiveUserId) return;
-    await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
-        void refreshProfile();
+    try {
+      const stored = await saveSettingKey(profileSettingsDb(supabase, effectiveUserId), key, value);
+      setYbSettings({ ...DEFAULT_YB_SETTINGS, ...(stored as Partial<YearbookSettings>) });
+      void refreshProfile();
+    } catch (err) {
+      console.error("Yearbook setting did not save:", err);
+      setYbSettings(before);
+    }
   }
 
   // ── Keyboard navigation ─────────────────────────────────────────────────────

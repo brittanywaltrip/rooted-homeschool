@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useState, useCallback, useRef, useSyncExternalStore, type ReactNode, type Dispatch, type SetStateAction, type PointerEvent as ReactPointerEvent } from "react";
 import { supabase } from "@/lib/supabase";
 import { currentKeyLast, getCurrentSchoolYear, resolveYearbookKey, yearbookContentYearFilter } from "@/app/lib/school-year";
 import { usePartner } from "@/lib/partner-context";
@@ -9,10 +9,14 @@ import { capitalizeChildNames } from "@/lib/utils";
 import { signedPhotoUrl, coverBucketFor } from "@/lib/photo-url";
 import { preparePhoto, PhotoReadError, TEN_YEARS_SECONDS, COVER_MAX_DIMENSION, type PhotoStage } from "@/lib/photo-pipeline";
 import { clampFocal } from "@/lib/focal-point";
-import { orderPhotos, normalizedPageOrders } from "@/lib/photo-order";
+import { orderPhotos } from "@/lib/photo-order";
 import { THEMES, resolveThemeName } from "@/lib/yearbook-theme";
 import { YEAR_END_QUESTIONS, FAVORITES, FAVORITES_FROM_INTERVIEW, SNAPSHOT_FIELDS, NEVER_FORGET_LINES, OPEN_WHEN_PROMPTS, ADVENTURE_CATEGORIES } from "@/lib/yearbook-prompts";
 import { yearbookMonths, questionForMonth, monthLabel } from "@/lib/monthly-questions";
+import { createSaveQueue, type SaveQueue, type SaveState } from "@/lib/save-queue";
+import { openDraftStore, triageDrafts, type Draft, type DraftStore } from "@/lib/yearbook-drafts";
+import { saveSettingKey, profileSettingsDb } from "@/lib/yearbook-settings-save";
+import { reorderWithinGroup, writePageOrders } from "@/lib/yearbook-photo-saves";
 import {
   DndContext,
   PointerSensor,
@@ -21,7 +25,7 @@ import {
   closestCenter,
   type DragEndEvent,
 } from "@dnd-kit/core";
-import { SortableContext, useSortable, rectSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { SortableContext, useSortable, rectSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import SignedImage from "@/components/SignedImage";
 import Link from "next/link";
@@ -78,54 +82,53 @@ type YearbookContentRow = {
 // prompts module so the editor and the reader never drift.
 const INTERVIEW_QUESTIONS = YEAR_END_QUESTIONS;
 
-// ─── Autosave Hook ────────────────────────────────────────────────────────────
+// ─── Save status ──────────────────────────────────────────────────────────────
 
-function useAutosave(
-  value: string,
-  saveFn: (val: string) => Promise<void>,
-  delay = 800
-): "idle" | "saving" | "saved" | "error" {
-  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const prevRef = useRef(value);
-  const savedTimerRef = useRef<NodeJS.Timeout | null>(null);
+// How long a typed field waits after the last keystroke before it is written.
+const AUTOSAVE_DELAY_MS = 800;
 
-  useEffect(() => {
-    if (value === prevRef.current) return;
-    prevRef.current = value;
+// A tap on a theme, a section toggle, Feature/Hide or a photo drag waits this
+// long, so a quick run of taps becomes one write of the final choice.
+const CHOICE_DELAY_MS = 300;
 
-    if (timerRef.current) clearTimeout(timerRef.current);
-    if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+type YearbookSettings = {
+  show_letter: boolean;
+  show_year_in_numbers: boolean;
+  show_child_chapters: boolean;
+  show_favorite_things: boolean;
+  show_books_section: boolean;
+  show_family_chapter: boolean;
+  theme?: string;
+};
+const DEFAULT_YB_SETTINGS: YearbookSettings = {
+  show_letter: true,
+  show_year_in_numbers: true,
+  show_child_chapters: true,
+  show_favorite_things: true,
+  show_books_section: true,
+  show_family_chapter: true,
+  theme: "garden",
+};
 
-    setStatus("saving");
-    timerRef.current = setTimeout(async () => {
-      try {
-        await saveFn(value);
-        setStatus("saved");
-        savedTimerRef.current = setTimeout(() => setStatus("idle"), 3000);
-      } catch {
-        setStatus("error");
-      }
-    }, delay);
-
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
-    };
-  }, [value, saveFn, delay]);
-
-  return status;
-}
-
-function SaveStatus({ status }: { status: "idle" | "saving" | "saved" | "error" }) {
+// "Saved" is shown only once the write is confirmed (lib/save-queue.ts). A
+// failed field keeps the mother's text in the box and offers Try again.
+function SaveStatus({ status, onRetry }: { status: SaveState; onRetry?: () => void }) {
   if (status === "idle") return null;
+  if (status === "error") {
+    return (
+      <span role="alert" className="text-[10px] mt-1 block text-red-500">
+        Didn&apos;t save. Your words are still here.{" "}
+        {onRetry && (
+          <button type="button" onClick={onRetry} className="underline font-medium">
+            Try again
+          </button>
+        )}
+      </span>
+    );
+  }
   return (
-    <span className={`text-[10px] mt-1 block ${
-      status === "saving" ? "text-[#9a8f85]"
-        : status === "saved" ? "text-[#5c7f63]"
-        : "text-red-500"
-    }`}>
-      {status === "saving" ? "Saving…" : status === "saved" ? "✓ Saved" : "Save failed"}
+    <span className={`text-[10px] mt-1 block ${status === "saved" ? "text-[#5c7f63]" : "text-[#9a8f85]"}`}>
+      {status === "saved" ? "✓ Saved" : "Saving…"}
     </span>
   );
 }
@@ -153,13 +156,16 @@ function RepositionModal({
   memoryActions?: {
     featured: boolean;
     hidden: boolean;
-    onToggleFeatured: () => Promise<void>;
-    onToggleHidden: () => Promise<void>;
+    onToggleFeatured: () => void;
+    onToggleHidden: () => void;
+    /** The save status line for each, from the page's save queue. */
+    featuredStatus?: ReactNode;
+    hiddenStatus?: ReactNode;
   } | null;
 }) {
   const [focal, setFocal] = useState<Focal>(initialFocal ?? { x: 0.5, y: 0.5 });
   const [saving, setSaving] = useState(false);
-  const [actionBusy, setActionBusy] = useState(false);
+  const [commitFailed, setCommitFailed] = useState(false);
   const frameRef = useRef<HTMLDivElement>(null);
   const drag = useRef<{ sx: number; sy: number; fx: number; fy: number } | null>(null);
 
@@ -186,13 +192,10 @@ function RepositionModal({
 
   const commit = async (f: Focal | null) => {
     setSaving(true);
-    try { await onCommit(f); } finally { setSaving(false); }
+    setCommitFailed(false);
+    try { await onCommit(f); } catch { setCommitFailed(true); } finally { setSaving(false); }
   };
 
-  const runAction = async (fn: () => Promise<void>) => {
-    setActionBusy(true);
-    try { await fn(); } finally { setActionBusy(false); }
-  };
 
   return (
     <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4" onClick={onCancel}>
@@ -233,8 +236,7 @@ function RepositionModal({
           <div className="mt-3 space-y-2">
             <button
               type="button"
-              onClick={() => runAction(memoryActions.onToggleFeatured)}
-              disabled={actionBusy}
+              onClick={memoryActions.onToggleFeatured}
               className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-[12px] disabled:opacity-50 ${
                 memoryActions.featured ? "border-[#5c7f63] bg-[#eef3e6] text-[var(--g-deep)]" : "border-[#e8e3dc] text-[#2d2926]"
               }`}
@@ -242,10 +244,10 @@ function RepositionModal({
               <span>⭐ Feature: its own full page</span>
               <span className="text-[11px]">{memoryActions.featured ? "On" : "Off"}</span>
             </button>
+            {memoryActions.featuredStatus}
             <button
               type="button"
-              onClick={() => runAction(memoryActions.onToggleHidden)}
-              disabled={actionBusy}
+              onClick={memoryActions.onToggleHidden}
               className={`w-full flex items-center justify-between rounded-lg border px-3 py-2 text-[12px] disabled:opacity-50 ${
                 memoryActions.hidden ? "border-[#c98a8a] bg-[#f6ecec] text-[#9a4a4a]" : "border-[#e8e3dc] text-[#2d2926]"
               }`}
@@ -253,10 +255,17 @@ function RepositionModal({
               <span>{memoryActions.hidden ? "Hidden from book" : "Hide from book"}</span>
               <span className="text-[11px]">{memoryActions.hidden ? "Hidden" : "Visible"}</span>
             </button>
+            {memoryActions.hiddenStatus}
             {memoryActions.hidden && (
               <p className="text-[10px] text-[#9a8f85]">This photo won&apos;t appear in the yearbook.</p>
             )}
           </div>
+        )}
+
+        {commitFailed && (
+          <p role="alert" className="text-[11px] text-red-500 mt-3">
+            Didn&apos;t save. Check your connection and tap Save again.
+          </p>
         )}
 
         <div className="flex items-center justify-between mt-4">
@@ -323,6 +332,7 @@ function SortablePhoto({
     <button
       ref={setNodeRef}
       type="button"
+      data-photo-id={id}
       style={style}
       onClick={onTap}
       disabled={disabled}
@@ -368,6 +378,7 @@ function KeepsakeFieldGroup({
   twoCol,
   disabled,
   onChange,
+  statusFor,
 }: {
   prompts: { key: string; label: string }[];
   values: Record<string, string>;
@@ -375,6 +386,8 @@ function KeepsakeFieldGroup({
   twoCol?: boolean;
   disabled: boolean;
   onChange: (key: string, value: string) => void;
+  /** The save status line under each field. */
+  statusFor?: (key: string) => ReactNode;
 }) {
   const inputClass = "w-full mt-0.5 px-2.5 py-1.5 text-[12px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60";
   return (
@@ -399,6 +412,7 @@ function KeepsakeFieldGroup({
               style={{ fontFamily: "Georgia, serif" }}
             />
           )}
+          {statusFor?.(p.key)}
         </div>
       ))}
     </div>
@@ -445,11 +459,8 @@ export default function YearbookEditPage() {
   // Advisory only: the upload still succeeds and the cover still saves.
   const [coverSoft, setCoverSoft] = useState(false);
   const [familyName, setFamilyName] = useState("");
-  const [familyNameSaved, setFamilyNameSaved] = useState(false);
   const [schoolYear, setSchoolYear] = useState("");
-  const [schoolYearSaved, setSchoolYearSaved] = useState(false);
   const [coverSubtitle, setCoverSubtitle] = useState("");
-  const [coverSubtitleSaved, setCoverSubtitleSaved] = useState(false);
 
   // Letter state
   const [letter, setLetter] = useState("");
@@ -478,27 +489,11 @@ export default function YearbookEditPage() {
   const [childAnswers, setChildAnswers] = useState<Record<string, Record<string, string>>>({});
   const [childNotes, setChildNotes] = useState<Record<string, string>>({});
   const [activeField, setActiveField] = useState<string | null>(null);
-  const [saveAllStatus, setSaveAllStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveAllStatus, setSaveAllStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // Set when leaving was held back because something did not save.
+  const [leaveBlocked, setLeaveBlocked] = useState<string | null>(null);
 
   // Section settings
-  type YearbookSettings = {
-    show_letter: boolean;
-    show_year_in_numbers: boolean;
-    show_child_chapters: boolean;
-    show_favorite_things: boolean;
-    show_books_section: boolean;
-    show_family_chapter: boolean;
-    theme?: string;
-  };
-  const DEFAULT_YB_SETTINGS: YearbookSettings = {
-    show_letter: true,
-    show_year_in_numbers: true,
-    show_child_chapters: true,
-    show_favorite_things: true,
-    show_books_section: true,
-    show_family_chapter: true,
-    theme: "garden",
-  };
   const [ybSettings, setYbSettings] = useState<YearbookSettings>(DEFAULT_YB_SETTINGS);
 
   // ── Content key helper ──────────────────────────────────────────────────────
@@ -515,17 +510,210 @@ export default function YearbookEditPage() {
     childId?: string,
     questionKey?: string
   ) => {
-    if (isReadOnly || !effectiveUserId || !yearbookKey) return;
-    await supabase.from("yearbook_content").upsert({
+    if (isReadOnly) return;
+    // Throws unless the row is confirmed written. A rejected upsert used to be
+    // ignored here, so the field said "Saved" over text the database refused.
+    if (!effectiveUserId || !yearbookKey) throw new Error("Yearbook is not loaded yet");
+    const updatedAt = new Date().toISOString();
+    const { data, error } = await supabase.from("yearbook_content").upsert({
       user_id: effectiveUserId,
       yearbook_key: yearbookKey,
       content_type: contentType,
       child_id: childId ?? null,
       question_key: questionKey ?? null,
       content,
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "user_id,yearbook_key,content_type,child_id,question_key" });
+      updated_at: updatedAt,
+    }, { onConflict: "user_id,yearbook_key,content_type,child_id,question_key" })
+      .select("content_type");
+    if (error) throw error;
+    if (!data || data.length === 0) throw new Error("Yearbook save returned no row");
+    const k = ck(contentType, childId, questionKey);
+    setUpdatedMap((prev) => ({ ...prev, [k]: updatedAt }));
   }, [effectiveUserId, yearbookKey, isReadOnly]);
+
+  // ── Save coordination ───────────────────────────────────────────────────────
+  // Every typed field goes through one queue (lib/save-queue.ts): one write in
+  // flight per field, newest text written last, "Saved" only once confirmed,
+  // and a failed field stays failed until it is retried.
+  const saveQueueRef = useRef<SaveQueue | null>(null);
+  if (!saveQueueRef.current) saveQueueRef.current = createSaveQueue();
+  const saveQueue = saveQueueRef.current;
+  useSyncExternalStore(saveQueue.subscribe, saveQueue.getSnapshot, saveQueue.getSnapshot);
+
+  // ── Device drafts ───────────────────────────────────────────────────────────
+  // Each typed field is copied to this device on every keystroke and cleared
+  // once its write is confirmed (lib/yearbook-drafts.ts), so the browser Back
+  // button, a reload or "Leave without saving" cannot lose her words. Opened
+  // in the load effect, once the signed-in user and the yearbook key are known.
+  const draftsRef = useRef<DraftStore | null>(null);
+  const [draftsAvailable, setDraftsAvailable] = useState(true);
+  // Drafts from an earlier visit that differ from the server, offered back.
+  const [recoverable, setRecoverable] = useState<Draft[]>([]);
+
+  const noteDraft = useCallback((field: string, value: string) => {
+    const store = draftsRef.current;
+    if (!store) return;
+    if (!store.write(field, value)) setDraftsAvailable(false);
+    // Typing into a field supersedes the old draft offered for it.
+    setRecoverable((prev) => (prev.some((d) => d.field === field) ? prev.filter((d) => d.field !== field) : prev));
+  }, []);
+
+  // Only the confirmed text is cleared; a newer edit's draft stays.
+  const confirmDraft = useCallback((field: string, value: string) => {
+    draftsRef.current?.clearIfConfirmed(field, value);
+  }, []);
+
+  /** Debounced save of a yearbook_content field. */
+  const autosaveContent = useCallback((contentType: string, value: string, childId?: string, questionKey?: string) => {
+    if (isReadOnly) return;
+    const key = ck(contentType, childId, questionKey);
+    noteDraft(key, value);
+    saveQueue.schedule(key, value, async (v: string) => {
+      await saveContent(contentType, v, childId, questionKey);
+      confirmDraft(key, v);
+    }, AUTOSAVE_DELAY_MS);
+  }, [isReadOnly, saveQueue, saveContent, noteDraft, confirmDraft]);
+
+  /** Immediate save of a yearbook_content field. Resolves true once confirmed. */
+  const saveContentNow = useCallback((contentType: string, value: string, childId?: string, questionKey?: string) => {
+    if (isReadOnly) return Promise.resolve(true);
+    const key = ck(contentType, childId, questionKey);
+    return saveQueue.saveNow(key, value, async (v: string) => {
+      await saveContent(contentType, v, childId, questionKey);
+      confirmDraft(key, v);
+    });
+  }, [isReadOnly, saveQueue, saveContent, confirmDraft]);
+
+  function statusLine(key: string) {
+    return <SaveStatus status={saveQueue.status(key)} onRetry={() => { void saveQueue.retry(key); }} />;
+  }
+
+  /** Put one device draft back in its field and save it like a fresh edit. */
+  function restoreDraft(d: Draft) {
+    const v = d.value;
+    if (d.field.startsWith("month:")) {
+      const month = d.field.slice("month:".length);
+      setMonthlyAnswers((prev) => ({ ...prev, [month]: v }));
+      saveMonthly(month, v);
+      return;
+    }
+    if (d.field.startsWith("art:")) {
+      const memoryId = d.field.slice("art:".length);
+      setDrawingCaptions((prev) => ({ ...prev, [memoryId]: v }));
+      saveDrawingCaption(memoryId, v);
+      return;
+    }
+    const [contentType, rawChild, rawKey] = d.field.split(":");
+    const childId = rawChild && rawChild !== "null" ? rawChild : undefined;
+    const questionKey = rawKey && rawKey !== "null" ? rawKey : undefined;
+    const setNested = (set: Dispatch<SetStateAction<Record<string, Record<string, string>>>>) => {
+      if (childId && questionKey) set((prev) => ({ ...prev, [childId]: { ...prev[childId], [questionKey]: v } }));
+    };
+    switch (contentType) {
+      case "letter_from_home": setLetter(v); break;
+      case "tiny_moments": setTinyMomentsText(v); break;
+      case "letter_favorite_caption": setFavCaption(v); break;
+      case "letter_favorite_location": setFavLocation(v); break;
+      case "letter_favorite_what": setFavWhat(v); break;
+      case "letter_favorite_why": setFavWhy(v); break;
+      case "family_name": setFamilyName(v); break;
+      case "school_year": setSchoolYear(v); break;
+      case "cover_subtitle": setCoverSubtitle(v); break;
+      case "letter_favorite_quote": setFavQuote(v); setQuoteMode(v.startsWith("text:") ? "type" : "pick"); break;
+      case "child_interview": setNested(setChildAnswers); break;
+      case "child_favorite": setNested(setFavoriteAnswers); break;
+      case "child_snapshot": setNested(setSnapshotAnswers); break;
+      case "child_never_forget": setNested(setNeverForgetAnswers); break;
+      case "child_open_when": setNested(setOpenWhenAnswers); break;
+      case "child_future_note": if (childId) setChildNotes((prev) => ({ ...prev, [childId]: v })); break;
+      case "adventure_categories": if (questionKey) setAdventureAnswers((prev) => ({ ...prev, [questionKey]: v })); break;
+      // Not a field this page writes: leave the draft where it is.
+      default: return;
+    }
+    autosaveContent(contentType, v, childId, questionKey);
+  }
+
+  function restoreAllDrafts() {
+    for (const d of recoverable) restoreDraft(d);
+    setRecoverable([]);
+  }
+
+  function discardAllDrafts() {
+    for (const d of recoverable) draftsRef.current?.discard(d.field);
+    setRecoverable([]);
+  }
+
+  // ── Leaving the page ────────────────────────────────────────────────────────
+  // Typed text waits up to AUTOSAVE_DELAY_MS before it is written, so leaving
+  // the page used to drop it. Each way out now writes what is waiting first.
+  useEffect(() => {
+    // None of these passive exits retries a field that already failed: that
+    // stays failed, on screen and in its device draft, until she taps Try
+    // again (flush() without retryFailed). They only write what is waiting.
+    // Closing the tab or reloading: start the writes and ask the browser to
+    // confirm, since it will not wait for them.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!saveQueue.hasUnsaved()) return;
+      void saveQueue.flush();
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    // Backgrounding the app on a phone, where beforeunload often never fires.
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") void saveQueue.flush();
+    };
+    const onPageHide = () => { void saveQueue.flush(); };
+    // An in-app link (Back to yearbook, the dashboard nav): hold it until the
+    // writes are confirmed, and stay put with the text if any fail.
+    const onClickCapture = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!a || (a.target && a.target !== "_self") || a.hasAttribute("download")) return;
+      const url = new URL(a.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      if (!saveQueue.hasUnsaved()) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const dest = url.pathname + url.search + url.hash;
+      void saveQueue.flush().then((r) => {
+        if (r.ok) router.push(dest);
+        else setLeaveBlocked(dest);
+      });
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    document.addEventListener("click", onClickCapture, true);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      document.removeEventListener("click", onClickCapture, true);
+    };
+  }, [saveQueue, router]);
+
+  // The browser back button and any router.push elsewhere unmount the page
+  // without a click to catch. The app stays loaded, so the writes still run.
+  useEffect(() => () => { void saveQueue.flush(); }, [saveQueue]);
+
+  const failedCount = saveQueue.failedKeys().length;
+
+  // Once every failed field has been retried successfully, Save all's own
+  // failure line has nothing left to report.
+  useEffect(() => {
+    if (failedCount === 0 && saveAllStatus === "error") setSaveAllStatus("idle");
+  }, [failedCount, saveAllStatus]);
+
+  // A tap on Try again is the one place failed fields are attempted again.
+  const retryAll = useCallback(async () => {
+    const r = await saveQueue.flush({ retryFailed: true });
+    if (r.ok && leaveBlocked) {
+      const dest = leaveBlocked;
+      setLeaveBlocked(null);
+      router.push(dest);
+    }
+  }, [saveQueue, leaveBlocked, router]);
 
   /**
    * Upload a yearbook cover. One handler for both entry points (the "Change"
@@ -559,7 +747,7 @@ export default function YearbookEditPage() {
       const signed = await signedPhotoUrl(supabase, "yearbook-covers", path, TEN_YEARS_SECONDS);
       const stored = signed ?? path;
       setCoverPhotoUrl(stored);
-      await saveContent("cover_photo", stored);
+      if (!(await saveContentNow("cover_photo", stored))) throw new Error("Cover photo did not save");
       // Natural size, measured before the downscale. Anything under this prints
       // visibly soft at cover size, so the family gets a nudge (never a block).
       setCoverSoft(Math.max(prepared.width, prepared.height) < COVER_SOFT_THRESHOLD);
@@ -576,114 +764,133 @@ export default function YearbookEditPage() {
       setCoverUploading(false);
       setCoverStage(null);
     }
-  }, [effectiveUserId, saveContent]);
+  }, [effectiveUserId, saveContentNow]);
 
   // ── Save a photo's focal point (memory row, or the cover's content key) ──────
   const commitFocal = useCallback(async (focal: Focal | null) => {
     const t = reposTarget;
     if (!t || isReadOnly) { setReposTarget(null); return; }
+    // Throws when the write is not confirmed; the modal stays open and says so.
     if (t.kind === "cover") {
-      await saveContent("cover_photo_focal", focal ? `${focal.x},${focal.y}` : "");
+      if (!(await saveContentNow("cover_photo_focal", focal ? `${focal.x},${focal.y}` : ""))) {
+        throw new Error("Cover position did not save");
+      }
     } else {
-      await supabase
+      const { data, error } = await supabase
         .from("memories")
         .update({ focal_x: focal?.x ?? null, focal_y: focal?.y ?? null })
-        .eq("id", t.id);
+        .eq("id", t.id)
+        .select("id");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Photo position matched no memory");
     }
     setFocalMap((prev) => ({ ...prev, [t.id]: focal }));
     setReposTarget(null);
-  }, [reposTarget, isReadOnly, saveContent]);
-
-  // ── Reorder photos within a chapter → normalized 0..n page_order ────────────
-  const groupKeyOfId = useCallback((id: string): string | null => {
-    for (const [gk, ids] of Object.entries(repoOrder)) {
-      if (ids.includes(id)) return gk;
-    }
-    return null;
-  }, [repoOrder]);
+  }, [reposTarget, isReadOnly, saveContentNow]);
 
   // ── Feature a photo (own full-bleed page) ───────────────────────────────────
-  const toggleFeatured = useCallback(async (id: string) => {
+  // Her choice shows at once and stays shown if the write fails, with Try
+  // again; rapid taps become one write of the last choice (lib/save-queue.ts).
+  const toggleFeatured = useCallback((id: string) => {
     if (isReadOnly) return;
-    let next = false;
+    const next = !featuredSet.has(id);
     setFeaturedSet((prev) => {
       const s = new Set(prev);
-      next = !s.has(id);
       if (next) s.add(id); else s.delete(id);
       return s;
     });
-    await supabase.from("memories").update({ featured: next }).eq("id", id);
-  }, [isReadOnly]);
+    saveQueue.schedule(`featured:${id}`, next, async (v: boolean) => {
+      const { data, error } = await supabase.from("memories").update({ featured: v }).eq("id", id).select("id");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Feature setting matched no memory");
+    }, CHOICE_DELAY_MS);
+  }, [isReadOnly, featuredSet, saveQueue]);
 
   // ── Hide a photo from the book (toggles include_in_book) ────────────────────
-  const toggleHidden = useCallback(async (id: string) => {
+  const toggleHidden = useCallback((id: string) => {
     if (isReadOnly) return;
-    let nextHidden = false;
+    const nextHidden = !hiddenSet.has(id);
     setHiddenSet((prev) => {
       const s = new Set(prev);
-      nextHidden = !s.has(id);
       if (nextHidden) s.add(id); else s.delete(id);
       return s;
     });
-    await supabase.from("memories").update({ include_in_book: !nextHidden }).eq("id", id);
-  }, [isReadOnly]);
+    saveQueue.schedule(`hidden:${id}`, nextHidden, async (hidden: boolean) => {
+      const { data, error } = await supabase.from("memories").update({ include_in_book: !hidden }).eq("id", id).select("id");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Hide setting matched no memory");
+    }, CHOICE_DELAY_MS);
+  }, [isReadOnly, hiddenSet, saveQueue]);
 
-  // Debounced upsert for a One Question a Month answer.
+  // ── Theme and section toggles (profiles.yearbook_settings) ──────────────────
+  // Choices not yet confirmed, laid over what the database returns so a
+  // confirmation for one key never flips another control back while its own
+  // save is still on the way.
+  const settingsIntentRef = useRef<Record<string, unknown>>({});
+  const saveSetting = useCallback((key: keyof YearbookSettings, value: YearbookSettings[keyof YearbookSettings]) => {
+    if (isReadOnly || !effectiveUserId) return;
+    settingsIntentRef.current[key] = value;
+    setYbSettings((prev) => ({ ...prev, [key]: value }));
+    const db = profileSettingsDb(supabase, effectiveUserId);
+    saveQueue.schedule(`setting:${key}`, value, async (v: unknown) => {
+      // Only this key changes, merged onto what is stored now, so another
+      // control or another tab is never overwritten (lib/yearbook-settings-save.ts).
+      const stored = await saveSettingKey(db, key, v);
+      if (settingsIntentRef.current[key] === v) delete settingsIntentRef.current[key];
+      setYbSettings({ ...DEFAULT_YB_SETTINGS, ...(stored as Partial<YearbookSettings>), ...(settingsIntentRef.current as Partial<YearbookSettings>) });
+      // The layout's shared profile (Today's page count) follows the confirmed value.
+      void refreshProfile();
+    }, CHOICE_DELAY_MS);
+  }, [isReadOnly, effectiveUserId, saveQueue, refreshProfile]);
+
+  // Debounced upsert for a One Question a Month answer. Its own table, so its
+  // own queue key; the write is confirmed the same way as yearbook_content.
   const saveMonthly = useCallback((month: string, v: string) => {
     if (isReadOnly || !effectiveUserId) return;
-    const id = `_ybsave_month_${month}`;
-    clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[id]);
-    (window as unknown as Record<string, NodeJS.Timeout | undefined>)[id] = setTimeout(() => {
-      supabase.from("monthly_reflections").upsert(
-        { user_id: effectiveUserId, month, question: questionForMonth(month), answer: v.trim(), updated_at: new Date().toISOString() },
+    const key = `month:${month}`;
+    noteDraft(key, v);
+    saveQueue.schedule(key, v, async (val: string) => {
+      const { data, error } = await supabase.from("monthly_reflections").upsert(
+        { user_id: effectiveUserId, month, question: questionForMonth(month), answer: val.trim(), updated_at: new Date().toISOString() },
         { onConflict: "user_id,month" },
-      );
-    }, 800);
-  }, [isReadOnly, effectiveUserId]);
+      ).select("month");
+      if (error) throw error;
+      if (!data || data.length === 0) throw new Error("Monthly answer save returned no row");
+      confirmDraft(key, val);
+    }, AUTOSAVE_DELAY_MS);
+  }, [isReadOnly, effectiveUserId, saveQueue, noteDraft, confirmDraft]);
 
-  // Debounced save for a per-child keepsake field (snapshot / never-forget / open-when).
-  const saveKeepsake = useCallback((contentType: string, childId: string, key: string, v: string) => {
+  // Debounced save for a Tiny Masterpieces caption, which lives on the memory.
+  const saveDrawingCaption = useCallback((memoryId: string, v: string) => {
     if (isReadOnly) return;
-    const id = `_ybsave_${contentType}_${childId}_${key}`;
-    clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[id]);
-    (window as unknown as Record<string, NodeJS.Timeout | undefined>)[id] = setTimeout(() => {
-      saveContent(contentType, v, childId, key);
-    }, 800);
-  }, [isReadOnly, saveContent]);
+    const key = `art:${memoryId}`;
+    noteDraft(key, v);
+    saveQueue.schedule(key, v, async (val: string) => {
+      const { data, error } = await supabase.from("memories").update({ caption: val }).eq("id", memoryId).select("id");
+      if (error) throw error;
+      // An update RLS filtered out reports no error and touches nothing.
+      if (!data || data.length === 0) throw new Error("Caption save matched no memory");
+      confirmDraft(key, val);
+    }, AUTOSAVE_DELAY_MS);
+  }, [isReadOnly, saveQueue, noteDraft, confirmDraft]);
 
-  // Debounced save for a family-level Adventure category (child_id null).
-  const saveAdventure = useCallback((key: string, v: string) => {
-    if (isReadOnly) return;
-    const id = `_ybsave_adventure_${key}`;
-    clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[id]);
-    (window as unknown as Record<string, NodeJS.Timeout | undefined>)[id] = setTimeout(() => {
-      saveContent("adventure_categories", v, undefined, key);
-    }, 800);
-  }, [isReadOnly, saveContent]);
-
+  // ── Reorder photos within a chapter → normalized 0..n page_order ────────────
+  // The decision is made here, outside any state updater, and the write goes
+  // through the queue: the chapter's whole order is rewritten and confirmed row
+  // by row, a newer drag is written after an older one, and a failure keeps
+  // the order she chose on screen with Try again.
   const onPhotoDragEnd = useCallback((e: DragEndEvent) => {
-    if (isReadOnly) return;
-    const { active, over } = e;
-    if (!over || active.id === over.id) return;
-    const activeId = String(active.id);
-    const overId = String(over.id);
-    const gk = groupKeyOfId(activeId);
-    // Reordering stays within a chapter; ignore drops onto another group.
-    if (!gk || gk !== groupKeyOfId(overId)) return;
-    setRepoOrder((prev) => {
-      const ids = prev[gk] ?? [];
-      const oldI = ids.indexOf(activeId);
-      const newI = ids.indexOf(overId);
-      if (oldI < 0 || newI < 0) return prev;
-      const next = arrayMove(ids, oldI, newI);
-      void Promise.all(
-        normalizedPageOrders(next).map(({ id, page_order }) =>
-          supabase.from("memories").update({ page_order }).eq("id", id),
-        ),
-      );
-      return { ...prev, [gk]: next };
-    });
-  }, [isReadOnly, groupKeyOfId]);
+    if (isReadOnly || !e.over) return;
+    const moved = reorderWithinGroup(repoOrder, String(e.active.id), String(e.over.id));
+    if (!moved) return;
+    setRepoOrder((prev) => ({ ...prev, [moved.group]: moved.ids }));
+    saveQueue.schedule(`order:${moved.group}`, moved.ids, (ids: string[]) =>
+      writePageOrders(ids, async (id, pageOrder) => {
+        const { data, error } = await supabase.from("memories").update({ page_order: pageOrder }).eq("id", id).select("id");
+        if (error) throw error;
+        if (!data || data.length === 0) throw new Error("Photo order matched no memory");
+      }), CHOICE_DELAY_MS);
+  }, [isReadOnly, repoOrder, saveQueue]);
 
   // ── Load data ───────────────────────────────────────────────────────────────
 
@@ -853,6 +1060,27 @@ export default function YearbookEditPage() {
       }
       setMonthlyAnswers(mMap);
 
+      // Device drafts: words typed here that never reached the server. Offered,
+      // never applied by themselves, because the server may hold something
+      // newer from another device. A closed yearbook leaves them untouched.
+      const { data: { session } } = await supabase.auth.getSession();
+      const authUserId = session?.user?.id;
+      let store: DraftStore | null = null;
+      if (authUserId) {
+        store = openDraftStore(() => window.localStorage, { authUserId, familyUserId: effectiveUserId, yearbookKey: key });
+      }
+      draftsRef.current = store;
+      setDraftsAvailable(!!store?.available);
+      if (store?.available && !closedAt) {
+        const { offer, alreadySaved } = triageDrafts(store.list(), (field) => {
+          if (field.startsWith("month:")) return mMap[field.slice("month:".length)];
+          if (field.startsWith("art:")) return caps[field.slice("art:".length)];
+          return cMap[field];
+        });
+        for (const d of alreadySaved) store.discard(d.field);
+        setRecoverable(offer);
+      }
+
       setLoading(false);
     })();
   }, [effectiveUserId]);
@@ -877,15 +1105,6 @@ export default function YearbookEditPage() {
   const yearLabel = yearbookKey
     ? `${yearbookKey.split("-")[0]}\u201320${yearbookKey.split("-")[1]}`
     : "";
-
-  // ── Autosave wrappers ──────────────────────────────────────────────────────
-
-  const letterStatus = useAutosave(letter, useCallback((v: string) => saveContent("letter_from_home", v), [saveContent]));
-  const tinyMomentsStatus = useAutosave(tinyMomentsText, useCallback((v: string) => saveContent("tiny_moments", v), [saveContent]));
-  const captionStatus = useAutosave(favCaption, useCallback((v: string) => saveContent("letter_favorite_caption", v), [saveContent]));
-  const favLocationStatus = useAutosave(favLocation, useCallback((v: string) => saveContent("letter_favorite_location", v), [saveContent]));
-  const favWhatStatus = useAutosave(favWhat, useCallback((v: string) => saveContent("letter_favorite_what", v), [saveContent]));
-  const favWhyStatus = useAutosave(favWhy, useCallback((v: string) => saveContent("letter_favorite_why", v), [saveContent]));
 
   if (loading) {
     return (
@@ -924,6 +1143,36 @@ export default function YearbookEditPage() {
           </div>
         </details>}
 
+        {!isReadOnly && recoverable.length > 0 && (
+          <div role="alert" className="rounded-2xl border border-[#e8d9b0] bg-[#fdf8ec] px-4 py-3.5 text-[13px] text-[#5c4a1f]">
+            <p className="font-medium">
+              {recoverable.length === 1 ? "1 change" : `${recoverable.length} changes`} you typed on this device didn&apos;t reach your yearbook.
+            </p>
+            <p className="text-[12px] mt-1 leading-relaxed">
+              {(() => {
+                const last = recoverable.map((d) => d.savedAt).filter(Boolean).sort().pop();
+                const when = last ? new Date(last).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : null;
+                return when ? `Last typed ${when}. ` : "";
+              })()}
+              Your yearbook stays as it is until you choose.
+            </p>
+            <div className="flex items-center gap-3 mt-2.5">
+              <button type="button" onClick={restoreAllDrafts} className="text-[12px] font-medium bg-[#2d5a3d] text-white px-3 py-1.5 rounded-lg">
+                Restore my words
+              </button>
+              <button type="button" onClick={discardAllDrafts} className="text-[12px] text-[#7a6f65] underline">
+                Discard
+              </button>
+            </div>
+          </div>
+        )}
+
+        {!isReadOnly && !draftsAvailable && (
+          <p className="text-[11px] text-[#9a8f85] leading-snug">
+            This browser isn&apos;t keeping a backup copy of what you type, so wait for ✓ Saved before you leave this page.
+          </p>
+        )}
+
         {isReadOnly && (
           <div className="bg-[#faeeda] text-[#854F0B] rounded-xl p-4 text-sm">
             This yearbook is closed. You can still read it but not edit it.
@@ -959,15 +1208,7 @@ export default function YearbookEditPage() {
                 <button
                   key={opt.key}
                   type="button"
-                  onClick={async () => {
-                    if (isReadOnly) return;
-                    const next = { ...ybSettings, theme: opt.key };
-                    setYbSettings(next);
-                    if (effectiveUserId) {
-                      await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
-        void refreshProfile();
-                    }
-                  }}
+                  onClick={() => saveSetting("theme", opt.key)}
                   disabled={isReadOnly}
                   className={`rounded-xl border-2 p-1.5 text-left transition-colors disabled:opacity-60 ${
                     selected ? "border-[#5c7f63]" : "border-[#e8e3dc] hover:border-[#cdd9bf]"
@@ -990,6 +1231,7 @@ export default function YearbookEditPage() {
               );
             })}
           </div>
+          {statusLine("setting:theme")}
         </div>
 
         {/* ── Sections ────────────────────────────────────────── */}
@@ -1007,17 +1249,11 @@ export default function YearbookEditPage() {
               { key: "show_books_section" as const, emoji: "📚", label: "Books sections" },
               { key: "show_family_chapter" as const, emoji: "👨‍👩‍👧", label: "Our family chapter" },
             ]).map((item) => (
+              <div key={item.key}>
               <button
-                key={item.key}
-                onClick={async () => {
-                  if (isReadOnly) return;
-                  const next = { ...ybSettings, [item.key]: !ybSettings[item.key] };
-                  setYbSettings(next);
-                  if (effectiveUserId) {
-                    await supabase.from("profiles").update({ yearbook_settings: next }).eq("id", effectiveUserId);
-        void refreshProfile();
-                  }
-                }}
+                type="button"
+                aria-pressed={ybSettings[item.key]}
+                onClick={() => saveSetting(item.key, !ybSettings[item.key])}
                 disabled={isReadOnly}
                 className="w-full flex items-center justify-between px-3 py-3 rounded-xl hover:bg-[#f0ede8] transition-colors disabled:opacity-60"
               >
@@ -1037,6 +1273,8 @@ export default function YearbookEditPage() {
                   />
                 </div>
               </button>
+              {statusLine(`setting:${item.key}`)}
+              </div>
             ))}
           </div>
         </div>
@@ -1175,6 +1413,7 @@ export default function YearbookEditPage() {
                           })}
                         </div>
                       </SortableContext>
+                      {statusLine(`order:${g.key}`)}
                     </div>
                   ))}
                 </DndContext>
@@ -1196,6 +1435,8 @@ export default function YearbookEditPage() {
               hidden: hiddenSet.has(reposTarget.id),
               onToggleFeatured: () => toggleFeatured(reposTarget.id),
               onToggleHidden: () => toggleHidden(reposTarget.id),
+              featuredStatus: statusLine(`featured:${reposTarget.id}`),
+              hiddenStatus: statusLine(`hidden:${reposTarget.id}`),
             } : null}
           />
         )}
@@ -1205,18 +1446,13 @@ export default function YearbookEditPage() {
           <label className="text-[13px] font-semibold text-[#2d2926] block mb-2">Family name</label>
           <input
             value={familyName}
-            onChange={(e) => { setFamilyName(e.target.value); setFamilyNameSaved(false); }}
-            onBlur={async () => {
-              if (isReadOnly || !effectiveUserId || !yearbookKey) return;
-              await saveContent("family_name", familyName);
-              setFamilyNameSaved(true);
-              setTimeout(() => setFamilyNameSaved(false), 3000);
-            }}
+            onChange={(e) => { setFamilyName(e.target.value); noteDraft(ck("family_name"), e.target.value); }}
+            onBlur={() => { void saveContentNow("family_name", familyName); }}
             disabled={isReadOnly}
             placeholder="The Waltrip Family"
             className="w-full px-3 py-2 text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
           />
-          {familyNameSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+          {statusLine(ck("family_name"))}
         </div>
 
         {/* ── School year ─────────────────────────────────────── */}
@@ -1224,18 +1460,13 @@ export default function YearbookEditPage() {
           <label className="text-[13px] font-semibold text-[#2d2926] block mb-2">School year</label>
           <input
             value={schoolYear}
-            onChange={(e) => { setSchoolYear(e.target.value); setSchoolYearSaved(false); }}
-            onBlur={async () => {
-              if (isReadOnly || !effectiveUserId || !yearbookKey) return;
-              await saveContent("school_year", schoolYear);
-              setSchoolYearSaved(true);
-              setTimeout(() => setSchoolYearSaved(false), 3000);
-            }}
+            onChange={(e) => { setSchoolYear(e.target.value); noteDraft(ck("school_year"), e.target.value); }}
+            onBlur={() => { void saveContentNow("school_year", schoolYear); }}
             disabled={isReadOnly}
             placeholder="2025–2026"
             className="w-full px-3 py-2 text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
           />
-          {schoolYearSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+          {statusLine(ck("school_year"))}
         </div>
 
         {/* ── Cover subtitle ──────────────────────────────────── */}
@@ -1246,19 +1477,14 @@ export default function YearbookEditPage() {
           </p>
           <input
             value={coverSubtitle}
-            onChange={(e) => { setCoverSubtitle(e.target.value); setCoverSubtitleSaved(false); }}
-            onBlur={async () => {
-              if (isReadOnly || !effectiveUserId || !yearbookKey) return;
-              await saveContent("cover_subtitle", coverSubtitle);
-              setCoverSubtitleSaved(true);
-              setTimeout(() => setCoverSubtitleSaved(false), 3000);
-            }}
+            onChange={(e) => { setCoverSubtitle(e.target.value); noteDraft(ck("cover_subtitle"), e.target.value); }}
+            onBlur={() => { void saveContentNow("cover_subtitle", coverSubtitle); }}
             disabled={isReadOnly}
             placeholder="A year of growing, wondering, and becoming."
             className="w-full px-3 py-2 text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
             style={{ fontFamily: "Georgia, serif" }}
           />
-          {coverSubtitleSaved && <span className="text-[10px] text-[#5c7f63] mt-1 block">Saved ✓</span>}
+          {statusLine(ck("cover_subtitle"))}
         </div>
 
         {/* ── Letter from home ────────────────────────────────── */}
@@ -1270,13 +1496,13 @@ export default function YearbookEditPage() {
           </p>
           <textarea
             value={letter}
-            onChange={(e) => setLetter(e.target.value)}
+            onChange={(e) => { setLetter(e.target.value); autosaveContent("letter_from_home", e.target.value); }}
             disabled={isReadOnly}
             placeholder="Dear Future Us…"
             className="w-full min-h-[140px] text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] resize-y disabled:opacity-60"
             style={{ fontFamily: "Georgia, serif" }}
           />
-          <SaveStatus status={letterStatus} />
+          {statusLine(ck("letter_from_home"))}
         </div>
 
         {/* ── Favorite moment picker ──────────────────────────── */}
@@ -1308,6 +1534,8 @@ export default function YearbookEditPage() {
             )
           )}
 
+          {statusLine(ck("letter_favorite_memory_id"))}
+
           {/* The day's details */}
           {favMemoryId && (
             <div className="mt-3 space-y-3">
@@ -1315,49 +1543,49 @@ export default function YearbookEditPage() {
                 <label className="text-[11px] text-[#9a8f85]">Location</label>
                 <input
                   value={favLocation}
-                  onChange={(e) => setFavLocation(e.target.value)}
+                  onChange={(e) => { setFavLocation(e.target.value); autosaveContent("letter_favorite_location", e.target.value); }}
                   disabled={isReadOnly}
                   placeholder="Where were you?"
                   className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
                   style={{ fontFamily: "Georgia, serif" }}
                 />
-                <SaveStatus status={favLocationStatus} />
+                {statusLine(ck("letter_favorite_location"))}
               </div>
               <div>
                 <label className="text-[11px] text-[#9a8f85]">What happened?</label>
                 <input
                   value={favWhat}
-                  onChange={(e) => setFavWhat(e.target.value)}
+                  onChange={(e) => { setFavWhat(e.target.value); autosaveContent("letter_favorite_what", e.target.value); }}
                   disabled={isReadOnly}
                   placeholder="What happened that made everyone smile?"
                   className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
                   style={{ fontFamily: "Georgia, serif" }}
                 />
-                <SaveStatus status={favWhatStatus} />
+                {statusLine(ck("letter_favorite_what"))}
               </div>
               <div>
                 <label className="text-[11px] text-[#9a8f85]">Why we&apos;ll always remember it</label>
                 <input
                   value={favWhy}
-                  onChange={(e) => setFavWhy(e.target.value)}
+                  onChange={(e) => { setFavWhy(e.target.value); autosaveContent("letter_favorite_why", e.target.value); }}
                   disabled={isReadOnly}
                   placeholder="What made this day unforgettable?"
                   className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
                   style={{ fontFamily: "Georgia, serif" }}
                 />
-                <SaveStatus status={favWhyStatus} />
+                {statusLine(ck("letter_favorite_why"))}
               </div>
               <div>
                 <label className="text-[11px] text-[#9a8f85]">What made today special?</label>
                 <input
                   value={favCaption}
-                  onChange={(e) => setFavCaption(e.target.value)}
+                  onChange={(e) => { setFavCaption(e.target.value); autosaveContent("letter_favorite_caption", e.target.value); }}
                   disabled={isReadOnly}
                   placeholder="A caption for the photo…"
                   className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
                   style={{ fontFamily: "Georgia, serif" }}
                 />
-                <SaveStatus status={captionStatus} />
+                {statusLine(ck("letter_favorite_caption"))}
               </div>
             </div>
           )}
@@ -1378,7 +1606,7 @@ export default function YearbookEditPage() {
                     onClick={async () => {
                       setFavMemoryId(m.id);
                       setShowMemoryPicker(false);
-                      await saveContent("letter_favorite_memory_id", m.id);
+                      await saveContentNow("letter_favorite_memory_id", m.id);
                     }}
                     className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
                       m.id === favMemoryId ? "border-[var(--g-deep)]" : "border-transparent"
@@ -1431,7 +1659,7 @@ export default function YearbookEditPage() {
                 onChange={(e) => {
                   const v = `text:${e.target.value}`;
                   setFavQuote(v);
-                  saveContent("letter_favorite_quote", v);
+                  autosaveContent("letter_favorite_quote", v);
                 }}
                 disabled={isReadOnly}
                 placeholder="Type your favorite quote…"
@@ -1468,6 +1696,7 @@ export default function YearbookEditPage() {
               {quoteMode === "pick" ? "Or type your own" : "Or pick from quotes"}
             </button>
           )}
+          {statusLine(ck("letter_favorite_quote"))}
         </div>
 
         {/* ── Quote picker modal ──────────────────────────────── */}
@@ -1486,7 +1715,7 @@ export default function YearbookEditPage() {
                       setFavQuote(m.id);
                       setQuoteMode("pick");
                       setShowQuotePicker(false);
-                      await saveContent("letter_favorite_quote", m.id);
+                      await saveContentNow("letter_favorite_quote", m.id);
                     }}
                     className={`w-full text-left p-3 rounded-lg border transition-colors ${
                       m.id === favQuote ? "border-[var(--g-deep)] bg-[#eaf3de]" : "border-[#e8e3dc] hover:bg-[#faf8f4]"
@@ -1537,6 +1766,7 @@ export default function YearbookEditPage() {
                   className="w-full mt-1 px-3 py-2 text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
                   style={{ fontFamily: "Georgia, serif" }}
                 />
+                {statusLine(`month:${month}`)}
               </div>
             ))}
           </div>
@@ -1584,18 +1814,14 @@ export default function YearbookEditPage() {
                                 ...prev,
                                 [child.id]: { ...prev[child.id], [q.key]: v },
                               }));
-                              // Debounced save inline
-                              clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_${fieldKey}`]);
-                              (window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_${fieldKey}`] = setTimeout(() => {
-                                saveContent("child_interview", v, child.id, q.key);
-                              }, 800);
+                              autosaveContent("child_interview", v, child.id, q.key);
                             }}
                             autoFocus={activeField === fieldKey}
                             disabled={isReadOnly}
                             className="w-full min-h-[60px] text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] resize-y disabled:opacity-60"
                             style={{ fontFamily: "Georgia, serif" }}
                           />
-                          {val.trim() && updatedMap[updKey] && (
+                          {saveQueue.status(updKey) !== "idle" ? statusLine(updKey) : val.trim() && updatedMap[updKey] && (
                             <p className="text-[9px] text-[#9a8f85] mt-0.5">
                               ✓ Saved {new Date(updatedMap[updKey]).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
                             </p>
@@ -1625,16 +1851,14 @@ export default function YearbookEditPage() {
                   onChange={(e) => {
                     const v = e.target.value;
                     setChildNotes((prev) => ({ ...prev, [child.id]: v }));
-                    clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_note_${child.id}`]);
-                    (window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_note_${child.id}`] = setTimeout(() => {
-                      saveContent("child_future_note", v, child.id);
-                    }, 800);
+                    autosaveContent("child_future_note", v, child.id);
                   }}
                   disabled={isReadOnly}
                   placeholder={`Dear future ${child.name}…`}
                   className="w-full min-h-[80px] text-[13px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] resize-y disabled:opacity-60"
                   style={{ fontFamily: "Georgia, serif" }}
                 />
+                {statusLine(ck("child_future_note", child.id))}
               </div>
 
               {/* Favorite things */}
@@ -1655,15 +1879,13 @@ export default function YearbookEditPage() {
                             ...prev,
                             [child.id]: { ...prev[child.id], [f.key]: v },
                           }));
-                          clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_fav_${child.id}_${f.key}`]);
-                          (window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_fav_${child.id}_${f.key}`] = setTimeout(() => {
-                            saveContent("child_favorite", v, child.id, f.key);
-                          }, 800);
+                          autosaveContent("child_favorite", v, child.id, f.key);
                         }}
                         disabled={isReadOnly}
                         className="w-full mt-0.5 px-2.5 py-1.5 text-[12px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
                         style={{ fontFamily: "Georgia, serif" }}
                       />
+                      {statusLine(ck("child_favorite", child.id, f.key))}
                     </div>
                   ))}
                 </div>
@@ -1690,17 +1912,14 @@ export default function YearbookEditPage() {
                               onChange={(e) => {
                                 const v = e.target.value;
                                 setDrawingCaptions((prev) => ({ ...prev, [m.id]: v }));
-                                if (isReadOnly) return;
-                                clearTimeout((window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_art_${m.id}`]);
-                                (window as unknown as Record<string, NodeJS.Timeout | undefined>)[`_ybsave_art_${m.id}`] = setTimeout(() => {
-                                  supabase.from("memories").update({ caption: v }).eq("id", m.id);
-                                }, 800);
+                                saveDrawingCaption(m.id, v);
                               }}
                               disabled={isReadOnly}
                               placeholder="a rainbow over our house…"
                               className="w-full mt-0.5 px-2.5 py-1.5 text-[12px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60"
                               style={{ fontFamily: "Georgia, serif" }}
                             />
+                            {statusLine(`art:${m.id}`)}
                           </div>
                         </div>
                       ))}
@@ -1720,8 +1939,9 @@ export default function YearbookEditPage() {
                   disabled={isReadOnly}
                   onChange={(key, v) => {
                     setSnapshotAnswers((prev) => ({ ...prev, [child.id]: { ...prev[child.id], [key]: v } }));
-                    saveKeepsake("child_snapshot", child.id, key, v);
+                    autosaveContent("child_snapshot", v, child.id, key);
                   }}
+                  statusFor={(key) => statusLine(ck("child_snapshot", child.id, key))}
                 />
               </div>
 
@@ -1735,8 +1955,9 @@ export default function YearbookEditPage() {
                   disabled={isReadOnly}
                   onChange={(key, v) => {
                     setNeverForgetAnswers((prev) => ({ ...prev, [child.id]: { ...prev[child.id], [key]: v } }));
-                    saveKeepsake("child_never_forget", child.id, key, v);
+                    autosaveContent("child_never_forget", v, child.id, key);
                   }}
+                  statusFor={(key) => statusLine(ck("child_never_forget", child.id, key))}
                 />
               </div>
 
@@ -1751,8 +1972,9 @@ export default function YearbookEditPage() {
                   disabled={isReadOnly}
                   onChange={(key, v) => {
                     setOpenWhenAnswers((prev) => ({ ...prev, [child.id]: { ...prev[child.id], [key]: v } }));
-                    saveKeepsake("child_open_when", child.id, key, v);
+                    autosaveContent("child_open_when", v, child.id, key);
                   }}
+                  statusFor={(key) => statusLine(ck("child_open_when", child.id, key))}
                 />
               </div>
             </div>
@@ -1767,13 +1989,13 @@ export default function YearbookEditPage() {
           </p>
           <textarea
             value={tinyMomentsText}
-            onChange={(e) => setTinyMomentsText(e.target.value)}
+            onChange={(e) => { setTinyMomentsText(e.target.value); autosaveContent("tiny_moments", e.target.value); }}
             disabled={isReadOnly}
             placeholder={"Lost a tooth\nCaught a butterfly\nBuilt a fort\nMade pancakes in our pajamas"}
             className="w-full min-h-[140px] px-3 py-2 text-[14px] text-[#2d2926] bg-[#fefcf9] border border-[#c0dd97] rounded-lg focus:outline-none focus:ring-1 focus:ring-[var(--g-deep)] disabled:opacity-60 resize-y"
             style={{ fontFamily: "Georgia, serif" }}
           />
-          <SaveStatus status={tinyMomentsStatus} />
+          {statusLine(ck("tiny_moments"))}
         </div>
 
         {/* ── Our adventures (family) ─────────────────────────── */}
@@ -1789,8 +2011,9 @@ export default function YearbookEditPage() {
             disabled={isReadOnly}
             onChange={(key, v) => {
               setAdventureAnswers((prev) => ({ ...prev, [key]: v }));
-              saveAdventure(key, v);
+              autosaveContent("adventure_categories", v, undefined, key);
             }}
+            statusFor={(key) => statusLine(ck("adventure_categories", null, key))}
           />
         </div>
 
@@ -1799,59 +2022,102 @@ export default function YearbookEditPage() {
           <button
             onClick={async () => {
               setSaveAllStatus("saving");
-              try {
-                await saveContent("cover_photo", coverPhotoUrl);
-                await saveContent("family_name", familyName);
-                await saveContent("school_year", schoolYear);
-                await saveContent("letter_from_home", letter);
-                await saveContent("cover_subtitle", coverSubtitle);
-                if (favMemoryId) await saveContent("letter_favorite_memory_id", favMemoryId);
-                if (favCaption) await saveContent("letter_favorite_caption", favCaption);
-                if (favLocation) await saveContent("letter_favorite_location", favLocation);
-                if (favWhat) await saveContent("letter_favorite_what", favWhat);
-                if (favWhy) await saveContent("letter_favorite_why", favWhy);
-                if (favQuote) await saveContent("letter_favorite_quote", favQuote);
-                for (const child of children) {
-                  for (const q of INTERVIEW_QUESTIONS) {
-                    const val = childAnswers[child.id]?.[q.key] ?? "";
-                    if (val.trim()) await saveContent("child_interview", val, child.id, q.key);
-                  }
-                  for (const f of FAVORITES) {
-                    const val = favoriteAnswers[child.id]?.[f.key] ?? "";
-                    if (val.trim()) await saveContent("child_favorite", val, child.id, f.key);
-                  }
-                  for (const f of SNAPSHOT_FIELDS) {
-                    const val = snapshotAnswers[child.id]?.[f.key] ?? "";
-                    if (val.trim()) await saveContent("child_snapshot", val, child.id, f.key);
-                  }
-                  for (const l of NEVER_FORGET_LINES) {
-                    const val = neverForgetAnswers[child.id]?.[l.key] ?? "";
-                    if (val.trim()) await saveContent("child_never_forget", val, child.id, l.key);
-                  }
-                  for (const p of OPEN_WHEN_PROMPTS) {
-                    const val = openWhenAnswers[child.id]?.[p.key] ?? "";
-                    if (val.trim()) await saveContent("child_open_when", val, child.id, p.key);
-                  }
-                  const note = childNotes[child.id] ?? "";
-                  if (note.trim()) await saveContent("child_future_note", note, child.id);
+              // Anything still waiting on its debounce, or failed earlier, first.
+              // This is a tap, so failed fields are attempted again.
+              await saveQueue.flush({ retryFailed: true });
+              const writes: [string, string, string?, string?][] = [
+                ["cover_photo", coverPhotoUrl],
+                ["family_name", familyName],
+                ["school_year", schoolYear],
+                ["letter_from_home", letter],
+                ["cover_subtitle", coverSubtitle],
+              ];
+              if (favMemoryId) writes.push(["letter_favorite_memory_id", favMemoryId]);
+              if (favCaption) writes.push(["letter_favorite_caption", favCaption]);
+              if (favLocation) writes.push(["letter_favorite_location", favLocation]);
+              if (favWhat) writes.push(["letter_favorite_what", favWhat]);
+              if (favWhy) writes.push(["letter_favorite_why", favWhy]);
+              if (favQuote) writes.push(["letter_favorite_quote", favQuote]);
+              for (const child of children) {
+                for (const q of INTERVIEW_QUESTIONS) {
+                  const val = childAnswers[child.id]?.[q.key] ?? "";
+                  if (val.trim()) writes.push(["child_interview", val, child.id, q.key]);
                 }
-                // Family-level content pages
-                if (tinyMomentsText.trim()) await saveContent("tiny_moments", tinyMomentsText);
-                for (const cat of ADVENTURE_CATEGORIES) {
-                  const val = adventureAnswers[cat.key] ?? "";
-                  if (val.trim()) await saveContent("adventure_categories", val, undefined, cat.key);
+                for (const f of FAVORITES) {
+                  const val = favoriteAnswers[child.id]?.[f.key] ?? "";
+                  if (val.trim()) writes.push(["child_favorite", val, child.id, f.key]);
                 }
-                setSaveAllStatus("saved");
-                setTimeout(() => router.push("/dashboard/memories/yearbook/read"), 1500);
-              } catch {
-                setSaveAllStatus("idle");
+                for (const f of SNAPSHOT_FIELDS) {
+                  const val = snapshotAnswers[child.id]?.[f.key] ?? "";
+                  if (val.trim()) writes.push(["child_snapshot", val, child.id, f.key]);
+                }
+                for (const l of NEVER_FORGET_LINES) {
+                  const val = neverForgetAnswers[child.id]?.[l.key] ?? "";
+                  if (val.trim()) writes.push(["child_never_forget", val, child.id, l.key]);
+                }
+                for (const p of OPEN_WHEN_PROMPTS) {
+                  const val = openWhenAnswers[child.id]?.[p.key] ?? "";
+                  if (val.trim()) writes.push(["child_open_when", val, child.id, p.key]);
+                }
+                const note = childNotes[child.id] ?? "";
+                if (note.trim()) writes.push(["child_future_note", note, child.id]);
               }
+              // Family-level content pages
+              if (tinyMomentsText.trim()) writes.push(["tiny_moments", tinyMomentsText]);
+              for (const cat of ADVENTURE_CATEGORIES) {
+                const val = adventureAnswers[cat.key] ?? "";
+                if (val.trim()) writes.push(["adventure_categories", val, undefined, cat.key]);
+              }
+              // One at a time, as before. Each goes through the queue, so it
+              // waits behind any autosave of the same field instead of racing it.
+              for (const [contentType, val, childId, questionKey] of writes) {
+                await saveContentNow(contentType, val, childId, questionKey);
+              }
+              // Then everything typed while those were writing. The reader only
+              // opens when every current edit is confirmed. Otherwise stay here
+              // with the text, and say how many did not save.
+              const settled = await saveQueue.flush();
+              if (!settled.ok) {
+                setSaveAllStatus("error");
+                return;
+              }
+              setSaveAllStatus("saved");
+              setTimeout(() => router.push("/dashboard/memories/yearbook/read"), 1500);
             }}
             disabled={saveAllStatus === "saving"}
             className="w-full py-3 rounded-xl text-sm font-medium transition-colors bg-[#2d5a3d] hover:bg-[#3d5c42] text-white disabled:opacity-60"
           >
             {saveAllStatus === "saving" ? "Saving…" : saveAllStatus === "saved" ? "All changes saved ✓" : "Save all changes"}
           </button>
+        )}
+        {!isReadOnly && saveAllStatus === "error" && failedCount > 0 && (
+          <p role="alert" className="text-[12px] text-red-500 text-center -mt-2">
+            {failedCount === 1 ? "1 change didn't save." : `${failedCount} changes didn't save.`} Your words are still here. Tap Save all changes to try again.
+          </p>
+        )}
+
+        {/* ── Unsaved changes notice ───────────────────────────── */}
+        {!isReadOnly && ((failedCount > 0 && saveAllStatus === "idle") || leaveBlocked) && (
+          <div role="alert" className="fixed bottom-24 sm:bottom-6 left-4 right-4 z-[60] mx-auto max-w-md rounded-xl border border-[#e8c9c9] bg-[#fdf6f6] px-4 py-3 shadow-lg">
+            <p className="text-[12px] text-[#2d2926]">
+              {failedCount === 1 ? "1 change didn't save." : `${failedCount} changes didn't save.`} Your words are still on this page.
+              {leaveBlocked && draftsAvailable && " If you leave, a copy stays on this device and you'll be offered it next time."}
+            </p>
+            <div className="flex items-center gap-3 mt-2">
+              <button type="button" onClick={() => { void retryAll(); }} className="text-[12px] font-medium bg-[#2d5a3d] text-white px-3 py-1.5 rounded-lg">
+                Try again
+              </button>
+              {leaveBlocked && (
+                <button
+                  type="button"
+                  onClick={() => { const dest = leaveBlocked; setLeaveBlocked(null); router.push(dest); }}
+                  className="text-[12px] text-[#7a6f65] underline"
+                >
+                  Leave without saving
+                </button>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </>
