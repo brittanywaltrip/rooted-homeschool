@@ -16,10 +16,9 @@
 // filenames (family.jpg / .png / .webp).
 //
 // WHY LISTING THE FOLDER BEATS PARSING URLS
-// Every user-uploaded object in every bucket is stored at
-// <userId>/<filename>, exactly one level deep. Verified across all 1,889
-// production objects. So the user's folder IS the complete, authoritative
-// list of their files, and we never have to know what a url looked like at
+// User-uploaded objects live under <userId>/, sometimes in subfolders (year
+// certificates use <userId>/<schoolYear>/<child>.png). Recursively listing
+// that prefix gives the complete set without knowing what a url looked like at
 // the time it was written. It also catches files that no database row points
 // at any more, which url parsing structurally cannot:
 //   - replaced family photos (each upload writes a new filename)
@@ -48,11 +47,7 @@ export type UserScopedBucket = (typeof USER_SCOPED_BUCKETS)[number];
 /** Supabase caps list() at 100 rows per call regardless of a higher limit. */
 const LIST_PAGE_SIZE = 100;
 
-/**
- * Hard ceiling on list() pages. At 100 files a page this is 20,000 files,
- * far beyond any real family. It exists so a storage bug that keeps
- * returning full pages cannot spin forever inside a request handler.
- */
+/** Hard ceiling across the whole folder tree, to bound request time. */
 const MAX_LIST_PAGES = 200;
 
 /** Supabase's remove() takes an array; keep each call modest. */
@@ -107,7 +102,7 @@ function errText(error: unknown): string {
 }
 
 /**
- * Every file in `<bucket>/<userId>/`, as full storage paths.
+ * Every file under `<bucket>/<userId>/`, including nested folders.
  *
  * Pages through list() until a short page comes back. Never throws: a caller
  * mid-deletion has to keep going, so a failure is reported in `errors` and
@@ -121,37 +116,55 @@ export async function listUserFiles(
   const paths: string[] = [];
   const errors: string[] = [];
 
-  let offset = 0;
-  for (let page = 0; page < MAX_LIST_PAGES; page++) {
-    let entries: StorageListEntry[];
-    try {
-      const { data, error } = await client.storage
-        .from(bucket)
-        .list(userId, { limit: LIST_PAGE_SIZE, offset });
-      if (error) {
-        errors.push(`${bucket}: list failed at offset ${offset}: ${errText(error)}`);
+  const folders = [userId];
+  const seenFolders = new Set(folders);
+  let pages = 0;
+  for (let folderIndex = 0; folderIndex < folders.length; folderIndex++) {
+    const prefix = folders[folderIndex];
+    let offset = 0;
+    while (true) {
+      if (pages >= MAX_LIST_PAGES) {
+        errors.push(`${bucket}: stopped after ${MAX_LIST_PAGES} list pages; folder may be incompletely swept`);
         return { paths, errors };
       }
-      entries = data ?? [];
-    } catch (e) {
-      errors.push(`${bucket}: list threw at offset ${offset}: ${errText(e)}`);
-      return { paths, errors };
-    }
+      pages++;
+      let entries: StorageListEntry[];
+      try {
+        const { data, error } = await client.storage
+          .from(bucket)
+          .list(prefix, { limit: LIST_PAGE_SIZE, offset });
+        if (error) {
+          errors.push(`${bucket}: list failed at ${prefix} offset ${offset}: ${errText(error)}`);
+          break;
+        }
+        entries = data ?? [];
+      } catch (e) {
+        errors.push(`${bucket}: list threw at ${prefix} offset ${offset}: ${errText(e)}`);
+        break;
+      }
 
-    for (const entry of entries) {
-      const name = entry?.name;
-      if (!name) continue;
-      if (name === EMPTY_FOLDER_PLACEHOLDER) continue;
-      paths.push(`${userId}/${name}`);
-    }
+      for (const entry of entries) {
+        const name = entry?.name;
+        if (!name || name === EMPTY_FOLDER_PLACEHOLDER) continue;
+        if (name === "." || name === ".." || name.includes("/")) {
+          errors.push(`${bucket}: invalid storage entry name in ${prefix}`);
+          continue;
+        }
+        const path = `${prefix}/${name}`;
+        if (entry.id === null) {
+          if (!seenFolders.has(path)) {
+            seenFolders.add(path);
+            folders.push(path);
+          }
+        } else {
+          paths.push(path);
+        }
+      }
 
-    if (entries.length < LIST_PAGE_SIZE) return { paths, errors };
-    offset += LIST_PAGE_SIZE;
+      if (entries.length < LIST_PAGE_SIZE) break;
+      offset += LIST_PAGE_SIZE;
+    }
   }
-
-  errors.push(
-    `${bucket}: stopped after ${MAX_LIST_PAGES} list pages (${paths.length} files); folder may be incompletely swept`,
-  );
   return { paths, errors };
 }
 

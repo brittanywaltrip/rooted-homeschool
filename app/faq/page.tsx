@@ -150,7 +150,7 @@ const sections = [
       },
       {
         q: "What happens to my memories if I cancel?",
-        a: "Nothing is deleted, ever. Your memories stay saved. The free plan simply shows your most recent 30 days and up to 50 photos until you come back to Rooted+.",
+        a: "Canceling Rooted+ does not delete your saved memories. You keep Rooted+ access through the end of your paid period. After that, the free plan shows your most recent 30 days of memories and lets you add photos until you reach its 50-photo limit. Older memories remain saved while your account is open and become visible again with Rooted+. If you delete your account, your records and photos are deleted as described in our Privacy Policy.",
       },
     ],
   },
@@ -160,7 +160,7 @@ const sections = [
     items: [
       {
         q: "Do you offer refunds?",
-        a: "Rooted+ is non-refundable. If Rooted isn't a fit, you can cancel before your renewal and you won't be charged for the next year.",
+        a: "If you have a question about a website charge, contact hello@rootedhomeschoolapp.com. If you purchased through another provider, use that provider's refund process. Cancel before your next renewal to stop future charges; cancellation normally leaves paid access in place through the current paid period. Refund requests are handled according to the applicable purchase terms and law.",
       },
       {
         q: "Can I apply a discount code retroactively?",
@@ -172,7 +172,7 @@ const sections = [
       },
       {
         q: "What happens at renewal?",
-        a: "Founding Family members renew at $39/year, locked forever. Standard members renew at the price they signed up at. You'll get an email before the charge. Cancel anytime if you don't want to renew.",
+        a: "Your subscription renews at the interval and price shown in your purchase terms unless you cancel before the next renewal. Check your billing account for the next date and amount. Founding Family members can review their current rate there too. Website subscribers can open subscription management from Rooted Settings. If you purchased through another provider, manage renewal there.",
       },
       {
         q: "Can I become an affiliate?",
@@ -232,7 +232,7 @@ const sections = [
       },
       {
         q: "What happens to my yearbook at the end of the school year?",
-        a: "When you\u2019re ready, tap \u2018Close this school year\u2019 in Settings. You\u2019ll choose a cover photo, and the yearbook is saved as a beautiful read-only book. A new yearbook starts automatically for next year. Your archived yearbooks are always there to open and read.",
+        a: "When you\u2019re ready, tap \u2018Close this school year\u2019 in Settings. You\u2019ll choose a cover photo and archive the school year. Your saved yearbook content remains in your account; the amount you can preview, read, or download depends on your plan. Download a PDF while you have Rooted+ if you want a copy outside the app.",
       },
       {
         q: "What if I start Rooted mid-year, does my yearbook still work?",
@@ -244,7 +244,7 @@ const sections = [
       },
       {
         q: "Are my archived yearbooks saved if I cancel my subscription?",
-        a: "Yes. Your archived yearbooks are yours forever, no matter what. You can always open and read any past yearbook even if you\u2019re on the free plan or have cancelled. We will never hold your memories or your yearbook hostage.",
+        a: "Canceling Rooted+ does not delete your saved yearbook content. You keep paid access through the end of your paid period. After that, the free plan offers a watermarked preview of up to four spreads; viewing the full book and downloading a PDF require Rooted+. If you want a copy for your records, download it before your paid access ends. Deleting your account removes your Rooted records and photos as described in our Privacy Policy.",
       },
     ],
   },
