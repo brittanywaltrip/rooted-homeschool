@@ -48,6 +48,7 @@ const CHILD_COLORS = [
   "#5c7f63", "#7a9e7e", "#4a7a8a",
   "#5a5c8a", "#c4956a", "#c4697a",
 ];
+const CHILD_COLOR_NAMES = ["Forest green", "Sage green", "Teal", "Indigo", "Warm brown", "Rose"];
 
 const GRADES = [
   "Preschool", "Kindergarten", "1st", "2nd", "3rd", "4th", "5th", "6th",
@@ -63,13 +64,13 @@ const SOUTHERN_HEMISPHERE = new Set([
 // across every existing profile and what the scheduler reads. Saving the long
 // form ("monday"..) breaks lesson pacing for new users.
 const DAYS = [
-  { label: "Mon", value: "Mon" },
-  { label: "Tue", value: "Tue" },
-  { label: "Wed", value: "Wed" },
-  { label: "Thu", value: "Thu" },
-  { label: "Fri", value: "Fri" },
-  { label: "Sat", value: "Sat" },
-  { label: "Sun", value: "Sun" },
+  { label: "Mon", value: "Mon", fullLabel: "Monday" },
+  { label: "Tue", value: "Tue", fullLabel: "Tuesday" },
+  { label: "Wed", value: "Wed", fullLabel: "Wednesday" },
+  { label: "Thu", value: "Thu", fullLabel: "Thursday" },
+  { label: "Fri", value: "Fri", fullLabel: "Friday" },
+  { label: "Sat", value: "Sat", fullLabel: "Saturday" },
+  { label: "Sun", value: "Sun", fullLabel: "Sunday" },
 ];
 
 // Smart default school-year window. Southern hemisphere: Feb 1 to Dec 15 of the
@@ -428,6 +429,7 @@ function ChoiceCard({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={selected}
       className={`w-full text-left px-5 py-4 rounded-2xl border transition-all active:scale-[0.99] ${
         selected
           ? "bg-white text-[var(--g-brand)] border-white font-semibold"
@@ -478,12 +480,12 @@ function AboutStep({
         A couple quick questions so Rooted fits the way you teach.
       </p>
 
-      <p className="text-white/80 text-sm font-medium mb-3">
+      <p id="onb-experience-label" className="text-white/80 text-sm font-medium mb-3">
         How long have you been homeschooling?
       </p>
       {/* tabIndex -1 so focusFirstInvalid can move focus here. A group of
           choice cards has no single input to land on. */}
-      <div id="onb-experience" tabIndex={-1} className="space-y-2.5 mb-8 focus:outline-none">
+      <div id="onb-experience" role="group" aria-labelledby="onb-experience-label" tabIndex={-1} className="space-y-2.5 mb-8 focus:outline-none">
         {EXPERIENCE_OPTIONS.map((o) => (
           <ChoiceCard
             key={o.value}
@@ -494,11 +496,11 @@ function AboutStep({
         ))}
       </div>
 
-      <p className="text-white/80 text-sm font-medium mb-1">
+      <p id="onb-goals-label" className="text-white/80 text-sm font-medium mb-1">
         What brings you to Rooted?
       </p>
       <p className="text-white/40 text-xs mb-3">Choose all that apply.</p>
-      <div id="onb-goals" tabIndex={-1} className="space-y-2.5 mb-8 focus:outline-none">
+      <div id="onb-goals" role="group" aria-labelledby="onb-goals-label" tabIndex={-1} className="space-y-2.5 mb-8 focus:outline-none">
         {GOAL_OPTIONS.map((o) => (
           <ChoiceCard
             key={o.value}
@@ -571,7 +573,7 @@ function SchoolYearStep({
         When does your school year run?
       </h1>
       <p className="text-white/60 text-center text-sm mb-8">
-        We will set up your year so your days and reports stay on track.
+        These dates and school days help organize your plan and reports. You can change them later.
       </p>
 
       <div className="grid grid-cols-2 gap-3 mb-8">
@@ -585,8 +587,8 @@ function SchoolYearStep({
         </div>
       </div>
 
-      <p className="text-white/80 text-sm font-medium mb-3">Which days do you do school?</p>
-      <div id="onb-school-days" tabIndex={-1} className="flex flex-wrap justify-center gap-2 mb-8 focus:outline-none">
+      <p id="onb-school-days-label" className="text-white/80 text-sm font-medium mb-3">Which days do you do school?</p>
+      <div id="onb-school-days" role="group" aria-labelledby="onb-school-days-label" tabIndex={-1} className="flex flex-wrap justify-center gap-2 mb-8 focus:outline-none">
         {DAYS.map((d) => {
           const selected = schoolDays.includes(d.value);
           return (
@@ -594,6 +596,8 @@ function SchoolYearStep({
               key={d.value}
               type="button"
               onClick={() => onToggleDay(d.value)}
+              aria-label={d.fullLabel}
+              aria-pressed={selected}
               className={`px-4 py-2.5 rounded-full text-sm font-medium transition-all active:scale-95 ${
                 selected
                   ? "bg-white text-[var(--g-brand)]"
@@ -1101,6 +1105,7 @@ export default function OnboardingPage() {
 
           <input
             id="onb-first-name"
+            aria-label="First name"
             type="text"
             value={firstName}
             onChange={(e) => { setFirstName(e.target.value); setError(""); }}
@@ -1110,6 +1115,7 @@ export default function OnboardingPage() {
           />
           <input
             type="text"
+            aria-label="Last name (optional)"
             value={lastName}
             onChange={(e) => setLastName(e.target.value)}
             placeholder="Last name (optional)"
@@ -1145,10 +1151,12 @@ export default function OnboardingPage() {
             Where are you homeschooling?
           </h1>
           <p className="text-white/60 text-center text-sm mb-10">
-            Homeschooling looks different everywhere, this helps us personalize Rooted for your family.
+            Your location helps us suggest school-year dates and show relevant resources. You can change the dates later.
           </p>
 
+          <label htmlFor="onb-country" className="block text-sm text-white/80 mb-2">Country</label>
           <select
+            id="onb-country"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
             className="w-full px-5 py-4 rounded-2xl bg-white/15 border border-white/20 text-white text-base focus:outline-none focus:border-white/50 focus:bg-white/20 transition mb-4 appearance-none"
@@ -1164,21 +1172,25 @@ export default function OnboardingPage() {
           </select>
 
           {country === "United States" && (
-            <select
-              value={selectedState}
-              onChange={(e) => setSelectedState(e.target.value)}
-              className="w-full px-5 py-4 rounded-2xl bg-white/15 border border-white/20 text-white text-base focus:outline-none focus:border-white/50 focus:bg-white/20 transition mb-6 appearance-none"
-              style={{
-                backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\")",
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 16px center",
-              }}
-            >
-              <option value="" className="text-[#2d2926]">Select your state</option>
-              {US_STATES.map((s) => (
-                <option key={s} value={s} className="text-[#2d2926]">{s}</option>
-              ))}
-            </select>
+            <>
+              <label htmlFor="onb-state" className="block text-sm text-white/80 mb-2">State</label>
+              <select
+                id="onb-state"
+                value={selectedState}
+                onChange={(e) => setSelectedState(e.target.value)}
+                className="w-full px-5 py-4 rounded-2xl bg-white/15 border border-white/20 text-white text-base focus:outline-none focus:border-white/50 focus:bg-white/20 transition mb-6 appearance-none"
+                style={{
+                  backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='white' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\")",
+                  backgroundRepeat: "no-repeat",
+                  backgroundPosition: "right 16px center",
+                }}
+              >
+                <option value="" className="text-[#2d2926]">Select your state</option>
+                {US_STATES.map((s) => (
+                  <option key={s} value={s} className="text-[#2d2926]">{s}</option>
+                ))}
+              </select>
+            </>
           )}
 
           <button
@@ -1254,6 +1266,7 @@ export default function OnboardingPage() {
                 <div className="flex items-center gap-2">
                   <input
                     id={idx === 0 ? "onb-child-0-name" : undefined}
+                    aria-label={`Child ${idx + 1} name`}
                     type="text"
                     value={row.name}
                     onChange={(e) => updateRow(idx, { name: e.target.value })}
@@ -1265,19 +1278,22 @@ export default function OnboardingPage() {
                     <button
                       type="button"
                       onClick={() => removeRow(idx)}
-                      className="w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/50 hover:text-white transition-colors shrink-0"
+                      aria-label={`Remove child ${idx + 1}${row.name.trim() ? `, ${row.name.trim()}` : ""}`}
+                      className="w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white transition-colors shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                     >
                       <X size={16} />
                     </button>
                   )}
                 </div>
-                <div className="flex items-center justify-center gap-2.5">
-                  {CHILD_COLORS.map((c) => (
+                <div role="group" aria-label={`Choose a color for ${row.name.trim() || `child ${idx + 1}`}`} className="flex flex-wrap items-center justify-center gap-2.5">
+                  {CHILD_COLORS.map((c, colorIndex) => (
                     <button
                       key={c}
                       type="button"
                       onClick={() => updateRow(idx, { color: c })}
-                      className="w-8 h-8 rounded-full border-2 flex items-center justify-center transition-transform hover:scale-110 focus:outline-none"
+                      aria-label={CHILD_COLOR_NAMES[colorIndex]}
+                      aria-pressed={row.color === c}
+                      className="w-11 h-11 rounded-full border-2 flex items-center justify-center transition-transform hover:scale-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                       style={{
                         backgroundColor: c,
                         borderColor: row.color === c ? "white" : "transparent",
@@ -1288,6 +1304,7 @@ export default function OnboardingPage() {
                   ))}
                 </div>
                 <select
+                  aria-label={`Grade for ${row.name.trim() || `child ${idx + 1}`} (optional)`}
                   value={row.grade}
                   onChange={(e) => updateRow(idx, { grade: e.target.value })}
                   className="w-full px-5 py-3 rounded-2xl bg-white/15 border border-white/20 text-white text-sm focus:outline-none focus:border-white/50 focus:bg-white/20 transition appearance-none"
