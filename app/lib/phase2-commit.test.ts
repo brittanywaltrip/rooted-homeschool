@@ -482,3 +482,77 @@ test('holdsParentWork and rooted_private.lesson_carries_work agree on every whit
   assert.equal(holdsParentWork({ notes: ' a ', minutes_spent: null }), true)
   assert.equal(holdsParentWork({ notes: null, minutes_spent: 0 }), true)
 })
+
+// Existing unslotted lessons have no placement the Builder can safely infer.
+// Synthetic shapes from the nine held recovery rows, with no customer ids.
+const unslottedShapes = [
+  { n: 3, start: 4, date: '2026-08-24' },
+  { n: 7, start: 8, date: '2026-08-24' },
+  { n: 4, start: 5, date: '2026-08-24' },
+  { n: 6, start: 5, date: '2026-08-24' },
+  { n: 5, start: 3, date: '2026-08-31' },
+  { n: 8, start: 5, date: '2026-09-02' },
+  { n: 5, start: 3, date: '2026-08-31' },
+  { n: 6, start: 3, date: '2026-08-24' },
+  { n: 8, start: 8, date: '2026-10-02' },
+];
+for (const [i, shape] of unslottedShapes.entries()) {
+  for (const clearPins of [false, true]) {
+    test(`unslotted shape ${i + 1} survives ${clearPins ? 'schedule change' : 'ordinary save'} and shortening`, () => {
+      for (const hidden of [false, true]) {
+        const target: Row = { ...created()[0], id: 'unslotted', lesson_number: shape.n, queue_position: null,
+          completed: false, completed_at: null, notes: null, minutes_spent: null,
+          queue_pinned: !hidden, scheduled_date: hidden ? null : shape.date, date: shape.date };
+        const before = [{ ...created()[0], lesson_number: shape.n - 1, queue_position: shape.n - 1 }, target];
+        for (const total of [30, shape.n - 1]) {
+          const rows = planPhase2Rows({ beforeRows: before, goalId: GOAL, clearPins,
+            currentLesson: Math.max(shape.start - 1, shape.n - 1), totalLessons: total, todayYmd: TODAY_YMD });
+          assert.ok(rows.survivors.includes(target));
+          assert.ok(!rows.deletedIds.has(target.id));
+          assert.ok(!rows.pinnedRows.some(r => r.id === target.id));
+          assert.ok(!rows.makeUpIds.has(target.id));
+          const commit = planPhase2Commit({ beforeRows: before, survivors: rows.survivors, deletedIds: rows.deletedIds,
+            releasedIds: new Set(rows.pinnedRows.map(r => r.id)), makeUpIds: rows.makeUpIds, behindIds: rows.behindIds,
+            projDateBySlot: new Map(), inserts: [], totalLessons: total, todayYmd: TODAY_YMD, doneToday: 0,
+            currentLesson: Math.max(shape.start - 1, shape.n - 1), perDayAllowed });
+          const end = commit.endRows.find(r => r.id === target.id)!;
+          assert.equal(end.completed, false); assert.equal(end.queue_position, null);
+          assert.equal(end.queue_pinned, target.queue_pinned); assert.equal(end.scheduled_date, target.scheduled_date);
+          assert.deepEqual(commit.validation.integrity, []);
+        }
+      }
+    });
+  }
+}
+test('unslotted unfinished history remains open while normal forward scheduling still works', () => {
+  const before = created(); Object.assign(before[14], { completed: false, completed_at: null, queue_position: null,
+    queue_pinned: true, scheduled_date: '2026-09-17', minutes_spent: null });
+  const r = resave(before);
+  assert.deepEqual(r.validation.integrity, []); assert.deepEqual(r.validation.overCapacity, []);
+  assert.equal(r.endRows.find(x => x.id === 'h015')?.scheduled_date, '2026-09-17');
+  assert.equal(r.endRows.find(x => x.id === 'h015')?.queue_position, null);
+  assert.equal(r.endRows.find(x => x.lesson_number === 16)?.queue_position, 16);
+  assert.ok(!r.plan.inserts.some(x => x.lesson_number === 15));
+});
+for (const operation of ['delete', 'unpin', 'redate'] as const) {
+  test(`client refuses forged ${operation} of an unslotted lesson`, () => {
+    const target = { ...created()[15], queue_position: null, queue_pinned: true };
+    const plan: Phase2CommitPlan = { unpin_ids: [], delete_ids: [], makeup_ids: [], inserts: [], redates: [], retire_above: null, retire_keep_ids: [] };
+    if (operation === 'delete') plan.delete_ids.push(target.id);
+    if (operation === 'unpin') plan.unpin_ids.push(target.id);
+    if (operation === 'redate') plan.redates.push({ id: target.id, to: TOMORROW_YMD });
+    const v = validatePhase2End({ beforeRows: [target], plan, endRows: simulatePhase2End([target], plan),
+      todayYmd: TODAY_YMD, doneToday: 0, currentLesson: 15, perDayAllowed });
+    assert.ok(v.integrity.some(s => s.includes('unslotted')));
+  });
+}
+test('an unslotted future lesson keeps its date and number without receiving an invented slot', () => {
+  const before = created(); Object.assign(before[19], { queue_position: null, queue_pinned: true, scheduled_date: '2026-10-02' });
+  const r = resave(before);
+  assert.equal(r.endRows.find(x => x.id === 'f020')?.queue_position, null);
+  assert.equal(r.endRows.find(x => x.id === 'f020')?.scheduled_date, '2026-10-02');
+  assert.ok(!r.plan.inserts.some(x => x.lesson_number === 20));
+  assert.deepEqual(r.validation.integrity, []);
+  // Any date collision is refused by the existing capacity check, not resolved
+  // by changing the family's unslotted lesson.
+});
