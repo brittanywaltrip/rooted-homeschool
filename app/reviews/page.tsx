@@ -42,16 +42,7 @@ export default function ReviewsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState("");
-  const [userId, setUserId] = useState<string | null>(null);
-
   useEffect(() => {
-    // Get current user if logged in
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) {
-        setUserId(data.user.id);
-      }
-    });
-
     // Fetch approved reviews
     fetch("/api/reviews")
       .then((r) => r.json())
@@ -72,14 +63,17 @@ export default function ReviewsPage() {
 
     setSubmitting(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch("/api/reviews", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         body: JSON.stringify({
           name: name.trim(),
           rating,
           review_text: reviewText.trim(),
-          user_id: userId,
         }),
       });
       const data = await res.json();
