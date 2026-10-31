@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import { resendClient, stripeClient } from "@/lib/api-clients";
 import { emailFooterHtml } from "@/lib/email-footer";
 import { captureSupabaseError } from "@/lib/sentry-error";
+import { prepareDeletionBilling } from "@/lib/account-deletion-billing";
 import {
   deleteAllUserStorage,
   summarize,
@@ -24,13 +25,29 @@ export async function DELETE(req: NextRequest) {
   const userId = user.id;
   const userEmail = user.email;
 
+  let recordsDeletionStarted = false;
   try {
     // Fetch profile for Stripe customer ID before we delete anything
-    const { data: profile } = await supabaseAdmin
+    const { data: profile, error: profileErr } = await supabaseAdmin
       .from("profiles")
-      .select("stripe_customer_id, first_name, last_name, plan_type")
+      .select("stripe_customer_id, stripe_subscription_id, first_name, last_name, plan_type")
       .eq("id", userId)
       .single();
+
+    // Billing must be confirmed BEFORE logging a deletion or removing files,
+    // records, the billing mapping, or the login. Never swallow Stripe errors.
+    try {
+      await prepareDeletionBilling(profile, profileErr, () => stripeClient().subscriptions);
+    } catch (billingErr) {
+      captureSupabaseError("Account deletion: billing verification failed", billingErr, {
+        tags: { route: "account_delete", phase: "billing_preflight" },
+        extra: { user_id: userId },
+      });
+      return NextResponse.json({
+        error: "We couldn't confirm that your billing is stopped, so we haven't deleted your account or family data. Some subscriptions may already have been canceled. Please try again or email hello@rootedhomeschoolapp.com for help.",
+        dataDeleted: false,
+      }, { status: 503 });
+    }
 
     // ── 0a. Idempotency guard ───────────────────────────────────
     // This route ran twice, 8 seconds apart, for a real user on
@@ -72,7 +89,59 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    // ── 0b. Log the deletion BEFORE wiping anything ─────────────
+    // ── 2. Delete every uploaded file, then the memory rows ─────
+    // DO NOT go back to parsing photo_url here.
+    //
+    // This step used to collect paths by matching each memories.photo_url
+    // against one marker, "/object/public/memory-photos/". Storage went
+    // private in April 2026, so most rows now hold SIGNED urls
+    // (/object/sign/memory-photos/<path>?token=...) that the public marker
+    // never matches: 647 of 1025 production photo_url values were
+    // signed-style on August 22, 2026, so roughly two thirds of a deleting
+    // family's photo files stayed in the bucket after their rows were gone.
+    // The memories, yearbook-covers and year-certificates buckets were never
+    // swept at all, and the family photo was removed by guessing three
+    // filenames.
+    //
+    // deleteAllUserStorage asks storage what is actually in <userId>/ in
+    // every user-scoped bucket, which is url-format-proof and also catches
+    // files no row points at any more (replaced family photos, failed
+    // uploads, photos whose memory row was deleted months ago).
+    const storageResults = await deleteAllUserStorage(supabaseAdmin, userId);
+    const leftover = unremovedCount(storageResults);
+    const storageSummary = summarize(storageResults);
+    const storageErrors = storageResults.flatMap((r) => r.errors);
+
+    if (leftover > 0 || storageErrors.length > 0) {
+      // Keep records and login so cleanup can be retried. Some files may
+      // already be gone; never report this partial operation as a success.
+      console.error(
+        `[account/delete] storage sweep left files behind for ${userId}: ${storageSummary}`,
+        storageErrors,
+      );
+      captureSupabaseError(
+        "Account deletion: storage sweep left files behind",
+        storageErrors[0] ?? { message: `${leftover} file(s) not removed` },
+        {
+          tags: { route: "account_delete", phase: "storage_sweep" },
+          extra: {
+            user_id: userId,
+            leftover,
+            summary: storageSummary,
+            errors: storageErrors,
+          },
+        },
+      );
+      return NextResponse.json({
+        error: "Your subscription billing was checked, but we couldn't finish removing your uploaded files. Some files may already have been removed. Your family records and sign-in are still available. Please retry deletion or email hello@rootedhomeschoolapp.com for help.",
+        dataDeleted: false,
+        deletionIncomplete: true,
+      }, { status: 503 });
+    } else {
+      console.log(`[account/delete] storage swept for ${userId}: ${storageSummary}`);
+    }
+
+    // ── 0b. Log the deletion BEFORE removing database records ─────────────
     // deleted_accounts is the permanent forensic trail (service role
     // only). If this insert fails we still proceed with the deletion,
     // but the failure is logged so it can be investigated.
@@ -103,86 +172,51 @@ export async function DELETE(req: NextRequest) {
       }
     }
 
-    // ── 1. Delete family_notifications ──────────────────────────
-    await supabaseAdmin
-      .from("family_notifications")
-      .delete()
-      .eq("user_id", userId);
+    // Storage is verified empty before any family record or login is removed.
+    recordsDeletionStarted = true;
+    const deleteRows = async (table: string, column = "user_id") => {
+      const { error } = await supabaseAdmin.from(table).delete().eq(column, userId);
+      if (error) {
+        captureSupabaseError("Account deletion: record removal failed", error, {
+          tags: { route: "account_delete", phase: "record_delete", table },
+          extra: { user_id: userId },
+        });
+        throw new Error("Family record removal failed");
+      }
+    };
+    await deleteRows("family_notifications");
 
-    // ── 2. Delete every uploaded file, then the memory rows ─────
-    // DO NOT go back to parsing photo_url here.
-    //
-    // This step used to collect paths by matching each memories.photo_url
-    // against one marker, "/object/public/memory-photos/". Storage went
-    // private in April 2026, so most rows now hold SIGNED urls
-    // (/object/sign/memory-photos/<path>?token=...) that the public marker
-    // never matches: 647 of 1025 production photo_url values were
-    // signed-style on August 22, 2026, so roughly two thirds of a deleting
-    // family's photo files stayed in the bucket after their rows were gone.
-    // The memories, yearbook-covers and year-certificates buckets were never
-    // swept at all, and the family photo was removed by guessing three
-    // filenames.
-    //
-    // deleteAllUserStorage asks storage what is actually in <userId>/ in
-    // every user-scoped bucket, which is url-format-proof and also catches
-    // files no row points at any more (replaced family photos, failed
-    // uploads, photos whose memory row was deleted months ago).
-    const storageResults = await deleteAllUserStorage(supabaseAdmin, userId);
-    const leftover = unremovedCount(storageResults);
-    const storageSummary = summarize(storageResults);
-    const storageErrors = storageResults.flatMap((r) => r.errors);
+    // These owner-scoped tables have no auth/profile deletion cascade.
+    // Remove them explicitly rather than leaving private reflections or
+    // identifiable usage records behind after the login has disappeared.
+    await deleteRows("daily_reflections");
+    await deleteRows("child_ui_prefs");
+    await deleteRows("app_events");
 
-    if (leftover > 0 || storageErrors.length > 0) {
-      // Report it, but never fail the request: the user asked to be deleted
-      // and the rest of the wipe still has to run.
-      console.error(
-        `[account/delete] storage sweep left files behind for ${userId}: ${storageSummary}`,
-        storageErrors,
-      );
-      captureSupabaseError(
-        "Account deletion: storage sweep left files behind",
-        storageErrors[0] ?? { message: `${leftover} file(s) not removed` },
-        {
-          tags: { route: "account_delete", phase: "storage_sweep" },
-          extra: {
-            user_id: userId,
-            leftover,
-            summary: storageSummary,
-            errors: storageErrors,
-          },
-        },
-      );
-    } else {
-      console.log(`[account/delete] storage swept for ${userId}: ${storageSummary}`);
-    }
-
-    await supabaseAdmin.from("memories").delete().eq("user_id", userId);
+    await deleteRows("memories");
 
     // ── 3. Delete lessons ───────────────────────────────────────
-    await supabaseAdmin.from("lessons").delete().eq("user_id", userId);
+    await deleteRows("lessons");
 
     // ── 4. Delete curriculum_goals ──────────────────────────────
-    await supabaseAdmin
-      .from("curriculum_goals")
-      .delete()
-      .eq("user_id", userId);
+    await deleteRows("curriculum_goals");
 
     // ── 5. Delete subjects ──────────────────────────────────────
-    await supabaseAdmin.from("subjects").delete().eq("user_id", userId);
+    await deleteRows("subjects");
 
     // ── 6. Delete children ──────────────────────────────────────
-    await supabaseAdmin.from("children").delete().eq("user_id", userId);
+    await deleteRows("children");
 
     // ── 7. Delete email_log ─────────────────────────────────────
-    await supabaseAdmin.from("email_log").delete().eq("user_id", userId);
+    await deleteRows("email_log");
 
     // ── 7b. Delete vacation_blocks ──────────────────────────────
     // THIS IS THE STEP WHOSE ABSENCE BROKE ACCOUNT DELETION.
     //
     // History: vacation_blocks_user_id_fkey used to be ON DELETE
-    // NO ACTION, the single exception among the public tables that
-    // reference auth.users(id) (every other one is ON DELETE CASCADE
-    // and gets swept by step 10). Any user who had ever added one
+    // NO ACTION and prevented auth deletion; many other owner-linked
+    // tables cascade on auth/profile removal. Tables without such a
+    // cascade require explicit cleanup. Any user who had ever added one
     // break therefore hit a foreign-key violation at step 10:
     // supabaseAdmin.auth.admin.deleteUser failed, this route returned
     // 500, and the account was left in the worst possible state: all
@@ -192,7 +226,8 @@ export async function DELETE(req: NextRequest) {
     // 2026 (one vacation block, added May 3). She retried, got the
     // same 500, and signed back in on August 12 to an empty account.
     // 82 accounts held vacation blocks and would have failed the
-    // same way.
+    // same way. Other owner-scoped tables without a cascade are now explicitly
+    // removed above; never assume auth deletion covers every public table.
     //
     // The constraint has since been fixed: verified against the live
     // database on August 18, 2026, vacation_blocks_user_id_fkey is
@@ -202,28 +237,15 @@ export async function DELETE(req: NextRequest) {
     // working even if the constraint is ever recreated without the
     // CASCADE. Do not remove it on the grounds that the FK now
     // handles it.
-    await supabaseAdmin.from("vacation_blocks").delete().eq("user_id", userId);
+    await deleteRows("vacation_blocks");
     // child_absences cascades from auth.users and children too; deleted here
     // for the same belt-and-braces reason as vacation_blocks above.
-    await supabaseAdmin.from("child_absences").delete().eq("user_id", userId);
+    await deleteRows("child_absences");
 
     // ── 8. Delete profile ───────────────────────────────────────
-    await supabaseAdmin.from("profiles").delete().eq("id", userId);
+    await deleteRows("profiles", "id");
 
-    // ── 9. Cancel Stripe subscription ───────────────────────────
-    if (profile?.stripe_customer_id) {
-      try {
-        const subscriptions = await stripeClient().subscriptions.list({
-          customer: profile.stripe_customer_id,
-          status: "active",
-        });
-        for (const sub of subscriptions.data) {
-          await stripeClient().subscriptions.cancel(sub.id);
-        }
-      } catch {
-        // Non-critical — subscription may already be cancelled
-      }
-    }
+    // Stripe subscriptions were canceled and checked before the wipe.
 
     // ── 10. Delete auth user ────────────────────────────────────
     // If this fails, everything above has already committed. The
@@ -262,7 +284,7 @@ export async function DELETE(req: NextRequest) {
             <div style="font-family: Georgia, serif; max-width: 520px; margin: 0 auto; color: #2d2926;">
               <p style="font-size: 16px; line-height: 1.6;">Hi there,</p>
               <p style="font-size: 16px; line-height: 1.6;">
-                Your Rooted account and all associated data (memories, photos, lessons, and children's info) have been permanently deleted.
+                Your Rooted sign-in has been removed, and the account deletion process has completed for your family records and uploaded files. Limited administrative records and backups may be retained as described in our privacy policy.
               </p>
               <p style="font-size: 16px; line-height: 1.6;">
                 Thank you for being part of the Rooted family. If you ever want to come back, we'd love to have you. Just visit
@@ -284,7 +306,13 @@ export async function DELETE(req: NextRequest) {
   } catch (err) {
     console.error("Account deletion error:", err);
     return NextResponse.json(
-      { error: "Something went wrong during account deletion." },
+      {
+        error: recordsDeletionStarted
+          ? "Your account deletion is incomplete. Some family records and uploaded files have been removed, but we couldn't finish. Email hello@rootedhomeschoolapp.com so we can complete it. Please don't press delete again."
+          : "We couldn't finish account deletion. Some uploaded files may already have been removed. Your family records and sign-in have been kept. Please retry or email hello@rootedhomeschoolapp.com for help.",
+        dataDeleted: recordsDeletionStarted,
+        deletionIncomplete: true,
+      },
       { status: 500 }
     );
   }
